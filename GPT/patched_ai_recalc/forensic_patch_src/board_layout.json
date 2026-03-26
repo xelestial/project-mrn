@@ -1,0 +1,284 @@
+{
+  "tiles": [
+    {
+      "index": 0,
+      "kind": "F1",
+      "block_id": -1,
+      "zone_color": null,
+      "economy_profile": null
+    },
+    {
+      "index": 1,
+      "kind": "T2",
+      "block_id": 1,
+      "zone_color": "검은색",
+      "economy_profile": "HIGH"
+    },
+    {
+      "index": 2,
+      "kind": "T2",
+      "block_id": 1,
+      "zone_color": "검은색",
+      "economy_profile": "HIGH"
+    },
+    {
+      "index": 3,
+      "kind": "S",
+      "block_id": -1,
+      "zone_color": null,
+      "economy_profile": null
+    },
+    {
+      "index": 4,
+      "kind": "T2",
+      "block_id": 2,
+      "zone_color": "빨간색",
+      "economy_profile": "LOW"
+    },
+    {
+      "index": 5,
+      "kind": "T3",
+      "block_id": 2,
+      "zone_color": "빨간색",
+      "economy_profile": "MID"
+    },
+    {
+      "index": 6,
+      "kind": "T2",
+      "block_id": 2,
+      "zone_color": "빨간색",
+      "economy_profile": "LOW"
+    },
+    {
+      "index": 7,
+      "kind": "S",
+      "block_id": -1,
+      "zone_color": null,
+      "economy_profile": null
+    },
+    {
+      "index": 8,
+      "kind": "T2",
+      "block_id": 3,
+      "zone_color": "노란색",
+      "economy_profile": "HIGH"
+    },
+    {
+      "index": 9,
+      "kind": "T2",
+      "block_id": 3,
+      "zone_color": "노란색",
+      "economy_profile": "HIGH"
+    },
+    {
+      "index": 10,
+      "kind": "F2",
+      "block_id": -1,
+      "zone_color": null,
+      "economy_profile": null
+    },
+    {
+      "index": 11,
+      "kind": "T2",
+      "block_id": 4,
+      "zone_color": "파란색",
+      "economy_profile": "HIGH"
+    },
+    {
+      "index": 12,
+      "kind": "T2",
+      "block_id": 4,
+      "zone_color": "파란색",
+      "economy_profile": "HIGH"
+    },
+    {
+      "index": 13,
+      "kind": "S",
+      "block_id": -1,
+      "zone_color": null,
+      "economy_profile": null
+    },
+    {
+      "index": 14,
+      "kind": "T2",
+      "block_id": 5,
+      "zone_color": "하얀색",
+      "economy_profile": "LOW"
+    },
+    {
+      "index": 15,
+      "kind": "T3",
+      "block_id": 5,
+      "zone_color": "하얀색",
+      "economy_profile": "MID"
+    },
+    {
+      "index": 16,
+      "kind": "T2",
+      "block_id": 5,
+      "zone_color": "하얀색",
+      "economy_profile": "LOW"
+    },
+    {
+      "index": 17,
+      "kind": "S",
+      "block_id": -1,
+      "zone_color": null,
+      "economy_profile": null
+    },
+    {
+      "index": 18,
+      "kind": "T2",
+      "block_id": 6,
+      "zone_color": "초록색",
+      "economy_profile": "HIGH"
+    },
+    {
+      "index": 19,
+      "kind": "T2",
+      "block_id": 6,
+      "zone_color": "초록색",
+      "economy_profile": "HIGH"
+    },
+    {
+      "index": 20,
+      "kind": "F1",
+      "block_id": -1,
+      "zone_color": null,
+      "economy_profile": null
+    },
+    {
+      "index": 21,
+      "kind": "T2",
+      "block_id": 7,
+      "zone_color": "검은색",
+      "economy_profile": "HIGH"
+    },
+    {
+      "index": 22,
+      "kind": "T2",
+      "block_id": 7,
+      "zone_color": "검은색",
+      "economy_profile": "HIGH"
+    },
+    {
+      "index": 23,
+      "kind": "S",
+      "block_id": -1,
+      "zone_color": null,
+      "economy_profile": null
+    },
+    {
+      "index": 24,
+      "kind": "T2",
+      "block_id": 8,
+      "zone_color": "빨간색",
+      "economy_profile": "LOW"
+    },
+    {
+      "index": 25,
+      "kind": "T3",
+      "block_id": 8,
+      "zone_color": "빨간색",
+      "economy_profile": "MID"
+    },
+    {
+      "index": 26,
+      "kind": "T2",
+      "block_id": 8,
+      "zone_color": "빨간색",
+      "economy_profile": "LOW"
+    },
+    {
+      "index": 27,
+      "kind": "S",
+      "block_id": -1,
+      "zone_color": null,
+      "economy_profile": null
+    },
+    {
+      "index": 28,
+      "kind": "T2",
+      "block_id": 9,
+      "zone_color": "노란색",
+      "economy_profile": "HIGH"
+    },
+    {
+      "index": 29,
+      "kind": "T2",
+      "block_id": 9,
+      "zone_color": "노란색",
+      "economy_profile": "HIGH"
+    },
+    {
+      "index": 30,
+      "kind": "F2",
+      "block_id": -1,
+      "zone_color": null,
+      "economy_profile": null
+    },
+    {
+      "index": 31,
+      "kind": "T2",
+      "block_id": 10,
+      "zone_color": "파란색",
+      "economy_profile": "HIGH"
+    },
+    {
+      "index": 32,
+      "kind": "T2",
+      "block_id": 10,
+      "zone_color": "파란색",
+      "economy_profile": "HIGH"
+    },
+    {
+      "index": 33,
+      "kind": "S",
+      "block_id": -1,
+      "zone_color": null,
+      "economy_profile": null
+    },
+    {
+      "index": 34,
+      "kind": "T2",
+      "block_id": 11,
+      "zone_color": "하얀색",
+      "economy_profile": "LOW"
+    },
+    {
+      "index": 35,
+      "kind": "T3",
+      "block_id": 11,
+      "zone_color": "하얀색",
+      "economy_profile": "MID"
+    },
+    {
+      "index": 36,
+      "kind": "T2",
+      "block_id": 11,
+      "zone_color": "하얀색",
+      "economy_profile": "LOW"
+    },
+    {
+      "index": 37,
+      "kind": "S",
+      "block_id": -1,
+      "zone_color": null,
+      "economy_profile": null
+    },
+    {
+      "index": 38,
+      "kind": "T2",
+      "block_id": 12,
+      "zone_color": "초록색",
+      "economy_profile": "HIGH"
+    },
+    {
+      "index": 39,
+      "kind": "T2",
+      "block_id": 12,
+      "zone_color": "초록색",
+      "economy_profile": "HIGH"
+    }
+  ]
+}
