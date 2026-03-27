@@ -1,0 +1,12 @@
+analysis_output/
+debug_output/
+chunked_batch_output/
+
+games.jsonl
+errors.jsonl
+summary.json
+summary.partial.json
+chunk_manifest.json
+
+chunk_*/
+**/chunk_*/
