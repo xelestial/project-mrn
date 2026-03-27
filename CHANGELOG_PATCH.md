@@ -7,6 +7,9 @@
   CharacterEvaluatorRegistry / PolicyAssetFactory 도입 합의.
   Phase 1(값 외부화)은 즉시 착수 가능, Phase 3~4는 양측 합의 후 진행.
 - Added `COLLAB_SPEC_v0_3.md`: Claude / GPT 공동 개발 원칙 명세 (v0.3).
-  아레나 슬롯 고정, 로그/요약 공통 스펙, canonical policy name, 회귀 수치 기준 등 합의.
-- Updated `MODULE_READ_ORDER.md`: 위 두 문서를 최우선 공통 문서 섹션에 추가.
+  아레나 슬롯 고정, 로그/요약 공통 스펙, canonical policy name, 회귀 수치 기준,
+  엔진 수정 예외 범위(버그 수정 / 룰 정합성 수정 / 로깅·분석 필드 추가) 명시.
+- Added `ARCHITECTURE_IMPL_GUIDE.md`: AGREED SPEC v1.0의 구현 가이드.
+  registry key, TurnContext, PolicyAsset, JSON 파일 경계, 단계별 deliverables 예시를 정리.
+- Updated `MODULE_READ_ORDER.md`: 위 세 문서를 최우선 공통 문서 섹션에 추가.
 ```

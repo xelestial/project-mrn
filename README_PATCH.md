@@ -16,9 +16,10 @@
 
 1. `README.md` (이 문서)
 2. `MODULE_READ_ORDER.md`
-3. `COLLAB_SPEC_v0_3.md`             ← NEW: 공동 개발 원칙
-4. `ARCHITECTURE_REFACTOR_AGREED_SPEC_v1_0.md`  ← NEW: 아키텍처 합의안
-5. `CHANGELOG.md`
-6. `game_rules.md` -> `game_rules.py`
+3. `COLLAB_SPEC_v0_3.md`                         ← NEW: 공동 개발 원칙
+4. `ARCHITECTURE_REFACTOR_AGREED_SPEC_v1_0.md`  ← NEW: 최종 아키텍처 합의안
+5. `ARCHITECTURE_IMPL_GUIDE.md`                 ← NEW: 구현 가이드
+6. `CHANGELOG.md`
+7. `game_rules.md` -> `game_rules.py`
 ...이하 기존 순서 유지
 ```

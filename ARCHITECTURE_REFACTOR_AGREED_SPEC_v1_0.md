@@ -477,12 +477,12 @@ class PolicyFactory:
 다음은 바로 분리/도입한다.
 
 ### Deliverables
-- `profiles/spec.py`
-- `profiles/registry.py`
-- `profiles/presets.py`
-- `registry/strategy_registry.py`
-- `profile_weights.json`
-- `character_values.json`
+- `policy/profile/spec.py`
+- `policy/profile/registry.py`
+- `policy/profile/presets.py`
+- `policy/registry/strategy_registry.py`
+- `profiles/policy_weights_*.json`
+- `profiles/character_values_*.json`
 
 ### 목표
 - weights / base values / thresholds 외부화
@@ -493,10 +493,10 @@ class PolicyFactory:
 
 ## Phase 2: 공동 작업 안정화
 ### Deliverables
-- `survival/strategy.py`
-- `survival/orchestrator.py`
-- `context/turn_context.py`
-- `context/builder.py`
+- `policy/survival/strategy.py`
+- `policy/survival/orchestrator.py`
+- `policy/context/turn_context.py`
+- `policy/context/builder.py`
 
 ### 목표
 - survival 독립 축화
@@ -507,9 +507,9 @@ class PolicyFactory:
 
 ## Phase 3: 게임 해석 모듈화
 ### Deliverables
-- `character_eval/registry.py`
-- pair별 evaluator 파일들
-- `decision/` 하위 모듈
+- `policy/character_eval/registry.py`
+- pair별 evaluator 파일들 (`policy/character_eval/*.py`)
+- `policy/decision/` 하위 모듈
 
 ### 목표
 - 캐릭터 복합 해석 분리
@@ -520,9 +520,9 @@ class PolicyFactory:
 
 ## Phase 4: ScriptableObject-like 운영
 ### Deliverables
-- `asset/policy_asset.py`
-- `asset/factory.py`
-- asset 기반 실험 조합 파일들
+- `policy/asset/policy_asset.py`
+- `policy/asset/factory.py`
+- `policy_profiles/*.json` 또는 `policy_assets/*.json`
 
 ### 목표
 - 조합 실험 외부화
