@@ -6,6 +6,8 @@ import pytest
 
 from multi_agent.agent_loader import make_agent
 from multi_agent.dispatcher import MultiAgentDispatcher
+from multi_agent.claude_agent import _CLAUDE_RUNTIME
+from multi_agent.gpt_agent import _GPT_RUNTIME
 
 
 # ── 1. agent_loader ────────────────────────────────────────────────────────
@@ -36,6 +38,25 @@ class TestAgentLoader:
     def test_unknown_source_raises(self):
         with pytest.raises(ValueError, match="Unknown agent source"):
             make_agent("gemini:v1")
+
+    def test_runtime_loader_keeps_host_survival_common(self):
+        """GPT agent 로드 후에도 host(CLAUDE)의 survival_common이 유지되어야 한다."""
+        import survival_common as host_sc
+        assert not hasattr(host_sc, "CleanupStrategyContext"), \
+            "CLAUDE survival_common은 CleanupStrategyContext를 갖지 않아야 한다"
+
+        make_agent("gpt:v3_gpt")
+
+        import survival_common as host_sc_after
+        assert host_sc_after is host_sc
+        assert not hasattr(host_sc_after, "CleanupStrategyContext"), \
+            "GPT agent 로드 후 host survival_common이 GPT 버전으로 오염되었다"
+
+    def test_runtime_modules_are_isolated(self):
+        """CLAUDE와 GPT policy 클래스가 서로 다른 격리 네임스페이스에서 로드되어야 한다."""
+        assert _CLAUDE_RUNTIME.alias_modules["ai_policy"] != _GPT_RUNTIME.alias_modules["ai_policy"]
+        assert _CLAUDE_RUNTIME.heuristic_policy_cls.__module__.startswith("_isolated_claude_")
+        assert _GPT_RUNTIME.heuristic_policy_cls.__module__.startswith("_isolated_gpt_")
 
 
 # ── 2. MultiAgentDispatcher 구성 ──────────────────────────────────────────

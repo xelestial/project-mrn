@@ -1,25 +1,32 @@
 from __future__ import annotations
 """ClaudePlayerAgent — wraps CLAUDE HeuristicPolicy as an AbstractPlayerAgent."""
 
-import sys
 import os
-from typing import Any, Optional
+from typing import Any
 
 from .base_agent import AbstractPlayerAgent
+from .runtime_loader import load_policy_runtime
 
-# CLAUDE 디렉토리가 path에 없을 경우 대비
 _CLAUDE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _CLAUDE_DIR not in sys.path:
-    sys.path.insert(0, _CLAUDE_DIR)
-
-from ai_policy import HeuristicPolicy
+_CLAUDE_RUNTIME_MODULES = (
+    "survival_common",
+    "policy_groups",
+    "policy_mark_utils",
+    "policy_hooks",
+    "ai_policy",
+)
+_CLAUDE_RUNTIME = load_policy_runtime(
+    runtime_id="claude",
+    root_dir=_CLAUDE_DIR,
+    isolated_modules=_CLAUDE_RUNTIME_MODULES,
+)
 
 
 class ClaudePlayerAgent(AbstractPlayerAgent):
     """Claude HeuristicPolicy를 AbstractPlayerAgent로 래핑."""
 
     def __init__(self, profile: str = "heuristic_v2_v3_claude"):
-        self._policy = HeuristicPolicy(
+        self._policy = _CLAUDE_RUNTIME.heuristic_policy_cls(
             character_policy_mode=profile,
             lap_policy_mode=profile,
         )
