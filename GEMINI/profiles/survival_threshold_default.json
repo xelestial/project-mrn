@@ -1,7 +1,0 @@
-{
-    "two_turn_lethal_reserve_multiplier": 1.50,
-    "money_distress_reserve_multiplier": 0.60,
-    "survival_urgency_reserve_multiplier": 0.35,
-    "latent_cleanup_cost_reserve_multiplier": 0.25,
-    "active_cleanup_cost_floor_enabled": true
-}
