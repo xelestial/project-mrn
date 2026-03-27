@@ -1,0 +1,31 @@
+{
+    "actor_names": ["자객", "산적", "추노꾼", "박수", "만신", "어사"],
+    "base_risk": {
+        "자객": 2.6,
+        "산적": 2.0,
+        "추노꾼": 1.8,
+        "박수": 1.2,
+        "만신": 1.0
+    },
+    "priority_same_factor": 0.35,
+    "guess_temperature": 1.8,
+    "guess_uniform_mix_base": 0.30,
+    "guess_uniform_mix_ambiguity": 0.45,
+    "guess_uniform_mix_extra_candidate": 0.04,
+    "guess_confidence_thresholds": {
+        "balanced": 0.42,
+        "control": 0.44,
+        "growth": 0.40,
+        "avoid_control": 0.48,
+        "aggressive": 0.34,
+        "token_opt": 0.46
+    },
+    "guess_margin_thresholds": {
+        "balanced": 0.08,
+        "control": 0.09,
+        "growth": 0.08,
+        "avoid_control": 0.10,
+        "aggressive": 0.05,
+        "token_opt": 0.09
+    }
+}
