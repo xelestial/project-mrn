@@ -312,3 +312,7 @@ Current release aligned the simulator with the latest validated rules and added 
 
 - fix: 탐관오리 공납은 대상 조각이 아니라 탐관오리 자신의 조각(//2)을 기준으로 적용하도록 수정했다.
 - fix: 어사/탐관오리는 같은 카드이므로 탐관오리 패시브의 불필요한 어사 차단 체크를 제거했다.
+
+- v7.61 v3 GPT winpush2: intended to make GPT recognize Ajeon burst windows on stacked enemy pawns and Gakju lap-engine windows near board end with mobility support.
+
+- Winpush3 intent: after core shard checkpoints, v3_gpt should convert more aggressively into safe growth/coin scoring; favor lap-engine windows for 객주 and allow low-risk T2/T3 buys instead of over-hoarding shards.

@@ -170,6 +170,11 @@ class BasePolicy:
         leader_near_end = bool(denial_snapshot["near_end"])
         top_threat_cross = self._will_cross_start(state, top_threat) if top_threat else 0.0
         top_threat_land_f = self._will_land_on_f(state, top_threat) if top_threat else 0.0
+        stack_ctx = self._enemy_stack_metrics(state, player)
+        lap_ctx = self._lap_engine_context(state, player)
+        mobility_leverage = self._mobility_leverage_score(player)
+        reserve_gap = max(0.0, float(liquidity["reserve"]) - float(player.cash))
+        money_distress = max(0.0, reserve_gap * 0.55 + max(0.0, cleanup_pressure - 1.0) * 0.30)
         profile = self._profile_from_mode()
 
         if character_name == "중매꾼":
@@ -178,6 +183,10 @@ class BasePolicy:
             if profile == "v3_gpt" and cleanup_pressure < 1.6 and liquidity["cash_after_reserve"] >= 0.0:
                 expansion += 0.95 + 0.20 * land_race["near_unowned"]
                 reasons.append("v3_safe_expansion_window")
+            if profile == "v3_gpt" and cleanup_pressure < 1.25 and liquidity["cash_after_reserve"] >= 1.0:
+                expansion += 0.70 + 0.18 * max(0.0, buy_value)
+                combo += 0.20 * adjacent_value
+                reasons.append("v3_safe_growth_convert")
             if leader_pressure > 0 and top_threat and ("expansion" in top_tags or top_threat.tiles_owned >= 5):
                 disruption += 1.0 + 0.35 * leader_pressure + 0.35 * max(0.0, buy_value) + 0.20 * adjacent_value
                 reasons.append("deny_leader_expansion")
@@ -193,6 +202,9 @@ class BasePolicy:
             if profile == "v3_gpt" and cleanup_pressure < 1.6 and liquidity["cash_after_reserve"] >= 0.0:
                 expansion += 0.90 + 0.18 * land_race["near_unowned"]
                 reasons.append("v3_safe_expansion_window")
+            if profile == "v3_gpt" and cleanup_pressure < 1.25 and liquidity["cash_after_reserve"] >= 1.0:
+                expansion += 0.72 + 0.22 * build_value
+                reasons.append("v3_safe_growth_convert")
             if leader_pressure > 0 and top_threat and ("expansion" in top_tags or top_threat.tiles_owned >= 5):
                 disruption += 1.0 + 0.35 * leader_pressure + 0.30 * max(0.0, buy_value)
                 reasons.append("deny_leader_expansion")
@@ -255,6 +267,12 @@ class BasePolicy:
                 disruption += 1.1
         if character_name == "객주":
             economy += 2.0 * cross_start + 1.2 * land_f * land_f_value + 0.25 * len(player.visited_owned_tile_indices)
+            economy += 0.65 * float(lap_ctx["fast_window"]) + 0.45 * float(lap_ctx["rich_pool"])
+            combo += 0.40 * float(lap_ctx["double_lap_threat"])
+            if profile == "v3_gpt" and cleanup_pressure < 1.4 and liquidity["cash_after_reserve"] >= 0.5:
+                economy += 0.85 + 0.35 * float(lap_ctx["fast_window"]) + 0.30 * float(lap_ctx["rich_pool"])
+                combo += 0.20 * float(lap_ctx["double_lap_threat"])
+                reasons.append("v3_lap_engine_convert_window")
             if leader_pressure > 0 and top_threat and (top_threat_cross > 0.3 or top_threat_land_f > 0.2 or "geo" in top_tags):
                 disruption += 1.0 + 0.3 * leader_pressure
                 reasons.append("deny_leader_lap_engine")
@@ -280,6 +298,10 @@ class BasePolicy:
             if "성물 수집가" in combo_names:
                 combo += 1.3
                 reasons.append("shard_combo")
+        if character_name == "아전":
+            disruption += 0.35 * float(stack_ctx["max_enemy_stack"]) + 0.70 * float(stack_ctx["max_enemy_owned_stack"]) + 0.18 * mobility_leverage
+            if stack_ctx["max_enemy_owned_stack"] > 0:
+                reasons.append("stacked_enemy_burst_window")
         if character_name == "자객":
             if has_marks and top_threat and ("expansion" in top_tags or "geo" in top_tags or "combo_ready" in top_tags or top_threat.tiles_owned >= 5):
                 disruption += 2.4 + 0.45 * leader_pressure
@@ -449,9 +471,23 @@ class BasePolicy:
                 if player.shards >= 5:
                     combo += 0.95
                     reasons.append("v3_baksu_checkpoint")
+                elif player.shards >= 4 and burden_count > 0:
+                    combo += 1.25
+                    survival += 1.10
+                    economy += 0.35
+                    reasons.append("v3_baksu_precheckpoint")
                 else:
                     economy += 0.10 * max(0, 5 - player.shards)
                     survival += 0.08 * max(0, 5 - player.shards)
+            if character_name == "아전":
+                combo += 0.30 * float(stack_ctx["max_enemy_stack"]) + 0.55 * float(stack_ctx["max_enemy_owned_stack"]) + 0.12 * mobility_leverage
+                if stack_ctx["max_enemy_owned_stack"] > 0:
+                    reasons.append("v3_ajeon_burst_window")
+            if character_name == "객주":
+                economy += 0.55 * float(lap_ctx["fast_window"]) + 0.45 * float(lap_ctx["rich_pool"])
+                combo += 0.28 * float(lap_ctx["double_lap_threat"]) + 0.10 * mobility_leverage
+                if lap_ctx["fast_window"] > 0.0 or lap_ctx["double_lap_threat"] > 0.0:
+                    reasons.append("v3_gakju_lap_engine")
             if character_name == "만신":
                 if player.shards >= 7:
                     combo += 0.85
@@ -598,6 +634,12 @@ class BasePolicy:
                     score += 0.45
                 if card.name in {"건강 검진", "우대권", "뇌절왕"} and sum(1 for c in player.trick_hand if c.is_burden) > 0:
                     score += 0.60
+                if player.current_character == "아전" and card.name in {"과속", "이럇!", "도움 닫기", "극심한 분리불안", "가벼운 분리불안"}:
+                    stack_ctx = self._enemy_stack_metrics(state, player)
+                    score += 0.55 * float(stack_ctx["max_enemy_stack"]) + 0.85 * float(stack_ctx["max_enemy_owned_stack"])
+                if player.current_character == "객주" and card.name in {"과속", "이럇!", "도움 닫기", "극심한 분리불안", "가벼운 분리불안"}:
+                    lap_ctx = self._lap_engine_context(state, player)
+                    score += 0.95 * float(lap_ctx["fast_window"]) + 0.70 * float(lap_ctx["rich_pool"]) + 0.55 * float(lap_ctx["double_lap_threat"])
             if card.name == "무료 증정" and player.cash >= 3:
                 score += 0.6
             if card.name == "과속" and player.cash >= 2:
@@ -916,7 +958,7 @@ class HeuristicPolicy(BasePolicy):
         "avoid_control": {"expansion": 1.0, "economy": 1.4, "disruption": 0.7, "meta": 1.0, "combo": 1.0, "survival": 1.8},
         "aggressive": {"expansion": 2.0, "economy": 1.0, "disruption": 1.3, "meta": 0.8, "combo": 1.5, "survival": 0.6},
         "token_opt": {"expansion": 1.5, "economy": 1.4, "disruption": 1.0, "meta": 1.0, "combo": 1.9, "survival": 0.9},
-        "v3_gpt": {"expansion": 1.55, "economy": 1.50, "disruption": 1.18, "meta": 1.18, "combo": 2.05, "survival": 1.45},
+        "v3_gpt": {"expansion": 1.68, "economy": 1.55, "disruption": 1.28, "meta": 1.18, "combo": 2.15, "survival": 1.18},
     }
 
     def __init__(self, character_policy_mode: str = "heuristic_v1", lap_policy_mode: str = "heuristic_v1", rng=None, player_lap_policy_modes: Optional[dict[int, str]] = None):
@@ -1045,6 +1087,65 @@ class HeuristicPolicy(BasePolicy):
         for a,b in combinations(remaining,2):
             moves.add(a+b)
         return sorted(moves)
+
+    def _mobility_trick_names(self, player: PlayerState) -> set[str]:
+        return {card.name for card in player.trick_hand if card.name in {"과속", "이럇!", "도움 닫기", "극심한 분리불안", "가벼운 분리불안", "저속"}}
+
+    def _mobility_leverage_score(self, player: PlayerState) -> float:
+        names = self._mobility_trick_names(player)
+        score = 0.0
+        if "과속" in names:
+            score += 1.0
+        if "이럇!" in names:
+            score += 0.9
+        if "도움 닫기" in names:
+            score += 1.0
+        if "극심한 분리불안" in names:
+            score += 1.25
+        if "가벼운 분리불안" in names:
+            score += 0.6
+        if "저속" in names:
+            score += 0.2
+        score += 0.35 * len(self._remaining_cards(player))
+        return float(score)
+
+    def _enemy_stack_metrics(self, state: GameState, player: PlayerState) -> dict[str, float]:
+        counts: dict[int, int] = {}
+        owner_stack = 0
+        enemy_stack = 0
+        enemy_owned_stack = 0
+        for pos in range(len(state.board)):
+            occupants = [p for p in state.players if p.alive and p.player_id != player.player_id and p.position == pos]
+            if len(occupants) >= 2:
+                counts[pos] = len(occupants)
+                owner = state.tile_owner[pos]
+                if owner is not None and owner != player.player_id:
+                    enemy_owned_stack = max(enemy_owned_stack, len(occupants))
+                enemy_stack = max(enemy_stack, len(occupants))
+        return {
+            "stacked_enemy_count": float(sum(v for v in counts.values() if v >= 2)),
+            "max_enemy_stack": float(enemy_stack),
+            "max_enemy_owned_stack": float(enemy_owned_stack),
+        }
+
+    def _lap_engine_context(self, state: GameState, player: PlayerState) -> dict[str, float]:
+        board_len = max(1, len(state.board))
+        to_lap = float((board_len - player.position) % board_len)
+        if to_lap <= 0:
+            to_lap = float(board_len)
+        mobility = self._mobility_leverage_score(player)
+        pool_total = float(getattr(state, 'lap_reward_cash_pool_remaining', 0) + getattr(state, 'lap_reward_shards_pool_remaining', 0) + getattr(state, 'lap_reward_coins_pool_remaining', 0))
+        rich_pool = 1.0 if pool_total >= 6.0 else 0.0
+        fast_window = max(0.0, (7.0 - to_lap) / 7.0)
+        double_lap_threat = max(0.0, mobility - max(0.0, to_lap - 3.0))
+        return {
+            "to_lap": float(to_lap),
+            "mobility": float(mobility),
+            "rich_pool": float(rich_pool),
+            "fast_window": float(fast_window),
+            "double_lap_threat": float(double_lap_threat),
+            "pool_total": float(pool_total),
+        }
 
     def _action_survival_guard_context(self, state: GameState, player: PlayerState, survival_ctx: dict[str, float] | None = None) -> dict[str, float]:
         survival_ctx = survival_ctx or self._generic_survival_context(state, player, player.current_character)
@@ -2872,6 +2973,8 @@ class HeuristicPolicy(BasePolicy):
         own_burden_cost = float(survival_ctx.get("own_burden_cost", 0.0))
         if character_name == "박수" and own_burden_cost > 0.0:
             bonus = 1.20 + 0.35 * own_burden_cost + 0.55 * min(3.0, burden_cleanup_gap) + 0.30 * float(survival_ctx.get("public_cleanup_active", 0.0))
+            if player.shards >= 4:
+                bonus += 1.60
             removed, payout = self._failed_mark_fallback_metrics(player, 5)
             if removed > 0:
                 bonus += 0.55 * removed + 0.12 * payout
@@ -3205,6 +3308,9 @@ class HeuristicPolicy(BasePolicy):
         contested_blocks = monopoly["contested_blocks"]
         enemy_tiles = sum(p.tiles_owned for p in self._alive_enemies(state, player))
         own_tile_income = self._expected_own_tile_income(state, player)
+        stack_ctx = self._enemy_stack_metrics(state, player)
+        mobility_leverage = self._mobility_leverage_score(player)
+        lap_ctx = self._lap_engine_context(state, player)
         near_unowned = 0
         board_len = len(state.board)
         for step in range(2, 8):
@@ -3264,9 +3370,19 @@ class HeuristicPolicy(BasePolicy):
         if player.shards >= 4 and character_name in {"산적", "아전"}:
             score += 1.0
             reasons.append("shard_synergy")
+        if character_name == "아전":
+            ajeon_burst = 0.55 * stack_ctx["max_enemy_stack"] + 0.85 * stack_ctx["max_enemy_owned_stack"] + 0.40 * mobility_leverage
+            if ajeon_burst > 0.0:
+                score += ajeon_burst
+                reasons.append("stacked_enemy_burst_window")
         if own_tile_income >= 2 and character_name == "객주":
             score += 1.2
             reasons.append("own_tile_coin_engine")
+        if character_name == "객주":
+            lap_burst = 1.15 * lap_ctx["fast_window"] + 0.75 * lap_ctx["mobility"] + 1.25 * lap_ctx["rich_pool"] + 0.55 * lap_ctx["double_lap_threat"]
+            if lap_burst > 0.0:
+                score += lap_burst
+                reasons.append("lap_engine_window")
         if character_name == "박수" and own_burden >= 1:
             removed, payout = self._failed_mark_fallback_metrics(player, 5)
             score += 1.7 + 1.20 * own_burden + 0.55 * cleanup_pressure + 0.45 * removed + 0.10 * payout
@@ -3655,8 +3771,10 @@ class HeuristicPolicy(BasePolicy):
                 shard_checkpoint_need = min(max(0, 5 - player.shards), 2) + 0.8 * min(max(0, 7 - player.shards), 2)
                 distress_level = max(0.0, 10.0 - player.cash) / 4.0 + 0.75 * max(0.0, cleanup_pressure - 1.5) + 1.20 * max(0.0, negative_risk - 0.15)
                 cash_score += 0.52 * max(0.0, 12.0 - player.cash) + 0.28 * float(survival_ctx.get("expected_cleanup_cost", 0.0)) + 0.16 * distress_level
-                shard_score += 0.95 + 0.45 * shard_checkpoint_need + max(0.0, 0.20 * land_f * float(f_ctx["land_f_value"]))
-                coin_score += 1.20 + 1.35 * own_land + 0.78 * token_window["window_score"]
+                shard_score += 0.68 + 0.38 * shard_checkpoint_need + max(0.0, 0.16 * land_f * float(f_ctx["land_f_value"]))
+                if player.current_character not in {"박수", "만신", "산적", "탐관오리", "아전"} and player.shards >= 5:
+                    shard_score -= 0.65 + 0.12 * max(0, player.shards - 5)
+                coin_score += 1.55 + 1.55 * own_land + 0.95 * token_window["window_score"]
                 if token_window["nearest_distance"] <= 4.0:
                     coin_score += 0.62
                 if token_window["revisit_prob"] >= 0.25:
@@ -3668,9 +3786,17 @@ class HeuristicPolicy(BasePolicy):
                     shard_score += 0.28 * shard_checkpoint_need
                     coin_score -= 0.45 + 0.10 * cleanup_pressure
                 elif placeable or own_land >= 0.12 or token_window["window_score"] >= 0.80:
-                    coin_score += 2.10 + 0.55 * token_window["window_score"] + 0.35 * own_land
+                    cash_score -= 0.40
+                    coin_score += 2.75 + 0.82 * token_window["window_score"] + 0.62 * own_land
                     if player.current_character not in {"박수", "만신"} or (player.current_character == "박수" and player.shards >= 5) or (player.current_character == "만신" and player.shards >= 7):
                         preferred_override = "coins"
+                if cleanup_pressure < 1.20 and negative_risk < 0.12 and player.cash >= max(7, int(float(survival_ctx.get("reserve", 0.0)) + 1.0)):
+                    cash_score -= 0.55
+                    if placeable:
+                        coin_score += 1.55 + 0.30 * token_window["window_score"]
+                        preferred_override = preferred_override or "coins"
+                    elif buy_value >= 1.0:
+                        coin_score += 0.70
                 if player.current_character == "박수":
                     if player.shards < 5:
                         shard_score += 3.10 + 0.35 * max(0, 5 - player.shards)
@@ -3690,8 +3816,11 @@ class HeuristicPolicy(BasePolicy):
                 if player.shards >= 7 and token_window["window_score"] >= 1.10 and player.hand_coins > 0 and not survival_cash_pressure and negative_risk < 0.22:
                     coin_score += 0.85
                 if current_char in {"객주", "파발꾼"} and cross_start > 0.25:
-                    cash_score += 0.45
-                    coin_score += 0.15
+                    cash_score += 0.35
+                    coin_score += 0.35
+                if current_char == "객주" and cross_start > 0.28 and float(self._lap_engine_context(state, player)["rich_pool"]) > 0.0 and not survival_cash_pressure:
+                    coin_score += 0.75
+                    cash_score += 0.25
             cash_unit = cash_score / max(1.0, float(state.config.coins.lap_reward_cash))
             shard_unit = shard_score / max(1.0, float(state.config.shards.lap_reward_shards))
             coin_unit = coin_score / max(1.0, float(state.config.coins.lap_reward_coins))
@@ -3796,25 +3925,28 @@ class HeuristicPolicy(BasePolicy):
                 benefit += 0.35
             if profile == "token_opt" and state.tile_owner[pos] is None:
                 benefit += 0.25
+            money_distress = float(survival_ctx.get("money_distress", 0.0))
+            cleanup_pressure = float(survival_ctx.get("cleanup_pressure", 0.0))
             if profile == "v3_gpt":
                 baksu_online = player.current_character == "박수" and player.shards >= 5
                 safe_low_cost_t3 = cell == CellKind.T3 and cost <= 3 and remaining_cash >= reserve + 1.0
                 if own_burdens := float(survival_ctx.get("own_burdens", 0.0)):
                     benefit -= 0.16 * own_burdens
                 token_window_value = self._best_token_window_value(state, player)
-                if token_window_value >= max(2.40 if safe_low_cost_t3 else 2.00, 1.20 * benefit) and not complete_monopoly and not blocks_enemy and not safe_low_cost_t3:
+                safe_growth_buy = cell in {CellKind.T2, CellKind.T3} and cost <= 4 and remaining_cash >= reserve + 1.0 and cleanup_pressure < 1.40 and money_distress < 1.0
+                if token_window_value >= max(3.35 if safe_low_cost_t3 else 2.85, 1.45 * benefit) and not complete_monopoly and not blocks_enemy and not safe_low_cost_t3 and not safe_growth_buy:
                     self._set_debug("buy", player.player_id, {"tile": pos, "decision": False, "reason": "v3_prefers_token_window", "benefit": round(benefit, 3), "token_window": round(token_window_value, 3)})
                     return False
                 if safe_low_cost_t3:
                     benefit += 1.45
                 elif cell == CellKind.T3 and remaining_cash >= reserve + 1.0:
                     benefit += 0.65
+                if safe_growth_buy:
+                    benefit += 1.10 + (0.45 if cell == CellKind.T3 else 0.28)
                 if baksu_online and float(survival_ctx.get("cleanup_pressure", 0.0)) >= 1.0:
                     benefit += 0.85
                 if player.current_character in {"중매꾼", "건설업자", "사기꾼"} and token_window_value >= 1.0:
                     benefit += 0.18
-            money_distress = float(survival_ctx.get("money_distress", 0.0))
-            cleanup_pressure = float(survival_ctx.get("cleanup_pressure", 0.0))
             reserve_floor = reserve + 1.35 * float(survival_ctx.get("two_turn_lethal_prob", 0.0)) + 0.85 * money_distress
             reserve_floor += 0.60 * float(survival_ctx.get("latent_cleanup_cost", 0.0))
             reserve_floor += 0.55 * float(survival_ctx.get("expected_cleanup_cost", 0.0))
@@ -3862,11 +3994,11 @@ class HeuristicPolicy(BasePolicy):
                 and not blocks_enemy
                 and not (player.current_character == "박수" and player.shards >= 5 and cell == CellKind.T3 and cost <= 3 and remaining_cash >= max(reserve - 1.0, 0.0))
                 and (
-                    cleanup_pressure >= 1.8
-                    or money_distress >= 1.0
-                    or float(survival_ctx.get("two_turn_lethal_prob", 0.0)) >= 0.18
+                    cleanup_pressure >= 2.0
+                    or money_distress >= 1.15
+                    or float(survival_ctx.get("two_turn_lethal_prob", 0.0)) >= 0.22
                 )
-                and remaining_cash < reserve_floor + 1.0
+                and remaining_cash < reserve_floor + 0.6
             )
             decision = not (
                 shortfall > benefit

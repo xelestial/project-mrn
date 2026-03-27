@@ -50,3 +50,32 @@ def test_v3_gpt_allows_safe_low_cost_t3_for_online_baksu():
     state.tile_owner[pos] = None
     policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt")
     assert policy.choose_purchase_tile(state, player, pos, CellKind.T3, 2, source="landing") is True
+
+
+def test_v3_gpt_prefers_coins_after_generic_shard_threshold():
+    state = _make_state()
+    player = state.players[0]
+    player.current_character = "객주"
+    player.cash = 14
+    player.shards = 6
+    player.hand_coins = 0
+    player.visited_owned_tile_indices = [6]
+    state.tile_owner[6] = player.player_id
+    state.board[6] = CellKind.T3
+    policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt", lap_policy_mode="heuristic_v3_gpt")
+    decision = policy.choose_lap_reward(state, player)
+    assert decision.choice == "coins"
+
+
+def test_v3_gpt_allows_safe_growth_t2_buy_when_not_under_pressure():
+    state = _make_state()
+    player = state.players[0]
+    player.current_character = "객주"
+    player.cash = 15
+    player.shards = 5
+    player.position = 0
+    pos = 4
+    state.board[pos] = CellKind.T2
+    state.tile_owner[pos] = None
+    policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt")
+    assert policy.choose_purchase_tile(state, player, pos, CellKind.T2, 2, source="landing") is True

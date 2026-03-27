@@ -120,3 +120,7 @@ AI evaluations now reference injected rule values for rent/malicious costs and d
 - v3_gpt now biases further toward safe expansion windows and coin conversion when placeable own-tile token windows are open.
 
 - v3_gpt now inherits token-engine-heavy finishing priorities in safe states, with earlier coin conversion and a weaker token-window veto.
+
+- heuristic_v3_gpt memo: intended to value 아전 burst timing when enemy pawns stack on enemy-owned tiles and intended to value 객주 lap-engine timing near board end when mobility tricks/dice can chain lap rewards.
+
+- Winpush3 intent: after core shard checkpoints, v3_gpt should convert more aggressively into safe growth/coin scoring; favor lap-engine windows for 객주 and allow low-risk T2/T3 buys instead of over-hoarding shards.
