@@ -87,6 +87,13 @@ AI evaluations now reference injected rule values for rent/malicious costs and d
 - 목적은 생존 관련 규칙을 한 곳에서 관리하고, 구매/사기/이동/잔꾀 판단이 같은 원칙을 공유하도록 만드는 것이다.
 
 
+## choose_burden_exchange_on_supply 수정 (2026-03-27)
+
+`HeuristicPolicy.choose_burden_exchange_on_supply`의 "단일 짐 무조건 청산" 로직이 생존 위기를 무시하는 버그 수정.
+- `money_distress >= 0.4` + `post_cash < safety_floor` 조건이면 보류 (BasePolicy 원칙 재통합)
+- safety_floor = `reserve + other_burden_total + lethal_pressure + distress_pressure`
+- 기존 극빈 상황(다른 짐도 못 낼 때) 로직은 하위에 유지
+
 ## Phase 1 리팩토링 (2026-03-27)
 
 `PROFILE_WEIGHTS`와 `character_values` 클래스 변수가 `policy/profile/` 레지스트리로 위임됐다.

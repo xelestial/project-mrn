@@ -3243,15 +3243,20 @@ class HeuristicPolicy(BasePolicy):
             float(c.burden_cost) for c in player.trick_hand
             if c.is_burden and c.deck_index != card.deck_index
         )
-        # 청산 후 다른 짐 비용까지 낼 수 있거나, 아예 짐이 이것 하나뿐이면 → 무조건 청산
-        if remaining_cash >= other_burden_total:
-            return True
-        # 청산 후 다른 짐도 못 내는 극빈 상황: 그래도 지금 청산하는 게 낫다.
-        # (보류하면 다음 청산 이벤트 때 이 카드 + 나머지 카드 전부 한꺼번에 터짐)
-        # → 현금 >= 이 카드 비용 + 최소 생존선(3냥)이면 청산
         survival_ctx = self._generic_survival_context(state, player, player.current_character)
-        min_floor = 3.0 + float(survival_ctx.get("two_turn_lethal_prob", 0.0)) * 4.0
-        return remaining_cash >= min_floor
+        reserve = float(survival_ctx.get("reserve", 0.0))
+        money_distress = float(survival_ctx.get("money_distress", 0.0))
+        two_turn_lethal = float(survival_ctx.get("two_turn_lethal_prob", 0.0))
+        safety_floor = reserve + other_burden_total + max(0.0, 3.0 * two_turn_lethal) + max(0.0, 2.0 * money_distress)
+        # 청산 후 생존선 미달 + 자금 압박이 심하면 보류 (복리 리스크보다 즉사 리스크 우선)
+        if remaining_cash < safety_floor and money_distress >= 0.4:
+            return False
+        # 청산 후 다른 짐도 못 내는 극빈 상황: 최소 생존선(3냥) 이상이면 그래도 청산
+        # (보류하면 다음 청산 이벤트 때 더 비싸게 터짐)
+        if remaining_cash < other_burden_total:
+            min_floor = 3.0 + two_turn_lethal * 4.0
+            return remaining_cash >= min_floor
+        return True
 
     def choose_hidden_trick_card(self, state: GameState, player: PlayerState, hand: list[TrickCard]) -> TrickCard | None:
         return None
