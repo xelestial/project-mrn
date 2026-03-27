@@ -1,11 +1,19 @@
-analysis_output/
-debug_output/
-chunked_batch_output/
+# python cache
+__pycache__/
+.pytest_cache/
 
+# simulator / analysis outputs
+ai_recalc_run*/
+analysis_output/
+analysis_pipeline/
+perf_out*/
+
+# generic runtime artifacts
 games.jsonl
 errors.jsonl
 summary.json
 summary.partial.json
 chunk_manifest.json
 
+# chunk batch folders
 chunk_*/
