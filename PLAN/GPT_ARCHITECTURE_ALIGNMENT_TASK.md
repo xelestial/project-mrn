@@ -51,3 +51,11 @@ Refactor the current GPT-side architecture toward the common declaration defined
 - If a Claude-side plan appears in `PLAN/`, reconcile naming, phase order, and module ownership before diverging further
 - When Claude-side ideas are better, adopt them as long as they preserve the shared injection contract and engine compatibility
 - Record meaningful progress in `PLAN/` when the work direction changes
+
+## Current Execution Focus
+- Use `PLAN/CLAUDE_ARCHITECTURE_REFACTOR_PLAN.md` as the naming and phase reference when adding new GPT-side policy seams
+- Prefer shared context-style extraction before large policy rewrites so Claude and GPT can consume similar `survival/context` inputs while keeping different heuristics
+- Current tactical refactor target:
+  - introduce a cleanup-aware common policy context from visible burdens, cash, shard checkpoints, and finite-deck cleanup pressure
+  - reuse that context across character evaluation, lap reward choice, and controller-driven leader denial
+  - keep engine behavior unchanged and restrict implementation changes to `GPT/`

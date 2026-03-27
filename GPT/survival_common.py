@@ -36,6 +36,21 @@ class ActionGuardContext:
 
 
 @dataclass(frozen=True, slots=True)
+class CleanupStrategyContext:
+    burden_count: float
+    shard_tier: str
+    shard_buffer_cash: float
+    cleanup_stage: str
+    stage_score: float
+    deck_pressure: float
+    cash_pressure: float
+    controller_bias: float
+    lap_cash_preference: float
+    lap_shard_preference: float
+    growth_locked: bool
+
+
+@dataclass(frozen=True, slots=True)
 class SwindleGuardDecision:
     allowed: bool
     reserve: float
@@ -56,6 +71,108 @@ def build_action_guard_context(signals: SurvivalSignals) -> ActionGuardContext:
         money_distress=signals.money_distress,
         survival_urgency=signals.survival_urgency,
         two_turn_lethal_prob=signals.two_turn_lethal_prob,
+    )
+
+
+def build_cleanup_strategy_context(data: Mapping[str, float], *, cash: float, shards: int) -> CleanupStrategyContext:
+    burden_count = float(data.get("own_burdens", 0.0))
+    cleanup_cash_gap = float(data.get("cleanup_cash_gap", 0.0))
+    expected_cleanup_cost = float(data.get("expected_cleanup_cost", 0.0))
+    money_distress = float(data.get("money_distress", 0.0))
+    next_negative = float(data.get("next_draw_negative_cleanup_prob", 0.0))
+    two_draw_negative = float(data.get("two_draw_negative_cleanup_prob", 0.0))
+    cycle_negative = float(data.get("cycle_negative_cleanup_prob", 0.0))
+    remaining_negative = float(data.get("remaining_negative_cleanup_cards", 0.0))
+    remaining_positive = float(data.get("remaining_positive_cleanup_cards", 0.0))
+    public_cleanup_active = float(data.get("public_cleanup_active", 0.0)) > 0.0
+
+    if shards >= 10:
+        shard_tier = "overflow"
+        shard_buffer_cash = 5.0
+    elif shards >= 7:
+        shard_tier = "stable"
+        shard_buffer_cash = 3.0
+    elif shards >= 5:
+        shard_tier = "buffered"
+        shard_buffer_cash = 1.5
+    else:
+        shard_tier = "low"
+        shard_buffer_cash = 0.0
+
+    deck_pressure = (
+        0.95 * next_negative
+        + 1.20 * two_draw_negative
+        + 0.70 * cycle_negative
+        + 0.08 * max(0.0, remaining_negative - remaining_positive)
+    )
+    cash_pressure = (
+        max(0.0, 8.0 - float(cash)) / 3.0
+        + max(0.0, cleanup_cash_gap) / 3.0
+        + max(0.0, expected_cleanup_cost - (float(cash) + shard_buffer_cash)) / 5.0
+        + max(0.0, money_distress)
+    )
+
+    stage_score = 0.0
+    if public_cleanup_active and cleanup_cash_gap > shard_buffer_cash:
+        stage_score = 3.0
+    elif burden_count >= 3.0 and (cash_pressure >= 1.25 or two_draw_negative >= 0.18):
+        stage_score = 3.0
+    elif burden_count >= 2.0 and (cleanup_cash_gap > 0.0 or cash_pressure >= 0.95 or two_draw_negative >= 0.18):
+        stage_score = 2.0
+    elif burden_count >= 1.0 and (cash_pressure >= 0.45 or deck_pressure >= 0.35 or expected_cleanup_cost > float(cash) + shard_buffer_cash):
+        stage_score = 1.0
+
+    if shard_tier == "overflow" and stage_score > 0.0 and not public_cleanup_active:
+        stage_score = max(0.0, stage_score - 1.0)
+    elif shard_tier == "stable" and stage_score >= 2.0 and not public_cleanup_active:
+        stage_score -= 0.5
+
+    if stage_score >= 3.0:
+        cleanup_stage = "meltdown"
+    elif stage_score >= 2.0:
+        cleanup_stage = "critical"
+    elif stage_score >= 1.0:
+        cleanup_stage = "strained"
+    else:
+        cleanup_stage = "stable"
+
+    controller_bias = (
+        0.55 * burden_count
+        + 0.70 * stage_score
+        + 0.35 * max(0.0, 5.0 - float(cash)) / 2.0
+        + 0.20 * max(0.0, remaining_negative - remaining_positive)
+    )
+    lap_cash_preference = (
+        0.45 * stage_score
+        + 0.30 * max(0.0, 7.0 - float(cash)) / 2.0
+        + 0.18 * deck_pressure
+    )
+    lap_shard_preference = 0.0
+    if shards < 5:
+        lap_shard_preference += 2.05 + 0.55 * stage_score + 0.22 * burden_count
+    elif shards < 7:
+        lap_shard_preference += 0.95 + 0.25 * stage_score + 0.12 * burden_count
+    elif shards >= 10:
+        lap_shard_preference -= 0.55
+    elif shards >= 7:
+        lap_shard_preference -= 0.15
+
+    growth_locked = bool(
+        cleanup_stage in {"critical", "meltdown"}
+        or (cleanup_stage == "strained" and shard_tier == "low" and cash_pressure >= 0.95)
+    )
+    return CleanupStrategyContext(
+        burden_count=burden_count,
+        shard_tier=shard_tier,
+        shard_buffer_cash=shard_buffer_cash,
+        cleanup_stage=cleanup_stage,
+        stage_score=float(stage_score),
+        deck_pressure=float(deck_pressure),
+        cash_pressure=float(cash_pressure),
+        controller_bias=float(controller_bias),
+        lap_cash_preference=float(lap_cash_preference),
+        lap_shard_preference=float(lap_shard_preference),
+        growth_locked=growth_locked,
     )
 
 
