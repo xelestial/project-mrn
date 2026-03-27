@@ -59,3 +59,8 @@ Refactor the current GPT-side architecture toward the common declaration defined
   - introduce a cleanup-aware common policy context from visible burdens, cash, shard checkpoints, and finite-deck cleanup pressure
   - reuse that context across character evaluation, lap reward choice, and controller-driven leader denial
   - keep engine behavior unchanged and restrict implementation changes to `GPT/`
+- Current multi-agent target:
+  - allow Claude-strengthened AI and GPT-strengthened AI to coexist as independent player runtimes inside one engine process
+  - share only engine-contract model modules such as `config`, `state`, `trick_cards`, `weather_cards`, and `characters`
+  - isolate policy-runtime modules such as `ai_policy`, `survival_common`, `policy_hooks`, `policy_groups`, and `policy_mark_utils`
+  - prefer runtime-loader isolation over direct cross-repo import shortcuts when composing Claude-vs-GPT battles
