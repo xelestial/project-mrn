@@ -1,6 +1,6 @@
-GPT/analysis_output/
-GPT/debug_output/
-GPT/chunked_batch_output/
+analysis_output/
+debug_output/
+chunked_batch_output/
 
 games.jsonl
 errors.jsonl
