@@ -1,14 +1,34 @@
 {
   "permissions": {
     "allow": [
-      "Bash(ls -la /c/Users/SIL-EDITOR/Desktop/Workspace/project-mrn/.claude/worktrees/funny-goldberg/CLAUDE/*.py)",
-      "Bash(ls -la /c/Users/SIL-EDITOR/Desktop/Workspace/project-mrn/.claude/worktrees/funny-goldberg/CLAUDE/*.json)",
-      "Bash(wc -l /c/Users/SIL-EDITOR/Desktop/Workspace/project-mrn/.claude/worktrees/funny-goldberg/CLAUDE/*.py)",
-      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" --version)",
-      "Bash(\"/c/Users/SIL-EDITOR/AppData/Local/Programs/GitHub CLI/gh.exe\" --version)",
-      "Bash(GH=\"/c/Program Files/GitHub CLI/gh.exe\")",
-      "Bash(\"$GH\" auth:*)",
-      "Bash(\"$GH\" pr:*)"
+      "Bash(git:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python -m pytest*)",
+      "Bash(python -c:*)",
+      "Bash(python -c *)",
+      "Bash(pytest:*)",
+      "Bash(ls:*)",
+      "Bash(ls -la:*)",
+      "Bash(ls -la *)",
+      "Bash(wc -l:*)",
+      "Bash(wc -l *)",
+      "Bash(cat:*)",
+      "Bash(echo:*)",
+      "Bash(cd:*)",
+      "Bash(pwd)",
+      "Bash(which:*)",
+      "Bash(where:*)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\":*)",
+      "Bash(\"/c/Users/SIL-EDITOR/AppData/Local/Programs/GitHub CLI/gh.exe\":*)",
+      "Bash(gh:*)",
+      "Bash(winget:*)",
+      "Bash(jq:*)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
