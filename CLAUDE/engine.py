@@ -1650,15 +1650,8 @@ class GameEngine:
             cost = 18 if total == 2 else total
             return {"type": "CURSE_DICE", "dice": [d1,d2], **self._pay_or_bankrupt(state, player, cost, None)}
         if name == "남 좋은 일":
-            if self._is_muroe(player):
-                total = 0
-                for op in state.players:
-                    if op.alive and op.player_id != player.player_id:
-                        out = self._pay_or_bankrupt(state, op, 4, player.player_id)
-                        total += 4 if out.get("paid") else 0
-                return {"type": "MUROE_COLLECT_ALL", "total_collected": total}
             for op in state.players:
-                if op.alive and op.player_id != player.player_id and op.attribute != "무뢰":
+                if op.alive and op.player_id != player.player_id:
                     op.cash += 4
             return {"type": "OTHERS_GAIN", "amount": 4}
         if name == "배가 아픈 일":
