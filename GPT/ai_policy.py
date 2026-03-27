@@ -9,6 +9,7 @@ from characters import CHARACTERS, CARD_TO_NAMES
 from config import CellKind
 from policy_groups import MARK_ACTOR_BASE_RISK, MARK_ACTOR_NAMES, RENT_ESCAPE_CHARACTERS, RENT_EXPANSION_CHARACTERS, RENT_FRAGILE_DISRUPTORS
 from policy_mark_utils import mark_guess_distribution, mark_guess_policy_params, mark_priority_exposure_factor, mark_target_profile_factor, public_mark_guess_candidates
+from policy.profile.presets import DEFAULT_PROFILE_REGISTRY
 from state import GameState, PlayerState
 from trick_cards import TrickCard
 from policy_hooks import PolicyDecisionTraceRecorder, PolicyHookDispatcher
@@ -929,37 +930,12 @@ class BasePolicy:
 
 
 class HeuristicPolicy(BasePolicy):
-    character_values = {
-        "어사": 6.0,
-        "탐관오리": 7.5,
-        "자객": 7.2,
-        "산적": 7.0,
-        "추노꾼": 6.8,
-        "탈출 노비": 6.2,
-        "파발꾼": 7.9,
-        "아전": 7.0,
-        "교리 연구관": 6.4,
-        "교리 감독관": 6.4,
-        "박수": 7.2,
-        "만신": 6.9,
-        "객주": 7.6,
-        "중매꾼": 7.4,
-        "건설업자": 7.8,
-        "사기꾼": 7.7,
-    }
-
-    V2_PROFILES = {"control", "growth", "balanced", "avoid_control", "aggressive", "token_opt", "v3_gpt"}
-    VALID_CHARACTER_POLICIES = {"random", "arena", "heuristic_v1", "heuristic_v3_gpt", *(f"heuristic_v2_{p}" for p in V2_PROFILES)}
-    VALID_LAP_POLICIES = {"heuristic_v1", "heuristic_v3_gpt", "cash_focus", "shard_focus", "coin_focus", "balanced", *(f"heuristic_v2_{p}" for p in V2_PROFILES)}
-    PROFILE_WEIGHTS = {
-        "control": {"expansion": 1.0, "economy": 1.1, "disruption": 1.7, "meta": 1.6, "combo": 1.0, "survival": 1.4},
-        "growth": {"expansion": 1.8, "economy": 1.7, "disruption": 0.7, "meta": 0.9, "combo": 1.2, "survival": 1.0},
-        "balanced": {"expansion": 1.2, "economy": 1.2, "disruption": 1.2, "meta": 1.1, "combo": 1.1, "survival": 1.1},
-        "avoid_control": {"expansion": 1.0, "economy": 1.4, "disruption": 0.7, "meta": 1.0, "combo": 1.0, "survival": 1.8},
-        "aggressive": {"expansion": 2.0, "economy": 1.0, "disruption": 1.3, "meta": 0.8, "combo": 1.5, "survival": 0.6},
-        "token_opt": {"expansion": 1.5, "economy": 1.4, "disruption": 1.0, "meta": 1.0, "combo": 1.9, "survival": 0.9},
-        "v3_gpt": {"expansion": 1.68, "economy": 1.55, "disruption": 1.28, "meta": 1.18, "combo": 2.15, "survival": 1.18},
-    }
+    PROFILE_REGISTRY = DEFAULT_PROFILE_REGISTRY
+    character_values = PROFILE_REGISTRY.default_character_values
+    V2_PROFILES = PROFILE_REGISTRY.profile_keys()
+    VALID_CHARACTER_POLICIES = PROFILE_REGISTRY.valid_character_modes()
+    VALID_LAP_POLICIES = PROFILE_REGISTRY.valid_lap_modes()
+    PROFILE_WEIGHTS = PROFILE_REGISTRY.profile_weights
 
     def __init__(self, character_policy_mode: str = "heuristic_v1", lap_policy_mode: str = "heuristic_v1", rng=None, player_lap_policy_modes: Optional[dict[int, str]] = None):
         super().__init__()
@@ -967,13 +943,22 @@ class HeuristicPolicy(BasePolicy):
             raise ValueError(f"Unsupported character_policy_mode: {character_policy_mode}")
         if lap_policy_mode not in self.VALID_LAP_POLICIES:
             raise ValueError(f"Unsupported lap_policy_mode: {lap_policy_mode}")
-        self.character_policy_mode = character_policy_mode
-        self.lap_policy_mode = lap_policy_mode
-        self.player_lap_policy_modes = dict(player_lap_policy_modes or {})
-        for pid, mode in self.player_lap_policy_modes.items():
+        self.character_policy_mode = self.canonical_character_policy_mode(character_policy_mode)
+        self.lap_policy_mode = self.canonical_lap_policy_mode(lap_policy_mode)
+        self.player_lap_policy_modes = {}
+        for pid, mode in dict(player_lap_policy_modes or {}).items():
             if mode not in self.VALID_LAP_POLICIES:
                 raise ValueError(f"Unsupported lap policy for player {pid}: {mode}")
+            self.player_lap_policy_modes[int(pid)] = self.canonical_lap_policy_mode(mode)
         self.rng = rng
+
+    @classmethod
+    def canonical_character_policy_mode(cls, mode: str) -> str:
+        return cls.PROFILE_REGISTRY.canonicalize_character_mode(mode)
+
+    @classmethod
+    def canonical_lap_policy_mode(cls, mode: str) -> str:
+        return cls.PROFILE_REGISTRY.canonicalize_lap_mode(mode)
 
     def set_rng(self, rng) -> None:
         self.rng = rng
@@ -1067,12 +1052,7 @@ class HeuristicPolicy(BasePolicy):
         return self.character_policy_mode.startswith("heuristic_v2_")
 
     def _profile_from_mode(self, mode: str | None = None) -> str:
-        mode = mode or self.character_policy_mode
-        if mode == "heuristic_v3_gpt":
-            return "v3_gpt"
-        if mode.startswith("heuristic_v2_"):
-            return mode.split("heuristic_v2_", 1)[1]
-        return "balanced"
+        return self.PROFILE_REGISTRY.resolve_profile_key(mode or self.character_policy_mode)
 
     def _lap_mode_for_player(self, player_id: int) -> str:
         return self.player_lap_policy_modes.get(player_id, self.lap_policy_mode)
@@ -4429,14 +4409,16 @@ class ArenaPolicy:
         src_modes = dict(player_character_policy_modes or {})
         if not src_modes:
             src_modes = {i + 1: mode for i, mode in enumerate(self.DEFAULT_LINEUP)}
-        self.player_character_policy_modes = {int(pid): mode for pid, mode in src_modes.items()}
-        self.player_lap_policy_modes = {int(pid): mode for pid, mode in dict(player_lap_policy_modes or {}).items()}
-        for pid, mode in self.player_character_policy_modes.items():
+        self.player_character_policy_modes = {}
+        for pid, mode in src_modes.items():
             if mode not in HeuristicPolicy.VALID_CHARACTER_POLICIES or mode == "arena":
                 raise ValueError(f"Unsupported arena character policy for player {pid}: {mode}")
-        for pid, mode in self.player_lap_policy_modes.items():
+            self.player_character_policy_modes[int(pid)] = HeuristicPolicy.canonical_character_policy_mode(mode)
+        self.player_lap_policy_modes = {}
+        for pid, mode in dict(player_lap_policy_modes or {}).items():
             if mode not in HeuristicPolicy.VALID_LAP_POLICIES:
                 raise ValueError(f"Unsupported arena lap policy for player {pid}: {mode}")
+            self.player_lap_policy_modes[int(pid)] = HeuristicPolicy.canonical_lap_policy_mode(mode)
         self.rng = rng
         self._policies: dict[int, HeuristicPolicy] = {}
         for pid in range(1, 5):
