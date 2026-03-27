@@ -8,6 +8,7 @@ import math
 from characters import CHARACTERS, CARD_TO_NAMES
 from config import CellKind
 from policy_groups import MARK_ACTOR_BASE_RISK, MARK_ACTOR_NAMES, RENT_ESCAPE_CHARACTERS, RENT_EXPANSION_CHARACTERS, RENT_FRAGILE_DISRUPTORS
+from policy.profile.presets import get_default_registry as _get_profile_registry
 from policy_mark_utils import mark_guess_distribution, mark_guess_policy_params, mark_priority_exposure_factor, mark_target_profile_factor, public_mark_guess_candidates
 from state import GameState, PlayerState
 from trick_cards import TrickCard
@@ -948,48 +949,28 @@ class BasePolicy:
 
 
 class HeuristicPolicy(BasePolicy):
-    character_values = {
-        "어사": 6.0,
-        "탐관오리": 7.5,
-        "자객": 7.2,
-        "산적": 7.0,
-        "추노꾼": 6.8,
-        "탈출 노비": 6.2,
-        "파발꾼": 7.9,
-        "아전": 7.0,
-        "교리 연구관": 6.4,
-        "교리 감독관": 6.4,
-        "박수": 7.2,
-        "만신": 6.9,
-        "객주": 7.6,
-        "중매꾼": 7.4,
-        "건설업자": 7.8,
-        "사기꾼": 7.7,
-    }
+    # character_values와 PROFILE_WEIGHTS는 profiles/*.json에서 로드한다.
+    # 하위 호환을 위해 클래스 변수는 유지하되 registry 로드로 초기화한다.
+    # 직접 수정하지 말 것 — profiles/policy_weights_*.json 또는
+    # profiles/character_values_*.json을 수정하라.
+    _profile_registry = _get_profile_registry()
+
+    character_values: dict[str, float] = _profile_registry.resolve("heuristic_v2_balanced").character_values
 
     V2_PROFILES = {"control", "growth", "balanced", "avoid_control", "aggressive", "token_opt", "v3_claude"}
     VALID_CHARACTER_POLICIES = {"random", "arena", "heuristic_v1", *(f"heuristic_v2_{p}" for p in V2_PROFILES)}
     VALID_LAP_POLICIES = {"heuristic_v1", "cash_focus", "shard_focus", "coin_focus", "balanced", *(f"heuristic_v2_{p}" for p in V2_PROFILES)}
-    PROFILE_WEIGHTS = {
-        "control": {"expansion": 1.0, "economy": 1.1, "disruption": 1.7, "meta": 1.6, "combo": 1.0, "survival": 1.4},
-        "growth": {"expansion": 1.8, "economy": 1.7, "disruption": 0.7, "meta": 0.9, "combo": 1.2, "survival": 1.0},
-        "balanced": {"expansion": 1.2, "economy": 1.2, "disruption": 1.2, "meta": 1.1, "combo": 1.1, "survival": 1.1},
-        "avoid_control": {"expansion": 1.0, "economy": 1.4, "disruption": 0.7, "meta": 1.0, "combo": 1.0, "survival": 1.8},
-        "aggressive": {"expansion": 2.0, "economy": 1.0, "disruption": 1.3, "meta": 0.8, "combo": 1.5, "survival": 0.6},
-        "token_opt": {"expansion": 1.5, "economy": 1.4, "disruption": 1.0, "meta": 1.0, "combo": 1.9, "survival": 0.9},
-        # [v3_claude] 전략 원칙:
-        #   ① 생존 최우선 + 우선권 인식 — 높은 우선권 인물로 지목 위협 회피,
-        #      낮은 우선권 대상을 적극 지목해 상대 파산 유도
-        #   ② 정보 기반 견제 — 덱 고갈 파악(짐 청산 이벤트 소진 후 짐 보유 허용),
-        #      징표 제어로 리더 필수 인물을 inactive 처리
-        #   ③ 자원 효율 — 조각은 임계까지만 적립, 초과 시 현금/코인 전환
-        #      코인은 재방문 가능할 때만 투자, 그 외엔 현금 우선
-        #   ④ 주사위 카드 절약 — 파산 회피 / 게임 종료 트리거에만 사용
-        #   ⑤ 구매 + 견제 균형 — expansion을 balanced 수준으로 높여
-        #      구매 기반 없이 생존만 추구하는 함정을 방지
-        #   [v2 패치] expansion 1.1→1.6, survival 1.5→1.2, combo 1.0→1.3
-        #            economy 1.3→1.4: 구매 기반이 없으면 메타/견제도 무의미
-        "v3_claude": {"expansion": 1.6, "economy": 1.4, "disruption": 1.4, "meta": 1.5, "combo": 1.3, "survival": 1.2},
+
+    # PROFILE_WEIGHTS: profiles/policy_weights_*.json에서 로드
+    # (comprehension은 클래스 스코프 미참조 제약으로 명시적 딕셔너리 사용)
+    PROFILE_WEIGHTS: dict[str, dict[str, float]] = {
+        "control":       _get_profile_registry().resolve("heuristic_v2_control").weights,
+        "growth":        _get_profile_registry().resolve("heuristic_v2_growth").weights,
+        "balanced":      _get_profile_registry().resolve("heuristic_v2_balanced").weights,
+        "avoid_control": _get_profile_registry().resolve("heuristic_v2_avoid_control").weights,
+        "aggressive":    _get_profile_registry().resolve("heuristic_v2_aggressive").weights,
+        "token_opt":     _get_profile_registry().resolve("heuristic_v2_token_opt").weights,
+        "v3_claude":     _get_profile_registry().resolve("heuristic_v3_claude_exp").weights,
     }
 
     def __init__(self, character_policy_mode: str = "heuristic_v1", lap_policy_mode: str = "heuristic_v1", rng=None, player_lap_policy_modes: Optional[dict[int, str]] = None):
