@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la /c/Users/SIL-EDITOR/Desktop/Workspace/project-mrn/.claude/worktrees/funny-goldberg/CLAUDE/*.py)",
+      "Bash(ls -la /c/Users/SIL-EDITOR/Desktop/Workspace/project-mrn/.claude/worktrees/funny-goldberg/CLAUDE/*.json)",
+      "Bash(wc -l /c/Users/SIL-EDITOR/Desktop/Workspace/project-mrn/.claude/worktrees/funny-goldberg/CLAUDE/*.py)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" --version)",
+      "Bash(\"/c/Users/SIL-EDITOR/AppData/Local/Programs/GitHub CLI/gh.exe\" --version)",
+      "Bash(GH=\"/c/Program Files/GitHub CLI/gh.exe\")",
+      "Bash(\"$GH\" auth:*)",
+      "Bash(\"$GH\" pr:*)"
+    ]
+  }
+}
