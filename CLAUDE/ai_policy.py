@@ -952,29 +952,12 @@ class BasePolicy:
 
 
 class HeuristicPolicy(BasePolicy):
-    # character_values와 PROFILE_WEIGHTS는 profiles/*.json에서 로드한다.
-    # 하위 호환을 위해 클래스 변수는 유지하되 registry 로드로 초기화한다.
-    # 직접 수정하지 말 것 — profiles/policy_weights_*.json 또는
-    # profiles/character_values_*.json을 수정하라.
+    # profiles/*.json에서 로드. 직접 수정하지 말 것.
     _profile_registry = _get_profile_registry()
-
-    character_values: dict[str, float] = _profile_registry.resolve("heuristic_v2_balanced").character_values
 
     V2_PROFILES = {"control", "growth", "balanced", "avoid_control", "aggressive", "token_opt", "v3_claude"}
     VALID_CHARACTER_POLICIES = {"random", "arena", "heuristic_v1", *(f"heuristic_v2_{p}" for p in V2_PROFILES)}
     VALID_LAP_POLICIES = {"heuristic_v1", "cash_focus", "shard_focus", "coin_focus", "balanced", *(f"heuristic_v2_{p}" for p in V2_PROFILES)}
-
-    # PROFILE_WEIGHTS: profiles/policy_weights_*.json에서 로드
-    # (comprehension은 클래스 스코프 미참조 제약으로 명시적 딕셔너리 사용)
-    PROFILE_WEIGHTS: dict[str, dict[str, float]] = {
-        "control":       _get_profile_registry().resolve("heuristic_v2_control").weights,
-        "growth":        _get_profile_registry().resolve("heuristic_v2_growth").weights,
-        "balanced":      _get_profile_registry().resolve("heuristic_v2_balanced").weights,
-        "avoid_control": _get_profile_registry().resolve("heuristic_v2_avoid_control").weights,
-        "aggressive":    _get_profile_registry().resolve("heuristic_v2_aggressive").weights,
-        "token_opt":     _get_profile_registry().resolve("heuristic_v2_token_opt").weights,
-        "v3_claude":     _get_profile_registry().resolve("heuristic_v3_claude_exp").weights,
-    }
 
     def __init__(self, character_policy_mode: str = "heuristic_v1", lap_policy_mode: str = "heuristic_v1", rng=None, player_lap_policy_modes: Optional[dict[int, str]] = None):
         super().__init__()
@@ -989,6 +972,8 @@ class HeuristicPolicy(BasePolicy):
             if mode not in self.VALID_LAP_POLICIES:
                 raise ValueError(f"Unsupported lap policy for player {pid}: {mode}")
         self.rng = rng
+        # 프로파일별 인물 점수 — 인스턴스 생성 시점에 profile spec에서 로드
+        self.character_values: dict[str, float] = self._profile_spec().character_values
         # 플레이어별 의도 상태 (Intent Memory Contract)
         self._player_intent: dict[int, PlayerIntentState] = {}
 

@@ -17,6 +17,14 @@
 이 문서는 GPT/ 또는 GEMINI/의 작업 범위와 겹치지 않는다.
 공동 계약 변경이 필요하면 `COLLAB_SPEC`과 `ARCHITECTURE_REFACTOR_AGREED_SPEC`을 먼저 갱신한다.
 
+### v1.2 변경 내역 (Phase 1 완료 반영)
+
+- Phase 1 완료 처리 (진행 상황 표 갱신)
+- 타깃 디렉토리 구조에 `policy/context/intent.py` 추가
+- Section 5.4 char_eval 추출 순서 → T3-2 테이블과 통일 (리스크 기준 순서로 단일화)
+- `CleanupStrategyContext`는 Phase 2에서 `policy/survival/` 로 이전 예정 메모 추가
+- `character_groups.json` 외부화 제거 (코드 레벨 상수, JSON화 불필요)
+
 ### v1.1 변경 내역 (GPT 플랜 검토 후 반영)
 
 `GPT_ARCHITECTURE_REVIEW_AND_IMPROVEMENTS.md` 검토 결과 두 가지를 반영:
@@ -109,15 +117,17 @@ Claude/GPT 병렬 실험이 모두 어렵다.
 
 ```
 CLAUDE/profiles/
-  policy_weights_v3_claude.json     ← PROFILE_WEIGHTS["v3_claude"] 추출
-  policy_weights_balanced.json      ← PROFILE_WEIGHTS["heuristic_v2_balanced"] 추출
-  policy_weights_control.json       ← PROFILE_WEIGHTS["heuristic_v2_control"] 추출
-  policy_weights_token_opt.json     ← PROFILE_WEIGHTS["heuristic_v2_token_opt"] 추출
-  character_values_v3_claude.json   ← character_values 추출
-  character_values_default.json     ← 기본값 (v2 계열 공통)
-  survival_threshold_default.json   ← survival_common.py 매직넘버 추출
-  mark_risk_default.json            ← MARK_ACTOR_BASE_RISK, MARK_GUESS_* 추출
-  character_groups.json             ← policy_groups.py 그룹 집합 추출
+  policy_weights_v3_claude.json     ✅ 완료
+  policy_weights_balanced.json      ✅ 완료
+  policy_weights_control.json       ✅ 완료
+  policy_weights_token_opt.json     ✅ 완료
+  policy_weights_growth.json        ✅ 완료
+  policy_weights_aggressive.json    ✅ 완료
+  policy_weights_avoid_control.json ✅ 완료
+  character_values_default.json     ✅ 완료 (모든 프로파일 공통)
+  survival_threshold_default.json   ✅ 완료 (SurvivalThresholdSpec 연동)
+  mark_risk_default.json            ✅ 파일 존재 (코드 연동은 Phase 3 mark_target.py 분리 시)
+  character_groups.json             ✅ 파일 존재 (코드 연동 생략 — 코드 레벨 상수 유지)
 ```
 
 **T1-2: `policy/profile/spec.py` 작성**
@@ -398,22 +408,23 @@ CLAUDE/policy_profiles/
 CLAUDE/
   policy/
     profile/
-      spec.py
-      registry.py
-      presets.py
+      spec.py             ✅ 완료
+      registry.py         ✅ 완료
+      presets.py          ✅ 완료
     survival/
-      strategy.py         ← SurvivalStrategy ABC + 구현체들
-      thresholds.py       ← SurvivalThresholdSpec
-      orchestrator.py     ← 기존 survival_common.py 흡수
-      guards.py           ← is_action_survivable, swindle_guard
-      signals.py          ← SurvivalSignals dataclass
+      strategy.py         ← SurvivalStrategy ABC + 구현체들 (Phase 2)
+      thresholds.py       ← SurvivalThresholdSpec 이전 (현재 survival_common.py에 있음, Phase 2)
+      orchestrator.py     ← 기존 survival_common.py 흡수 (Phase 2)
+      guards.py           ← is_action_survivable, swindle_guard (Phase 2)
+      signals.py          ← SurvivalSignals dataclass (Phase 2)
     context/
-      turn_context.py
-      builder.py
-      economy_features.py
-      danger_features.py
-      token_features.py
-      race_features.py
+      intent.py           ✅ 완료 (PlayerIntentState, TurnPlanContext)
+      turn_context.py     ← Phase 2
+      builder.py          ← Phase 2
+      economy_features.py ← Phase 2
+      danger_features.py  ← Phase 2
+      token_features.py   ← Phase 2
+      race_features.py    ← Phase 2
     character_eval/
       base.py
       registry.py
@@ -490,11 +501,15 @@ Phase 4 완료 후 `ai_policy.py`는:
 
 ### 5.4 character_eval 페어 분리 순서
 
-리팩토링 위험도 기준 순서:
-1. `shaman_pair.py` — 가장 독립적, shard checkpoint 로직 명확
-2. `geo_pair.py` — lap engine, 행동 영향이 큼, 검증 우선
-3. `asa_tamgwan.py` — 우선권 로직 단순, 테스트 작성 쉬움
-4. `builder_swindler.py` — SWINDLE_FAIL 게이트 복잡, 마지막
+T3-2 테이블과 동일하게 파일 순서 기준으로 진행 (이전 risk 기준 순서와 통합):
+1. `asa_tamgwan.py` — 우선권 로직 단순, 테스트 작성 쉬움
+2. `jagaek_sanjeok.py` — 지목 kill window 명확
+3. `chuno_escape.py` — 강제이동 로직 독립적
+4. `pabal_ajeon.py` — 이동 버프 단순
+5. `doctrine_pair.py` — 징표 이동 연계
+6. `shaman_pair.py` — shard checkpoint 독립적
+7. `geo_pair.py` — lap engine, 행동 영향이 큼, 검증 우선
+8. `builder_swindler.py` — SWINDLE_FAIL 게이트 복잡, 마지막
 
 ---
 
@@ -513,9 +528,9 @@ Phase 4 완료 후 `ai_policy.py`는:
 
 | Phase | 상태 | 완료 기준 충족 여부 |
 |-------|------|---------------------|
-| Phase 1: 값 외부화 | 🔲 미착수 | - |
-| Phase 2: TurnContext + SurvivalStrategy | 🔲 미착수 | - |
-| Phase 3: CharacterEvaluator + Decision | 🔲 미착수 | - |
+| Phase 1: 값 외부화 | ✅ 완료 | pytest 130 passed. PROFILE_WEIGHTS 제거, character_values 인스턴스화, SurvivalThresholdSpec JSON 연동 완료 |
+| Phase 2: TurnContext + SurvivalStrategy | 🔲 미착수 | Phase 1 완료 후 착수 가능. 주의: CleanupStrategyContext는 현재 survival_common.py에 있으며 Phase 2에서 policy/survival/로 이전 |
+| Phase 3: CharacterEvaluator + Decision | 🔲 미착수 | 착수 전 GPT/GEMINI 작업 범위 조율 필요 |
 | Phase 4: PolicyAsset + Factory | 🔲 미착수 | - |
 
 ---
