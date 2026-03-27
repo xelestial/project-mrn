@@ -1,0 +1,86 @@
+{
+  "rules": {
+    "token": {
+      "starting_hand_coins": 0,
+      "lap_reward_coins": 3,
+      "max_coins_per_tile": 3,
+      "max_place_per_visit": 3,
+      "can_place_on_first_purchase": true,
+      "max_place_on_purchase": 1,
+      "transfer_coins_on_takeover": true,
+      "coins_from_visiting_own_tile": 1
+    },
+    "lap_reward": {
+      "cash": 5,
+      "coins": 3,
+      "shards": 3,
+      "points_budget": 10,
+      "cash_point_cost": 1,
+      "shards_point_cost": 2,
+      "coins_point_cost": 3,
+      "cash_pool": 60,
+      "shards_pool": 40,
+      "coins_pool": 18
+    },
+    "takeover": {
+      "blocked_by_monopoly": true,
+      "transfer_tile_coins": true
+    },
+    "force_sale": {
+      "refund_purchase_cost": true,
+      "return_tile_coins_to_original_owner": true,
+      "block_repurchase_until_next_turn": true
+    },
+    "end": {
+      "f_threshold": 15.0,
+      "monopolies_to_trigger_end": 3,
+      "tiles_to_trigger_end": 9,
+      "alive_players_at_most": 2
+    },
+    "economy": {
+      "starting_cash": 20,
+      "land_profiles": {
+        "HIGH": [
+          5,
+          5
+        ],
+        "MID": [
+          4,
+          4
+        ],
+        "LOW": [
+          3,
+          3
+        ]
+      }
+    },
+    "resources": {
+      "starting_shards": 4
+    },
+    "dice": {
+      "enabled": true,
+      "values": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "one_shot": true,
+      "max_cards_per_turn": 2,
+      "use_one_card_plus_one_die": true
+    },
+    "special_tiles": {
+      "s_display_name": "운수",
+      "f1_increment": 1.0,
+      "f2_increment": 2.0,
+      "f1_shards": 1,
+      "f2_shards": 2,
+      "malicious_land_multiplier": 3,
+      "s_cash_plus1_probability": 0.5,
+      "s_cash_plus2_probability": 0.25,
+      "s_cash_minus1_probability": 0.25
+    }
+  }
+}
