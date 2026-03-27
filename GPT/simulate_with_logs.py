@@ -19,6 +19,7 @@ from engine import GameEngine
 from metadata import GAME_VERSION
 from game_rules_loader import load_ruleset
 from stats_utils import compute_basic_stats_from_games
+from text_encoding import configure_utf8_io
 
 
 @lru_cache(maxsize=1)
@@ -493,6 +494,7 @@ def run(
 
 
 if __name__ == "__main__":
+    configure_utf8_io()
     ap = argparse.ArgumentParser()
     ap.add_argument("--simulations", "--games", dest="simulations", type=int, default=1000, help="Number of games to simulate.")
     ap.add_argument("--seed", type=int, default=42)

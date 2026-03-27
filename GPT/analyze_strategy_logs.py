@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from stats_utils import compute_basic_stats_from_games
+from text_encoding import configure_utf8_io
 
 
 def load_games(path: Path):
@@ -22,6 +23,7 @@ def analyze(games_path: str, output: str):
 
 
 if __name__ == '__main__':
+    configure_utf8_io()
     ap = argparse.ArgumentParser()
     ap.add_argument('--games-jsonl', required=True)
     ap.add_argument('--output', required=True)

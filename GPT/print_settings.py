@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from config import DEFAULT_CONFIG
 from doc_integrity import summarize_integrity
+from text_encoding import configure_utf8_io
 
 def main() -> None:
+    configure_utf8_io()
     cfg = DEFAULT_CONFIG
     print("=== Current Simulator Settings ===")
     print(f"version={__import__("metadata").GAME_VERSION}")

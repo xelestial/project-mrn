@@ -11,6 +11,7 @@ from config import DEFAULT_CONFIG, GameConfig
 from engine import GameEngine
 from metadata import GAME_VERSION
 from stats_utils import compute_basic_stats_from_games
+from text_encoding import configure_utf8_io
 
 
 def summarize(results, policy_mode: str):
@@ -101,6 +102,7 @@ def run_single_logged(seed: int = 42, config: GameConfig | None = None, policy_m
 
 
 def main(simulations: int = 1000, seed: int = 42, output_path: str | None = None, policy_mode: str = "heuristic_v3_gpt"):
+    configure_utf8_io()
     summary = run_batch(simulations=simulations, seed=seed, policy_mode=policy_mode)
     text = json.dumps(summary, ensure_ascii=False, indent=2)
     if output_path:

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from simulate_with_logs import RunningSummary, parse_player_character_policy_modes, parse_player_lap_policy_modes, run
+from text_encoding import configure_utf8_io
 
 
 def _load_games(path: Path):
@@ -61,6 +62,7 @@ def _merge_chunks(root: Path, running: RunningSummary, chunk_dirs: list[Path]) -
 
 
 def main():
+    configure_utf8_io()
     ap = argparse.ArgumentParser()
     ap.add_argument("--simulations", "--games", dest="simulations", type=int, default=100, help="Total number of games to simulate across all chunks.")
     ap.add_argument("--chunk-size", type=int, default=10)
