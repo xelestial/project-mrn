@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import sys
+sys.stdout.reconfigure(encoding="utf-8")
+
 import argparse, json
 from pathlib import Path
 from simulate_with_logs import run as run_sim
