@@ -1,7 +1,7 @@
 # BASEGAME AI ARCHITECTURE SPECIFICATION
 ## 공동 아키텍처 명세 (Claude 제안 + GPT 보강안 통합)
-### 버전: 1.0 | 날짜: 2026-03-27
-### 레이블: [IMPL GUIDE] — AGREED SPEC v1.0 구현 가이드
+### 버전: 0.2 JOINT DRAFT | 날짜: 2026-03-27
+### 레이블: [EXP] — Phase 1 착수 기준, Phase 3~4는 추후 확정
 
 ---
 
@@ -12,9 +12,6 @@
 
 핵심 원칙:
 > **"설정은 외부화한다. 해석은 코드로 남긴다."**
-
-본 문서는 `ARCHITECTURE_REFACTOR_AGREED_SPEC_v1_0.md`를 대체하지 않는다.
-이 문서는 최종 합의안을 실제 파일/코드 수준으로 옮기기 위한 구현 가이드다.
 
 ---
 
@@ -108,10 +105,6 @@ policy_profiles/
   v3_claude.json
   control.json
   balanced.json
-
-설명:
-- `profiles/*.json` = 순수 설정값(ProfileSpec / thresholds / groups / constants)
-- `policy_profiles/*.json` = 조립 참조(PolicyAsset 계열) 또는 향후 `policy_assets/*.json`로 승격 가능
 ```
 
 ---
@@ -267,10 +260,8 @@ class PolicyAsset:
 
 새 파일:
   policy/profile/spec.py
-  policy/profile/spec.py
   policy/profile/registry.py
   policy/profile/presets.py
-  policy/asset/factory.py
   profiles/*.json
 
 하위 호환:
@@ -324,6 +315,7 @@ class PolicyAsset:
 새 파일:
   policy/asset/policy_asset.py
   policy/asset/factory.py
+  policy_profiles/*.json  (또는 policy_assets/*.json)
 
 효과:
   JSON 파일만 교체해서 전략 조합 실험
@@ -334,7 +326,7 @@ class PolicyAsset:
 
 ## 5. 프로파일 JSON 예시
 
-### `policy_profiles/v3_gpt.json` (PolicyAsset 계열 예시)
+### `policy_profiles/v3_gpt.json`
 
 ```json
 {
