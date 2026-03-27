@@ -13,6 +13,7 @@ from config import DEFAULT_CONFIG, CellKind
 from engine import GameEngine, GameResult
 from metadata import GAME_VERSION
 from state import GameState, PlayerState
+from text_encoding import configure_utf8_io
 from trick_cards import TrickCard
 
 CELL_LABELS = {
@@ -487,6 +488,7 @@ def run_cli(seed: int, humans: set[int], ai_mode: str, output_log: str | None = 
 
 
 def main() -> None:
+    configure_utf8_io()
     parser = argparse.ArgumentParser(
         description="Engine-direct debug CLI. Uses the real engine/rules, lets selected seats act as humans, and reveals all information for full-game review."
     )

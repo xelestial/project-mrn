@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse, json
 from pathlib import Path
 from simulate_with_logs import run as run_sim
+from text_encoding import configure_utf8_io
 
 BASE = ["cash_focus", "shard_focus", "coin_focus", "heuristic_v1"]
 
@@ -17,6 +18,7 @@ def load_json(path: Path):
 
 
 def main():
+    configure_utf8_io()
     ap = argparse.ArgumentParser()
     ap.add_argument("--simulations-per-rotation", type=int, default=100)
     ap.add_argument("--seed", type=int, default=42)

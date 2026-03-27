@@ -1,0 +1,8 @@
+{
+    "rent_escape_characters": ["파발꾼", "탈출 노비", "객주"],
+    "rent_expansion_characters": ["중매꾼", "건설업자", "사기꾼"],
+    "rent_fragile_disruptors": ["자객", "산적", "추노꾼"],
+    "growth_like_characters": ["객주", "중매꾼", "건설업자", "파발꾼", "사기꾼"],
+    "economy_like_characters": ["탐관오리", "아전", "객주", "중매꾼", "건설업자"],
+    "disruption_like_characters": ["자객", "산적", "추노꾼", "박수", "만신", "어사"]
+}
