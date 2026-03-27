@@ -42,15 +42,22 @@ class TestAgentLoader:
     def test_runtime_loader_keeps_host_survival_common(self):
         """GPT agent 로드 후에도 host(CLAUDE)의 survival_common이 유지되어야 한다."""
         import survival_common as host_sc
-        assert not hasattr(host_sc, "CleanupStrategyContext"), \
-            "CLAUDE survival_common은 CleanupStrategyContext를 갖지 않아야 한다"
+        # CLAUDE도 이제 CleanupStrategyContext를 가짐 (CLAUDE 독자 구현)
+        assert hasattr(host_sc, "CleanupStrategyContext"), \
+            "CLAUDE survival_common은 CleanupStrategyContext를 가져야 한다"
+
+        # GPT agent 로드 전 클래스 참조 저장
+        claude_cls = host_sc.CleanupStrategyContext
 
         make_agent("gpt:v3_gpt")
 
         import survival_common as host_sc_after
-        assert host_sc_after is host_sc
-        assert not hasattr(host_sc_after, "CleanupStrategyContext"), \
-            "GPT agent 로드 후 host survival_common이 GPT 버전으로 오염되었다"
+        # 모듈 객체 자체가 같아야 한다 (GPT 버전으로 교체되지 않음)
+        assert host_sc_after is host_sc, \
+            "GPT agent 로드 후 host survival_common이 다른 모듈로 교체되었다"
+        # CleanupStrategyContext 클래스가 교체되지 않았어야 한다
+        assert host_sc_after.CleanupStrategyContext is claude_cls, \
+            "GPT agent 로드 후 CleanupStrategyContext가 GPT 버전으로 오염되었다"
 
     def test_runtime_modules_are_isolated(self):
         """CLAUDE와 GPT policy 클래스가 서로 다른 격리 네임스페이스에서 로드되어야 한다."""

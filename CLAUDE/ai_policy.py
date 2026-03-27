@@ -9,6 +9,8 @@ from characters import CHARACTERS, CARD_TO_NAMES
 from config import CellKind
 from policy_groups import MARK_ACTOR_BASE_RISK, MARK_ACTOR_NAMES, RENT_ESCAPE_CHARACTERS, RENT_EXPANSION_CHARACTERS, RENT_FRAGILE_DISRUPTORS
 from policy.profile.presets import get_default_registry as _get_profile_registry
+from policy.profile.spec import PolicyProfileSpec
+from policy.context.intent import PlayerIntentState, TurnPlanContext
 from policy_mark_utils import mark_guess_distribution, mark_guess_policy_params, mark_priority_exposure_factor, mark_target_profile_factor, public_mark_guess_candidates
 from state import GameState, PlayerState
 from trick_cards import TrickCard
@@ -16,6 +18,7 @@ from policy_hooks import PolicyDecisionTraceRecorder, PolicyHookDispatcher
 from weather_cards import COLOR_RENT_DOUBLE_WEATHERS
 from survival_common import (
     ActionGuardContext,
+    CleanupStrategyContext,
     SurvivalSignals,
     SurvivalOrchestratorState,
     build_action_guard_context,
@@ -986,9 +989,18 @@ class HeuristicPolicy(BasePolicy):
             if mode not in self.VALID_LAP_POLICIES:
                 raise ValueError(f"Unsupported lap policy for player {pid}: {mode}")
         self.rng = rng
+        # 플레이어별 의도 상태 (Intent Memory Contract)
+        self._player_intent: dict[int, PlayerIntentState] = {}
 
     def set_rng(self, rng) -> None:
         self.rng = rng
+
+    def _intent(self, player_id: int) -> PlayerIntentState:
+        """플레이어 의도 상태를 반환한다. 없으면 기본값으로 초기화."""
+        return self._player_intent.setdefault(player_id, PlayerIntentState())
+
+    def _set_intent(self, player_id: int, intent: PlayerIntentState) -> None:
+        self._player_intent[player_id] = intent
 
     def _choice(self, values):
         values = list(values)
@@ -1082,17 +1094,24 @@ class HeuristicPolicy(BasePolicy):
     def _is_v2_mode(self) -> bool:
         return self.character_policy_mode.startswith("heuristic_v2_")
 
+    def _profile_spec(self, mode: str | None = None) -> PolicyProfileSpec:
+        """mode 문자열을 registry로 해석해 PolicyProfileSpec을 반환한다."""
+        m = mode or self.character_policy_mode
+        try:
+            return self._profile_registry.resolve(m)
+        except KeyError:
+            return self._profile_registry.resolve("heuristic_v2_balanced")
+
     def _profile_from_mode(self, mode: str | None = None) -> str:
-        mode = mode or self.character_policy_mode
-        if mode.startswith("heuristic_v2_"):
-            return mode.split("heuristic_v2_", 1)[1]
-        return "balanced"
+        """프로파일 단축 키(alias)를 반환한다. 내부 비교에 사용."""
+        spec = self._profile_spec(mode)
+        return spec.aliases[0] if spec.aliases else spec.name
 
     def _lap_mode_for_player(self, player_id: int) -> str:
         return self.player_lap_policy_modes.get(player_id, self.lap_policy_mode)
 
     def _weights(self, mode: str | None = None) -> dict[str, float]:
-        return self.PROFILE_WEIGHTS[self._profile_from_mode(mode)]
+        return self._profile_spec(mode).weights
 
     def _moves_for_turn(self, player: PlayerState) -> list[int]:
         remaining = self._remaining_cards(player)
@@ -1774,6 +1793,11 @@ class HeuristicPolicy(BasePolicy):
             "deck_two_draw_cleanup_prob": float(deck_two_draw_cleanup_prob),
             "deck_cycle_cleanup_prob": float(deck_cycle_cleanup_prob),
         }
+
+    def _cleanup_strategy_context(self, state: GameState, player: PlayerState) -> CleanupStrategyContext:
+        """CleanupStrategyContext를 빌드해 반환한다."""
+        ctx = self._burden_context(state, player)
+        return CleanupStrategyContext.from_burden_context(ctx, cash=float(player.cash))
 
     def _leader_pressure(self, state: GameState, player: PlayerState, opponent: PlayerState | None) -> float:
         if opponent is None:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Mapping, Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +208,63 @@ def evaluate_character_survival_advice(*, state: SurvivalOrchestratorState, is_g
         recommended_biases=tuple(biases),
         reason=','.join(reasons),
     )
+@dataclass(frozen=True, slots=True)
+class CleanupStrategyContext:
+    """CLAUDE-side 짐 정리 전략 컨텍스트.
+
+    _burden_context() dict 대신 타입 안전 접근 제공.
+    GPT의 CleanupStrategyContext와 개념은 같지만 필드는 CLAUDE 독자적으로 정의.
+    """
+    own_burdens: int
+    own_burden_cost: float
+    cleanup_pressure: float
+    public_cleanup_active: bool
+    active_cleanup_cost: float
+    latent_cleanup_cost: float
+    expected_cleanup_cost: float
+    cleanup_cash_gap: float
+    latent_cleanup_gap: float
+    deck_next_draw_cleanup_prob: float
+    deck_two_draw_cleanup_prob: float
+    deck_cycle_cleanup_prob: float
+    cleanup_stage: str  # safe / strained / critical / meltdown
+
+    @classmethod
+    def from_burden_context(cls, ctx: Mapping[str, Any], cash: float = 0.0) -> "CleanupStrategyContext":
+        """_burden_context() 반환 dict로부터 생성."""
+        own_burden_cost = float(ctx.get("own_burden_cost", 0.0))
+        cleanup_pressure = float(ctx.get("cleanup_pressure", 0.0))
+        public_cleanup_active = float(ctx.get("public_cleanup_active", 0.0)) > 0.0
+        active_cleanup_cost = float(ctx.get("active_cleanup_cost", 0.0))
+        latent_cleanup_cost = float(ctx.get("latent_cleanup_cost", 0.0))
+
+        # Cleanup stage 분류 (CLAUDE 자체 기준)
+        if public_cleanup_active and active_cleanup_cost > max(cash * 0.6, 8.0):
+            stage = "meltdown"
+        elif public_cleanup_active or cleanup_pressure >= 2.5:
+            stage = "critical"
+        elif cleanup_pressure >= 1.0 or latent_cleanup_cost > 0.0:
+            stage = "strained"
+        else:
+            stage = "safe"
+
+        return cls(
+            own_burdens=int(ctx.get("own_burdens", 0)),
+            own_burden_cost=own_burden_cost,
+            cleanup_pressure=cleanup_pressure,
+            public_cleanup_active=public_cleanup_active,
+            active_cleanup_cost=active_cleanup_cost,
+            latent_cleanup_cost=latent_cleanup_cost,
+            expected_cleanup_cost=float(ctx.get("expected_cleanup_cost", 0.0)),
+            cleanup_cash_gap=float(ctx.get("cleanup_cash_gap", 0.0)),
+            latent_cleanup_gap=float(ctx.get("latent_cleanup_gap", 0.0)),
+            deck_next_draw_cleanup_prob=float(ctx.get("deck_next_draw_cleanup_prob", 0.0)),
+            deck_two_draw_cleanup_prob=float(ctx.get("deck_two_draw_cleanup_prob", 0.0)),
+            deck_cycle_cleanup_prob=float(ctx.get("deck_cycle_cleanup_prob", 0.0)),
+            cleanup_stage=stage,
+        )
+
+
 def evaluate_character_survival_priority(*, state: SurvivalOrchestratorState, is_growth: bool, is_income: bool, is_controller: bool, is_cleanup: bool, cash: float, purchase_floor: float | None = None, swindle_floor: float | None = None) -> tuple[float, str]:
     score = 0.0
     reasons: list[str] = []
