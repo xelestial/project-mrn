@@ -11,6 +11,7 @@ from policy_groups import MARK_ACTOR_BASE_RISK, MARK_ACTOR_NAMES, RENT_ESCAPE_CH
 from policy.profile.presets import get_default_registry as _get_profile_registry
 from policy.profile.spec import PolicyProfileSpec
 from policy.context.intent import PlayerIntentState, TurnPlanContext
+from policy.asset.policy_asset import PolicyAssetFactory
 from policy_mark_utils import mark_guess_distribution, mark_guess_policy_params, mark_priority_exposure_factor, mark_target_profile_factor, public_mark_guess_candidates
 from state import GameState, PlayerState
 from trick_cards import TrickCard
@@ -974,6 +975,8 @@ class HeuristicPolicy(BasePolicy):
         self.rng = rng
         # 프로파일별 인물 점수 — 인스턴스 생성 시점에 profile spec에서 로드
         self.character_values: dict[str, float] = self._profile_spec().character_values
+        # Phase 2: PolicyAsset — spec + SurvivalStrategy + TurnContextBuilder
+        self._asset = PolicyAssetFactory.from_profile(self._profile_spec(), self)
         # 플레이어별 의도 상태 (Intent Memory Contract)
         self._player_intent: dict[int, PlayerIntentState] = {}
 
@@ -2589,9 +2592,9 @@ class HeuristicPolicy(BasePolicy):
         ).reserve)
 
     def _build_survival_orchestrator(self, state: GameState, player: PlayerState, character_name: str | None = None) -> tuple[dict[str, float], SurvivalOrchestratorState]:
-        survival_ctx = self._generic_survival_context(state, player, character_name)
-        orchestrator = build_survival_orchestrator(SurvivalSignals.from_mapping(survival_ctx))
-        return survival_ctx, orchestrator
+        ctx = self._asset.context_builder.build(state, player, character_name)
+        assessment = self._asset.survival.evaluate(ctx)
+        return ctx.to_survival_dict(), assessment.orchestrator
 
     def _survival_policy_character_advice(self, state: GameState, player: PlayerState, character_name: str, orchestrator: SurvivalOrchestratorState) -> tuple[float, list[str], bool, dict[str, object]]:
         purchase_floor = self._reachable_purchase_floor(state, player)
