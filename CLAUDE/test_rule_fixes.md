@@ -2,7 +2,10 @@
 
 룰 수정 회귀 테스트 문서.
 
-## 이번 갱신
+## 2026-03-27 수정
+- `FixedRandom.__new__` 추가: Python 3.10+에서 `random.Random.__new__`가 첫 인자를 해시하므로 `list`를 넘기면 `TypeError: unhashable type: 'list'` 발생. `__new__`를 오버라이드해서 seed 없이 객체 생성 후 `__init__`에서 처리하도록 수정.
+
+## 이전 갱신
 - 보드 구조 변경에도 깨지지 않도록 테스트 좌표를 메타데이터 기반으로 찾는다.
 - `block_tile_positions`, `tile_positions`, `first_tile_position` 같은 helpers를 사용해
   - 3칸짜리 block

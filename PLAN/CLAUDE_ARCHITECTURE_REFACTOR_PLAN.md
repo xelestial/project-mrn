@@ -1,6 +1,6 @@
 # CLAUDE 아키텍처 리팩토링 플랜
 ## Claude 구현체 전용 실행 계획
-### 버전: 1.0 | 날짜: 2026-03-27 | 상태: [EXP]
+### 버전: 1.1 | 날짜: 2026-03-27 | 상태: [EXP]
 
 ---
 
@@ -16,6 +16,17 @@
 
 이 문서는 GPT/ 또는 GEMINI/의 작업 범위와 겹치지 않는다.
 공동 계약 변경이 필요하면 `COLLAB_SPEC`과 `ARCHITECTURE_REFACTOR_AGREED_SPEC`을 먼저 갱신한다.
+
+### v1.1 변경 내역 (GPT 플랜 검토 후 반영)
+
+`GPT_ARCHITECTURE_REVIEW_AND_IMPROVEMENTS.md` 검토 결과 두 가지를 반영:
+
+1. **Decision 추출 순서 정렬** (Phase 3): GPT가 커플링 리스크 기준으로 제안한 순서와 일치시킴
+   - `lap_reward → purchase → draft/character → mark → movement → trick → marker_flip`
+2. **PolicyAsset 조기 스캐폴드** (Phase 2에 추가): 조합 루트를 빈 브리지로 먼저 생성해두는 방식 반영
+   - Phase 4에서 완성하되, Phase 2에서 passthrough 뼈대를 먼저 잡음
+
+나머지 구조(Phase 순서, 타깃 디렉토리, 설계 결정)는 유지.
 
 ---
 
@@ -199,6 +210,23 @@ STRATEGY_REGISTRY: dict[str, type] = {
 - `_generic_survival_context()` → `TurnContextBuilder.build()` 로 점진 교체
 - dict 접근 → `ctx.field_name` 으로 점진 교체 (타입 에러 즉시 감지)
 
+**T2-7: `policy/asset/policy_asset.py` 조기 스캐폴드 (브리지)**
+
+GPT 플랜 Phase C 반영: PolicyAsset/Factory를 Phase 4에서 완성하기 전에
+빈 passthrough 뼈대로 먼저 생성해 조합 경계를 확립한다.
+
+```python
+# policy/asset/policy_asset.py — Phase 2 브리지 (내부는 기존 로직 위임)
+@dataclass(slots=True)
+class PolicyAsset:
+    spec: PolicyProfileSpec
+    survival: Any   # Phase 3에서 SurvivalStrategy로 교체
+    # 나머지 필드는 Phase 3~4에서 추가
+```
+
+- `PolicyFactory.from_name(name)` → 기존 `HeuristicPolicy(name)` 위임
+- 엔진 계약(`choose_*` 인터페이스) 변경 없음
+
 **완료 기준**:
 - `pytest -q` 전체 통과
 - `context: dict` 접근 코드가 `ai_policy.py` 내에 남아 있어도 허용 (점진 교체)
@@ -252,16 +280,18 @@ CHARACTER_EVALUATOR_REGISTRY: dict[str, CharacterEvaluator] = {
 }
 ```
 
-**T3-4: `policy/decision/` 파일들 작성**
+**T3-4: `policy/decision/` 파일들 작성 (커플링 리스크 기준 순서)**
+
+GPT 플랜과 정렬된 추출 순서 — 리스크 낮은 것부터:
 
 ```
-draft.py          ← choose_character() 드래프트 조합 로직 분리
-movement.py       ← choose_movement() 이동 판단 분리
-purchase.py       ← choose_purchase_tile() 구매 게이트 분리
-lap_reward.py     ← choose_lap_reward() 랩 보상 분리
-trick_use.py      ← choose_trick_use() 잔꾀 사용 분리
-mark_target.py    ← choose_mark_target() 지목 대상 분리
-marker_flip.py    ← choose_marker_flip() 징표 뒤집기 분리
+lap_reward.py     ← 1순위: 독립적, 엔진 상태 변경 없음
+purchase.py       ← 2순위: survival gate와 명확한 경계
+draft.py          ← 3순위: character_eval 결과 소비자
+mark_target.py    ← 4순위: policy_mark_utils 이미 분리됨
+movement.py       ← 5순위: race context 의존, 중간 복잡도
+trick_use.py      ← 6순위: 멀티 카드 상태 의존
+marker_flip.py    ← 7순위: 가장 드문 결정, 마지막
 ```
 
 각 파일은 단일 책임: 해당 결정 축의 로직만 포함.

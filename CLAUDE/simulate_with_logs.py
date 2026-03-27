@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import sys
+sys.stdout.reconfigure(encoding="utf-8")
+
 import argparse
 import copy
 import json

@@ -87,6 +87,25 @@ AI evaluations now reference injected rule values for rent/malicious costs and d
 - 목적은 생존 관련 규칙을 한 곳에서 관리하고, 구매/사기/이동/잔꾀 판단이 같은 원칙을 공유하도록 만드는 것이다.
 
 
+## choose_burden_exchange_on_supply 수정 (2026-03-27)
+
+`HeuristicPolicy.choose_burden_exchange_on_supply`의 "단일 짐 무조건 청산" 로직이 생존 위기를 무시하는 버그 수정.
+- `money_distress >= 0.4` + `post_cash < safety_floor` 조건이면 보류 (BasePolicy 원칙 재통합)
+- safety_floor = `reserve + other_burden_total + lethal_pressure + distress_pressure`
+- 기존 극빈 상황(다른 짐도 못 낼 때) 로직은 하위에 유지
+
+## Phase 1 리팩토링 (2026-03-27)
+
+`PROFILE_WEIGHTS`와 `character_values` 클래스 변수가 `policy/profile/` 레지스트리로 위임됐다.
+
+- 가중치 원본: `profiles/policy_weights_*.json`
+- 인물 점수 원본: `profiles/character_values_default.json`
+- 코드 수정 없이 JSON만 교체하면 프로파일 가중치 실험 가능
+- 행동 변경 없음 — 기존 모든 테스트 통과 확인
+- `HeuristicPolicy._profile_registry`: `ProfileRegistry` 싱글턴 참조
+- `_get_profile_registry()`: `policy.profile.presets` 모듈에서 임포트
+
+
 ## Update note
 - character selection now consumes survival advice from survival_common as a policy input.
 - survival can emit a hard-block hint for true-suicide growth picks, but the policy module remains the final decision owner.

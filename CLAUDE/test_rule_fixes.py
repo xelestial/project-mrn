@@ -42,6 +42,11 @@ class TargetPolicy(DummyPolicy):
 
 
 class FixedRandom(random.Random):
+    # Python 3.10+에서 random.Random.__new__가 첫 번째 인자를 해시하려 시도한다.
+    # list는 unhashable이므로 __new__를 오버라이드해서 seed 없이 객체를 생성한다.
+    def __new__(cls, values):
+        return random.Random.__new__(cls)
+
     def __init__(self, values):
         super().__init__(0)
         self.values = list(values)
