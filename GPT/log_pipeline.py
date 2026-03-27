@@ -10,6 +10,7 @@ from typing import Iterable
 
 from config import DEFAULT_CONFIG
 from simulate_with_logs import run as simulate_run
+from text_encoding import configure_utf8_io
 
 FEATURE_NAMES = [
     "turn_progress",
@@ -351,6 +352,7 @@ def run_pipeline(simulations: int, seed: int, output_dir: str | Path, policy_mod
 
 
 def main() -> None:
+    configure_utf8_io()
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
 

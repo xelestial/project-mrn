@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from simulate_with_logs import run as run_sim
+from text_encoding import configure_utf8_io
 
 
 def load_json(path: Path):
@@ -37,6 +38,7 @@ def compare(random_summary: dict, heuristic_summary: dict) -> dict:
 
 
 def main():
+    configure_utf8_io()
     ap = argparse.ArgumentParser()
     ap.add_argument("--simulations", type=int, default=200)
     ap.add_argument("--seed", type=int, default=42)
