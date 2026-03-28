@@ -117,7 +117,14 @@ class GameEngine:
                 for p in state.players
             ],
         })
-        self._emit_vis("session_start", Phase.SESSION_START, None, state, player_count=self.config.player_count)
+        self._emit_vis(
+            "session_start",
+            Phase.SESSION_START,
+            None,
+            state,
+            player_count=self.config.player_count,
+            players=[build_player_public_state(p, state).to_dict() for p in state.players],
+        )
         self._start_new_round(state, initial=True)
 
         while True:

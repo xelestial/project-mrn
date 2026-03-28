@@ -33,6 +33,13 @@ def test_projection_basic(events: list[dict]) -> list[str]:
     errors: list[str] = []
     proj = ReplayProjection.from_list(events)
 
+    session_start = proj.session.session_start
+    players = session_start.get("players", [])
+    if not players:
+        errors.append("session_start missing initial public players")
+    elif len(players) != session_start.get("player_count"):
+        errors.append("session_start players length does not match player_count")
+
     if not proj.turns:
         errors.append("No turns produced")
         return errors

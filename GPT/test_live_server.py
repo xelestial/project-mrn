@@ -110,6 +110,11 @@ def test_events_endpoint_full(port: int) -> list[str]:
     # First event should be session_start
     if first.get("event_type") != "session_start":
         errors.append(f"First event is not session_start: {first.get('event_type')}")
+    players = first.get("players", [])
+    if not players:
+        errors.append("session_start missing initial public players")
+    elif len(players) != first.get("player_count"):
+        errors.append("session_start players length does not match player_count")
     return errors
 
 
