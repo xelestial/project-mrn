@@ -4,6 +4,7 @@ from typing import Optional
 
 from config import CellKind
 from state import GameState, PlayerState
+from viewer.events import Phase
 
 
 class EngineEffectHandlers:
@@ -258,6 +259,15 @@ class EngineEffectHandlers:
             "marker_flip_pending_for": None if state.pending_marker_flip_owner_id is None else state.pending_marker_flip_owner_id + 1,
         }
         engine._log(event)
+        engine._emit_vis(
+            "marker_transferred",
+            Phase.MARK,
+            player.player_id + 1,
+            state,
+            from_owner=previous_owner + 1,
+            to_owner=state.marker_owner_id + 1,
+            marker_flip_pending_for=None if state.pending_marker_flip_owner_id is None else state.pending_marker_flip_owner_id + 1,
+        )
         return event
 
     def handle_marker_flip(self, state: GameState) -> dict | None:
@@ -361,7 +371,7 @@ class EngineEffectHandlers:
         stats["lap_coin_choices"] += 1 if granted_coins > 0 else 0
         stats["shards_gained_lap"] += total_shards
         choice = decision.choice if decision.choice != "blocked" else "blocked"
-        return {
+        result = {
             "choice": choice,
             "cash_delta": granted_cash,
             "shards_delta": total_shards,
@@ -374,6 +384,16 @@ class EngineEffectHandlers:
             },
             "requested": {"cash": cash_units, "shards": shard_units, "coins": coin_units},
         }
+        engine._emit_vis(
+            "lap_reward_chosen",
+            Phase.LAP_REWARD,
+            player.player_id + 1,
+            state,
+            choice=choice,
+            amount={"cash": granted_cash, "shards": total_shards, "coins": granted_coins},
+            resource_delta=result,
+        )
+        return result
 
     def handle_payment(self, state: GameState, player: PlayerState, cost: int, receiver: int | None) -> dict:
         engine = self.engine
@@ -539,7 +559,23 @@ class EngineEffectHandlers:
     def resolve_fortune_draw(self, state: GameState, player: PlayerState) -> dict:
         engine = self.engine
         card = engine._draw_fortune_card(state)
+        engine._emit_vis(
+            "fortune_drawn",
+            Phase.FORTUNE,
+            player.player_id + 1,
+            state,
+            card_name=card.name,
+            deck_index=card.deck_index,
+        )
         event = engine._apply_fortune_card(state, player, card)
+        engine._emit_vis(
+            "fortune_resolved",
+            Phase.FORTUNE,
+            player.player_id + 1,
+            state,
+            card_name=card.name,
+            resolution=event,
+        )
         state.fortune_discard_pile.append(card)
         return {'type': 'FORTUNE', 'card': {'deck_index': card.deck_index, 'name': card.name, 'effect': card.effect}, 'resolution': event}
 
@@ -598,7 +634,19 @@ class EngineEffectHandlers:
         if state.config.rules.token.can_place_on_first_purchase:
             player.visited_owned_tile_indices.add(pos)
             placed = engine._place_hand_coins_on_tile(state, player, pos, max_place=state.config.rules.token.place_limit_on_purchase(state, player, pos), source="purchase")
-        return {'type': 'PURCHASE', 'tile_kind': cell.name, 'cost': cost, 'shard_cost': shard_cost, 'shards_before': shards_before, 'shards_after': player.shards, 'placed': placed}
+        result = {'type': 'PURCHASE', 'tile_kind': cell.name, 'cost': cost, 'shard_cost': shard_cost, 'shards_before': shards_before, 'shards_after': player.shards, 'placed': placed}
+        engine._emit_vis(
+            "tile_purchased",
+            Phase.ECONOMY,
+            player.player_id + 1,
+            state,
+            player_id=player.player_id + 1,
+            tile_index=pos,
+            cost=cost,
+            purchase_source="landing_purchase",
+            result=result,
+        )
+        return result
 
     def handle_rent_payment(self, state: GameState, player: PlayerState, pos: int, owner: int) -> dict:
         engine = self.engine
@@ -631,7 +679,20 @@ class EngineEffectHandlers:
                     total += amt if out.get('paid') else 0
                     details.append({'player': op.player_id + 1, 'amount': amt, 'paid': out.get('paid', True)})
                 event['trick_same_tile_shard_rake'] = {'total': total, 'details': details}
-        return engine._apply_weather_same_tile_bonus(state, player, event)
+        result = engine._apply_weather_same_tile_bonus(state, player, event)
+        engine._emit_vis(
+            "rent_paid",
+            Phase.ECONOMY,
+            player.player_id + 1,
+            state,
+            payer_player_id=player.player_id + 1,
+            owner_player_id=owner + 1,
+            tile_index=pos,
+            base_amount=rent,
+            final_amount=rent if outcome.get('paid') else 0,
+            modifiers=result,
+        )
+        return result
 
     def handle_tile_character_effect(self, state: GameState, player: PlayerState, pos: int, owner: Optional[int]) -> Optional[dict]:
         engine = self.engine
