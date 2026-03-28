@@ -18,6 +18,7 @@ import threading
 import time
 import urllib.request
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -119,6 +120,9 @@ def test_play_html_renderer() -> list[str]:
         "tile-choice-row",
         "target-pill-row",
         "choice-metrics",
+        "geo-bonus-row",
+        "doctrine-target-row",
+        "trick-reward-row",
     ):
         if phase5_widget not in html:
             errors.append(f"play HTML missing specialized widget '{phase5_widget}'")
@@ -313,6 +317,178 @@ def test_human_policy_final_character_returns_name() -> list[str]:
     return errors
 
 
+def test_human_policy_geo_bonus_prompt() -> list[str]:
+    errors = []
+    try:
+        from viewer.human_policy import HumanHttpPolicy
+        from ai_policy import HeuristicPolicy
+        from config import DEFAULT_CONFIG
+        from state import GameState
+
+        ai = HeuristicPolicy(
+            character_policy_mode="heuristic_v1",
+            lap_policy_mode="heuristic_v1",
+        )
+        policy = HumanHttpPolicy(human_seat=0, ai_fallback=ai)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        player.shards = 2
+        player.hand_coins = 1
+
+        result = [None]
+        done = threading.Event()
+
+        def _call():
+            result[0] = policy.choose_geo_bonus(state, player, "GeoHero")
+            done.set()
+
+        threading.Thread(target=_call, daemon=True).start()
+
+        for _ in range(20):
+            if policy.pending_prompt is not None:
+                break
+            time.sleep(0.05)
+
+        prompt = policy.pending_prompt
+        if prompt is None:
+            errors.append("pending_prompt never set for geo_bonus")
+            return errors
+        if prompt.get("request_type") != "geo_bonus":
+            errors.append(f"Expected request_type=geo_bonus, got {prompt.get('request_type')}")
+        if len(prompt.get("legal_choices", [])) != 3:
+            errors.append("geo_bonus should expose 3 legal choices")
+
+        ok = policy.submit_response({"choice_id": "shards"})
+        if not ok:
+            errors.append("submit_response returned False for geo_bonus")
+        done.wait(timeout=3.0)
+        if not done.is_set():
+            errors.append("choose_geo_bonus did not unblock")
+        elif result[0] != "shards":
+            errors.append(f"Expected geo bonus 'shards', got {result[0]!r}")
+    except Exception as e:
+        import traceback
+        errors.append(f"Exception: {e}\n{traceback.format_exc()}")
+    return errors
+
+
+def test_human_policy_doctrine_relief_prompt() -> list[str]:
+    errors = []
+    try:
+        from viewer.human_policy import HumanHttpPolicy
+        from ai_policy import HeuristicPolicy
+        from config import DEFAULT_CONFIG
+        from state import GameState
+
+        ai = HeuristicPolicy(
+            character_policy_mode="heuristic_v1",
+            lap_policy_mode="heuristic_v1",
+        )
+        policy = HumanHttpPolicy(human_seat=0, ai_fallback=ai)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        candidates = [state.players[0], state.players[1]]
+        burden = SimpleNamespace(name="Burden", is_burden=True)
+        candidates[0].trick_hand = [burden]
+        candidates[1].trick_hand = [burden, burden]
+
+        result = [None]
+        done = threading.Event()
+
+        def _call():
+            result[0] = policy.choose_doctrine_relief_target(state, player, candidates)
+            done.set()
+
+        threading.Thread(target=_call, daemon=True).start()
+
+        for _ in range(20):
+            if policy.pending_prompt is not None:
+                break
+            time.sleep(0.05)
+
+        prompt = policy.pending_prompt
+        if prompt is None:
+            errors.append("pending_prompt never set for doctrine_relief")
+            return errors
+        if prompt.get("request_type") != "doctrine_relief":
+            errors.append(f"Expected request_type=doctrine_relief, got {prompt.get('request_type')}")
+        if len(prompt.get("legal_choices", [])) != 2:
+            errors.append("doctrine_relief should expose candidate choices")
+
+        ok = policy.submit_response({"choice_id": "1"})
+        if not ok:
+            errors.append("submit_response returned False for doctrine_relief")
+        done.wait(timeout=3.0)
+        if not done.is_set():
+            errors.append("choose_doctrine_relief_target did not unblock")
+        elif result[0] != 1:
+            errors.append(f"Expected doctrine target 1, got {result[0]!r}")
+    except Exception as e:
+        import traceback
+        errors.append(f"Exception: {e}\n{traceback.format_exc()}")
+    return errors
+
+
+def test_human_policy_specific_trick_reward_prompt() -> list[str]:
+    errors = []
+    try:
+        from viewer.human_policy import HumanHttpPolicy
+        from ai_policy import HeuristicPolicy
+        from config import DEFAULT_CONFIG
+        from state import GameState
+
+        ai = HeuristicPolicy(
+            character_policy_mode="heuristic_v1",
+            lap_policy_mode="heuristic_v1",
+        )
+        policy = HumanHttpPolicy(human_seat=0, ai_fallback=ai)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        choices = [
+            SimpleNamespace(deck_index=11, name="Reward A"),
+            SimpleNamespace(deck_index=12, name="Reward B"),
+        ]
+
+        result = [None]
+        done = threading.Event()
+
+        def _call():
+            result[0] = policy.choose_specific_trick_reward(state, player, choices)
+            done.set()
+
+        threading.Thread(target=_call, daemon=True).start()
+
+        for _ in range(20):
+            if policy.pending_prompt is not None:
+                break
+            time.sleep(0.05)
+
+        prompt = policy.pending_prompt
+        if prompt is None:
+            errors.append("pending_prompt never set for specific_trick_reward")
+            return errors
+        if prompt.get("request_type") != "specific_trick_reward":
+            errors.append(
+                f"Expected request_type=specific_trick_reward, got {prompt.get('request_type')}"
+            )
+        names = [opt.get("label") for opt in prompt.get("legal_choices", [])]
+        if names != ["Reward A", "Reward B"]:
+            errors.append(f"Unexpected specific_trick_reward labels: {names}")
+
+        ok = policy.submit_response({"choice_id": "12"})
+        if not ok:
+            errors.append("submit_response returned False for specific_trick_reward")
+        done.wait(timeout=3.0)
+        if not done.is_set():
+            errors.append("choose_specific_trick_reward did not unblock")
+        elif result[0] is not choices[1]:
+            errors.append("Expected selected trick reward object to be returned")
+    except Exception as e:
+        import traceback
+        errors.append(f"Exception: {e}\n{traceback.format_exc()}")
+    return errors
+
+
 # ---------------------------------------------------------------------------
 # Integration tests (with live server)
 # ---------------------------------------------------------------------------
@@ -393,6 +569,9 @@ def main() -> int:
         ("human_policy_ai_seat",        test_human_policy_ai_seat),
         ("human_policy_prompt_response",test_human_policy_prompt_and_response),
         ("human_policy_final_character",test_human_policy_final_character_returns_name),
+        ("human_policy_geo_bonus",      test_human_policy_geo_bonus_prompt),
+        ("human_policy_doctrine_relief",test_human_policy_doctrine_relief_prompt),
+        ("human_policy_trick_reward",   test_human_policy_specific_trick_reward_prompt),
     ]
     all_passed = True
     for name, fn in unit_tests:

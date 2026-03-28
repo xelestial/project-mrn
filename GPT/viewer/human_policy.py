@@ -577,16 +577,141 @@ class HumanHttpPolicy:
     # ------------------------------------------------------------------
 
     def choose_geo_bonus(self, state: Any, player: Any, char: Any) -> Any:
-        return self._ai.choose_geo_bonus(state, player, char)
+        if player.player_id != self._seat:
+            return self._ai.choose_geo_bonus(state, player, char)
+
+        options = [
+            {"id": "cash", "label": "Cash +1", "choice": "cash"},
+            {"id": "shards", "label": "Shards +1", "choice": "shards"},
+            {"id": "coins", "label": "Coins +1", "choice": "coins"},
+        ]
+
+        prompt = build_prompt_envelope(
+            request_type="geo_bonus",
+            player_id=player.player_id + 1,
+            legal_choices=[
+                {
+                    "choice_id": opt["id"],
+                    "label": opt["label"],
+                    "value": {"choice": opt["choice"]},
+                }
+                for opt in options
+            ],
+            public_context={
+                "actor_name": str(char),
+                "player_cash": player.cash,
+                "player_position": player.position,
+                "player_shards": player.shards,
+                "player_hand_coins": getattr(player, "hand_coins", 0),
+            },
+            timeout_ms=int(TIMEOUT_S * 1000),
+        )
+
+        def _parse(r: dict):
+            sel = extract_choice_id(r, "cash")
+            for opt in options:
+                if opt["id"] == sel:
+                    return opt["choice"]
+            return self._ai.choose_geo_bonus(state, player, char)
+
+        return self._ask(prompt, _parse, lambda: self._ai.choose_geo_bonus(state, player, char))
 
     def choose_doctrine_relief_target(self, state: Any, player: Any, candidates: Any) -> Any:
-        return self._ai.choose_doctrine_relief_target(state, player, candidates)
+        if player.player_id != self._seat:
+            return self._ai.choose_doctrine_relief_target(state, player, candidates)
+
+        options = []
+        for target in candidates:
+            burden_count = sum(1 for card in getattr(target, "trick_hand", []) if getattr(card, "is_burden", False))
+            options.append({
+                "id": str(target.player_id),
+                "label": f"Player {target.player_id + 1}",
+                "target_player_id": target.player_id,
+                "target_position": getattr(target, "position", None),
+                "target_cash": getattr(target, "cash", None),
+                "burden_count": burden_count,
+            })
+
+        prompt = build_prompt_envelope(
+            request_type="doctrine_relief",
+            player_id=player.player_id + 1,
+            legal_choices=[
+                {
+                    "choice_id": opt["id"],
+                    "label": opt["label"],
+                    "value": {
+                        "target_player_id": opt["target_player_id"] + 1,
+                        "target_position": opt["target_position"],
+                        "target_cash": opt["target_cash"],
+                        "burden_count": opt["burden_count"],
+                    },
+                }
+                for opt in options
+            ],
+            public_context={
+                "player_cash": player.cash,
+                "player_position": player.position,
+                "candidate_count": len(options),
+                "candidate_labels": [opt["label"] for opt in options],
+            },
+            timeout_ms=int(TIMEOUT_S * 1000),
+        )
+
+        def _parse(r: dict):
+            sel = extract_choice_id(r)
+            if sel is not None:
+                for opt in options:
+                    if opt["id"] == sel:
+                        return opt["target_player_id"]
+            return self._ai.choose_doctrine_relief_target(state, player, candidates)
+
+        return self._ask(prompt, _parse, lambda: self._ai.choose_doctrine_relief_target(state, player, candidates))
 
     def choose_active_flip_card(self, state: Any, player: Any, flippable_cards: Any) -> Any:
         return self._ai.choose_active_flip_card(state, player, flippable_cards)
 
     def choose_specific_trick_reward(self, state: Any, player: Any, choices: Any) -> Any:
-        return self._ai.choose_specific_trick_reward(state, player, choices)
+        if player.player_id != self._seat:
+            return self._ai.choose_specific_trick_reward(state, player, choices)
+
+        options = [
+            {
+                "id": str(card.deck_index),
+                "label": getattr(card, "name", f"Card {card.deck_index}"),
+                "deck_index": card.deck_index,
+            }
+            for card in choices
+        ]
+
+        prompt = build_prompt_envelope(
+            request_type="specific_trick_reward",
+            player_id=player.player_id + 1,
+            legal_choices=[
+                {
+                    "choice_id": opt["id"],
+                    "label": opt["label"],
+                    "value": {"deck_index": opt["deck_index"]},
+                }
+                for opt in options
+            ],
+            public_context={
+                "player_cash": player.cash,
+                "player_position": player.position,
+                "reward_count": len(options),
+                "reward_names": [opt["label"] for opt in options],
+            },
+            timeout_ms=int(TIMEOUT_S * 1000),
+        )
+
+        def _parse(r: dict):
+            sel = extract_choice_id(r)
+            if sel is not None:
+                for card in choices:
+                    if str(card.deck_index) == sel:
+                        return card
+            return self._ai.choose_specific_trick_reward(state, player, choices)
+
+        return self._ask(prompt, _parse, lambda: self._ai.choose_specific_trick_reward(state, player, choices))
 
     def choose_burden_exchange_on_supply(self, state: Any, player: Any, card: Any) -> bool:
         return self._ai.choose_burden_exchange_on_supply(state, player, card)
