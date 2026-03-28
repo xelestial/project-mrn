@@ -21,6 +21,16 @@ The target is a maintainable visual runtime built on top of the existing engine 
 Implementation blocker:
 - parallel implementation should start only after the `SHARED_VISUAL_RUNTIME_CONTRACT.md` schema names and prompt envelope are frozen as `v1`
 
+Current scope change:
+- trick systems are explicitly excluded from the first implementation target
+- first implementation should not attempt:
+  - trick inventory rendering
+  - hidden/public trick replay fidelity
+  - anytime trick prompt handling
+  - trick-use decision UI
+  - trick effect animation
+- trick support should return only after a separate manual audit of trick rules and timing
+
 ## Final Product Target
 The end state should support two modes on top of the same state/projection model.
 
@@ -444,6 +454,7 @@ This plan must follow the project's architecture direction.
 ## Phase 1. Replay-Grade Structured Output
 Goal:
 - produce replay-quality structured logs and snapshots
+- exclude trick-system fidelity from the first pass
 
 Required work:
 - define `ReplayEvent`
@@ -452,6 +463,13 @@ Required work:
 - define `BoardPublicState`
 - define `MovementTrace`
 - define `PublicEffectState`
+
+Explicitly out of scope for the first pass:
+- trick hand visibility model
+- hidden trick slot model
+- anytime trick prompt windows
+- trick-use replay timing
+- trick-effect-specific animation
 
 Success:
 - one game can be replayed as a public match screen without rereading raw JSON manually
@@ -526,6 +544,7 @@ Good enough if:
 Not good enough if:
 - we try to reconstruct full replay only from `/result/*.md`
 - we expect animation-grade movement from current sparse logs
+- we expect accurate trick timing / hidden-trick replay from current artifacts
 
 ### For Phase 2 Live Human Play
 Current data is **not yet sufficient**.
@@ -539,6 +558,7 @@ Main blockers:
 Conclusion:
 - replay-first is still the right order
 - but replay must be built with live-play contracts in mind
+- first implementation should deliberately skip trick support until trick rules are separately audited
 
 ## Recommended Starting Point
 Start here, in this exact order.

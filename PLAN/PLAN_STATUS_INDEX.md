@@ -106,6 +106,15 @@ These are still useful, but they are not the current top-level execution plan on
   - supports the current canonical visualization plan
   - recommends GPT upper architecture plus Claude-style lower substrate
 
+### Engine Policy Contract Alignment
+- File: `PLAN/[AGREE]_ENGINE_POLICY_CONTRACT_ALIGNMENT.md`
+- Status: `AGREE`
+- Role: accepted overlap between Claude engine dependency analysis and the shared visual runtime direction
+- Notes:
+  - confirms engine rewrite is not a blocker
+  - confirms explicit policy protocol/contract is the right next boundary
+  - should be treated as an alignment note, not a replacement for the active runtime plan
+
 ### Claude Visualization Technical Opinion
 - File: `PLAN/[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md`
 - Status: `PROPOSAL`
@@ -182,6 +191,7 @@ When deciding what to follow next:
 - keep `SHARED_VISUAL_RUNTIME_CONTRACT.md`
 - keep `VISUALIZATION_GAME_PLAN.md`
 - keep `[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md`
+- keep `[AGREE]_ENGINE_POLICY_CONTRACT_ALIGNMENT.md`
 - keep `GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md`
 - keep `GPT_ONLINE_STYLE_REPLAY_VISUALIZATION_PLAN.md`
 - keep `GPT_DECISION_PIPELINE_NODE_PLAN.md`
