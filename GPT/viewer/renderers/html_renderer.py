@@ -1,4 +1,4 @@
-"""Phase 2 HTML replay renderer with event-first playback."""
+﻿"""Phase 2 HTML replay renderer with event-first playback."""
 from __future__ import annotations
 
 from copy import deepcopy
@@ -323,64 +323,64 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Replay {session_id_short}</title>
 <style>
-* {{ box-sizing:border-box; margin:0; padding:0; }}
-body {{ font-family:"Segoe UI","Apple SD Gothic Neo",sans-serif; background:linear-gradient(180deg,#0a1020,#0c1322); color:#e7eefc; min-height:100vh; }}
-header {{ background:rgba(10,18,33,.96); border-bottom:1px solid #273755; padding:10px 16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }}
-h1 {{ font-size:1rem; color:#ffd060; }}
-.badge {{ background:#1c2943; border:1px solid #32486f; border-radius:999px; padding:3px 10px; font-size:.75rem; color:#c9d7f4; }}
-.badge.winner {{ color:#72e289; border-color:#72e289; }}
-.layout {{ display:grid; grid-template-columns:280px minmax(0,1fr) 300px; min-height:calc(100vh - 54px); }}
-.nav-panel,.players-panel {{ background:rgba(24,35,58,.96); padding:12px 10px; overflow-y:auto; }}
-.nav-panel {{ border-right:1px solid #273755; }}
-.players-panel {{ border-left:1px solid #273755; }}
-.main-panel {{ padding:14px; display:flex; flex-direction:column; gap:12px; }}
-.section,.legend-box,.player-card {{ background:rgba(24,35,58,.96); border:1px solid #273755; border-radius:14px; padding:10px; }}
-.sec-title {{ font-size:.72rem; color:#8aa5d8; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px; }}
-.round-label {{ font-size:.7rem; color:#8aa5d8; text-transform:uppercase; letter-spacing:.08em; padding:6px 4px 4px; }}
-.frame-btn {{ width:100%; text-align:left; border:1px solid transparent; background:transparent; color:#c8d7f2; border-radius:10px; padding:7px 9px; cursor:pointer; margin-bottom:4px; font-size:.78rem; }}
-.frame-btn:hover {{ background:#15233c; border-color:#294067; }}
-.frame-btn.active {{ background:#243454; border-color:#ffd060; color:#ffd060; }}
-.frame-btn small {{ display:block; color:#93a7ce; margin-top:2px; }}
-.frame-header,.progress-row,.legend-row,.stat-row,.chip-row,.controls {{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }}
-.frame-header {{ justify-content:space-between; }}
-.frame-title {{ font-size:1rem; font-weight:700; }}
-.frame-sub,.status-sub {{ color:#93a7ce; font-size:.78rem; margin-top:4px; }}
-.progress-bar,.f-bar {{ flex:1; height:8px; background:#0c1525; border-radius:999px; overflow:hidden; }}
-.progress-fill {{ height:100%; width:0; background:linear-gradient(90deg,#4e8ef7,#73d0ff); }}
-.f-fill {{ height:100%; width:0; background:linear-gradient(90deg,#4e8ef7,#f0a030); }}
-.center-grid {{ display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:12px; }}
-.board-shell {{ min-height:720px; background:linear-gradient(180deg,#10203a,#0f1830); border-radius:18px; border:1px solid #294067; padding:14px; }}
-.board-track {{ display:grid; grid-template-columns:repeat(11,minmax(0,1fr)); grid-template-rows:repeat(11,minmax(0,1fr)); gap:6px; width:100%; aspect-ratio:1; }}
-.board-center {{ grid-column:3 / span 7; grid-row:3 / span 7; border-radius:18px; border:1px solid #31507d; background:linear-gradient(180deg,rgba(17,31,52,.96),rgba(11,20,34,.96)); padding:12px; display:flex; flex-direction:column; gap:8px; }}
-.status-grid {{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }}
-.status-card {{ background:rgba(15,23,39,.86); border:1px solid #294067; border-radius:12px; padding:8px; }}
-.status-label {{ font-size:.62rem; color:#93a7ce; text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; }}
-.status-value {{ font-size:.92rem; font-weight:700; }}
-.tile {{ border:1px solid #31486e; border-radius:12px; background:linear-gradient(180deg,rgba(16,26,42,.98),rgba(11,18,30,.96)); position:relative; padding:6px; overflow:hidden; }}
-.tile.owned {{ border-width:2px; }}
-.tile.special {{ box-shadow:inset 0 0 0 1px rgba(255,255,255,.08); }}
-.tile.current-event {{ box-shadow:0 0 0 3px rgba(255,208,96,.30); }}
-.tile-number {{ color:#7e95bf; font-size:.58rem; }}
-.tile-kind {{ display:block; margin-top:2px; font-size:.88rem; font-weight:700; }}
-.tile-zone {{ margin-top:2px; font-size:.56rem; color:#89a1c9; }}
-.tile-meta {{ position:absolute; left:6px; right:6px; bottom:6px; font-size:.54rem; color:#c2d2ef; }}
-.tile-pawns {{ position:absolute; top:6px; right:6px; display:flex; gap:3px; flex-wrap:wrap; justify-content:flex-end; max-width:44px; }}
-.pawn-dot {{ width:10px; height:10px; border-radius:50%; border:1px solid rgba(255,255,255,.75); }}
-.event-feed {{ display:flex; flex-direction:column; gap:6px; min-height:80px; }}
-.event-item {{ display:grid; grid-template-columns:24px 40px 128px minmax(0,1fr); gap:8px; align-items:center; font-size:.8rem; }}
-.event-type {{ color:#8aa5d8; }}
-.player-card.active {{ border-width:2px; }}
-.player-card.dead {{ opacity:.55; }}
-.player-name {{ font-weight:700; display:flex; align-items:center; justify-content:space-between; gap:8px; }}
-.player-character {{ color:#9bb0d8; margin-top:2px; }}
-.chip,.mark {{ border-radius:999px; padding:2px 7px; font-size:.68rem; background:#0f1727; border:1px solid #355188; }}
-.mark-clear {{ background:#163321; color:#72e289; }}
-.mark-marked {{ background:#3d1920; color:#ff8f8f; }}
-.mark-immune {{ background:#1a2340; color:#87a8ff; }}
-.ctrl-btn {{ border:1px solid #355188; background:#182846; color:#e7eefc; border-radius:10px; padding:8px 10px; cursor:pointer; }}
-.ctrl-btn:disabled {{ opacity:.45; cursor:default; }}
-@media (max-width:1240px) {{ .layout {{ grid-template-columns:240px 1fr; }} .players-panel {{ grid-column:1 / span 2; border-left:none; border-top:1px solid #273755; }} .center-grid {{ grid-template-columns:1fr; }} }}
-@media (max-width:980px) {{ .layout {{ grid-template-columns:1fr; }} .nav-panel {{ border-right:none; border-bottom:1px solid #273755; max-height:240px; }} .players-panel {{ grid-column:auto; }} }}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:"Segoe UI","Apple SD Gothic Neo",sans-serif; background:linear-gradient(180deg,#0a1020,#0c1322); color:#e7eefc; min-height:100vh; }
+header { background:rgba(10,18,33,.96); border-bottom:1px solid #273755; padding:10px 16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+h1 { font-size:1rem; color:#ffd060; }
+.badge { background:#1c2943; border:1px solid #32486f; border-radius:999px; padding:3px 10px; font-size:.75rem; color:#c9d7f4; }
+.badge.winner { color:#72e289; border-color:#72e289; }
+.layout { display:grid; grid-template-columns:280px minmax(0,1fr) 300px; min-height:calc(100vh - 54px); }
+.nav-panel,.players-panel { background:rgba(24,35,58,.96); padding:12px 10px; overflow-y:auto; }
+.nav-panel { border-right:1px solid #273755; }
+.players-panel { border-left:1px solid #273755; }
+.main-panel { padding:14px; display:flex; flex-direction:column; gap:12px; }
+.section,.legend-box,.player-card { background:rgba(24,35,58,.96); border:1px solid #273755; border-radius:14px; padding:10px; }
+.sec-title { font-size:.72rem; color:#8aa5d8; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px; }
+.round-label { font-size:.7rem; color:#8aa5d8; text-transform:uppercase; letter-spacing:.08em; padding:6px 4px 4px; }
+.frame-btn { width:100%; text-align:left; border:1px solid transparent; background:transparent; color:#c8d7f2; border-radius:10px; padding:7px 9px; cursor:pointer; margin-bottom:4px; font-size:.78rem; }
+.frame-btn:hover { background:#15233c; border-color:#294067; }
+.frame-btn.active { background:#243454; border-color:#ffd060; color:#ffd060; }
+.frame-btn small { display:block; color:#93a7ce; margin-top:2px; }
+.frame-header,.progress-row,.legend-row,.stat-row,.chip-row,.controls { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.frame-header { justify-content:space-between; }
+.frame-title { font-size:1rem; font-weight:700; }
+.frame-sub,.status-sub { color:#93a7ce; font-size:.78rem; margin-top:4px; }
+.progress-bar,.f-bar { flex:1; height:8px; background:#0c1525; border-radius:999px; overflow:hidden; }
+.progress-fill { height:100%; width:0; background:linear-gradient(90deg,#4e8ef7,#73d0ff); }
+.f-fill { height:100%; width:0; background:linear-gradient(90deg,#4e8ef7,#f0a030); }
+.center-grid { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:12px; }
+.board-shell { min-height:720px; background:linear-gradient(180deg,#10203a,#0f1830); border-radius:18px; border:1px solid #294067; padding:14px; }
+.board-track { display:grid; grid-template-columns:repeat(11,minmax(0,1fr)); grid-template-rows:repeat(11,minmax(0,1fr)); gap:6px; width:100%; aspect-ratio:1; }
+.board-center { grid-column:3 / span 7; grid-row:3 / span 7; border-radius:18px; border:1px solid #31507d; background:linear-gradient(180deg,rgba(17,31,52,.96),rgba(11,20,34,.96)); padding:12px; display:flex; flex-direction:column; gap:8px; }
+.status-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.status-card { background:rgba(15,23,39,.86); border:1px solid #294067; border-radius:12px; padding:8px; }
+.status-label { font-size:.62rem; color:#93a7ce; text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; }
+.status-value { font-size:.92rem; font-weight:700; }
+.tile { border:1px solid #31486e; border-radius:12px; background:linear-gradient(180deg,rgba(16,26,42,.98),rgba(11,18,30,.96)); position:relative; padding:6px; overflow:hidden; }
+.tile.owned { border-width:2px; }
+.tile.special { box-shadow:inset 0 0 0 1px rgba(255,255,255,.08); }
+.tile.current-event { box-shadow:0 0 0 3px rgba(255,208,96,.30); }
+.tile-number { color:#7e95bf; font-size:.58rem; }
+.tile-kind { display:block; margin-top:2px; font-size:.88rem; font-weight:700; }
+.tile-zone { margin-top:2px; font-size:.56rem; color:#89a1c9; }
+.tile-meta { position:absolute; left:6px; right:6px; bottom:6px; font-size:.54rem; color:#c2d2ef; }
+.tile-pawns { position:absolute; top:6px; right:6px; display:flex; gap:3px; flex-wrap:wrap; justify-content:flex-end; max-width:44px; }
+.pawn-dot { width:10px; height:10px; border-radius:50%; border:1px solid rgba(255,255,255,.75); }
+.event-feed { display:flex; flex-direction:column; gap:6px; min-height:80px; }
+.event-item { display:grid; grid-template-columns:24px 40px 128px minmax(0,1fr); gap:8px; align-items:center; font-size:.8rem; }
+.event-type { color:#8aa5d8; }
+.player-card.active { border-width:2px; }
+.player-card.dead { opacity:.55; }
+.player-name { font-weight:700; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.player-character { color:#9bb0d8; margin-top:2px; }
+.chip,.mark { border-radius:999px; padding:2px 7px; font-size:.68rem; background:#0f1727; border:1px solid #355188; }
+.mark-clear { background:#163321; color:#72e289; }
+.mark-marked { background:#3d1920; color:#ff8f8f; }
+.mark-immune { background:#1a2340; color:#87a8ff; }
+.ctrl-btn { border:1px solid #355188; background:#182846; color:#e7eefc; border-radius:10px; padding:8px 10px; cursor:pointer; }
+.ctrl-btn:disabled { opacity:.45; cursor:default; }
+@media (max-width:1240px) { .layout { grid-template-columns:240px 1fr; } .players-panel { grid-column:1 / span 2; border-left:none; border-top:1px solid #273755; } .center-grid { grid-template-columns:1fr; } }
+@media (max-width:980px) { .layout { grid-template-columns:1fr; } .nav-panel { border-right:none; border-bottom:1px solid #273755; max-height:240px; } .players-panel { grid-column:auto; } }
 </style>
 </head>
 <body>
@@ -435,55 +435,55 @@ const PLAYER_COLORS = {player_colors_json};
 const PLAYER_LIGHTS = {player_lights_json};
 const TILE_LABELS = {tile_labels_json};
 let currentFrameIdx = 0;
-function tilePosition(i) {{ if (i <= 10) return {{row:1,col:i + 1}}; if (i <= 19) return {{row:i - 9,col:11}}; if (i <= 30) return {{row:11,col:31 - i}}; return {{row:41 - i,col:1}}; }}
-function playerColor(id) {{ return id == null ? "#9bb0d8" : PLAYER_COLORS[(id - 1) % PLAYER_COLORS.length]; }}
-function buildNav() {{
+function tilePosition(i) { if (i <= 10) return {row:1,col:i + 1}; if (i <= 19) return {row:i - 9,col:11}; if (i <= 30) return {row:11,col:31 - i}; return {row:41 - i,col:1}; }
+function playerColor(id) { return id == null ? "#9bb0d8" : PLAYER_COLORS[(id - 1) % PLAYER_COLORS.length]; }
+function buildNav() {
   const host = document.getElementById("nav-list"); host.innerHTML = ""; let lastRound = null;
-  FRAMES.forEach((frame, idx) => {{
+  FRAMES.forEach((frame, idx) => {
     const roundIndex = frame.round_index || 0;
-    if (roundIndex !== lastRound) {{ lastRound = roundIndex; const label = document.createElement("div"); label.className = "round-label"; label.textContent = roundIndex > 0 ? `Round ${roundIndex}` : "Session"; host.appendChild(label); }}
+    if (roundIndex !== lastRound) { lastRound = roundIndex; const label = document.createElement("div"); label.className = "round-label"; label.textContent = roundIndex > 0 ? `Round ${roundIndex}` : "Session"; host.appendChild(label); }
     const btn = document.createElement("button"); btn.className = "frame-btn"; btn.id = `frame-btn-${idx}`; btn.innerHTML = `${frame.nav_label}<small>${frame.event_type}</small>`; btn.onclick = () => goToFrame(idx); host.appendChild(btn);
-  }});
-}}
-function renderEventFeed(frame) {{
+  });
+}
+function renderEventFeed(frame) {
   const feed = document.getElementById("event-feed"); const items = frame.recent_events || [];
   feed.innerHTML = items.length ? items.map((event) => `<div class="event-item"><div>${event.icon}</div><div style="color:${playerColor(event.actor_id)}">${event.actor}</div><div class="event-type">${event.event_type}</div><div>${event.detail}</div></div>`).join("") : '<div class="status-sub">No visible events yet.</div>';
-}}
-function renderBoard(frame) {{
-  const track = document.getElementById("board-track"); const board = frame.board || {{}}; const tiles = board.tiles || []; const players = frame.players || []; const pawnMap = new Map();
-  players.forEach((player) => {{ if (player.alive === false) return; const pos = Number(player.position ?? 0); if (!pawnMap.has(pos)) pawnMap.set(pos, []); pawnMap.get(pos).push(player.player_id); }});
+}
+function renderBoard(frame) {
+  const track = document.getElementById("board-track"); const board = frame.board || {}; const tiles = board.tiles || []; const players = frame.players || []; const pawnMap = new Map();
+  players.forEach((player) => { if (player.alive === false) return; const pos = Number(player.position ?? 0); if (!pawnMap.has(pos)) pawnMap.set(pos, []); pawnMap.get(pos).push(player.player_id); });
   track.innerHTML = "";
   const center = document.createElement("div"); center.className = "board-center"; center.innerHTML = `<div class="status-value">${frame.title}</div><div class="status-sub">${frame.subtitle || "-"}</div><div class="status-grid"><div class="status-card"><div class="status-label">Current Event</div><div class="status-value">${frame.event.icon} ${frame.event.actor}</div><div class="status-sub">${frame.event.detail || "-"}</div></div><div class="status-card"><div class="status-label">Frame</div><div class="status-value">${frame.frame_index + 1} / ${FRAMES.length}</div><div class="status-sub">${frame.event_type}</div></div><div class="status-card"><div class="status-label">Round / Turn</div><div class="status-value">R${frame.round_index || "-"} / T${frame.turn_index || "-"}</div><div class="status-sub">Replay timeline</div></div><div class="status-card"><div class="status-label">Marker / F</div><div class="status-value">${board.marker_owner_player_id ? `P${board.marker_owner_player_id}` : "-"} / ${Number(board.f_value || 0).toFixed(2)}</div><div class="status-sub">Public board state</div></div></div>`; track.appendChild(center);
-  let highlightedTile = null; if (frame.event_type === "player_move") {{ const parts = String(frame.event.detail || "").split("->"); if (parts.length === 2) highlightedTile = Number(parts[1].trim()) - 1; }} if (frame.event_type === "tile_purchased") {{ const match = String(frame.event.detail || "").match(/tile\\s+(\\d+)/); if (match) highlightedTile = Number(match[1]) - 1; }}
-  for (let idx = 0; idx < 40; idx += 1) {{
-    const tile = tiles[idx] || {{}}; const pos = tilePosition(idx); const owner = tile.owner_player_id; const card = document.createElement("div"); card.className = "tile"; card.style.gridColumn = String(pos.col); card.style.gridRow = String(pos.row);
-    if (owner != null) {{ const ci = (owner - 1) % PLAYER_COLORS.length; card.classList.add("owned"); card.style.borderColor = PLAYER_COLORS[ci]; card.style.background = `linear-gradient(180deg, ${PLAYER_LIGHTS[ci]}, #101a2d)`; }}
+  let highlightedTile = null; if (frame.event_type === "player_move") { const parts = String(frame.event.detail || "").split("->"); if (parts.length === 2) highlightedTile = Number(parts[1].trim()) - 1; } if (frame.event_type === "tile_purchased") { const match = String(frame.event.detail || "").match(/tile\\s+(\\d+)/); if (match) highlightedTile = Number(match[1]) - 1; }
+  for (let idx = 0; idx < 40; idx += 1) {
+    const tile = tiles[idx] || {}; const pos = tilePosition(idx); const owner = tile.owner_player_id; const card = document.createElement("div"); card.className = "tile"; card.style.gridColumn = String(pos.col); card.style.gridRow = String(pos.row);
+    if (owner != null) { const ci = (owner - 1) % PLAYER_COLORS.length; card.classList.add("owned"); card.style.borderColor = PLAYER_COLORS[ci]; card.style.background = `linear-gradient(180deg, ${PLAYER_LIGHTS[ci]}, #101a2d)`; }
     if (["F1", "F2", "S"].includes(tile.tile_kind)) card.classList.add("special");
     if (highlightedTile === idx) card.classList.add("current-event");
     const pawns = pawnMap.get(idx) || []; const pawnMarkup = pawns.map((pid) => `<span class="pawn-dot" style="background:${playerColor(pid)}"></span>`).join(""); const meta = []; if (owner != null) meta.push(`P${owner}`); if (tile.rent_cost != null) meta.push(`R${tile.rent_cost}`); if ((tile.score_coin_count || 0) > 0) meta.push(`C${tile.score_coin_count}`);
     card.innerHTML = `<div class="tile-number">${idx + 1}</div><span class="tile-kind">${TILE_LABELS[tile.tile_kind] || tile.tile_kind || "?"}</span><div class="tile-zone">${tile.zone_color || "-"}</div><div class="tile-pawns">${pawnMarkup}</div><div class="tile-meta">${meta.join(" ") || "-"}</div>`; track.appendChild(card);
-  }}
-}}
-function renderPlayers(frame) {{
+  }
+}
+function renderPlayers(frame) {
   const panel = document.getElementById("players-panel"); panel.innerHTML = '<div class="sec-title">Players</div>'; const actorId = frame.acting_player_id;
-  (frame.players || []).forEach((player) => {{
+  (frame.players || []).forEach((player) => {
     const pid = player.player_id; const color = playerColor(pid); const markStatus = player.mark_status || "clear"; const tricks = (player.public_tricks || []).join(", ") || "-"; const effects = player.public_effects || []; const burdens = player.burden_summary || []; const card = document.createElement("div");
     card.className = "player-card" + (pid === actorId ? " active" : "") + (player.alive === false ? " dead" : ""); if (pid === actorId) card.style.borderColor = color;
     card.innerHTML = `<div class="player-name" style="color:${color}"><span>P${pid}</span><span>${player.alive === false ? "OUT" : `tile ${Number(player.position || 0) + 1}`}</span></div><div class="player-character">${player.character || "-"}</div><div class="status-sub">${player.display_name || `Player ${pid}`}</div><div class="stat-row" style="margin-top:6px"><span class="chip">$ ${player.cash ?? "?"}</span><span class="chip">Sh ${player.shards ?? "?"}</span><span class="chip">Hand ${player.hand_score_coins ?? "?"}</span><span class="chip">Placed ${player.placed_score_coins ?? "?"}</span><span class="chip">Tiles ${player.owned_tile_count ?? "?"}</span></div><div style="margin-top:6px"><span class="mark mark-${markStatus}">${markStatus}</span></div><div class="status-sub" style="margin-top:6px">Public tricks: ${tricks}${player.hidden_trick_count ? ` (+${player.hidden_trick_count} hidden)` : ""}</div>${player.pending_mark_source ? `<div class="status-sub">Marked by P${player.pending_mark_source}</div>` : ""}${burdens.length ? `<div class="status-sub">Burdens: ${burdens.join(", ")}</div>` : ""}${effects.length ? `<div class="chip-row" style="margin-top:6px">${effects.map((name) => `<span class="chip">${name}</span>`).join("")}</div>` : ""}`; panel.appendChild(card);
-  }});
-}}
-function renderFrame(idx) {{
+  });
+}
+function renderFrame(idx) {
   currentFrameIdx = idx; const frame = FRAMES[idx];
   document.getElementById("frame-title").textContent = frame.title; document.getElementById("frame-sub").textContent = frame.subtitle || ""; document.getElementById("frame-counter").textContent = `${idx + 1} / ${FRAMES.length}`;
   document.getElementById("legend-frame").textContent = `${idx + 1} / ${FRAMES.length}`; document.getElementById("legend-round").textContent = frame.round_index || "-"; document.getElementById("legend-turn").textContent = frame.turn_index || "-"; document.getElementById("legend-actor").textContent = frame.acting_player_id ? `P${frame.acting_player_id}` : "-"; document.getElementById("legend-type").textContent = frame.event_type; document.getElementById("legend-marker").textContent = frame.board.marker_owner_player_id ? `P${frame.board.marker_owner_player_id}` : "-"; document.getElementById("legend-f").textContent = Number(frame.board.f_value || 0).toFixed(2); document.getElementById("f-fill").style.width = `${Math.max(0, Math.min(100, (Number(frame.board.f_value || 0) / 15) * 100))}%`; document.getElementById("progress-fill").style.width = `${FRAMES.length > 1 ? (idx / (FRAMES.length - 1)) * 100 : 0}%`; document.getElementById("progress-text").textContent = `${Math.round(FRAMES.length > 1 ? (idx / (FRAMES.length - 1)) * 100 : 0)}%`;
   renderEventFeed(frame); renderBoard(frame); renderPlayers(frame);
-  document.querySelectorAll(".frame-btn").forEach((button) => button.classList.remove("active")); const active = document.getElementById(`frame-btn-${idx}`); if (active) {{ active.classList.add("active"); active.scrollIntoView({{ block: "nearest" }}); }}
+  document.querySelectorAll(".frame-btn").forEach((button) => button.classList.remove("active")); const active = document.getElementById(`frame-btn-${idx}`); if (active) { active.classList.add("active"); active.scrollIntoView({ block: "nearest" }); }
   document.getElementById("btn-first").disabled = idx === 0; document.getElementById("btn-prev").disabled = idx === 0; document.getElementById("btn-next").disabled = idx === FRAMES.length - 1; document.getElementById("btn-last").disabled = idx === FRAMES.length - 1;
-}}
-function goToFrame(idx) {{ if (idx >= 0 && idx < FRAMES.length) renderFrame(idx); }}
-function prevFrame() {{ goToFrame(currentFrameIdx - 1); }}
-function nextFrame() {{ goToFrame(currentFrameIdx + 1); }}
-document.addEventListener("keydown", (event) => {{ if (event.key === "ArrowRight" || event.key === "ArrowDown") nextFrame(); if (event.key === "ArrowLeft" || event.key === "ArrowUp") prevFrame(); if (event.key === "Home") goToFrame(0); if (event.key === "End") goToFrame(FRAMES.length - 1); }});
+}
+function goToFrame(idx) { if (idx >= 0 && idx < FRAMES.length) renderFrame(idx); }
+function prevFrame() { goToFrame(currentFrameIdx - 1); }
+function nextFrame() { goToFrame(currentFrameIdx + 1); }
+document.addEventListener("keydown", (event) => { if (event.key === "ArrowRight" || event.key === "ArrowDown") nextFrame(); if (event.key === "ArrowLeft" || event.key === "ArrowUp") prevFrame(); if (event.key === "Home") goToFrame(0); if (event.key === "End") goToFrame(FRAMES.length - 1); });
 buildNav(); if (FRAMES.length > 0) renderFrame(0);
 </script>
 </body>
@@ -519,3 +519,4 @@ def render_html(proj: ReplayProjection) -> str:
     for needle, value in replacements.items():
         html = html.replace(needle, value)
     return html
+
