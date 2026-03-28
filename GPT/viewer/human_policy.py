@@ -278,6 +278,7 @@ class HumanHttpPolicy:
                 "player_cash": player.cash,
                 "player_position": player.position,
                 "offered_count": len(options),
+                "offered_names": [opt["label"] for opt in options],
             },
             timeout_ms=int(TIMEOUT_S * 1000),
         )
@@ -328,6 +329,7 @@ class HumanHttpPolicy:
                 "player_cash": player.cash,
                 "player_position": player.position,
                 "choice_count": len(options),
+                "choice_names": [opt["label"] for opt in options],
             },
             timeout_ms=int(TIMEOUT_S * 1000),
         )
@@ -373,6 +375,7 @@ class HumanHttpPolicy:
                 "player_cash": player.cash,
                 "player_position": player.position,
                 "hand_count": len(hand),
+                "hand_names": [getattr(card, "name", str(card)) for card in hand],
             },
             can_pass=True,
             timeout_ms=int(TIMEOUT_S * 1000),
@@ -410,6 +413,10 @@ class HumanHttpPolicy:
             public_context={
                 "tile_index": pos,
                 "tile_zone": tile.zone_color,
+                "tile_kind": getattr(tile.kind, "name", None),
+                "tile_purchase_cost": tile.purchase_cost,
+                "tile_rent_cost": tile.rent_cost,
+                "tile_score_coins": tile.score_coins,
                 "cost": cost,
                 "player_cash": player.cash,
                 "source": source,
@@ -457,6 +464,7 @@ class HumanHttpPolicy:
                 "player_cash": player.cash,
                 "player_position": player.position,
                 "hand_count": len(hand),
+                "hand_names": [getattr(card, "name", str(card)) for card in hand],
             },
             can_pass=True,
             timeout_ms=int(TIMEOUT_S * 1000),

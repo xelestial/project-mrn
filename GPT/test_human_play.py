@@ -110,7 +110,13 @@ def test_play_html_renderer() -> list[str]:
         errors.append("play HTML missing Phase 5 board/prompt panels")
     if "dp-context-list" not in html:
         errors.append("play HTML missing prompt context panel")
-    for phase5_widget in ("movement-route", "reward-breakdown", "tile-choice-row", "target-pill-row"):
+    for phase5_widget in (
+        "movement-route",
+        "reward-breakdown",
+        "tile-choice-row",
+        "target-pill-row",
+        "choice-metrics",
+    ):
         if phase5_widget not in html:
             errors.append(f"play HTML missing specialized widget '{phase5_widget}'")
     if "request_type" not in html or "legal_choices" not in html or "public_context" not in html:
