@@ -34,7 +34,12 @@ Canonical references:
 - prompt envelope still drifts from the shared contract
 - plan/status documents still overstate or under-specify current `main`
 - replay/renderer compatibility still has small contract alignment gaps
-- CLAUDE substrate follow-up still references some legacy alias-era assumptions
+
+### Confirmed recently closed (CLAUDE)
+- CLAUDE substrate legacy alias expansion: closed `2026-03-29`
+- CLAUDE event payload canonical field names: closed `2026-03-29`
+- CLAUDE public-state alias cleanup: closed `2026-03-29`
+- CLAUDE validator canonical refresh: closed `2026-03-29`
 
 ## Ownership Rule
 
@@ -141,55 +146,56 @@ Primary area:
 
 ## CLAUDE Status
 
-### CLAUDE work that is effectively closed or reduced
+### CLAUDE work closed
 
 #### C-legacy-alias-expansion
-Status: `CLOSED AS PRIMARY GOAL`
-
-Reason:
-- the project should now converge toward canonical contract names, not keep expanding alias compatibility forever
-
-### CLAUDE work still open
+Status: `CLOSED`
+Closed: `2026-03-29`
 
 #### C1. Close substrate drift against the shared contract
 Priority: `P1`
-Status: `OPEN`
+Status: `DONE`
+Closed: `2026-03-29` — commit `4150096`
 
-What remains:
-- audit replay/live event emission against `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`
-- ensure authoritative field names are contract-shaped rather than branch-local convenience names
+Closed by:
+- `CLAUDE/engine.py`: `dice_roll` / `player_move` / `tile_purchased` 필드명 정규화
+- `CLAUDE/effect_handlers.py`: `rent_paid.base_amount`, `tile_purchased.purchase_source` 추가
+- `player_move.path` (이동 경로 전체) 추가
 
 #### C2. Freeze authoritative public-state naming
 Priority: `P1`
-Status: `OPEN`
+Status: `DONE`
+Closed: `2026-03-29` — commit `4150096`
 
-Canonical names should stay stable:
-- `public_tricks`
-- `mark_status`
-- `marker_owner_player_id`
-- `owned_tile_count`
-- `placed_score_coins`
+Closed by:
+- `CLAUDE/viewer/public_state.py`: `PlayerPublicState.to_dict()` / `BoardPublicState.to_dict()` 에서 모든 legacy alias 제거
+- `GPT/viewer/renderers/markdown_renderer.py`: `trick_cards_visible` fallback 제거
 
-What remains:
-- CLAUDE-side follow-up docs and validators should stop presenting legacy alias names as primary
+Frozen canonical names:
+- `public_tricks`, `mark_status`, `marker_owner_player_id`, `owned_tile_count`, `placed_score_coins`
+
+### CLAUDE work still open
 
 #### C3. Verify Phase 5 substrate completeness
 Priority: `P2`
-Status: `OPEN`
+Status: `PARTIALLY DONE`
+Updated: `2026-03-29`
 
-Need explicit confirmation for:
-- movement trace completeness
-- dice detail completeness
-- landing/rent/lap reward public event detail
-- public effect lifetime/state continuity
+완료:
+- `player_move.path`, `from_tile_index`, `to_tile_index`, `movement_source`, `crossed_start` ✅
+- `dice_roll` 전체 페이로드 정규화 ✅
+- `public_effects` 턴 리셋 정확성 확인 ✅
+
+잔존:
+- `session_start` 페이로드에 플레이어 초기 공개 정보 없음 — Phase 5 렌더러 즉시 초기화 불가
 
 #### C4. Keep renderer-neutral transport discipline
 Priority: `P2`
-Status: `OPEN`
+Status: `ASSESSED — NO VIOLATIONS`
+Reviewed: `2026-03-29`
 
-Goal:
-- maintain browser-friendly now, Unity-portable later
-- keep renderer-only view details outside the core shared contract when possible
+- `tile_kind` / `public_effects` 문자열: 이식 가능 형태 확인
+- renderer-only 필드가 core contract에 유입된 케이스 없음
 
 ## Shared Coordination Items
 
@@ -215,17 +221,19 @@ Renderer may format and visualize.
 It should not invent missing rule meaning because substrate data is incomplete.
 
 ## Recommended Execution Order Now
-1. GPT closes `G4`
-2. GPT closes `G5`
-3. CLAUDE closes `C1` and `C2`
-4. GPT closes `G6`
-5. GPT and CLAUDE begin Phase 5 UI expansion on top of the cleaned contract
+1. GPT closes `G4` — prompt envelope normalization
+2. GPT closes `G5` — plan/status docs ⚠️ (일부 완료, 세부 정렬 잔존)
+3. ~~CLAUDE closes `C1` and `C2`~~ ✅ `2026-03-29` DONE
+4. GPT closes `G6` — replay-side compatibility cleanup
+5. CLAUDE closes `C3` — `session_start` payload 보강 (Phase 5 착수 전)
+6. GPT and CLAUDE begin Phase 5 UI expansion on top of the cleaned contract
 
 ## Completion Standard
 This proposal can be treated as closed when all of the following are true:
-- human-play crash regression stays closed
-- Phase 4 tests remain trustworthy
-- prompt envelope is contract-normalized
-- plan/status docs reflect actual `main`
-- CLAUDE substrate follow-up uses canonical public-state names
-- replay/live renderer stack no longer depends on contract drift
+- human-play crash regression stays closed ✅
+- Phase 4 tests remain trustworthy ✅
+- prompt envelope is contract-normalized (GPT: G4 open)
+- plan/status docs reflect actual `main` (GPT: G5 partially done)
+- CLAUDE substrate follow-up uses canonical public-state names ✅ `2026-03-29`
+- replay/live renderer stack no longer depends on contract drift (GPT: G6 open)
+- Phase 5 substrate completeness confirmed (CLAUDE: C3 partially done)
