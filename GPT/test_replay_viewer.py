@@ -1,14 +1,4 @@
-"""Phase 2 — ReplayProjection + renderer tests.
-
-Tests:
-1. ReplayProjection correctly groups events into turns
-2. All turns have acting_player_id and round_index
-3. Turns with turn_end_snapshot have non-empty player_states and board_state
-4. key_events excludes scaffolding events
-5. markdown_renderer produces non-empty output with turn headers
-6. html_renderer produces valid HTML with embedded JSON
-7. Full round-trip: run a game → stream → projection → render (no crash)
-"""
+"""Phase 2 replay projection and renderer tests."""
 from __future__ import annotations
 
 import json
@@ -18,18 +8,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from viewer.stream import VisEventStream
-from viewer.replay import ReplayProjection, TurnReplay
-from viewer.renderers.markdown_renderer import render_markdown
 from viewer.renderers.html_renderer import render_html
+from viewer.renderers.markdown_renderer import render_markdown
+from viewer.replay import ReplayProjection, TurnReplay
+from viewer.stream import VisEventStream
 
-
-# ── Helpers ─────────────────────────────────────────────────────────────────
 
 def _run_game(seed: int) -> VisEventStream:
-    from engine import GameEngine
-    from config import DEFAULT_CONFIG
     from ai_policy import HeuristicPolicy
+    from config import DEFAULT_CONFIG
+    from engine import GameEngine
 
     stream = VisEventStream()
     policy = HeuristicPolicy(
@@ -41,8 +29,6 @@ def _run_game(seed: int) -> VisEventStream:
     return stream
 
 
-# ── Tests ────────────────────────────────────────────────────────────────────
-
 def test_projection_basic(events: list[dict]) -> list[str]:
     errors: list[str] = []
     proj = ReplayProjection.from_list(events)
@@ -50,6 +36,11 @@ def test_projection_basic(events: list[dict]) -> list[str]:
     if not proj.turns:
         errors.append("No turns produced")
         return errors
+
+    if proj.turn_count != len(proj.turns):
+        errors.append("turn_count property mismatch")
+    if proj.round_count != len(proj.rounds):
+        errors.append("round_count property mismatch")
 
     for turn in proj.turns:
         if not isinstance(turn, TurnReplay):
@@ -86,7 +77,7 @@ def test_snapshots(events: list[dict]) -> list[str]:
                     )
 
     if snapshot_count == 0:
-        errors.append("No turns have snapshots — turn_end_snapshot events may be missing")
+        errors.append("No turns have snapshots")
 
     return errors
 
@@ -94,15 +85,20 @@ def test_snapshots(events: list[dict]) -> list[str]:
 def test_key_events(events: list[dict]) -> list[str]:
     errors: list[str] = []
     proj = ReplayProjection.from_list(events)
-    SKIP = {"session_start", "round_start", "turn_start", "turn_end_snapshot",
-            "trick_window_open", "trick_window_closed"}
+    skip = {
+        "session_start",
+        "round_start",
+        "turn_start",
+        "turn_end_snapshot",
+        "trick_window_open",
+        "trick_window_closed",
+    }
 
     for turn in proj.turns:
-        for e in turn.key_events:
-            if e.get("event_type") in SKIP:
+        for event in turn.key_events:
+            if event.get("event_type") in skip:
                 errors.append(
-                    f"key_events includes scaffolding event: {e.get('event_type')} "
-                    f"at turn {turn.turn_index}"
+                    f"key_events includes scaffolding event: {event.get('event_type')} at turn {turn.turn_index}"
                 )
 
     return errors
@@ -116,15 +112,16 @@ def test_rounds(events: list[dict]) -> list[str]:
         errors.append("No rounds produced")
         return errors
 
-    for rnd in proj.rounds:
-        if rnd.round_index <= 0:
-            errors.append(f"Invalid round_index: {rnd.round_index}")
-
-    # Every turn should belong to a round
-    round_turns = {id(t) for r in proj.rounds for t in r.turns}
+    round_turns = {id(t) for rnd in proj.rounds for t in rnd.turns}
     orphans = [t for t in proj.turns if id(t) not in round_turns]
     if orphans:
         errors.append(f"{len(orphans)} turns not assigned to any round")
+
+    for rnd in proj.rounds:
+        if rnd.round_index <= 0:
+            errors.append(f"Invalid round_index: {rnd.round_index}")
+        if rnd.weather_name != rnd.weather:
+            errors.append(f"weather alias mismatch in round {rnd.round_index}")
 
     return errors
 
@@ -138,7 +135,7 @@ def test_markdown_renderer(events: list[dict]) -> list[str]:
         errors.append("markdown output is empty")
         return errors
 
-    if "# 게임 리플레이" not in md:
+    if "# GPT Visual Replay" not in md:
         errors.append("markdown missing header")
     if "## Round" not in md:
         errors.append("markdown missing round headers")
@@ -164,8 +161,8 @@ def test_html_renderer(events: list[dict]) -> list[str]:
     if "const META = " not in html:
         errors.append("HTML missing META JSON")
 
-    # Verify embedded JSON is valid
     import re
+
     turns_match = re.search(r"const TURNS = (\[.*?\]);", html, re.DOTALL)
     if turns_match:
         try:
@@ -181,24 +178,22 @@ def test_html_renderer(events: list[dict]) -> list[str]:
 
 
 def test_jsonl_roundtrip(events: list[dict]) -> list[str]:
-    """Write to JSONL, reload, check turn count matches."""
-    import tempfile, os
-    errors: list[str] = []
+    import os
+    import tempfile
 
+    errors: list[str] = []
     proj_orig = ReplayProjection.from_list(events)
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl",
-                                     encoding="utf-8", delete=False) as f:
-        for e in events:
-            f.write(json.dumps(e, ensure_ascii=False) + "\n")
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", encoding="utf-8", delete=False) as f:
+        for event in events:
+            f.write(json.dumps(event, ensure_ascii=False) + "\n")
         tmp_path = f.name
 
     try:
         proj_loaded = ReplayProjection.from_jsonl(tmp_path)
         if len(proj_loaded.turns) != len(proj_orig.turns):
             errors.append(
-                f"JSONL roundtrip turn count mismatch: "
-                f"{len(proj_orig.turns)} vs {len(proj_loaded.turns)}"
+                f"JSONL roundtrip turn count mismatch: {len(proj_orig.turns)} vs {len(proj_loaded.turns)}"
             )
     finally:
         os.unlink(tmp_path)
@@ -206,7 +201,9 @@ def test_jsonl_roundtrip(events: list[dict]) -> list[str]:
     return errors
 
 
-# ── Main ─────────────────────────────────────────────────────────────────────
+def proj_turns_preview(events: list[dict]) -> list[TurnReplay]:
+    return ReplayProjection.from_list(events).turns
+
 
 def run_suite(seed: int) -> tuple[bool, list[str]]:
     print(f"  seed={seed}: running game...", end=" ", flush=True)
@@ -230,16 +227,12 @@ def run_suite(seed: int) -> tuple[bool, list[str]]:
         if errs:
             all_errors += [f"[{name}] {e}" for e in errs]
             print(f"    FAIL {name}: {len(errs)} error(s)")
-            for e in errs:
-                print(f"      {e}")
+            for err in errs:
+                print(f"      {err}")
         else:
             print(f"    OK   {name}")
 
     return len(all_errors) == 0, all_errors
-
-
-def proj_turns_preview(events: list[dict]) -> list:
-    return ReplayProjection.from_list(events).turns
 
 
 def main() -> int:
@@ -247,16 +240,15 @@ def main() -> int:
     all_passed = True
     for seed in seeds:
         print(f"\nSeed {seed}:")
-        passed, errors = run_suite(seed)
+        passed, _errors = run_suite(seed)
         if not passed:
             all_passed = False
 
     if all_passed:
         print("\nPhase 2: ALL TESTS PASSED")
         return 0
-    else:
-        print("\nPhase 2: TESTS FAILED")
-        return 1
+    print("\nPhase 2: TESTS FAILED")
+    return 1
 
 
 if __name__ == "__main__":
