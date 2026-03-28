@@ -42,6 +42,7 @@ class PlayerPublicState:
     pending_mark_source: int | None # 1-indexed source player_id, or None
     public_effects: list[str]       # publicly visible active effects
     burden_summary: list[str]       # names of burden cards in hand
+    remaining_dice_cards: list[int] # dice card values not yet used this round
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -115,9 +116,16 @@ def build_player_public_state(player: Any, state: Any) -> PlayerPublicState:
         ("trick_same_tile_shard_rake_this_turn", "same_tile_shard_rake"),
         ("trick_personal_rent_half_this_turn", "personal_rent_half"),
         ("trick_free_purchase_this_turn", "free_purchase"),
+        ("trick_all_rent_waiver_this_turn", "all_rent_waiver"),
     ]:
         if getattr(player, attr, False):
             public_effects.append(label)
+
+    remaining_dice_cards = [
+        int(v)
+        for v in getattr(state.config.rules.dice, "values", ())
+        if int(v) not in set(getattr(player, "used_dice_cards", set()) or set())
+    ]
 
     return PlayerPublicState(
         player_id=player.player_id + 1,
@@ -138,6 +146,7 @@ def build_player_public_state(player: Any, state: Any) -> PlayerPublicState:
         pending_mark_source=pending_source,
         public_effects=public_effects,
         burden_summary=burden_cards,
+        remaining_dice_cards=remaining_dice_cards,
     )
 
 

@@ -109,8 +109,9 @@ GPT/CLAUDE 시각화 전체 코드 리뷰 후 발견된 추가 이슈.
 
 ### C6. `remaining_dice_cards` CLAUDE public_state 누락
 Priority: `P1`
-Status: `OPEN`
+Status: `DONE`
 발견: `2026-03-29`
+완료: `2026-03-29`
 
 **문제**:
 - GPT `viewer/public_state.py`의 `PlayerPublicState`에 `remaining_dice_cards: list[int]` 필드 존재
@@ -142,8 +143,9 @@ remaining_dice_cards=[
 
 ### C7. `public_effects` — `all_rent_waiver` 항목 CLAUDE에서 누락
 Priority: `P2`
-Status: `OPEN`
+Status: `DONE`
 발견: `2026-03-29`
+완료: `2026-03-29`
 
 **문제**:
 GPT `viewer/public_state.py`의 `public_effects` 매핑 (9개):
@@ -177,4 +179,4 @@ This proposal can be treated as closed when:
 - remaining critical event families are contract-audited ✅ `2026-03-29`
 - Phase 5 substrate completeness is reviewed and documented ⚠️ `session_start` gap 잔존
 
-현재 상태: **실질적으로 완료. `session_start` 보강 후 CLOSED 처리 가능.**
+현재 상태: **실질적으로 완료. `session_start` 보강(C4) 후 CLOSED 처리 가능. C6/C7 완료.**

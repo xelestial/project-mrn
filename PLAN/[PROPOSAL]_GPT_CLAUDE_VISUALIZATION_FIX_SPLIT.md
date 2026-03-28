@@ -217,8 +217,9 @@ Reviewed: `2026-03-29`
 
 #### C5. `remaining_dice_cards` CLAUDE public_state 누락
 Priority: `P1`
-Status: `OPEN`
+Status: `DONE`
 발견: `2026-03-29` — 전체 코드 리뷰
+완료: `2026-03-29`
 
 문제:
 - GPT `PlayerPublicState`에 `remaining_dice_cards` 필드 존재
@@ -234,8 +235,9 @@ Status: `OPEN`
 
 #### C6. `public_effects.all_rent_waiver` CLAUDE에서 누락
 Priority: `P2`
-Status: `OPEN`
+Status: `DONE`
 발견: `2026-03-29` — 전체 코드 리뷰
+완료: `2026-03-29`
 
 문제:
 - GPT `public_effects` 매핑에 `trick_all_rent_waiver_this_turn → "all_rent_waiver"` 존재
@@ -287,5 +289,5 @@ This proposal can be treated as closed when all of the following are true:
 - CLAUDE substrate follow-up uses canonical public-state names ✅ `2026-03-29`
 - replay/live renderer stack no longer depends on contract drift (GPT: G6 open)
 - Phase 5 substrate completeness confirmed (CLAUDE: C3 partially done)
-- `remaining_dice_cards` 동기화 (CLAUDE: C5 open, GPT: G6 연계)
-- `public_effects.all_rent_waiver` 동기화 (CLAUDE: C6 open)
+- `remaining_dice_cards` 동기화 ✅ `2026-03-29` (CLAUDE: C5 done)
+- `public_effects.all_rent_waiver` 동기화 ✅ `2026-03-29` (CLAUDE: C6 done)

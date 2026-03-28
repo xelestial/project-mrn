@@ -109,7 +109,8 @@ def validate_seed(seed: int) -> list[str]:
                 for req in ("owned_tile_count", "placed_score_coins", "public_tricks",
                             "mark_status", "player_id", "cash", "shards",
                             "position", "alive", "character",
-                            "hand_score_coins", "hidden_trick_count"):
+                            "hand_score_coins", "hidden_trick_count",
+                            "remaining_dice_cards"):
                     if req not in p0:
                         errors.append(f"turn_end_snapshot.players[0]: missing {req}")
 
