@@ -100,24 +100,18 @@ def _landing_summary(landing: dict | None) -> str:
 
 
 def _frame_nav_subtitle(event: dict, shown: dict) -> str:
-    etype = event.get("event_type")
     detail = str(shown.get("detail", "") or "").strip()
-    if etype in {"dice_roll", "player_move", "trick_used", "marker_transferred", "marker_flip", "lap_reward_chosen", "fortune_drawn", "fortune_resolved", "rent_paid", "tile_purchased", "f_value_change"}:
+    if detail:
         return detail
-    if etype == "landing_resolved":
-        return detail
+    etype = event.get("event_type")
     if etype == "turn_start":
         actor = event.get("acting_player_id")
         return f"P{actor} 행동 시작" if actor is not None else ""
     if etype == "turn_end_snapshot":
         return "턴 종료 스냅샷"
-    if etype == "weather_reveal":
-        return detail
     if etype == "round_start":
         return "새 라운드 시작"
-    if etype == "session_start":
-        return detail
-    return detail
+    return _event_type_korean(etype)
 
 
 def _event_display(event: dict) -> dict:
