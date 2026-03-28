@@ -411,7 +411,8 @@ h1 { font-size:1rem; color:#ffd060; }
 .tile-number { color:#f4f8ff; font-size:.58rem; font-weight:700; }
 .tile-kind { display:block; margin-top:1px; font-size:.82rem; font-weight:700; line-height:1; }
 .tile-center-label { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:16px 8px 14px; font-size:1rem; font-weight:800; color:#f4f8ff; text-align:center; pointer-events:none; }
-.tile-s-fortune .tile-center-label { font-size:1.02rem; letter-spacing:.02em; }
+.tile-s-fortune .tile-center-label,
+.tile-finish .tile-center-label { font-size:1.02rem; letter-spacing:.02em; }
 .tile-zone { margin-top:1px; font-size:.5rem; color:#89a1c9; }
 .tile-meta { position:absolute; left:5px; right:5px; bottom:4px; font-size:.48rem; color:#c2d2ef; }
 .tile-pawns { position:absolute; top:4px; right:4px; display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; max-width:64px; }
@@ -520,10 +521,13 @@ function renderBoard(frame) {
       .join("");
     const meta = []; if (owner != null) meta.push(`P${owner}`); if (tile.rent_cost != null) meta.push(`R${tile.rent_cost}`); if ((tile.score_coin_count || 0) > 0) meta.push(`C${tile.score_coin_count}`);
     const isFortune = tile.tile_kind === "S";
+    const isFinish = tile.tile_kind === "F1" || tile.tile_kind === "F2";
     if (isFortune) card.classList.add("tile-s-fortune");
-    const centerLabel = isFortune ? `<div class="tile-center-label">운수</div>` : "";
-    const zoneMarkup = isFortune ? "" : `<div class="tile-zone">${tile.zone_color || "-"}</div>`;
-    const metaMarkup = isFortune ? "" : `<div class="tile-meta">${meta.join(" ") || "-"}</div>`;
+    if (isFinish) card.classList.add("tile-finish");
+    const centerText = isFortune ? "운수" : tile.tile_kind === "F1" ? "종료 - 1" : tile.tile_kind === "F2" ? "종료 - 2" : "";
+    const centerLabel = centerText ? `<div class="tile-center-label">${centerText}</div>` : "";
+    const zoneMarkup = (isFortune || isFinish) ? "" : `<div class="tile-zone">${tile.zone_color || "-"}</div>`;
+    const metaMarkup = (isFortune || isFinish) ? "" : `<div class="tile-meta">${meta.join(" ") || "-"}</div>`;
     card.innerHTML = `<div class="tile-number">${idx + 1}</div>${centerLabel}${zoneMarkup}<div class="tile-pawns">${pawnMarkup}</div>${metaMarkup}`; track.appendChild(card);
   }
 }
