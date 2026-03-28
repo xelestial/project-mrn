@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 import inspect
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Optional
@@ -18,6 +19,9 @@ from event_system import EventDispatcher
 from effect_handlers import EngineEffectHandlers
 from policy_hooks import PolicyDecisionLogHook
 from rule_script_engine import RuleScriptEngine
+from viewer.events import VisEvent, Phase
+from viewer.stream import VisEventStream
+from viewer.public_state import build_player_public_state, build_board_public_state, build_turn_end_snapshot
 
 
 @dataclass(slots=True)
@@ -38,7 +42,7 @@ class GameResult:
 
 
 class GameEngine:
-    def __init__(self, config: GameConfig, policy: BasePolicy, rng: random.Random | None = None, enable_logging: bool = False):
+    def __init__(self, config: GameConfig, policy: BasePolicy, rng: random.Random | None = None, enable_logging: bool = False, event_stream: VisEventStream | None = None):
         self.config = config
         self.policy = policy
         self.rng = rng or random.Random()
@@ -52,6 +56,9 @@ class GameEngine:
         self._last_payment_attempt_by_player: dict[int, dict] = {}
         self._player_bankruptcy_info: dict[int, dict] = {}
         self._last_semantic_event_name: str | None = None
+        self._vis_stream: VisEventStream | None = event_stream
+        self._vis_step: int = 0
+        self._vis_session_id: str = ""
         self.events = EventDispatcher()
         self.events.set_trace_hook(self._trace_semantic_event)
         self.rule_scripts = RuleScriptEngine(self, getattr(config, "rule_scripts_path", None))
@@ -87,6 +94,8 @@ class GameEngine:
             }
             for _ in range(self.config.player_count)
         ]
+        self._vis_step = 0
+        self._vis_session_id = str(uuid.uuid4())
         state = GameState.create(self.config)
         self._initialize_active_faces(state)
         self.rng.shuffle(state.fortune_draw_pile)
@@ -101,6 +110,8 @@ class GameEngine:
                 for p in state.players
             ],
         })
+        self._emit_vis("session_start", Phase.SESSION_START, None, state,
+                       player_count=self.config.player_count)
         self._start_new_round(state, initial=True)
 
         while True:
@@ -115,11 +126,32 @@ class GameEngine:
             if state.turn_index % max(1, len(state.current_round_order)) == 0:
                 state.rounds_completed += 1
                 self._start_new_round(state, initial=False)
-        return self._build_result(state)
+        result = self._build_result(state)
+        self._emit_vis("game_end", Phase.GAME_END, None, state,
+                       winner_ids=[w + 1 for w in result.winner_ids],
+                       end_reason=result.end_reason,
+                       total_turns=result.total_turns,
+                       snapshot=build_turn_end_snapshot(state))
+        return result
 
     def _log(self, row: dict) -> None:
         if self.enable_logging:
             self._action_log.append(row)
+
+    def _emit_vis(self, event_type: str, public_phase: str, acting_player_id: int | None, state: GameState, **payload) -> None:
+        if self._vis_stream is None:
+            return
+        self._vis_stream.append(VisEvent(
+            event_type=event_type,
+            session_id=self._vis_session_id,
+            round_index=state.rounds_completed + 1,
+            turn_index=state.turn_index + 1,
+            step_index=self._vis_step,
+            acting_player_id=acting_player_id,
+            public_phase=public_phase,
+            payload=dict(payload),
+        ))
+        self._vis_step += 1
 
     def _trace_semantic_event(self, event_name: str, args: tuple, kwargs: dict, results: list, mode: str) -> None:
         self._last_semantic_event_name = event_name
@@ -393,8 +425,12 @@ class GameEngine:
         state.current_weather = None
         state.current_weather_effects = set()
         self._resolve_marker_flip(state)
+        self._emit_vis("round_start", Phase.WEATHER, None, state)
         self._run_draft(state)
         self._apply_round_weather(state)
+        self._emit_vis("weather_reveal", Phase.WEATHER, None, state,
+                       weather=state.current_weather.name if state.current_weather else None,
+                       effects=list(state.current_weather_effects))
         alive = [p for p in state.players if p.alive]
         alive.sort(key=lambda p: (CHARACTERS[p.current_character].priority, p.player_id))
         state.current_round_order = [p.player_id for p in alive]
@@ -445,6 +481,7 @@ class GameEngine:
                 state.players[pid].drafted_cards.append(pick)
                 draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
                 self._log({"event": "draft_pick", "phase": 1, "player": pid + 1, "picked_card": pick, "decision": draft_debug})
+                self._emit_vis("draft_pick", Phase.DRAFT, pid + 1, state, draft_phase=1, picked_card=pick)
                 pool.remove(pick)
 
             second_pool = list(reserve_pool) + list(pool)
@@ -453,6 +490,7 @@ class GameEngine:
             state.players[last_pid].drafted_cards.append(pick)
             draft_debug = self.policy.pop_debug("draft_card", last_pid) if hasattr(self.policy, "pop_debug") else None
             self._log({"event": "draft_pick", "phase": 2, "player": last_pid + 1, "picked_card": pick, "decision": draft_debug})
+            self._emit_vis("draft_pick", Phase.DRAFT, last_pid + 1, state, draft_phase=2, picked_card=pick)
             second_pool.remove(pick)
 
             for pid in reverse[1:]:
@@ -460,6 +498,7 @@ class GameEngine:
                 state.players[pid].drafted_cards.append(pick)
                 draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
                 self._log({"event": "draft_pick", "phase": 2, "player": pid + 1, "picked_card": pick, "decision": draft_debug})
+                self._emit_vis("draft_pick", Phase.DRAFT, pid + 1, state, draft_phase=2, picked_card=pick)
                 second_pool.remove(pick)
 
         else:
@@ -477,6 +516,7 @@ class GameEngine:
                 state.players[pid].drafted_cards.append(pick)
                 draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
                 self._log({"event": "draft_pick", "phase": 1, "player": pid + 1, "picked_card": pick, "decision": draft_debug})
+                self._emit_vis("draft_pick", Phase.DRAFT, pid + 1, state, draft_phase=1, picked_card=pick)
                 pool.remove(pick)
 
             pool = list(second_pool)
@@ -485,6 +525,7 @@ class GameEngine:
                 state.players[pid].drafted_cards.append(pick)
                 draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
                 self._log({"event": "draft_pick", "phase": 2, "player": pid + 1, "picked_card": pick, "decision": draft_debug})
+                self._emit_vis("draft_pick", Phase.DRAFT, pid + 1, state, draft_phase=2, picked_card=pick)
                 pool.remove(pick)
 
         for p in state.players:
@@ -503,6 +544,8 @@ class GameEngine:
             self._strategy_stats[p.player_id]["draft_cards"] = list(p.drafted_cards)
             self._strategy_stats[p.player_id]["character_policy_mode"] = (self.policy.character_mode_for_player(p.player_id) if hasattr(self.policy, "character_mode_for_player") else getattr(self.policy, "character_policy_mode", ""))
             self._log({"event": "final_character_choice", "player": p.player_id + 1, "character": chosen, "decision": final_debug})
+            self._emit_vis("final_character_choice", Phase.CHARACTER_SELECT, p.player_id + 1, state,
+                           character=chosen, drafted_cards=list(p.drafted_cards))
 
     def _take_turn(self, state: GameState, player: PlayerState) -> None:
         start_log = {"event": "turn_start", "player": player.player_id + 1, "character": player.current_character}
@@ -511,6 +554,8 @@ class GameEngine:
         if player.skipped_turn:
             player.skipped_turn = False
             self._log({**start_log, "skipped": True})
+            self._emit_vis("turn_start", Phase.TURN_START, player.player_id + 1, state,
+                           character=player.current_character, skipped=True)
             self._apply_marker_management(state, player)
             return
         self._resolve_pending_marks(state, player)
@@ -521,11 +566,25 @@ class GameEngine:
         self._apply_character_start(state, player)
         if not player.alive:
             return
+        self._emit_vis("turn_start", Phase.TURN_START, player.player_id + 1, state,
+                       character=player.current_character, position=player.position)
+        self._emit_vis("trick_window_open", Phase.TRICK_WINDOW, player.player_id + 1, state,
+                       hand_size=len(player.trick_hand),
+                       public_tricks=player.public_trick_names(),
+                       hidden_trick_count=player.hidden_trick_count())
         self._use_trick_phase(state, player)
+        self._emit_vis("trick_window_closed", Phase.TRICK_WINDOW, player.player_id + 1, state,
+                       public_tricks=player.public_trick_names(),
+                       hidden_trick_count=player.hidden_trick_count())
         if not player.alive:
             return
         decision = self.policy.choose_movement(state, player)
         move, movement_meta = self._resolve_move(state, player, decision)
+        self._emit_vis("dice_roll", Phase.MOVEMENT, player.player_id + 1, state,
+                       dice=movement_meta.get("dice", []),
+                       used_cards=movement_meta.get("used_cards", []),
+                       formula=movement_meta.get("formula", ""),
+                       move=move)
         if len(self._strategy_stats) <= player.player_id:
             self._strategy_stats = [
                 {
@@ -562,6 +621,8 @@ class GameEngine:
             player.control_finisher_turns = max(0, finisher_before - 1)
             if player.control_finisher_turns == 0:
                 player.control_finisher_reason = ""
+        self._emit_vis("turn_end_snapshot", Phase.TURN_END, player.player_id + 1, state,
+                       snapshot=build_turn_end_snapshot(state))
 
 
     def _player_lap_mode(self, player: PlayerState) -> str:
@@ -1032,6 +1093,8 @@ class GameEngine:
         if extra:
             payload.update(extra)
         self._log(payload)
+        self._emit_vis("f_value_change", Phase.ECONOMY, actor_pid + 1 if actor_pid is not None else None, state,
+                       before=prev, delta=applied_delta, after=state.f_value, reason=reason)
         self._handle_supply_thresholds(state, prev)
 
     def _buy_one_adjacent_same_block(self, state: GameState, player: PlayerState, pos: int) -> int | None:
@@ -1329,6 +1392,13 @@ class GameEngine:
         if len(chain_segments) > 1:
             log_row["chain_segments"] = chain_segments
         self._log(log_row)
+        laps_gained = sum(seg["laps_gained"] for seg in chain_segments)
+        self._emit_vis("player_move", Phase.MOVEMENT, player.player_id + 1, state,
+                       from_tile=old_pos,
+                       to_tile=player.position,
+                       move=total_move,
+                       crossed_start=laps_gained > 0,
+                       formula=movement_meta.get("formula", ""))
 
     def _apply_geo_bonus(self, player: PlayerState, choice: str) -> dict:
         if choice == "cash":
@@ -2013,6 +2083,8 @@ class GameEngine:
         return result
 
     def _bankrupt(self, state: GameState, player: PlayerState) -> None:
+        self._emit_vis("bankruptcy", Phase.ECONOMY, player.player_id + 1, state,
+                       player_state=build_player_public_state(player, state).to_dict())
         self.events.emit_first_non_none("bankruptcy.resolve", state, player)
 
     def _apply_marker_management(self, state: GameState, player: PlayerState) -> None:
