@@ -12,6 +12,7 @@ from characters import CARD_TO_NAMES, CHARACTERS
 from config import DEFAULT_CONFIG, CellKind
 from engine import GameEngine, GameResult
 from metadata import GAME_VERSION
+from policy.factory import PolicyFactory
 from state import GameState, PlayerState
 from text_encoding import configure_utf8_io
 from trick_cards import TrickCard
@@ -207,12 +208,12 @@ class HumanPolicy(BasePolicy):
         self.human_players = set(human_players)
         self.rng = rng or random.Random()
         self.engine = engine
-        if ai_mode == "arena":
-            self.ai_policy = ArenaPolicy(rng=self.rng)
-            self._ai_mode = "arena"
-        else:
-            self.ai_policy = HeuristicPolicy(character_policy_mode=ai_mode, lap_policy_mode="heuristic_v1", rng=self.rng)
-            self._ai_mode = ai_mode
+        self.ai_policy = PolicyFactory.create_runtime_policy(
+            policy_mode=ai_mode,
+            lap_policy_mode="heuristic_v1",
+            rng=self.rng,
+        )
+        self._ai_mode = ai_mode
 
     def set_engine(self, engine: CLIDebugGameEngine) -> None:
         self.engine = engine

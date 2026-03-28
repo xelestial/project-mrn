@@ -90,6 +90,10 @@ That prevents easy recomposition into:
 Decision tracing hooks are attached at the base policy layer, but the structure of debug payloads is still implementation-specific.
 That makes simulation summaries reusable, but fine-grained decision analytics are not yet a stable inter-agent contract.
 
+### 5. No intent continuity
+The policy evaluates the current state repeatedly, but it does not keep a stable per-player plan.
+As a result, one turn can optimize for expansion, the next for survival, and the next for lap value without any explicit transition rule.
+
 ## Target API Layers
 
 ### Layer A. Engine Policy Contract
@@ -157,7 +161,42 @@ Rule:
 Immediate GPT opportunity:
 - promote the new cleanup-aware strategy context into a reusable typed field group within future `policy/context`
 
-### Layer E. Decision Module Contract
+### Layer E. Intent Memory Contract
+The current GPT runtime remembers board state through `GameState`, but it does not remember policy intent in a structured way.
+
+That causes:
+- inconsistent use of character strengths
+- local trick usage that ignores why a character was chosen
+- movement and lap decisions that fail to follow through on the prior turn's plan
+
+Target artifacts:
+- `PlayerIntentState`
+- `TurnPlanContext`
+- `PlanTransitionReason`
+
+Required rule:
+- each player can keep a lightweight current plan inside the policy runtime
+- plan state must be readable by all `choose_*` methods for that player
+- plan state must not require engine-side ownership
+
+Recommended fields:
+- `plan_key`
+- `locked_target_character`
+- `locked_block_id`
+- `resource_intent`
+- `plan_confidence`
+- `expires_after_round`
+
+Recommended initial plan keys:
+- `lap_engine`
+- `survival_recovery`
+- `controller_disrupt`
+- `land_grab`
+- `leader_denial`
+
+This is the main missing contract if we want GPT or Claude policies to feel like one consistent pilot instead of one-off local heuristics.
+
+### Layer F. Decision Module Contract
 Each decision axis should be isolatable and testable.
 
 Target modules:
@@ -179,7 +218,7 @@ decision.choose(state, player, ctx, profile, helpers) -> Decision
 
 This keeps wrappers stable even if internals evolve.
 
-### Layer F. Analytics Contract
+### Layer G. Analytics Contract
 Logs and summaries should treat agents and policies as first-class identifiers.
 
 Recommended additions:
@@ -288,8 +327,10 @@ Mitigation:
 1. Build a `choose_*` compatibility checklist for GPT vs Claude wrapper expectations.
 2. Add a small metadata surface to GPT policy objects for `agent_id/profile_key`.
 3. Extract the cleanup-aware strategy context into a more explicit shared API shape under future `policy/context`.
-4. Plan summary/log field additions for multi-agent battle compatibility.
-5. Replace direct cross-repo wrapper imports with a runtime loader that isolates policy-local modules while reusing shared engine-contract modules.
+4. Add `PlayerIntentState` and `TurnPlanContext` as policy-internal API objects.
+5. Route high-value decisions through plan-aware helpers before broader asset extraction.
+6. Plan summary/log field additions for multi-agent battle compatibility.
+7. Replace direct cross-repo wrapper imports with a runtime loader that isolates policy-local modules while reusing shared engine-contract modules.
 
 ## Working Rule
 If a refactor does not make it easier to:
