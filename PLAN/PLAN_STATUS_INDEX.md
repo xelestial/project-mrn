@@ -58,6 +58,9 @@ Practical implications:
   - current document-maintenance gap is now mostly:
     - shared-contract synchronization with implemented replay/live fields
     - Phase 5 progress tracking
+  - current explicit work split is:
+    - GPT: upper runtime, prompt flow, replay/live renderer polish, Phase 5 user-facing UI growth
+    - CLAUDE: lower substrate verification, canonical contract stability, validator maintenance, Phase 5 payload completeness review
 
 ### 2. Turn Advantage Analysis
 - File: `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md`
@@ -194,11 +197,32 @@ When deciding what to follow next:
    - canonical public-state/event naming convergence
    - validator refresh toward the shared contract
    - substrate completeness review for Phase 5
+   - lower-layer portability discipline for future non-HTML clients
 5. Use `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md` only for GPT-side analysis tooling.
 6. Use completed documents only as implementation history or rationale.
 7. Use `PLAN/VISUALIZATION_GAME_PLAN.md` as the lower-layer substrate reference for visual runtime work.
 8. Use `PLAN/[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md` as a technical-choice proposal, not as the active product plan.
 9. Use Claude documents as reference for shared contracts, not as the active GPT task list.
+
+## Current Claude Direction
+
+When reading `PLAN/` from `main`, treat CLAUDE work as:
+- lower-layer visualization substrate work
+- not upper-layer viewer product work
+
+More concretely, the current intended CLAUDE direction is:
+- verify replay/live/public-state payload completeness for Phase 5 consumers
+- keep canonical contract names stable and validated
+- avoid reintroducing broad alias-expansion as the default strategy
+- avoid absorbing GPT-owned runtime/view responsibilities into substrate documents
+
+If a new Claude-side task is proposed, it should usually fit one of these buckets:
+- event/state contract verification
+- validator update
+- public-state completeness audit
+- substrate portability review
+
+If it does not, it should probably be tracked in the GPT-owned top-level runtime plan instead.
 
 ## Cleanup Decisions
 

@@ -30,6 +30,16 @@ Current CLAUDE-owned follow-up:
 - converge validators and substrate naming on canonical shared-contract fields
 - confirm Phase 5 substrate completeness for renderer consumption
 
+Current CLAUDE direction in practice:
+- do not reopen broad alias-expansion work
+- do not redesign the GPT-owned session/runtime/view layer
+- stay focused on lower-layer substrate verification and contract fidelity
+- treat remaining CLAUDE work as:
+  - renderer-facing payload completeness review
+  - validator maintenance against canonical contract names
+  - event/public-state stability for future Phase 5 UI growth
+  - portability discipline for non-HTML future clients such as Unity
+
 ## Goal
 Turn the current CLI simulator into a visual game runtime that supports:
 
@@ -71,6 +81,19 @@ Important rule:
 - replay mode and live mode must share the same projection and rendering contracts
 - do not build a throwaway replay parser that cannot grow into live play
 
+Responsibility split:
+- GPT owns upper runtime and user-facing behavior:
+  - session runtime
+  - prompt adapter
+  - projection
+  - replay/live renderer behavior
+  - browser human-play flow
+- CLAUDE owns lower visualization substrate behavior:
+  - event emission fidelity
+  - public-state shape stability
+  - validator convergence
+  - substrate completeness review before richer Phase 5 UI expectations are assumed
+
 ## Why A New Plan Is Needed
 The earlier replay plan was good for "online-style replay".
 The new requirement is bigger:
@@ -84,6 +107,28 @@ The new requirement is bigger:
   - reusable policy/runtime adapters
 
 So this plan treats replay as Phase 1 of the playable visual runtime, not as an isolated tool.
+
+## Current CLAUDE Work Direction
+
+This section is intentionally explicit so branch-local Claude work does not drift into GPT-owned areas.
+
+### What CLAUDE should actively do now
+- verify that the substrate still provides the public fields Phase 5 renderers depend on
+- verify that canonical field names stay stable across replay/live/snapshot paths
+- keep validator coverage aligned with the shared contract
+- raise missing payload gaps before GPT viewer work starts depending on them
+
+### What CLAUDE should not reopen
+- broad alias-preservation as a long-term strategy
+- viewer wording/layout polish
+- upper runtime/session architecture that already lives in GPT-owned code
+- ad-hoc renderer-specific transport fields that bypass the shared contract
+
+### Current expected output from CLAUDE
+- confirmation that substrate fields remain sufficient for Phase 5 UI growth
+- targeted contract-gap reports when a renderer-facing field is missing
+- validator updates when canonical event/state shapes change
+- no-op confirmation when no substrate gap is found
 
 ## Current State Assessment
 
