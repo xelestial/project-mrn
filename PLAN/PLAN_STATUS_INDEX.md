@@ -59,6 +59,14 @@ Practical implications:
   - not a blocker for shared runtime architecture
   - should not be treated as the main visual runtime plan
 
+### 3. GPT Decision Pipeline Node Plan
+- File: `PLAN/GPT_DECISION_PIPELINE_NODE_PLAN.md`
+- Status: `ACTIVE`
+- Role: active plan for converting GPT AI decisions into node/pipeline form
+- Notes:
+  - intended to make AI decisions explainable and reusable
+  - first implementation explicitly excludes trick pipelines until manual audit
+
 ## Completed Milestone Records
 
 These documents should be kept as implementation records, not deleted.
@@ -74,6 +82,17 @@ They are no longer the active source of truth for future planning.
 - `PLAN/[COMPLETE]_GPT_TURN_ADVANTAGE_ANALYSIS_PHASE1.md`
 - `PLAN/[COMPLETE]_MULTI_AGENT_DISPATCH_IMPL.md`
 - `PLAN/[COMPLETE]_CLAUDE_MULTI_AGENT_BATTLE_PLAN.md`
+
+## Analysis Records
+
+### Engine Dependency Review
+- File: `PLAN/[ANALYSIS]_CLAUDE_ENGINE_DEPENDENCY_REVIEW.md`
+- Status: `ANALYSIS`
+- Role: AI 전략 판단 제외 엔진/게임 구조 의존성 현황 검토
+- Notes:
+  - 결론: 대규모 리팩터링 불필요
+  - 유일한 선택적 개선 항목: `BasePolicy Protocol` (base_policy.py 추가)
+  - 시각화 Phase 1-S 진입 전 참고 자료
 
 ## Reference Plans
 
@@ -165,6 +184,7 @@ When deciding what to follow next:
 - keep `[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md`
 - keep `GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md`
 - keep `GPT_ONLINE_STYLE_REPLAY_VISUALIZATION_PLAN.md`
+- keep `GPT_DECISION_PIPELINE_NODE_PLAN.md`
 
 ### Do Not Use As Primary Drivers
 - `[SUPERSEDED]_GPT_ARCHITECTURE_REVIEW_AND_IMPROVEMENTS.md`
