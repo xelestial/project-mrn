@@ -127,9 +127,12 @@ class GameEngine:
                 state.rounds_completed += 1
                 self._start_new_round(state, initial=False)
         result = self._build_result(state)
+        _winner_ids_vis = [w + 1 for w in result.winner_ids]
         self._emit_vis("game_end", Phase.GAME_END, None, state,
-                       winner_ids=[w + 1 for w in result.winner_ids],
+                       winner_ids=_winner_ids_vis,
+                       winner_player_id=_winner_ids_vis[0] if _winner_ids_vis else None,
                        end_reason=result.end_reason,
+                       reason=result.end_reason,
                        total_turns=result.total_turns,
                        snapshot=build_turn_end_snapshot(state))
         return result
@@ -430,8 +433,10 @@ class GameEngine:
         self._emit_vis("round_start", Phase.WEATHER, None, state)
         self._run_draft(state)
         self._apply_round_weather(state)
+        _weather_name_vis = state.current_weather.name if state.current_weather else None
         self._emit_vis("weather_reveal", Phase.WEATHER, None, state,
-                       weather=state.current_weather.name if state.current_weather else None,
+                       weather=_weather_name_vis,
+                       weather_name=_weather_name_vis,
                        effects=list(state.current_weather_effects))
         alive = [p for p in state.players if p.alive]
         alive.sort(key=lambda p: (CHARACTERS[p.current_character].priority, p.player_id))
@@ -691,25 +696,36 @@ class GameEngine:
                 continue
             etype = eff["type"]
             source = state.players[eff["source_pid"]]
+            _tgt_pid_vis = player.player_id + 1
+            _src_pid_vis = source.player_id + 1
             if etype == "bandit_tax":
                 amount = source.shards
                 outcome = self._pay_or_bankrupt(state, player, amount, source.player_id)
                 self._strategy_stats[source.player_id]["shard_income_cash"] += amount if outcome.get("paid") else 0
                 self._log({"event": "bandit_tax", "source_player": source.player_id + 1, "target_player": player.player_id + 1, "amount": amount, **outcome})
-                self._emit_vis("mark_resolved", Phase.MARK, player.player_id + 1, state,
-                               source_player_id=source.player_id + 1, effect_type=etype, paid=outcome.get("paid", False))
+                self._emit_vis("mark_resolved", Phase.MARK, _tgt_pid_vis, state,
+                               source_player_id=_src_pid_vis, source=_src_pid_vis,
+                               target_player_id=_tgt_pid_vis, target=_tgt_pid_vis,
+                               effect_type=etype, paid=outcome.get("paid", False),
+                               success=outcome.get("paid", False))
             elif etype == "hunter_pull":
                 self._apply_forced_landing(state, player, eff["source_pos"])
-                self._emit_vis("mark_resolved", Phase.MARK, player.player_id + 1, state,
-                               source_player_id=source.player_id + 1, effect_type=etype)
+                self._emit_vis("mark_resolved", Phase.MARK, _tgt_pid_vis, state,
+                               source_player_id=_src_pid_vis, source=_src_pid_vis,
+                               target_player_id=_tgt_pid_vis, target=_tgt_pid_vis,
+                               effect_type=etype, success=True)
             elif etype == "baksu_transfer":
                 self._resolve_baksu_transfer(state, source, player)
-                self._emit_vis("mark_resolved", Phase.MARK, player.player_id + 1, state,
-                               source_player_id=source.player_id + 1, effect_type=etype)
+                self._emit_vis("mark_resolved", Phase.MARK, _tgt_pid_vis, state,
+                               source_player_id=_src_pid_vis, source=_src_pid_vis,
+                               target_player_id=_tgt_pid_vis, target=_tgt_pid_vis,
+                               effect_type=etype, success=True)
             elif etype == "manshin_remove_burdens":
                 self._resolve_manshin_remove_burdens(state, source, player)
-                self._emit_vis("mark_resolved", Phase.MARK, player.player_id + 1, state,
-                               source_player_id=source.player_id + 1, effect_type=etype)
+                self._emit_vis("mark_resolved", Phase.MARK, _tgt_pid_vis, state,
+                               source_player_id=_src_pid_vis, source=_src_pid_vis,
+                               target_player_id=_tgt_pid_vis, target=_tgt_pid_vis,
+                               effect_type=etype, success=True)
             else:
                 remaining.append(eff)
             if not player.alive:
@@ -1408,11 +1424,12 @@ class GameEngine:
             log_row["chain_segments"] = chain_segments
         self._log(log_row)
         laps_gained = sum(seg["laps_gained"] for seg in chain_segments)
+        _lapped_vis = laps_gained > 0
         self._emit_vis("player_move", Phase.MOVEMENT, player.player_id + 1, state,
-                       from_tile=old_pos,
-                       to_tile=player.position,
+                       from_tile=old_pos, from_pos=old_pos,
+                       to_tile=player.position, to_pos=player.position,
                        move=total_move,
-                       crossed_start=laps_gained > 0,
+                       crossed_start=_lapped_vis, lapped=_lapped_vis,
                        formula=movement_meta.get("formula", ""))
 
     def _apply_geo_bonus(self, player: PlayerState, choice: str) -> dict:
