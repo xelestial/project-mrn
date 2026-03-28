@@ -16,7 +16,7 @@ def render_play_html(
     html = html.replace("__SESSION_ID__", escape(session_id or "..."))
     html = html.replace("__SEED__", str(seed))
     html = html.replace("__HUMAN_SEAT__", str(human_seat))
-    html = html.replace("__HUMAN_SEAT_LABEL__", escape(", ".join(f"P{seat}" for seat in seats)))
+    html = html.replace("__HUMAN_SEAT_LABEL__", escape(", ".join(f"P{seat + 1}" for seat in seats)))
     html = html.replace("__HUMAN_SEAT_JS__", str(human_seat + 1))
     html = html.replace("__HUMAN_SEATS_JS__", "[" + ",".join(str(seat + 1) for seat in seats) + "]")
     html = html.replace("__POLL_INTERVAL_MS__", str(poll_interval_ms))

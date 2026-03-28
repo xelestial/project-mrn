@@ -4,8 +4,8 @@ Runs a game with one or more human-controlled player seats. The human makes
 decisions through a browser UI that polls the local HTTP server.
 
 Usage:
-    python run_human_play.py                          # human=P0, seed=42, port=8765
-    python run_human_play.py --human-seat 1          # control P1 instead
+    python run_human_play.py                          # human=P1, seed=42, port=8765
+    python run_human_play.py --human-seat 1          # control internal seat 1 (P2)
     python run_human_play.py --human-seats 0,1,2,3  # control up to four human seats
     python run_human_play.py --seed 137              # different seed
     python run_human_play.py --turn-delay 0.2        # slower AI turns
@@ -78,8 +78,9 @@ def main(argv: list[str] | None = None) -> int:
 
     url = f"http://127.0.0.1:{args.port}/play"
     print(f"Human Play: {url}")
-    print(f"Seed: {args.seed}  human_seats: {', '.join(f'P{seat}' for seat in human_seats)}  port: {args.port}")
-    print("You control {} - watch the Decision Panel for prompts.".format(", ".join(f"P{seat}" for seat in human_seats)))
+    public_seats = ", ".join(f"P{seat + 1}" for seat in human_seats)
+    print(f"Seed: {args.seed}  human_seats: {public_seats}  port: {args.port}")
+    print(f"You control {public_seats} - watch the Decision Panel for prompts.")
     print("Press Ctrl-C to stop.")
 
     if not args.no_browser:
