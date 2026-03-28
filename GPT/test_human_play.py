@@ -110,6 +110,9 @@ def test_play_html_renderer() -> list[str]:
         errors.append("play HTML missing Phase 5 board/prompt panels")
     if "dp-context-list" not in html:
         errors.append("play HTML missing prompt context panel")
+    for flow_marker in ("phase-strip", "legend-phase", "move-trail", "move-from"):
+        if flow_marker not in html:
+            errors.append(f"play HTML missing flow marker '{flow_marker}'")
     for phase5_widget in (
         "movement-route",
         "reward-breakdown",
