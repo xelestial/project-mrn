@@ -369,8 +369,9 @@ class EngineEffectHandlers:
         stats["lap_coin_choices"] += 1 if granted_coins > 0 else 0
         stats["shards_gained_lap"] += total_shards
         choice = decision.choice if decision.choice != "blocked" else "blocked"
+        _lap_amount_vis = granted_cash + total_shards + granted_coins
         engine._emit_vis("lap_reward_chosen", Phase.LAP_REWARD, player.player_id + 1, state,
-                         choice=choice,
+                         choice=choice, amount=_lap_amount_vis,
                          cash_delta=granted_cash, shards_delta=total_shards, coins_delta=granted_coins)
         return {
             "choice": choice,
@@ -631,7 +632,9 @@ class EngineEffectHandlers:
         event = {'type': 'RENT', 'tile_kind': state.board[pos].name, 'owner': owner + 1, 'rent': rent, **outcome}
         engine._emit_vis("rent_paid", Phase.LANDING, player.player_id + 1, state,
                          tile_index=pos, tile_kind=state.board[pos].name,
-                         owner_player_id=owner + 1, amount=rent, paid=outcome.get("paid", False))
+                         payer_player_id=player.player_id + 1, payer=player.player_id + 1,
+                         owner_player_id=owner + 1, owner=owner + 1,
+                         amount=rent, final_amount=rent, paid=outcome.get("paid", False))
         if player.trick_one_extra_adjacent_buy_this_turn and player.alive and outcome.get('paid'):
             extra = engine._buy_one_adjacent_same_block(state, player, pos)
             if extra is not None:

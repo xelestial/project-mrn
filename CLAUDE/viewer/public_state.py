@@ -44,7 +44,14 @@ class PlayerPublicState:
     burden_summary: list[str]       # names of burden cards in hand
 
     def to_dict(self) -> dict:
-        return dataclasses.asdict(self)
+        d = dataclasses.asdict(self)
+        # GPT viewer compatibility aliases
+        d["tiles_owned"] = d["owned_tile_count"]
+        d["score_coins_placed"] = d["placed_score_coins"]
+        d["trick_cards_visible"] = d["public_tricks"]
+        d["is_marked"] = d["mark_status"] == "marked"
+        d["immune_to_marks"] = d["mark_status"] == "immune"
+        return d
 
 
 @dataclass
@@ -74,7 +81,10 @@ class BoardPublicState:
     turn_index: int
 
     def to_dict(self) -> dict:
-        return dataclasses.asdict(self)
+        d = dataclasses.asdict(self)
+        # GPT viewer compatibility alias
+        d["marker_owner_id"] = d["marker_owner_player_id"]
+        return d
 
 
 # ---------------------------------------------------------------------------
