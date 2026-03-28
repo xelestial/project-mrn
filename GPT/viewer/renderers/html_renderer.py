@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 
+from characters import CARD_TO_NAMES
 from ..replay import ReplayProjection
 
 
@@ -32,6 +33,16 @@ _VISIBLE_FRAME_EVENTS = {
     "turn_end_snapshot",
     "game_end",
 }
+
+
+def _draft_card_label(card_no: object) -> str:
+    if not isinstance(card_no, int):
+        return str(card_no or "")
+    names = CARD_TO_NAMES.get(card_no)
+    if not names:
+        return str(card_no)
+    left, right = names
+    return f"{card_no}: {left} / {right}"
 
 
 def _event_display(event: dict) -> dict:
@@ -67,7 +78,7 @@ def _event_display(event: dict) -> dict:
     elif etype == "weather_reveal":
         detail = event.get("weather_name") or event.get("card", "")
     elif etype == "draft_pick":
-        detail = str(event.get("picked_card", ""))
+        detail = _draft_card_label(event.get("picked_card"))
     elif etype == "final_character_choice":
         detail = event.get("character", "")
     elif etype == "turn_start":
@@ -243,7 +254,7 @@ def _frame_nav_label(event: dict) -> str:
     if etype == "weather_reveal":
         return f"R{event.get('round_index', '?')} weather"
     if etype == "draft_pick":
-        return f"Draft P{event.get('acting_player_id', '?')}"
+        return f"Draft P{event.get('acting_player_id', '?')} ({event.get('picked_card', '?')})"
     if etype == "final_character_choice":
         return f"Char P{event.get('acting_player_id', '?')}"
     if etype == "turn_start":
@@ -324,23 +335,23 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <title>Replay {session_id_short}</title>
 <style>
 * { box-sizing:border-box; margin:0; padding:0; }
-body { font-family:"Segoe UI","Apple SD Gothic Neo",sans-serif; background:linear-gradient(180deg,#0a1020,#0c1322); color:#e7eefc; min-height:100vh; }
+body { font-family:"Segoe UI","Apple SD Gothic Neo",sans-serif; background:linear-gradient(180deg,#0a1020,#0c1322); color:#e7eefc; min-height:100vh; overflow:hidden; }
 header { background:rgba(10,18,33,.96); border-bottom:1px solid #273755; padding:10px 16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 h1 { font-size:1rem; color:#ffd060; }
 .badge { background:#1c2943; border:1px solid #32486f; border-radius:999px; padding:3px 10px; font-size:.75rem; color:#c9d7f4; }
 .badge.winner { color:#72e289; border-color:#72e289; }
-.layout { display:grid; grid-template-columns:280px minmax(0,1fr) 300px; min-height:calc(100vh - 54px); }
+.layout { display:grid; grid-template-columns:260px minmax(0,1fr) 290px; height:calc(100vh - 54px); }
 .nav-panel,.players-panel { background:rgba(24,35,58,.96); padding:12px 10px; overflow-y:auto; }
 .nav-panel { border-right:1px solid #273755; }
 .players-panel { border-left:1px solid #273755; }
-.main-panel { padding:14px; display:flex; flex-direction:column; gap:12px; }
+.main-panel { padding:10px; display:flex; flex-direction:column; gap:10px; min-height:0; overflow:hidden; }
 .section,.legend-box,.player-card { background:rgba(24,35,58,.96); border:1px solid #273755; border-radius:14px; padding:10px; }
 .sec-title { font-size:.72rem; color:#8aa5d8; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px; }
 .round-label { font-size:.7rem; color:#8aa5d8; text-transform:uppercase; letter-spacing:.08em; padding:6px 4px 4px; }
-.frame-btn { width:100%; text-align:left; border:1px solid transparent; background:transparent; color:#c8d7f2; border-radius:10px; padding:7px 9px; cursor:pointer; margin-bottom:4px; font-size:.78rem; }
+.frame-btn { width:100%; text-align:left; border:1px solid transparent; background:transparent; color:#c8d7f2; border-radius:10px; padding:6px 8px; cursor:pointer; margin-bottom:3px; font-size:.74rem; }
 .frame-btn:hover { background:#15233c; border-color:#294067; }
 .frame-btn.active { background:#243454; border-color:#ffd060; color:#ffd060; }
-.frame-btn small { display:block; color:#93a7ce; margin-top:2px; }
+.frame-btn small { display:block; color:#93a7ce; margin-top:1px; font-size:.66rem; }
 .frame-header,.progress-row,.legend-row,.stat-row,.chip-row,.controls { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
 .frame-header { justify-content:space-between; }
 .frame-title { font-size:1rem; font-weight:700; }
@@ -348,38 +359,38 @@ h1 { font-size:1rem; color:#ffd060; }
 .progress-bar,.f-bar { flex:1; height:8px; background:#0c1525; border-radius:999px; overflow:hidden; }
 .progress-fill { height:100%; width:0; background:linear-gradient(90deg,#4e8ef7,#73d0ff); }
 .f-fill { height:100%; width:0; background:linear-gradient(90deg,#4e8ef7,#f0a030); }
-.center-grid { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:12px; }
-.board-shell { min-height:720px; background:linear-gradient(180deg,#10203a,#0f1830); border-radius:18px; border:1px solid #294067; padding:14px; }
-.board-track { display:grid; grid-template-columns:repeat(11,minmax(0,1fr)); grid-template-rows:repeat(11,minmax(0,1fr)); gap:6px; width:100%; aspect-ratio:1; }
-.board-center { grid-column:3 / span 7; grid-row:3 / span 7; border-radius:18px; border:1px solid #31507d; background:linear-gradient(180deg,rgba(17,31,52,.96),rgba(11,20,34,.96)); padding:12px; display:flex; flex-direction:column; gap:8px; }
-.status-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
-.status-card { background:rgba(15,23,39,.86); border:1px solid #294067; border-radius:12px; padding:8px; }
+.center-grid { display:grid; grid-template-columns:minmax(0,1fr) 280px; gap:10px; min-height:0; }
+.board-shell { background:linear-gradient(180deg,#10203a,#0f1830); border-radius:18px; border:1px solid #294067; padding:10px; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+.board-track { display:grid; grid-template-columns:repeat(11,minmax(0,1fr)); grid-template-rows:repeat(11,minmax(0,1fr)); gap:4px; width:min(100%, calc(100vh - 190px)); height:min(100%, calc(100vh - 190px)); aspect-ratio:1; margin:0 auto; }
+.board-center { grid-column:3 / span 7; grid-row:3 / span 7; border-radius:16px; border:1px solid #31507d; background:linear-gradient(180deg,rgba(17,31,52,.96),rgba(11,20,34,.96)); padding:10px; display:flex; flex-direction:column; gap:6px; overflow:hidden; }
+.status-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+.status-card { background:rgba(15,23,39,.86); border:1px solid #294067; border-radius:12px; padding:7px; }
 .status-label { font-size:.62rem; color:#93a7ce; text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; }
-.status-value { font-size:.92rem; font-weight:700; }
-.tile { border:1px solid #31486e; border-radius:12px; background:linear-gradient(180deg,rgba(16,26,42,.98),rgba(11,18,30,.96)); position:relative; padding:6px; overflow:hidden; }
+.status-value { font-size:.9rem; font-weight:700; }
+.tile { border:1px solid #31486e; border-radius:10px; background:linear-gradient(180deg,rgba(16,26,42,.98),rgba(11,18,30,.96)); position:relative; padding:5px; overflow:hidden; min-width:0; min-height:0; }
 .tile.owned { border-width:2px; }
 .tile.special { box-shadow:inset 0 0 0 1px rgba(255,255,255,.08); }
 .tile.current-event { box-shadow:0 0 0 3px rgba(255,208,96,.30); }
-.tile-number { color:#7e95bf; font-size:.58rem; }
-.tile-kind { display:block; margin-top:2px; font-size:.88rem; font-weight:700; }
-.tile-zone { margin-top:2px; font-size:.56rem; color:#89a1c9; }
-.tile-meta { position:absolute; left:6px; right:6px; bottom:6px; font-size:.54rem; color:#c2d2ef; }
-.tile-pawns { position:absolute; top:6px; right:6px; display:flex; gap:3px; flex-wrap:wrap; justify-content:flex-end; max-width:44px; }
-.pawn-dot { width:10px; height:10px; border-radius:50%; border:1px solid rgba(255,255,255,.75); }
-.event-feed { display:flex; flex-direction:column; gap:6px; min-height:80px; }
-.event-item { display:grid; grid-template-columns:24px 40px 128px minmax(0,1fr); gap:8px; align-items:center; font-size:.8rem; }
+.tile-number { color:#7e95bf; font-size:.5rem; }
+.tile-kind { display:block; margin-top:1px; font-size:.82rem; font-weight:700; line-height:1; }
+.tile-zone { margin-top:1px; font-size:.5rem; color:#89a1c9; }
+.tile-meta { position:absolute; left:5px; right:5px; bottom:4px; font-size:.48rem; color:#c2d2ef; }
+.tile-pawns { position:absolute; top:4px; right:4px; display:flex; gap:2px; flex-wrap:wrap; justify-content:flex-end; max-width:34px; }
+.pawn-dot { width:8px; height:8px; border-radius:50%; border:1px solid rgba(255,255,255,.75); }
+.event-feed { display:flex; flex-direction:column; gap:4px; min-height:72px; }
+.event-item { display:grid; grid-template-columns:18px 30px 96px minmax(0,1fr); gap:6px; align-items:center; font-size:.72rem; }
 .event-type { color:#8aa5d8; }
 .player-card.active { border-width:2px; }
 .player-card.dead { opacity:.55; }
 .player-name { font-weight:700; display:flex; align-items:center; justify-content:space-between; gap:8px; }
-.player-character { color:#9bb0d8; margin-top:2px; }
-.chip,.mark { border-radius:999px; padding:2px 7px; font-size:.68rem; background:#0f1727; border:1px solid #355188; }
+.player-character { color:#9bb0d8; margin-top:2px; font-size:.78rem; }
+.chip,.mark { border-radius:999px; padding:2px 6px; font-size:.62rem; background:#0f1727; border:1px solid #355188; }
 .mark-clear { background:#163321; color:#72e289; }
 .mark-marked { background:#3d1920; color:#ff8f8f; }
 .mark-immune { background:#1a2340; color:#87a8ff; }
 .ctrl-btn { border:1px solid #355188; background:#182846; color:#e7eefc; border-radius:10px; padding:8px 10px; cursor:pointer; }
 .ctrl-btn:disabled { opacity:.45; cursor:default; }
-@media (max-width:1240px) { .layout { grid-template-columns:240px 1fr; } .players-panel { grid-column:1 / span 2; border-left:none; border-top:1px solid #273755; } .center-grid { grid-template-columns:1fr; } }
+@media (max-width:1240px) { body { overflow:auto; } .layout { grid-template-columns:240px 1fr; height:auto; } .players-panel { grid-column:1 / span 2; border-left:none; border-top:1px solid #273755; } .center-grid { grid-template-columns:1fr; } .board-track { width:min(100%, calc(100vw - 320px)); height:auto; } }
 @media (max-width:980px) { .layout { grid-template-columns:1fr; } .nav-panel { border-right:none; border-bottom:1px solid #273755; max-height:240px; } .players-panel { grid-column:auto; } }
 </style>
 </head>

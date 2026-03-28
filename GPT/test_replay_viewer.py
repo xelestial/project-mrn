@@ -201,6 +201,16 @@ def test_html_renderer(events: list[dict]) -> list[str]:
                     )
                 if first.get("title") != "Session Start":
                     errors.append(f"unexpected first frame title: {first.get('title')}")
+                first_draft = next(
+                    (frame for frame in parsed if frame.get("event_type") == "draft_pick"),
+                    None,
+                )
+                if first_draft is None:
+                    errors.append("missing draft_pick frame in replay HTML")
+                else:
+                    subtitle = str(first_draft.get("subtitle", "")).strip()
+                    if subtitle.isdigit():
+                        errors.append("draft_pick frame still shows raw numeric card only")
         except json.JSONDecodeError as exc:
             errors.append(f"FRAMES JSON parse error: {exc}")
     else:
