@@ -48,6 +48,16 @@ def _draft_card_label(card_no: object) -> str:
     return f"{card_no}: {left} / {right}"
 
 
+def _draft_card_names(card_no: object) -> str:
+    if not isinstance(card_no, int):
+        return str(card_no or "")
+    names = CARD_TO_NAMES.get(card_no)
+    if not names:
+        return str(card_no)
+    left, right = names
+    return f"{left} / {right}"
+
+
 def _event_display(event: dict) -> dict:
     etype = event.get("event_type", "?")
     actor_id = event.get("acting_player_id")
@@ -322,7 +332,7 @@ def _frame_nav_label(event: dict) -> str:
     if etype == "weather_reveal":
         return f"{event.get('round_index', '?')} 라운드, 날씨 공개"
     if etype == "draft_pick":
-        return f"P{event.get('acting_player_id', '?')} 드래프트 선택 ({event.get('picked_card', '?')}번 카드)"
+        return f"P{event.get('acting_player_id', '?')} 드래프트 선택 ({_draft_card_names(event.get('picked_card'))})"
     if etype == "final_character_choice":
         return f"P{event.get('acting_player_id', '?')} 최종 캐릭터 선택"
     if etype == "turn_start":
