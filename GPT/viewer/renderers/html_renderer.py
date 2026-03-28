@@ -29,6 +29,7 @@ _VISIBLE_FRAME_EVENTS = {
     "fortune_resolved",
     "mark_resolved",
     "marker_transferred",
+    "marker_flip",
     "lap_reward_chosen",
     "f_value_change",
     "bankruptcy",
@@ -66,6 +67,7 @@ def _event_display(event: dict) -> dict:
         "fortune_resolved": "F",
         "mark_resolved": "!",
         "marker_transferred": "K",
+        "marker_flip": "V",
         "lap_reward_chosen": "P",
         "f_value_change": "F",
         "bankruptcy": "X",
@@ -127,8 +129,24 @@ def _event_display(event: dict) -> dict:
         detail = f"[징표]가 P{from_owner}에서 P{to_owner}에게 이동함"
         if pending is not None:
             detail += f" (P{pending}가 카드 Flip 대기)"
+    elif etype == "marker_flip":
+        card_no = event.get("card_no", "?")
+        before = event.get("from_character", "?")
+        after = event.get("to_character", "?")
+        detail = f"[징표]로 카드 {card_no}번이 {before}에서 {after}로 뒤집힘"
     elif etype == "lap_reward_chosen":
-        detail = str(event.get("choice", event.get("resource_delta", "")))
+        amount = event.get("amount") or {}
+        cash = int(amount.get("cash", 0) or 0)
+        shards = int(amount.get("shards", 0) or 0)
+        coins = int(amount.get("coins", 0) or 0)
+        pieces = []
+        if cash:
+            pieces.append(f"현금 +{cash}")
+        if shards:
+            pieces.append(f"조각 +{shards}")
+        if coins:
+            pieces.append(f"승점 +{coins}")
+        detail = " / ".join(pieces) if pieces else str(event.get("choice", event.get("resource_delta", "")))
     elif etype == "f_value_change":
         detail = f"{event.get('before', '?')} -> {event.get('after', '?')}"
     elif etype == "bankruptcy":
@@ -261,6 +279,8 @@ def _frame_title(event: dict) -> str:
         return f"Turn {event.get('turn_index', '?')} End"
     if etype == "marker_transferred":
         return "징표 이동"
+    if etype == "marker_flip":
+        return "징표 카드 Flip"
     if etype == "game_end":
         return "Game End"
     return etype.replace("_", " ").title()
@@ -284,6 +304,8 @@ def _frame_nav_label(event: dict) -> str:
         return f"T{event.get('turn_index', '?')} end"
     if etype == "marker_transferred":
         return "징표 이동"
+    if etype == "marker_flip":
+        return "징표 Flip"
     if etype == "game_end":
         return "Game End"
     return etype.replace("_", " ")

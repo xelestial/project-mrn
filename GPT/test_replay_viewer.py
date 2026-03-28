@@ -253,6 +253,25 @@ def test_html_renderer(events: list[dict]) -> list[str]:
                     errors.append("missing marker_transferred frame in replay HTML")
                 elif "P?" in str(first_marker.get("subtitle", "")):
                     errors.append("marker_transferred frame still shows unresolved owner")
+                first_flip = next(
+                    (frame for frame in parsed if frame.get("event_type") == "marker_flip"),
+                    None,
+                )
+                if any(event.get("event_type") == "marker_flip" for event in events):
+                    if first_flip is None:
+                        errors.append("marker_flip events exist but replay HTML does not show them")
+                    elif "뒤집힘" not in str(first_flip.get("subtitle", "")):
+                        errors.append("marker_flip frame missing readable flip detail")
+                first_lap = next(
+                    (frame for frame in parsed if frame.get("event_type") == "lap_reward_chosen"),
+                    None,
+                )
+                if first_lap is None:
+                    errors.append("missing lap_reward_chosen frame in replay HTML")
+                else:
+                    lap_subtitle = str(first_lap.get("subtitle", ""))
+                    if not any(token in lap_subtitle for token in ("현금 +", "조각 +", "승점 +")):
+                        errors.append("lap_reward_chosen frame still hides reward amounts")
         except json.JSONDecodeError as exc:
             errors.append(f"FRAMES JSON parse error: {exc}")
     else:

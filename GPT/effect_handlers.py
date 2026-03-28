@@ -321,6 +321,15 @@ class EngineEffectHandlers:
             "decision": flip_debug,
         }
         engine._log(event)
+        engine._emit_vis(
+            "marker_flip",
+            Phase.WEATHER,
+            owner.player_id + 1,
+            state,
+            card_no=chosen_card,
+            from_character=current,
+            to_character=flipped,
+        )
         state.pending_marker_flip_owner_id = None
         return event
 

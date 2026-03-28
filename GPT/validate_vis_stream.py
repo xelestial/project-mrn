@@ -21,6 +21,7 @@ KNOWN_EVENT_TYPES = {
     "fortune_resolved",
     "mark_resolved",
     "marker_transferred",
+    "marker_flip",
     "lap_reward_chosen",
     "f_value_change",
     "bankruptcy",
