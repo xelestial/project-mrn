@@ -37,3 +37,11 @@ class VisEventStream:
 
     def to_list(self) -> list[dict]:
         return [e.to_dict() for e in self._events]
+
+    def summary(self) -> dict:
+        from collections import Counter
+        counts = Counter(e.event_type for e in self._events)
+        return {
+            "total_events": len(self._events),
+            "by_type": dict(counts),
+        }
