@@ -416,7 +416,7 @@ def _frame_nav_label(event: dict) -> str:
     if etype == "draft_pick":
         return f"P{event.get('acting_player_id', '?')} 드래프트 선택 ({_draft_card_names(event.get('picked_card'))})"
     if etype == "final_character_choice":
-        return f"P{event.get('acting_player_id', '?')} 최종 캐릭터 선택"
+        return f"P{event.get('acting_player_id', '?')} 최종 캐릭터 선택 ({event.get('character', '?')})"
     if etype == "turn_start":
         return f"{event.get('turn_index', '?')} 턴 시작"
     if etype == "trick_used":
