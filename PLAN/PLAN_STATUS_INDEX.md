@@ -32,6 +32,14 @@ Practical implications:
 
 ## Canonical Active Plans
 
+### 0. Shared Visual Runtime Contract
+- File: `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`
+- Status: `ACTIVE`
+- Role: first shared implementation blocker for replay/live visualization work
+- Notes:
+  - defines the shared event, public-state, and prompt boundary
+  - should be agreed before parallel GPT/Claude implementation
+
 ### 1. Visual Replay And Playable Simulator
 - File: `PLAN/GPT_ONLINE_STYLE_REPLAY_VISUALIZATION_PLAN.md`
 - Status: `ACTIVE`
@@ -140,17 +148,19 @@ Reason:
 When deciding what to follow next:
 
 1. Use `PLAN/GPT_ONLINE_STYLE_REPLAY_VISUALIZATION_PLAN.md` for replay/playable game work.
-2. Use `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md` only for GPT-side analysis tooling.
-3. Use completed documents only as implementation history or rationale.
-4. Use `PLAN/VISUALIZATION_GAME_PLAN.md` as the lower-layer substrate reference for visual runtime work.
-5. Use `PLAN/[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md` as a technical-choice proposal, not as the active product plan.
-6. Use Claude documents as reference for shared contracts, not as the active GPT task list.
+2. Use `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md` as the shared boundary baseline before parallel implementation.
+3. Use `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md` only for GPT-side analysis tooling.
+4. Use completed documents only as implementation history or rationale.
+5. Use `PLAN/VISUALIZATION_GAME_PLAN.md` as the lower-layer substrate reference for visual runtime work.
+6. Use `PLAN/[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md` as a technical-choice proposal, not as the active product plan.
+7. Use Claude documents as reference for shared contracts, not as the active GPT task list.
 
 ## Cleanup Decisions
 
 ### Keep
 - keep all `[COMPLETE]` documents
 - keep `CLAUDE_ARCHITECTURE_REFACTOR_PLAN.md`
+- keep `SHARED_VISUAL_RUNTIME_CONTRACT.md`
 - keep `VISUALIZATION_GAME_PLAN.md`
 - keep `[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md`
 - keep `GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md`

@@ -3,6 +3,7 @@
 Status: `ACTIVE`
 Role: `canonical top-level plan for replay viewer + live playable visual runtime`
 Companion reference:
+- shared contract baseline: `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`
 - local reference: `PLAN/CLAUDE_ARCHITECTURE_REFACTOR_PLAN.md`
 - lower-layer substrate reference: `PLAN/VISUALIZATION_GAME_PLAN.md`
 - technical proposal reference: `PLAN/[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md`
@@ -16,6 +17,9 @@ Turn the current CLI simulator into a visual game runtime that supports:
 
 This is not just a prettier log viewer.
 The target is a maintainable visual runtime built on top of the existing engine and project rules.
+
+Implementation blocker:
+- parallel implementation should start only after the `SHARED_VISUAL_RUNTIME_CONTRACT.md` schema names and prompt envelope are frozen as `v1`
 
 ## Final Product Target
 The end state should support two modes on top of the same state/projection model.
