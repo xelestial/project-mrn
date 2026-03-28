@@ -1357,6 +1357,10 @@ class GameEngine:
                     lap_events.append(self._apply_geo_bonus(player, bonus))
 
             landing_event = self._resolve_landing(state, player)
+            self._emit_vis("landing_resolved", Phase.LANDING, player.player_id + 1, state,
+                           tile_index=player.position,
+                           tile_kind=state.board[player.position].name,
+                           landing_type=landing_event.get("type") if isinstance(landing_event, dict) else None)
             chain_segments.append({
                 "start_pos": current_start,
                 "end_pos": player.position,
@@ -1630,6 +1634,8 @@ class GameEngine:
         self._emit_vis("fortune_drawn", Phase.FORTUNE, player.player_id + 1, state,
                        card_name=card.name, card_effect=card.effect)
         event = self._apply_fortune_card(state, player, card)
+        self._emit_vis("fortune_resolved", Phase.FORTUNE, player.player_id + 1, state,
+                       card_name=card.name, resolution_type=event.get("type") if isinstance(event, dict) else None)
         state.fortune_discard_pile.append(card)
         return {"type": "FORTUNE", "card": {"deck_index": card.deck_index, "name": card.name, "effect": card.effect}, "resolution": event}
 
