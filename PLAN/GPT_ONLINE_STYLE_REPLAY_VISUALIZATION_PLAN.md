@@ -1,5 +1,11 @@
 # GPT Visual Replay And Playable Simulator Plan
 
+Status: `ACTIVE`
+Role: `canonical top-level plan for replay viewer + live playable visual runtime`
+Companion reference:
+- local reference: `PLAN/CLAUDE_ARCHITECTURE_REFACTOR_PLAN.md`
+- branch reference: `CLAUDE-MAIN:PLAN/VISUALIZATION_GAME_PLAN.md`
+
 ## Goal
 Turn the current CLI simulator into a visual game runtime that supports:
 
