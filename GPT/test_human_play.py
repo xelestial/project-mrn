@@ -123,6 +123,8 @@ def test_play_html_renderer() -> list[str]:
         "geo-bonus-row",
         "doctrine-target-row",
         "trick-reward-row",
+        "flip-choice-row",
+        "burden-exchange-row",
     ):
         if phase5_widget not in html:
             errors.append(f"play HTML missing specialized widget '{phase5_widget}'")
@@ -489,6 +491,116 @@ def test_human_policy_specific_trick_reward_prompt() -> list[str]:
     return errors
 
 
+def test_human_policy_active_flip_prompt() -> list[str]:
+    errors = []
+    try:
+        from viewer.human_policy import HumanHttpPolicy
+        from ai_policy import HeuristicPolicy
+        from config import DEFAULT_CONFIG
+        from state import GameState
+
+        ai = HeuristicPolicy(
+            character_policy_mode="heuristic_v1",
+            lap_policy_mode="heuristic_v1",
+        )
+        policy = HumanHttpPolicy(human_seat=0, ai_fallback=ai)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        state.active_by_card = {0: "A", 1: "X"}
+
+        result = [None]
+        done = threading.Event()
+
+        def _call():
+            result[0] = policy.choose_active_flip_card(state, player, [0, 1])
+            done.set()
+
+        threading.Thread(target=_call, daemon=True).start()
+
+        for _ in range(20):
+            if policy.pending_prompt is not None:
+                break
+            time.sleep(0.05)
+
+        prompt = policy.pending_prompt
+        if prompt is None:
+            errors.append("pending_prompt never set for active_flip")
+            return errors
+        if prompt.get("request_type") != "active_flip":
+            errors.append(f"Expected request_type=active_flip, got {prompt.get('request_type')}")
+        if len(prompt.get("legal_choices", [])) != 2:
+            errors.append("active_flip should expose all flippable cards")
+
+        ok = policy.submit_response({"choice_id": "1"})
+        if not ok:
+            errors.append("submit_response returned False for active_flip")
+        done.wait(timeout=3.0)
+        if not done.is_set():
+            errors.append("choose_active_flip_card did not unblock")
+        elif result[0] != 1:
+            errors.append(f"Expected flipped card index 1, got {result[0]!r}")
+    except Exception as e:
+        import traceback
+        errors.append(f"Exception: {e}\n{traceback.format_exc()}")
+    return errors
+
+
+def test_human_policy_burden_exchange_prompt() -> list[str]:
+    errors = []
+    try:
+        from viewer.human_policy import HumanHttpPolicy
+        from ai_policy import HeuristicPolicy
+        from config import DEFAULT_CONFIG
+        from state import GameState
+
+        ai = HeuristicPolicy(
+            character_policy_mode="heuristic_v1",
+            lap_policy_mode="heuristic_v1",
+        )
+        policy = HumanHttpPolicy(human_seat=0, ai_fallback=ai)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        player.cash = 9
+        card = SimpleNamespace(name="Burden X", burden_cost=4, is_burden=True)
+
+        result = [None]
+        done = threading.Event()
+
+        def _call():
+            result[0] = policy.choose_burden_exchange_on_supply(state, player, card)
+            done.set()
+
+        threading.Thread(target=_call, daemon=True).start()
+
+        for _ in range(20):
+            if policy.pending_prompt is not None:
+                break
+            time.sleep(0.05)
+
+        prompt = policy.pending_prompt
+        if prompt is None:
+            errors.append("pending_prompt never set for burden_exchange")
+            return errors
+        if prompt.get("request_type") != "burden_exchange":
+            errors.append(f"Expected request_type=burden_exchange, got {prompt.get('request_type')}")
+        labels = [opt.get("choice_id") for opt in prompt.get("legal_choices", [])]
+        if labels != ["yes", "no"]:
+            errors.append(f"Unexpected burden_exchange choices: {labels}")
+
+        ok = policy.submit_response({"choice_id": "yes"})
+        if not ok:
+            errors.append("submit_response returned False for burden_exchange")
+        done.wait(timeout=3.0)
+        if not done.is_set():
+            errors.append("choose_burden_exchange_on_supply did not unblock")
+        elif result[0] is not True:
+            errors.append(f"Expected True from burden_exchange, got {result[0]!r}")
+    except Exception as e:
+        import traceback
+        errors.append(f"Exception: {e}\n{traceback.format_exc()}")
+    return errors
+
+
 # ---------------------------------------------------------------------------
 # Integration tests (with live server)
 # ---------------------------------------------------------------------------
@@ -572,6 +684,8 @@ def main() -> int:
         ("human_policy_geo_bonus",      test_human_policy_geo_bonus_prompt),
         ("human_policy_doctrine_relief",test_human_policy_doctrine_relief_prompt),
         ("human_policy_trick_reward",   test_human_policy_specific_trick_reward_prompt),
+        ("human_policy_active_flip",    test_human_policy_active_flip_prompt),
+        ("human_policy_burden_exchange",test_human_policy_burden_exchange_prompt),
     ]
     all_passed = True
     for name, fn in unit_tests:

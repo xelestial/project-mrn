@@ -668,7 +668,55 @@ class HumanHttpPolicy:
         return self._ask(prompt, _parse, lambda: self._ai.choose_doctrine_relief_target(state, player, candidates))
 
     def choose_active_flip_card(self, state: Any, player: Any, flippable_cards: Any) -> Any:
-        return self._ai.choose_active_flip_card(state, player, flippable_cards)
+        if player.player_id != self._seat:
+            return self._ai.choose_active_flip_card(state, player, flippable_cards)
+        if not flippable_cards:
+            return None
+
+        options = []
+        for card_index in flippable_cards:
+            current_name, flipped_name = _flip_names(state, card_index)
+            options.append({
+                "id": str(card_index),
+                "label": f"{current_name} -> {flipped_name}",
+                "card_index": card_index,
+                "current_name": current_name,
+                "flipped_name": flipped_name,
+            })
+
+        prompt = build_prompt_envelope(
+            request_type="active_flip",
+            player_id=player.player_id + 1,
+            legal_choices=[
+                {
+                    "choice_id": opt["id"],
+                    "label": opt["label"],
+                    "value": {
+                        "card_index": opt["card_index"],
+                        "current_name": opt["current_name"],
+                        "flipped_name": opt["flipped_name"],
+                    },
+                }
+                for opt in options
+            ],
+            public_context={
+                "player_cash": player.cash,
+                "player_position": player.position,
+                "flip_count": len(options),
+                "flip_labels": [opt["label"] for opt in options],
+            },
+            timeout_ms=int(TIMEOUT_S * 1000),
+        )
+
+        def _parse(r: dict):
+            sel = extract_choice_id(r)
+            if sel is not None:
+                for opt in options:
+                    if opt["id"] == sel:
+                        return opt["card_index"]
+            return self._ai.choose_active_flip_card(state, player, flippable_cards)
+
+        return self._ask(prompt, _parse, lambda: self._ai.choose_active_flip_card(state, player, flippable_cards))
 
     def choose_specific_trick_reward(self, state: Any, player: Any, choices: Any) -> Any:
         if player.player_id != self._seat:
@@ -714,7 +762,37 @@ class HumanHttpPolicy:
         return self._ask(prompt, _parse, lambda: self._ai.choose_specific_trick_reward(state, player, choices))
 
     def choose_burden_exchange_on_supply(self, state: Any, player: Any, card: Any) -> bool:
-        return self._ai.choose_burden_exchange_on_supply(state, player, card)
+        if player.player_id != self._seat:
+            return self._ai.choose_burden_exchange_on_supply(state, player, card)
+
+        prompt = build_prompt_envelope(
+            request_type="burden_exchange",
+            player_id=player.player_id + 1,
+            legal_choices=[
+                {"choice_id": "yes", "label": f"Pay {getattr(card, 'burden_cost', 0)} and remove", "value": True},
+                {"choice_id": "no", "label": "Keep burden card", "value": False},
+            ],
+            public_context={
+                "player_cash": player.cash,
+                "player_position": player.position,
+                "card_name": getattr(card, "name", "Burden"),
+                "burden_cost": getattr(card, "burden_cost", 0),
+                "player_shards": getattr(player, "shards", 0),
+                "player_hand_coins": getattr(player, "hand_coins", 0),
+            },
+            can_pass=True,
+            timeout_ms=int(TIMEOUT_S * 1000),
+        )
+
+        def _parse(r: dict):
+            sel = extract_choice_id(r, "no")
+            if sel == "yes":
+                return True
+            if sel == "no":
+                return False
+            return bool(self._ai.choose_burden_exchange_on_supply(state, player, card))
+
+        return self._ask(prompt, _parse, lambda: bool(self._ai.choose_burden_exchange_on_supply(state, player, card)))
 
     def should_attempt_swindle(self, state: Any, player: Any, pos: Any, owner: Any, required_cost: Any) -> bool:
         if hasattr(self._ai, "should_attempt_swindle"):
@@ -746,3 +824,19 @@ def _card_name(state: Any, card_index: int) -> str:
     except Exception:
         pass
     return f"Card {card_index}"
+
+
+def _flip_names(state: Any, card_index: int) -> tuple[str, str]:
+    try:
+        from characters import CARD_TO_NAMES
+
+        pair = CARD_TO_NAMES.get(card_index)
+        if pair:
+            current = getattr(state, "active_by_card", {}).get(card_index, pair[0])
+            if current == pair[0]:
+                return str(pair[0]), str(pair[1])
+            return str(pair[1]), str(pair[0])
+    except Exception:
+        pass
+    name = _card_name(state, card_index)
+    return name, name
