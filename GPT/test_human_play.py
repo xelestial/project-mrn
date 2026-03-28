@@ -106,6 +106,10 @@ def test_play_html_renderer() -> list[str]:
         errors.append("play HTML missing HUMAN_SEAT constant")
     if "submitDecision" not in html:
         errors.append("play HTML missing submitDecision function")
+    if "board-track" not in html or "prompt-summary" not in html:
+        errors.append("play HTML missing Phase 5 board/prompt panels")
+    if "dp-context-list" not in html:
+        errors.append("play HTML missing prompt context panel")
     if "request_type" not in html or "legal_choices" not in html or "public_context" not in html:
         errors.append("play HTML missing canonical prompt-envelope fields")
     if "marker_owner_player_id" not in html:

@@ -274,6 +274,11 @@ class HumanHttpPolicy:
                 }
                 for opt in options
             ],
+            public_context={
+                "player_cash": player.cash,
+                "player_position": player.position,
+                "offered_count": len(options),
+            },
             timeout_ms=int(TIMEOUT_S * 1000),
         )
 
@@ -319,6 +324,11 @@ class HumanHttpPolicy:
                 }
                 for opt in options
             ],
+            public_context={
+                "player_cash": player.cash,
+                "player_position": player.position,
+                "choice_count": len(options),
+            },
             timeout_ms=int(TIMEOUT_S * 1000),
         )
 
@@ -359,6 +369,11 @@ class HumanHttpPolicy:
                 }
                 for opt in options
             ],
+            public_context={
+                "player_cash": player.cash,
+                "player_position": player.position,
+                "hand_count": len(hand),
+            },
             can_pass=True,
             timeout_ms=int(TIMEOUT_S * 1000),
         )
@@ -438,6 +453,11 @@ class HumanHttpPolicy:
                 }
                 for opt in options
             ],
+            public_context={
+                "player_cash": player.cash,
+                "player_position": player.position,
+                "hand_count": len(hand),
+            },
             can_pass=True,
             timeout_ms=int(TIMEOUT_S * 1000),
         )
@@ -477,7 +497,11 @@ class HumanHttpPolicy:
                 }
                 for opt in options
             ],
-            public_context={"actor_name": str(actor_name)},
+            public_context={
+                "actor_name": str(actor_name),
+                "player_cash": player.cash,
+                "player_position": player.position,
+            },
             can_pass=True,
             timeout_ms=int(TIMEOUT_S * 1000),
         )
@@ -521,6 +545,11 @@ class HumanHttpPolicy:
                 }
                 for opt in options
             ],
+            public_context={
+                "player_cash": player.cash,
+                "player_position": player.position,
+                "owned_tile_indices": list(owned),
+            },
             timeout_ms=int(TIMEOUT_S * 1000),
         )
 
