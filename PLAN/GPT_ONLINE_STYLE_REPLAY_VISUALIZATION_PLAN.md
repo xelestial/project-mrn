@@ -37,6 +37,7 @@ Current CLAUDE direction in practice:
 - treat remaining CLAUDE work as:
   - renderer-facing payload completeness review
   - validator maintenance against canonical contract names
+  - lower-layer bug fixes when verification reveals missing or wrong substrate payloads
   - event/public-state stability for future Phase 5 UI growth
   - portability discipline for non-HTML future clients such as Unity
 
@@ -117,6 +118,7 @@ This section is intentionally explicit so branch-local Claude work does not drif
 - verify that canonical field names stay stable across replay/live/snapshot paths
 - keep validator coverage aligned with the shared contract
 - raise missing payload gaps before GPT viewer work starts depending on them
+- fix lower-layer event/public-state bugs when the completeness review finds them
 
 ### What CLAUDE should not reopen
 - broad alias-preservation as a long-term strategy
@@ -127,6 +129,7 @@ This section is intentionally explicit so branch-local Claude work does not drif
 ### Current expected output from CLAUDE
 - confirmation that substrate fields remain sufficient for Phase 5 UI growth
 - targeted contract-gap reports when a renderer-facing field is missing
+- targeted substrate bug fixes when renderer-facing payloads are wrong or incomplete
 - validator updates when canonical event/state shapes change
 - no-op confirmation when no substrate gap is found
 
