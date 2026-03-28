@@ -71,6 +71,55 @@ def _format_end_time(value: float | int) -> str:
     return f"{numeric:.2f}"
 
 
+def _landing_summary(landing: dict | None) -> str:
+    info = landing or {}
+    ltype = str(info.get("type", "") or "")
+    labels = {
+        "PURCHASE": "토지 구매",
+        "PURCHASE_FAIL": "토지 구매 실패",
+        "PURCHASE_SKIP_POLICY": "토지 구매 안 함",
+        "PURCHASE_BLOCKED_THIS_TURN": "토지 구매 불가",
+        "RENT": "통행료 정산",
+        "RENT_FAILSAFE": "통행료 정산",
+        "FORTUNE": "운수 처리",
+        "MARK": "지목 처리",
+        "FORCE_SALE": "강제 매각",
+        "NO_EFFECT": "효과 없음",
+    }
+    if ltype in labels:
+        return labels[ltype]
+    if "PURCHASE" in ltype:
+        return "토지 구매 처리"
+    if "RENT" in ltype:
+        return "통행료 정산"
+    if "FORTUNE" in ltype:
+        return "운수 처리"
+    if "MARK" in ltype:
+        return "지목 처리"
+    return ltype or "도착 처리"
+
+
+def _frame_nav_subtitle(event: dict, shown: dict) -> str:
+    etype = event.get("event_type")
+    detail = str(shown.get("detail", "") or "").strip()
+    if etype in {"dice_roll", "player_move", "trick_used", "marker_transferred", "marker_flip", "lap_reward_chosen", "fortune_drawn", "fortune_resolved", "rent_paid", "tile_purchased", "f_value_change"}:
+        return detail
+    if etype == "landing_resolved":
+        return detail
+    if etype == "turn_start":
+        actor = event.get("acting_player_id")
+        return f"P{actor} 행동 시작" if actor is not None else ""
+    if etype == "turn_end_snapshot":
+        return "턴 종료 스냅샷"
+    if etype == "weather_reveal":
+        return detail
+    if etype == "round_start":
+        return "새 라운드 시작"
+    if etype == "session_start":
+        return detail
+    return detail
+
+
 def _event_display(event: dict) -> dict:
     etype = event.get("event_type", "?")
     actor_id = event.get("acting_player_id")
@@ -144,7 +193,7 @@ def _event_display(event: dict) -> dict:
         dst = dst + 1 if isinstance(dst, int) else dst
         detail = f"{src} -> {dst}"
     elif etype == "landing_resolved":
-        detail = str((event.get("landing") or {}).get("type", "landing"))
+        detail = _landing_summary(event.get("landing"))
     elif etype == "rent_paid":
         payer = event.get("payer_player_id", event.get("payer", "?"))
         owner = event.get("owner_player_id", event.get("owner", "?"))
@@ -434,7 +483,7 @@ def _build_frames(proj: ReplayProjection) -> list[dict]:
                 "title": _frame_title(event),
                 "subtitle": shown["detail"],
                 "nav_label": _frame_nav_label(event),
-                "nav_subtitle": _event_type_korean(event.get("event_type")),
+                "nav_subtitle": _frame_nav_subtitle(event, shown),
                 "event": shown,
                 "recent_events": deepcopy(recent),
                 "players": deepcopy(players),
