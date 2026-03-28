@@ -41,7 +41,13 @@ from policy.decision.purchase import (
     prepare_v3_purchase_benefit_with_traits,
     would_purchase_trigger_immediate_win,
 )
-from policy.decision.support_choices import count_burden_cards, choose_geo_bonus_kind, GeoBonusDecisionInputs
+from policy.decision.support_choices import (
+    DoctrineReliefCandidateInputs,
+    GeoBonusDecisionInputs,
+    choose_doctrine_relief_player_from_inputs,
+    choose_geo_bonus_kind,
+    count_burden_cards,
+)
 from policy.decision.trick_reward import resolve_trick_reward_choice_run
 from policy.decision.trick_usage import apply_trick_preserve_rules, build_trick_use_debug_payload, resolve_trick_use_choice
 from policy.character_traits import (
@@ -387,6 +393,37 @@ def choose_trick_to_use_runtime(policy: Any, state: Any, player: Any, hand: list
     survival_ctx = policy._generic_survival_context(state, player, player.current_character)
     decisive_ctx = policy._trick_decisive_context(state, player, survival_ctx)
     intent = policy._current_player_intent(state, player, player.current_character)
+    board_len = len(state.board)
+    forward_encounter_window = any(
+        0 < ((other.position - player.position) % board_len) <= 12
+        for other in getattr(state, "players", [])
+        if getattr(other, "alive", True) and getattr(other, "player_id", None) != player.player_id
+    )
+    relic_collector_window = (
+        is_shard_hunter_character(player.current_character)
+        or float(survival_ctx.get("land_f", 0.0)) > 0.0
+        or float(survival_ctx.get("cross_start", 0.0)) > 0.0
+        or float(decisive_ctx.get("finish_f_window", 0.0)) > 0.0
+    )
+    help_run_window = (
+        forward_encounter_window
+        and (
+            player.tiles_owned > 0
+            or float(decisive_ctx.get("finish_f_window", 0.0)) > 0.0
+            or float(decisive_ctx.get("buy_window", 0.0)) > 0.0
+            or policy._expected_buy_value(state, player) >= 1.25
+        )
+    )
+    neojeol_chain_window = (
+        (player.tiles_owned > 0 and policy._token_teleport_combo_score(player) > 0.0)
+        or float(decisive_ctx.get("finish_f_window", 0.0)) > 0.0
+        or (float(decisive_ctx.get("buy_window", 0.0)) > 0.0 and policy._expected_buy_value(state, player) >= 1.25)
+    )
+    short_range_frontier_is_better = (
+        float(decisive_ctx.get("buy_window", 0.0)) > 0.0
+        and float(survival_ctx.get("survival_urgency", 0.0)) < 1.0
+        and float(survival_ctx.get("money_distress", 0.0)) <= 0.8
+    )
 
     def score(card: Any) -> float:
         immediate_cost = policy._predict_trick_cash_cost(card)
@@ -446,13 +483,11 @@ def choose_trick_to_use_runtime(policy: Any, state: Any, player: Any, hand: list
             intent=intent,
             survival_urgency=float(survival_ctx.get("survival_urgency", 0.0)),
             cleanup_cash_gap=float(survival_ctx.get("cleanup_cash_gap", 0.0)),
-            has_relic_collector_window=False,
-            has_help_run_window=False,
-            has_neojeol_chain_window=False,
-            short_range_frontier_is_better=False,
+            has_relic_collector_window=relic_collector_window,
+            has_help_run_window=help_run_window,
+            has_neojeol_chain_window=neojeol_chain_window,
+            short_range_frontier_is_better=short_range_frontier_is_better,
         )
-        if policy._profile_from_mode() == "v3_gpt" and card.name in {"?ê¹…Ðª ?ì„ì­›åª›Â€", "?ê¾©? ?ãƒªë¦°"}:
-            return -999.0
         return value
 
     resolution = resolve_trick_use_choice(hand, scorer=score)
@@ -834,10 +869,22 @@ def choose_burden_exchange_on_supply_runtime(policy: Any, state: Any, player: An
 def choose_doctrine_relief_target_runtime(policy: Any, state: Any, player: Any, candidates: list[Any]) -> Any:
     if not candidates:
         return None
+    scored_candidates: list[DoctrineReliefCandidateInputs] = []
     for candidate in candidates:
-        if candidate.player_id == player.player_id:
-            return candidate.player_id
-    return candidates[0].player_id
+        candidate_survival = policy._generic_survival_context(state, candidate, candidate.current_character)
+        scored_candidates.append(
+            DoctrineReliefCandidateInputs(
+                player_id=candidate.player_id,
+                cash=float(candidate.cash),
+                burden_count=float(count_burden_cards(candidate.trick_hand)),
+                cleanup_pressure=float(candidate_survival.get("cleanup_pressure", 0.0)),
+                money_distress=float(candidate_survival.get("money_distress", 0.0)),
+                two_turn_lethal_prob=float(candidate_survival.get("two_turn_lethal_prob", 0.0)),
+                own_burden_cost=float(candidate_survival.get("own_burden_cost", 0.0)),
+                is_self=(candidate.player_id == player.player_id),
+            )
+        )
+    return choose_doctrine_relief_player_from_inputs(scored_candidates)
 
 
 def choose_geo_bonus_runtime(policy: Any, state: Any, player: Any, actor_name: str) -> str:

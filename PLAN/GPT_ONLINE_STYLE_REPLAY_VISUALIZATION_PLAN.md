@@ -478,6 +478,16 @@ Success:
 Goal:
 - replay completed games like a visual online match
 
+Current implementation status:
+- `GPT/viewer/replay.py` provides turn/round/session replay projection
+- `GPT/viewer/controller.py` provides step navigation for turns
+- `GPT/viewer/renderers/markdown_renderer.py` provides markdown replay output
+- `GPT/viewer/renderers/html_renderer.py` provides a self-contained offline HTML viewer
+- `GPT/generate_replay.py` can now emit:
+  - JSON replay bundle
+  - markdown replay document
+  - HTML replay viewer
+
 Deliverables:
 - JSON replay artifact
 - markdown replay artifact
@@ -491,6 +501,14 @@ Important:
 Goal:
 - observe a running simulation without refresh
 
+Current implementation status:
+- `GPT/viewer/live.py` materializes:
+  - append-only `events.jsonl`
+  - rolling `live_state.json`
+- `GPT/viewer/renderers/live_html_renderer.py` provides a polling live spectator page
+- `GPT/viewer/live_runtime.py` connects engine execution to live spectator outputs
+- `GPT/run_live_spectator.py` can run a deterministic game and produce a live spectator bundle
+
 Recommended transport:
 1. polling
 2. local HTTP
@@ -502,6 +520,25 @@ Important:
 ## Phase 4. Human Play Runtime
 Goal:
 - attach a human player to one or more seats
+
+Current implementation status:
+- `GPT/viewer/prompting.py` defines:
+  - `RuntimePrompt`
+  - `RuntimePromptChoice`
+  - `RuntimePromptResponse`
+  - `PromptFileChannel`
+- `GPT/viewer/human_adapter.py` provides:
+  - `HumanDecisionAdapter`
+  - CLI-backed response provider baseline
+- `GPT/viewer/playable_runtime.py` provides a playable runtime entry point
+- `GPT/run_live_playable.py` runs a deterministic live game with:
+  - human seats
+  - prompt file output
+  - live spectator bundle output
+
+Current scope limit:
+- trick-family prompts remain delegated and are not part of the first playable baseline
+- the first human-play baseline covers non-trick decision prompts
 
 Required work:
 - explicit prompt objects for:

@@ -11,7 +11,7 @@ from policy.decision.mark_target import PublicMarkChoiceDebug, build_empty_publi
 from policy.decision.movement import MovementChoiceResolution, apply_movement_intent_adjustment, resolve_movement_choice
 from policy.decision.purchase import PurchaseBenefitInputs, PurchaseDebugContext, TraitPurchaseDecisionInputs, V3PurchaseBenefitInputs, apply_v3_purchase_benefit_adjustments, assess_purchase_decision, assess_purchase_decision_from_inputs, assess_purchase_decision_with_traits, assess_v3_purchase_window, assess_v3_purchase_window_with_traits, build_immediate_win_purchase_result, build_purchase_benefit, build_purchase_debug_context, build_purchase_debug_payload, build_purchase_early_debug_payload, build_purchase_reserve_floor, count_owned_tiles_in_block, prepare_v3_purchase_benefit_with_traits, would_purchase_trigger_immediate_win
 from policy.decision.runtime_bridge import choose_active_flip_card_runtime, choose_burden_exchange_on_supply_runtime, choose_coin_placement_tile_runtime, choose_doctrine_relief_target_runtime, choose_hidden_trick_card_runtime, choose_lap_reward_runtime, choose_mark_target_runtime, choose_purchase_tile_runtime, choose_specific_trick_reward_runtime, choose_trick_to_use_runtime
-from policy.decision.support_choices import BurdenExchangeDecisionInputs, DistressMarkerInputs, EscapeSeekInputs, GeoBonusDecisionInputs, build_distress_marker_bonus, choose_doctrine_relief_player_id, choose_geo_bonus_kind, count_burden_cards, should_exchange_burden_on_supply, should_seek_escape_package_from_inputs
+from policy.decision.support_choices import BurdenExchangeDecisionInputs, DistressMarkerInputs, DoctrineReliefCandidateInputs, EscapeSeekInputs, GeoBonusDecisionInputs, build_distress_marker_bonus, choose_doctrine_relief_player_from_inputs, choose_doctrine_relief_player_id, choose_geo_bonus_kind, count_burden_cards, should_exchange_burden_on_supply, should_seek_escape_package_from_inputs
 from policy.decision.trick_reward import build_trick_reward_debug_payload, resolve_trick_reward_choice, resolve_trick_reward_choice_run
 from policy.decision.trick_usage import apply_trick_preserve_rules, build_trick_use_debug_payload, resolve_trick_use_choice
 from policy.environment_traits import count_cleanup_fortunes, fortune_cleanup_deck_profile, has_color_rent_double_weather, is_cleanup_threat_weather, weather_character_adjustment
@@ -649,6 +649,135 @@ def test_runtime_bridge_trick_use_matches_live_policy_delegate(monkeypatch) -> N
     assert seen["args"] == (policy, state, player, hand)
 
 
+def test_choose_trick_to_use_runtime_derives_window_signals(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_preserve_rules(**kwargs):
+        captured.update(kwargs)
+        return 0.0
+
+    monkeypatch.setattr("policy.decision.runtime_bridge.apply_trick_preserve_rules", fake_preserve_rules)
+
+    policy = SimpleNamespace(
+        _generic_survival_context=lambda _s, _p, _n: {
+            "land_f": 1.0,
+            "cross_start": 0.0,
+            "survival_urgency": 0.5,
+            "money_distress": 0.4,
+            "cleanup_cash_gap": 0.0,
+            "own_burdens": 0.0,
+            "next_draw_negative_cleanup_prob": 0.0,
+            "two_draw_negative_cleanup_prob": 0.0,
+            "generic_survival_score": 0.0,
+        },
+        _trick_decisive_context=lambda _s, _p, _ctx: {
+            "finish_f_window": 0.0,
+            "buy_window": 1.0,
+            "strategic_mode": 0.0,
+        },
+        _current_player_intent=lambda _s, _p, _n: None,
+        _predict_trick_cash_cost=lambda _card: 0.0,
+        _is_action_survivable=lambda *_args, **_kwargs: True,
+        _survival_hard_guard_reason=lambda *_args, **_kwargs: None,
+        _trick_survival_adjustment=lambda *_args, **_kwargs: 0.0,
+        _trick_decisive_adjustment=lambda *_args, **_kwargs: 0.0,
+        _trick_preserve_adjustment=lambda *_args, **_kwargs: 0.0,
+        _token_teleport_combo_score=lambda _player: 1.0,
+        _expected_buy_value=lambda _state, _player: 1.5,
+        _profile_from_mode=lambda *_args, **_kwargs: "v3_gpt",
+        _set_debug=lambda *_args, **_kwargs: None,
+        character_policy_mode="heuristic_v3_gpt",
+    )
+    state = SimpleNamespace(
+        round_index=1,
+        board=[CellKind.T2, CellKind.T3],
+        tile_owner=[1, None],
+        players=[
+            SimpleNamespace(player_id=0, alive=True, position=0),
+            SimpleNamespace(player_id=1, alive=True, position=5),
+        ],
+        tile_at=lambda idx: SimpleNamespace(purchase_cost=3 if idx == 1 else 2),
+    )
+    player = SimpleNamespace(
+        player_id=0,
+        current_character=CARD_TO_NAMES[6][0],
+        cash=8,
+        tiles_owned=1,
+        position=0,
+    )
+    hand = [SimpleNamespace(name="?íš‚???")]
+
+    choose_trick_to_use_runtime(policy, state, player, hand)
+
+    assert captured["has_relic_collector_window"] is True
+    assert captured["has_help_run_window"] is True
+    assert captured["has_neojeol_chain_window"] is True
+    assert captured["short_range_frontier_is_better"] is True
+
+
+def test_choose_trick_to_use_runtime_requires_forward_encounter_for_help_run(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_preserve_rules(**kwargs):
+        captured.update(kwargs)
+        return 0.0
+
+    monkeypatch.setattr("policy.decision.runtime_bridge.apply_trick_preserve_rules", fake_preserve_rules)
+
+    policy = SimpleNamespace(
+        _generic_survival_context=lambda _s, _p, _n: {
+            "land_f": 0.0,
+            "cross_start": 0.0,
+            "survival_urgency": 0.5,
+            "money_distress": 0.4,
+            "cleanup_cash_gap": 0.0,
+            "own_burdens": 0.0,
+            "next_draw_negative_cleanup_prob": 0.0,
+            "two_draw_negative_cleanup_prob": 0.0,
+            "generic_survival_score": 0.0,
+        },
+        _trick_decisive_context=lambda _s, _p, _ctx: {
+            "finish_f_window": 0.0,
+            "buy_window": 1.0,
+            "strategic_mode": 0.0,
+        },
+        _current_player_intent=lambda _s, _p, _n: None,
+        _predict_trick_cash_cost=lambda _card: 0.0,
+        _is_action_survivable=lambda *_args, **_kwargs: True,
+        _survival_hard_guard_reason=lambda *_args, **_kwargs: None,
+        _trick_survival_adjustment=lambda *_args, **_kwargs: 0.0,
+        _trick_decisive_adjustment=lambda *_args, **_kwargs: 0.0,
+        _trick_preserve_adjustment=lambda *_args, **_kwargs: 0.0,
+        _token_teleport_combo_score=lambda _player: 1.0,
+        _expected_buy_value=lambda _state, _player: 1.5,
+        _profile_from_mode=lambda *_args, **_kwargs: "v3_gpt",
+        _set_debug=lambda *_args, **_kwargs: None,
+        character_policy_mode="heuristic_v3_gpt",
+    )
+    state = SimpleNamespace(
+        round_index=1,
+        board=[CellKind.T2, CellKind.T3],
+        tile_owner=[1, None],
+        players=[
+            SimpleNamespace(player_id=0, alive=True, position=0),
+            SimpleNamespace(player_id=1, alive=True, position=20),
+        ],
+        tile_at=lambda idx: SimpleNamespace(purchase_cost=3 if idx == 1 else 2),
+    )
+    player = SimpleNamespace(
+        player_id=0,
+        current_character=CARD_TO_NAMES[6][0],
+        cash=8,
+        tiles_owned=1,
+        position=0,
+    )
+    hand = [SimpleNamespace(name="?íš‚???")]
+
+    choose_trick_to_use_runtime(policy, state, player, hand)
+
+    assert captured["has_help_run_window"] is False
+
+
 def test_runtime_bridge_mark_target_matches_live_policy_delegate(monkeypatch) -> None:
     policy = HeuristicPolicy()
     state = SimpleNamespace(rounds_completed=0)
@@ -778,6 +907,36 @@ def test_runtime_bridge_doctrine_relief_matches_live_policy_delegate(monkeypatch
 
     assert result == 1
     assert seen["args"] == (policy, state, player, candidates)
+
+
+def test_choose_doctrine_relief_target_runtime_prefers_distressed_candidate() -> None:
+    policy = SimpleNamespace(
+        _generic_survival_context=lambda _state, candidate, _name: {
+            1: {
+                "cleanup_pressure": 0.4,
+                "money_distress": 0.1,
+                "two_turn_lethal_prob": 0.0,
+                "own_burden_cost": 0.0,
+            },
+            2: {
+                "cleanup_pressure": 2.8,
+                "money_distress": 1.0,
+                "two_turn_lethal_prob": 0.35,
+                "own_burden_cost": 5.0,
+            },
+        }[candidate.player_id]
+    )
+    state = SimpleNamespace()
+    player = SimpleNamespace(player_id=1)
+    burden = SimpleNamespace(is_burden=True)
+    candidates = [
+        SimpleNamespace(player_id=1, current_character=CARD_TO_NAMES[6][0], cash=10.0, trick_hand=[]),
+        SimpleNamespace(player_id=2, current_character=CARD_TO_NAMES[7][0], cash=4.0, trick_hand=[burden, burden]),
+    ]
+
+    result = choose_doctrine_relief_target_runtime(policy, state, player, candidates)
+
+    assert result == 2
 
 
 def test_runtime_bridge_movement_matches_live_policy_delegate(monkeypatch) -> None:
@@ -1836,6 +1995,34 @@ def test_choose_doctrine_relief_player_id_prefers_self_then_first() -> None:
     assert choose_doctrine_relief_player_id(self_player_id=2, candidate_ids=[1, 2, 3]) == 2
     assert choose_doctrine_relief_player_id(self_player_id=4, candidate_ids=[1, 2, 3]) == 1
     assert choose_doctrine_relief_player_id(self_player_id=4, candidate_ids=[]) is None
+
+
+def test_choose_doctrine_relief_player_from_inputs_prefers_most_distressed_candidate() -> None:
+    choice = choose_doctrine_relief_player_from_inputs(
+        [
+            DoctrineReliefCandidateInputs(
+                player_id=1,
+                cash=10.0,
+                burden_count=0.0,
+                cleanup_pressure=0.5,
+                money_distress=0.1,
+                two_turn_lethal_prob=0.0,
+                own_burden_cost=0.0,
+                is_self=True,
+            ),
+            DoctrineReliefCandidateInputs(
+                player_id=2,
+                cash=4.0,
+                burden_count=2.0,
+                cleanup_pressure=2.8,
+                money_distress=1.1,
+                two_turn_lethal_prob=0.3,
+                own_burden_cost=5.0,
+                is_self=False,
+            ),
+        ]
+    )
+    assert choice == 2
 
 
 def test_should_exchange_burden_on_supply_applies_floor_and_hard_guard() -> None:

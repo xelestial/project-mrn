@@ -57,6 +57,18 @@ class DistressMarkerInputs:
     direct_denial_names: frozenset[str]
 
 
+@dataclass(frozen=True, slots=True)
+class DoctrineReliefCandidateInputs:
+    player_id: int
+    cash: float
+    burden_count: float
+    cleanup_pressure: float
+    money_distress: float
+    two_turn_lethal_prob: float
+    own_burden_cost: float
+    is_self: bool
+
+
 def choose_doctrine_relief_player_id(*, self_player_id: int, candidate_ids: Iterable[int]) -> int | None:
     ordered = list(candidate_ids)
     if not ordered:
@@ -64,6 +76,29 @@ def choose_doctrine_relief_player_id(*, self_player_id: int, candidate_ids: Iter
     if self_player_id in ordered:
         return self_player_id
     return ordered[0]
+
+
+def choose_doctrine_relief_player_from_inputs(
+    candidates: Sequence[DoctrineReliefCandidateInputs],
+) -> int | None:
+    if not candidates:
+        return None
+
+    def score(candidate: DoctrineReliefCandidateInputs) -> tuple[float, float, float, int]:
+        distress = (
+            2.25 * candidate.burden_count
+            + 1.15 * candidate.cleanup_pressure
+            + 1.35 * candidate.money_distress
+            + 1.80 * candidate.two_turn_lethal_prob
+            + 0.25 * candidate.own_burden_cost
+            + 0.22 * max(0.0, 10.0 - candidate.cash)
+        )
+        # Prefer stabilizing ourselves only when distress is comparable.
+        self_bias = 0.20 if candidate.is_self else 0.0
+        return (distress + self_bias, candidate.burden_count, -candidate.cash, -candidate.player_id)
+
+    best = max(candidates, key=score)
+    return best.player_id
 
 
 def should_exchange_burden_on_supply(inputs: BurdenExchangeDecisionInputs) -> bool:

@@ -1,5 +1,24 @@
 # EXAMPLE Trick Card Source Snapshot
 
+## 2026-03-28 Audit Warning
+
+This file is still only an example snapshot.
+
+It is **not** valid trick-rule truth for the following reviewed items:
+- `성물 수집가`
+- `우대권`
+- `강제 매각`
+- `신의뜻`
+- `마당발`
+- `뇌절왕`
+
+For those cards, the reviewed rule clarification and change requests live in:
+- [GPT_TRICK_CARD_RUNTIME_GUIDE.md](C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\DATA\GPT_TRICK_CARD_RUNTIME_GUIDE.md)
+
+If this example snapshot and the guide disagree:
+- trust the guide's `2026-03-28 Manual Audit Corrections`
+- treat this file as an implementation-shape example only
+
 이 파일은 **유효한 잔꾀 규칙 문서가 아니다**.
 
 목적:

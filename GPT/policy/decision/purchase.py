@@ -380,7 +380,7 @@ def assess_v3_purchase_window(
             complete_monopoly=complete_monopoly,
             blocks_enemy=blocks_enemy,
             current_benefit=benefit,
-            baksu_online=(current_character == "è«›ëº¤ë‹”" and shards >= 5),
+            baksu_online=(is_baksu(current_character) and shards >= 5),
             token_window_character=False,
         )
     )
@@ -399,7 +399,7 @@ def assess_v3_purchase_window(
         needs_income=bool(float(survival.raw.get("needs_income", 0.0)) > 0.0),
     )
     baksu_online_exception = (
-        current_character == "박수"
+        is_baksu(current_character)
         and shards >= 5
         and cell == CellKind.T3
         and cost <= 3
@@ -563,7 +563,7 @@ def assess_purchase_decision(
             and not complete_monopoly
             and not (
                 profile == "v3_gpt"
-                and current_character == "è«›ëº¤ë‹”"
+                and is_baksu(current_character)
                 and purchase_window is not None
                 and purchase_window.baksu_online_exception
             )

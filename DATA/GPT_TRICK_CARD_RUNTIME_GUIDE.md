@@ -1,5 +1,84 @@
 # GPT Trick Card Runtime Guide
 
+## 2026-03-28 Manual Audit Corrections
+
+This section records rule confirmations and rule-change requests from manual review.
+
+Important:
+- This section is authoritative for the audit result.
+- If current source behavior differs, the difference should be treated as a known mismatch.
+- `확인` means the rule meaning is now clarified.
+- `변경` means the intended rule/UX should be changed from the current source behavior.
+- `참고` means design guidance, not a direct rule correction.
+
+### 성물 수집가
+- Confirmed rule:
+  - 이번 턴의 성물 수집이 `2배`다.
+  - `랩 보상`에는 적용되지 않는다.
+  - `F1` 도착 시 기본 보상은 `조각 1개`, `F2` 도착 시 기본 보상은 `조각 2개`다.
+- Documentation implication:
+  - `extra_shard_gain_this_turn += 1` 같은 내부 값 설명만으로는 충분하지 않다.
+  - 실제 적용 대상은 `성물 수집 기회`이며, `lap reward shards`는 제외라고 명시해야 한다.
+
+### 우대권
+- Confirmed rule:
+  - 이번 턴의 `모든 통행료`에 적용된다.
+- Not included:
+  - 사기꾼의 인수 금액 감소에는 적용되지 않는다.
+- Documentation implication:
+  - 기존의 “1회 면제처럼 보이는 설명”은 잘못 읽힐 수 있다.
+  - 문서에는 반드시 `all toll payments this turn`과 `no effect on swindler takeover price`를 같이 적는다.
+
+### 강제 매각
+- Change request:
+  - `언제나 사용`을 `NO`로 변경한다.
+- Confirmed rule:
+  - 먼저 사용하고 플레이해야 한다.
+  - 즉, 손패에 들고 있다가 자동으로 터지는 anytime 카드가 아니다.
+- Documentation implication:
+  - 현재 소스가 `적 소유 타일 도착 시 자동 발동`에 가깝다면, 그것은 규칙 불일치로 표시해야 한다.
+
+### 설정 카드: 신의뜻
+- Confirmed rule:
+  - 모든 `조각을 통한 수익 결정`은 `자신의 조각 수`로 계산한다.
+  - 플레이어의 말이 타일에 도착하고 금액을 정산받은 순간 효과는 종료된다.
+- Documentation implication:
+  - same-tile shard 관련 설명에는 반드시 `owner shards`가 아니라 `actor shards` 기준이라고 적는다.
+  - 지속 효과가 아니라 `landing settlement moment`까지의 효과라고 적는다.
+
+### 설정 카드: 마당발
+- Confirmed rule:
+  - 타일 구매 기회 `1번`에 한정된다.
+  - 구매 가능한 빈 타일이 없거나 돈이 없으면 즉시 효과는 사라진다.
+- Documentation implication:
+  - 단순히 “다음 유효 구매 이벤트까지 유지”처럼 읽히면 안 된다.
+  - 실패 조건에서도 즉시 소멸한다고 명시해야 한다.
+
+### 설정 카드: 뇌절왕
+- Change request:
+  - `언제나 사용`을 `NO`로 변경한다.
+- Confirmed rule:
+  - 미리 사용해야 한다.
+  - 플레이어가 도착 예정 `구역`에 자신의 토지가 있다면, 그 즉시 `추가 주사위`를 굴린다.
+  - `추가 주사위`는 `이번 턴에 굴린 주사위 개수`와 같다.
+  - 그 값을 기존 최종 주사위 값에 더하여 `최종 이동`한다.
+- Documentation implication:
+  - “도착 후 자동 연쇄 이동”처럼 쓰면 안 된다.
+  - `pre-commit trick`, `same-turn rolled dice count`, `zone-based ownership check`를 함께 적어야 한다.
+
+### 기타 참고
+- If multiple effects reduce the available dice to `1`, the player may still fix that roll with `1` dice card.
+- This is a play rule note, not a trick-specific state flag.
+
+### Status Summary For Current Source Review
+- The following items should be reviewed as likely source mismatches:
+  - `성물 수집가` target scope
+  - `우대권` toll coverage semantics
+  - `강제 매각` anytime flag / automatic trigger path
+  - `신의뜻` shard-owner interpretation and expiry timing
+  - `마당발` failure-time expiry
+  - `뇌절왕` anytime flag and activation timing
+
 이 문서는 현재 `GPT/` 소스코드가 잔꾀 카드를 실제로 어떻게 처리하는지 정리한 문서다.
 
 중요:

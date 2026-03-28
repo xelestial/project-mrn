@@ -49,6 +49,10 @@ Practical implications:
 - Notes:
   - this is the top-level plan to follow for replay and playable visualization
   - it is the main GPT-owned architecture/product plan for this topic
+  - Phase 2 offline replay viewer is now implemented at minimum viable level
+  - Phase 3 live spectator baseline is now implemented at minimum viable level
+  - Phase 4 human-play baseline is now implemented for non-trick prompts
+  - remaining active work is centered on browser-side response bridge, trick prompts, and later full UI polish
 
 ### 2. Turn Advantage Analysis
 - File: `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md`
@@ -80,6 +84,9 @@ They are no longer the active source of truth for future planning.
 - `PLAN/[COMPLETE]_GPT_REFACTOR_POLISH.md`
 - `PLAN/[COMPLETE]_GPT_ISOLATED_MULTI_AGENT_BATTLE_IMPL.md`
 - `PLAN/[COMPLETE]_GPT_TURN_ADVANTAGE_ANALYSIS_PHASE1.md`
+- `PLAN/[COMPLETE]_GPT_PHASE2_OFFLINE_REPLAY_VIEWER.md`
+- `PLAN/[COMPLETE]_GPT_PHASE3_LIVE_SPECTATOR.md`
+- `PLAN/[COMPLETE]_GPT_PHASE4_HUMAN_PLAY_BASELINE.md`
 - `PLAN/[COMPLETE]_MULTI_AGENT_DISPATCH_IMPL.md`
 - `PLAN/[COMPLETE]_CLAUDE_MULTI_AGENT_BATTLE_PLAN.md`
 
@@ -105,6 +112,15 @@ These are still useful, but they are not the current top-level execution plan on
 - Notes:
   - supports the current canonical visualization plan
   - recommends GPT upper architecture plus Claude-style lower substrate
+
+### PR22 Visualization Fix Split
+- File: `PLAN/[PROPOSAL]_GPT_CLAUDE_VISUALIZATION_FIX_SPLIT.md`
+- Status: `PROPOSAL`
+- Role: corrective ownership split for post-PR22 `main`-branch visualization issues
+- Notes:
+  - records what must be fixed now on GPT side vs Claude side
+  - focuses on Phase 4 stabilization, schema drift cleanup, and contract convergence
+  - should be used as a corrective proposal, not as a replacement for the canonical runtime plan
 
 ### Engine Policy Contract Alignment
 - File: `PLAN/[AGREE]_ENGINE_POLICY_CONTRACT_ALIGNMENT.md`
@@ -191,6 +207,7 @@ When deciding what to follow next:
 - keep `SHARED_VISUAL_RUNTIME_CONTRACT.md`
 - keep `VISUALIZATION_GAME_PLAN.md`
 - keep `[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md`
+- keep `[PROPOSAL]_GPT_CLAUDE_VISUALIZATION_FIX_SPLIT.md`
 - keep `[AGREE]_ENGINE_POLICY_CONTRACT_ALIGNMENT.md`
 - keep `GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md`
 - keep `GPT_ONLINE_STYLE_REPLAY_VISUALIZATION_PLAN.md`

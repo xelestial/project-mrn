@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from contextlib import contextmanager
 import importlib.util
 import sys
 from types import ModuleType
@@ -14,9 +15,51 @@ class LoadedPolicyRuntime:
     heuristic_policy_cls: type
     base_policy_cls: type | None
     alias_modules: dict[str, str]
+    loaded_modules: dict[str, ModuleType]
+
+    @contextmanager
+    def activated(self):
+        saved_plain_modules = {name: sys.modules.get(name) for name in self.loaded_modules}
+        saved_policy_modules = _capture_modules(("policy",))
+        root_path_str = str(self.root_dir)
+        sys_path_inserted = False
+        try:
+            for module_name in saved_policy_modules:
+                sys.modules.pop(module_name, None)
+            for module_name, module in self.loaded_modules.items():
+                sys.modules[module_name] = module
+            if root_path_str not in sys.path:
+                sys.path.insert(0, root_path_str)
+                sys_path_inserted = True
+            yield
+        finally:
+            if sys_path_inserted:
+                try:
+                    sys.path.remove(root_path_str)
+                except ValueError:
+                    pass
+            for module_name in list(sys.modules):
+                if module_name == "policy" or module_name.startswith("policy."):
+                    sys.modules.pop(module_name, None)
+            sys.modules.update(saved_policy_modules)
+            for module_name, original in saved_plain_modules.items():
+                if original is None:
+                    sys.modules.pop(module_name, None)
+                else:
+                    sys.modules[module_name] = original
 
 
 _RUNTIME_CACHE: dict[tuple[str, str, tuple[str, ...]], LoadedPolicyRuntime] = {}
+
+
+def _capture_modules(prefixes: tuple[str, ...]) -> dict[str, ModuleType]:
+    captured: dict[str, ModuleType] = {}
+    for name, module in list(sys.modules.items()):
+        for prefix in prefixes:
+            if name == prefix or name.startswith(prefix + "."):
+                captured[name] = module
+                break
+    return captured
 
 
 def _alias_name(runtime_id: str, module_name: str) -> str:
@@ -63,10 +106,18 @@ def load_policy_runtime(
         return cached
 
     saved_plain_modules = {name: sys.modules.get(name) for name in isolated_modules}
+    saved_policy_modules = _capture_modules(("policy",))
     loaded_modules: dict[str, ModuleType] = {}
     alias_map: dict[str, str] = {}
+    root_path_str = str(root_path)
+    sys_path_inserted = False
 
     try:
+        for module_name in saved_policy_modules:
+            sys.modules.pop(module_name, None)
+        if root_path_str not in sys.path:
+            sys.path.insert(0, root_path_str)
+            sys_path_inserted = True
         for module_name in isolated_modules:
             alias_name = _alias_name(runtime_id, module_name)
             alias_map[module_name] = alias_name
@@ -83,10 +134,20 @@ def load_policy_runtime(
             heuristic_policy_cls=getattr(entry, "HeuristicPolicy"),
             base_policy_cls=getattr(entry, "BasePolicy", None),
             alias_modules=dict(alias_map),
+            loaded_modules=dict(loaded_modules),
         )
         _RUNTIME_CACHE[cache_key] = runtime
         return runtime
     finally:
+        if sys_path_inserted:
+            try:
+                sys.path.remove(root_path_str)
+            except ValueError:
+                pass
+        for module_name in list(sys.modules):
+            if module_name == "policy" or module_name.startswith("policy."):
+                sys.modules.pop(module_name, None)
+        sys.modules.update(saved_policy_modules)
         for module_name, original in saved_plain_modules.items():
             if original is None:
                 sys.modules.pop(module_name, None)

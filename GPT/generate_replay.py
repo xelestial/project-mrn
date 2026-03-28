@@ -9,7 +9,7 @@ Modes:
 Outputs (default: all three):
   --format html       → replay.html  (self-contained interactive viewer)
   --format markdown   → replay.md    (human-readable turn-by-turn)
-  --format json       → replay.json  (full event list)
+  --format json       → replay.json  (projection bundle + raw events)
   --format all        → all three
 
 Examples:
@@ -116,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if fmt_name == "json":
             with open(p, "w", encoding="utf-8") as f:
-                json.dump(events, f, ensure_ascii=False, indent=2)
+                json.dump(proj.to_dict(), f, ensure_ascii=False, indent=2)
             print(f"  OK JSON  -> {p}")
 
         elif fmt_name == "markdown":

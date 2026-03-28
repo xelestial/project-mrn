@@ -8,7 +8,7 @@ from policy.decision.movement import MovementChoiceResolution, apply_movement_in
 from policy.decision.purchase import PurchaseBenefitInputs, PurchaseDebugContext, PurchaseDecisionResult, PurchaseWindowAssessment, TraitPurchaseDecisionInputs, V3PreparedPurchaseBenefit, V3PurchaseBenefitAdjustment, V3PurchaseBenefitInputs, apply_v3_purchase_benefit_adjustments, assess_purchase_decision, assess_purchase_decision_from_inputs, assess_purchase_decision_with_traits, assess_v3_purchase_window, assess_v3_purchase_window_with_traits, build_purchase_benefit, build_purchase_debug_context, build_purchase_debug_payload, build_purchase_reserve_floor, count_owned_tiles_in_block, prepare_v3_purchase_benefit_with_traits, would_purchase_trigger_immediate_win
 from policy.decision.runtime_bridge import choose_active_flip_card_runtime, choose_burden_exchange_on_supply_runtime, choose_coin_placement_tile_runtime, choose_doctrine_relief_target_runtime, choose_draft_card_runtime, choose_final_character_runtime, choose_geo_bonus_runtime, choose_hidden_trick_card_runtime, choose_lap_reward_runtime, choose_mark_target_runtime, choose_movement_runtime, choose_purchase_tile_runtime, choose_specific_trick_reward_runtime, choose_trick_to_use_runtime
 from policy.decision.scored_choice import RankedChoiceRun, ScoredChoiceRun, run_ranked_choice, run_scored_choice
-from policy.decision.support_choices import BurdenExchangeDecisionInputs, DistressMarkerInputs, EscapeSeekInputs, GeoBonusDecisionInputs, build_distress_marker_bonus, choose_doctrine_relief_player_id, choose_geo_bonus_kind, count_burden_cards, should_exchange_burden_on_supply, should_seek_escape_package_from_inputs
+from policy.decision.support_choices import BurdenExchangeDecisionInputs, DistressMarkerInputs, DoctrineReliefCandidateInputs, EscapeSeekInputs, GeoBonusDecisionInputs, build_distress_marker_bonus, choose_doctrine_relief_player_from_inputs, choose_doctrine_relief_player_id, choose_geo_bonus_kind, count_burden_cards, should_exchange_burden_on_supply, should_seek_escape_package_from_inputs
 from policy.decision.trick_reward import TrickRewardChoiceRun, TrickRewardResolution, build_trick_reward_debug_payload, resolve_trick_reward_choice, resolve_trick_reward_choice_run
 from policy.decision.trick_usage import apply_trick_preserve_rules
 
@@ -84,6 +84,7 @@ __all__ = [
     "choose_trick_to_use_runtime",
     "BurdenExchangeDecisionInputs",
     "DistressMarkerInputs",
+    "DoctrineReliefCandidateInputs",
     "EscapeSeekInputs",
     "GeoBonusDecisionInputs",
     "RankedChoiceRun",
@@ -99,6 +100,7 @@ __all__ = [
     "count_owned_tiles_in_block",
     "prepare_v3_purchase_benefit_with_traits",
     "choose_doctrine_relief_player_id",
+    "choose_doctrine_relief_player_from_inputs",
     "choose_geo_bonus_kind",
     "build_distress_marker_bonus",
     "count_burden_cards",
