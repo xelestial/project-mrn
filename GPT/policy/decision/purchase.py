@@ -414,11 +414,11 @@ def assess_v3_purchase_window(
         and not blocks_enemy
         and not baksu_online_exception
         and (
-            survival.cleanup_pressure >= 2.0
-            or survival.money_distress >= 1.15
-            or survival.signals.two_turn_lethal_prob >= 0.22
+            survival.cleanup_pressure >= 2.2
+            or survival.money_distress >= 1.25
+            or survival.signals.two_turn_lethal_prob >= 0.24
         )
-        and remaining_cash < reserve_floor + 0.6
+        and remaining_cash < reserve_floor + 0.35
     )
     return PurchaseWindowAssessment(
         reserve_floor=reserve_floor,
@@ -488,11 +488,11 @@ def assess_v3_purchase_window_with_traits(
         and not blocks_enemy
         and not baksu_online_exception
         and (
-            survival.cleanup_pressure >= 2.0
-            or survival.money_distress >= 1.15
-            or survival.signals.two_turn_lethal_prob >= 0.22
+            survival.cleanup_pressure >= 2.2
+            or survival.money_distress >= 1.25
+            or survival.signals.two_turn_lethal_prob >= 0.24
         )
-        and remaining_cash < reserve_floor + 0.6
+        and remaining_cash < reserve_floor + 0.35
     )
     return PurchaseWindowAssessment(
         reserve_floor=reserve_floor,

@@ -147,8 +147,8 @@ def build_distress_marker_bonus(inputs: DistressMarkerInputs) -> dict[str, float
 
     for name in available_markers:
         bonus[name] = max(0.0, base)
-        if inputs.marker_owner_id != inputs.player_id:
-            bonus[name] += 0.55
+        if inputs.marker_owner_id == inputs.player_id:
+            bonus[name] += 0.35
     return bonus
 
 

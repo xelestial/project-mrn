@@ -1,3 +1,9 @@
+## v0.7.66-ai-log-driven-tuning (2026-03-29)
+- Used `ai_decisions.jsonl` analysis to tune GPT decision nodes instead of only reading end-game summaries.
+- Reduced over-eager rescue/marker weighting in draft/final character choice by removing extra off-marker-owner bonus and narrowing which character families receive survival-first marker amplification.
+- Softened the GPT-only cleanup purchase soft-block thresholds so moderate cleanup pressure no longer suppresses as many otherwise survivable land buys.
+- Added regression coverage for the new marker-bonus ownership rule and for the final-character path so `만신`-style marker rescue bias does not get unintentionally over-amplified again.
+
 ## v0.7.65-ai-analysis-log (2026-03-29)
 - Finished the AI-improvement pass by exporting per-decision analysis rows into `ai_decisions.jsonl` alongside `games.jsonl` / `errors.jsonl`.
 - AI decision export now captures the canonical trace payloads for non-trick decisions plus purchase, lap reward, marker flip, and geo bonus choices with per-game seed/run metadata for offline comparison.

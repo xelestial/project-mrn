@@ -1304,8 +1304,6 @@ def choose_draft_card_runtime(policy: Any, state: Any, player: Any, offered_card
                 is_low_cash_income_character(name)
                 or is_low_cash_escape_character(name)
                 or is_low_cash_controller_character(name)
-                or is_baksu(name)
-                or is_mansin(name)
             )
         },
         survival_first=survival_orchestrator.survival_first,
@@ -1416,8 +1414,6 @@ def choose_final_character_runtime(policy: Any, state: Any, player: Any, card_ch
                 is_low_cash_income_character(name)
                 or is_low_cash_escape_character(name)
                 or is_low_cash_controller_character(name)
-                or is_baksu(name)
-                or is_mansin(name)
             )
         },
         survival_first=survival_orchestrator.survival_first,

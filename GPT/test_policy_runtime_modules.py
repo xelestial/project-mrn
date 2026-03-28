@@ -2054,6 +2054,31 @@ def test_choose_final_character_runtime_records_pipeline_trace() -> None:
     assert debug["trace"]["final_choice"]["name"] == options[1]
 
 
+def test_choose_final_character_runtime_does_not_overweight_mansin_marker_bonus() -> None:
+    policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt")
+    escape_name = CARD_TO_NAMES[4][0]
+    mansin_name = CARD_TO_NAMES[6][1]
+    offered_cards = [4, 6]
+    state = SimpleNamespace(active_by_card={4: escape_name, 6: mansin_name})
+    player = SimpleNamespace(player_id=0, current_character=CARD_TO_NAMES[6][0])
+    policy._build_survival_orchestrator = lambda *_args, **_kwargs: (
+        {"generic_survival_score": 1.0, "survival_urgency": 1.4},
+        SimpleNamespace(survival_first=True, weight_multiplier=2.0),
+    )
+    policy._distress_marker_bonus = lambda *_args, **_kwargs: {escape_name: 1.0, mansin_name: 1.0}
+    policy._is_v2_mode = lambda: False
+    policy._character_score_breakdown = lambda _state, _player, _name: (0.0, [])
+    policy._survival_policy_character_advice = lambda *_args, **_kwargs: (0.0, [], False, {})
+    policy._character_survival_adjustment = lambda *_args, **_kwargs: (0.0, [])
+    policy._remember_player_intent = lambda *_args, **_kwargs: None
+
+    choice = choose_final_character_runtime(policy, state, player, offered_cards)
+
+    assert is_low_cash_escape_character(escape_name) is True
+    assert is_mansin(mansin_name) is True
+    assert choice == escape_name
+
+
 def test_choose_mark_target_runtime_records_pipeline_trace() -> None:
     policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt")
     actor_name = CARD_TO_NAMES[6][0]
@@ -2314,6 +2339,47 @@ def test_build_distress_marker_bonus_prefers_marker_when_escape_pressure_is_live
 
     assert bonus["marker"] > 2.0
     assert bonus["other"] == 0.0
+
+
+def test_build_distress_marker_bonus_no_longer_rewards_off_marker_owner() -> None:
+    off_owner = build_distress_marker_bonus(
+        DistressMarkerInputs(
+            rescue_pressure=True,
+            urgent_denial=False,
+            leader_emergency=0.0,
+            controller_need=0.0,
+            money_distress=0.6,
+            future_rescue_live=True,
+            marker_counter=0.0,
+            near_end=False,
+            marker_owner_id=2,
+            player_id=1,
+            candidate_names=("marker",),
+            marker_names=frozenset({"marker"}),
+            rescue_names=frozenset({"escape"}),
+            direct_denial_names=frozenset(),
+        )
+    )
+    on_owner = build_distress_marker_bonus(
+        DistressMarkerInputs(
+            rescue_pressure=True,
+            urgent_denial=False,
+            leader_emergency=0.0,
+            controller_need=0.0,
+            money_distress=0.6,
+            future_rescue_live=True,
+            marker_counter=0.0,
+            near_end=False,
+            marker_owner_id=1,
+            player_id=1,
+            candidate_names=("marker",),
+            marker_names=frozenset({"marker"}),
+            rescue_names=frozenset({"escape"}),
+            direct_denial_names=frozenset(),
+        )
+    )
+
+    assert on_owner["marker"] > off_owner["marker"]
 
 
 def test_count_burden_cards_counts_visible_burdens() -> None:
