@@ -129,6 +129,8 @@ def test_rounds(events: list[dict]) -> list[str]:
             errors.append(f"Invalid round_index: {rnd.round_index}")
         if rnd.weather_name != rnd.weather:
             errors.append(f"weather alias mismatch in round {rnd.round_index}")
+        if rnd.round_index == 1 and not rnd.weather_name:
+            errors.append("round 1 weather name missing")
 
     return errors
 
@@ -211,6 +213,16 @@ def test_html_renderer(events: list[dict]) -> list[str]:
                     subtitle = str(first_draft.get("subtitle", "")).strip()
                     if subtitle.isdigit():
                         errors.append("draft_pick frame still shows raw numeric card only")
+                first_weather = next(
+                    (frame for frame in parsed if frame.get("event_type") == "weather_reveal"),
+                    None,
+                )
+                if first_weather is None:
+                    errors.append("missing weather_reveal frame in replay HTML")
+                elif not str(first_weather.get("title", "")).startswith("Weather: "):
+                    errors.append("weather_reveal frame title is not populated")
+                elif str(first_weather.get("title", "")).strip() == "Weather: -":
+                    errors.append("weather_reveal frame title still missing actual weather name")
         except json.JSONDecodeError as exc:
             errors.append(f"FRAMES JSON parse error: {exc}")
     else:

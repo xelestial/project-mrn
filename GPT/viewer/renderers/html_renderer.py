@@ -76,7 +76,7 @@ def _event_display(event: dict) -> dict:
     elif etype == "round_start":
         detail = f"round {event.get('round_index', '?')}"
     elif etype == "weather_reveal":
-        detail = event.get("weather_name") or event.get("card", "")
+        detail = event.get("weather_name") or event.get("weather") or event.get("card", "")
     elif etype == "draft_pick":
         detail = _draft_card_label(event.get("picked_card"))
     elif etype == "final_character_choice":
@@ -231,7 +231,8 @@ def _frame_title(event: dict) -> str:
     if etype == "round_start":
         return f"Round {event.get('round_index', '?')} Start"
     if etype == "weather_reveal":
-        return f"Weather: {event.get('weather_name', event.get('card', '-'))}"
+        weather_name = event.get("weather_name") or event.get("weather") or event.get("card", "-")
+        return f"Weather: {weather_name}"
     if etype == "draft_pick":
         return f"Draft Pick - P{event.get('acting_player_id', '?')}"
     if etype == "final_character_choice":

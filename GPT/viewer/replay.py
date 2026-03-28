@@ -172,7 +172,11 @@ class ReplayProjection:
                 if current_round is None:
                     session_prelude.append(event)
                 else:
-                    current_round.weather = event.get("weather_name", event.get("card", ""))
+                    current_round.weather = (
+                        event.get("weather_name")
+                        or event.get("weather")
+                        or event.get("card", "")
+                    )
                     current_round.prelude_events.append(event)
                 continue
 
