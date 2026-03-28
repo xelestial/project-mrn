@@ -1313,6 +1313,17 @@ class GameEngine:
             elif phase == "regular":
                 stats["regular_tricks_used"] += 1
             self._log({"event": "trick_used", "player": player.player_id + 1, "phase": phase, "character": player.current_character, "card": {"deck_index": card.deck_index, "name": card.name}, "resolution": resolution, "decision": debug})
+            self._emit_vis(
+                "trick_used",
+                Phase.TRICK_WINDOW,
+                player.player_id + 1,
+                state,
+                phase=phase,
+                card_name=card.name,
+                card_description=card.description,
+                card_deck_index=card.deck_index,
+                resolution=resolution,
+            )
             return True
 
         # 언제나 사용할 수 있는 잔꾀는 자신의 턴 잔꾀 단계에서 먼저 여러 장 사용할 수 있다.

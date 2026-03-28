@@ -11,6 +11,7 @@ KNOWN_EVENT_TYPES = {
     "final_character_choice",
     "turn_start",
     "trick_window_open",
+    "trick_used",
     "trick_window_closed",
     "dice_roll",
     "player_move",

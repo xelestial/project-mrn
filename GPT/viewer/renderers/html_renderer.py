@@ -22,6 +22,7 @@ _VISIBLE_FRAME_EVENTS = {
     "final_character_choice",
     "turn_start",
     "dice_roll",
+    "trick_used",
     "player_move",
     "landing_resolved",
     "rent_paid",
@@ -81,6 +82,7 @@ def _event_display(event: dict) -> dict:
         "final_character_choice": "C",
         "turn_start": "T",
         "dice_roll": "R",
+        "trick_used": "Z",
         "player_move": "M",
         "landing_resolved": "L",
         "rent_paid": "$",
@@ -108,19 +110,33 @@ def _event_display(event: dict) -> dict:
     elif etype == "final_character_choice":
         detail = event.get("character", "")
     elif etype == "turn_start":
-        detail = f"turn {event.get('turn_index', '?')}"
+        detail = f"{event.get('turn_index', '?')} 턴"
     elif etype == "dice_roll":
         dice = event.get("dice_values") or event.get("dice") or []
         used_cards = event.get("used_cards") or []
         formula = event.get("formula") or ""
         total = event.get("total_move", event.get("move", event.get("total", "?")))
         if formula:
-            source = "cards" if used_cards and not dice else "dice" if dice and not used_cards else "mix"
-            detail = f"{formula} -> {total} ({source})"
+            if used_cards and not dice:
+                detail = f"주사위 카드 {', '.join(map(str, used_cards))} 사용 -> {total}"
+            elif dice and not used_cards:
+                detail = f"주사위 {', '.join(map(str, dice))} -> {total}"
+            else:
+                detail = f"{formula} -> {total}"
         elif dice:
-            detail = f"{dice} -> {total}"
+            detail = f"주사위 {', '.join(map(str, dice))} -> {total}"
         else:
             detail = f"{total}"
+    elif etype == "trick_used":
+        card_name = event.get("card_name", "?")
+        description = str(event.get("card_description", "") or "").strip()
+        resolution = event.get("resolution") or {}
+        resolution_type = resolution.get("type")
+        detail = f"{card_name}"
+        if description:
+            detail += f" - {description}"
+        if resolution_type:
+            detail += f" [{resolution_type}]"
     elif etype == "player_move":
         src = event.get("from_tile_index", event.get("from_tile", event.get("from_pos", "?")))
         dst = event.get("to_tile_index", event.get("to_tile", event.get("to_pos", "?")))
@@ -243,6 +259,7 @@ def _session_players(session_start: dict) -> list[dict]:
         player.setdefault("mark_status", "clear")
         player.setdefault("public_effects", [])
         player.setdefault("burden_summary", [])
+        player.setdefault("remaining_dice_cards", [1, 2, 3, 4, 5, 6])
     return players
 
 
@@ -319,6 +336,7 @@ def _event_type_korean(etype: str | None) -> str:
         "draft_pick": "드래프트 선택",
         "final_character_choice": "최종 캐릭터 선택",
         "turn_start": "턴 시작",
+        "trick_used": "잔꾀 사용",
         "dice_roll": "이동값 결정",
         "player_move": "말 이동",
         "landing_resolved": "도착 칸 처리",
@@ -352,6 +370,8 @@ def _frame_nav_label(event: dict) -> str:
         return f"P{event.get('acting_player_id', '?')} 최종 캐릭터 선택"
     if etype == "turn_start":
         return f"{event.get('turn_index', '?')} 턴 시작"
+    if etype == "trick_used":
+        return "잔꾀 사용"
     if etype == "dice_roll":
         return "이동값 결정"
     if etype == "landing_resolved":
@@ -624,9 +644,9 @@ function renderBoard(frame) {
 function renderPlayers(frame) {
   const panel = document.getElementById("players-panel"); panel.innerHTML = '<div class="sec-title">플레이어</div>'; const actorId = frame.acting_player_id;
   (frame.players || []).forEach((player) => {
-    const pid = player.player_id; const color = playerColor(pid); const markStatus = player.mark_status || "clear"; const publicTricks = (player.public_tricks || []).join(", ") || "-"; const hiddenCount = Number(player.hidden_trick_count || 0); const effects = player.public_effects || []; const card = document.createElement("div");
+    const pid = player.player_id; const color = playerColor(pid); const markStatus = player.mark_status || "clear"; const publicTricks = (player.public_tricks || []).join(", ") || "-"; const hiddenCount = Number(player.hidden_trick_count || 0); const effects = player.public_effects || []; const remainingDice = (player.remaining_dice_cards || []).join(", ") || "-"; const card = document.createElement("div");
     card.className = "player-card" + (pid === actorId ? " active" : "") + (player.alive === false ? " dead" : ""); if (pid === actorId) card.style.borderColor = color;
-    card.innerHTML = `<div class="player-name" style="color:${color}"><span>P${pid}</span><span>${player.alive === false ? "탈락" : `타일 ${Number(player.position || 0) + 1}`}</span></div><div class="player-character">${player.character || "-"}</div><div class="status-sub">${player.display_name || `Player ${pid}`}</div><div class="stat-row" style="margin-top:6px"><span class="chip">$ ${player.cash ?? "?"}</span><span class="chip">Sh ${player.shards ?? "?"}</span><span class="chip">승점 보유 ${player.hand_score_coins ?? "?"}</span><span class="chip">승점 배치 ${player.placed_score_coins ?? "?"}</span><span class="chip">타일 ${player.owned_tile_count ?? "?"}</span></div><div style="margin-top:6px"><span class="mark mark-${markStatus}">${markStatus}</span></div><div class="status-sub" style="margin-top:6px">공개 잔꾀: ${publicTricks}</div><div class="status-sub">비공개 잔꾀: ${hiddenCount}장</div>${player.pending_mark_source ? `<div class="status-sub">지목 출처: P${player.pending_mark_source}</div>` : ""}${effects.length ? `<div class="chip-row" style="margin-top:6px">${effects.map((name) => `<span class="chip">${name}</span>`).join("")}</div>` : ""}`; panel.appendChild(card);
+    card.innerHTML = `<div class="player-name" style="color:${color}"><span>P${pid}</span><span>${player.alive === false ? "탈락" : `타일 ${Number(player.position || 0) + 1}`}</span></div><div class="player-character">${player.character || "-"}</div><div class="status-sub">${player.display_name || `Player ${pid}`}</div><div class="stat-row" style="margin-top:6px"><span class="chip">$ ${player.cash ?? "?"}</span><span class="chip">Sh ${player.shards ?? "?"}</span><span class="chip">승점 보유 ${player.hand_score_coins ?? "?"}</span><span class="chip">승점 배치 ${player.placed_score_coins ?? "?"}</span><span class="chip">타일 ${player.owned_tile_count ?? "?"}</span></div><div style="margin-top:6px"><span class="mark mark-${markStatus}">${markStatus}</span></div><div class="status-sub" style="margin-top:6px">공개 잔꾀: ${publicTricks}</div><div class="status-sub">비공개 잔꾀: ${hiddenCount}장</div><div class="status-sub">남은 주사위 카드: ${remainingDice}</div>${player.pending_mark_source ? `<div class="status-sub">지목 출처: P${player.pending_mark_source}</div>` : ""}${effects.length ? `<div class="chip-row" style="margin-top:6px">${effects.map((name) => `<span class="chip">${name}</span>`).join("")}</div>` : ""}`; panel.appendChild(card);
   });
 }
 function renderFrame(idx) {

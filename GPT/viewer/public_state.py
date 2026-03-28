@@ -25,6 +25,7 @@ class PlayerPublicState:
     pending_mark_source: int | None
     public_effects: list[str]
     burden_summary: list[str]
+    remaining_dice_cards: list[int]
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -109,6 +110,11 @@ def build_player_public_state(player: Any, state: Any) -> PlayerPublicState:
         pending_mark_source=pending_source,
         public_effects=public_effects,
         burden_summary=burden_cards,
+        remaining_dice_cards=[
+            int(v)
+            for v in getattr(state.config.rules.dice, "values", ())
+            if int(v) not in set(getattr(player, "used_dice_cards", set()) or set())
+        ],
     )
 
 

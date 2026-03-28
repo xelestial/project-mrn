@@ -96,4 +96,4 @@ def test_game_engine_emits_visual_stream_that_validates() -> None:
     assert events[0]["event_type"] == "session_start"
     assert events[-1]["event_type"] == "game_end"
     assert {"round_start", "weather_reveal", "draft_pick", "final_character_choice"} <= event_types
-    assert {"turn_start", "trick_window_open", "trick_window_closed", "dice_roll", "player_move", "turn_end_snapshot"} <= event_types
+    assert {"turn_start", "trick_window_open", "trick_used", "trick_window_closed", "dice_roll", "player_move", "turn_end_snapshot"} <= event_types

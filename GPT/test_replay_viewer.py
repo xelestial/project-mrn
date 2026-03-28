@@ -39,6 +39,8 @@ def test_projection_basic(events: list[dict]) -> list[str]:
         errors.append("session_start missing initial public players")
     elif len(players) != session_start.get("player_count"):
         errors.append("session_start players length does not match player_count")
+    elif "remaining_dice_cards" not in players[0]:
+        errors.append("session_start missing remaining_dice_cards")
 
     if not proj.turns:
         errors.append("No turns produced")
@@ -237,6 +239,17 @@ def test_html_renderer(events: list[dict]) -> list[str]:
                     errors.append("missing dice_roll frame in replay HTML")
                 elif str(first_dice.get("subtitle", "")).startswith("[] ->"):
                     errors.append("dice_roll frame still shows empty dice array placeholder")
+                elif "주사위 카드" not in str(first_dice.get("subtitle", "")) and "주사위 " not in str(first_dice.get("subtitle", "")):
+                    errors.append("dice_roll frame does not show actual dice card or dice usage")
+                first_trick = next(
+                    (frame for frame in parsed if frame.get("event_type") == "trick_used"),
+                    None,
+                )
+                if any(event.get("event_type") == "trick_used" for event in events):
+                    if first_trick is None:
+                        errors.append("trick_used events exist but replay HTML does not show them")
+                    elif " - " not in str(first_trick.get("subtitle", "")):
+                        errors.append("trick_used frame missing readable name and description")
                 first_move = next(
                     (frame for frame in parsed if frame.get("event_type") == "player_move"),
                     None,
@@ -281,6 +294,8 @@ def test_html_renderer(events: list[dict]) -> list[str]:
         errors.append("HTML missing Korean situation heading")
     if "종료 시간" not in html:
         errors.append("HTML missing end-time label")
+    if "남은 주사위 카드:" not in html:
+        errors.append("HTML missing remaining dice cards in player panel")
 
     return errors
 
