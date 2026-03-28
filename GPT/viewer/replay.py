@@ -15,6 +15,49 @@ _SKIP_IN_KEY_EVENTS = frozenset({
     "trick_window_closed",
 })
 
+_TURN_EVENT_ORDER = {
+    "turn_start": 0,
+    "trick_window_open": 5,
+    "trick_used": 10,
+    "trick_window_closed": 15,
+    "dice_roll": 20,
+    "player_move": 30,
+    "lap_reward_chosen": 35,
+    "landing_resolved": 40,
+    "tile_purchased": 50,
+    "rent_paid": 50,
+    "fortune_drawn": 55,
+    "fortune_resolved": 60,
+    "mark_resolved": 60,
+    "marker_transferred": 70,
+    "marker_flip": 72,
+    "f_value_change": 75,
+    "bankruptcy": 80,
+    "turn_end_snapshot": 90,
+}
+
+
+def _turn_event_sort_key(event: dict) -> tuple[int, int]:
+    return (
+        _TURN_EVENT_ORDER.get(str(event.get("event_type", "")), 50),
+        int(event.get("step_index", 0) or 0),
+    )
+
+
+def _ordered_turn_events(events: list[dict]) -> list[dict]:
+    if not events:
+        return []
+
+    turn_start = [event for event in events if event.get("event_type") == "turn_start"]
+    turn_end = [event for event in events if event.get("event_type") == "turn_end_snapshot"]
+    middle = [
+        event
+        for event in events
+        if event.get("event_type") not in {"turn_start", "turn_end_snapshot"}
+    ]
+    middle.sort(key=_turn_event_sort_key)
+    return turn_start + middle + turn_end
+
 
 @dataclass
 class TurnReplay:
@@ -36,7 +79,11 @@ class TurnReplay:
 
     @property
     def key_events(self) -> list[dict]:
-        return [e for e in self.events if e.get("event_type") not in _SKIP_IN_KEY_EVENTS]
+        return [
+            e
+            for e in _ordered_turn_events(self.events)
+            if e.get("event_type") not in _SKIP_IN_KEY_EVENTS
+        ]
 
     @property
     def skipped(self) -> bool:
@@ -133,6 +180,32 @@ class ReplayProjection:
 
     def events_by_type(self, event_type: str) -> list[dict]:
         return [e for e in self._events if e.get("event_type") == event_type]
+
+    def ordered_events(self) -> list[dict]:
+        ordered: list[dict] = []
+        current_turn_events: list[dict] = []
+
+        for event in self._events:
+            etype = event.get("event_type")
+            if etype == "turn_start":
+                if current_turn_events:
+                    ordered.extend(_ordered_turn_events(current_turn_events))
+                current_turn_events = [event]
+                continue
+
+            if current_turn_events:
+                current_turn_events.append(event)
+                if etype == "turn_end_snapshot":
+                    ordered.extend(_ordered_turn_events(current_turn_events))
+                    current_turn_events = []
+                continue
+
+            ordered.append(event)
+
+        if current_turn_events:
+            ordered.extend(_ordered_turn_events(current_turn_events))
+
+        return ordered
 
     def _build(self) -> SessionReplay:
         events = self._events

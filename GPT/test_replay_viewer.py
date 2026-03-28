@@ -258,6 +258,30 @@ def test_html_renderer(events: list[dict]) -> list[str]:
                     errors.append("missing player_move frame in replay HTML")
                 elif "?" in str(first_move.get("subtitle", "")):
                     errors.append("player_move frame still shows unresolved tile positions")
+                else:
+                    raw_first_move = next(
+                        (event for event in events if event.get("event_type") == "player_move"),
+                        None,
+                    )
+                    if raw_first_move is not None:
+                        actor = raw_first_move.get("acting_player_id")
+                        target = raw_first_move.get(
+                            "to_tile_index",
+                            raw_first_move.get("to_tile", raw_first_move.get("to_pos")),
+                        )
+                        player_state = next(
+                            (
+                                player
+                                for player in first_move.get("players", [])
+                                if player.get("player_id") == actor
+                            ),
+                            None,
+                        )
+                        if isinstance(target, int) and player_state is not None:
+                            if player_state.get("position") != target:
+                                errors.append(
+                                    "player_move frame does not update the actor position in frame state"
+                                )
                 first_marker = next(
                     (frame for frame in parsed if frame.get("event_type") == "marker_transferred"),
                     None,
@@ -285,6 +309,34 @@ def test_html_renderer(events: list[dict]) -> list[str]:
                     lap_subtitle = str(first_lap.get("subtitle", ""))
                     if not any(token in lap_subtitle for token in ("현금 +", "조각 +", "승점 +")):
                         errors.append("lap_reward_chosen frame still hides reward amounts")
+                grouped_indices: dict[tuple[int, int], dict[str, int]] = {}
+                for idx, frame in enumerate(parsed):
+                    turn_key = (
+                        int(frame.get("round_index", 0) or 0),
+                        int(frame.get("turn_index", 0) or 0),
+                    )
+                    grouped_indices.setdefault(turn_key, {})
+                    grouped_indices[turn_key].setdefault(str(frame.get("event_type")), idx)
+                ordered_turn = next(
+                    (
+                        etypes
+                        for etypes in grouped_indices.values()
+                        if "player_move" in etypes
+                        and "landing_resolved" in etypes
+                        and "tile_purchased" in etypes
+                    ),
+                    None,
+                )
+                if ordered_turn is None:
+                    errors.append("could not find a turn containing move, landing, and purchase frames")
+                elif not (
+                    ordered_turn["player_move"]
+                    < ordered_turn["landing_resolved"]
+                    < ordered_turn["tile_purchased"]
+                ):
+                    errors.append(
+                        "replay frames do not follow player_move -> landing_resolved -> tile_purchased order"
+                    )
         except json.JSONDecodeError as exc:
             errors.append(f"FRAMES JSON parse error: {exc}")
     else:

@@ -35,17 +35,16 @@ These should now be treated as closed regression items, not open work.
 
 ### M-1. Prompt envelope strict cleanup
 Priority: `P1`
-Status: `PARTIAL`
+Status: `DONE`
 
 Current state:
 - `prompt_contract.py` already exists
 - `human_policy.py` already emits canonical prompt keys
-
-Remaining issue:
-- legacy mirrors and top-level context flattening still exist for compatibility
+- legacy mirrors and top-level context flattening have been removed from the active GPT prompt path
 
 Opinion:
-- this is now a cleanup item, not an enablement item
+- this cleanup item is now closed on `main`
+- canonical prompt fields are now the active GPT human-play contract
 
 ### M-2. Replay renderer / projection compatibility cleanup
 Priority: `P1`
@@ -54,6 +53,8 @@ Status: `PARTIAL`
 Current state:
 - replay projection and replay renderers are already baseline-functional
 - replay HTML has been materially improved for human-readable viewing
+- replay frame ordering now better matches gameplay comprehension
+- replay frame state now reflects movement, lap rewards, rent, tile ownership, and remaining dice cards more immediately
 
 Remaining issue:
 - smaller compatibility gaps and fallback-path cleanup still remain

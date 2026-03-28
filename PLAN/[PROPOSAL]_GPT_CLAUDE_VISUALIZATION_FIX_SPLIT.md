@@ -38,7 +38,6 @@ Canonical references:
 - validator canonical refresh
 
 ### Confirmed still open
-- prompt-envelope strict cleanup is only partially complete
 - replay/renderer compatibility still has smaller polish-level gaps
 - CLAUDE substrate completeness for Phase 5 should still be verified end-to-end
 
@@ -113,20 +112,18 @@ Opinion:
 
 #### G4. Normalize the prompt envelope at the GPT boundary
 Priority: `P1`
-Status: `PARTIAL`
+Status: `DONE`
 
 What is already done:
 - `GPT/viewer/prompt_contract.py` exists
 - `human_policy.py` emits `request_type`, `legal_choices`, `can_pass`, `timeout_ms`, `fallback_policy`, and `public_context`
-
-What still remains:
 - remove temporary legacy mirrors such as `type` and `options`
 - stop flattening `public_context` onto the top-level prompt envelope
 - make replay/live/human-play consume the canonical envelope only
 
 Opinion:
-- this is no longer a missing adapter problem
-- it is now a strictness and cleanup problem
+- this strictness/cleanup work is now complete on the GPT boundary
+- remaining replay polish should be tracked separately from prompt-envelope convergence
 
 #### G6. Replay-side compatibility cleanup
 Priority: `P2`
@@ -136,6 +133,8 @@ What is already done:
 - replay projection exists
 - replay HTML/Markdown rendering exists
 - replay wording/layout is materially more human-readable than the original baseline
+- within-turn replay ordering now follows gameplay comprehension more closely
+- replay frame state now updates movement, lap reward, rent, tile ownership, and remaining dice cards more immediately
 
 What still remains:
 - remove smaller renderer/projection inconsistencies

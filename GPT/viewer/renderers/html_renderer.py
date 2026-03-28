@@ -319,10 +319,76 @@ def _apply_known_updates(event: dict, players: list[dict], board: dict) -> tuple
                 player["character"] = event.get("character", player.get("character", ""))
                 break
         return players, board
+    if etype == "dice_roll":
+        pid = event.get("acting_player_id")
+        used_cards = list(event.get("used_cards") or [])
+        if pid is not None and used_cards:
+            for player in players:
+                if player.get("player_id") != pid:
+                    continue
+                remaining = list(player.get("remaining_dice_cards") or [])
+                for card in used_cards:
+                    if card in remaining:
+                        remaining.remove(card)
+                player["remaining_dice_cards"] = remaining
+                break
+        return players, board
+    if etype == "player_move":
+        pid = event.get("acting_player_id")
+        to_pos = event.get("to_tile_index", event.get("to_tile", event.get("to_pos")))
+        if pid is not None and isinstance(to_pos, int):
+            for player in players:
+                if player.get("player_id") == pid:
+                    player["position"] = to_pos
+                    break
+        return players, board
+    if etype == "lap_reward_chosen":
+        pid = event.get("acting_player_id")
+        amount = event.get("amount") or {}
+        if pid is not None:
+            for player in players:
+                if player.get("player_id") != pid:
+                    continue
+                player["cash"] = int(player.get("cash", 0) or 0) + int(amount.get("cash", 0) or 0)
+                player["shards"] = int(player.get("shards", 0) or 0) + int(amount.get("shards", 0) or 0)
+                player["hand_score_coins"] = int(player.get("hand_score_coins", 0) or 0) + int(amount.get("coins", 0) or 0)
+                break
+        return players, board
     if etype == "tile_purchased":
         tile_index = event.get("tile_index")
         if isinstance(tile_index, int) and 0 <= tile_index < 40:
-            board["tiles"][tile_index]["owner_player_id"] = event.get("player_id", event.get("acting_player_id"))
+            owner_id = event.get("player_id", event.get("acting_player_id"))
+            board["tiles"][tile_index]["owner_player_id"] = owner_id
+            cost = int(event.get("cost", 0) or 0)
+            for player in players:
+                if player.get("player_id") == owner_id:
+                    player["cash"] = int(player.get("cash", 0) or 0) - cost
+            owned_counts: dict[int, int] = {}
+            for tile in board["tiles"]:
+                owner = tile.get("owner_player_id")
+                if owner is None:
+                    continue
+                owned_counts[int(owner)] = owned_counts.get(int(owner), 0) + 1
+            for player in players:
+                player["owned_tile_count"] = owned_counts.get(int(player.get("player_id", 0) or 0), 0)
+                position = int(player.get("position", 0) or 0)
+                board["tiles"][position]["pawn_player_ids"] = sorted(
+                    [
+                        int(p.get("player_id"))
+                        for p in players
+                        if p.get("alive", True) and int(p.get("position", 0) or 0) == position
+                    ]
+                )
+        return players, board
+    if etype == "rent_paid":
+        payer_id = event.get("payer_player_id", event.get("payer"))
+        owner_id = event.get("owner_player_id", event.get("owner"))
+        amount = int(event.get("final_amount", event.get("amount", 0)) or 0)
+        for player in players:
+            if payer_id is not None and player.get("player_id") == payer_id:
+                player["cash"] = int(player.get("cash", 0) or 0) - amount
+            if owner_id is not None and player.get("player_id") == owner_id:
+                player["cash"] = int(player.get("cash", 0) or 0) + amount
         return players, board
     if etype == "marker_transferred":
         board["marker_owner_player_id"] = event.get(
@@ -459,7 +525,7 @@ def _build_frames(proj: ReplayProjection) -> list[dict]:
     board = _initial_board(proj)
     recent = []
     current_weather = ""
-    for event in proj.raw_events():
+    for event in proj.ordered_events():
         if event.get("event_type") not in _VISIBLE_FRAME_EVENTS:
             continue
         current_weather = _frame_weather(event, current_weather)
