@@ -478,6 +478,11 @@ class HumanHttpPolicy:
 def _card_name(state: Any, card_index: int) -> str:
     """Try to resolve a character card index to a display name."""
     try:
+        active = getattr(state, "active_by_card", None)
+        if isinstance(active, dict):
+            name = active.get(card_index)
+            if name:
+                return str(name)
         chars = state.config.characters
         if hasattr(chars, "card_name"):
             return chars.card_name(card_index)

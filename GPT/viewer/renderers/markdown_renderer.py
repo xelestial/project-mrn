@@ -70,34 +70,39 @@ def _render_player_row(player: dict) -> str:
 
 def render_markdown(projection: ReplayProjection) -> str:
     session = projection.session
+    total_turns = getattr(projection, "turn_count", len(getattr(projection, "turns", [])))
+    total_rounds = getattr(projection, "round_count", len(getattr(projection, "rounds", [])))
+    session_prelude = getattr(session, "prelude_events", [])
     lines: list[str] = []
 
     lines.append("# GPT Visual Replay")
     lines.append("")
     lines.append(f"- Session: `{session.session_id}`")
     lines.append(f"- Total events: `{session.total_events}`")
-    lines.append(f"- Total turns: `{projection.turn_count}`")
-    lines.append(f"- Total rounds: `{projection.round_count}`")
+    lines.append(f"- Total turns: `{total_turns}`")
+    lines.append(f"- Total rounds: `{total_rounds}`")
     if session.winner_player_id is not None:
         lines.append(f"- Winner: `P{session.winner_player_id}` ({session.end_reason})")
 
-    if session.prelude_events:
+    if session_prelude:
         lines.append("")
         lines.append("## Session Prelude")
         lines.append("")
-        for event in session.prelude_events:
+        for event in session_prelude:
             lines.append(_render_event_line(event))
 
     for round_replay in projection.rounds:
         lines.append("")
-        weather_suffix = f" | weather: `{round_replay.weather_name}`" if round_replay.weather_name else ""
+        weather_name = getattr(round_replay, "weather_name", getattr(round_replay, "weather", ""))
+        weather_suffix = f" | weather: `{weather_name}`" if weather_name else ""
         lines.append(f"## Round {round_replay.round_index}{weather_suffix}")
         lines.append("")
 
-        if round_replay.prelude_events:
+        round_prelude = getattr(round_replay, "prelude_events", [])
+        if round_prelude:
             lines.append("### Round Prelude")
             lines.append("")
-            for event in round_replay.prelude_events:
+            for event in round_prelude:
                 if event.get("event_type") == "round_start":
                     continue
                 lines.append(_render_event_line(event))
