@@ -4,15 +4,25 @@ Verifies that CLAUDE's VisEventStream emits field names that are
 compatible with the GPT live viewer (live_html.py / play_html.py).
 
 Checks:
-1. player_move  : from_pos, to_pos, lapped
-2. rent_paid    : payer_player_id, final_amount
-3. lap_reward_chosen : amount
-4. weather_reveal: weather_name
-5. game_end     : winner_player_id, reason
-6. mark_resolved: success, target_player_id, source_player_id
-7. turn_end_snapshot.board : marker_owner_id
-8. turn_end_snapshot.players : tiles_owned, score_coins_placed,
-                                trick_cards_visible, is_marked, immune_to_marks
+ 1. player_move        : from_pos, to_pos, lapped
+ 2. rent_paid          : payer_player_id, final_amount, owner_player_id, amount
+ 3. lap_reward_chosen  : choice, amount
+ 4. weather_reveal     : weather_name
+ 5. game_end           : winner_player_id, reason
+ 6. mark_resolved      : success, target_player_id, source_player_id
+ 7. turn_end_snapshot.board    : marker_owner_id, tiles, f_value
+ 8. turn_end_snapshot.players  : tiles_owned, score_coins_placed,
+                                  trick_cards_visible, is_marked, immune_to_marks
+ 9. trick_window_open  : hand_size, public_tricks, hidden_trick_count
+10. trick_window_closed: public_tricks, hidden_trick_count
+11. marker_transferred : from_player_id, to_player_id, reason
+12. f_value_change     : before, delta, after
+13. tile_purchased     : tile_index, cost
+
+Note: fortune_drawn / fortune_resolved are intentionally NOT checked —
+these events are permanently bypassed because rule_scripts.json handles
+all F1/F2 landings and always returns a non-None result, preventing
+the fortune-card-draw fallback path from executing.
 """
 from __future__ import annotations
 
@@ -101,10 +111,31 @@ def validate_seed(seed: int) -> list[str]:
                     if req not in p0:
                         errors.append(f"turn_end_snapshot.players[0]: missing {req}")
 
+        elif t == "trick_window_open" and "trick_window_open" not in found:
+            found["trick_window_open"] = True
+            check_field(errors, t, ev, "hand_size", "public_tricks", "hidden_trick_count")
+
+        elif t == "trick_window_closed" and "trick_window_closed" not in found:
+            found["trick_window_closed"] = True
+            check_field(errors, t, ev, "public_tricks", "hidden_trick_count")
+
+        elif t == "marker_transferred" and "marker_transferred" not in found:
+            found["marker_transferred"] = True
+            check_field(errors, t, ev, "from_player_id", "to_player_id", "reason")
+
+        elif t == "f_value_change" and "f_value_change" not in found:
+            found["f_value_change"] = True
+            check_field(errors, t, ev, "before", "delta", "after")
+
+        elif t == "tile_purchased" and "tile_purchased" not in found:
+            found["tile_purchased"] = True
+            check_field(errors, t, ev, "tile_index", "cost")
+
     # Check required types existed
     for required in ("player_move", "rent_paid", "lap_reward_chosen", "weather_reveal",
-                     "game_end", "turn_end_snapshot"):
-        if required not in found and required != "mark_resolved":
+                     "game_end", "turn_end_snapshot", "trick_window_open",
+                     "trick_window_closed", "f_value_change", "tile_purchased"):
+        if required not in found:
             if required == "rent_paid":
                 # Possible no rent event in some seeds
                 pass
