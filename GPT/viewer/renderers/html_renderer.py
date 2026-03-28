@@ -96,8 +96,8 @@ def _event_display(event: dict) -> dict:
         else:
             detail = f"{total}"
     elif etype == "player_move":
-        src = event.get("from_tile_index", event.get("from_pos", "?"))
-        dst = event.get("to_tile_index", event.get("to_pos", "?"))
+        src = event.get("from_tile_index", event.get("from_tile", event.get("from_pos", "?")))
+        dst = event.get("to_tile_index", event.get("to_tile", event.get("to_pos", "?")))
         src = src + 1 if isinstance(src, int) else src
         dst = dst + 1 if isinstance(dst, int) else dst
         detail = f"{src} -> {dst}"
@@ -297,9 +297,11 @@ def _build_frames(proj: ReplayProjection) -> list[dict]:
     players = _session_players(proj.session.session_start)
     board = _initial_board(proj)
     recent = []
+    current_weather = ""
     for event in proj.raw_events():
         if event.get("event_type") not in _VISIBLE_FRAME_EVENTS:
             continue
+        current_weather = _frame_weather(event, current_weather)
         players, board = _apply_known_updates(event, players, board)
         shown = _event_display(event)
         recent.append(shown)
@@ -318,6 +320,7 @@ def _build_frames(proj: ReplayProjection) -> list[dict]:
                 "recent_events": deepcopy(recent),
                 "players": deepcopy(players),
                 "board": _normalize_board(board),
+                "weather": current_weather,
             }
         )
     return frames
@@ -334,6 +337,12 @@ def _build_meta(proj: ReplayProjection, frames: list[dict]) -> dict:
         "winner_player_id": session.winner_player_id,
         "end_reason": session.end_reason,
     }
+
+
+def _frame_weather(event: dict, current_weather: str) -> str:
+    if event.get("event_type") == "weather_reveal":
+        return event.get("weather_name") or event.get("weather") or event.get("card", "") or current_weather
+    return current_weather
 
 
 _HTML_TEMPLATE = """<!DOCTYPE html>
@@ -432,6 +441,7 @@ h1 { font-size:1rem; color:#ffd060; }
       <div style="display:flex;flex-direction:column;gap:12px">
         <section class="legend-box">
           <div class="sec-title">Situation</div>
+          <div class="legend-row"><span>Weather</span><strong id="legend-weather">-</strong></div>
           <div class="legend-row"><span>Frame</span><strong id="legend-frame">-</strong></div>
           <div class="legend-row"><span>Round</span><strong id="legend-round">-</strong></div>
           <div class="legend-row"><span>Turn</span><strong id="legend-turn">-</strong></div>
@@ -473,7 +483,8 @@ function renderBoard(frame) {
   const track = document.getElementById("board-track"); const board = frame.board || {}; const tiles = board.tiles || []; const players = frame.players || []; const pawnMap = new Map();
   players.forEach((player) => { if (player.alive === false) return; const pos = Number(player.position ?? 0); if (!pawnMap.has(pos)) pawnMap.set(pos, []); pawnMap.get(pos).push(player.player_id); });
   track.innerHTML = "";
-  const center = document.createElement("div"); center.className = "board-center"; center.innerHTML = `<div class="status-value">${frame.title}</div><div class="status-sub">${frame.subtitle || "-"}</div><div class="status-grid"><div class="status-card"><div class="status-label">Current Event</div><div class="status-value">${frame.event.icon} ${frame.event.actor}</div><div class="status-sub">${frame.event.detail || "-"}</div></div><div class="status-card"><div class="status-label">Frame</div><div class="status-value">${frame.frame_index + 1} / ${FRAMES.length}</div><div class="status-sub">${frame.event_type}</div></div><div class="status-card"><div class="status-label">Round / Turn</div><div class="status-value">R${frame.round_index || "-"} / T${frame.turn_index || "-"}</div><div class="status-sub">Replay timeline</div></div><div class="status-card"><div class="status-label">Marker / F</div><div class="status-value">${board.marker_owner_player_id ? `P${board.marker_owner_player_id}` : "-"} / ${Number(board.f_value || 0).toFixed(2)}</div><div class="status-sub">Public board state</div></div></div>`; track.appendChild(center);
+  const weatherText = frame.weather || "-";
+  const center = document.createElement("div"); center.className = "board-center"; center.innerHTML = `<div class="status-value">${frame.title}</div><div class="status-sub">${frame.subtitle || "-"}</div><div class="status-grid"><div class="status-card"><div class="status-label">Current Event</div><div class="status-value">${frame.event.icon} ${frame.event.actor}</div><div class="status-sub">${frame.event.detail || "-"}</div></div><div class="status-card"><div class="status-label">Frame</div><div class="status-value">${frame.frame_index + 1} / ${FRAMES.length}</div><div class="status-sub">${frame.event_type}</div></div><div class="status-card"><div class="status-label">Round / Turn / Weather</div><div class="status-value">R${frame.round_index || "-"} / T${frame.turn_index || "-"}</div><div class="status-sub">${weatherText}</div></div><div class="status-card"><div class="status-label">Marker / F</div><div class="status-value">${board.marker_owner_player_id ? `P${board.marker_owner_player_id}` : "-"} / ${Number(board.f_value || 0).toFixed(2)}</div><div class="status-sub">Public board state</div></div></div>`; track.appendChild(center);
   let highlightedTile = null; if (frame.event_type === "player_move") { const parts = String(frame.event.detail || "").split("->"); if (parts.length === 2) highlightedTile = Number(parts[1].trim()) - 1; } if (frame.event_type === "tile_purchased") { const match = String(frame.event.detail || "").match(/tile\\s+(\\d+)/); if (match) highlightedTile = Number(match[1]) - 1; }
   for (let idx = 0; idx < 40; idx += 1) {
     const tile = tiles[idx] || {}; const pos = tilePosition(idx); const owner = tile.owner_player_id; const card = document.createElement("div"); card.className = "tile"; card.style.gridColumn = String(pos.col); card.style.gridRow = String(pos.row);
@@ -495,7 +506,7 @@ function renderPlayers(frame) {
 function renderFrame(idx) {
   currentFrameIdx = idx; const frame = FRAMES[idx];
   document.getElementById("frame-title").textContent = frame.title; document.getElementById("frame-sub").textContent = frame.subtitle || ""; document.getElementById("frame-counter").textContent = `${idx + 1} / ${FRAMES.length}`;
-  document.getElementById("legend-frame").textContent = `${idx + 1} / ${FRAMES.length}`; document.getElementById("legend-round").textContent = frame.round_index || "-"; document.getElementById("legend-turn").textContent = frame.turn_index || "-"; document.getElementById("legend-actor").textContent = frame.acting_player_id ? `P${frame.acting_player_id}` : "-"; document.getElementById("legend-type").textContent = frame.event_type; document.getElementById("legend-marker").textContent = frame.board.marker_owner_player_id ? `P${frame.board.marker_owner_player_id}` : "-"; document.getElementById("legend-f").textContent = Number(frame.board.f_value || 0).toFixed(2); document.getElementById("f-fill").style.width = `${Math.max(0, Math.min(100, (Number(frame.board.f_value || 0) / 15) * 100))}%`; document.getElementById("progress-fill").style.width = `${FRAMES.length > 1 ? (idx / (FRAMES.length - 1)) * 100 : 0}%`; document.getElementById("progress-text").textContent = `${Math.round(FRAMES.length > 1 ? (idx / (FRAMES.length - 1)) * 100 : 0)}%`;
+  document.getElementById("legend-weather").textContent = frame.weather || "-"; document.getElementById("legend-frame").textContent = `${idx + 1} / ${FRAMES.length}`; document.getElementById("legend-round").textContent = frame.round_index || "-"; document.getElementById("legend-turn").textContent = frame.turn_index || "-"; document.getElementById("legend-actor").textContent = frame.acting_player_id ? `P${frame.acting_player_id}` : "-"; document.getElementById("legend-type").textContent = frame.event_type; document.getElementById("legend-marker").textContent = frame.board.marker_owner_player_id ? `P${frame.board.marker_owner_player_id}` : "-"; document.getElementById("legend-f").textContent = Number(frame.board.f_value || 0).toFixed(2); document.getElementById("f-fill").style.width = `${Math.max(0, Math.min(100, (Number(frame.board.f_value || 0) / 15) * 100))}%`; document.getElementById("progress-fill").style.width = `${FRAMES.length > 1 ? (idx / (FRAMES.length - 1)) * 100 : 0}%`; document.getElementById("progress-text").textContent = `${Math.round(FRAMES.length > 1 ? (idx / (FRAMES.length - 1)) * 100 : 0)}%`;
   renderEventFeed(frame); renderBoard(frame); renderPlayers(frame);
   document.querySelectorAll(".frame-btn").forEach((button) => button.classList.remove("active")); const active = document.getElementById(`frame-btn-${idx}`); if (active) { active.classList.add("active"); active.scrollIntoView({ block: "nearest" }); }
   document.getElementById("btn-first").disabled = idx === 0; document.getElementById("btn-prev").disabled = idx === 0; document.getElementById("btn-next").disabled = idx === FRAMES.length - 1; document.getElementById("btn-last").disabled = idx === FRAMES.length - 1;

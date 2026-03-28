@@ -173,6 +173,8 @@ def test_html_renderer(events: list[dict]) -> list[str]:
         errors.append("HTML missing META JSON")
     if "board-track" not in html:
         errors.append("HTML missing perimeter board container")
+    if 'id="legend-weather"' not in html:
+        errors.append("HTML missing weather legend slot")
 
     import re
 
@@ -223,6 +225,8 @@ def test_html_renderer(events: list[dict]) -> list[str]:
                     errors.append("weather_reveal frame title is not populated")
                 elif str(first_weather.get("title", "")).strip() == "Weather: -":
                     errors.append("weather_reveal frame title still missing actual weather name")
+                elif not str(first_weather.get("weather", "")).strip():
+                    errors.append("weather_reveal frame missing carried weather field")
                 first_dice = next(
                     (frame for frame in parsed if frame.get("event_type") == "dice_roll"),
                     None,
@@ -231,6 +235,14 @@ def test_html_renderer(events: list[dict]) -> list[str]:
                     errors.append("missing dice_roll frame in replay HTML")
                 elif str(first_dice.get("subtitle", "")).startswith("[] ->"):
                     errors.append("dice_roll frame still shows empty dice array placeholder")
+                first_move = next(
+                    (frame for frame in parsed if frame.get("event_type") == "player_move"),
+                    None,
+                )
+                if first_move is None:
+                    errors.append("missing player_move frame in replay HTML")
+                elif "?" in str(first_move.get("subtitle", "")):
+                    errors.append("player_move frame still shows unresolved tile positions")
         except json.JSONDecodeError as exc:
             errors.append(f"FRAMES JSON parse error: {exc}")
     else:
