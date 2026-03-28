@@ -32,6 +32,32 @@ The review found four concrete issues:
 So the next work should not be treated as "new feature expansion".
 It is primarily corrective alignment work.
 
+## Re-review After PR25
+
+Reviewed again against `origin/main` after PR #25 merged.
+
+Verification used:
+- `python CLAUDE\\validate_gpt_viewer_compat.py` → pass
+- `python GPT\\test_human_play.py` → still prints `[human-game] ERROR: 8` and ends with `KeyError: 8`, while the test runner still reports `Phase 4: ALL TESTS PASSED`
+
+Updated interpretation:
+
+- several smaller GPT-side issues have already landed on `main`
+  - human-seat 1-indexing in `play_html.py`
+  - player color indexing normalization in `play_html.py`
+  - `submit_response()` lock scope hardening in `human_policy.py`
+  - prompt `player_id` values normalized to 1-indexed
+- Claude PR #25 successfully strengthened the legacy GPT-viewer compatibility validator
+- however, the primary blockers in this proposal remain unresolved:
+  - Phase 4 human play can still crash on final character selection
+  - `play_html.py` still consumes stale alias/public-state field names
+  - Phase 4 tests are still false-positive
+  - plan/status documents still overstate Phase 4 maturity
+
+Net result:
+- Claude follow-up has moved from "expand compatibility checks" to "converge on canonical contract names"
+- GPT still owns the immediate blocking work
+
 ## Main-Branch Review Summary
 
 ### Confirmed Good
@@ -39,6 +65,7 @@ It is primarily corrective alignment work.
 - Phase 2 replay viewer exists and tests pass
 - Phase 3 live spectator exists at MVP level
 - Phase 4 browser-driven human input round-trip exists in baseline form
+- several smaller Phase 4 UI/runtime bugs have already been fixed on `main`
 
 ### Confirmed Problems
 - `GPT/viewer/human_policy.py` final-character response can hand back a raw choice token that later becomes an invalid `current_character`
@@ -46,6 +73,7 @@ It is primarily corrective alignment work.
 - `GPT\test_human_play.py` can report success while a background game thread crashes
 - `PLAN/GPT_ONLINE_STYLE_REPLAY_VISUALIZATION_PLAN.md` and `PLAN/PLAN_STATUS_INDEX.md` describe a file/runtime shape that is ahead of actual `main`
 - `GPT/viewer/events.py` and `GPT/viewer/human_policy.py` are not yet fully converged with `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`
+- `CLAUDE/validate_gpt_viewer_compat.py` now passes, but it still validates several legacy alias names that should not become the long-term canonical contract
 
 ## Ownership Rule
 Use this split:
@@ -205,6 +233,10 @@ Required correction:
 
 This is a substrate responsibility because Phase 5 should consume authoritative data, not infer it in HTML.
 
+Status update after PR25:
+- legacy GPT-viewer compatibility validation is now in place and passing
+- the remaining work here should focus on canonical completeness, not more alias expansion
+
 ### C4. Keep future portability constraints explicit
 Priority: `P2`
 
@@ -241,15 +273,29 @@ Execute in this order:
 
 1. GPT fixes `G1` and `G3`
 2. GPT fixes `G2`
-3. Claude freezes `C1` and `C2`
-4. GPT applies `G4` using the stabilized contract boundary
-5. GPT updates `G5`
-6. Claude completes `C3` and `C4` as Phase 5 readiness work
+3. GPT updates `G5`
+4. Claude freezes `C1` and `C2` around canonical contract names
+5. GPT applies `G4` using the stabilized contract boundary
+6. Claude completes `C4` as Phase 5 readiness work
 
 Reason:
 - Phase 4 must stop crashing first
 - renderer drift should be corrected before more UI polish is added
+- document/status drift should be corrected before Phase 4 is treated as stable
 - contract stabilization should happen before wider prompt/view expansion
+
+## Final Opinion
+
+After PR #25, the immediate owner is still `GPT`.
+
+Reason:
+- the user-visible and test-visible blockers that still reproduce now are all on the GPT side
+- Claude-side follow-up succeeded in strengthening compatibility validation, but that line of work should now narrow to canonical contract convergence rather than more viewer-specific alias support
+
+Practical takeaway:
+- use this proposal as the current corrective backlog
+- treat `PLAN/[PROPOSAL]_GPT_VISUALIZATION_BUG_FIXES.md` as a smaller renderer bug note
+- treat `PLAN/[PROPOSAL]_CLAUDE_VISUALIZATION_SUBSTRATE_FOLLOWUP.md` as a mostly historical Phase 2-S follow-up with one remaining contract-convergence role
 
 ## Completion Standard
 This corrective proposal can be treated as complete only when all of the following are true:

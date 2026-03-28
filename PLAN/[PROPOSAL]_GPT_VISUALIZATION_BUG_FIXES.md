@@ -14,9 +14,41 @@ Phase 2(오프라인 리플레이), Phase 3(라이브 스펙테이터), Phase 4(
 
 ---
 
-## Critical (🔴) — 수정 필수
+## PR25 재점검 및 최종 의견
+
+`origin/main`의 PR #25 반영 후 다시 점검했다.
+
+확인 결과:
+
+- `BUG-1` HUMAN_SEAT 인덱싱 문제 → `main`에서 수정됨
+- `BUG-2` PLAYER_COLORS 인덱싱 문제 → `main`에서 수정됨
+- `BUG-3` `submit_response` 락 범위 문제 → `main`에서 수정됨
+- `BUG-4` prompt `player_id` 0-index 노출 → `main`에서 수정됨
+
+하지만 현재 더 큰 미해결 이슈 두 개가 남아 있다:
+
+- `GPT/viewer/renderers/play_html.py`가 여전히 stale alias/public-state 필드를 읽고 있음
+  - 예: `marker_owner_id`, `immune_to_marks`, `is_marked`, `trick_cards_visible`, `tiles_owned`, `score_coins_placed`
+- `python GPT\\test_human_play.py`가 실제 게임 스레드 `KeyError: 8` 크래시를 내고도
+  `ALL TESTS PASSED`로 종료함
+
+최종 의견:
+
+- 이 문서는 이제 **renderer/local bug 기록 문서**로는 유효하다.
+- 그러나 현재 corrective backlog의 주 문서로 쓰면 안 된다.
+- 현재 기준 backlog는
+  - `PLAN/[PROPOSAL]_GPT_CLAUDE_VISUALIZATION_FIX_SPLIT.md`
+
+  를 우선으로 보고,
+  이 문서는 그보다 작은 UI/renderer 이슈 메모로 취급하는 것이 맞다.
+
+---
+
+## Critical (🔴) — PR25 이전 원본 발견 사항
 
 ### BUG-1: play_html.py — HUMAN_SEAT 인덱싱 오류
+
+**상태 업데이트 (after PR25)**: `main`에서 수정됨.
 
 **파일**: `GPT/viewer/renderers/play_html.py`
 **라인**: 287, 483, 526, 607–608, 620–621, 643
@@ -53,6 +85,8 @@ const HUMAN_SEAT = {human_seat_js};  // 1-indexed
 
 ### BUG-2: play_html.py — PLAYER_COLORS 인덱싱이 live_html.py와 불일치
 
+**상태 업데이트 (after PR25)**: `main`에서 수정됨.
+
 **파일**: `GPT/viewer/renderers/play_html.py:485, 528, 607, 645`
 **비교 대상**: `GPT/viewer/renderers/live_html.py`
 
@@ -73,6 +107,8 @@ const ci = (ownerId - 1) % PLAYER_COLORS.length;
 ---
 
 ### BUG-3: human_policy.py — submit_response 락 범위 부족 (오답 주입 가능)
+
+**상태 업데이트 (after PR25)**: `main`에서 수정됨.
 
 **파일**: `GPT/viewer/human_policy.py:57–70`
 
@@ -107,6 +143,8 @@ def submit_response(self, response: dict) -> bool:
 ---
 
 ### BUG-4: human_policy.py — 프롬프트의 player_id가 0-indexed로 노출
+
+**상태 업데이트 (after PR25)**: `main`에서 수정됨.
 
 **파일**: `GPT/viewer/human_policy.py` (모든 `_ask` 호출 내 prompt dict)
 
