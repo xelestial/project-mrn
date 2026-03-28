@@ -121,7 +121,12 @@ def _event_display(event: dict) -> dict:
     elif etype == "mark_resolved":
         detail = str(event.get("effect_type", "mark"))
     elif etype == "marker_transferred":
-        detail = f"P{event.get('new_owner_player_id', event.get('owner_player_id', '?'))}"
+        from_owner = event.get("from_owner", "?")
+        to_owner = event.get("to_owner", event.get("new_owner_player_id", event.get("owner_player_id", "?")))
+        pending = event.get("marker_flip_pending_for")
+        detail = f"P{from_owner} -> P{to_owner}"
+        if pending is not None:
+            detail += f" (flip P{pending})"
     elif etype == "lap_reward_chosen":
         detail = str(event.get("choice", event.get("resource_delta", "")))
     elif etype == "f_value_change":
@@ -217,7 +222,10 @@ def _apply_known_updates(event: dict, players: list[dict], board: dict) -> tuple
             board["tiles"][tile_index]["owner_player_id"] = event.get("player_id", event.get("acting_player_id"))
         return players, board
     if etype == "marker_transferred":
-        board["marker_owner_player_id"] = event.get("new_owner_player_id", event.get("owner_player_id"))
+        board["marker_owner_player_id"] = event.get(
+            "to_owner",
+            event.get("new_owner_player_id", event.get("owner_player_id")),
+        )
         return players, board
     if etype == "f_value_change" and event.get("after") is not None:
         board["f_value"] = event["after"]

@@ -245,6 +245,14 @@ def test_html_renderer(events: list[dict]) -> list[str]:
                     errors.append("missing player_move frame in replay HTML")
                 elif "?" in str(first_move.get("subtitle", "")):
                     errors.append("player_move frame still shows unresolved tile positions")
+                first_marker = next(
+                    (frame for frame in parsed if frame.get("event_type") == "marker_transferred"),
+                    None,
+                )
+                if first_marker is None:
+                    errors.append("missing marker_transferred frame in replay HTML")
+                elif "P?" in str(first_marker.get("subtitle", "")):
+                    errors.append("marker_transferred frame still shows unresolved owner")
         except json.JSONDecodeError as exc:
             errors.append(f"FRAMES JSON parse error: {exc}")
     else:
