@@ -707,25 +707,29 @@ class GameEngine:
                                source_player_id=_src_pid_vis, source=_src_pid_vis,
                                target_player_id=_tgt_pid_vis, target=_tgt_pid_vis,
                                effect_type=etype, paid=outcome.get("paid", False),
-                               success=outcome.get("paid", False))
+                               success=outcome.get("paid", False),
+                               public_summary=f"{etype}: P{_src_pid_vis}→P{_tgt_pid_vis}")
             elif etype == "hunter_pull":
                 self._apply_forced_landing(state, player, eff["source_pos"])
                 self._emit_vis("mark_resolved", Phase.MARK, _tgt_pid_vis, state,
                                source_player_id=_src_pid_vis, source=_src_pid_vis,
                                target_player_id=_tgt_pid_vis, target=_tgt_pid_vis,
-                               effect_type=etype, success=True)
+                               effect_type=etype, success=True,
+                               public_summary=f"{etype}: P{_src_pid_vis}→P{_tgt_pid_vis}")
             elif etype == "baksu_transfer":
                 self._resolve_baksu_transfer(state, source, player)
                 self._emit_vis("mark_resolved", Phase.MARK, _tgt_pid_vis, state,
                                source_player_id=_src_pid_vis, source=_src_pid_vis,
                                target_player_id=_tgt_pid_vis, target=_tgt_pid_vis,
-                               effect_type=etype, success=True)
+                               effect_type=etype, success=True,
+                               public_summary=f"{etype}: P{_src_pid_vis}→P{_tgt_pid_vis}")
             elif etype == "manshin_remove_burdens":
                 self._resolve_manshin_remove_burdens(state, source, player)
                 self._emit_vis("mark_resolved", Phase.MARK, _tgt_pid_vis, state,
                                source_player_id=_src_pid_vis, source=_src_pid_vis,
                                target_player_id=_tgt_pid_vis, target=_tgt_pid_vis,
-                               effect_type=etype, success=True)
+                               effect_type=etype, success=True,
+                               public_summary=f"{etype}: P{_src_pid_vis}→P{_tgt_pid_vis}")
             else:
                 remaining.append(eff)
             if not player.alive:
@@ -1200,6 +1204,9 @@ class GameEngine:
             elif phase == "regular":
                 stats["regular_tricks_used"] += 1
             self._log({"event": "trick_used", "player": player.player_id + 1, "phase": phase, "character": player.current_character, "card": {"deck_index": card.deck_index, "name": card.name}, "resolution": resolution, "decision": debug})
+            self._emit_vis("trick_used", Phase.TRICK_WINDOW, player.player_id + 1, state,
+                           phase=phase, card_name=card.name,
+                           card_description=card.description, resolution=resolution)
             return True
 
         # 언제나 사용할 수 있는 잔꾀는 자신의 턴 잔꾀 단계에서 먼저 여러 장 사용할 수 있다.
