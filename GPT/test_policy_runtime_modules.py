@@ -9,7 +9,7 @@ from policy.context.turn_plan import PlayerIntentState, build_turn_plan_context
 from policy.decision.lap_reward import BasicLapRewardInputs, V2ProfileLapRewardInputs, V3LapRewardInputs, apply_turn_plan_lap_bias, apply_v2_profile_lap_reward_bias, evaluate_basic_lap_reward, evaluate_v3_lap_reward, normalize_lap_reward_scores, resolve_lap_reward_bundle
 from policy.decision.mark_target import PublicMarkChoiceDebug, build_empty_public_mark_choice_debug_payload, build_public_mark_choice_debug_payload, evaluate_public_mark_candidates, filter_public_mark_candidates, resolve_public_mark_choice, resolve_random_public_mark_choice, run_public_mark_choice
 from policy.decision.movement import MovementChoiceResolution, apply_movement_intent_adjustment, resolve_movement_choice
-from policy.decision.purchase import PurchaseBenefitInputs, PurchaseDebugContext, TraitPurchaseDecisionInputs, V3PurchaseBenefitInputs, apply_v3_purchase_benefit_adjustments, assess_purchase_decision, assess_purchase_decision_from_inputs, assess_purchase_decision_with_traits, assess_v3_purchase_window, assess_v3_purchase_window_with_traits, build_immediate_win_purchase_result, build_purchase_benefit, build_purchase_debug_context, build_purchase_debug_payload, build_purchase_early_debug_payload, build_purchase_reserve_floor, count_owned_tiles_in_block, prepare_v3_purchase_benefit_with_traits, would_purchase_trigger_immediate_win
+from policy.decision.purchase import PurchaseBenefitInputs, PurchaseDebugContext, PurchaseDecisionResult, PurchaseWindowAssessment, TraitPurchaseDecisionInputs, V3PurchaseBenefitInputs, apply_v3_purchase_benefit_adjustments, assess_purchase_decision, assess_purchase_decision_from_inputs, assess_purchase_decision_with_traits, assess_v3_purchase_window, assess_v3_purchase_window_with_traits, build_immediate_win_purchase_result, build_purchase_benefit, build_purchase_debug_context, build_purchase_debug_payload, build_purchase_decision_trace, build_purchase_early_debug_payload, build_purchase_reserve_floor, count_owned_tiles_in_block, prepare_v3_purchase_benefit_with_traits, would_purchase_trigger_immediate_win
 from policy.decision.runtime_bridge import choose_active_flip_card_runtime, choose_burden_exchange_on_supply_runtime, choose_coin_placement_tile_runtime, choose_doctrine_relief_target_runtime, choose_draft_card_runtime, choose_final_character_runtime, choose_geo_bonus_runtime, choose_hidden_trick_card_runtime, choose_lap_reward_runtime, choose_mark_target_runtime, choose_movement_runtime, choose_purchase_tile_runtime, choose_specific_trick_reward_runtime, choose_trick_to_use_runtime
 from policy.decision.support_choices import BurdenExchangeDecisionInputs, DistressMarkerInputs, EscapeSeekInputs, GeoBonusDecisionInputs, build_distress_marker_bonus, choose_doctrine_relief_player_id, choose_geo_bonus_kind, count_burden_cards, should_exchange_burden_on_supply, should_seek_escape_package_from_inputs
 from policy.decision.trick_reward import build_trick_reward_debug_payload, resolve_trick_reward_choice, resolve_trick_reward_choice_run
@@ -1382,6 +1382,62 @@ def test_choose_movement_runtime_records_pipeline_trace() -> None:
     assert debug["trace"]["decision_type"] == "movement"
     assert debug["trace"]["features"]["plan_key"] == "lap_engine"
     assert any(hit["key"] == "preserve_cards_bias" for hit in debug["trace"]["detector_hits"])
+    assert debug["trace"]["features"]["best_single_card"]["card"] in {1, 4, 6}
+
+
+def test_choose_movement_runtime_records_hold_cards_default_trace() -> None:
+    policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt")
+    state = SimpleNamespace(
+        board=[CellKind.T2] * 12,
+        tile_owner=[None] * 12,
+        tile_coins=[0] * 12,
+        rounds_completed=2,
+        round_index=2,
+    )
+    player = SimpleNamespace(
+        player_id=0,
+        current_character=CARD_TO_NAMES[7][0],
+        position=0,
+        cash=12,
+        shards=3,
+        used_dice_cards=[],
+    )
+    policy._generic_survival_context = lambda *_args, **_kwargs: {
+        "survival_urgency": 0.0,
+        "rent_pressure": 0.0,
+        "lethal_hit_prob": 0.0,
+        "own_burden_cost": 0.0,
+        "cleanup_pressure": 0.0,
+    }
+    policy._f_progress_context = lambda *_args, **_kwargs: {
+        "is_leader": False,
+        "land_f_value": 0.0,
+        "avoid_f_acceleration": 0.0,
+    }
+    policy._common_token_place_bonus = lambda *_args, **_kwargs: 0.0
+    policy._predict_tile_landing_cost = lambda *_args, **_kwargs: 0.0
+    policy._is_action_survivable = lambda *_args, **_kwargs: True
+    policy._project_end_turn_cash = lambda *_args, **_kwargs: float(player.cash)
+    policy._movement_survival_hard_block_reason = lambda *_args, **_kwargs: None
+    policy._landing_score = lambda _state, _player, pos: -float(pos)
+    policy._movement_survival_adjustment = lambda *_args, **_kwargs: 0.0
+    policy._f_move_adjustment = lambda *_args, **_kwargs: 0.0
+    policy._remaining_cards = lambda _player: [5, 6]
+    policy._current_player_intent = lambda *_args, **_kwargs: PlayerIntentState(
+        plan_key="stable",
+        resource_intent="card_preserve",
+        reason="test",
+        source_character=player.current_character,
+        plan_confidence=0.5,
+        plan_start_round=2,
+        expires_after_round=4,
+    )
+
+    result = choose_movement_runtime(policy, state, player)
+    debug = policy.pop_debug("movement_decision", player.player_id)
+
+    assert result.use_cards is False
+    assert any(hit["key"] == "hold_cards_default" for hit in debug["trace"]["detector_hits"])
 
 
 def test_apply_v2_profile_lap_reward_bias_aggressive_prefers_coins() -> None:
@@ -1863,6 +1919,46 @@ def test_assess_purchase_decision_surfaces_cleanup_and_token_blocks() -> None:
     assert isinstance(result.cleanup_lock, bool)
 
 
+def test_assess_purchase_decision_prefers_safe_growth_over_small_token_wait() -> None:
+    purchase_window = PurchaseWindowAssessment(
+        reserve_floor=5.5,
+        safe_low_cost_t3=False,
+        safe_growth_buy=True,
+        token_preferred=True,
+        v3_cleanup_soft_block=False,
+        baksu_online_exception=False,
+    )
+
+    result = assess_purchase_decision_with_traits(
+        profile="v3_gpt",
+        current_character=CARD_TO_NAMES[7][0],
+        cash_before=10.0,
+        remaining_cash=6.5,
+        reserve=4.0,
+        reserve_floor=5.5,
+        benefit=2.4,
+        token_window_value=4.3,
+        money_distress=0.3,
+        complete_monopoly=False,
+        blocks_enemy=False,
+        hard_reason=None,
+        own_burdens=0.0,
+        next_neg=0.0,
+        two_neg=0.0,
+        negative_cards=0.0,
+        downside_cleanup=0.0,
+        worst_cleanup=0.0,
+        public_cleanup_active=False,
+        active_cleanup_cost=0.0,
+        latent_cleanup_cost=0.0,
+        purchase_window=purchase_window,
+    )
+
+    assert result.decision is True
+    assert result.token_preferred is False
+    assert result.safe_growth_token_override is True
+
+
 def test_build_purchase_debug_payload_uses_context_and_result_fields() -> None:
     payload = build_purchase_debug_payload(
         context=PurchaseDebugContext(
@@ -1983,6 +2079,52 @@ def test_build_purchase_debug_payload_embeds_trace_payload() -> None:
 
     assert payload["trace"]["decision_type"] == "purchase"
     assert payload["trace"]["detector_hits"][0]["key"] == "adv_complete_monopoly"
+
+
+def test_build_purchase_decision_trace_marks_safe_growth_override() -> None:
+    trace = build_purchase_decision_trace(
+        context=PurchaseDebugContext(
+            source="landing",
+            pos=6,
+            cell_name="T2",
+            cost=2,
+            cash_before=10.0,
+            cash_after=6.5,
+            reserve=4.0,
+            money_distress=0.3,
+            two_turn_lethal_prob=0.05,
+            latent_cleanup_cost=1.0,
+            cleanup_cash_gap=0.0,
+            expected_loss=0.5,
+            worst_loss=1.0,
+            blocks_enemy_monopoly=False,
+            token_window_value=4.3,
+        ),
+        result=PurchaseDecisionResult(
+            decision=True,
+            reserve_floor=5.5,
+            shortfall=0.0,
+            danger_cash=False,
+            cleanup_lock=False,
+            token_preferred=False,
+            v3_cleanup_soft_block=False,
+            safe_growth_token_override=True,
+        ),
+        benefit=2.4,
+        complete_monopoly=False,
+        hard_reason=None,
+        purchase_window=PurchaseWindowAssessment(
+            reserve_floor=5.5,
+            safe_low_cost_t3=False,
+            safe_growth_buy=True,
+            token_preferred=True,
+            v3_cleanup_soft_block=False,
+            baksu_online_exception=False,
+        ),
+    )
+
+    detector_keys = [hit["key"] for hit in build_decision_trace_payload(trace)["detector_hits"]]
+    assert "safe_growth_beats_token_wait" in detector_keys
 
 
 def test_choose_purchase_tile_runtime_records_pipeline_trace() -> None:

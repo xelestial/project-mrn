@@ -27,6 +27,7 @@ class PurchaseDecisionResult:
     cleanup_lock: bool
     token_preferred: bool
     v3_cleanup_soft_block: bool
+    safe_growth_token_override: bool
 
 
 def build_immediate_win_purchase_result(*, reserve: float) -> PurchaseDecisionResult:
@@ -38,6 +39,7 @@ def build_immediate_win_purchase_result(*, reserve: float) -> PurchaseDecisionRe
         cleanup_lock=False,
         token_preferred=False,
         v3_cleanup_soft_block=False,
+        safe_growth_token_override=False,
     )
 
 
@@ -554,9 +556,19 @@ def assess_purchase_decision(
     )
     token_preferred = token_window_value >= benefit + (1.2 if profile == "v3_gpt" else 1.6) and not complete_monopoly and not blocks_enemy
     v3_cleanup_soft_block = False
+    safe_growth_token_override = False
     if profile == "v3_gpt" and purchase_window is not None:
         token_preferred = purchase_window.token_preferred
         v3_cleanup_soft_block = purchase_window.v3_cleanup_soft_block
+        if (
+            token_preferred
+            and purchase_window.safe_growth_buy
+            and hard_reason is None
+            and remaining_cash >= reserve_floor + 0.75
+            and token_window_value < benefit + 2.4
+        ):
+            token_preferred = False
+            safe_growth_token_override = True
     decision = not (
         shortfall > benefit
         or token_preferred
@@ -591,6 +603,7 @@ def assess_purchase_decision(
         cleanup_lock=cleanup_lock,
         token_preferred=token_preferred,
         v3_cleanup_soft_block=v3_cleanup_soft_block,
+        safe_growth_token_override=safe_growth_token_override,
     )
 
 
@@ -644,9 +657,19 @@ def assess_purchase_decision_with_traits(
     )
     token_preferred = token_window_value >= benefit + (1.2 if profile == "v3_gpt" else 1.6) and not complete_monopoly and not blocks_enemy
     v3_cleanup_soft_block = False
+    safe_growth_token_override = False
     if profile == "v3_gpt" and purchase_window is not None:
         token_preferred = purchase_window.token_preferred
         v3_cleanup_soft_block = purchase_window.v3_cleanup_soft_block
+        if (
+            token_preferred
+            and purchase_window.safe_growth_buy
+            and hard_reason is None
+            and remaining_cash >= reserve_floor + 0.75
+            and token_window_value < benefit + 2.4
+        ):
+            token_preferred = False
+            safe_growth_token_override = True
     decision = not (
         shortfall > benefit
         or token_preferred
@@ -681,6 +704,7 @@ def assess_purchase_decision_with_traits(
         cleanup_lock=cleanup_lock,
         token_preferred=token_preferred,
         v3_cleanup_soft_block=v3_cleanup_soft_block,
+        safe_growth_token_override=safe_growth_token_override,
     )
 
 
@@ -767,6 +791,18 @@ def build_purchase_decision_trace(
                 reason="Safe expansion window is open on a buyable tile.",
                 tags=("growth", "tempo"),
                 score_delta=1.1,
+            )
+        )
+    if result.safe_growth_token_override:
+        detector_hits.append(
+            build_detector_hit(
+                "safe_growth_beats_token_wait",
+                kind="preference",
+                severity=0.66,
+                confidence=0.82,
+                reason="A safe expansion window was kept over waiting for a modest score-coin opportunity.",
+                tags=("growth", "token_window"),
+                score_delta=0.9,
             )
         )
     if purchase_window is not None and purchase_window.baksu_online_exception:
@@ -888,6 +924,7 @@ def build_purchase_decision_trace(
             "cleanup_lock": result.cleanup_lock,
             "token_preferred": result.token_preferred,
             "v3_cleanup_soft_block": result.v3_cleanup_soft_block,
+            "safe_growth_token_override": result.safe_growth_token_override,
         },
     )
 

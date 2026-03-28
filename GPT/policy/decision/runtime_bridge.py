@@ -887,6 +887,8 @@ def choose_purchase_tile_runtime(
 
 def _build_movement_trace(*, resolution: Any, intent: Any, f_ctx: dict[str, Any], remaining_cards: tuple[int, ...]) -> DecisionTrace:
     detector_hits = []
+    best_single = max(resolution.single_card_scores, key=lambda item: item[1], default=None)
+    best_double = max(resolution.double_card_scores, key=lambda item: item[1], default=None)
     if resolution.use_cards and intent.resource_intent == "card_preserve":
         detector_hits.append(
             build_detector_hit(
@@ -899,6 +901,22 @@ def _build_movement_trace(*, resolution: Any, intent: Any, f_ctx: dict[str, Any]
                 score_delta=-0.55 * len(resolution.card_values),
             )
         )
+    if not resolution.use_cards and remaining_cards:
+        best_card_score = max(
+            [score for _, score in resolution.single_card_scores] + [score for _, score in resolution.double_card_scores],
+            default=resolution.avg_no_cards,
+        )
+        detector_hits.append(
+            build_detector_hit(
+                "hold_cards_default",
+                kind="advantage",
+                severity=0.62,
+                confidence=0.8,
+                reason="The baseline dice line stayed ahead, so the policy kept movement cards for later turns.",
+                tags=("movement", "card_economy"),
+                score_delta=max(0.0, resolution.avg_no_cards - best_card_score),
+            )
+        )
     if bool(f_ctx["is_leader"]) and resolution.score >= resolution.avg_no_cards + 6.0:
         detector_hits.append(
             build_detector_hit(
@@ -909,6 +927,18 @@ def _build_movement_trace(*, resolution: Any, intent: Any, f_ctx: dict[str, Any]
                 reason="Leader status allows a strong tempo spike from this movement line.",
                 tags=("movement", "tempo"),
                 score_delta=0.4,
+            )
+        )
+    if resolution.use_cards and len(resolution.card_values) == 1 and resolution.score >= resolution.avg_no_cards + 1.5:
+        detector_hits.append(
+            build_detector_hit(
+                "single_card_tempo_pick",
+                kind="advantage",
+                severity=0.58,
+                confidence=0.76,
+                reason="A one-card movement line created enough tempo to beat the baseline dice plan.",
+                tags=("movement", "tempo"),
+                score_delta=resolution.score - resolution.avg_no_cards,
             )
         )
     if len(resolution.card_values) >= 2 and intent.plan_key == "lap_engine":
@@ -930,6 +960,8 @@ def _build_movement_trace(*, resolution: Any, intent: Any, f_ctx: dict[str, Any]
             "avg_no_cards": resolution.avg_no_cards,
             "chosen_score": resolution.score,
             "remaining_cards": list(remaining_cards),
+            "best_single_card": None if best_single is None else {"card": best_single[0], "score": round(float(best_single[1]), 3)},
+            "best_double_card": None if best_double is None else {"cards": list(best_double[0]), "score": round(float(best_double[1]), 3)},
             "plan_key": intent.plan_key,
             "resource_intent": intent.resource_intent,
             "is_leader": bool(f_ctx["is_leader"]),
