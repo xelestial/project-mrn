@@ -77,7 +77,7 @@ def _landing_summary(landing: dict | None) -> str:
     labels = {
         "PURCHASE": "토지 구매",
         "PURCHASE_FAIL": "토지 구매 실패",
-        "PURCHASE_SKIP_POLICY": "토지 구매 안 함",
+        "PURCHASE_SKIP_POLICY": "구매 없이 턴 종료",
         "PURCHASE_BLOCKED_THIS_TURN": "토지 구매 불가",
         "RENT": "통행료 정산",
         "RENT_FAILSAFE": "통행료 정산",
