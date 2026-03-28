@@ -308,6 +308,10 @@ Current release aligned the simulator with the latest validated rules and added 
 - Force sale returns placed coins to original owner hand.
 - Lap rewards changed to score coins 3 vs shards 3 vs cash 5.
 
+## 0.7.61v3 - 2026-03-29
+- live viewer polish: human-play prompt summary, choice preview, mark-state labels, and player panel wording were made more human-readable in Korean.
+- live viewer polish: player panels now show hidden trick counts and remaining dice cards more explicitly.
+
 ## 0.7.59
 - Added external JSON ruleset loading (`ruleset.json`) for injected `GameRules`.
 - Added `game_rules_loader.py` and CLI `--ruleset` support in simulation/batch entrypoints.
