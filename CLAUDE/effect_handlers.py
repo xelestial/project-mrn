@@ -4,6 +4,7 @@ from typing import Optional
 
 from config import CellKind
 from state import GameState, PlayerState
+from viewer.events import Phase
 
 
 class EngineEffectHandlers:
@@ -258,6 +259,11 @@ class EngineEffectHandlers:
             "marker_flip_pending_for": None if state.pending_marker_flip_owner_id is None else state.pending_marker_flip_owner_id + 1,
         }
         engine._log(event)
+        if previous_owner != state.marker_owner_id:
+            engine._emit_vis("marker_transferred", Phase.ECONOMY, player.player_id + 1, state,
+                             from_player_id=previous_owner + 1,
+                             to_player_id=state.marker_owner_id + 1,
+                             reason="character_effect")
         return event
 
     def handle_marker_flip(self, state: GameState) -> dict | None:
@@ -361,6 +367,9 @@ class EngineEffectHandlers:
         stats["lap_coin_choices"] += 1 if granted_coins > 0 else 0
         stats["shards_gained_lap"] += total_shards
         choice = decision.choice if decision.choice != "blocked" else "blocked"
+        engine._emit_vis("lap_reward_chosen", Phase.LAP_REWARD, player.player_id + 1, state,
+                         choice=choice,
+                         cash_delta=granted_cash, shards_delta=total_shards, coins_delta=granted_coins)
         return {
             "choice": choice,
             "cash_delta": granted_cash,
@@ -598,6 +607,8 @@ class EngineEffectHandlers:
         if state.config.rules.token.can_place_on_first_purchase:
             player.visited_owned_tile_indices.add(pos)
             placed = engine._place_hand_coins_on_tile(state, player, pos, max_place=state.config.rules.token.place_limit_on_purchase(state, player, pos), source="purchase")
+        engine._emit_vis("tile_purchased", Phase.LANDING, player.player_id + 1, state,
+                         tile_index=pos, tile_kind=cell.name, cost=cost, source="landing")
         return {'type': 'PURCHASE', 'tile_kind': cell.name, 'cost': cost, 'shard_cost': shard_cost, 'shards_before': shards_before, 'shards_after': player.shards, 'placed': placed}
 
     def handle_rent_payment(self, state: GameState, player: PlayerState, pos: int, owner: int) -> dict:
@@ -611,6 +622,9 @@ class EngineEffectHandlers:
         stats['rent_paid'] += 1
         outcome = engine._pay_or_bankrupt(state, player, rent, owner)
         event = {'type': 'RENT', 'tile_kind': state.board[pos].name, 'owner': owner + 1, 'rent': rent, **outcome}
+        engine._emit_vis("rent_paid", Phase.LANDING, player.player_id + 1, state,
+                         tile_index=pos, tile_kind=state.board[pos].name,
+                         owner_player_id=owner + 1, amount=rent, paid=outcome.get("paid", False))
         if player.trick_one_extra_adjacent_buy_this_turn and player.alive and outcome.get('paid'):
             extra = engine._buy_one_adjacent_same_block(state, player, pos)
             if extra is not None:

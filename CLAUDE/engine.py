@@ -693,12 +693,20 @@ class GameEngine:
                 outcome = self._pay_or_bankrupt(state, player, amount, source.player_id)
                 self._strategy_stats[source.player_id]["shard_income_cash"] += amount if outcome.get("paid") else 0
                 self._log({"event": "bandit_tax", "source_player": source.player_id + 1, "target_player": player.player_id + 1, "amount": amount, **outcome})
+                self._emit_vis("mark_resolved", Phase.MARK, player.player_id + 1, state,
+                               source_player_id=source.player_id + 1, effect_type=etype, paid=outcome.get("paid", False))
             elif etype == "hunter_pull":
                 self._apply_forced_landing(state, player, eff["source_pos"])
+                self._emit_vis("mark_resolved", Phase.MARK, player.player_id + 1, state,
+                               source_player_id=source.player_id + 1, effect_type=etype)
             elif etype == "baksu_transfer":
                 self._resolve_baksu_transfer(state, source, player)
+                self._emit_vis("mark_resolved", Phase.MARK, player.player_id + 1, state,
+                               source_player_id=source.player_id + 1, effect_type=etype)
             elif etype == "manshin_remove_burdens":
                 self._resolve_manshin_remove_burdens(state, source, player)
+                self._emit_vis("mark_resolved", Phase.MARK, player.player_id + 1, state,
+                               source_player_id=source.player_id + 1, effect_type=etype)
             else:
                 remaining.append(eff)
             if not player.alive:
@@ -1619,6 +1627,8 @@ class GameEngine:
         if result is not None:
             return result
         card = self._draw_fortune_card(state)
+        self._emit_vis("fortune_drawn", Phase.FORTUNE, player.player_id + 1, state,
+                       card_name=card.name, card_effect=card.effect)
         event = self._apply_fortune_card(state, player, card)
         state.fortune_discard_pile.append(card)
         return {"type": "FORTUNE", "card": {"deck_index": card.deck_index, "name": card.name, "effect": card.effect}, "resolution": event}
