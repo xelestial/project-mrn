@@ -1,4 +1,5 @@
 # GPT Turn Advantage Analysis Plan
+## 상태: Phase 1 [Complete] | Phase 2–5 [Active — GPT 연구 트랙]
 
 ## Goal
 Add a non-invasive analysis pipeline that can answer two questions from raw logs:
