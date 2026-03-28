@@ -410,6 +410,8 @@ class GameEngine:
             p.revealed_this_round = False
             p.extra_shard_gain_this_turn = 0
             p.rent_waiver_count_this_turn = 0
+            p.trick_all_rent_waiver_this_turn = False
+            p.rolled_dice_count_this_turn = 0
             p.trick_free_purchase_this_turn = False
             p.trick_dice_delta_this_turn = 0
             p.trick_personal_rent_half_this_turn = False
@@ -580,6 +582,7 @@ class GameEngine:
             return
         decision = self.policy.choose_movement(state, player)
         move, movement_meta = self._resolve_move(state, player, decision)
+        player.rolled_dice_count_this_turn = len(movement_meta.get("dice", []))
         self._emit_vis("dice_roll", Phase.MOVEMENT, player.player_id + 1, state,
                        dice=movement_meta.get("dice", []),
                        used_cards=movement_meta.get("used_cards", []),
@@ -1157,7 +1160,7 @@ class GameEngine:
         return max(0, rent)
 
     def _is_trick_phase_usable(self, card: TrickCard) -> bool:
-        return card.name not in {"강제 매각", "뭘리권", "뭔칙휜", "호객꾼"}
+        return card.name not in {"뭘리권", "뭔칙휜", "호객꾼"}
 
     def _use_trick_phase(self, state: GameState, player: PlayerState) -> None:
         if not hasattr(self.policy, "choose_trick_to_use"):
@@ -1531,20 +1534,8 @@ class GameEngine:
         return sorted(all_tiles, key=lambda i: (state.board[i] == CellKind.T3, i), reverse=highest_cost)[0]
 
     def _roll_standard_dice_only(self, state: GameState, player: PlayerState) -> tuple[int, dict]:
-        extra_passive_die = 0
-        for p in state.players:
-            if (
-                p.alive and p.player_id != player.player_id and p.current_character == "탐관오리"
-                and not self._is_muroe_skill_blocked(state, p) and player.attribute in {"관원", "상민"}
-            ):
-                tribute = player.shards // 2
-                if tribute > 0:
-                    self._pay_or_bankrupt(state, player, tribute, p.player_id)
-                extra_passive_die += 1
-        base = 2 + (1 if player.current_character == "파발꾼" else 0) + extra_passive_die
-        dice = [self.rng.randint(1, 6) for _ in range(max(1, base))]
-        if player.current_character == "파발꾼" and len(set(dice)) < len(dice):
-            dice.append(self.rng.randint(1, 6))
+        dice_count = max(1, int(getattr(player, "rolled_dice_count_this_turn", 0) or 0))
+        dice = [self.rng.randint(1, 6) for _ in range(dice_count)]
         dice, rerolls = self._try_anytime_rerolls(state, player, [], dice, "dice")
         meta = {"mode": "dice_chain", "dice": dice, "formula": "+".join(map(str, dice))}
         if rerolls:
@@ -1582,7 +1573,6 @@ class GameEngine:
         cell = state.board[pos]
         if owner is None or cell == CellKind.MALICIOUS:
             return {"type": "NO_EFFECT", "reason": "invalid_force_sale"}
-        self._consume_trick_by_name(state, player, "강제 매각")
         purchase_refund = state.config.rules.economy.purchase_cost_for(state, pos) if (state.tile_at(pos).purchase_cost is not None and state.config.rules.force_sale.refund_purchase_cost) else 0
         returned_coins = state.tile_coins[pos] if state.config.rules.force_sale.return_tile_coins_to_original_owner else 0
         original_owner = state.players[owner]
@@ -1963,10 +1953,10 @@ class GameEngine:
         block_id = state.block_ids[pos]
         owns_block = block_id > 0 and any(state.tile_owner[i] == player.player_id for i, b in enumerate(state.block_ids) if b == block_id)
 
-        if cell in {CellKind.T2, CellKind.T3, CellKind.MALICIOUS} and owns_block and self._has_trick(player, "뇌절왕"):
-            consumed = self._consume_trick_by_name(state, player, "뇌절왕")
+        if cell in {CellKind.T2, CellKind.T3, CellKind.MALICIOUS} and owns_block and player.trick_zone_chain_this_turn:
+            player.trick_zone_chain_this_turn = False
             extra_move, chain_meta = self._roll_standard_dice_only(state, player)
-            return {"type": "ZONE_CHAIN", "via_card": None if consumed is None else consumed.name, "tile_kind": cell.name, "block_id": block_id, "extra_move": extra_move, "movement": chain_meta, "landing_treated_as_move": True}
+            return {"type": "ZONE_CHAIN", "via_card": "뇌절왕", "tile_kind": cell.name, "block_id": block_id, "extra_move": extra_move, "movement": chain_meta, "landing_treated_as_move": True}
 
         if cell in {CellKind.F1, CellKind.F2}:
             result = self.events.emit_first_non_none("landing.f.resolve", state, player, pos, cell)
@@ -1982,7 +1972,8 @@ class GameEngine:
                 return result
 
         owner = state.tile_owner[pos]
-        if owner is not None and self._has_trick(player, "강제 매각"):
+        if owner is not None and player.trick_force_sale_landing_this_turn:
+            player.trick_force_sale_landing_this_turn = False
             result = self.events.emit_first_non_none("landing.force_sale.resolve", state, player, pos, cell)
             if result is not None:
                 return result
