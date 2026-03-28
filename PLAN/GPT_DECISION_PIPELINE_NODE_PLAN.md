@@ -11,22 +11,33 @@ Role: `canonical plan for rewriting GPT AI decisions into reusable node/pipeline
   - purchase decision runtime
   - movement decision runtime
   - lap reward runtime
+  - character draft runtime
+  - final character runtime
+  - mark target runtime
+  - doctrine relief runtime
+  - geo bonus runtime
+  - coin placement runtime
+  - active flip runtime
+  - burden exchange runtime
 - reattached movement intent adjustment to the modular runtime path so card-preserve / lap-engine bias is no longer lost after bridge delegation
 - added regression coverage for:
   - purchase trace embedding
   - movement trace emission
   - lap reward trace emission
+  - character / support-choice trace emission
 
 ### What This Means
-- we now have a reusable pipeline-trace substrate for the three highest-frequency economy decisions
+- we now have a reusable pipeline-trace substrate across the full first-pass non-trick decision surface
 - detector hits are structured instead of living only as ad-hoc booleans in debug payloads
 - replay/live/debug tooling can now consume a common `source -> features -> detector_hits -> effects -> final_choice` shape
 
 ### Still Pending
-- character draft / final character trace normalization
-- mark / doctrine / geo / coin placement trace normalization
 - trick-family pipeline work after the manual trick audit
 - optional node-graph visualization layer over the new trace substrate
+
+### First-Pass Completion Note
+- the original first-pass scope is now complete for all non-trick decision families listed below
+- remaining work is intentionally limited to the trick family and optional visualization / introspection layers
 
 ## Goal
 Rewrite the existing GPT AI decision logic into a pipeline-oriented structure that is:

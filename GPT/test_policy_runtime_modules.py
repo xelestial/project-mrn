@@ -10,7 +10,7 @@ from policy.decision.lap_reward import BasicLapRewardInputs, V2ProfileLapRewardI
 from policy.decision.mark_target import PublicMarkChoiceDebug, build_empty_public_mark_choice_debug_payload, build_public_mark_choice_debug_payload, evaluate_public_mark_candidates, filter_public_mark_candidates, resolve_public_mark_choice, resolve_random_public_mark_choice, run_public_mark_choice
 from policy.decision.movement import MovementChoiceResolution, apply_movement_intent_adjustment, resolve_movement_choice
 from policy.decision.purchase import PurchaseBenefitInputs, PurchaseDebugContext, TraitPurchaseDecisionInputs, V3PurchaseBenefitInputs, apply_v3_purchase_benefit_adjustments, assess_purchase_decision, assess_purchase_decision_from_inputs, assess_purchase_decision_with_traits, assess_v3_purchase_window, assess_v3_purchase_window_with_traits, build_immediate_win_purchase_result, build_purchase_benefit, build_purchase_debug_context, build_purchase_debug_payload, build_purchase_early_debug_payload, build_purchase_reserve_floor, count_owned_tiles_in_block, prepare_v3_purchase_benefit_with_traits, would_purchase_trigger_immediate_win
-from policy.decision.runtime_bridge import choose_active_flip_card_runtime, choose_burden_exchange_on_supply_runtime, choose_coin_placement_tile_runtime, choose_doctrine_relief_target_runtime, choose_hidden_trick_card_runtime, choose_lap_reward_runtime, choose_mark_target_runtime, choose_movement_runtime, choose_purchase_tile_runtime, choose_specific_trick_reward_runtime, choose_trick_to_use_runtime
+from policy.decision.runtime_bridge import choose_active_flip_card_runtime, choose_burden_exchange_on_supply_runtime, choose_coin_placement_tile_runtime, choose_doctrine_relief_target_runtime, choose_draft_card_runtime, choose_final_character_runtime, choose_geo_bonus_runtime, choose_hidden_trick_card_runtime, choose_lap_reward_runtime, choose_mark_target_runtime, choose_movement_runtime, choose_purchase_tile_runtime, choose_specific_trick_reward_runtime, choose_trick_to_use_runtime
 from policy.decision.support_choices import BurdenExchangeDecisionInputs, DistressMarkerInputs, EscapeSeekInputs, GeoBonusDecisionInputs, build_distress_marker_bonus, choose_doctrine_relief_player_id, choose_geo_bonus_kind, count_burden_cards, should_exchange_burden_on_supply, should_seek_escape_package_from_inputs
 from policy.decision.trick_reward import build_trick_reward_debug_payload, resolve_trick_reward_choice, resolve_trick_reward_choice_run
 from policy.decision.trick_usage import apply_trick_preserve_rules, build_trick_use_debug_payload, resolve_trick_use_choice
@@ -2004,6 +2004,196 @@ def test_choose_purchase_tile_runtime_records_pipeline_trace() -> None:
     assert debug["trace"]["decision_type"] == "purchase"
     assert debug["trace"]["features"]["cost"] == 2
     assert any(hit["key"] in {"adv_safe_low_cost_t3", "adv_baksu_online_exception"} for hit in debug["trace"]["detector_hits"])
+
+
+def test_choose_draft_card_runtime_records_pipeline_trace() -> None:
+    policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt")
+    offered_cards = [1, 5]
+    state = SimpleNamespace(active_by_card={1: CARD_TO_NAMES[1][0], 5: CARD_TO_NAMES[5][0]})
+    player = SimpleNamespace(player_id=0, current_character=CARD_TO_NAMES[6][0])
+    policy._build_survival_orchestrator = lambda *_args, **_kwargs: (
+        {"generic_survival_score": 1.2, "survival_urgency": 0.6},
+        SimpleNamespace(survival_first=True, weight_multiplier=1.5),
+    )
+    policy._distress_marker_bonus = lambda *_args, **_kwargs: {state.active_by_card[5]: 1.2}
+    policy._is_v2_mode = lambda: False
+    policy._character_score_breakdown = lambda _state, _player, name: (5.0 if name == state.active_by_card[5] else 2.0, [f"score:{name}"])
+    policy._survival_policy_character_advice = lambda *_args, **_kwargs: (0.0, [], False, {})
+    policy._character_survival_adjustment = lambda *_args, **_kwargs: (0.0, [])
+
+    choice = choose_draft_card_runtime(policy, state, player, offered_cards)
+    debug = policy.pop_debug("draft_card", player.player_id)
+
+    assert choice == 5
+    assert debug["trace"]["decision_type"] == "draft_character"
+    assert any(hit["key"] in {"distress_marker_bonus", "survival_priority_weighting"} for hit in debug["trace"]["detector_hits"])
+
+
+def test_choose_final_character_runtime_records_pipeline_trace() -> None:
+    policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt")
+    offered_cards = [1, 5]
+    options = [CARD_TO_NAMES[1][0], CARD_TO_NAMES[5][0]]
+    state = SimpleNamespace(active_by_card={1: options[0], 5: options[1]})
+    player = SimpleNamespace(player_id=0, current_character=CARD_TO_NAMES[6][0])
+    policy._build_survival_orchestrator = lambda *_args, **_kwargs: (
+        {"generic_survival_score": 1.0, "survival_urgency": 0.4},
+        SimpleNamespace(survival_first=True, weight_multiplier=1.3),
+    )
+    policy._distress_marker_bonus = lambda *_args, **_kwargs: {options[1]: 0.8}
+    policy._is_v2_mode = lambda: False
+    policy._character_score_breakdown = lambda _state, _player, name: (4.0 if name == options[1] else 1.0, [f"score:{name}"])
+    policy._survival_policy_character_advice = lambda *_args, **_kwargs: (0.0, [], False, {})
+    policy._character_survival_adjustment = lambda *_args, **_kwargs: (0.0, [])
+    policy._remember_player_intent = lambda *_args, **_kwargs: None
+
+    choice = choose_final_character_runtime(policy, state, player, offered_cards)
+    debug = policy.pop_debug("final_character", player.player_id)
+
+    assert choice == options[1]
+    assert debug["trace"]["decision_type"] == "final_character"
+    assert debug["trace"]["final_choice"]["name"] == options[1]
+
+
+def test_choose_mark_target_runtime_records_pipeline_trace() -> None:
+    policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt")
+    actor_name = CARD_TO_NAMES[6][0]
+    candidate_a = CARD_TO_NAMES[7][0]
+    candidate_b = CARD_TO_NAMES[8][0]
+    state = SimpleNamespace(active_by_card={1: actor_name, 2: candidate_a, 3: candidate_b})
+    player = SimpleNamespace(player_id=0)
+    policy._allowed_mark_targets = lambda *_args, **_kwargs: [candidate_a, candidate_b]
+    policy._public_mark_guess_candidates = lambda *_args, **_kwargs: [candidate_a, candidate_b]
+    policy._public_target_name_score_breakdown = lambda *_args, **_kwargs: (2.0, ["best_guess"]) if _args[-1] == candidate_a else (1.0, ["alt"])
+    policy._mark_guess_distribution = lambda scored, _count: (
+        {candidate_a: 0.75, candidate_b: 0.25},
+        {"top_probability": 0.75, "second_probability": 0.25, "uniform_mix": 0.05, "ambiguity": 0.1},
+    )
+    policy._weighted_choice = lambda options, weights: options[weights.index(max(weights))]
+
+    choice = choose_mark_target_runtime(policy, state, player, actor_name)
+    debug = policy.pop_debug("mark_target", player.player_id)
+
+    assert choice == candidate_a
+    assert debug["trace"]["decision_type"] == "mark_target"
+    assert any(hit["key"] == "confident_public_guess" for hit in debug["trace"]["detector_hits"])
+
+
+def test_choose_coin_placement_tile_runtime_records_pipeline_trace() -> None:
+    policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt")
+    state = GameState.create(GameConfig())
+    player = state.players[0]
+    player.position = 3
+    player.visited_owned_tile_indices = [5, 7]
+    state.tile_owner[5] = player.player_id
+    state.tile_owner[7] = player.player_id
+    state.tile_coins[5] = 0
+    state.tile_coins[7] = 1
+    state.board[5] = CellKind.T3
+    state.board[7] = CellKind.T2
+
+    choice = choose_coin_placement_tile_runtime(policy, state, player)
+    debug = policy.pop_debug("coin_placement", player.player_id)
+
+    assert choice in {5, 7}
+    assert debug["trace"]["decision_type"] == "coin_placement"
+    assert any(hit["key"] == "token_opt_profile" for hit in debug["trace"]["detector_hits"])
+
+
+def test_choose_active_flip_card_runtime_records_pipeline_trace() -> None:
+    policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt")
+    player = SimpleNamespace(player_id=0, current_character=CARD_TO_NAMES[6][0])
+    active_money_drains = active_money_drain_names()
+    card_no, pair = next(
+        (card_no, names)
+        for card_no, names in CARD_TO_NAMES.items()
+        if names[0] in active_money_drains and names[1] not in active_money_drains
+    )
+    state = SimpleNamespace(active_by_card={card_no: pair[0]})
+    policy._is_v2_mode = lambda: False
+    policy._profile_from_mode = lambda: "balanced"
+    policy._character_score_breakdown = lambda _state, _player, name: (0.0 if name == pair[0] else 2.0, [f"score:{name}"])
+    policy._generic_survival_context = lambda *_args, **_kwargs: {
+        "generic_survival_score": 1.1,
+        "controller_need": 0.7,
+        "money_distress": 0.6,
+        "own_burden_cost": 0.0,
+    }
+
+    choice = choose_active_flip_card_runtime(policy, state, player, [card_no])
+    debug = policy.pop_debug("marker_flip", player.player_id)
+
+    assert choice == card_no
+    assert debug["trace"]["decision_type"] == "active_flip"
+    assert any(hit["key"] == "money_relief_flip" for hit in debug["trace"]["detector_hits"])
+
+
+def test_choose_burden_exchange_on_supply_runtime_records_pipeline_trace() -> None:
+    policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt")
+    player = SimpleNamespace(player_id=0, current_character=CARD_TO_NAMES[6][0], cash=14)
+    card = SimpleNamespace(name="무거운 짐", burden_cost=4)
+    policy._liquidity_risk_metrics = lambda *_args, **_kwargs: {"reserve": 4.0}
+    policy._should_seek_escape_package = lambda *_args, **_kwargs: False
+    policy._generic_survival_context = lambda *_args, **_kwargs: {
+        "latent_cleanup_cost": 1.0,
+        "expected_cleanup_cost": 1.0,
+        "downside_expected_cleanup_cost": 1.0,
+        "own_burdens": 0.0,
+        "remaining_negative_cleanup_cards": 0.0,
+    }
+    policy._survival_hard_guard_reason = lambda *_args, **_kwargs: None
+
+    decision = choose_burden_exchange_on_supply_runtime(policy, SimpleNamespace(), player, card)
+    debug = policy.pop_debug("burden_exchange", player.player_id)
+
+    assert decision is True
+    assert debug["trace"]["decision_type"] == "burden_exchange"
+    assert any(hit["key"] == "safe_exchange_window" for hit in debug["trace"]["detector_hits"])
+
+
+def test_choose_doctrine_relief_target_runtime_records_pipeline_trace() -> None:
+    policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt")
+    player = SimpleNamespace(player_id=2)
+    candidates = [SimpleNamespace(player_id=1), SimpleNamespace(player_id=2)]
+
+    choice = choose_doctrine_relief_target_runtime(policy, SimpleNamespace(), player, candidates)
+    debug = policy.pop_debug("doctrine_relief", player.player_id)
+
+    assert choice == 2
+    assert debug["trace"]["decision_type"] == "doctrine_relief"
+    assert any(hit["key"] == "self_relief_preference" for hit in debug["trace"]["detector_hits"])
+
+
+def test_choose_geo_bonus_runtime_records_pipeline_trace() -> None:
+    policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt")
+    player = SimpleNamespace(player_id=0, cash=7, shards=2, current_character=CARD_TO_NAMES[6][0])
+    policy._is_v2_mode = lambda: True
+    policy._generic_survival_context = lambda *_args, **_kwargs: {
+        "money_distress": 1.0,
+        "two_turn_lethal_prob": 0.2,
+        "controller_need": 0.4,
+        "own_burden_cost": 4.0,
+        "cleanup_cash_gap": 2.0,
+        "latent_cleanup_cost": 3.0,
+        "expected_cleanup_cost": 2.0,
+        "downside_expected_cleanup_cost": 4.0,
+        "own_burdens": 2.0,
+        "next_draw_negative_cleanup_prob": 0.2,
+        "two_draw_negative_cleanup_prob": 0.3,
+    }
+    policy._f_progress_context = lambda *_args, **_kwargs: {"is_leader": False, "land_f_value": 1.0, "avoid_f_acceleration": 0.5}
+    policy._will_cross_start = lambda *_args, **_kwargs: 0.0
+    policy._will_land_on_f = lambda *_args, **_kwargs: 0.0
+    policy._profile_from_mode = lambda: "v3_gpt"
+    policy._matchmaker_adjacent_value = lambda *_args, **_kwargs: 0.0
+    policy._builder_free_purchase_value = lambda *_args, **_kwargs: 0.0
+    policy._failed_mark_fallback_metrics = lambda *_args, **_kwargs: (0.0, 0.0)
+
+    choice = choose_geo_bonus_runtime(policy, SimpleNamespace(), player, CARD_TO_NAMES[6][0])
+    debug = policy.pop_debug("geo_bonus", player.player_id)
+
+    assert choice == "cash"
+    assert debug["trace"]["decision_type"] == "geo_bonus"
+    assert any(hit["key"] == "cleanup_cash_pressure" for hit in debug["trace"]["detector_hits"])
 
 
 def test_choose_doctrine_relief_player_id_prefers_self_then_first() -> None:

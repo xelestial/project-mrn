@@ -44,7 +44,14 @@ from policy.decision.purchase import (
     would_purchase_trigger_immediate_win,
 )
 from policy.pipeline_trace import DecisionTrace, build_decision_trace_payload, build_detector_hit
-from policy.decision.support_choices import count_burden_cards, choose_geo_bonus_kind, GeoBonusDecisionInputs
+from policy.decision.support_choices import (
+    BurdenExchangeDecisionInputs,
+    GeoBonusDecisionInputs,
+    choose_doctrine_relief_player_id,
+    choose_geo_bonus_kind,
+    count_burden_cards,
+    should_exchange_burden_on_supply,
+)
 from policy.decision.trick_reward import resolve_trick_reward_choice_run
 from policy.decision.trick_usage import apply_trick_preserve_rules, build_trick_use_debug_payload, resolve_trick_use_choice
 from policy.character_traits import (
@@ -63,6 +70,509 @@ from policy.character_traits import (
     is_swindler,
     is_tamgwanori,
 )
+
+
+def _payload_with_trace(payload: dict[str, object], trace: DecisionTrace) -> dict[str, object]:
+    enriched = dict(payload)
+    enriched["trace"] = build_decision_trace_payload(trace)
+    return enriched
+
+
+def _build_character_choice_trace(
+    *,
+    decision_type: str,
+    candidate_scores: dict[str, float],
+    candidate_reasons: dict[str, list[str]],
+    hard_blocked_map: dict[str, dict[str, object]],
+    candidate_characters: dict[str, str] | None,
+    offered_cards: list[int] | None,
+    generic_survival_score: float,
+    survival_urgency: float,
+    survival_first: bool,
+    survival_weight_multiplier: float,
+    marker_bonus_by_name: dict[str, float],
+    chosen_key: object,
+    chosen_name: str,
+) -> DecisionTrace:
+    detector_hits = []
+    if survival_first:
+        detector_hits.append(
+            build_detector_hit(
+                "survival_priority_weighting",
+                kind="preference",
+                severity=min(1.0, max(0.0, survival_weight_multiplier - 1.0)),
+                confidence=0.8,
+                reason="Survival-first weighting boosted candidate evaluation.",
+                tags=("character", decision_type),
+                score_delta=max(0.0, survival_weight_multiplier - 1.0),
+            )
+        )
+    for candidate_name, bonus in marker_bonus_by_name.items():
+        if bonus <= 0.0:
+            continue
+        detector_hits.append(
+            build_detector_hit(
+                "distress_marker_bonus",
+                kind="advantage",
+                severity=min(1.0, bonus / 2.5),
+                confidence=0.75,
+                reason=f"{candidate_name} gained marker rescue value.",
+                tags=("character", candidate_name),
+                score_delta=bonus,
+            )
+        )
+    for candidate_name, detail in hard_blocked_map.items():
+        detector_hits.append(
+            build_detector_hit(
+                "survival_hard_block",
+                kind="hard_veto",
+                severity=1.0,
+                confidence=0.95,
+                reason=f"{candidate_name} was blocked by survival guard.",
+                tags=("character", candidate_name, *tuple(sorted(str(key) for key in detail.keys()))),
+            )
+        )
+    features: dict[str, object] = {
+        "offered_cards": offered_cards or [],
+        "candidate_scores": candidate_scores,
+        "candidate_reasons": candidate_reasons,
+        "generic_survival_score": generic_survival_score,
+        "survival_urgency": survival_urgency,
+        "survival_first": survival_first,
+        "survival_weight_multiplier": survival_weight_multiplier,
+    }
+    if candidate_characters is not None:
+        features["candidate_characters"] = candidate_characters
+    return DecisionTrace(
+        decision_type=decision_type,
+        features=features,
+        detector_hits=tuple(detector_hits),
+        effect_adjustments=(
+            {"kind": "hard_blocks", "value": hard_blocked_map},
+            {"kind": "marker_bonus_by_name", "value": marker_bonus_by_name},
+        ),
+        final_choice={"key": chosen_key, "name": chosen_name},
+    )
+
+
+def _build_mark_target_trace(
+    *,
+    actor_name: str,
+    legal_target_count: int,
+    debug_payload: dict[str, object],
+    choice: object,
+) -> DecisionTrace:
+    candidate_scores = dict(debug_payload.get("candidate_scores", {}))
+    candidate_probabilities = dict(debug_payload.get("candidate_probabilities", {}))
+    top_probability = float(debug_payload.get("top_probability", 0.0) or 0.0)
+    second_probability = float(debug_payload.get("second_probability", 0.0) or 0.0)
+    ambiguity = float(debug_payload.get("ambiguity", 0.0) or 0.0)
+    uniform_mix = float(debug_payload.get("uniform_mix", 0.0) or 0.0)
+    reasons = list(debug_payload.get("reasons", []))
+    detector_hits = []
+    if legal_target_count <= 0:
+        detector_hits.append(
+            build_detector_hit(
+                "no_legal_targets",
+                kind="hard_veto",
+                severity=1.0,
+                confidence=1.0,
+                reason="No legal public mark targets were available.",
+                tags=("mark_target",),
+            )
+        )
+    if top_probability >= 0.65:
+        detector_hits.append(
+            build_detector_hit(
+                "confident_public_guess",
+                kind="advantage",
+                severity=top_probability,
+                confidence=top_probability,
+                reason="Public mark inference had a clear top target.",
+                tags=("mark_target", str(debug_payload.get("top_candidate", ""))),
+            )
+        )
+    if ambiguity >= 0.2 or uniform_mix >= 0.1:
+        detector_hits.append(
+            build_detector_hit(
+                "ambiguous_public_guess",
+                kind="risk",
+                severity=max(ambiguity, uniform_mix),
+                confidence=0.7,
+                reason="Public mark inference remained ambiguous.",
+                tags=("mark_target",),
+            )
+        )
+    return DecisionTrace(
+        decision_type="mark_target",
+        features={
+            "actor_name": actor_name,
+            "legal_target_count": legal_target_count,
+            "candidate_scores": candidate_scores,
+            "candidate_probabilities": candidate_probabilities,
+            "top_probability": top_probability,
+            "second_probability": second_probability,
+            "ambiguity": ambiguity,
+            "uniform_mix": uniform_mix,
+        },
+        detector_hits=tuple(detector_hits),
+        effect_adjustments=(
+            {"kind": "chosen_reasons", "value": reasons},
+            {"kind": "top_candidate", "value": debug_payload.get("top_candidate")},
+        ),
+        final_choice=choice,
+    )
+
+
+def _build_coin_placement_trace(
+    *,
+    candidates: list[int],
+    tile_coins: list[int],
+    board: list[Any],
+    player_position: int,
+    max_coins_per_tile: int,
+    token_opt_profile: bool,
+    choice: int | None,
+) -> DecisionTrace:
+    board_len = max(1, len(board))
+    candidate_details = []
+    for tile_id in candidates:
+        distance = ((tile_id - player_position) % board_len) or board_len
+        detail = {
+            "tile_id": tile_id,
+            "coins": int(tile_coins[tile_id]),
+            "is_t3": board[tile_id] == CellKind.T3,
+            "distance": distance,
+            "open_slots": int(max_coins_per_tile - tile_coins[tile_id]),
+        }
+        if token_opt_profile:
+            detail["rank_tuple"] = [
+                int(tile_coins[tile_id]),
+                1 if board[tile_id] == CellKind.T3 else 0,
+                -distance,
+                int(max_coins_per_tile - tile_coins[tile_id]),
+                -int(tile_id),
+            ]
+        else:
+            detail["rank_tuple"] = [
+                int(max_coins_per_tile - tile_coins[tile_id]),
+                1 if board[tile_id] == CellKind.T3 else 0,
+                -int(tile_id),
+            ]
+        candidate_details.append(detail)
+    detector_hits = []
+    if token_opt_profile:
+        detector_hits.append(
+            build_detector_hit(
+                "token_opt_profile",
+                kind="preference",
+                severity=0.8,
+                confidence=0.9,
+                reason="Token-optimization profile prefers revisit-heavy placement.",
+                tags=("coin_placement",),
+            )
+        )
+    if choice is not None and board[choice] == CellKind.T3:
+        detector_hits.append(
+            build_detector_hit(
+                "t3_coin_preference",
+                kind="advantage",
+                severity=0.6,
+                confidence=0.8,
+                reason="Chosen tile is a high-value T3 placement target.",
+                tags=("coin_placement", str(choice)),
+            )
+        )
+    if choice is not None:
+        chosen_distance = ((choice - player_position) % board_len) or board_len
+        if chosen_distance <= 4:
+            detector_hits.append(
+                build_detector_hit(
+                    "near_revisit_window",
+                    kind="advantage",
+                    severity=max(0.2, 1.0 - chosen_distance / 4.0),
+                    confidence=0.7,
+                    reason="Chosen placement sits close to the player's route.",
+                    tags=("coin_placement", str(choice)),
+                )
+            )
+    return DecisionTrace(
+        decision_type="coin_placement",
+        features={
+            "player_position": player_position,
+            "max_coins_per_tile": max_coins_per_tile,
+            "token_opt_profile": token_opt_profile,
+            "candidates": candidate_details,
+        },
+        detector_hits=tuple(detector_hits),
+        effect_adjustments=({"kind": "candidate_rankings", "value": candidate_details},),
+        final_choice=choice,
+    )
+
+
+def _build_active_flip_trace(
+    *,
+    flippable_cards: list[int],
+    state: Any,
+    scored: dict[int, float],
+    reasons: dict[int, list[str]],
+    choice: int | None,
+    generic_survival_score: float,
+    money_distress: float,
+    controller_need: float,
+) -> DecisionTrace:
+    detector_hits = []
+    if choice is not None:
+        for reason in reasons.get(choice, []):
+            if reason.startswith("counter_leader_needed_face"):
+                detector_hits.append(
+                    build_detector_hit(
+                        "counter_leader_flip",
+                        kind="advantage",
+                        severity=0.9,
+                        confidence=0.8,
+                        reason="Flip helps deny the current leader package.",
+                        tags=("marker_flip", str(choice)),
+                    )
+                )
+            elif reason.startswith("avoid_feeding_leader"):
+                detector_hits.append(
+                    build_detector_hit(
+                        "avoid_feeding_leader",
+                        kind="risk",
+                        severity=0.8,
+                        confidence=0.8,
+                        reason="Flip avoids empowering a leading opponent.",
+                        tags=("marker_flip", str(choice)),
+                    )
+                )
+            elif "money_relief_flip" in reason:
+                detector_hits.append(
+                    build_detector_hit(
+                        "money_relief_flip",
+                        kind="advantage",
+                        severity=min(1.0, 0.5 + controller_need + money_distress),
+                        confidence=0.8,
+                        reason="Flip relieves an active money-drain burden.",
+                        tags=("marker_flip", str(choice)),
+                    )
+                )
+            elif "avoid_enable_money_drain" in reason:
+                detector_hits.append(
+                    build_detector_hit(
+                        "avoid_enable_money_drain",
+                        kind="risk",
+                        severity=min(1.0, 0.5 + controller_need + money_distress),
+                        confidence=0.8,
+                        reason="Flip avoids enabling an active money-drain face.",
+                        tags=("marker_flip", str(choice)),
+                    )
+                )
+    return DecisionTrace(
+        decision_type="active_flip",
+        features={
+            "flippable_cards": flippable_cards,
+            "current_faces": {str(card_no): state.active_by_card[card_no] for card_no in flippable_cards},
+            "candidate_scores": {str(card_no): round(score, 3) for card_no, score in scored.items()},
+            "generic_survival_score": generic_survival_score,
+            "money_distress": money_distress,
+            "controller_need": controller_need,
+        },
+        detector_hits=tuple(detector_hits),
+        effect_adjustments=(
+            {"kind": "candidate_reasons", "value": {str(card_no): why for card_no, why in reasons.items()}},
+        ),
+        final_choice=choice,
+    )
+
+
+def _build_burden_exchange_trace(
+    *,
+    card_name: str,
+    burden_cost: float,
+    cash_before: float,
+    remaining_cash: float,
+    reserve: float,
+    target_floor: float,
+    hard_reason: str | None,
+    decision: bool,
+    escape_guard: bool,
+) -> DecisionTrace:
+    detector_hits = []
+    if cash_before < burden_cost:
+        detector_hits.append(
+            build_detector_hit(
+                "insufficient_cash",
+                kind="hard_veto",
+                severity=1.0,
+                confidence=1.0,
+                reason="Player cannot afford the burden exchange cost.",
+                tags=("burden_exchange",),
+            )
+        )
+    if escape_guard:
+        detector_hits.append(
+            build_detector_hit(
+                "escape_package_guard",
+                kind="hard_veto",
+                severity=1.0,
+                confidence=0.9,
+                reason="Escape-package pressure blocks burden exchange.",
+                tags=("burden_exchange",),
+            )
+        )
+    floor_gate = max(5.0, 0.80 * reserve)
+    if remaining_cash <= floor_gate:
+        detector_hits.append(
+            build_detector_hit(
+                "danger_cash_floor",
+                kind="risk",
+                severity=min(1.0, max(0.0, floor_gate - remaining_cash + 1.0) / max(1.0, floor_gate)),
+                confidence=0.85,
+                reason="Remaining cash would fall under the exchange safety floor.",
+                tags=("burden_exchange",),
+            )
+        )
+    if hard_reason is not None:
+        detector_hits.append(
+            build_detector_hit(
+                "survival_hard_guard",
+                kind="hard_veto",
+                severity=1.0,
+                confidence=0.95,
+                reason=f"Survival guard blocked the exchange: {hard_reason}",
+                tags=("burden_exchange", hard_reason),
+            )
+        )
+    if decision:
+        detector_hits.append(
+            build_detector_hit(
+                "safe_exchange_window",
+                kind="advantage",
+                severity=min(1.0, max(0.0, remaining_cash - target_floor + 1.0) / max(1.0, target_floor)),
+                confidence=0.8,
+                reason="Exchange stays above the projected safety floor.",
+                tags=("burden_exchange",),
+            )
+        )
+    return DecisionTrace(
+        decision_type="burden_exchange",
+        features={
+            "card_name": card_name,
+            "burden_cost": burden_cost,
+            "cash_before": cash_before,
+            "remaining_cash": remaining_cash,
+            "reserve": reserve,
+            "target_floor": target_floor,
+            "hard_reason": hard_reason,
+            "escape_guard": escape_guard,
+        },
+        detector_hits=tuple(detector_hits),
+        effect_adjustments=(
+            {"kind": "decision_thresholds", "value": {"cash_floor": floor_gate, "target_floor": target_floor}},
+        ),
+        final_choice=decision,
+    )
+
+
+def _build_doctrine_relief_trace(
+    *,
+    self_player_id: int,
+    candidate_ids: list[int],
+    choice: int | None,
+) -> DecisionTrace:
+    detector_hits = []
+    if self_player_id in candidate_ids and choice == self_player_id:
+        detector_hits.append(
+            build_detector_hit(
+                "self_relief_preference",
+                kind="advantage",
+                severity=0.7,
+                confidence=0.9,
+                reason="Doctrine relief keeps burden removal on the acting player.",
+                tags=("doctrine_relief", str(self_player_id)),
+            )
+        )
+    elif choice is not None:
+        detector_hits.append(
+            build_detector_hit(
+                "fallback_relief_target",
+                kind="fallback",
+                severity=0.4,
+                confidence=0.9,
+                reason="Doctrine relief fell back to the first legal candidate.",
+                tags=("doctrine_relief", str(choice)),
+            )
+        )
+    return DecisionTrace(
+        decision_type="doctrine_relief",
+        features={"self_player_id": self_player_id, "candidate_ids": candidate_ids},
+        detector_hits=tuple(detector_hits),
+        effect_adjustments=(),
+        final_choice=choice,
+    )
+
+
+def _build_geo_bonus_trace(
+    *,
+    actor_name: str,
+    features: dict[str, object],
+    scores: dict[str, float],
+    choice: str,
+) -> DecisionTrace:
+    detector_hits = []
+    own_burdens = float(features.get("own_burdens", 0.0) or 0.0)
+    next_neg = float(features.get("next_neg", 0.0) or 0.0)
+    two_neg = float(features.get("two_neg", 0.0) or 0.0)
+    cleanup_cash_gap = float(features.get("cleanup_cash_gap", 0.0) or 0.0)
+    is_leader = bool(features.get("is_leader", True))
+    if choice == "cash" and (
+        own_burdens >= 1.0
+        or next_neg >= 0.10
+        or two_neg >= 0.22
+        or cleanup_cash_gap > 0.0
+        or not is_leader
+    ):
+        detector_hits.append(
+            build_detector_hit(
+                "cleanup_cash_pressure",
+                kind="advantage",
+                severity=min(1.0, max(own_burdens * 0.25, next_neg + two_neg, cleanup_cash_gap / 6.0, 0.35 if not is_leader else 0.0)),
+                confidence=0.85,
+                reason="Cash bonus chosen to cover cleanup or pacing pressure.",
+                tags=("geo_bonus", actor_name),
+                score_delta=max(0.0, scores.get("cash", 0.0) - max(scores.get("shards", 0.0), scores.get("coins", 0.0))),
+            )
+        )
+    if choice == "shards":
+        detector_hits.append(
+            build_detector_hit(
+                "shard_window",
+                kind="advantage",
+                severity=min(1.0, max(0.2, scores.get("shards", 0.0) / max(1.0, max(scores.values()) if scores else 1.0))),
+                confidence=0.75,
+                reason="Shard bonus best matched the actor's advancement window.",
+                tags=("geo_bonus", actor_name),
+            )
+        )
+    if choice == "coins":
+        detector_hits.append(
+            build_detector_hit(
+                "coin_engine_window",
+                kind="advantage",
+                severity=min(1.0, max(0.2, scores.get("coins", 0.0) / max(1.0, max(scores.values()) if scores else 1.0))),
+                confidence=0.75,
+                reason="Coin bonus best matched the actor's board engine window.",
+                tags=("geo_bonus", actor_name),
+            )
+        )
+    return DecisionTrace(
+        decision_type="geo_bonus",
+        features={"actor_name": actor_name, **features, "candidate_scores": scores},
+        detector_hits=tuple(detector_hits),
+        effect_adjustments=({"kind": "candidate_scores", "value": scores},),
+        final_choice=choice,
+    )
 
 
 def choose_purchase_tile_runtime(
@@ -719,7 +1229,19 @@ def choose_mark_target_runtime(policy: Any, state: Any, player: Any, actor_name:
         chooser=policy._weighted_choice,
         random_chooser=policy._choice,
     )
-    policy._set_debug("mark_target", player.player_id, choice_run.debug_payload)
+    policy._set_debug(
+        "mark_target",
+        player.player_id,
+        _payload_with_trace(
+            choice_run.debug_payload,
+            _build_mark_target_trace(
+                actor_name=actor_name,
+                legal_target_count=len(legal_targets),
+                debug_payload=choice_run.debug_payload,
+                choice=choice_run.choice,
+            ),
+        ),
+    )
     return choice_run.choice
 
 
@@ -732,15 +1254,33 @@ def choose_hidden_trick_card_runtime(policy: Any, state: Any, player: Any, hand:
 def choose_draft_card_runtime(policy: Any, state: Any, player: Any, offered_cards: list[int]) -> int:
     if policy._is_random_mode():
         choice = policy._choice(offered_cards)
+        debug_payload = build_uniform_random_character_choice_debug_payload(
+            policy_name=policy.character_policy_mode,
+            offered_cards=offered_cards,
+            candidate_labels=[str(card) for card in offered_cards],
+            chosen_key=choice,
+            chosen_name=state.active_by_card[choice],
+        )
         policy._set_debug(
             "draft_card",
             player.player_id,
-            build_uniform_random_character_choice_debug_payload(
-                policy_name=policy.character_policy_mode,
-                offered_cards=offered_cards,
-                candidate_labels=[str(card) for card in offered_cards],
-                chosen_key=choice,
-                chosen_name=state.active_by_card[choice],
+            _payload_with_trace(
+                debug_payload,
+                _build_character_choice_trace(
+                    decision_type="draft_character",
+                    candidate_scores=dict(debug_payload["candidate_scores"]),
+                    candidate_reasons={str(card): ["uniform_random"] for card in offered_cards},
+                    hard_blocked_map={},
+                    candidate_characters={str(card_no): state.active_by_card[card_no] for card_no in offered_cards},
+                    offered_cards=offered_cards,
+                    generic_survival_score=0.0,
+                    survival_urgency=0.0,
+                    survival_first=False,
+                    survival_weight_multiplier=1.0,
+                    marker_bonus_by_name={},
+                    chosen_key=choice,
+                    chosen_name=state.active_by_card[choice],
+                ),
             ),
         )
         return choice
@@ -777,25 +1317,46 @@ def choose_draft_card_runtime(policy: Any, state: Any, player: Any, offered_card
         label_for_key=lambda card_no: str(card_no),
         tiebreak_desc=False,
     )
+    debug_payload = build_character_choice_debug_payload(
+        policy_name=policy.character_policy_mode,
+        offered_cards=offered_cards,
+        debug_summary=run.debug_summary,
+        generic_survival_score=survival_ctx["generic_survival_score"],
+        survival_urgency=survival_ctx["survival_urgency"],
+        survival_first=survival_orchestrator.survival_first,
+        survival_weight_multiplier=survival_orchestrator.weight_multiplier,
+        chosen_key=run.choice,
+        chosen_name=state.active_by_card[run.choice],
+        reasons_for_choice=list(run.evaluation.reasons[run.choice]),
+        hard_blocked_map={
+            state.active_by_card[card_no]: run.evaluation.hard_block_details[card_no]
+            for card_no in run.evaluation.hard_blocked_keys
+        },
+        character_names_by_key={str(card_no): state.active_by_card[card_no] for card_no in offered_cards},
+    )
     policy._set_debug(
         "draft_card",
         player.player_id,
-        build_character_choice_debug_payload(
-            policy_name=policy.character_policy_mode,
-            offered_cards=offered_cards,
-            debug_summary=run.debug_summary,
-            generic_survival_score=survival_ctx["generic_survival_score"],
-            survival_urgency=survival_ctx["survival_urgency"],
-            survival_first=survival_orchestrator.survival_first,
-            survival_weight_multiplier=survival_orchestrator.weight_multiplier,
-            chosen_key=run.choice,
-            chosen_name=state.active_by_card[run.choice],
-            reasons_for_choice=list(run.evaluation.reasons[run.choice]),
-            hard_blocked_map={
-                state.active_by_card[card_no]: run.evaluation.hard_block_details[card_no]
-                for card_no in run.evaluation.hard_blocked_keys
-            },
-            character_names_by_key={str(card_no): state.active_by_card[card_no] for card_no in offered_cards},
+        _payload_with_trace(
+            debug_payload,
+            _build_character_choice_trace(
+                decision_type="draft_character",
+                candidate_scores=run.debug_summary.score_map,
+                candidate_reasons=run.debug_summary.reason_map,
+                hard_blocked_map={
+                    state.active_by_card[card_no]: run.evaluation.hard_block_details[card_no]
+                    for card_no in run.evaluation.hard_blocked_keys
+                },
+                candidate_characters={str(card_no): state.active_by_card[card_no] for card_no in offered_cards},
+                offered_cards=offered_cards,
+                generic_survival_score=float(survival_ctx["generic_survival_score"]),
+                survival_urgency=float(survival_ctx["survival_urgency"]),
+                survival_first=bool(survival_orchestrator.survival_first),
+                survival_weight_multiplier=float(survival_orchestrator.weight_multiplier),
+                marker_bonus_by_name={str(name): float(bonus) for name, bonus in marker_bonus.items()},
+                chosen_key=run.choice,
+                chosen_name=state.active_by_card[run.choice],
+            ),
         ),
     )
     return run.choice
@@ -805,15 +1366,33 @@ def choose_final_character_runtime(policy: Any, state: Any, player: Any, card_ch
     options = [state.active_by_card[c] for c in card_choices]
     if policy._is_random_mode():
         choice = policy._choice(options)
+        debug_payload = build_uniform_random_character_choice_debug_payload(
+            policy_name=policy.character_policy_mode,
+            offered_cards=card_choices,
+            candidate_labels=list(options),
+            chosen_key=choice,
+            chosen_name=choice,
+        )
         policy._set_debug(
             "final_character",
             player.player_id,
-            build_uniform_random_character_choice_debug_payload(
-                policy_name=policy.character_policy_mode,
-                offered_cards=card_choices,
-                candidate_labels=list(options),
-                chosen_key=choice,
-                chosen_name=choice,
+            _payload_with_trace(
+                debug_payload,
+                _build_character_choice_trace(
+                    decision_type="final_character",
+                    candidate_scores=dict(debug_payload["candidate_scores"]),
+                    candidate_reasons={name: ["uniform_random"] for name in options},
+                    hard_blocked_map={},
+                    candidate_characters={name: name for name in options},
+                    offered_cards=card_choices,
+                    generic_survival_score=0.0,
+                    survival_urgency=0.0,
+                    survival_first=False,
+                    survival_weight_multiplier=1.0,
+                    marker_bonus_by_name={},
+                    chosen_key=choice,
+                    chosen_name=choice,
+                ),
             ),
         )
         return choice
@@ -851,24 +1430,45 @@ def choose_final_character_runtime(policy: Any, state: Any, player: Any, card_ch
         tiebreak_desc=True,
     )
     policy._remember_player_intent(state, player, run.choice, reason="choose_final_character")
+    debug_payload = build_character_choice_debug_payload(
+        policy_name=policy.character_policy_mode,
+        offered_cards=card_choices,
+        debug_summary=run.debug_summary,
+        generic_survival_score=survival_ctx["generic_survival_score"],
+        survival_urgency=survival_ctx["survival_urgency"],
+        survival_first=survival_orchestrator.survival_first,
+        survival_weight_multiplier=survival_orchestrator.weight_multiplier,
+        chosen_key=run.choice,
+        chosen_name=run.choice,
+        reasons_for_choice=list(run.evaluation.reasons[run.choice]),
+        hard_blocked_map={
+            name: run.evaluation.hard_block_details[name]
+            for name in run.evaluation.hard_blocked_keys
+        },
+    )
     policy._set_debug(
         "final_character",
         player.player_id,
-        build_character_choice_debug_payload(
-            policy_name=policy.character_policy_mode,
-            offered_cards=card_choices,
-            debug_summary=run.debug_summary,
-            generic_survival_score=survival_ctx["generic_survival_score"],
-            survival_urgency=survival_ctx["survival_urgency"],
-            survival_first=survival_orchestrator.survival_first,
-            survival_weight_multiplier=survival_orchestrator.weight_multiplier,
-            chosen_key=run.choice,
-            chosen_name=run.choice,
-            reasons_for_choice=list(run.evaluation.reasons[run.choice]),
-            hard_blocked_map={
-                name: run.evaluation.hard_block_details[name]
-                for name in run.evaluation.hard_blocked_keys
-            },
+        _payload_with_trace(
+            debug_payload,
+            _build_character_choice_trace(
+                decision_type="final_character",
+                candidate_scores=run.debug_summary.score_map,
+                candidate_reasons=run.debug_summary.reason_map,
+                hard_blocked_map={
+                    name: run.evaluation.hard_block_details[name]
+                    for name in run.evaluation.hard_blocked_keys
+                },
+                candidate_characters={name: name for name in options},
+                offered_cards=card_choices,
+                generic_survival_score=float(survival_ctx["generic_survival_score"]),
+                survival_urgency=float(survival_ctx["survival_urgency"]),
+                survival_first=bool(survival_orchestrator.survival_first),
+                survival_weight_multiplier=float(survival_orchestrator.weight_multiplier),
+                marker_bonus_by_name={str(name): float(bonus) for name, bonus in marker_bonus.items()},
+                chosen_key=run.choice,
+                chosen_name=run.choice,
+            ),
         ),
     )
     return run.choice
@@ -917,8 +1517,41 @@ def choose_coin_placement_tile_runtime(policy: Any, state: Any, player: Any) -> 
         if state.tile_owner[i] == player.player_id and state.tile_coins[i] < state.config.rules.token.max_coins_per_tile
     ]
     if not candidates:
+        policy._set_debug(
+            "coin_placement",
+            player.player_id,
+            _payload_with_trace(
+                {
+                    "policy": policy.character_policy_mode,
+                    "candidates": [],
+                    "chosen_tile": None,
+                    "reasons": ["no_placeable_tiles"],
+                },
+                DecisionTrace(
+                    decision_type="coin_placement",
+                    features={
+                        "player_position": int(player.position),
+                        "max_coins_per_tile": int(state.config.rules.token.max_coins_per_tile),
+                        "token_opt_profile": policy._profile_from_mode() in {"token_opt", "v3_gpt"},
+                        "candidates": [],
+                    },
+                    detector_hits=(
+                        build_detector_hit(
+                            "no_placeable_tiles",
+                            kind="hard_veto",
+                            severity=1.0,
+                            confidence=1.0,
+                            reason="No eligible owned tiles could receive a score coin.",
+                            tags=("coin_placement",),
+                        ),
+                    ),
+                    effect_adjustments=(),
+                    final_choice=None,
+                ),
+            ),
+        )
         return None
-    return choose_coin_placement_tile_id(
+    choice = choose_coin_placement_tile_id(
         candidates,
         tile_coins=state.tile_coins,
         board=state.board,
@@ -926,6 +1559,27 @@ def choose_coin_placement_tile_runtime(policy: Any, state: Any, player: Any) -> 
         max_coins_per_tile=state.config.rules.token.max_coins_per_tile,
         token_opt_profile=policy._profile_from_mode() in {"token_opt", "v3_gpt"},
     )
+    policy._set_debug(
+        "coin_placement",
+        player.player_id,
+        _payload_with_trace(
+            {
+                "policy": policy.character_policy_mode,
+                "candidates": list(candidates),
+                "chosen_tile": choice,
+            },
+            _build_coin_placement_trace(
+                candidates=list(candidates),
+                tile_coins=list(state.tile_coins),
+                board=list(state.board),
+                player_position=int(player.position),
+                max_coins_per_tile=int(state.config.rules.token.max_coins_per_tile),
+                token_opt_profile=policy._profile_from_mode() in {"token_opt", "v3_gpt"},
+                choice=choice,
+            ),
+        ),
+    )
+    return choice
 
 
 def choose_active_flip_card_runtime(policy: Any, state: Any, player: Any, flippable_cards: list[int]) -> Any:
@@ -937,7 +1591,23 @@ def choose_active_flip_card_runtime(policy: Any, state: Any, player: Any, flippa
             policy=policy.character_policy_mode,
             chooser=policy._choice,
         )
-        policy._set_debug("marker_flip", player.player_id, resolution.debug_payload)
+        policy._set_debug(
+            "marker_flip",
+            player.player_id,
+            _payload_with_trace(
+                resolution.debug_payload,
+                _build_active_flip_trace(
+                    flippable_cards=flippable_cards,
+                    state=state,
+                    scored={card_no: 0.0 for card_no in flippable_cards},
+                    reasons={card_no: ["uniform_random"] for card_no in flippable_cards},
+                    choice=resolution.choice,
+                    generic_survival_score=0.0,
+                    money_distress=0.0,
+                    controller_need=0.0,
+                ),
+            ),
+        )
         return resolution.choice
 
     scored = {}
@@ -1025,18 +1695,85 @@ def choose_active_flip_card_runtime(policy: Any, state: Any, player: Any, flippa
         money_distress=money_distress,
         controller_need=controller_need,
     )
-    policy._set_debug("marker_flip", player.player_id, resolution.debug_payload)
+    policy._set_debug(
+        "marker_flip",
+        player.player_id,
+        _payload_with_trace(
+            resolution.debug_payload,
+            _build_active_flip_trace(
+                flippable_cards=flippable_cards,
+                state=state,
+                scored=scored,
+                reasons=reasons,
+                choice=resolution.choice,
+                generic_survival_score=float(survival_ctx["generic_survival_score"]),
+                money_distress=money_distress,
+                controller_need=controller_need,
+            ),
+        ),
+    )
     return resolution.choice
 
 
 def choose_burden_exchange_on_supply_runtime(policy: Any, state: Any, player: Any, card: Any) -> bool:
     if player.cash < card.burden_cost:
-        return False
+        decision = False
+        trace = _build_burden_exchange_trace(
+            card_name=str(card.name),
+            burden_cost=float(card.burden_cost),
+            cash_before=float(player.cash),
+            remaining_cash=float(player.cash - card.burden_cost),
+            reserve=0.0,
+            target_floor=0.0,
+            hard_reason=None,
+            decision=decision,
+            escape_guard=False,
+        )
+        policy._set_debug(
+            "burden_exchange",
+            player.player_id,
+            _payload_with_trace(
+                {
+                    "policy": policy.character_policy_mode,
+                    "card_name": card.name,
+                    "burden_cost": card.burden_cost,
+                    "decision": decision,
+                    "reasons": ["insufficient_cash"],
+                },
+                trace,
+            ),
+        )
+        return decision
     if policy._is_random_mode():
-        return True
+        decision = True
+        trace = _build_burden_exchange_trace(
+            card_name=str(card.name),
+            burden_cost=float(card.burden_cost),
+            cash_before=float(player.cash),
+            remaining_cash=float(player.cash - card.burden_cost),
+            reserve=0.0,
+            target_floor=0.0,
+            hard_reason=None,
+            decision=decision,
+            escape_guard=False,
+        )
+        policy._set_debug(
+            "burden_exchange",
+            player.player_id,
+            _payload_with_trace(
+                {
+                    "policy": policy.character_policy_mode,
+                    "card_name": card.name,
+                    "burden_cost": card.burden_cost,
+                    "decision": decision,
+                    "reasons": ["uniform_random"],
+                },
+                trace,
+            ),
+        )
+        return decision
     liquidity = policy._liquidity_risk_metrics(state, player, player.current_character)
-    if policy._should_seek_escape_package(state, player):
-        return False
+    escape_guard = bool(policy._should_seek_escape_package(state, player))
     survival_ctx = policy._generic_survival_context(state, player, player.current_character)
     remaining_cash = player.cash - card.burden_cost
     reserve = float(liquidity["reserve"])
@@ -1049,21 +1786,79 @@ def choose_burden_exchange_on_supply_runtime(policy: Any, state: Any, player: An
     )
     if float(survival_ctx.get("own_burdens", 0.0)) >= 1.0 and float(survival_ctx.get("remaining_negative_cleanup_cards", 0.0)) > 0.0:
         target_floor = max(target_floor, reserve + downside_expected_cleanup_cost + 3.0)
-    if remaining_cash <= max(5.0, 0.80 * reserve):
-        return False
     hard_reason = policy._survival_hard_guard_reason(state, player, survival_ctx, post_action_cash=remaining_cash)
+    decision_inputs = BurdenExchangeDecisionInputs(
+        remaining_cash=float(remaining_cash),
+        reserve=float(reserve),
+        target_floor=float(target_floor),
+        hard_reason=hard_reason,
+    )
+    decision = False if escape_guard else should_exchange_burden_on_supply(decision_inputs)
+    reasons = []
+    if escape_guard:
+        reasons.append("escape_package_guard")
+    if remaining_cash <= max(5.0, 0.80 * reserve):
+        reasons.append("danger_cash_floor")
     if hard_reason is not None:
-        return False
-    return remaining_cash >= target_floor
+        reasons.append(f"survival_hard_guard:{hard_reason}")
+    if decision:
+        reasons.append("safe_exchange_window")
+    if not reasons:
+        reasons.append("below_target_floor")
+    policy._set_debug(
+        "burden_exchange",
+        player.player_id,
+        _payload_with_trace(
+            {
+                "policy": policy.character_policy_mode,
+                "card_name": card.name,
+                "burden_cost": card.burden_cost,
+                "decision": decision,
+                "remaining_cash": round(float(remaining_cash), 3),
+                "target_floor": round(float(target_floor), 3),
+                "reasons": reasons,
+            },
+            _build_burden_exchange_trace(
+                card_name=str(card.name),
+                burden_cost=float(card.burden_cost),
+                cash_before=float(player.cash),
+                remaining_cash=float(remaining_cash),
+                reserve=float(reserve),
+                target_floor=float(target_floor),
+                hard_reason=hard_reason,
+                decision=bool(decision),
+                escape_guard=escape_guard,
+            ),
+        ),
+    )
+    return decision
 
 
 def choose_doctrine_relief_target_runtime(policy: Any, state: Any, player: Any, candidates: list[Any]) -> Any:
-    if not candidates:
-        return None
-    for candidate in candidates:
-        if candidate.player_id == player.player_id:
-            return candidate.player_id
-    return candidates[0].player_id
+    candidate_ids = [candidate.player_id for candidate in candidates]
+    choice = choose_doctrine_relief_player_id(self_player_id=player.player_id, candidate_ids=candidate_ids)
+    policy._set_debug(
+        "doctrine_relief",
+        player.player_id,
+        _payload_with_trace(
+            {
+                "policy": policy.character_policy_mode,
+                "candidate_ids": candidate_ids,
+                "chosen_player_id": choice,
+                "reasons": [
+                    "no_candidates"
+                    if choice is None
+                    else ("self_relief_preference" if choice == player.player_id else "fallback_first_candidate")
+                ],
+            },
+            _build_doctrine_relief_trace(
+                self_player_id=int(player.player_id),
+                candidate_ids=candidate_ids,
+                choice=choice,
+            ),
+        ),
+    )
+    return choice
 
 
 def choose_geo_bonus_runtime(policy: Any, state: Any, player: Any, actor_name: str) -> str:
@@ -1118,25 +1913,86 @@ def choose_geo_bonus_runtime(policy: Any, state: Any, player: Any, actor_name: s
             coin_score += 2.2 + 0.8 * cross_start + 0.5 * land_f
             shard_score += 0.3
 
-        return choose_geo_bonus_kind(
-            GeoBonusDecisionInputs(
-                own_burdens=float(survival_ctx.get("own_burdens", 0.0)),
-                next_neg=float(survival_ctx.get("next_draw_negative_cleanup_prob", 0.0)),
-                two_neg=float(survival_ctx.get("two_draw_negative_cleanup_prob", 0.0)),
-                cleanup_cash_gap=cleanup_cash_gap,
-                downside_cleanup=float(survival_ctx.get("downside_expected_cleanup_cost", 0.0)),
-                cash=float(player.cash),
-                cash_score=float(cash_score),
-                shard_score=float(shard_score),
-                coin_score=float(coin_score),
-            )
+        geo_inputs = GeoBonusDecisionInputs(
+            own_burdens=float(survival_ctx.get("own_burdens", 0.0)),
+            next_neg=float(survival_ctx.get("next_draw_negative_cleanup_prob", 0.0)),
+            two_neg=float(survival_ctx.get("two_draw_negative_cleanup_prob", 0.0)),
+            cleanup_cash_gap=cleanup_cash_gap,
+            downside_cleanup=float(survival_ctx.get("downside_expected_cleanup_cost", 0.0)),
+            cash=float(player.cash),
+            cash_score=float(cash_score),
+            shard_score=float(shard_score),
+            coin_score=float(coin_score),
         )
+        choice = choose_geo_bonus_kind(geo_inputs)
+        scores = {"cash": round(float(cash_score), 3), "shards": round(float(shard_score), 3), "coins": round(float(coin_score), 3)}
+        features = {
+            "mode": "v2",
+            "own_burdens": geo_inputs.own_burdens,
+            "next_neg": geo_inputs.next_neg,
+            "two_neg": geo_inputs.two_neg,
+            "cleanup_cash_gap": geo_inputs.cleanup_cash_gap,
+            "downside_cleanup": geo_inputs.downside_cleanup,
+            "cash": geo_inputs.cash,
+            "cross_start": round(float(cross_start), 3),
+            "land_f": round(float(land_f), 3),
+            "is_leader": bool(f_ctx["is_leader"]),
+            "avoid_f_acceleration": round(float(f_ctx["avoid_f_acceleration"]), 3),
+        }
+        policy._set_debug(
+            "geo_bonus",
+            player.player_id,
+            _payload_with_trace(
+                {
+                    "policy": policy.character_policy_mode,
+                    "candidate_scores": scores,
+                    "chosen_bonus": choice,
+                    "reasons": [f"preferred_{choice}"],
+                },
+                _build_geo_bonus_trace(actor_name=actor_name, features=features, scores=scores, choice=choice),
+            ),
+        )
+        return choice
 
     if player.cash < 8 or money_distress >= 0.95 or two_turn_lethal >= 0.16 or not bool(f_ctx["is_leader"]):
-        return "cash"
-    if is_bandit(actor_name) or is_baksu(actor_name) or is_mansin(actor_name):
-        return "shards"
-    return "coins"
+        choice = "cash"
+        reasons = ["cash_pressure"]
+    elif is_bandit(actor_name) or is_baksu(actor_name) or is_mansin(actor_name):
+        choice = "shards"
+        reasons = ["shard_window"]
+    else:
+        choice = "coins"
+        reasons = ["coin_engine_window"]
+    scores = {
+        "cash": round(2.0 + money_distress + two_turn_lethal + (0.5 if not bool(f_ctx["is_leader"]) else 0.0), 3),
+        "shards": round(1.0 + (1.0 if (is_bandit(actor_name) or is_baksu(actor_name) or is_mansin(actor_name)) else 0.0), 3),
+        "coins": round(1.0 + (0.5 if choice == "coins" else 0.0), 3),
+    }
+    features = {
+        "mode": "basic",
+        "own_burdens": float(survival_ctx.get("own_burdens", 0.0)),
+        "next_neg": float(survival_ctx.get("next_draw_negative_cleanup_prob", 0.0)),
+        "two_neg": float(survival_ctx.get("two_draw_negative_cleanup_prob", 0.0)),
+        "cleanup_cash_gap": cleanup_cash_gap,
+        "cash": float(player.cash),
+        "money_distress": money_distress,
+        "two_turn_lethal": two_turn_lethal,
+        "is_leader": bool(f_ctx["is_leader"]),
+    }
+    policy._set_debug(
+        "geo_bonus",
+        player.player_id,
+        _payload_with_trace(
+            {
+                "policy": policy.character_policy_mode,
+                "candidate_scores": scores,
+                "chosen_bonus": choice,
+                "reasons": reasons,
+            },
+            _build_geo_bonus_trace(actor_name=actor_name, features=features, scores=scores, choice=choice),
+        ),
+    )
+    return choice
 
 
 def choose_lap_reward_runtime(policy: Any, state: Any, player: Any) -> Any:

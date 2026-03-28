@@ -1,3 +1,9 @@
+## v0.7.64-ai-trace-complete (2026-03-29)
+- Extended the canonical AI decision-trace layer beyond economy choices so draft choice, final character choice, mark target choice, doctrine relief, geo bonus, coin placement, active flip, and burden exchange now all emit the shared `DecisionTrace` payload shape.
+- Added structured detector hits for character survival weighting, distress-marker rescue value, public-mark ambiguity/confidence, cleanup-driven geo cash pressure, token-placement windows, flip denial / money-relief signals, and burden-exchange safety guards.
+- Unified runtime debug output around the same `features -> detector_hits -> effect_adjustments -> final_choice` contract across the full first-pass non-trick decision surface.
+- Added regression coverage for the newly traced decision families and reran 30-game / 100-game `heuristic_v3_gpt` smoke batches without runtime crashes.
+
 ## v0.7.63-ai-trace (2026-03-29)
 - Added shared AI decision-trace substrate in `policy/pipeline_trace.py` so detector hits, feature snapshots, and final choices can be serialized in a consistent shape.
 - Purchase decisions now emit structured trace payloads, including monopoly/denial windows, safe growth buys, token-window redirects, cleanup locks, and hard survival guards.
