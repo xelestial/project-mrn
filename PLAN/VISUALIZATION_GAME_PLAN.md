@@ -1,5 +1,5 @@
 # CLAUDE Visual Game — Engine Substrate Plan
-## 버전: 1.0 | 날짜: 2026-03-28 | 상태: [Active]
+## 버전: 1.1 | 날짜: 2026-03-28 | 상태: [Phase 1 Complete — Phase 2 Ready]
 
 ---
 
@@ -272,12 +272,14 @@ GPT 계층이 소비할 수 있도록 CLAUDE가 공급하는 타입들.
 
 ## Phase 계획
 
-### Phase 1-S (Substrate): Engine Event Stream 강화
+### Phase 1-S (Substrate): Engine Event Stream 강화 ✅ COMPLETE
 
 **목표**: `enable_logging=True` 실행 시 완전한 replay-grade event stream 생성.
 
-**대상 파일**: `CLAUDE/engine.py`
+**대상 파일**: `CLAUDE/engine.py`, `CLAUDE/effect_handlers.py`, `CLAUDE/viewer/`
 **원칙**: 기존 `_log()` 호출 패턴 유지. 게임 로직 불변. enable_logging guard 준수.
+
+**완료**: 2026-03-28 — PR #14 (CLAUDE-MAIN → main) — 20종 이벤트 구현
 
 #### S-T1. 이동 관련 이벤트 추가
 - `dice_roll` — `_resolve_move()` 진입 전 굴림 결과 로깅
@@ -299,7 +301,7 @@ GPT 계층이 소비할 수 있도록 CLAUDE가 공급하는 타입들.
 - `turn_end_snapshot` — `_take_turn()` 완료 직후
 - `PlayerPublicState` / `BoardPublicState` 직렬화 헬퍼 메서드 추가
 
-### Phase 1-V (Validation): 샘플 로그 생성 및 검증
+### Phase 1-V (Validation): 샘플 로그 생성 및 검증 ✅ COMPLETE
 
 **목표**: S 태스크 완료 후 full 로그로 1게임을 실행하여 누락 없는지 확인.
 
@@ -313,6 +315,8 @@ python simulate_with_logs.py --log-level full --games 1 --seed 42
 - 모든 타일 구매에 `tile_purchased` 존재
 - 매 턴 종료 시 `turn_end_snapshot` 존재
 - `turn_end_snapshot`의 player 상태가 다음 `turn_start`의 상태와 일치
+
+**완료**: 2026-03-28 — `CLAUDE/validate_vis_stream.py` — seed 42/137/999 전부 통과
 
 ### Phase 2 (Replay Viewer)
 
