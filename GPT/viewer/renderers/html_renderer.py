@@ -412,8 +412,9 @@ h1 { font-size:1rem; color:#ffd060; }
 .tile-kind { display:block; margin-top:1px; font-size:.82rem; font-weight:700; line-height:1; }
 .tile-zone { margin-top:1px; font-size:.5rem; color:#89a1c9; }
 .tile-meta { position:absolute; left:5px; right:5px; bottom:4px; font-size:.48rem; color:#c2d2ef; }
-.tile-pawns { position:absolute; top:4px; right:4px; display:flex; gap:2px; flex-wrap:wrap; justify-content:flex-end; max-width:34px; }
-.pawn-dot { width:8px; height:8px; border-radius:50%; border:1px solid rgba(255,255,255,.75); }
+.tile-pawns { position:absolute; top:4px; right:4px; display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; max-width:64px; }
+.pawn-dot { width:18px; height:18px; border-radius:50%; border:2px solid rgba(255,255,255,.82); display:inline-flex; align-items:center; justify-content:center; font-size:10px; font-weight:800; line-height:1; color:#f7fbff; text-shadow:0 1px 2px rgba(0,0,0,.7); box-shadow:0 2px 8px rgba(0,0,0,.3); }
+.pawn-dot.actor { width:22px; height:22px; border-color:#ffd060; box-shadow:0 0 0 2px rgba(255,208,96,.28), 0 2px 10px rgba(0,0,0,.35); }
 .event-feed { display:flex; flex-direction:column; gap:4px; min-height:72px; }
 .event-item { display:grid; grid-template-columns:18px 30px 96px minmax(0,1fr); gap:6px; align-items:center; font-size:.72rem; }
 .event-type { color:#8aa5d8; }
@@ -511,7 +512,11 @@ function renderBoard(frame) {
     if (owner != null) { const ci = (owner - 1) % PLAYER_COLORS.length; card.classList.add("owned"); card.style.borderColor = PLAYER_COLORS[ci]; card.style.background = `linear-gradient(180deg, ${PLAYER_LIGHTS[ci]}, #101a2d)`; }
     if (["F1", "F2", "S"].includes(tile.tile_kind)) card.classList.add("special");
     if (highlightedTile === idx) card.classList.add("current-event");
-    const pawns = pawnMap.get(idx) || []; const pawnMarkup = pawns.map((pid) => `<span class="pawn-dot" style="background:${playerColor(pid)}"></span>`).join(""); const meta = []; if (owner != null) meta.push(`P${owner}`); if (tile.rent_cost != null) meta.push(`R${tile.rent_cost}`); if ((tile.score_coin_count || 0) > 0) meta.push(`C${tile.score_coin_count}`);
+    const pawns = pawnMap.get(idx) || [];
+    const pawnMarkup = pawns
+      .map((pid) => `<span class="pawn-dot${pid === frame.acting_player_id ? " actor" : ""}" style="background:${playerColor(pid)}" title="P${pid}">${pid}</span>`)
+      .join("");
+    const meta = []; if (owner != null) meta.push(`P${owner}`); if (tile.rent_cost != null) meta.push(`R${tile.rent_cost}`); if ((tile.score_coin_count || 0) > 0) meta.push(`C${tile.score_coin_count}`);
     card.innerHTML = `<div class="tile-number">${idx + 1}</div><span class="tile-kind">${TILE_LABELS[tile.tile_kind] || tile.tile_kind || "?"}</span><div class="tile-zone">${tile.zone_color || "-"}</div><div class="tile-pawns">${pawnMarkup}</div><div class="tile-meta">${meta.join(" ") || "-"}</div>`; track.appendChild(card);
   }
 }
