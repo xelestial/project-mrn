@@ -27,31 +27,37 @@ These were previously tracked here and are no longer active blockers:
 - human-play final-character crash path
 - human-play stale public-state field usage
 - Phase 4 false-positive test path
+- plan/status document alignment drift
 
 These should now be treated as closed regression items, not open work.
 
 ## Remaining GPT-side Proposal Items
 
-### M-1. Prompt envelope normalization
+### M-1. Prompt envelope strict cleanup
 Priority: `P1`
-Status: `OPEN`
+Status: `PARTIAL`
 
-Current issue:
-- `human_policy.py` still emits prompt-family dicts in an ad-hoc shape
+Current state:
+- `prompt_contract.py` already exists
+- `human_policy.py` already emits canonical prompt keys
 
-Target:
-- one stable GPT-side adapter aligned with the shared contract
+Remaining issue:
+- legacy mirrors and top-level context flattening still exist for compatibility
 
-Why this matters:
-- the current baseline works
-- but expansion to more prompt families will be fragile unless the envelope is normalized now
+Opinion:
+- this is now a cleanup item, not an enablement item
 
 ### M-2. Replay renderer / projection compatibility cleanup
 Priority: `P1`
-Status: `OPEN`
+Status: `PARTIAL`
 
-Current issue:
-- replay projection and replay renderers still show small contract drift and compatibility inconsistencies
+Current state:
+- replay projection and replay renderers are already baseline-functional
+- replay HTML has been materially improved for human-readable viewing
+
+Remaining issue:
+- smaller compatibility gaps and fallback-path cleanup still remain
+- replay polish still needs periodic alignment with current event wording and ordering
 
 Target areas:
 - `GPT/viewer/replay.py`
@@ -59,23 +65,18 @@ Target areas:
 - `GPT/viewer/renderers/html_renderer.py`
 - replay-side tests
 
-Goal:
-- replay path should be internally consistent with current `main`
-- replay tests should reflect actual current projection shape
-
 ### M-3. Plan/status document alignment
 Priority: `P1`
-Status: `OPEN`
+Status: `DONE`
 
-Current issue:
-- documentation still does not cleanly separate:
-  - completed baseline viewer/runtime work
-  - remaining contract cleanup
-  - remaining Phase 5 UI work
-
-Target files:
+Closed by:
 - `PLAN/GPT_ONLINE_STYLE_REPLAY_VISUALIZATION_PLAN.md`
 - `PLAN/PLAN_STATUS_INDEX.md`
+- `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`
+
+Opinion:
+- this was a real problem
+- it is no longer a current GPT-side backlog item
 
 ### M-4. Optional HTML renderer hardening
 Priority: `P2`
@@ -87,7 +88,7 @@ Examples:
 
 Note:
 - this is not a current blocker
-- only do this after prompt normalization and replay cleanup
+- only do this after prompt-envelope strict cleanup and replay cleanup
 
 ## What This Proposal Should No Longer Drive
 Do not use this file as the source of truth for:
