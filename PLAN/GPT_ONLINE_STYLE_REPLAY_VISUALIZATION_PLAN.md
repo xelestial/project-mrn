@@ -4,6 +4,8 @@ Status: `ACTIVE`
 Role: `canonical top-level plan for replay viewer + live playable visual runtime`
 Companion reference:
 - local reference: `PLAN/CLAUDE_ARCHITECTURE_REFACTOR_PLAN.md`
+- lower-layer substrate reference: `PLAN/VISUALIZATION_GAME_PLAN.md`
+- technical proposal reference: `PLAN/[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md`
 - branch reference: `CLAUDE-MAIN:PLAN/VISUALIZATION_GAME_PLAN.md`
 
 ## Goal

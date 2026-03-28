@@ -79,6 +79,19 @@ These are still useful, but they are not the current top-level execution plan on
   - supports the current canonical visualization plan
   - recommends GPT upper architecture plus Claude-style lower substrate
 
+### Claude Visualization Technical Opinion
+- File: `PLAN/[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md`
+- Status: `PROPOSAL`
+- Role: technical-stack and UI implementation opinion for visualization work
+- Notes:
+  - useful for concrete implementation choices such as:
+    - SVG vs Canvas
+    - Vanilla HTML/JS vs heavier frontend stack
+    - queue-based human input bridge
+    - public vs analysis view split
+    - JSON-schema-first contracts
+  - should be treated as a technical proposal, not the canonical product plan
+
 ### Claude Architecture Refactor
 - File: `PLAN/CLAUDE_ARCHITECTURE_REFACTOR_PLAN.md`
 - Status: `REFERENCE`
@@ -88,11 +101,10 @@ These are still useful, but they are not the current top-level execution plan on
   - should not be treated as the active GPT execution backlog
 
 ### Claude Visual Game Substrate Plan
-- Branch-only reference: `CLAUDE-MAIN:PLAN/VISUALIZATION_GAME_PLAN.md`
+- File: `PLAN/VISUALIZATION_GAME_PLAN.md`
 - Status: `REFERENCE`
 - Role: Claude-side lower-layer visualization substrate plan
 - Notes:
-  - not present on the current branch as a local file
   - still important as a reference for:
     - event stream enrichment
     - board public state
@@ -101,6 +113,11 @@ These are still useful, but they are not the current top-level execution plan on
   - current recommended structure is:
     - GPT owns upper runtime/session/projection/renderer/input architecture
     - Claude substrate plan informs lower event/state contracts
+
+### Claude Visual Game Substrate Branch Reference
+- Branch reference: `CLAUDE-MAIN:PLAN/VISUALIZATION_GAME_PLAN.md`
+- Status: `REFERENCE`
+- Role: same lower-layer substrate plan, preserved as original branch context
 
 ### Local Reference Note For Claude Visualization Substrate
 - File: `PLAN/[REFERENCE]_CLAUDE_VISUALIZATION_GAME_SUBSTRATE_PLAN.md`
@@ -125,13 +142,17 @@ When deciding what to follow next:
 1. Use `PLAN/GPT_ONLINE_STYLE_REPLAY_VISUALIZATION_PLAN.md` for replay/playable game work.
 2. Use `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md` only for GPT-side analysis tooling.
 3. Use completed documents only as implementation history or rationale.
-4. Use Claude documents as reference for shared contracts, not as the active GPT task list.
+4. Use `PLAN/VISUALIZATION_GAME_PLAN.md` as the lower-layer substrate reference for visual runtime work.
+5. Use `PLAN/[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md` as a technical-choice proposal, not as the active product plan.
+6. Use Claude documents as reference for shared contracts, not as the active GPT task list.
 
 ## Cleanup Decisions
 
 ### Keep
 - keep all `[COMPLETE]` documents
 - keep `CLAUDE_ARCHITECTURE_REFACTOR_PLAN.md`
+- keep `VISUALIZATION_GAME_PLAN.md`
+- keep `[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md`
 - keep `GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md`
 - keep `GPT_ONLINE_STYLE_REPLAY_VISUALIZATION_PLAN.md`
 
