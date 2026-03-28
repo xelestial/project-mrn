@@ -614,7 +614,7 @@ class EngineEffectHandlers:
             player.visited_owned_tile_indices.add(pos)
             placed = engine._place_hand_coins_on_tile(state, player, pos, max_place=state.config.rules.token.place_limit_on_purchase(state, player, pos), source="purchase")
         engine._emit_vis("tile_purchased", Phase.LANDING, player.player_id + 1, state,
-                         tile_index=pos, tile_kind=cell.name, cost=cost, source="landing")
+                         tile_index=pos, tile_kind=cell.name, cost=cost, purchase_source="landing")
         return {'type': 'PURCHASE', 'tile_kind': cell.name, 'cost': cost, 'shard_cost': shard_cost, 'shards_before': shards_before, 'shards_after': player.shards, 'placed': placed}
 
     def handle_rent_payment(self, state: GameState, player: PlayerState, pos: int, owner: int) -> dict:
@@ -622,6 +622,7 @@ class EngineEffectHandlers:
         self._ensure_stats(state)
         stats = engine._strategy_stats[player.player_id]
         rent = engine._effective_rent(state, pos, player, owner)
+        base_rent = rent  # before waiver check
         if player.trick_all_rent_waiver_this_turn:
             rent = 0
         elif player.rent_waiver_count_this_turn > 0:
@@ -634,7 +635,8 @@ class EngineEffectHandlers:
                          tile_index=pos, tile_kind=state.board[pos].name,
                          payer_player_id=player.player_id + 1, payer=player.player_id + 1,
                          owner_player_id=owner + 1, owner=owner + 1,
-                         amount=rent, final_amount=rent, paid=outcome.get("paid", False))
+                         base_amount=base_rent, amount=rent, final_amount=rent,
+                         paid=outcome.get("paid", False))
         if player.trick_one_extra_adjacent_buy_this_turn and player.alive and outcome.get('paid'):
             extra = engine._buy_one_adjacent_same_block(state, player, pos)
             if extra is not None:

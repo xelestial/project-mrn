@@ -589,10 +589,10 @@ class GameEngine:
         move, movement_meta = self._resolve_move(state, player, decision)
         player.rolled_dice_count_this_turn = len(movement_meta.get("dice", []))
         self._emit_vis("dice_roll", Phase.MOVEMENT, player.player_id + 1, state,
-                       dice=movement_meta.get("dice", []),
-                       used_cards=movement_meta.get("used_cards", []),
-                       formula=movement_meta.get("formula", ""),
-                       move=move)
+                       dice_values=movement_meta.get("dice", []),
+                       cards_used=movement_meta.get("used_cards", []),
+                       total_move=move,
+                       move_modifier_reason=movement_meta.get("formula") or None)
         if len(self._strategy_stats) <= player.player_id:
             self._strategy_stats = [
                 {
@@ -1425,12 +1425,20 @@ class GameEngine:
         self._log(log_row)
         laps_gained = sum(seg["laps_gained"] for seg in chain_segments)
         _lapped_vis = laps_gained > 0
+        _board_len = len(state.board)
+        _path: list[int] = []
+        for _seg in chain_segments:
+            for _step in range(1, _seg["move"] + 1):
+                _path.append((_seg["start_pos"] + _step) % _board_len)
+        _movement_source = "card" if movement_meta.get("used_cards") else "dice"
         self._emit_vis("player_move", Phase.MOVEMENT, player.player_id + 1, state,
-                       from_tile=old_pos, from_pos=old_pos,
-                       to_tile=player.position, to_pos=player.position,
-                       move=total_move,
-                       crossed_start=_lapped_vis, lapped=_lapped_vis,
-                       formula=movement_meta.get("formula", ""))
+                       from_tile_index=old_pos,
+                       to_tile_index=player.position,
+                       path=_path,
+                       crossed_start=_lapped_vis,
+                       movement_source=_movement_source,
+                       # backward-compat: GPT renderer uses from_pos/to_pos/lapped until migrated
+                       from_pos=old_pos, to_pos=player.position, lapped=_lapped_vis)
 
     def _apply_geo_bonus(self, player: PlayerState, choice: str) -> dict:
         if choice == "cash":

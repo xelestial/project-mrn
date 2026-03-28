@@ -55,9 +55,7 @@ def _render_event_line(event: dict) -> str:
 
 
 def _render_player_row(player: dict) -> str:
-    tricks = ", ".join(
-        player.get("trick_cards_visible") or player.get("public_tricks") or []
-    ) or "-"
+    tricks = ", ".join(player.get("public_tricks") or []) or "-"
     effects = ", ".join(player.get("public_effects", [])) or "-"
     return (
         f"| P{player.get('player_id', '?')} | {player.get('character', '?')} | "

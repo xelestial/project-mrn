@@ -4,20 +4,20 @@ Verifies that CLAUDE's VisEventStream emits field names that are
 compatible with the GPT live viewer (live_html.py / play_html.py).
 
 Checks:
- 1. player_move        : from_pos, to_pos, lapped
- 2. rent_paid          : payer_player_id, final_amount, owner_player_id, amount
+ 1. player_move        : from_tile_index, to_tile_index, crossed_start, path, movement_source
+ 2. rent_paid          : payer_player_id, base_amount, final_amount, owner_player_id
  3. lap_reward_chosen  : choice, amount
  4. weather_reveal     : weather_name
  5. game_end           : winner_player_id, reason
  6. mark_resolved      : success, target_player_id, source_player_id
  7. turn_end_snapshot.board    : marker_owner_id, tiles, f_value
- 8. turn_end_snapshot.players  : tiles_owned, score_coins_placed,
-                                  trick_cards_visible, is_marked, immune_to_marks
+ 8. turn_end_snapshot.players  : public_tricks, mark_status
  9. trick_window_open  : hand_size, public_tricks, hidden_trick_count
 10. trick_window_closed: public_tricks, hidden_trick_count
 11. marker_transferred : from_player_id, to_player_id, reason
 12. f_value_change     : before, delta, after
-13. tile_purchased     : tile_index, cost
+13. tile_purchased     : tile_index, cost, purchase_source
+14. dice_roll          : dice_values, cards_used, total_move
 
 Note: fortune_drawn / fortune_resolved are intentionally NOT checked —
 these events are permanently bypassed because rule_scripts.json handles
@@ -67,11 +67,12 @@ def validate_seed(seed: int) -> list[str]:
 
         if t == "player_move" and "player_move" not in found:
             found["player_move"] = True
-            check_field(errors, t, ev, "from_pos", "to_pos", "lapped")
+            check_field(errors, t, ev, "from_tile_index", "to_tile_index",
+                        "crossed_start", "path", "movement_source")
 
         elif t == "rent_paid" and "rent_paid" not in found:
             found["rent_paid"] = True
-            check_field(errors, t, ev, "payer_player_id", "final_amount", "owner_player_id", "amount")
+            check_field(errors, t, ev, "payer_player_id", "base_amount", "final_amount", "owner_player_id")
 
         elif t == "lap_reward_chosen" and "lap_reward_chosen" not in found:
             found["lap_reward_chosen"] = True
@@ -96,8 +97,8 @@ def validate_seed(seed: int) -> list[str]:
 
             if "turn_end_snapshot" not in found:
                 found["turn_end_snapshot"] = True
-                if "marker_owner_id" not in board:
-                    errors.append(f"turn_end_snapshot.board: missing marker_owner_id")
+                if "marker_owner_player_id" not in board:
+                    errors.append(f"turn_end_snapshot.board: missing marker_owner_player_id")
                 for req in ("tiles", "f_value"):
                     if req not in board:
                         errors.append(f"turn_end_snapshot.board: missing {req}")
@@ -105,9 +106,10 @@ def validate_seed(seed: int) -> list[str]:
             if players and "turn_end_snapshot_player" not in found:
                 found["turn_end_snapshot_player"] = True
                 p0 = players[0]
-                for req in ("tiles_owned", "score_coins_placed", "trick_cards_visible",
-                            "is_marked", "immune_to_marks", "player_id", "cash", "shards",
-                            "position", "alive", "character"):
+                for req in ("owned_tile_count", "placed_score_coins", "public_tricks",
+                            "mark_status", "player_id", "cash", "shards",
+                            "position", "alive", "character",
+                            "hand_score_coins", "hidden_trick_count"):
                     if req not in p0:
                         errors.append(f"turn_end_snapshot.players[0]: missing {req}")
 
@@ -129,12 +131,16 @@ def validate_seed(seed: int) -> list[str]:
 
         elif t == "tile_purchased" and "tile_purchased" not in found:
             found["tile_purchased"] = True
-            check_field(errors, t, ev, "tile_index", "cost")
+            check_field(errors, t, ev, "tile_index", "cost", "purchase_source")
+
+        elif t == "dice_roll" and "dice_roll" not in found:
+            found["dice_roll"] = True
+            check_field(errors, t, ev, "dice_values", "cards_used", "total_move")
 
     # Check required types existed
     for required in ("player_move", "rent_paid", "lap_reward_chosen", "weather_reveal",
                      "game_end", "turn_end_snapshot", "trick_window_open",
-                     "trick_window_closed", "f_value_change", "tile_purchased"):
+                     "trick_window_closed", "f_value_change", "tile_purchased", "dice_roll"):
         if required not in found:
             if required == "rent_paid":
                 # Possible no rent event in some seeds
