@@ -289,6 +289,10 @@ def test_human_policy_prompt_and_response() -> list[str]:
             errors.append(
                 f"Expected request_type=movement, got {policy.pending_prompt.get('request_type')}"
             )
+        if "type" in policy.pending_prompt:
+            errors.append("pending_prompt should not expose legacy key 'type'")
+        if "options" in policy.pending_prompt:
+            errors.append("pending_prompt should not expose legacy key 'options'")
         if "legal_choices" not in policy.pending_prompt:
             errors.append("pending_prompt missing legal_choices")
         if "public_context" not in policy.pending_prompt:
@@ -351,13 +355,15 @@ def test_human_policy_final_character_returns_name() -> list[str]:
             errors.append("pending_prompt never set for final_character")
             return errors
 
-        options = prompt.get("options", [])
-        if [opt.get("label") for opt in options] != ["B", "C"]:
-            errors.append(f"Unexpected final_character labels: {options}")
         if prompt.get("request_type") != "final_character":
             errors.append(f"Expected request_type=final_character, got {prompt.get('request_type')}")
-        if [opt.get("choice_id") for opt in prompt.get("legal_choices", [])] != ["1", "2"]:
-            errors.append(f"Unexpected legal_choices: {prompt.get('legal_choices')}")
+        if "type" in prompt or "options" in prompt:
+            errors.append(f"final_character prompt still exposes legacy mirrors: {prompt}")
+        legal_choices = prompt.get("legal_choices", [])
+        if [opt.get("label") for opt in legal_choices] != ["B", "C"]:
+            errors.append(f"Unexpected final_character labels: {legal_choices}")
+        if [opt.get("choice_id") for opt in legal_choices] != ["1", "2"]:
+            errors.append(f"Unexpected legal_choices: {legal_choices}")
 
         ok = policy.submit_response({"choice_id": "2"})
         if not ok:
@@ -661,10 +667,12 @@ def test_human_policy_burden_exchange_prompt() -> list[str]:
 # ---------------------------------------------------------------------------
 
 def test_prompt_endpoint_idle(port: int) -> list[str]:
-    """GET /prompt with no pending decision returns type=null."""
+    """GET /prompt with no pending decision returns request_type=null."""
     errors = []
     try:
         data = _get_json(f"http://127.0.0.1:{port}/prompt")
+        if "type" in data:
+            errors.append("idle /prompt payload should not expose legacy key 'type'")
         if data.get("request_type") is not None:
             # It's possible a decision prompt appeared; that's fine
             pass  # skip — game may have started quickly

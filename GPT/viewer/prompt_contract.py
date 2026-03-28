@@ -14,29 +14,23 @@ def build_prompt_envelope(
     timeout_ms: int = 300_000,
     fallback_policy: str = "ai",
 ) -> dict[str, Any]:
-    """Build a canonical prompt envelope with temporary legacy mirrors."""
+    """Build a canonical prompt envelope."""
 
     public_context = dict(public_context or {})
-    mirrored_choices: list[dict[str, Any]] = []
+    canonical_choices: list[dict[str, Any]] = []
     for choice in legal_choices:
         payload = dict(choice)
-        payload.setdefault("id", payload.get("choice_id"))
-        mirrored_choices.append(payload)
+        canonical_choices.append(payload)
 
-    envelope = {
+    return {
         "request_type": request_type,
         "player_id": player_id,
-        "legal_choices": mirrored_choices,
+        "legal_choices": canonical_choices,
         "can_pass": can_pass,
         "timeout_ms": timeout_ms,
         "fallback_policy": fallback_policy,
         "public_context": public_context,
-        # Temporary mirrors for the current viewer/test path.
-        "type": request_type,
-        "options": mirrored_choices,
     }
-    envelope.update(public_context)
-    return envelope
 
 
 def extract_choice_id(response: dict[str, Any], default: str | None = None) -> str | None:
