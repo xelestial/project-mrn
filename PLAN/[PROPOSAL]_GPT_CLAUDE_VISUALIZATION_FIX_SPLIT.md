@@ -210,26 +210,34 @@ Opinion:
 ## Shared Coordination Items
 
 ### S1. Freeze prompt value semantics
-Status: `PARTIAL`
+Status: `DONE`
 
-Need agreement on:
-- what label the user sees
-- what value the engine receives
-- which identifier family is authoritative for characters, tiles, tricks, and players
+Closed by:
+- `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`
+
+Agreed points:
+- `label` is renderer-facing text only
+- `choice_id` is the canonical response identity
+- `value` is auxiliary public rendering data, not the authoritative response key
 
 Opinion:
-- the runtime is already workable
-- what remains is contract hardening, not baseline enablement
+- the runtime was already workable
+- contract hardening for prompt semantics is now explicit on `main`
 
 ### S2. Freeze seat / player-id semantics
-Status: `PARTIAL`
+Status: `DONE`
 
-Need agreement on:
-- 0-based internal seat vs 1-based public `player_id`
-- whether `seat`, `player_id`, and rendered order are distinct concepts
+Closed by:
+- `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`
+
+Agreed points:
+- internal `seat` is 0-based
+- public `player_id` is 1-based
+- rendered order is related but not semantically identical to either one
 
 Opinion:
-- this matters more now that multi-human-seat support is entering the runtime surface
+- this mattered more once multi-human-seat support entered the runtime surface
+- the distinction is now written into the shared contract rather than left implicit
 
 ## Practical Recommendation
 
@@ -238,6 +246,5 @@ Treat this proposal as:
 - not a replacement for the canonical product plan
 
 Use it to drive only the remaining true cleanup work:
-- GPT prompt-envelope strict cleanup
 - GPT replay polish/contract tightening
 - CLAUDE Phase 5 substrate completeness verification

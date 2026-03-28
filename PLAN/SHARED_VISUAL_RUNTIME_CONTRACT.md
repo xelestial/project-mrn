@@ -447,6 +447,22 @@ Freeze the common prompt envelope fields:
 - `fallback_policy`
 - `public_context`
 
+Freeze the common prompt semantics:
+- `label` is renderer-facing text only
+- `choice_id` is the canonical response value sent back from UI/runtime to the engine adapter
+- `value` is optional structured public context for rendering and explanation; it is not the authoritative response identity
+- renderers must never infer engine identity from display order alone
+- character prompts may show human-readable names, but `choice_id` remains the stable identifier family agreed by the engine boundary
+- tile prompts may show 1-based or localized labels, but `choice_id` / structured tile identity must stay canonical underneath
+
+### Seat / Player Identity Semantics
+Freeze the player-identity rules:
+- internal `seat` remains a 0-based runtime/controller concept
+- public `player_id` remains a 1-based replay/live/viewer concept
+- rendered player order may follow seat order, but `seat`, `player_id`, and visual order are not interchangeable concepts
+- replay/live payloads should expose `player_id` for public rendering and may expose `seat` only where adapter/runtime logic truly needs it
+- UI text should prefer `P1`, `P2`, ... and should not leak raw 0-based seat numbers to users
+
 ### Visibility Boundary
 Freeze the rule that:
 - hidden information is never emitted in `public_payload`
