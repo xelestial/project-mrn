@@ -58,15 +58,19 @@ class HumanHttpPolicy:
         """Called by HTTP handler when browser POSTs a decision.
 
         Returns True if response was accepted, False if no prompt pending.
+
+        The check-and-put is performed under the same lock to prevent a
+        race where a timeout clears _pending between the check and the put,
+        causing the old response to be consumed by the next question.
         """
         with self._lock:
             if self._pending is None:
                 return False
-        try:
-            self._response_queue.put_nowait(response)
-            return True
-        except queue.Full:
-            return False
+            try:
+                self._response_queue.put_nowait(response)
+                return True
+            except queue.Full:
+                return False
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -126,7 +130,7 @@ class HumanHttpPolicy:
 
         prompt = {
             "type": "movement",
-            "player_id": player.player_id,
+            "player_id": player.player_id + 1,
             "options": options,
             "player_cash": player.cash,
             "player_position": player.position,
@@ -187,7 +191,7 @@ class HumanHttpPolicy:
 
         prompt = {
             "type": "lap_reward",
-            "player_id": player.player_id,
+            "player_id": player.player_id + 1,
             "options": options,
             "budget": budget,
             "pools": {"cash": cash_pool, "shards": shards_pool, "coins": coins_pool},
@@ -227,7 +231,7 @@ class HumanHttpPolicy:
 
         prompt = {
             "type": "draft_card",
-            "player_id": player.player_id,
+            "player_id": player.player_id + 1,
             "options": options,
         }
 
@@ -255,7 +259,7 @@ class HumanHttpPolicy:
 
         prompt = {
             "type": "final_character",
-            "player_id": player.player_id,
+            "player_id": player.player_id + 1,
             "options": options,
         }
 
@@ -285,7 +289,7 @@ class HumanHttpPolicy:
 
         prompt = {
             "type": "trick_to_use",
-            "player_id": player.player_id,
+            "player_id": player.player_id + 1,
             "options": options,
         }
 
@@ -313,7 +317,7 @@ class HumanHttpPolicy:
         tile = state.tiles[pos]
         prompt = {
             "type": "purchase_tile",
-            "player_id": player.player_id,
+            "player_id": player.player_id + 1,
             "options": [
                 {"id": "yes", "label": f"Buy tile {pos} (cost {cost})", "value": True},
                 {"id": "no",  "label": "Skip purchase", "value": False},
@@ -351,7 +355,7 @@ class HumanHttpPolicy:
 
         prompt = {
             "type": "hidden_trick_card",
-            "player_id": player.player_id,
+            "player_id": player.player_id + 1,
             "options": options,
         }
 
@@ -381,7 +385,7 @@ class HumanHttpPolicy:
 
         prompt = {
             "type": "mark_target",
-            "player_id": player.player_id,
+            "player_id": player.player_id + 1,
             "actor_name": str(actor_name),
             "options": options,
         }
@@ -416,7 +420,7 @@ class HumanHttpPolicy:
 
         prompt = {
             "type": "coin_placement",
-            "player_id": player.player_id,
+            "player_id": player.player_id + 1,
             "options": options,
         }
 

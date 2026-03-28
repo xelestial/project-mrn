@@ -19,6 +19,7 @@ def render_play_html(
         session_id=session_id or "...",
         seed=seed,
         human_seat=human_seat,
+        human_seat_js=human_seat + 1,   # 1-indexed: matches event acting_player_id
         poll_interval_ms=poll_interval_ms,
     )
 
@@ -284,7 +285,7 @@ input[type=range] {{ accent-color: #4e8ef7; }}
 </div>
 
 <script>
-const HUMAN_SEAT = {human_seat};
+const HUMAN_SEAT = {human_seat_js};  // 1-indexed to match event acting_player_id
 const POLL_MS = {poll_interval_ms};
 const PLAYER_COLORS = ["#4e8ef7","#e85d5d","#5dbf5d","#f0a030"];
 const PLAYER_COLORS_LIGHT = ["#d0e4ff","#ffd0d0","#d0ffd0","#fff0c8"];
@@ -309,7 +310,11 @@ let playing = false;
 let pollTimer = null;
 let playTimer = null;
 let promptPollTimer = null;
-let pendingDecision = false;
+let decisionTimeStart = null;
+let timeoutInterval = null;
+
+const isDecisionVisible = () =>
+  document.getElementById("decision-overlay").classList.contains("visible");
 
 // ── Speed slider ───────────────────────────────────────────────────────────
 const slider = document.getElementById("speed-slider");
@@ -338,7 +343,7 @@ async function pollEvents() {{
       document.getElementById("status-badge").textContent = "DONE";
       document.getElementById("status-badge").className = "badge done";
     }}
-  }} catch(e) {{}}
+  }} catch(e) {{ console.warn("poll failed:", e); }}
 }}
 
 function drainQueue() {{
@@ -357,15 +362,13 @@ async function pollPrompt() {{
   try {{
     const resp = await fetch("/prompt");
     const data = await resp.json();
-    if (data.type && !pendingDecision) {{
-      pendingDecision = true;
+    if (data.type && !isDecisionVisible()) {{
       showDecision(data);
-    }} else if (!data.type && pendingDecision) {{
+    }} else if (!data.type && isDecisionVisible()) {{
       // Decision was resolved (timeout or accepted)
-      pendingDecision = false;
       hideDecision();
     }}
-  }} catch(e) {{}}
+  }} catch(e) {{ console.warn("poll failed:", e); }}
 }}
 
 function showDecision(prompt) {{
@@ -392,12 +395,27 @@ function showDecision(prompt) {{
   }});
 
   overlay.classList.add("visible");
+
+  // M-1: countdown timer
+  decisionTimeStart = Date.now();
+  clearInterval(timeoutInterval);
+  timeoutInterval = setInterval(() => {{
+    const remaining = Math.ceil(300 - (Date.now() - decisionTimeStart) / 1000);
+    const el = document.getElementById("dp-timeout");
+    if (remaining > 0) {{
+      el.textContent = `남은 시간: ${{remaining}}초`;
+    }} else {{
+      el.textContent = "시간 초과 (AI 자동 선택)";
+      clearInterval(timeoutInterval);
+    }}
+  }}, 500);
 }}
 
 function hideDecision() {{
   document.getElementById("decision-overlay").classList.remove("visible");
   document.getElementById("decision-badge").style.display = "none";
-  pendingDecision = false;
+  clearInterval(timeoutInterval);
+  document.getElementById("dp-timeout").textContent = "제한 시간: 5분";
 }}
 
 async function submitDecision(optionId, clickedBtn, container) {{
@@ -420,6 +438,7 @@ async function submitDecision(optionId, clickedBtn, container) {{
       clickedBtn.classList.remove("selected");
     }}
   }} catch(e) {{
+    console.warn("submitDecision failed:", e);
     container.querySelectorAll(".dp-btn").forEach(b => b.disabled = false);
     clickedBtn.classList.remove("selected");
   }}
@@ -482,7 +501,7 @@ function processEvent(ev) {{
     hdr.style.display = "";
     const isHuman = (currentActorId === HUMAN_SEAT);
     const baseColor = currentActorId != null
-      ? PLAYER_COLORS[currentActorId % PLAYER_COLORS.length]
+      ? PLAYER_COLORS[((currentActorId - 1) % PLAYER_COLORS.length)]
       : "#8090b0";
     hdr.style.borderLeftColor = isHuman ? "#ffd060" : baseColor;
     document.getElementById("turn-title").textContent =
@@ -525,7 +544,7 @@ function appendEventFeed(ev) {{
   const actor = pid != null ? `P${{pid}}` : "—";
   const isHuman = (pid === HUMAN_SEAT);
   const actorColor = isHuman ? "#ffd060"
-    : (pid != null ? PLAYER_COLORS[pid % PLAYER_COLORS.length] : "#8090b0");
+    : (pid != null ? PLAYER_COLORS[((pid - 1) % PLAYER_COLORS.length)] : "#8090b0");
   const icon = EV_ICONS[ev.event_type] || ">";
   const detail = buildDetail(ev);
 
@@ -604,7 +623,7 @@ function renderBoard(board) {{
     div.className = "tile";
     const ownerId = ownerMap[i];
     if (ownerId != null) {{
-      const ci = ownerId % PLAYER_COLORS.length;
+      const ci = (ownerId - 1) % PLAYER_COLORS.length;
       div.style.borderColor = (ownerId === HUMAN_SEAT) ? "#ffd060" : PLAYER_COLORS[ci];
       div.style.background = PLAYER_COLORS_LIGHT[ci];
       div.classList.add("owned");
@@ -642,7 +661,7 @@ function renderPlayers(players, activeId) {{
     const pid = p.player_id;
     const isHuman = (pid === HUMAN_SEAT);
     const isActive = (pid === activeId);
-    const color = isHuman ? "#ffd060" : PLAYER_COLORS[pid % PLAYER_COLORS.length];
+    const color = isHuman ? "#ffd060" : PLAYER_COLORS[((pid - 1) % PLAYER_COLORS.length)];
 
     const card = document.createElement("div");
     card.className = "player-card" +
