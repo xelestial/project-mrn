@@ -6,7 +6,7 @@ from config import DEFAULT_CONFIG, CellKind
 from engine import GameEngine
 from state import GameState
 from characters import CARD_TO_NAMES
-from trick_cards import TrickCard
+from trick_cards import TrickCard, build_trick_deck
 from fortune_cards import FortuneCard
 
 
@@ -1229,3 +1229,176 @@ class DoctrineBurdenReliefTests(unittest.TestCase):
         result = engine._build_result(state)
         self.assertEqual(result.player_summary[0]["character"], "중매꾼")
         self.assertEqual(result.strategy_summary[0]["character"], "중매꾼")
+
+
+class TrickRuleAuditTests(unittest.TestCase):
+    def make_engine(self, policy=None, rng=None):
+        return GameEngine(DEFAULT_CONFIG, policy or DummyPolicy(), rng=rng or random.Random(0), enable_logging=True)
+
+    def make_state(self):
+        return GameState.create(DEFAULT_CONFIG)
+
+    def test_force_sale_and_zone_chain_are_no_longer_anytime(self):
+        deck = {card.name: card for card in build_trick_deck()}
+        self.assertFalse(deck["강제 매각"].is_anytime)
+        self.assertFalse(deck["뇌절왕"].is_anytime)
+
+    def test_relic_collector_doubles_f_tile_shards(self):
+        engine = self.make_engine()
+        state = self.make_state()
+        player = state.players[0]
+        player.current_character = "객주"
+        engine._apply_trick_card(state, player, TrickCard(999, "성물 수집가", ""))
+        player.position = first_special_position(state, CellKind.F1)
+        start_shards = player.shards
+
+        event = engine._resolve_landing(state, player)
+
+        self.assertEqual(event["type"], "F1")
+        self.assertEqual(event["shards"], DEFAULT_CONFIG.rules.special_tiles.f1_shards * 2)
+        self.assertEqual(player.shards - start_shards, DEFAULT_CONFIG.rules.special_tiles.f1_shards * 2)
+
+    def test_relic_collector_does_not_modify_lap_reward_shards(self):
+        class ShardPolicy(DummyPolicy):
+            def choose_lap_reward(self, state, player):
+                return LapRewardDecision("shards")
+
+        engine = self.make_engine(policy=ShardPolicy())
+        state = self.make_state()
+        engine._strategy_stats = [
+            {
+                "purchases": 0, "purchase_t2": 0, "purchase_t3": 0,
+                "rent_paid": 0, "own_tile_visits": 0,
+                "f1_visits": 0, "f2_visits": 0, "s_visits": 0,
+                "s_cash_plus1": 0, "s_cash_plus2": 0, "s_cash_minus1": 0,
+                "malicious_visits": 0, "bankruptcies": 0,
+                "cards_used": 0, "card_turns": 0, "single_card_turns": 0, "pair_card_turns": 0,
+                "lap_cash_choices": 0, "lap_coin_choices": 0, "lap_shard_choices": 0,
+                "coins_gained_own_tile": 0, "coins_placed": 0,
+                "mark_attempts": 0, "mark_successes": 0,
+                "mark_fail_no_target": 0, "mark_fail_missing": 0, "mark_fail_blocked": 0,
+                "character": "", "shards_gained_f": 0, "shards_gained_lap": 0,
+                "draft_cards": [], "marked_target_names": [],
+            }
+            for _ in range(DEFAULT_CONFIG.player_count)
+        ]
+        player = state.players[0]
+        player.extra_shard_gain_this_turn = 1
+        start_shards = player.shards
+
+        result = engine._apply_lap_reward(state, player)
+
+        self.assertEqual(result["shards_delta"], DEFAULT_CONFIG.rules.lap_reward.shards)
+        self.assertEqual(player.shards - start_shards, DEFAULT_CONFIG.rules.lap_reward.shards)
+
+    def test_trade_pass_waives_all_normal_rents_this_turn(self):
+        engine = self.make_engine()
+        state = self.make_state()
+        player = state.players[0]
+        owner = state.players[1]
+        pos = first_t3_position(state)
+        state.tile_owner[pos] = owner.player_id
+        owner.tiles_owned = 1
+        player.position = pos
+        player.trick_all_rent_waiver_this_turn = True
+        start_cash = player.cash
+
+        first = engine._resolve_landing(state, player)
+        second = engine._resolve_landing(state, player)
+
+        self.assertEqual(first["type"], "RENT")
+        self.assertEqual(second["type"], "RENT")
+        self.assertEqual(first["rent"], 0)
+        self.assertEqual(second["rent"], 0)
+        self.assertEqual(player.cash, start_cash)
+        self.assertTrue(player.trick_all_rent_waiver_this_turn)
+
+    def test_trade_pass_does_not_zero_swindler_takeover_cost(self):
+        engine = self.make_engine()
+        state = self.make_state()
+        swindler = state.players[0]
+        owner = state.players[1]
+        pos = first_t3_position(state)
+        swindler.current_character = "사기꾼"
+        swindler.cash = 20
+        swindler.position = pos
+        swindler.trick_all_rent_waiver_this_turn = True
+        state.tile_owner[pos] = owner.player_id
+        owner.tiles_owned = 1
+
+        result = engine._resolve_landing(state, swindler)
+
+        self.assertEqual(result["type"], "SWINDLE_TAKEOVER")
+        self.assertLess(swindler.cash, 20)
+
+    def test_force_sale_requires_preuse_flag(self):
+        engine = self.make_engine()
+        state = self.make_state()
+        player = state.players[0]
+        owner = state.players[1]
+        pos = first_t3_position(state)
+        player.position = pos
+        state.tile_owner[pos] = owner.player_id
+        owner.tiles_owned = 1
+
+        plain_result = engine._resolve_landing(state, player)
+        self.assertEqual(plain_result["type"], "RENT")
+
+        player.position = pos
+        player.cash = DEFAULT_CONFIG.economy.starting_cash
+        player.trick_force_sale_landing_this_turn = True
+        flagged_result = engine._resolve_landing(state, player)
+
+        self.assertEqual(flagged_result["type"], "FORCE_SALE")
+        self.assertIsNone(state.tile_owner[pos])
+
+    def test_madangbal_expires_when_extra_purchase_fails(self):
+        engine = self.make_engine()
+        state = self.make_state()
+        player = state.players[0]
+        pos = first_t3_position(state)
+        state.tile_owner[pos] = player.player_id
+        player.tiles_owned = 1
+        player.position = pos
+        player.cash = 0
+        player.trick_one_extra_adjacent_buy_this_turn = True
+
+        engine._resolve_landing(state, player)
+
+        self.assertFalse(player.trick_one_extra_adjacent_buy_this_turn)
+
+    def test_zone_chain_uses_current_turn_rolled_dice_count(self):
+        engine = self.make_engine(rng=FixedRandom((6,)))
+        state = self.make_state()
+        player = state.players[0]
+        pos = first_t3_position(state)
+        state.tile_owner[pos] = player.player_id
+        player.tiles_owned = 1
+        player.position = pos
+        player.trick_zone_chain_this_turn = True
+        player.rolled_dice_count_this_turn = 1
+
+        result = engine._resolve_landing(state, player)
+
+        self.assertEqual(result["type"], "ZONE_CHAIN")
+        self.assertEqual(result["extra_move"], 6)
+        self.assertEqual(result["movement"]["dice"], [6])
+
+    def test_shineuiddeut_uses_actor_shards_for_same_tile_settlement(self):
+        engine = self.make_engine()
+        state = self.make_state()
+        player = state.players[0]
+        opponent = state.players[1]
+        pos = first_t3_position(state)
+        state.tile_owner[pos] = player.player_id
+        player.tiles_owned = 1
+        player.position = pos
+        opponent.position = pos
+        opponent.cash = 20
+        player.shards = 2
+        opponent.shards = 5
+        player.trick_same_tile_shard_rake_this_turn = True
+
+        event = engine._resolve_landing(state, player)
+
+        self.assertEqual(event["trick_same_tile_shard_rake"]["details"][0]["amount"], 2)
