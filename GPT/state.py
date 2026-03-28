@@ -115,8 +115,10 @@ class PlayerState:
     hidden_trick_deck_index: Optional[int] = None
     extra_shard_gain_this_turn: int = 0
     rent_waiver_count_this_turn: int = 0
+    trick_all_rent_waiver_this_turn: bool = False
     trick_free_purchase_this_turn: bool = False
     trick_dice_delta_this_turn: int = 0
+    rolled_dice_count_this_turn: int = 0
     trick_personal_rent_half_this_turn: bool = False
     trick_same_tile_cash2_this_turn: bool = False
     trick_same_tile_shard_rake_this_turn: bool = False

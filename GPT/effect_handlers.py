@@ -125,17 +125,19 @@ class EngineEffectHandlers:
             return scripted
         stats = engine._strategy_stats[player.player_id]
         if cell == CellKind.F1:
+            shard_gain = state.config.rules.special_tiles.f1_shards * (1 + max(0, player.extra_shard_gain_this_turn))
             stats['f1_visits'] += 1
             engine._change_f(state, state.config.rules.special_tiles.f1_increment, reason="f_tile_landing", source="F1", actor_pid=player.player_id, extra={"position": pos, "tile_kind": cell.name})
-            player.shards += state.config.rules.special_tiles.f1_shards
-            stats['shards_gained_f'] += state.config.rules.special_tiles.f1_shards
-            base = {'type': 'F1', 'f_delta': state.config.rules.special_tiles.f1_increment, 'shards': state.config.rules.special_tiles.f1_shards}
+            player.shards += shard_gain
+            stats['shards_gained_f'] += shard_gain
+            base = {'type': 'F1', 'f_delta': state.config.rules.special_tiles.f1_increment, 'shards': shard_gain}
         else:
+            shard_gain = state.config.rules.special_tiles.f2_shards * (1 + max(0, player.extra_shard_gain_this_turn))
             stats['f2_visits'] += 1
             engine._change_f(state, state.config.rules.special_tiles.f2_increment, reason="f_tile_landing", source="F2", actor_pid=player.player_id, extra={"position": pos, "tile_kind": cell.name})
-            player.shards += state.config.rules.special_tiles.f2_shards
-            stats['shards_gained_f'] += state.config.rules.special_tiles.f2_shards
-            base = {'type': 'F2', 'f_delta': state.config.rules.special_tiles.f2_increment, 'shards': state.config.rules.special_tiles.f2_shards}
+            player.shards += shard_gain
+            stats['shards_gained_f'] += shard_gain
+            base = {'type': 'F2', 'f_delta': state.config.rules.special_tiles.f2_increment, 'shards': shard_gain}
         return engine._apply_weather_same_tile_bonus(state, player, base)
 
     def handle_s_landing(self, state: GameState, player: PlayerState, pos: int) -> dict:
@@ -178,7 +180,7 @@ class EngineEffectHandlers:
             extra = engine._matchmaker_buy_adjacent(state, player, pos)
             if extra is not None:
                 purchase['adjacent_bought'] = [extra]
-        elif player.trick_one_extra_adjacent_buy_this_turn and player.alive and purchase.get('type') == 'PURCHASE':
+        elif player.trick_one_extra_adjacent_buy_this_turn and player.alive:
             extra = engine._buy_one_adjacent_same_block(state, player, pos)
             if extra is not None:
                 purchase['trick_adjacent_bought'] = extra
@@ -193,7 +195,7 @@ class EngineEffectHandlers:
                 total = 0
                 details = []
                 for op in co:
-                    amt = op.shards
+                    amt = player.shards
                     out = engine._pay_or_bankrupt(state, op, amt, player.player_id) if amt > 0 else {'paid': True, 'amount': 0}
                     total += amt if out.get('paid') else 0
                     details.append({'player': op.player_id + 1, 'amount': amt, 'paid': out.get('paid', True)})
@@ -231,7 +233,7 @@ class EngineEffectHandlers:
                 total = 0
                 details = []
                 for op in co:
-                    amt = op.shards
+                    amt = player.shards
                     out = engine._pay_or_bankrupt(state, op, amt, player.player_id) if amt > 0 else {'paid': True, 'amount': 0}
                     total += amt if out.get('paid') else 0
                     details.append({'player': op.player_id + 1, 'amount': amt, 'paid': out.get('paid', True)})
@@ -464,8 +466,8 @@ class EngineEffectHandlers:
             engine._log({"event": "trick_global_rent_halved", "player": player.player_id + 1})
             return {"type": "GLOBAL_RENT_HALF_THIS_TURN"}
         if name == "우대권":
-            player.rent_waiver_count_this_turn += 1
-            return {"type": "RENT_WAIVER", "count": 1}
+            player.trick_all_rent_waiver_this_turn = True
+            return {"type": "RENT_WAIVER_ALL_TURN"}
         if name == "뇌고왕":
             player.trick_personal_rent_half_this_turn = True
             return {"type": "PERSONAL_RENT_HALF_THIS_TURN"}
@@ -547,7 +549,10 @@ class EngineEffectHandlers:
             t1 = engine._transfer_tile(state, own, other_owner)
             t2 = engine._transfer_tile(state, other, player.player_id)
             return {"type": "TILE_SWAP", "own_to_other": t1, "other_to_self": t2}
-        if name in {"강제 매각", "뭘리권", "뭔칙휜", "호객꾼"}:
+        if name == "강제 매각":
+            player.trick_force_sale_landing_this_turn = True
+            return {"type": "FORCE_SALE_THIS_TURN"}
+        if name in {"뭘리권", "뭔칙휜", "호객꾼"}:
             return {"type": "HELD_ANYTIME", "name": name}
         if name in {"무거운 짐", "가벼운 짐"}:
             if player.cash < card.burden_cost:
@@ -653,7 +658,9 @@ class EngineEffectHandlers:
         self._ensure_stats(state)
         stats = engine._strategy_stats[player.player_id]
         rent = engine._effective_rent(state, pos, player, owner)
-        if player.rent_waiver_count_this_turn > 0:
+        if player.trick_all_rent_waiver_this_turn:
+            rent = 0
+        elif player.rent_waiver_count_this_turn > 0:
             player.rent_waiver_count_this_turn -= 1
             rent = 0
         stats['rent_paid'] += 1
@@ -674,7 +681,7 @@ class EngineEffectHandlers:
                 total = 0
                 details = []
                 for op in co:
-                    amt = op.shards
+                    amt = player.shards
                     out = engine._pay_or_bankrupt(state, op, amt, player.player_id) if amt > 0 else {'paid': True, 'amount': 0}
                     total += amt if out.get('paid') else 0
                     details.append({'player': op.player_id + 1, 'amount': amt, 'paid': out.get('paid', True)})
@@ -708,9 +715,6 @@ class EngineEffectHandlers:
                 return engine._apply_weather_same_tile_bonus(state, player, {'type': 'AJEON_LAND', 'others': [p.player_id + 1 for p in others], 'collected_per_player': player.shards, 'total': total})
         if owner is not None and player.current_character == '사기꾼' and not engine._is_muroe_skill_blocked(state, player):
             rent = engine._effective_rent(state, pos, player, owner) * 2
-            if player.rent_waiver_count_this_turn > 0:
-                player.rent_waiver_count_this_turn -= 1
-                rent = 0
             if rent > 0 and hasattr(engine.policy, "should_attempt_swindle") and not engine.policy.should_attempt_swindle(state, player, pos, owner, float(rent)):
                 engine._log({
                     "event_kind": "policy_action",
