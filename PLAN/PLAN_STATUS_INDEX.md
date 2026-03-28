@@ -60,7 +60,7 @@ Practical implications:
     - Phase 5 progress tracking
   - current explicit work split is:
     - GPT: upper runtime, prompt flow, replay/live renderer polish, Phase 5 user-facing UI growth
-    - CLAUDE: lower substrate verification, canonical contract stability, validator maintenance, Phase 5 payload completeness review, and related lower-layer bug fixes
+    - CLAUDE: lower substrate verification, canonical contract stability, validator maintenance, and related lower-layer bug fixes
 
 ### 2. Turn Advantage Analysis
 - File: `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md`

@@ -34,7 +34,8 @@ Why:
 So the remaining CLAUDE work should prioritize:
 - canonical naming
 - contract-stable event/state payloads
-- Phase 5 completeness checks
+- validator maintenance
+- lower-layer bug fixes when verification reveals a real substrate gap
 
 ## CLAUDE Work Status
 
@@ -80,13 +81,13 @@ Status: `DONE`
 Closed: `2026-03-29`
 
 Result:
-- `player_move.path`, `movement_source`, `crossed_start` — verified sufficient ✅
-- `lap_reward_chosen` delta payloads (`cash_delta`, `shards_delta`, `coins_delta`) — verified complete ✅
-- `public_effects`, weather, fortune — verified complete under Phase 5 growth ✅
-- `trick_used` — was `_log`-only, now emits to vis stream (card_name, card_description, resolution)
-- `marker_flip` — was `_log`-only, now emits to vis stream (player_id, card_no, from/to_character, reason)
-- `mark_resolved` — `public_summary` field added to all 4 effect-type branches
-- `fortune_drawn.public_summary` — not added (event bypassed by rule_scripts.json in practice)
+- `player_move.path`, `movement_source`, `crossed_start` verified sufficient
+- `lap_reward_chosen` public payloads verified sufficient for Phase 5 renderer growth
+- `public_effects`, weather, fortune verified complete under current Phase 5 expectations
+- `trick_used` now emits to the visual stream with readable public detail
+- `marker_flip` now emits to the visual stream with readable public detail
+- `mark_resolved` now carries public summary detail across branches
+- `CLAUDE/validate_gpt_viewer_compat.py` passes on representative seeds (`42`, `137`, `999`, `13`)
 
 Opinion:
 - all material Phase 5 substrate gaps are now closed
@@ -134,4 +135,5 @@ This proposal can be treated as closed when:
 
 Current opinion:
 - most of the originally proposed CLAUDE corrective work is already closed
-- the only meaningful open item left here is Phase 5 completeness verification
+- Phase 5 completeness verification is also closed
+- the remaining CLAUDE role is validator maintenance plus lower-layer bug-fix follow-up if future Phase 5 growth reveals a real payload gap

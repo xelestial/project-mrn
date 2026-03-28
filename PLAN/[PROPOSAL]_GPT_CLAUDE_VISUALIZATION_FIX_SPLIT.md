@@ -39,7 +39,6 @@ Canonical references:
 
 ### Confirmed still open
 - replay/renderer compatibility still has smaller polish-level gaps
-- CLAUDE substrate completeness for Phase 5 should still be verified end-to-end
 
 ## Ownership Rule
 
@@ -190,14 +189,22 @@ Result:
 
 #### C3. Verify Phase 5 substrate completeness
 Priority: `P2`
-Status: `PARTIAL`
+Status: `DONE`
 
-What still matters:
-- verify that movement, lap reward, weather, fortune, and effect-ledger payloads are complete enough for Phase 5 UI growth
-- verify that no remaining renderer-facing gaps only become visible in richer live-play flows
+Closed by:
+- `CLAUDE/validate_gpt_viewer_compat.py`
+- `CLAUDE/viewer/public_state.py`
+
+Verified areas:
+- movement payloads (`path`, `movement_source`, `crossed_start`)
+- lap reward payloads (`choice`, `amount`)
+- weather / fortune public payloads
+- effect-ledger and public-state renderer inputs
+- remaining dice-card visibility
 
 Opinion:
-- this should stay open as a verification item, not as a broad rewrite item
+- this verification item is now closed on `main`
+- remaining CLAUDE work should be treated as validator maintenance and lower-layer bug-fix follow-up only
 
 #### C4. Keep renderer-neutral transport discipline
 Priority: `P2`
@@ -247,4 +254,4 @@ Treat this proposal as:
 
 Use it to drive only the remaining true cleanup work:
 - GPT replay polish/contract tightening
-- CLAUDE Phase 5 substrate completeness verification
+- CLAUDE validator maintenance / lower-layer bug-fix follow-up

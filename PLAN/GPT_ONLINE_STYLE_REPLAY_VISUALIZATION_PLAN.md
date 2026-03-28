@@ -28,7 +28,7 @@ Current GPT-owned follow-up:
 
 Current CLAUDE-owned follow-up:
 - converge validators and substrate naming on canonical shared-contract fields
-- confirm Phase 5 substrate completeness for renderer consumption
+- maintain validator coverage and lower-layer bug fixes as Phase 5 grows
 
 Current CLAUDE direction in practice:
 - do not reopen broad alias-expansion work
