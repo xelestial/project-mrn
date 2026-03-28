@@ -11,3 +11,13 @@ __pycache__/
 
 # Claude worktrees (local only)
 .claude/worktrees/
+
+# Local assistant / review scratch
+.claire/
+_tmp_main_review/
+SYNC/_local_conflict_backup/
+
+# Local run artifacts
+GPT/_codex_runs/
+CLAUDE/battle_balance_patch_100/
+CLAUDE/battle_smoke_test/
