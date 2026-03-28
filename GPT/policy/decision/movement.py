@@ -61,6 +61,9 @@ class MovementChoiceResolution:
     use_cards: bool
     card_values: tuple[int, ...]
     score: float
+    avg_no_cards: float = 0.0
+    single_card_scores: tuple[tuple[int, float], ...] = ()
+    double_card_scores: tuple[tuple[tuple[int, int], float], ...] = ()
 
 
 def resolve_movement_choice(
@@ -73,6 +76,8 @@ def resolve_movement_choice(
 ) -> MovementChoiceResolution:
     best_score = avg_no_cards
     best = MovementChoiceResolution(False, (), avg_no_cards)
+    single_card_scores: list[tuple[int, float]] = []
+    double_card_scores: list[tuple[tuple[int, int], float]] = []
     for card_value in remaining_cards:
         vals = [single_card_scorer(card_value, die_roll) for die_roll in range(1, 7)]
         mean_score = sum(vals) / len(vals)
@@ -88,12 +93,21 @@ def resolve_movement_choice(
             + 0.02 * worst_outcome
             + leader_trigger_value(best_outcome, avg_no_cards)
         )
+        single_card_scores.append((card_value, score))
         if score > best_score:
             best_score = score
             best = MovementChoiceResolution(True, (card_value,), score)
     for first, second in combinations(remaining_cards, 2):
         score = double_card_scorer(first, second)
+        double_card_scores.append(((first, second), score))
         if score > best_score:
             best_score = score
             best = MovementChoiceResolution(True, (first, second), score)
-    return best
+    return MovementChoiceResolution(
+        use_cards=best.use_cards,
+        card_values=best.card_values,
+        score=best.score,
+        avg_no_cards=avg_no_cards,
+        single_card_scores=tuple(single_card_scores),
+        double_card_scores=tuple(double_card_scores),
+    )

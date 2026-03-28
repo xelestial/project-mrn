@@ -10,19 +10,21 @@ from policy.decision.lap_reward import BasicLapRewardInputs, V2ProfileLapRewardI
 from policy.decision.mark_target import PublicMarkChoiceDebug, build_empty_public_mark_choice_debug_payload, build_public_mark_choice_debug_payload, evaluate_public_mark_candidates, filter_public_mark_candidates, resolve_public_mark_choice, resolve_random_public_mark_choice, run_public_mark_choice
 from policy.decision.movement import MovementChoiceResolution, apply_movement_intent_adjustment, resolve_movement_choice
 from policy.decision.purchase import PurchaseBenefitInputs, PurchaseDebugContext, TraitPurchaseDecisionInputs, V3PurchaseBenefitInputs, apply_v3_purchase_benefit_adjustments, assess_purchase_decision, assess_purchase_decision_from_inputs, assess_purchase_decision_with_traits, assess_v3_purchase_window, assess_v3_purchase_window_with_traits, build_immediate_win_purchase_result, build_purchase_benefit, build_purchase_debug_context, build_purchase_debug_payload, build_purchase_early_debug_payload, build_purchase_reserve_floor, count_owned_tiles_in_block, prepare_v3_purchase_benefit_with_traits, would_purchase_trigger_immediate_win
-from policy.decision.runtime_bridge import choose_active_flip_card_runtime, choose_burden_exchange_on_supply_runtime, choose_coin_placement_tile_runtime, choose_doctrine_relief_target_runtime, choose_hidden_trick_card_runtime, choose_lap_reward_runtime, choose_mark_target_runtime, choose_purchase_tile_runtime, choose_specific_trick_reward_runtime, choose_trick_to_use_runtime
+from policy.decision.runtime_bridge import choose_active_flip_card_runtime, choose_burden_exchange_on_supply_runtime, choose_coin_placement_tile_runtime, choose_doctrine_relief_target_runtime, choose_hidden_trick_card_runtime, choose_lap_reward_runtime, choose_mark_target_runtime, choose_movement_runtime, choose_purchase_tile_runtime, choose_specific_trick_reward_runtime, choose_trick_to_use_runtime
 from policy.decision.support_choices import BurdenExchangeDecisionInputs, DistressMarkerInputs, EscapeSeekInputs, GeoBonusDecisionInputs, build_distress_marker_bonus, choose_doctrine_relief_player_id, choose_geo_bonus_kind, count_burden_cards, should_exchange_burden_on_supply, should_seek_escape_package_from_inputs
 from policy.decision.trick_reward import build_trick_reward_debug_payload, resolve_trick_reward_choice, resolve_trick_reward_choice_run
 from policy.decision.trick_usage import apply_trick_preserve_rules, build_trick_use_debug_payload, resolve_trick_use_choice
 from policy.environment_traits import count_cleanup_fortunes, fortune_cleanup_deck_profile, has_color_rent_double_weather, is_cleanup_threat_weather, weather_character_adjustment
 from policy.evaluator.character_scoring import V1CharacterStructuralInputs, V2EmergencyRiskInputs, V2ExpansionInputs, V2PostRiskInputs, V2ProfileInputs, V2RentTailInputs, V2RouteInputs, V2TailThreatInputs, V2TacticalInputs, V2UhsaTailInputs, V3CharacterInputs, evaluate_v1_character_structural_rules, evaluate_v2_emergency_risk_rules, evaluate_v2_expansion_rules, evaluate_v2_post_risk_rules, evaluate_v2_profile_rules, evaluate_v2_rent_tail_rules, evaluate_v2_route_rules, evaluate_v2_tail_threat_rules, evaluate_v2_tactical_rules, evaluate_v2_uhsa_tail_rules, evaluate_v3_character_rules
 from policy.evaluator.runtime_bridge import score_character_v1, score_character_v2, score_target_v1, score_target_v2
+from policy.pipeline_trace import DecisionTrace, build_decision_trace_payload, build_detector_hit
 from policy.asset.spec import ArenaPolicyAsset, HeuristicPolicyAsset, MultiAgentBattleAsset
 from policy.character_traits import active_money_drain_names, escape_package_names, is_active_money_drain_character, is_baksu, is_builder_character, is_cleanup_character, is_direct_denial_character, is_gakju, is_growth_character, is_low_cash_controller_character, is_low_cash_disruptor_character, is_low_cash_escape_character, is_low_cash_income_character, is_mansin, is_route_runner_character, is_shard_hunter_character, is_swindler, is_token_window_character, low_cash_controller_names, low_cash_disruptor_names, low_cash_escape_names, low_cash_income_names, marker_package_names
 from policy.factory import PolicyFactory
 import ai_policy as ai_policy_module
 from ai_policy import HeuristicPolicy
-from config import CellKind
+from config import CellKind, GameConfig
+from state import GameState
 from survival_common import CleanupStrategyContext
 from trick_cards import TrickCard
 from types import SimpleNamespace
@@ -299,6 +301,25 @@ def test_evaluate_basic_lap_reward_prefers_shards_for_shard_hunter() -> None:
     )
 
     assert scores[3] == "shards"
+
+
+def test_choose_lap_reward_runtime_records_pipeline_trace_for_v3() -> None:
+    state = GameState.create(GameConfig())
+    player = state.players[0]
+    player.current_character = CARD_TO_NAMES[6][0]
+    player.cash = 12
+    player.shards = 4
+    player.hand_coins = 0
+    policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt", lap_policy_mode="heuristic_v3_gpt")
+
+    decision = choose_lap_reward_runtime(policy, state, player)
+    debug = policy.pop_debug("lap_reward", player.player_id)
+
+    assert decision.choice == "shards"
+    assert debug is not None
+    assert debug["trace"]["decision_type"] == "lap_reward"
+    assert debug["trace"]["features"]["shards"] == 4
+    assert any(hit["key"] == "adv_shard_checkpoint" for hit in debug["trace"]["detector_hits"])
 
 
 def test_choose_coin_placement_tile_id_prefers_token_window_lane() -> None:
@@ -1297,7 +1318,70 @@ def test_resolve_movement_choice_prefers_best_double_card_option() -> None:
         leader_trigger_value=lambda best_outcome, baseline: 0.0,
     )
 
-    assert resolution == MovementChoiceResolution(True, (4, 6), 20.0)
+    assert resolution.use_cards is True
+    assert resolution.card_values == (4, 6)
+    assert resolution.score == 20.0
+    assert resolution.avg_no_cards == 1.0
+    assert dict(resolution.single_card_scores)[4] > 0.0
+    assert dict((f"{a}+{b}", score) for (a, b), score in resolution.double_card_scores)["4+6"] == 20.0
+
+
+def test_choose_movement_runtime_records_pipeline_trace() -> None:
+    policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt")
+    state = SimpleNamespace(
+        board=[CellKind.T2] * 12,
+        tile_owner=[None] * 12,
+        tile_coins=[0] * 12,
+        rounds_completed=4,
+        round_index=4,
+    )
+    player = SimpleNamespace(
+        player_id=0,
+        current_character=CARD_TO_NAMES[7][0],
+        position=0,
+        cash=12,
+        shards=7,
+        used_dice_cards=[],
+    )
+    policy._generic_survival_context = lambda *_args, **_kwargs: {
+        "survival_urgency": 0.0,
+        "rent_pressure": 0.0,
+        "lethal_hit_prob": 0.0,
+        "own_burden_cost": 0.0,
+        "cleanup_pressure": 0.0,
+    }
+    policy._f_progress_context = lambda *_args, **_kwargs: {
+        "is_leader": True,
+        "land_f_value": 1.0,
+        "avoid_f_acceleration": 0.0,
+    }
+    policy._common_token_place_bonus = lambda *_args, **_kwargs: 0.0
+    policy._predict_tile_landing_cost = lambda *_args, **_kwargs: 0.0
+    policy._is_action_survivable = lambda *_args, **_kwargs: True
+    policy._project_end_turn_cash = lambda *_args, **_kwargs: float(player.cash)
+    policy._movement_survival_hard_block_reason = lambda *_args, **_kwargs: None
+    policy._landing_score = lambda _state, _player, pos: float(pos)
+    policy._movement_survival_adjustment = lambda *_args, **_kwargs: 0.0
+    policy._f_move_adjustment = lambda *_args, **_kwargs: 0.0
+    policy._remaining_cards = lambda _player: [1, 4, 6]
+    policy._current_player_intent = lambda *_args, **_kwargs: PlayerIntentState(
+        plan_key="lap_engine",
+        resource_intent="card_preserve",
+        reason="test",
+        source_character=player.current_character,
+        plan_confidence=0.8,
+        plan_start_round=4,
+        expires_after_round=6,
+    )
+
+    result = choose_movement_runtime(policy, state, player)
+    debug = policy.pop_debug("movement_decision", player.player_id)
+
+    assert result.use_cards is True
+    assert debug is not None
+    assert debug["trace"]["decision_type"] == "movement"
+    assert debug["trace"]["features"]["plan_key"] == "lap_engine"
+    assert any(hit["key"] == "preserve_cards_bias" for hit in debug["trace"]["detector_hits"])
 
 
 def test_apply_v2_profile_lap_reward_bias_aggressive_prefers_coins() -> None:
@@ -1830,6 +1914,96 @@ def test_build_purchase_debug_payload_uses_context_and_result_fields() -> None:
     assert payload["blocks_enemy_monopoly"] is True
     assert payload["token_window_value"] == 3.75
     assert isinstance(payload["decision"], bool)
+
+
+def test_build_decision_trace_payload_serializes_detector_hits() -> None:
+    payload = build_decision_trace_payload(
+        DecisionTrace(
+            decision_type="purchase",
+            features={"cash_after": 7.125},
+            detector_hits=(
+                build_detector_hit(
+                    "adv_safe_growth_buy",
+                    kind="advantage",
+                    severity=0.75,
+                    confidence=0.8,
+                    reason="Safe growth window is open.",
+                    tags=("growth",),
+                    score_delta=1.1,
+                ),
+            ),
+            effect_adjustments=({"kind": "benefit", "value": 2.25},),
+            final_choice={"decision": True},
+        )
+    )
+
+    assert payload["decision_type"] == "purchase"
+    assert payload["features"]["cash_after"] == 7.125
+    assert payload["detector_hits"][0]["key"] == "adv_safe_growth_buy"
+    assert payload["detector_hits"][0]["score_delta"] == 1.1
+
+
+def test_build_purchase_debug_payload_embeds_trace_payload() -> None:
+    payload = build_purchase_debug_payload(
+        context=PurchaseDebugContext(
+            source="landing",
+            pos=5,
+            cell_name="T2",
+            cost=2,
+            cash_before=9.0,
+            cash_after=7.0,
+            reserve=4.0,
+            money_distress=0.5,
+            two_turn_lethal_prob=0.15,
+            latent_cleanup_cost=3.0,
+            cleanup_cash_gap=1.0,
+            expected_loss=1.5,
+            worst_loss=3.0,
+            blocks_enemy_monopoly=False,
+            token_window_value=1.0,
+        ),
+        result=build_immediate_win_purchase_result(reserve=4.0),
+        trace=DecisionTrace(
+            decision_type="purchase",
+            features={"benefit": 2.4},
+            detector_hits=(
+                build_detector_hit(
+                    "adv_complete_monopoly",
+                    kind="advantage",
+                    severity=0.95,
+                    confidence=0.95,
+                    reason="Completes a monopoly.",
+                    score_delta=2.4,
+                ),
+            ),
+            effect_adjustments=(),
+            final_choice={"decision": True},
+        ),
+    )
+
+    assert payload["trace"]["decision_type"] == "purchase"
+    assert payload["trace"]["detector_hits"][0]["key"] == "adv_complete_monopoly"
+
+
+def test_choose_purchase_tile_runtime_records_pipeline_trace() -> None:
+    state = GameState.create(GameConfig())
+    player = state.players[0]
+    player.current_character = CARD_TO_NAMES[6][0]
+    player.cash = 12
+    player.shards = 5
+    pos = 6
+    state.board[pos] = CellKind.T3
+    state.tile_owner[pos] = None
+    policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt")
+
+    decision = choose_purchase_tile_runtime(policy, state, player, pos, CellKind.T3, 2, source="landing")
+    debug = policy.pop_debug("purchase_decision", player.player_id)
+
+    assert decision is True
+    assert debug is not None
+    assert debug["trace"]["decision_type"] == "purchase"
+    assert debug["trace"]["features"]["cost"] == 2
+    assert any(hit["key"] in {"adv_safe_low_cost_t3", "adv_baksu_online_exception"} for hit in debug["trace"]["detector_hits"])
 
 
 def test_choose_doctrine_relief_player_id_prefers_self_then_first() -> None:

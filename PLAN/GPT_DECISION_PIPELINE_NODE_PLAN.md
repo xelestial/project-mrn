@@ -3,6 +3,31 @@
 Status: `ACTIVE`
 Role: `canonical plan for rewriting GPT AI decisions into reusable node/pipeline form`
 
+## Current Implementation Snapshot
+
+### Completed In This Pass
+- added shared `DetectorHit` / `DecisionTrace` substrate in [GPT/policy/pipeline_trace.py](/Users/SIL-EDITOR/Desktop/Workspace/project-mrn/GPT/policy/pipeline_trace.py)
+- wired canonical trace payloads into:
+  - purchase decision runtime
+  - movement decision runtime
+  - lap reward runtime
+- reattached movement intent adjustment to the modular runtime path so card-preserve / lap-engine bias is no longer lost after bridge delegation
+- added regression coverage for:
+  - purchase trace embedding
+  - movement trace emission
+  - lap reward trace emission
+
+### What This Means
+- we now have a reusable pipeline-trace substrate for the three highest-frequency economy decisions
+- detector hits are structured instead of living only as ad-hoc booleans in debug payloads
+- replay/live/debug tooling can now consume a common `source -> features -> detector_hits -> effects -> final_choice` shape
+
+### Still Pending
+- character draft / final character trace normalization
+- mark / doctrine / geo / coin placement trace normalization
+- trick-family pipeline work after the manual trick audit
+- optional node-graph visualization layer over the new trace substrate
+
 ## Goal
 Rewrite the existing GPT AI decision logic into a pipeline-oriented structure that is:
 

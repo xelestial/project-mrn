@@ -25,14 +25,16 @@ from policy.decision.mark_target import filter_public_mark_candidates, run_publi
 from policy.decision.coin_placement import choose_coin_placement_tile_id
 from policy.decision.hidden_trick import resolve_hidden_trick_choice_run
 from policy.decision.active_flip import resolve_random_active_flip_choice, resolve_scored_active_flip_choice
-from policy.decision.movement import resolve_movement_choice
+from policy.decision.movement import apply_movement_intent_adjustment, resolve_movement_choice
 from policy.decision.purchase import (
     PurchaseBenefitInputs,
+    PurchaseWindowAssessment,
     TraitPurchaseDecisionInputs,
     assess_purchase_decision_from_inputs,
     assess_v3_purchase_window_with_traits,
     build_immediate_win_purchase_result,
     build_purchase_benefit,
+    build_purchase_decision_trace,
     build_purchase_debug_context,
     build_purchase_debug_payload,
     build_purchase_early_debug_payload,
@@ -41,6 +43,7 @@ from policy.decision.purchase import (
     prepare_v3_purchase_benefit_with_traits,
     would_purchase_trigger_immediate_win,
 )
+from policy.pipeline_trace import DecisionTrace, build_decision_trace_payload, build_detector_hit
 from policy.decision.support_choices import count_burden_cards, choose_geo_bonus_kind, GeoBonusDecisionInputs
 from policy.decision.trick_reward import resolve_trick_reward_choice_run
 from policy.decision.trick_usage import apply_trick_preserve_rules, build_trick_use_debug_payload, resolve_trick_use_choice
@@ -116,6 +119,30 @@ def choose_purchase_tile_runtime(
 
     if immediate_win:
         result = build_immediate_win_purchase_result(reserve=reserve)
+        purchase_trace = build_purchase_decision_trace(
+            context=build_purchase_debug_context(
+                source=source,
+                pos=pos,
+                cell_name=cell.name,
+                cost=cost,
+                cash_before=float(player.cash),
+                cash_after=float(remaining_cash),
+                reserve=float(reserve),
+                money_distress=float(survival_view.money_distress),
+                two_turn_lethal_prob=float(survival_view.signals.two_turn_lethal_prob),
+                latent_cleanup_cost=float(survival_view.latent_cleanup_cost),
+                cleanup_cash_gap=float(survival_view.cleanup_cash_gap),
+                expected_loss=float(liquidity["expected_loss"]),
+                worst_loss=float(liquidity["worst_loss"]),
+                blocks_enemy_monopoly=blocks_enemy,
+                token_window_value=float(0.0),
+            ),
+            result=result,
+            benefit=float(cost),
+            complete_monopoly=complete_monopoly,
+            hard_reason=None,
+            purchase_window=None,
+        )
     else:
         owned_in_block = count_owned_tiles_in_block(
             block_ids=state.block_ids,
@@ -151,6 +178,69 @@ def choose_purchase_tile_runtime(
                 current_benefit=benefit,
             )
             if prepared.early_token_window_veto:
+                purchase_trace = build_purchase_decision_trace(
+                    context=build_purchase_debug_context(
+                        source=source,
+                        pos=pos,
+                        cell_name=cell.name,
+                        cost=cost,
+                        cash_before=float(player.cash),
+                        cash_after=float(remaining_cash),
+                        reserve=float(reserve),
+                        money_distress=float(survival_view.money_distress),
+                        two_turn_lethal_prob=float(survival_view.signals.two_turn_lethal_prob),
+                        latent_cleanup_cost=float(survival_view.latent_cleanup_cost),
+                        cleanup_cash_gap=float(survival_view.cleanup_cash_gap),
+                        expected_loss=float(liquidity["expected_loss"]),
+                        worst_loss=float(liquidity["worst_loss"]),
+                        blocks_enemy_monopoly=blocks_enemy,
+                        token_window_value=float(token_window_value),
+                    ),
+                    result=assess_purchase_decision_from_inputs(
+                        TraitPurchaseDecisionInputs(
+                            profile=profile,
+                            current_character=player.current_character,
+                            cash_before=float(player.cash),
+                            remaining_cash=float(remaining_cash),
+                            reserve=float(reserve),
+                            reserve_floor=float(reserve),
+                            benefit=float(benefit),
+                            token_window_value=float(token_window_value),
+                            money_distress=float(survival_view.money_distress),
+                            complete_monopoly=complete_monopoly,
+                            blocks_enemy=blocks_enemy,
+                            hard_reason=None,
+                            own_burdens=float(survival_view.own_burdens),
+                            next_neg=float(survival_view.next_draw_negative_cleanup_prob),
+                            two_neg=float(survival_view.two_draw_negative_cleanup_prob),
+                            negative_cards=float(survival_view.remaining_negative_cleanup_cards),
+                            downside_cleanup=float(survival_view.downside_expected_cleanup_cost),
+                            worst_cleanup=float(survival_view.worst_cleanup_cost),
+                            public_cleanup_active=bool(survival_view.public_cleanup_active),
+                            active_cleanup_cost=float(survival_view.active_cleanup_cost),
+                            latent_cleanup_cost=float(survival_view.latent_cleanup_cost),
+                            purchase_window=PurchaseWindowAssessment(
+                                reserve_floor=float(reserve),
+                                safe_low_cost_t3=prepared.safe_low_cost_t3,
+                                safe_growth_buy=prepared.safe_growth_buy,
+                                token_preferred=True,
+                                v3_cleanup_soft_block=False,
+                                baksu_online_exception=False,
+                            ),
+                        )
+                    ),
+                    benefit=float(benefit),
+                    complete_monopoly=complete_monopoly,
+                    hard_reason=None,
+                    purchase_window=PurchaseWindowAssessment(
+                        reserve_floor=float(reserve),
+                        safe_low_cost_t3=prepared.safe_low_cost_t3,
+                        safe_growth_buy=prepared.safe_growth_buy,
+                        token_preferred=True,
+                        v3_cleanup_soft_block=False,
+                        baksu_online_exception=False,
+                    ),
+                )
                 policy._set_debug(
                     "buy",
                     player.player_id,
@@ -163,6 +253,7 @@ def choose_purchase_tile_runtime(
                         reason="v3_prefers_token_window",
                         benefit=benefit,
                         token_window=token_window_value,
+                        trace=purchase_trace,
                     ),
                 )
                 return False
@@ -226,6 +317,35 @@ def choose_purchase_tile_runtime(
                 purchase_window=purchase_window,
             )
         )
+        purchase_trace = build_purchase_decision_trace(
+            context=build_purchase_debug_context(
+                source=source,
+                pos=pos,
+                cell_name=cell.name,
+                cost=cost,
+                cash_before=float(player.cash),
+                cash_after=float(remaining_cash),
+                reserve=float(reserve),
+                money_distress=float(survival_view.money_distress),
+                two_turn_lethal_prob=float(survival_view.signals.two_turn_lethal_prob),
+                latent_cleanup_cost=float(survival_view.latent_cleanup_cost),
+                cleanup_cash_gap=float(survival_view.cleanup_cash_gap),
+                expected_loss=float(liquidity["expected_loss"]),
+                worst_loss=float(liquidity["worst_loss"]),
+                blocks_enemy_monopoly=blocks_enemy,
+                token_window_value=float(0.0 if immediate_win else token_window_value),
+            ),
+            result=result,
+            benefit=float(benefit),
+            complete_monopoly=complete_monopoly,
+            hard_reason=policy._survival_hard_guard_reason(
+                state,
+                player,
+                survival_ctx,
+                post_action_cash=remaining_cash,
+            ),
+            purchase_window=purchase_window,
+        )
 
     policy._set_debug(
         "purchase_decision",
@@ -249,9 +369,83 @@ def choose_purchase_tile_runtime(
                 token_window_value=float(0.0 if immediate_win else token_window_value),
             ),
             result=result,
+            trace=purchase_trace,
         ),
     )
     return result.decision
+
+
+def _build_movement_trace(*, resolution: Any, intent: Any, f_ctx: dict[str, Any], remaining_cards: tuple[int, ...]) -> DecisionTrace:
+    detector_hits = []
+    if resolution.use_cards and intent.resource_intent == "card_preserve":
+        detector_hits.append(
+            build_detector_hit(
+                "preserve_cards_bias",
+                kind="guard",
+                severity=0.72,
+                confidence=0.82,
+                reason="Turn plan prefers preserving cards, so card-spend movement needs a clear upside.",
+                tags=("movement", "intent"),
+                score_delta=-0.55 * len(resolution.card_values),
+            )
+        )
+    if bool(f_ctx["is_leader"]) and resolution.score >= resolution.avg_no_cards + 6.0:
+        detector_hits.append(
+            build_detector_hit(
+                "leader_spike_window",
+                kind="advantage",
+                severity=0.75,
+                confidence=0.78,
+                reason="Leader status allows a strong tempo spike from this movement line.",
+                tags=("movement", "tempo"),
+                score_delta=0.4,
+            )
+        )
+    if len(resolution.card_values) >= 2 and intent.plan_key == "lap_engine":
+        detector_hits.append(
+            build_detector_hit(
+                "two_card_commit_window",
+                kind="advantage",
+                severity=0.68,
+                confidence=0.76,
+                reason="Two-card movement is being accepted as part of an active lap-engine push.",
+                tags=("movement", "lap_engine"),
+                score_delta=resolution.score - resolution.avg_no_cards,
+            )
+        )
+
+    return DecisionTrace(
+        decision_type="movement",
+        features={
+            "avg_no_cards": resolution.avg_no_cards,
+            "chosen_score": resolution.score,
+            "remaining_cards": list(remaining_cards),
+            "plan_key": intent.plan_key,
+            "resource_intent": intent.resource_intent,
+            "is_leader": bool(f_ctx["is_leader"]),
+            "land_f_value": float(f_ctx["land_f_value"]),
+            "avoid_f_acceleration": float(f_ctx["avoid_f_acceleration"]),
+        },
+        detector_hits=tuple(detector_hits),
+        effect_adjustments=(
+            {
+                "kind": "single_card_scores",
+                "values": {str(card): round(score, 3) for card, score in resolution.single_card_scores},
+            },
+            {
+                "kind": "double_card_scores",
+                "values": {
+                    f"{first}+{second}": round(score, 3)
+                    for (first, second), score in resolution.double_card_scores
+                },
+            },
+        ),
+        final_choice={
+            "use_cards": resolution.use_cards,
+            "card_values": list(resolution.card_values),
+            "score": round(float(resolution.score), 3),
+        },
+    )
 
 
 def choose_movement_runtime(policy: Any, state: Any, player: Any):
@@ -260,6 +454,7 @@ def choose_movement_runtime(policy: Any, state: Any, player: Any):
     board_len = len(state.board)
     survival_ctx = policy._generic_survival_context(state, player, player.current_character)
     f_ctx = policy._f_progress_context(state, player)
+    intent = policy._current_player_intent(state, player, player.current_character)
     token_profile = policy._profile_from_mode() == "token_opt"
 
     def _move_bonus(pos: int) -> float:
@@ -317,6 +512,16 @@ def choose_movement_runtime(policy: Any, state: Any, player: Any):
             use_cards=use_cards,
             card_count=card_count,
         )
+        score += apply_movement_intent_adjustment(
+            current_character=player.current_character,
+            rounds_completed=int(getattr(state, "rounds_completed", getattr(state, "round_index", 0))),
+            cell_kind=state.board[pos],
+            owner=state.tile_owner[pos],
+            crosses_start=(player.position + move_total >= len(state.board)),
+            use_cards=use_cards,
+            card_count=card_count,
+            intent=intent,
+        )
         if use_cards and predicted_cost > 0.0 and not policy._is_action_survivable(
             state,
             player,
@@ -334,10 +539,11 @@ def choose_movement_runtime(policy: Any, state: Any, player: Any):
             pos = (player.position + move_total) % board_len
             base_scores.append(_eval_move(pos, move_total, use_cards=False, card_count=0))
     avg_no_cards = sum(base_scores) / len(base_scores)
+    remaining_cards = tuple(policy._remaining_cards(player))
 
     resolution = resolve_movement_choice(
         avg_no_cards=avg_no_cards,
-        remaining_cards=tuple(policy._remaining_cards(player)),
+        remaining_cards=remaining_cards,
         single_card_scorer=lambda card_value, die_roll: _eval_move(
             (player.position + card_value + die_roll) % board_len,
             card_value + die_roll,
@@ -353,6 +559,26 @@ def choose_movement_runtime(policy: Any, state: Any, player: Any):
         leader_trigger_value=lambda best_outcome, avg_score: (
             0.40 if bool(f_ctx["is_leader"]) and best_outcome >= avg_score + 6.0 else 0.0
         ),
+    )
+    policy._set_debug(
+        "movement_decision",
+        player.player_id,
+        {
+            "decision": {
+                "use_cards": resolution.use_cards,
+                "card_values": list(resolution.card_values),
+                "score": round(float(resolution.score), 3),
+                "avg_no_cards": round(float(resolution.avg_no_cards), 3),
+            },
+            "trace": build_decision_trace_payload(
+                _build_movement_trace(
+                    resolution=resolution,
+                    intent=intent,
+                    f_ctx=f_ctx,
+                    remaining_cards=remaining_cards,
+                )
+            ),
+        },
     )
     return MovementDecision(resolution.use_cards, resolution.card_values)
 
@@ -944,10 +1170,121 @@ def choose_lap_reward_runtime(policy: Any, state: Any, player: Any) -> Any:
         )
     )
 
+    def _record_lap_reward_debug(
+        *,
+        decision: Any,
+        cash_score: float,
+        shard_score: float,
+        coin_score: float,
+        preferred: str | None,
+        token_window_score: float = 0.0,
+        rich_pool: float = 0.0,
+        plan_ctx: Any | None = None,
+    ) -> None:
+        detector_hits = []
+        if survival_cash_pressure:
+            detector_hits.append(
+                build_detector_hit(
+                    "adv_cleanup_cash_pressure",
+                    kind="advantage",
+                    severity=0.85,
+                    confidence=0.9,
+                    reason="Cash is being prioritized because survival pressure is high.",
+                    tags=("lap_reward", "survival"),
+                    score_delta=1.0,
+                )
+            )
+        if player.shards < 5 and decision.choice == "shards":
+            detector_hits.append(
+                build_detector_hit(
+                    "adv_shard_checkpoint",
+                    kind="advantage",
+                    severity=0.8,
+                    confidence=0.88,
+                    reason="Shard reward advances an important checkpoint for the current character plan.",
+                    tags=("lap_reward", "shards"),
+                    score_delta=max(0.0, shard_score - cash_score),
+                )
+            )
+        if decision.choice == "coins" and placeable:
+            detector_hits.append(
+                build_detector_hit(
+                    "adv_coin_conversion_window",
+                    kind="advantage",
+                    severity=0.76,
+                    confidence=0.82,
+                    reason="Score-coin conversion window is open on owned land.",
+                    tags=("lap_reward", "coins"),
+                    score_delta=max(0.0, coin_score - cash_score),
+                )
+            )
+        if plan_ctx is not None and plan_ctx.plan_key == "lap_engine" and decision.choice in {"coins", "cash"}:
+            detector_hits.append(
+                build_detector_hit(
+                    "adv_lap_engine_window",
+                    kind="advantage",
+                    severity=0.7,
+                    confidence=0.78,
+                    reason="Lap-engine plan is shaping the reward toward tempo resources.",
+                    tags=("lap_reward", "lap_engine"),
+                    score_delta=max(cash_score, coin_score) - shard_score,
+                )
+            )
+
+        trace = DecisionTrace(
+            decision_type="lap_reward",
+            features={
+                "mode": mode,
+                "cash": player.cash,
+                "shards": player.shards,
+                "hand_coins": player.hand_coins,
+                "placeable": placeable,
+                "buy_value": buy_value,
+                "cross_start": cross_start,
+                "land_f": land_f,
+                "land_f_value": float(f_ctx["land_f_value"]),
+                "token_window_score": token_window_score,
+                "cleanup_stage": cleanup_strategy.cleanup_stage,
+                "survival_cash_pressure": survival_cash_pressure,
+                "rich_pool": rich_pool,
+                "plan_key": None if plan_ctx is None else plan_ctx.plan_key,
+                "resource_intent": None if plan_ctx is None else plan_ctx.resource_intent,
+            },
+            detector_hits=tuple(detector_hits),
+            effect_adjustments=(
+                {"kind": "cash_score", "value": round(float(cash_score), 3)},
+                {"kind": "shard_score", "value": round(float(shard_score), 3)},
+                {"kind": "coin_score", "value": round(float(coin_score), 3)},
+                {"kind": "preferred", "value": preferred},
+            ),
+            final_choice={
+                "choice": decision.choice,
+                "cash_units": decision.cash_units,
+                "shard_units": decision.shard_units,
+                "coin_units": decision.coin_units,
+            },
+        )
+        policy._set_debug(
+            "lap_reward",
+            player.player_id,
+            {
+                "decision": {
+                    "choice": decision.choice,
+                    "cash_units": decision.cash_units,
+                    "shard_units": decision.shard_units,
+                    "coin_units": decision.coin_units,
+                },
+                "trace": build_decision_trace_payload(trace),
+            },
+        )
+
     if mode.startswith("heuristic_v2_") or mode == "heuristic_v3_gpt":
         profile = policy._profile_from_mode(mode)
         current_char = player.current_character
         preferred_override: str | None = None
+        token_window_score = 0.0
+        rich_pool = 0.0
+        plan_ctx = None
 
         coin_score = (
             (2.5 if placeable else -0.5)
@@ -985,6 +1322,15 @@ def choose_lap_reward_runtime(policy: Any, state: Any, player: Any) -> Any:
         if profile == "v3_gpt":
             token_window = policy._token_placement_window_metrics(state, player)
             lap_ctx = policy._lap_engine_context(state, player)
+            token_window_score = float(token_window["window_score"])
+            rich_pool = float(lap_ctx["rich_pool"])
+            plan_ctx = build_turn_plan_context(
+                policy._current_player_intent(state, player, current_char),
+                cleanup_strategy,
+                current_character=current_char,
+                cash=player.cash,
+                shards=player.shards,
+            )
             cash_score, shard_score, coin_score, preferred = evaluate_v3_lap_reward(
                 V3LapRewardInputs(
                     current_character=current_char,
@@ -997,7 +1343,7 @@ def choose_lap_reward_runtime(policy: Any, state: Any, player: Any) -> Any:
                     land_f=land_f,
                     land_f_value=float(f_ctx["land_f_value"]),
                     own_land=policy._prob_land_on_placeable_own_tile(state, player),
-                    token_window_score=float(token_window["window_score"]),
+                    token_window_score=token_window_score,
                     token_window_nearest_distance=float(token_window["nearest_distance"]),
                     token_window_revisit_prob=float(token_window["revisit_prob"]),
                     cleanup_pressure=float(survival_ctx.get("cleanup_pressure", 0.0)),
@@ -1012,20 +1358,14 @@ def choose_lap_reward_runtime(policy: Any, state: Any, player: Any) -> Any:
                     cleanup_stage=cleanup_strategy.cleanup_stage,
                     cleanup_stage_score=cleanup_strategy.stage_score,
                     is_leader=bool(f_ctx["is_leader"]),
-                    rich_pool=float(lap_ctx["rich_pool"]),
+                    rich_pool=rich_pool,
                     is_baksu=is_baksu(current_char),
                     is_mansin=is_mansin(current_char),
                     is_shard_hunter=is_shard_hunter_character(current_char),
                     is_controller=is_controller_character(current_char),
                     is_gakju=is_gakju(current_char),
                 ),
-                plan_ctx=build_turn_plan_context(
-                    policy._current_player_intent(state, player, current_char),
-                    cleanup_strategy,
-                    current_character=current_char,
-                    cash=player.cash,
-                    shards=player.shards,
-                ),
+                plan_ctx=plan_ctx,
             )
             cash_unit, shard_unit, coin_unit, preferred = normalize_lap_reward_scores(
                 cash_score=cash_score,
@@ -1036,7 +1376,18 @@ def choose_lap_reward_runtime(policy: Any, state: Any, player: Any) -> Any:
                 lap_reward_coins=float(state.config.coins.lap_reward_coins),
                 preferred_override=preferred,
             )
-            return policy._lap_reward_bundle(state, cash_unit, shard_unit, coin_unit, preferred=preferred)
+            decision = policy._lap_reward_bundle(state, cash_unit, shard_unit, coin_unit, preferred=preferred)
+            _record_lap_reward_debug(
+                decision=decision,
+                cash_score=cash_score,
+                shard_score=shard_score,
+                coin_score=coin_score,
+                preferred=preferred,
+                token_window_score=token_window_score,
+                rich_pool=rich_pool,
+                plan_ctx=plan_ctx,
+            )
+            return decision
 
         if profile in {"control", "growth", "avoid_control", "aggressive", "token_opt"}:
             denial_snapshot = policy._leader_denial_snapshot(state, player) if profile == "control" else {}
@@ -1044,6 +1395,7 @@ def choose_lap_reward_runtime(policy: Any, state: Any, player: Any) -> Any:
             rent_pressure, _ = policy._rent_pressure_breakdown(state, player, current_char or "") if profile == "control" else (0.0, [])
             burden_context = policy._burden_context(state, player) if profile == "control" else {}
             token_window = policy._token_placement_window_metrics(state, player) if profile == "token_opt" else {"window_score": 0.0, "placeable_count": 0.0, "nearest_distance": 999.0, "revisit_prob": 0.0}
+            token_window_score = float(token_window["window_score"])
             cash_score, shard_score, coin_score, preferred_profile = apply_v2_profile_lap_reward_bias(
                 cash_score,
                 shard_score,
@@ -1059,7 +1411,7 @@ def choose_lap_reward_runtime(policy: Any, state: Any, player: Any) -> Any:
                     land_f_value=float(f_ctx["land_f_value"]),
                     own_land=policy._prob_land_on_placeable_own_tile(state, player) if profile == "token_opt" else 0.0,
                     token_combo=policy._token_teleport_combo_score(player) if profile == "token_opt" else 0.0,
-                    token_window_score=float(token_window["window_score"]),
+                    token_window_score=token_window_score,
                     token_window_placeable_count=float(token_window["placeable_count"]),
                     token_window_nearest_distance=float(token_window["nearest_distance"]),
                     token_window_revisit_prob=float(token_window["revisit_prob"]),
@@ -1093,7 +1445,18 @@ def choose_lap_reward_runtime(policy: Any, state: Any, player: Any) -> Any:
             lap_reward_coins=float(state.config.coins.lap_reward_coins),
             preferred_override=preferred_override,
         )
-        return policy._lap_reward_bundle(state, cash_unit, shard_unit, coin_unit, preferred=preferred)
+        decision = policy._lap_reward_bundle(state, cash_unit, shard_unit, coin_unit, preferred=preferred)
+        _record_lap_reward_debug(
+            decision=decision,
+            cash_score=cash_score,
+            shard_score=shard_score,
+            coin_score=coin_score,
+            preferred=preferred,
+            token_window_score=token_window_score,
+            rich_pool=rich_pool,
+            plan_ctx=plan_ctx,
+        )
+        return decision
 
     if mode == "balanced":
         cash_unit, shard_unit, coin_unit, preferred = evaluate_basic_lap_reward(
@@ -1107,7 +1470,15 @@ def choose_lap_reward_runtime(policy: Any, state: Any, player: Any) -> Any:
             ),
             balanced=True,
         )
-        return policy._lap_reward_bundle(state, cash_unit, shard_unit, coin_unit, preferred=preferred)
+        decision = policy._lap_reward_bundle(state, cash_unit, shard_unit, coin_unit, preferred=preferred)
+        _record_lap_reward_debug(
+            decision=decision,
+            cash_score=cash_unit,
+            shard_score=shard_unit,
+            coin_score=coin_unit,
+            preferred=preferred,
+        )
+        return decision
 
     cash_unit, shard_unit, coin_unit, preferred = evaluate_basic_lap_reward(
         BasicLapRewardInputs(
@@ -1120,4 +1491,12 @@ def choose_lap_reward_runtime(policy: Any, state: Any, player: Any) -> Any:
         ),
         balanced=False,
     )
-    return policy._lap_reward_bundle(state, cash_unit, shard_unit, coin_unit, preferred=preferred)
+    decision = policy._lap_reward_bundle(state, cash_unit, shard_unit, coin_unit, preferred=preferred)
+    _record_lap_reward_debug(
+        decision=decision,
+        cash_score=cash_unit,
+        shard_score=shard_unit,
+        coin_score=coin_unit,
+        preferred=preferred,
+    )
+    return decision

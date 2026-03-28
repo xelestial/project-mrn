@@ -1,3 +1,10 @@
+## v0.7.63-ai-trace (2026-03-29)
+- Added shared AI decision-trace substrate in `policy/pipeline_trace.py` so detector hits, feature snapshots, and final choices can be serialized in a consistent shape.
+- Purchase decisions now emit structured trace payloads, including monopoly/denial windows, safe growth buys, token-window redirects, cleanup locks, and hard survival guards.
+- Movement decisions now emit structured trace payloads and once again apply turn-intent adjustments (`card_preserve`, lap-engine two-card commitment, leader spike windows) inside the runtime-bridge path.
+- Lap reward decisions now emit structured trace payloads with shard checkpoint, cleanup cash pressure, coin-conversion window, and lap-engine signals.
+- Added regression coverage for the new trace substrate and ran a 30-game `heuristic_v3_gpt` smoke batch without runtime errors.
+
 ## v0.7.62-replay-ui (2026-03-29)
 - Added a replay-viewer UI history pass so viewer-facing polish changes are recorded explicitly instead of being hidden inside bug-fix commits.
 - Completed the GPT human-play prompt-envelope cleanup so the active runtime now consumes canonical `request_type` / `legal_choices` / `public_context` fields without legacy `type` / `options` mirrors or top-level context flattening.

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from config import CellKind
 from policy.character_traits import is_baksu, is_growth_character, is_token_window_character
 from policy.context.survival_context import PolicySurvivalContext
+from policy.pipeline_trace import DecisionTrace, build_decision_trace_payload, build_detector_hit
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +135,7 @@ def build_purchase_early_debug_payload(
     cash: float | None = None,
     benefit: float | None = None,
     token_window: float | None = None,
+    trace: DecisionTrace | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "source": source,
@@ -151,6 +153,8 @@ def build_purchase_early_debug_payload(
         payload["benefit"] = round(benefit, 3)
     if token_window is not None:
         payload["token_window"] = round(token_window, 3)
+    if trace is not None:
+        payload["trace"] = build_decision_trace_payload(trace)
     return payload
 
 
@@ -707,12 +711,194 @@ def assess_purchase_decision_from_inputs(inputs: TraitPurchaseDecisionInputs) ->
     )
 
 
+def build_purchase_decision_trace(
+    *,
+    context: PurchaseDebugContext,
+    result: PurchaseDecisionResult,
+    benefit: float,
+    complete_monopoly: bool,
+    hard_reason: str | None,
+    purchase_window: PurchaseWindowAssessment | None,
+) -> DecisionTrace:
+    detector_hits = []
+    if complete_monopoly:
+        detector_hits.append(
+            build_detector_hit(
+                "adv_complete_monopoly",
+                kind="advantage",
+                severity=0.95,
+                confidence=0.95,
+                reason="This purchase completes a monopoly and sharply improves board control.",
+                tags=("endgame", "territory"),
+                score_delta=2.4,
+            )
+        )
+    if context.blocks_enemy_monopoly:
+        detector_hits.append(
+            build_detector_hit(
+                "adv_block_enemy_monopoly",
+                kind="advantage",
+                severity=0.9,
+                confidence=0.9,
+                reason="This purchase blocks an opposing monopoly window.",
+                tags=("denial", "territory"),
+                score_delta=3.2,
+            )
+        )
+    if purchase_window is not None and purchase_window.safe_low_cost_t3:
+        detector_hits.append(
+            build_detector_hit(
+                "adv_safe_low_cost_t3",
+                kind="advantage",
+                severity=0.7,
+                confidence=0.8,
+                reason="Low-cost T3 growth is available without breaking the reserve floor.",
+                tags=("growth", "tempo"),
+                score_delta=1.45,
+            )
+        )
+    if purchase_window is not None and purchase_window.safe_growth_buy:
+        detector_hits.append(
+            build_detector_hit(
+                "adv_safe_growth_buy",
+                kind="advantage",
+                severity=0.68,
+                confidence=0.8,
+                reason="Safe expansion window is open on a buyable tile.",
+                tags=("growth", "tempo"),
+                score_delta=1.1,
+            )
+        )
+    if purchase_window is not None and purchase_window.baksu_online_exception:
+        detector_hits.append(
+            build_detector_hit(
+                "adv_baksu_online_exception",
+                kind="advantage",
+                severity=0.78,
+                confidence=0.86,
+                reason="Baksu online exception allows this purchase despite tight reserve math.",
+                tags=("character", "exception"),
+                score_delta=0.85,
+            )
+        )
+    if result.token_preferred:
+        detector_hits.append(
+            build_detector_hit(
+                "avoid_token_window_overbuy",
+                kind="guard",
+                severity=0.82,
+                confidence=0.88,
+                reason="A stronger score-coin window is available than this purchase.",
+                tags=("token_window", "opportunity_cost"),
+                score_delta=-max(0.0, context.token_window_value - benefit),
+            )
+        )
+    if result.v3_cleanup_soft_block:
+        detector_hits.append(
+            build_detector_hit(
+                "avoid_cleanup_soft_block",
+                kind="guard",
+                severity=0.8,
+                confidence=0.9,
+                reason="Cleanup pressure makes this purchase too greedy for the current reserve.",
+                tags=("cleanup", "survival"),
+                score_delta=-1.5,
+            )
+        )
+    if result.cleanup_lock:
+        detector_hits.append(
+            build_detector_hit(
+                "avoid_cleanup_lock",
+                kind="guard",
+                severity=0.9,
+                confidence=0.92,
+                reason="The resulting cash would lock the player under cleanup risk.",
+                tags=("cleanup", "survival"),
+                score_delta=-2.0,
+            )
+        )
+    if result.danger_cash:
+        detector_hits.append(
+            build_detector_hit(
+                "danger_cash_floor",
+                kind="risk",
+                severity=0.6,
+                confidence=0.8,
+                reason="Cash after purchase falls close to the danger floor.",
+                tags=("cash", "reserve"),
+                score_delta=-0.75,
+            )
+        )
+    if hard_reason is not None:
+        detector_hits.append(
+            build_detector_hit(
+                "survival_hard_guard",
+                kind="guard",
+                severity=1.0,
+                confidence=1.0,
+                reason=f"Hard survival guard triggered: {hard_reason}",
+                tags=("survival", "hard_block"),
+                score_delta=-4.0,
+            )
+        )
+
+    effect_adjustments: list[dict[str, object]] = [
+        {"kind": "benefit", "value": round(float(benefit), 3)},
+        {"kind": "reserve_floor", "value": round(float(result.reserve_floor), 3)},
+        {"kind": "shortfall", "value": round(float(result.shortfall), 3)},
+    ]
+    if purchase_window is not None:
+        effect_adjustments.extend(
+            (
+                {"kind": "token_preferred", "value": bool(purchase_window.token_preferred)},
+                {"kind": "safe_low_cost_t3", "value": bool(purchase_window.safe_low_cost_t3)},
+                {"kind": "safe_growth_buy", "value": bool(purchase_window.safe_growth_buy)},
+            )
+        )
+
+    return DecisionTrace(
+        decision_type="purchase",
+        features={
+            "source": context.source,
+            "pos": context.pos,
+            "cell": context.cell_name,
+            "cost": context.cost,
+            "cash_before": context.cash_before,
+            "cash_after": context.cash_after,
+            "reserve": context.reserve,
+            "reserve_floor": result.reserve_floor,
+            "shortfall": result.shortfall,
+            "benefit": benefit,
+            "money_distress": context.money_distress,
+            "two_turn_lethal_prob": context.two_turn_lethal_prob,
+            "latent_cleanup_cost": context.latent_cleanup_cost,
+            "cleanup_cash_gap": context.cleanup_cash_gap,
+            "expected_loss": context.expected_loss,
+            "worst_loss": context.worst_loss,
+            "token_window_value": context.token_window_value,
+            "complete_monopoly": complete_monopoly,
+            "blocks_enemy_monopoly": context.blocks_enemy_monopoly,
+            "hard_reason": hard_reason,
+        },
+        detector_hits=tuple(detector_hits),
+        effect_adjustments=tuple(effect_adjustments),
+        final_choice={
+            "decision": result.decision,
+            "danger_cash": result.danger_cash,
+            "cleanup_lock": result.cleanup_lock,
+            "token_preferred": result.token_preferred,
+            "v3_cleanup_soft_block": result.v3_cleanup_soft_block,
+        },
+    )
+
+
 def build_purchase_debug_payload(
     *,
     context: PurchaseDebugContext,
     result: PurchaseDecisionResult,
+    trace: DecisionTrace | None = None,
 ) -> dict[str, object]:
-    return {
+    payload = {
         "source": context.source,
         "pos": context.pos,
         "cell": context.cell_name,
@@ -730,3 +916,6 @@ def build_purchase_debug_payload(
         "token_window_value": round(context.token_window_value, 3),
         "decision": result.decision,
     }
+    if trace is not None:
+        payload["trace"] = build_decision_trace_payload(trace)
+    return payload
