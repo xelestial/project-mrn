@@ -144,6 +144,24 @@ What remains:
 Primary area:
 - replay renderer / projection compatibility, not human-play runtime
 
+신규 발견 항목 (2026-03-29 전체 코드 리뷰):
+
+**G6-a. `html_renderer.py` — `marker_transferred` 필드명 불일치**
+- `html_renderer.py:207`: `event.get("from_owner")` 읽음
+- CLAUDE engine: `from_player_id`, `to_player_id`로 emit
+- 결과: 리플레이에서 징표 이동 표시가 항상 "?" 출력
+- 수정: `from_owner` → `from_player_id`, `to_owner` → `to_player_id`
+
+**G6-b. `replay.py` — `weather_reveal` dead-code fallback**
+- `replay.py:176-178`: `weather_name | weather | card` 순서로 fallback
+- CLAUDE는 항상 `weather_name`만 emit — `weather`, `card` 분기는 dead code
+- 수정: fallback 제거, `weather_name` 직접 사용
+
+**G4-a. `prompt_contract.py` — legacy alias 잔존**
+- `"type"` (= `request_type`) 미러, `"options"` (= `legal_choices`) 미러 존재
+- `public_context.update(envelope)` 순서 footgun — context 필드가 envelope 덮어쓸 수 있음
+- G4 정리 시 함께 처리 권장
+
 ## CLAUDE Status
 
 ### CLAUDE work closed
@@ -197,6 +215,38 @@ Reviewed: `2026-03-29`
 - `tile_kind` / `public_effects` 문자열: 이식 가능 형태 확인
 - renderer-only 필드가 core contract에 유입된 케이스 없음
 
+#### C5. `remaining_dice_cards` CLAUDE public_state 누락
+Priority: `P1`
+Status: `OPEN`
+발견: `2026-03-29` — 전체 코드 리뷰
+
+문제:
+- GPT `PlayerPublicState`에 `remaining_dice_cards` 필드 존재
+- CLAUDE `PlayerPublicState`에 해당 필드 없음
+- CLAUDE 엔진은 `player.used_dice_cards` 정상 추적 중
+
+영향:
+- CLAUDE `turn_end_snapshot` 스냅샷 불완전 — 렌더러 주사위 카드 표시 불일치
+
+수정 대상:
+- `CLAUDE/viewer/public_state.py` — 필드 추가 및 builder 보강
+- `CLAUDE/validate_gpt_viewer_compat.py` — 검증 항목 추가
+
+#### C6. `public_effects.all_rent_waiver` CLAUDE에서 누락
+Priority: `P2`
+Status: `OPEN`
+발견: `2026-03-29` — 전체 코드 리뷰
+
+문제:
+- GPT `public_effects` 매핑에 `trick_all_rent_waiver_this_turn → "all_rent_waiver"` 존재
+- CLAUDE `public_effects` 매핑에 해당 항목 없음
+
+영향:
+- 임대료 면제 트릭 발동 시 GPT/CLAUDE 스냅샷 불일치
+
+수정 대상:
+- `CLAUDE/viewer/public_state.py` — `build_player_public_state()` public_effects 리스트에 항목 추가
+
 ## Shared Coordination Items
 
 ### S1. Freeze prompt value semantics
@@ -237,3 +287,5 @@ This proposal can be treated as closed when all of the following are true:
 - CLAUDE substrate follow-up uses canonical public-state names ✅ `2026-03-29`
 - replay/live renderer stack no longer depends on contract drift (GPT: G6 open)
 - Phase 5 substrate completeness confirmed (CLAUDE: C3 partially done)
+- `remaining_dice_cards` 동기화 (CLAUDE: C5 open, GPT: G6 연계)
+- `public_effects.all_rent_waiver` 동기화 (CLAUDE: C6 open)

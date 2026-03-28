@@ -103,6 +103,65 @@ Reviewed: `2026-03-29`
 - `public_effects` 문자열 레이블: 렌더러 표시용이나 이식 가능한 형태. 현재 조치 불필요.
 - renderer-only 필드가 core contract에 유입된 케이스 없음 확인.
 
+## 전체 코드 리뷰 신규 발견 항목 (2026-03-29)
+
+GPT/CLAUDE 시각화 전체 코드 리뷰 후 발견된 추가 이슈.
+
+### C6. `remaining_dice_cards` CLAUDE public_state 누락
+Priority: `P1`
+Status: `OPEN`
+발견: `2026-03-29`
+
+**문제**:
+- GPT `viewer/public_state.py`의 `PlayerPublicState`에 `remaining_dice_cards: list[int]` 필드 존재
+- CLAUDE `viewer/public_state.py`의 `PlayerPublicState`에 해당 필드 없음
+- CLAUDE 엔진은 `player.used_dice_cards`를 정상 추적 중이므로 계산 가능
+
+**영향**:
+- CLAUDE `turn_end_snapshot` 스냅샷에 `remaining_dice_cards` 누락
+- 리플레이/라이브 렌더러에서 주사위 카드 표시 정보 불일치
+
+**수정 방향**:
+```python
+# CLAUDE/viewer/public_state.py — PlayerPublicState에 추가
+remaining_dice_cards: list[int]
+
+# build_player_public_state()에 추가 (GPT와 동일 로직)
+remaining_dice_cards=[
+    int(v)
+    for v in getattr(state.config.rules.dice, "values", ())
+    if int(v) not in set(getattr(player, "used_dice_cards", set()) or set())
+],
+```
+
+검증 스크립트에도 추가 필요:
+```python
+# validate_gpt_viewer_compat.py turn_end_snapshot.players 검증에 추가
+"remaining_dice_cards"
+```
+
+### C7. `public_effects` — `all_rent_waiver` 항목 CLAUDE에서 누락
+Priority: `P2`
+Status: `OPEN`
+발견: `2026-03-29`
+
+**문제**:
+GPT `viewer/public_state.py`의 `public_effects` 매핑 (9개):
+```python
+("trick_all_rent_waiver_this_turn", "all_rent_waiver"),  # ← CLAUDE에 없음
+```
+CLAUDE `viewer/public_state.py`의 `public_effects` 매핑 (8개): 해당 항목 없음
+
+**영향**:
+- 임대료 면제 트릭이 발동된 플레이어의 `public_effects`에 `"all_rent_waiver"` 표시 안 됨
+- GPT 스냅샷과 CLAUDE 스냅샷 불일치
+
+**수정 방향**:
+```python
+# CLAUDE/viewer/public_state.py build_player_public_state() public_effects 리스트에 추가
+("trick_all_rent_waiver_this_turn", "all_rent_waiver"),
+```
+
 ## What This Proposal Should No Longer Recommend
 This proposal should no longer recommend the following as a primary direction:
 - making legacy alias fields the stable long-term contract
