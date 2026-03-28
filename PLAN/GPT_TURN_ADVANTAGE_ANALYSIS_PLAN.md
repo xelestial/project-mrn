@@ -8,11 +8,28 @@ Add a non-invasive analysis pipeline that can answer two questions from raw logs
 
 This work must preserve the existing engine contract and keep analysis outside the main runtime loop as much as possible.
 
+## Ownership And Scope
+This plan is a GPT-side analysis and strategy-research track.
+
+It is:
+- useful for debugging GPT policy quality
+- reusable by Claude if desired
+- compatible with shared logs and wrappers
+
+It is not:
+- a required blocker for shared architecture completion
+- a mandatory Claude implementation target
+- part of the engine-facing compatibility contract by default
+
+Only the generic parser/data-contract pieces should be treated as potentially shareable.
+The evaluation heuristics, counterfactual scoring, and plan-consistency judgments may stay GPT-specific.
+
 ## Why
 Current summaries tell us who won and broad strategy patterns, but they do not tell us:
 - when momentum changed
 - which turn created the swing
 - whether a policy made the best local choice from the information it had
+- whether a policy followed through on its own prior-turn intent
 
 To answer that, we need a stable pipeline:
 - raw action log
@@ -20,6 +37,7 @@ To answer that, we need a stable pipeline:
 - advantage scorer
 - decision-point evaluator
 - counterfactual simulator
+- plan-consistency evaluator
 
 ## Architecture
 
@@ -96,6 +114,8 @@ Required fields:
 - turn index
 - observed choice
 - visible context summary
+- active plan key if available
+- recent prior-turn plan key if available
 
 ### Phase 4. Counterfactual Evaluation
 Input:
@@ -120,6 +140,22 @@ Recommended rollout horizons:
 Rule:
 - start with heuristic local evaluation
 - add bounded simulation only to the decision types that matter most
+
+### Phase 5. Plan-Consistency Analysis
+Input:
+- `DecisionPoint`
+- `AdvantageSnapshot`
+- optional `PlayerIntentState` trace
+
+Output:
+- whether the action matched the active plan
+- whether the plan should have changed
+- whether the action was locally good but globally inconsistent
+
+Target questions:
+- did a `lap_engine` character spend movement like a lap engine?
+- did a `survival_recovery` turn still burn premium trick cards?
+- did a `controller_disrupt` turn actually pressure the leader?
 
 ## Data Contracts
 
@@ -177,8 +213,23 @@ Phase 3 and 4 are successful if:
 - we can point to a concrete turn and say the policy had a stronger available choice
 - the analysis works for both Claude and GPT lineups
 
+Phase 5 is successful if:
+- we can point to a concrete turn and say the policy broke its own plan
+- obviously bad plays can be grouped by missing intent continuity instead of only by local scoring errors
+
+## Relationship To Shared Architecture
+This plan depends on architecture work, but does not define architecture completion.
+
+Shared architecture may be considered complete earlier if:
+- GPT and Claude can coexist as isolated runtimes
+- engine-facing contracts are stable
+- shared profile/metadata and wrapper contracts are in place
+
+even if later Turn Advantage phases remain unfinished.
+
 ## Immediate Next Actions
 1. Implement `GPT/action_log_parser.py`.
 2. Implement `GPT/turn_advantage.py`.
 3. Add parser tests on synthetic action logs.
 4. Add one real-log smoke path that parses an existing game log.
+5. Extend the analysis contract to accept future plan-state traces from GPT policy runtime.

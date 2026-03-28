@@ -7,8 +7,8 @@ from pathlib import Path
 
 from doc_integrity import summarize_integrity
 from engine import GameEngine
-from multi_agent.agent_loader import make_agent
-from multi_agent.dispatcher import MultiAgentDispatcher
+from policy.asset.spec import MultiAgentBattleAsset
+from policy.factory import PolicyFactory
 from simulate_with_logs import RunningSummary, result_to_dict, write_summary
 from text_encoding import configure_utf8_io
 
@@ -43,17 +43,18 @@ def run_battle(
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    agents = {pid: make_agent(spec) for pid, spec in player_specs.items()}
-    for pid in range(1, 5):
-        if pid not in agents:
-            agents[pid] = make_agent("gpt:v3_gpt")
-
-    agent_ids = {pid: agent.agent_id for pid, agent in agents.items()}
-    policy = MultiAgentDispatcher(agents)
+    battle_asset = PolicyFactory.normalize_multi_agent_battle_asset(
+        MultiAgentBattleAsset(player_specs=player_specs)
+    )
+    policy = PolicyFactory.create_multi_agent_dispatcher(battle_asset)
+    agent_ids = {
+        pid: policy.agent_id_for_player(pid)
+        for pid in range(1, 5)
+    }
     integrity = dict(summarize_integrity())
     runtime_config = _runtime_config()
 
-    player_modes = {pid: agent.agent_id for pid, agent in agents.items()}
+    player_modes = dict(agent_ids)
     running = RunningSummary(
         policy_mode="multi_agent",
         lap_policy_mode="multi_agent",
