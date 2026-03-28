@@ -1,0 +1,6 @@
+{
+  "name": "heuristic_v2_growth",
+  "profile_key": "growth",
+  "survival_strategy_key": "survival/default_v1",
+  "character_values_key": "default"
+}
