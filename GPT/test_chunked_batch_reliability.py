@@ -58,6 +58,8 @@ def test_merge_chunks_reassigns_global_index_and_chunk_id(tmp_path: Path) -> Non
     c2 = root / "chunk_002"
     _write_rows(c1 / "games.jsonl", [_stub_game(0, 111, 0), _stub_game(1, 222, 1)])
     _write_rows(c2 / "games.jsonl", [_stub_game(0, 333, 0), _stub_game(1, 444, 1)])
+    _write_rows(c1 / "ai_decisions.jsonl", [{"event": "ai_decision", "game_id": 0, "chunk_id": None, "decision_key": "movement_decision"}])
+    _write_rows(c2 / "ai_decisions.jsonl", [{"event": "ai_decision", "game_id": 0, "chunk_id": None, "decision_key": "lap_reward"}])
     (c1 / "errors.jsonl").write_text("", encoding="utf-8")
     (c2 / "errors.jsonl").write_text("", encoding="utf-8")
 
@@ -67,6 +69,9 @@ def test_merge_chunks_reassigns_global_index_and_chunk_id(tmp_path: Path) -> Non
     assert [row["global_game_index"] for row in rows] == [0, 1, 2, 3]
     assert [row["chunk_id"] for row in rows] == [1, 1, 2, 2]
     assert [row["original_global_game_index"] for row in rows] == [0, 1, 0, 1]
+    decision_rows = [json.loads(line) for line in (root / "ai_decisions.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert [row["chunk_id"] for row in decision_rows] == [1, 2]
+    assert [row["game_id"] for row in decision_rows] == [0, 0]
     assert summary["reliability"]["duplicate_global_game_index_count"] == 0
 
 

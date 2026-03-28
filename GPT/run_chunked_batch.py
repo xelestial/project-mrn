@@ -20,6 +20,10 @@ def _load_games(path: Path):
     return rows
 
 
+def _load_jsonl(path: Path):
+    return _load_games(path)
+
+
 def _chunk_id_from_dir(chunk_dir: Path, fallback_index: int) -> int:
     name = chunk_dir.name
     if name.startswith("chunk_"):
@@ -32,9 +36,11 @@ def _chunk_id_from_dir(chunk_dir: Path, fallback_index: int) -> int:
 def _merge_chunks(root: Path, running: RunningSummary, chunk_dirs: list[Path]) -> dict:
     out_games = root / "games.jsonl"
     out_errors = root / "errors.jsonl"
+    out_ai_decisions = root / "ai_decisions.jsonl"
     out_games.write_text("", encoding="utf-8")
     out_errors.write_text("", encoding="utf-8")
-    with out_games.open("a", encoding="utf-8") as gf, out_errors.open("a", encoding="utf-8") as ef:
+    out_ai_decisions.write_text("", encoding="utf-8")
+    with out_games.open("a", encoding="utf-8") as gf, out_errors.open("a", encoding="utf-8") as ef, out_ai_decisions.open("a", encoding="utf-8") as df:
         next_game_id = 0
         for chunk_index, chunk_dir in enumerate(chunk_dirs, start=1):
             inferred_chunk_id = _chunk_id_from_dir(chunk_dir, chunk_index)
@@ -49,6 +55,11 @@ def _merge_chunks(root: Path, running: RunningSummary, chunk_dirs: list[Path]) -
                 next_game_id += 1
                 running.update(row)
                 gf.write(json.dumps(row, ensure_ascii=False) + "\n")
+            for row in _load_jsonl(chunk_dir / "ai_decisions.jsonl"):
+                row["chunk_id"] = inferred_chunk_id
+                row["chunk_game_id"] = row.get("chunk_game_id", row.get("game_id"))
+                row["game_id"] = row.get("global_game_index", row.get("game_id"))
+                df.write(json.dumps(row, ensure_ascii=False) + "\n")
             errors_path = chunk_dir / "errors.jsonl"
             if errors_path.exists():
                 content = errors_path.read_text(encoding="utf-8")

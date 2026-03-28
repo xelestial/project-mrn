@@ -50,6 +50,7 @@ def result_to_dict(result, log_level: str = "summary", integrity: dict | None = 
         "strategy_summary": result.strategy_summary,
         "weather_history": list(result.weather_history),
         "bankruptcy_events": list(result.bankruptcy_events),
+        "ai_decision_count": len(result.ai_decision_log),
     }
     if log_level == "full":
         payload["action_log"] = result.action_log
@@ -442,7 +443,13 @@ def run(
 
     normalized_log_level = "summary" if log_level == "none" else log_level
     runtime_config = _runtime_config(starting_cash, board_layout_path, board_layout_meta_path, rule_scripts_path, ruleset_path)
-    with (out / "games.jsonl").open("w", encoding="utf-8") as f, (out / "errors.jsonl").open("w", encoding="utf-8") as ef:
+    with (
+        out / "games.jsonl"
+    ).open("w", encoding="utf-8") as f, (
+        out / "errors.jsonl"
+    ).open("w", encoding="utf-8") as ef, (
+        out / "ai_decisions.jsonl"
+    ).open("w", encoding="utf-8") as df:
         for game_id in range(simulations):
             global_game_index = global_game_index_start + game_id
             game_seed = outer_rng.randrange(1 << 30)
@@ -453,7 +460,8 @@ def run(
                 )
                 engine = GameEngine(runtime_config, policy, rng=rng, enable_logging=want_full_log)
                 per_game_log_level = "full" if want_full_log else "summary"
-                result = result_to_dict(engine.run(), log_level=per_game_log_level, integrity=integrity)
+                raw_result = engine.run()
+                result = result_to_dict(raw_result, log_level=per_game_log_level, integrity=integrity)
                 result["game_id"] = game_id
                 result["chunk_game_id"] = game_id
                 result["global_game_index"] = global_game_index
@@ -468,8 +476,22 @@ def run(
                 result["player_character_policy_modes"] = {str(k): v for k, v in player_character_policy_modes.items()}
 
                 f.write(json.dumps(result, ensure_ascii=False) + "\n")
+                for decision_row in raw_result.ai_decision_log:
+                    decision_payload = dict(decision_row)
+                    decision_payload["game_id"] = game_id
+                    decision_payload["chunk_game_id"] = game_id
+                    decision_payload["global_game_index"] = global_game_index
+                    decision_payload["run_id"] = effective_run_id
+                    decision_payload["root_seed"] = effective_root_seed
+                    decision_payload["chunk_seed"] = seed
+                    decision_payload["chunk_id"] = chunk_id
+                    decision_payload["game_seed"] = game_seed
+                    decision_payload["policy_mode"] = policy_mode
+                    decision_payload["lap_policy_mode"] = lap_policy_mode
+                    df.write(json.dumps(decision_payload, ensure_ascii=False) + "\n")
                 if flush_every > 0 and ((game_id + 1) % flush_every == 0):
                     f.flush()
+                    df.flush()
 
                 running.update(result)
 

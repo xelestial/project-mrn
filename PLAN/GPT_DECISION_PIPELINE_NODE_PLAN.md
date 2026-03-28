@@ -30,6 +30,7 @@ Role: `canonical plan for rewriting GPT AI decisions into reusable node/pipeline
 - we now have a reusable pipeline-trace substrate across the full first-pass non-trick decision surface
 - detector hits are structured instead of living only as ad-hoc booleans in debug payloads
 - replay/live/debug tooling can now consume a common `source -> features -> detector_hits -> effects -> final_choice` shape
+- batch simulation now exports those decision rows into `ai_decisions.jsonl`, so AI tuning can use offline decision logs without scraping full action logs
 
 ### Still Pending
 - trick-family pipeline work after the manual trick audit

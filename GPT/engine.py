@@ -38,6 +38,7 @@ class GameResult:
     strategy_summary: List[dict] = field(default_factory=list)
     weather_history: List[str] = field(default_factory=list)
     action_log: List[dict] = field(default_factory=list)
+    ai_decision_log: List[dict] = field(default_factory=list)
     bankruptcy_events: List[dict] = field(default_factory=list)
 
 
@@ -57,6 +58,7 @@ class GameEngine:
             self.policy.set_rng(self.rng)
         self.enable_logging = enable_logging
         self._action_log: List[dict] = []
+        self._ai_decision_log: List[dict] = []
         self._strategy_stats: List[dict] = []
         self._weather_history: List[str] = []
         self._bankruptcy_events: List[dict] = []
@@ -78,6 +80,7 @@ class GameEngine:
 
     def run(self) -> GameResult:
         self._action_log = []
+        self._ai_decision_log = []
         self._weather_history = []
         self._bankruptcy_events = []
         self._last_payment_attempt_by_player = {}
@@ -161,6 +164,39 @@ class GameEngine:
     def _log(self, row: dict) -> None:
         if self.enable_logging:
             self._action_log.append(row)
+
+    def _record_ai_decision(
+        self,
+        state: GameState | None,
+        player: PlayerState | None,
+        decision_key: str,
+        payload: dict | None,
+        *,
+        result: object | None = None,
+        source_event: str = "",
+        extra: dict | None = None,
+    ) -> None:
+        if player is None or payload is None:
+            return
+        row = {
+            "event": "ai_decision",
+            "decision_key": decision_key,
+            "source_event": source_event,
+            "player_id": player.player_id + 1,
+            "character": player.current_character,
+            "payload": dict(payload),
+        }
+        if state is not None:
+            row["round_index"] = state.rounds_completed + 1
+            row["turn_index"] = state.turn_index + 1
+            row["turn_index_for_player"] = player.turns_taken
+            row["position"] = player.position
+            row["f_value"] = state.f_value
+        if result is not None:
+            row["result"] = result
+        if extra:
+            row.update(extra)
+        self._ai_decision_log.append(row)
 
     def _emit_vis(
         self,
@@ -520,6 +556,14 @@ class GameEngine:
                 pick = self.policy.choose_draft_card(state, state.players[pid], list(pool))
                 state.players[pid].drafted_cards.append(pick)
                 draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
+                self._record_ai_decision(
+                    state,
+                    state.players[pid],
+                    "draft_card",
+                    draft_debug,
+                    result={"picked_card": pick, "draft_phase": 1},
+                    source_event="draft_pick",
+                )
                 self._log({"event": "draft_pick", "phase": 1, "player": pid + 1, "picked_card": pick, "decision": draft_debug})
                 self._emit_vis("draft_pick", Phase.DRAFT, pid + 1, state, draft_phase=1, picked_card=pick)
                 pool.remove(pick)
@@ -529,6 +573,14 @@ class GameEngine:
             pick = self.policy.choose_draft_card(state, state.players[last_pid], list(second_pool))
             state.players[last_pid].drafted_cards.append(pick)
             draft_debug = self.policy.pop_debug("draft_card", last_pid) if hasattr(self.policy, "pop_debug") else None
+            self._record_ai_decision(
+                state,
+                state.players[last_pid],
+                "draft_card",
+                draft_debug,
+                result={"picked_card": pick, "draft_phase": 2},
+                source_event="draft_pick",
+            )
             self._log({"event": "draft_pick", "phase": 2, "player": last_pid + 1, "picked_card": pick, "decision": draft_debug})
             self._emit_vis("draft_pick", Phase.DRAFT, last_pid + 1, state, draft_phase=2, picked_card=pick)
             second_pool.remove(pick)
@@ -537,6 +589,14 @@ class GameEngine:
                 pick = self.policy.choose_draft_card(state, state.players[pid], list(second_pool))
                 state.players[pid].drafted_cards.append(pick)
                 draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
+                self._record_ai_decision(
+                    state,
+                    state.players[pid],
+                    "draft_card",
+                    draft_debug,
+                    result={"picked_card": pick, "draft_phase": 2},
+                    source_event="draft_pick",
+                )
                 self._log({"event": "draft_pick", "phase": 2, "player": pid + 1, "picked_card": pick, "decision": draft_debug})
                 self._emit_vis("draft_pick", Phase.DRAFT, pid + 1, state, draft_phase=2, picked_card=pick)
                 second_pool.remove(pick)
@@ -555,6 +615,14 @@ class GameEngine:
                 pick = self.policy.choose_draft_card(state, state.players[pid], list(pool))
                 state.players[pid].drafted_cards.append(pick)
                 draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
+                self._record_ai_decision(
+                    state,
+                    state.players[pid],
+                    "draft_card",
+                    draft_debug,
+                    result={"picked_card": pick, "draft_phase": 1},
+                    source_event="draft_pick",
+                )
                 self._log({"event": "draft_pick", "phase": 1, "player": pid + 1, "picked_card": pick, "decision": draft_debug})
                 self._emit_vis("draft_pick", Phase.DRAFT, pid + 1, state, draft_phase=1, picked_card=pick)
                 pool.remove(pick)
@@ -564,6 +632,14 @@ class GameEngine:
                 pick = self.policy.choose_draft_card(state, state.players[pid], list(pool))
                 state.players[pid].drafted_cards.append(pick)
                 draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
+                self._record_ai_decision(
+                    state,
+                    state.players[pid],
+                    "draft_card",
+                    draft_debug,
+                    result={"picked_card": pick, "draft_phase": 2},
+                    source_event="draft_pick",
+                )
                 self._log({"event": "draft_pick", "phase": 2, "player": pid + 1, "picked_card": pick, "decision": draft_debug})
                 self._emit_vis("draft_pick", Phase.DRAFT, pid + 1, state, draft_phase=2, picked_card=pick)
                 pool.remove(pick)
@@ -576,6 +652,14 @@ class GameEngine:
                 continue
             chosen = self.policy.choose_final_character(state, p, list(p.drafted_cards))
             final_debug = self.policy.pop_debug("final_character", p.player_id) if hasattr(self.policy, "pop_debug") else None
+            self._record_ai_decision(
+                state,
+                p,
+                "final_character",
+                final_debug,
+                result={"character": chosen},
+                source_event="final_character_choice",
+            )
             p.current_character = chosen
             self._strategy_stats[p.player_id]["character"] = chosen
             self._strategy_stats[p.player_id]["last_selected_character"] = chosen
@@ -654,6 +738,18 @@ class GameEngine:
             hidden_trick_count=player.hidden_trick_count(),
         )
         decision = self.policy.choose_movement(state, player)
+        movement_debug = self.policy.pop_debug("movement_decision", player.player_id) if hasattr(self.policy, "pop_debug") else None
+        self._record_ai_decision(
+            state,
+            player,
+            "movement_decision",
+            movement_debug,
+            result={
+                "use_cards": bool(getattr(decision, "use_cards", False)),
+                "card_values": list(getattr(decision, "card_values", ()) or ()),
+            },
+            source_event="movement_choice",
+        )
         move, movement_meta = self._resolve_move(state, player, decision)
         player.rolled_dice_count_this_turn = len(movement_meta.get("dice", []))
         self._emit_vis(
@@ -837,6 +933,7 @@ class GameEngine:
             target = self.policy.choose_mark_target(state, player, char)
             target_p = self._find_player_by_character(state, target, exclude=player.player_id, source_pid=player.player_id, future_only=True)
             mark_debug = self.policy.pop_debug("mark_target", player.player_id) if hasattr(self.policy, "pop_debug") else None
+            self._record_ai_decision(state, player, "mark_target", mark_debug, result={"target_character": target}, source_event="character_start")
             if target_p is not None:
                 self._record_mark_attempt(player.player_id, "success", state)
                 target_p.pending_marks.clear()
@@ -862,20 +959,24 @@ class GameEngine:
         elif char == "산적":
             target = self.policy.choose_mark_target(state, player, char)
             mark_debug = self.policy.pop_debug("mark_target", player.player_id) if hasattr(self.policy, "pop_debug") else None
+            self._record_ai_decision(state, player, "mark_target", mark_debug, result={"target_character": target}, source_event="character_start")
             self._queue_mark(state, player.player_id, target, {"type": "bandit_tax"}, decision=mark_debug)
         elif char == "추노꾼":
             target = self.policy.choose_mark_target(state, player, char)
             mark_debug = self.policy.pop_debug("mark_target", player.player_id) if hasattr(self.policy, "pop_debug") else None
+            self._record_ai_decision(state, player, "mark_target", mark_debug, result={"target_character": target}, source_event="character_start")
             self._queue_mark(state, player.player_id, target, {"type": "hunter_pull", "source_pos": player.position}, decision=mark_debug)
         elif char == "파발꾼":
             player.extra_dice_count_this_turn += 1
         elif char == "박수":
             target = self.policy.choose_mark_target(state, player, char)
             mark_debug = self.policy.pop_debug("mark_target", player.player_id) if hasattr(self.policy, "pop_debug") else None
+            self._record_ai_decision(state, player, "mark_target", mark_debug, result={"target_character": target}, source_event="character_start")
             self._queue_mark(state, player.player_id, target, {"type": "baksu_transfer"}, decision=mark_debug)
         elif char == "만신":
             target = self.policy.choose_mark_target(state, player, char)
             mark_debug = self.policy.pop_debug("mark_target", player.player_id) if hasattr(self.policy, "pop_debug") else None
+            self._record_ai_decision(state, player, "mark_target", mark_debug, result={"target_character": target}, source_event="character_start")
             self._queue_mark(state, player.player_id, target, {"type": "manshin_remove_burdens"}, decision=mark_debug)
         elif char in {"교리 연구관", "교리 감독관"}:
             self._resolve_doctrine_burden_relief(state, player)
@@ -1076,6 +1177,15 @@ class GameEngine:
         for _ in range(len(burdens)):
             choices = state.trick_draw_pile[-8:] if state.trick_draw_pile else []
             pick = self.policy.choose_specific_trick_reward(state, source, list(choices)) if hasattr(self.policy, "choose_specific_trick_reward") else None
+            reward_debug = self.policy.pop_debug("trick_reward", source.player_id) if hasattr(self.policy, "pop_debug") else None
+            self._record_ai_decision(
+                state,
+                source,
+                "trick_reward",
+                reward_debug,
+                result={"picked_card": None if pick is None else pick.name},
+                source_event="baksu_transfer_reward",
+            )
             if pick is None and state.trick_draw_pile:
                 pick = state.trick_draw_pile[-1]
             if pick is None:
@@ -1132,6 +1242,14 @@ class GameEngine:
             return
         chosen_pid = self.policy.choose_doctrine_relief_target(state, source, candidates)
         relief_debug = self.policy.pop_debug("doctrine_relief", source.player_id) if hasattr(self.policy, "pop_debug") else None
+        self._record_ai_decision(
+            state,
+            source,
+            "doctrine_relief",
+            relief_debug,
+            result={"candidate_ids": [candidate.player_id + 1 for candidate in candidates], "chosen_player_id": None if chosen_pid is None else chosen_pid + 1},
+            source_event="character_start",
+        )
         target = next((p for p in candidates if p.player_id == chosen_pid), None)
         if target is None:
             target = next((p for p in candidates if p.player_id == source.player_id), candidates[0])
@@ -1175,7 +1293,19 @@ class GameEngine:
                 continue
             exchanged = []
             for card in list(p.trick_hand):
-                if card.is_burden and getattr(self.policy, "choose_burden_exchange_on_supply", lambda s, pl, c: pl.cash >= c.burden_cost)(state, p, card) and p.cash >= card.burden_cost:
+                if not card.is_burden:
+                    continue
+                accepted = getattr(self.policy, "choose_burden_exchange_on_supply", lambda s, pl, c: pl.cash >= c.burden_cost)(state, p, card)
+                burden_debug = self.policy.pop_debug("burden_exchange", p.player_id) if hasattr(self.policy, "pop_debug") else None
+                self._record_ai_decision(
+                    state,
+                    p,
+                    "burden_exchange",
+                    burden_debug,
+                    result={"card_name": card.name, "accepted": bool(accepted and p.cash >= card.burden_cost)},
+                    source_event="trick_supply",
+                )
+                if accepted and p.cash >= card.burden_cost:
                     p.cash -= card.burden_cost
                     self._discard_trick(state, p, card)
                     exchanged.append({"name": card.name, "cost": card.burden_cost})
@@ -1300,6 +1430,14 @@ class GameEngine:
                 return False
             card = self.policy.choose_trick_to_use(state, player, list(hand))
             debug = self.policy.pop_debug("trick_use", player.player_id) if hasattr(self.policy, "pop_debug") else None
+            self._record_ai_decision(
+                state,
+                player,
+                "trick_use",
+                debug,
+                result={"chosen_card": None if card is None else card.name, "phase": phase},
+                source_event="trick_phase",
+            )
             if card is None:
                 if debug is not None:
                     self._log({"event": "trick_use_skip", "player": player.player_id + 1, "phase": phase, "decision": debug})
@@ -1496,6 +1634,15 @@ class GameEngine:
                 lap_events.append(self._apply_lap_reward(state, player))
                 if player.current_character == "객주":
                     bonus = self.policy.choose_geo_bonus(state, player, player.current_character)
+                    geo_debug = self.policy.pop_debug("geo_bonus", player.player_id)
+                    self._record_ai_decision(
+                        state,
+                        player,
+                        "geo_bonus",
+                        geo_debug,
+                        result={"bonus": bonus},
+                        source_event="lap_reward",
+                    )
                     lap_events.append(self._apply_geo_bonus(player, bonus))
 
             landing_event = self._resolve_landing(state, player)
@@ -2257,6 +2404,15 @@ class GameEngine:
         if player.hand_coins <= 0:
             return None
         target = self.policy.choose_coin_placement_tile(state, player)
+        coin_debug = self.policy.pop_debug("coin_placement", player.player_id) if hasattr(self.policy, "pop_debug") else None
+        self._record_ai_decision(
+            state,
+            player,
+            "coin_placement",
+            coin_debug,
+            result={"target_tile": None if target is None else target + 1},
+            source_event="coin_placement",
+        )
         if target is None:
             return None
         return self._place_hand_coins_on_tile(state, player, target, source="visit")
@@ -2389,5 +2545,6 @@ class GameEngine:
             strategy_summary=strategy_summary,
             weather_history=list(self._weather_history),
             action_log=list(self._action_log),
+            ai_decision_log=list(self._ai_decision_log),
             bankruptcy_events=list(self._bankruptcy_events),
         )

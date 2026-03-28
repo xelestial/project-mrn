@@ -515,6 +515,18 @@ class ConfigSettingsTest(unittest.TestCase):
         row = json.loads(games_path.read_text(encoding="utf-8").strip())
         self.assertNotIn("action_log", row)
         self.assertEqual(row["version"], GAME_VERSION)
+        decisions_path = out_dir / "ai_decisions.jsonl"
+        self.assertTrue(decisions_path.exists())
+        decision_rows = [
+            json.loads(line)
+            for line in decisions_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        self.assertGreater(len(decision_rows), 0)
+        self.assertIn("decision_key", decision_rows[0])
+        self.assertIn("payload", decision_rows[0])
+        self.assertIn("global_game_index", decision_rows[0])
+        self.assertEqual(row["ai_decision_count"], len(decision_rows))
         for child in out_dir.iterdir():
             child.unlink()
         out_dir.rmdir()

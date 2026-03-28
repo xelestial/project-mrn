@@ -299,6 +299,14 @@ class EngineEffectHandlers:
         chosen_card = engine.policy.choose_active_flip_card(state, owner, flippable_cards)
         flip_debug = engine.policy.pop_debug("marker_flip", owner.player_id) if hasattr(engine.policy, "pop_debug") else None
         if chosen_card is None:
+            engine._record_ai_decision(
+                state,
+                owner,
+                "marker_flip",
+                flip_debug,
+                result={"chosen_card": None, "skipped": True},
+                source_event="marker_flip",
+            )
             event = {
                 "event": "marker_flip_skip",
                 "player": owner.player_id + 1,
@@ -320,6 +328,14 @@ class EngineEffectHandlers:
             "to_character": flipped,
             "decision": flip_debug,
         }
+        engine._record_ai_decision(
+            state,
+            owner,
+            "marker_flip",
+            flip_debug,
+            result={"chosen_card": chosen_card, "from_character": current, "to_character": flipped},
+            source_event="marker_flip",
+        )
         engine._log(event)
         engine._emit_vis(
             "marker_flip",
@@ -341,6 +357,7 @@ class EngineEffectHandlers:
                 return {"choice": "blocked_by_weather", "cash_penalty": 2, **outcome}
             return {"choice": "blocked"}
         decision = engine.policy.choose_lap_reward(state, player)
+        lap_debug = engine.policy.pop_debug("lap_reward", player.player_id) if hasattr(engine.policy, "pop_debug") else None
         stats = engine._strategy_stats[player.player_id]
         rules = state.config.rules.lap_reward
         shard_bonus = 0
@@ -395,6 +412,14 @@ class EngineEffectHandlers:
             },
             "requested": {"cash": cash_units, "shards": shard_units, "coins": coin_units},
         }
+        engine._record_ai_decision(
+            state,
+            player,
+            "lap_reward",
+            lap_debug,
+            result=result,
+            source_event="lap_reward",
+        )
         engine._emit_vis(
             "lap_reward_chosen",
             Phase.LAP_REWARD,
@@ -630,7 +655,17 @@ class EngineEffectHandlers:
         shard_cost = 0
         if player.cash < cost:
             return {'type': 'PURCHASE_FAIL', 'tile_kind': cell.name, 'cost': cost, 'shard_cost': shard_cost, 'bankrupt': False, 'skipped': True}
-        if not getattr(engine.policy, 'choose_purchase_tile', lambda *args, **kwargs: True)(state, player, pos, cell, cost, source='landing_purchase'):
+        wants_purchase = getattr(engine.policy, 'choose_purchase_tile', lambda *args, **kwargs: True)(state, player, pos, cell, cost, source='landing_purchase')
+        purchase_debug = engine.policy.pop_debug("purchase_decision", player.player_id) if hasattr(engine.policy, "pop_debug") else None
+        if not wants_purchase:
+            engine._record_ai_decision(
+                state,
+                player,
+                "purchase_decision",
+                purchase_debug,
+                result={"tile_index": pos, "purchased": False, "reason": "policy_skip", "cost": cost},
+                source_event="landing_purchase",
+            )
             return {'type': 'PURCHASE_SKIP_POLICY', 'tile_kind': cell.name, 'cost': cost, 'shard_cost': shard_cost, 'bankrupt': False, 'skipped': True}
         stats['purchases'] += 1
         if cell == CellKind.T2:
@@ -649,6 +684,14 @@ class EngineEffectHandlers:
             player.visited_owned_tile_indices.add(pos)
             placed = engine._place_hand_coins_on_tile(state, player, pos, max_place=state.config.rules.token.place_limit_on_purchase(state, player, pos), source="purchase")
         result = {'type': 'PURCHASE', 'tile_kind': cell.name, 'cost': cost, 'shard_cost': shard_cost, 'shards_before': shards_before, 'shards_after': player.shards, 'placed': placed}
+        engine._record_ai_decision(
+            state,
+            player,
+            "purchase_decision",
+            purchase_debug,
+            result={"tile_index": pos, "purchased": True, "cost": cost, "placed": placed},
+            source_event="landing_purchase",
+        )
         engine._emit_vis(
             "tile_purchased",
             Phase.ECONOMY,

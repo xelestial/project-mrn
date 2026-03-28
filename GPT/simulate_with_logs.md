@@ -2,6 +2,11 @@
 
 배치 시뮬레이션 및 JSONL/summary 출력 문서.
 
+## 2026-03-29 AI decision export
+- 각 실행은 `games.jsonl`, `errors.jsonl`와 함께 `ai_decisions.jsonl`도 남긴다.
+- `ai_decisions.jsonl`에는 AI의 개별 판단 row와 trace payload, run/chunk/game seed 메타데이터가 함께 들어간다.
+- 덕분에 전체 `action_log`를 파싱하지 않고도 AI 개선용 후분석을 바로 수행할 수 있다.
+
 ## 이번 갱신
 - 문서 무결성 요약은 프로세스당 1회만 계산하도록 캐시했다.
 - `starting_cash`를 안 바꾸는 기본 실행은 `DEFAULT_CONFIG`를 그대로 재사용해 불필요한 deep copy를 제거했다.

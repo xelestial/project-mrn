@@ -1,3 +1,8 @@
+## v0.7.65-ai-analysis-log (2026-03-29)
+- Finished the AI-improvement pass by exporting per-decision analysis rows into `ai_decisions.jsonl` alongside `games.jsonl` / `errors.jsonl`.
+- AI decision export now captures the canonical trace payloads for non-trick decisions plus purchase, lap reward, marker flip, and geo bonus choices with per-game seed/run metadata for offline comparison.
+- Chunked batch merge now carries `ai_decisions.jsonl` forward so long-running experiment batches preserve the same analysis stream after merge.
+
 ## v0.7.64-ai-trace-complete (2026-03-29)
 - Extended the canonical AI decision-trace layer beyond economy choices so draft choice, final character choice, mark target choice, doctrine relief, geo bonus, coin placement, active flip, and burden exchange now all emit the shared `DecisionTrace` payload shape.
 - Added structured detector hits for character survival weighting, distress-marker rescue value, public-mark ambiguity/confidence, cleanup-driven geo cash pressure, token-placement windows, flip denial / money-relief signals, and burden-exchange safety guards.
