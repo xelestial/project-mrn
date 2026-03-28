@@ -71,6 +71,14 @@ They are no longer the active source of truth for future planning.
 
 These are still useful, but they are not the current top-level execution plan on this branch.
 
+### Visualization Runtime Direction Proposal
+- File: `PLAN/[PROPOSAL]_VISUALIZATION_RUNTIME_DIRECTION.md`
+- Status: `PROPOSAL`
+- Role: recommended architecture opinion for visualization/replay/live-play direction
+- Notes:
+  - supports the current canonical visualization plan
+  - recommends GPT upper architecture plus Claude-style lower substrate
+
 ### Claude Architecture Refactor
 - File: `PLAN/CLAUDE_ARCHITECTURE_REFACTOR_PLAN.md`
 - Status: `REFERENCE`
