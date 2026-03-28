@@ -115,4 +115,16 @@ def choose_movement(
         if score > best_score:
             best_score = score
             best = MovementDecision(True, (a, b))
+
+    # Phase 1-A: decision quality logging
+    p._set_debug("movement", player.player_id, {
+        "chosen": {
+            "use_cards": best.use_cards,
+            "card_values": list(best.card_values),
+            "best_score": round(best_score, 3),
+        },
+        "turn": state.turn_index,
+        "position": player.position,
+        "profile": p._profile_from_mode(),
+    })
     return best

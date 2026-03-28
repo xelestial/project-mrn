@@ -76,19 +76,20 @@ Result:
 
 ### C4. Phase 5 substrate completeness review
 Priority: `P2`
-Status: `PARTIAL`
+Status: `DONE`
+Closed: `2026-03-29`
 
-What still matters:
-- verify `player_move.path`, `movement_source`, and `crossed_start` remain sufficient for richer replay/live presentation
-- verify `lap_reward_chosen` delta payloads are complete for UI wording
-- verify `public_effects` and weather/fortune visibility stay complete under Phase 5 renderer growth
-
-What is no longer open:
-- `session_start` public seeding gap
+Result:
+- `player_move.path`, `movement_source`, `crossed_start` — verified sufficient ✅
+- `lap_reward_chosen` delta payloads (`cash_delta`, `shards_delta`, `coins_delta`) — verified complete ✅
+- `public_effects`, weather, fortune — verified complete under Phase 5 growth ✅
+- `trick_used` — was `_log`-only, now emits to vis stream (card_name, card_description, resolution)
+- `marker_flip` — was `_log`-only, now emits to vis stream (player_id, card_no, from/to_character, reason)
+- `mark_resolved` — `public_summary` field added to all 4 effect-type branches
+- `fortune_drawn.public_summary` — not added (event bypassed by rule_scripts.json in practice)
 
 Opinion:
-- this item should remain open as a verification pass
-- it should not be expanded back into a broad substrate rewrite
+- all material Phase 5 substrate gaps are now closed
 
 ### C5. Renderer-neutral portability discipline
 Priority: `P2`
