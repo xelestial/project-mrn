@@ -286,29 +286,66 @@ def _frame_title(event: dict) -> str:
     return etype.replace("_", " ").title()
 
 
+def _event_type_korean(etype: str | None) -> str:
+    labels = {
+        "session_start": "게임 시작",
+        "round_start": "라운드 시작",
+        "weather_reveal": "날씨 공개",
+        "draft_pick": "드래프트 선택",
+        "final_character_choice": "최종 캐릭터 선택",
+        "turn_start": "턴 시작",
+        "dice_roll": "이동값 결정",
+        "player_move": "말 이동",
+        "landing_resolved": "도착 칸 처리",
+        "rent_paid": "통행료 지불",
+        "tile_purchased": "토지 구매",
+        "fortune_drawn": "운수 카드 공개",
+        "fortune_resolved": "운수 효과 처리",
+        "mark_resolved": "지목 처리",
+        "marker_transferred": "징표 이동",
+        "marker_flip": "징표 카드 뒤집기",
+        "lap_reward_chosen": "랩 보상 선택",
+        "f_value_change": "F값 변화",
+        "bankruptcy": "파산",
+        "turn_end_snapshot": "턴 종료",
+        "game_end": "게임 종료",
+    }
+    return labels.get(etype or "", (etype or "").replace("_", " "))
+
+
 def _frame_nav_label(event: dict) -> str:
     etype = event.get("event_type")
     if etype == "session_start":
-        return "Session"
+        return "게임 시작"
     if etype == "round_start":
-        return f"R{event.get('round_index', '?')} start"
+        return f"{event.get('round_index', '?')} 라운드 시작"
     if etype == "weather_reveal":
-        return f"R{event.get('round_index', '?')} weather"
+        return f"{event.get('round_index', '?')} 라운드, 날씨 공개"
     if etype == "draft_pick":
-        return f"Draft P{event.get('acting_player_id', '?')} ({event.get('picked_card', '?')})"
+        return f"P{event.get('acting_player_id', '?')} 드래프트 선택 ({event.get('picked_card', '?')}번 카드)"
     if etype == "final_character_choice":
-        return f"Char P{event.get('acting_player_id', '?')}"
+        return f"P{event.get('acting_player_id', '?')} 최종 캐릭터 선택"
     if etype == "turn_start":
-        return f"T{event.get('turn_index', '?')} start"
+        return f"{event.get('turn_index', '?')} 턴 시작"
+    if etype == "dice_roll":
+        return "이동값 결정"
+    if etype == "landing_resolved":
+        return "도착 칸 처리"
+    if etype == "player_move":
+        return "말 이동"
+    if etype == "tile_purchased":
+        return "토지 구매"
+    if etype == "lap_reward_chosen":
+        return "랩 보상 선택"
     if etype == "turn_end_snapshot":
-        return f"T{event.get('turn_index', '?')} end"
+        return f"{event.get('turn_index', '?')} 턴 종료"
     if etype == "marker_transferred":
         return "징표 이동"
     if etype == "marker_flip":
-        return "징표 Flip"
+        return "징표 카드 뒤집기"
     if etype == "game_end":
-        return "Game End"
-    return etype.replace("_", " ")
+        return "게임 종료"
+    return _event_type_korean(etype)
 
 
 def _build_turn_data(proj: ReplayProjection) -> list[dict]:
@@ -352,6 +389,7 @@ def _build_frames(proj: ReplayProjection) -> list[dict]:
                 "title": _frame_title(event),
                 "subtitle": shown["detail"],
                 "nav_label": _frame_nav_label(event),
+                "nav_subtitle": _event_type_korean(event.get("event_type")),
                 "event": shown,
                 "recent_events": deepcopy(recent),
                 "players": deepcopy(players),
@@ -516,8 +554,8 @@ function buildNav() {
   const host = document.getElementById("nav-list"); host.innerHTML = ""; let lastRound = null;
   FRAMES.forEach((frame, idx) => {
     const roundIndex = frame.round_index || 0;
-    if (roundIndex !== lastRound) { lastRound = roundIndex; const label = document.createElement("div"); label.className = "round-label"; label.textContent = roundIndex > 0 ? `Round ${roundIndex}` : "Session"; host.appendChild(label); }
-    const btn = document.createElement("button"); btn.className = "frame-btn"; btn.id = `frame-btn-${idx}`; btn.innerHTML = `${frame.nav_label}<small>${frame.event_type}</small>`; btn.onclick = () => goToFrame(idx); host.appendChild(btn);
+    if (roundIndex !== lastRound) { lastRound = roundIndex; const label = document.createElement("div"); label.className = "round-label"; label.textContent = roundIndex > 0 ? `${roundIndex} 라운드` : "게임 시작"; host.appendChild(label); }
+    const btn = document.createElement("button"); btn.className = "frame-btn"; btn.id = `frame-btn-${idx}`; btn.innerHTML = `${frame.nav_label}<small>${frame.nav_subtitle || frame.event_type}</small>`; btn.onclick = () => goToFrame(idx); host.appendChild(btn);
   });
 }
 function renderEventFeed(frame) {
