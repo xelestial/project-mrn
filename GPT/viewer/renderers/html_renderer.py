@@ -124,9 +124,9 @@ def _event_display(event: dict) -> dict:
         from_owner = event.get("from_owner", "?")
         to_owner = event.get("to_owner", event.get("new_owner_player_id", event.get("owner_player_id", "?")))
         pending = event.get("marker_flip_pending_for")
-        detail = f"P{from_owner} -> P{to_owner}"
+        detail = f"[징표]가 P{from_owner}에서 P{to_owner}에게 이동함"
         if pending is not None:
-            detail += f" (flip P{pending})"
+            detail += f" (P{pending}가 카드 Flip 대기)"
     elif etype == "lap_reward_chosen":
         detail = str(event.get("choice", event.get("resource_delta", "")))
     elif etype == "f_value_change":
@@ -259,6 +259,8 @@ def _frame_title(event: dict) -> str:
         return f"Turn {event.get('turn_index', '?')} Start"
     if etype == "turn_end_snapshot":
         return f"Turn {event.get('turn_index', '?')} End"
+    if etype == "marker_transferred":
+        return "징표 이동"
     if etype == "game_end":
         return "Game End"
     return etype.replace("_", " ").title()
@@ -280,6 +282,8 @@ def _frame_nav_label(event: dict) -> str:
         return f"T{event.get('turn_index', '?')} start"
     if etype == "turn_end_snapshot":
         return f"T{event.get('turn_index', '?')} end"
+    if etype == "marker_transferred":
+        return "징표 이동"
     if etype == "game_end":
         return "Game End"
     return etype.replace("_", " ")
