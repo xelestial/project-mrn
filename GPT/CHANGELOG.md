@@ -1,3 +1,10 @@
+## v0.7.62-replay-ui (2026-03-29)
+- Added a replay-viewer UI history pass so viewer-facing polish changes are recorded explicitly instead of being hidden inside bug-fix commits.
+- Expanded replay event visibility for public match review, including readable `trick_used`, `marker_flip`, weather text, lap-reward amounts, and dice-card usage summaries.
+- Reworked replay wording toward human-facing labels: Korean sidebar/status labels, natural event summaries, end-time wording, readable purchase/landing outcomes, and character-name-based draft/final-choice labels.
+- Adjusted replay board presentation for readability: hollow-square loop layout, larger pawn markers with player numbers, clearer special-tile labels (`운수`, `종료 - 1`, `종료 - 2`), visible tile color bands, and more readable tile-price wording (`3냥`, `5냥`).
+- Improved replay/player panels to show public-vs-hidden trick separation, remaining dice cards, weather descriptions, and other public-state details more clearly.
+
 ## v0.7.61-auditfix2 (2026-03-27)
 - Corrected README baseline values so current runtime defaults now match `ruleset.json` / `GameConfig` (20 cash / 0 hand coins / 4 shards) instead of older experiment presets.
 - Added regression coverage that compares runtime-spawned players against injected rule values to catch config/ruleset drift.
