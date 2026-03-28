@@ -3,3 +3,11 @@ pytest-cache-files-*/
 /result/
 replay_output/
 /replay_output/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Claude worktrees (local only)
+.claude/worktrees/
