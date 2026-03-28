@@ -165,8 +165,12 @@ def test_html_renderer(events: list[dict]) -> list[str]:
         errors.append("HTML missing DOCTYPE")
     if "const TURNS = " not in html:
         errors.append("HTML missing TURNS JSON")
+    if "const FRAMES = " not in html:
+        errors.append("HTML missing FRAMES JSON")
     if "const META = " not in html:
         errors.append("HTML missing META JSON")
+    if "board-track" not in html:
+        errors.append("HTML missing perimeter board container")
 
     import re
 
@@ -180,6 +184,27 @@ def test_html_renderer(events: list[dict]) -> list[str]:
             errors.append(f"TURNS JSON parse error: {exc}")
     else:
         errors.append("Could not extract TURNS JSON from HTML")
+
+    frames_match = re.search(r"const FRAMES = (\[.*?\]);", html, re.DOTALL)
+    if frames_match:
+        try:
+            parsed = json.loads(frames_match.group(1))
+            if not isinstance(parsed, list):
+                errors.append("FRAMES JSON is not a list")
+            elif not parsed:
+                errors.append("FRAMES JSON is empty")
+            else:
+                first = parsed[0]
+                if first.get("event_type") != "session_start":
+                    errors.append(
+                        f"first replay frame is not session_start: {first.get('event_type')}"
+                    )
+                if first.get("title") != "Session Start":
+                    errors.append(f"unexpected first frame title: {first.get('title')}")
+        except json.JSONDecodeError as exc:
+            errors.append(f"FRAMES JSON parse error: {exc}")
+    else:
+        errors.append("Could not extract FRAMES JSON from HTML")
 
     return errors
 

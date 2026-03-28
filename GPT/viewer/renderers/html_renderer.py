@@ -1,761 +1,490 @@
-"""Phase 2 — HTML replay renderer.
-
-Produces a self-contained single-file HTML page that embeds all turn data as
-JSON and uses vanilla JavaScript for step-through navigation.
-
-Usage:
-    from viewer.replay import ReplayProjection
-    from viewer.renderers.html_renderer import render_html
-
-    proj = ReplayProjection.from_jsonl("replay.jsonl")
-    html = render_html(proj)
-    with open("replay.html", "w", encoding="utf-8") as f:
-        f.write(html)
-"""
+"""Phase 2 HTML replay renderer with event-first playback."""
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 
 from ..replay import ReplayProjection
 
 
-# ---------------------------------------------------------------------------
-# Event → display text (for JS consumption via pre-serialised strings)
-# ---------------------------------------------------------------------------
+_PLAYER_COLORS = ["#4e8ef7", "#e85d5d", "#5dbf5d", "#f0a030"]
+_PLAYER_LIGHTS = ["#1d355d", "#56252a", "#214827", "#5a4418"]
+_TILE_LABELS = {"F1": "F", "F2": "F", "S": "S", "T2": "2", "T3": "3", "MALICIOUS": "M"}
+_VISIBLE_FRAME_EVENTS = {
+    "session_start",
+    "round_start",
+    "weather_reveal",
+    "draft_pick",
+    "final_character_choice",
+    "turn_start",
+    "dice_roll",
+    "player_move",
+    "landing_resolved",
+    "rent_paid",
+    "tile_purchased",
+    "fortune_drawn",
+    "fortune_resolved",
+    "mark_resolved",
+    "marker_transferred",
+    "lap_reward_chosen",
+    "f_value_change",
+    "bankruptcy",
+    "turn_end_snapshot",
+    "game_end",
+}
 
-def _event_display(e: dict) -> dict:
-    """Return a compact display dict for one event (used in JS event feed)."""
-    etype = e.get("event_type", "?")
-    pid = e.get("acting_player_id")
-    actor = f"P{pid}" if pid is not None else "—"
 
+def _event_display(event: dict) -> dict:
+    etype = event.get("event_type", "?")
+    actor_id = event.get("acting_player_id")
     icons = {
-        "dice_roll": "🎲",
-        "player_move": "🚶",
-        "landing_resolved": "📍",
-        "rent_paid": "💸",
-        "tile_purchased": "🏠",
-        "fortune_drawn": "🃏",
-        "fortune_resolved": "✨",
-        "f_value_change": "📊",
-        "lap_reward_chosen": "🎁",
-        "mark_resolved": "🎯",
-        "marker_transferred": "🏷️",
-        "bankruptcy": "💀",
-        "weather_reveal": "🌤️",
-        "draft_pick": "🃏",
-        "final_character_choice": "👤",
+        "session_start": "S",
+        "round_start": "R",
+        "weather_reveal": "W",
+        "draft_pick": "D",
+        "final_character_choice": "C",
+        "turn_start": "T",
+        "dice_roll": "R",
+        "player_move": "M",
+        "landing_resolved": "L",
+        "rent_paid": "$",
+        "tile_purchased": "+",
+        "fortune_drawn": "F",
+        "fortune_resolved": "F",
+        "mark_resolved": "!",
+        "marker_transferred": "K",
+        "lap_reward_chosen": "P",
+        "f_value_change": "F",
+        "bankruptcy": "X",
+        "turn_end_snapshot": "E",
+        "game_end": "G",
     }
-    icon = icons.get(etype, "▸")
-
     detail = ""
-    if etype == "dice_roll":
-        vals = e.get("dice_values", [])
-        total = e.get("total", sum(vals) if vals else 0)
-        detail = f"주사위 {vals} = {total}"
-    elif etype == "player_move":
-        frm = e.get("from_pos", "?")
-        to = e.get("to_pos", "?")
-        lapped = " [랩!]" if e.get("lapped") else ""
-        detail = f"이동 {frm}→{to}{lapped}"
-    elif etype == "landing_resolved":
-        tile = e.get("tile_index", "?")
-        kind = e.get("tile_kind", "?")
-        detail = f"착지 tile {tile} ({kind})"
-    elif etype == "rent_paid":
-        payer = e.get("payer_player_id", e.get("payer", "?"))
-        owner = e.get("owner_player_id", e.get("owner", "?"))
-        amount = e.get("final_amount", e.get("amount", "?"))
-        detail = f"P{payer}→P{owner} 렌트 {amount}"
-    elif etype == "tile_purchased":
-        tile = e.get("tile_index", "?")
-        cost = e.get("cost", "?")
-        detail = f"tile {tile} 구매 −{cost}"
-    elif etype == "fortune_drawn":
-        card = e.get("card_name", "?")
-        detail = f"{card}"
-    elif etype == "f_value_change":
-        before = e.get("before", "?")
-        after = e.get("after", "?")
-        detail = f"F {before}→{after}"
-    elif etype == "lap_reward_chosen":
-        choice = e.get("choice", "?")
-        amount = e.get("amount", "?")
-        detail = f"{choice} ×{amount}"
-    elif etype == "mark_resolved":
-        src = e.get("source_player_id", e.get("source", "?"))
-        tgt = e.get("target_player_id", e.get("target", "?"))
-        ok = "✓" if e.get("success") else "✗"
-        detail = f"P{src}→P{tgt} {ok}"
-    elif etype == "bankruptcy":
-        detail = f"파산"
+    if etype == "session_start":
+        detail = f"{event.get('player_count', '?')} players"
+    elif etype == "round_start":
+        detail = f"round {event.get('round_index', '?')}"
     elif etype == "weather_reveal":
-        detail = e.get("weather_name", e.get("card", ""))
+        detail = event.get("weather_name") or event.get("card", "")
+    elif etype == "draft_pick":
+        detail = str(event.get("picked_card", ""))
     elif etype == "final_character_choice":
-        detail = e.get("character", "?")
-
+        detail = event.get("character", "")
+    elif etype == "turn_start":
+        detail = f"turn {event.get('turn_index', '?')}"
+    elif etype == "dice_roll":
+        dice = event.get("dice_values") or event.get("dice") or []
+        total = event.get("total_move", event.get("move", event.get("total", "?")))
+        detail = f"{dice} -> {total}"
+    elif etype == "player_move":
+        src = event.get("from_tile_index", event.get("from_pos", "?"))
+        dst = event.get("to_tile_index", event.get("to_pos", "?"))
+        src = src + 1 if isinstance(src, int) else src
+        dst = dst + 1 if isinstance(dst, int) else dst
+        detail = f"{src} -> {dst}"
+    elif etype == "landing_resolved":
+        detail = str((event.get("landing") or {}).get("type", "landing"))
+    elif etype == "rent_paid":
+        payer = event.get("payer_player_id", event.get("payer", "?"))
+        owner = event.get("owner_player_id", event.get("owner", "?"))
+        amount = event.get("final_amount", event.get("amount", "?"))
+        detail = f"P{payer} -> P{owner} {amount}"
+    elif etype == "tile_purchased":
+        tile_index = event.get("tile_index", "?")
+        tile_label = tile_index + 1 if isinstance(tile_index, int) else tile_index
+        detail = f"tile {tile_label} cost {event.get('cost', '?')}"
+    elif etype == "fortune_drawn":
+        detail = event.get("card_name", "")
+    elif etype == "fortune_resolved":
+        detail = str((event.get("resolution") or {}).get("type", "resolved"))
+    elif etype == "mark_resolved":
+        detail = str(event.get("effect_type", "mark"))
+    elif etype == "marker_transferred":
+        detail = f"P{event.get('new_owner_player_id', event.get('owner_player_id', '?'))}"
+    elif etype == "lap_reward_chosen":
+        detail = str(event.get("choice", event.get("resource_delta", "")))
+    elif etype == "f_value_change":
+        detail = f"{event.get('before', '?')} -> {event.get('after', '?')}"
+    elif etype == "bankruptcy":
+        detail = "bankrupt"
+    elif etype == "turn_end_snapshot":
+        detail = "snapshot"
+    elif etype == "game_end":
+        detail = event.get("end_reason", event.get("reason", "game end"))
     return {
-        "icon": icon,
-        "actor": actor,
-        "type": etype,
+        "event_type": etype,
+        "icon": icons.get(etype, ">"),
+        "actor": f"P{actor_id}" if actor_id is not None else "-",
+        "actor_id": actor_id,
         "detail": detail,
     }
 
 
-# ---------------------------------------------------------------------------
-# Build serialisable turn data
-# ---------------------------------------------------------------------------
+def _normalize_board(board: dict | None) -> dict:
+    raw = deepcopy(board or {})
+    tiles = list(raw.get("tiles", []))
+    by_index = {int(tile.get("tile_index", idx)): deepcopy(tile) for idx, tile in enumerate(tiles)}
+    fixed = []
+    for idx in range(40):
+        tile = by_index.get(idx, {"tile_index": idx, "tile_kind": "?"})
+        tile.setdefault("tile_index", idx)
+        tile.setdefault("tile_kind", "?")
+        tile.setdefault("zone_color", "")
+        tile.setdefault("owner_player_id", None)
+        tile.setdefault("purchase_cost", None)
+        tile.setdefault("rent_cost", None)
+        tile.setdefault("score_coin_count", 0)
+        fixed.append(tile)
+    raw["tiles"] = fixed
+    raw.setdefault("f_value", 0.0)
+    raw.setdefault("marker_owner_player_id", None)
+    raw.setdefault("round_index", 1)
+    raw.setdefault("turn_index", 1)
+    return raw
+
+
+def _initial_board(proj: ReplayProjection) -> dict:
+    for turn in proj.turns:
+        if turn.board_state:
+            board = _normalize_board(turn.board_state)
+            for tile in board["tiles"]:
+                tile["owner_player_id"] = None
+                tile["score_coin_count"] = 0
+                tile["pawn_player_ids"] = []
+            board["f_value"] = 0.0
+            return board
+    return _normalize_board(None)
+
+
+def _session_players(session_start: dict) -> list[dict]:
+    players = deepcopy(session_start.get("players", []))
+    for player in players:
+        player.setdefault("player_id", 0)
+        player.setdefault("display_name", f"Player {player.get('player_id', '?')}")
+        player.setdefault("alive", True)
+        player.setdefault("character", "")
+        player.setdefault("position", 0)
+        player.setdefault("cash", 0)
+        player.setdefault("shards", 0)
+        player.setdefault("hand_score_coins", 0)
+        player.setdefault("placed_score_coins", 0)
+        player.setdefault("owned_tile_count", 0)
+        player.setdefault("public_tricks", [])
+        player.setdefault("hidden_trick_count", 0)
+        player.setdefault("mark_status", "clear")
+        player.setdefault("public_effects", [])
+        player.setdefault("burden_summary", [])
+    return players
+
+
+def _apply_known_updates(event: dict, players: list[dict], board: dict) -> tuple[list[dict], dict]:
+    players = deepcopy(players)
+    board = _normalize_board(board)
+    etype = event.get("event_type")
+    if etype == "session_start" and event.get("players"):
+        return _session_players(event), board
+    if etype == "final_character_choice":
+        pid = event.get("acting_player_id")
+        for player in players:
+            if player.get("player_id") == pid:
+                player["character"] = event.get("character", player.get("character", ""))
+                break
+        return players, board
+    if etype == "tile_purchased":
+        tile_index = event.get("tile_index")
+        if isinstance(tile_index, int) and 0 <= tile_index < 40:
+            board["tiles"][tile_index]["owner_player_id"] = event.get("player_id", event.get("acting_player_id"))
+        return players, board
+    if etype == "marker_transferred":
+        board["marker_owner_player_id"] = event.get("new_owner_player_id", event.get("owner_player_id"))
+        return players, board
+    if etype == "f_value_change" and event.get("after") is not None:
+        board["f_value"] = event["after"]
+        return players, board
+    if etype in {"turn_end_snapshot", "game_end"}:
+        nested = event.get("snapshot") or {}
+        snap_players = event.get("players") or nested.get("players")
+        snap_board = event.get("board") or nested.get("board")
+        if snap_players is not None:
+            players = deepcopy(snap_players)
+        if snap_board is not None:
+            board = _normalize_board(snap_board)
+        return players, board
+    return players, board
+
+
+def _frame_title(event: dict) -> str:
+    etype = event.get("event_type")
+    if etype == "session_start":
+        return "Session Start"
+    if etype == "round_start":
+        return f"Round {event.get('round_index', '?')} Start"
+    if etype == "weather_reveal":
+        return f"Weather: {event.get('weather_name', event.get('card', '-'))}"
+    if etype == "draft_pick":
+        return f"Draft Pick - P{event.get('acting_player_id', '?')}"
+    if etype == "final_character_choice":
+        return f"Final Character - P{event.get('acting_player_id', '?')}"
+    if etype == "turn_start":
+        return f"Turn {event.get('turn_index', '?')} Start"
+    if etype == "turn_end_snapshot":
+        return f"Turn {event.get('turn_index', '?')} End"
+    if etype == "game_end":
+        return "Game End"
+    return etype.replace("_", " ").title()
+
+
+def _frame_nav_label(event: dict) -> str:
+    etype = event.get("event_type")
+    if etype == "session_start":
+        return "Session"
+    if etype == "round_start":
+        return f"R{event.get('round_index', '?')} start"
+    if etype == "weather_reveal":
+        return f"R{event.get('round_index', '?')} weather"
+    if etype == "draft_pick":
+        return f"Draft P{event.get('acting_player_id', '?')}"
+    if etype == "final_character_choice":
+        return f"Char P{event.get('acting_player_id', '?')}"
+    if etype == "turn_start":
+        return f"T{event.get('turn_index', '?')} start"
+    if etype == "turn_end_snapshot":
+        return f"T{event.get('turn_index', '?')} end"
+    if etype == "game_end":
+        return "Game End"
+    return etype.replace("_", " ")
+
 
 def _build_turn_data(proj: ReplayProjection) -> list[dict]:
-    """Convert all TurnReplays into plain dicts for JSON embedding."""
-    result = []
+    data = []
     for turn in proj.turns:
-        board = turn.board_state or {}
-        result.append({
-            "turn_index": turn.turn_index,
-            "round_index": turn.round_index,
-            "acting_player_id": turn.acting_player_id,
-            "skipped": turn.skipped,
-            "players": turn.player_states,
-            "board": board,
-            "events": [_event_display(e) for e in turn.key_events],
-            # tiles with owners for quick board rendering
-            "owned_tiles": _owned_tiles(board),
-            "pawn_positions": _pawn_positions(board),
-        })
-    return result
+        data.append(
+            {
+                "turn_index": turn.turn_index,
+                "round_index": turn.round_index,
+                "acting_player_id": turn.acting_player_id,
+                "skipped": turn.skipped,
+                "players": deepcopy(turn.player_states),
+                "board": _normalize_board(turn.board_state),
+                "events": [_event_display(event) for event in turn.key_events],
+            }
+        )
+    return data
 
 
-def _owned_tiles(board: dict) -> dict:
-    """Return {tile_index: owner_player_id} for tiles with owners."""
-    result: dict[str, int] = {}
-    for tile in board.get("tiles", []):
-        owner = tile.get("owner_player_id")
-        if owner is not None:
-            result[str(tile.get("tile_index", 0))] = owner
-    return result
+def _build_frames(proj: ReplayProjection) -> list[dict]:
+    frames = []
+    players = _session_players(proj.session.session_start)
+    board = _initial_board(proj)
+    recent = []
+    for event in proj.raw_events():
+        if event.get("event_type") not in _VISIBLE_FRAME_EVENTS:
+            continue
+        players, board = _apply_known_updates(event, players, board)
+        shown = _event_display(event)
+        recent.append(shown)
+        recent = recent[-8:]
+        frames.append(
+            {
+                "frame_index": len(frames),
+                "event_type": event.get("event_type"),
+                "round_index": event.get("round_index", 0),
+                "turn_index": event.get("turn_index", 0),
+                "acting_player_id": event.get("acting_player_id"),
+                "title": _frame_title(event),
+                "subtitle": shown["detail"],
+                "nav_label": _frame_nav_label(event),
+                "event": shown,
+                "recent_events": deepcopy(recent),
+                "players": deepcopy(players),
+                "board": _normalize_board(board),
+            }
+        )
+    return frames
 
 
-def _pawn_positions(board: dict) -> dict:
-    """Return {tile_index: [player_ids]} for tiles with pawns."""
-    result: dict[str, list[int]] = {}
-    for tile in board.get("tiles", []):
-        pawns = tile.get("pawn_player_ids", [])
-        if pawns:
-            result[str(tile.get("tile_index", 0))] = pawns
-    return result
-
-
-def _build_meta(proj: ReplayProjection) -> dict:
+def _build_meta(proj: ReplayProjection, frames: list[dict]) -> dict:
     session = proj.session
-    draft = [
-        {"player_id": e.get("acting_player_id"), "character": e.get("character", "?")}
-        for e in proj.events_by_type("final_character_choice")
-    ]
     return {
         "session_id": session.session_id,
         "total_events": session.total_events,
         "total_turns": len(session.turns),
         "total_rounds": len(session.rounds),
+        "total_frames": len(frames),
         "winner_player_id": session.winner_player_id,
         "end_reason": session.end_reason,
-        "draft": draft,
     }
 
 
-# ---------------------------------------------------------------------------
-# Player colours
-# ---------------------------------------------------------------------------
-
-_PLAYER_COLORS = ["#4e8ef7", "#e85d5d", "#5dbf5d", "#f0a030"]
-_PLAYER_COLORS_LIGHT = ["#d0e4ff", "#ffd0d0", "#d0ffd0", "#fff0c8"]
-
-
-# ---------------------------------------------------------------------------
-# HTML template
-# ---------------------------------------------------------------------------
-
-_HTML_TEMPLATE = """\
-<!DOCTYPE html>
+_HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>게임 리플레이 — {session_id_short}</title>
+<title>Replay {session_id_short}</title>
 <style>
-* {{ box-sizing: border-box; margin: 0; padding: 0; }}
-body {{
-  font-family: 'Segoe UI', 'Apple SD Gothic Neo', sans-serif;
-  background: #1a1a2e;
-  color: #e0e0f0;
-  min-height: 100vh;
-}}
-header {{
-  background: #16213e;
-  padding: 12px 20px;
-  border-bottom: 2px solid #0f3460;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}}
-header h1 {{ font-size: 1.1rem; color: #8eb4ff; font-weight: 700; }}
-.meta-badge {{
-  background: #0f3460;
-  border-radius: 12px;
-  padding: 3px 10px;
-  font-size: 0.75rem;
-  color: #a0b8e0;
-}}
-.meta-badge.winner {{ background: #1a4a1a; color: #80ff80; }}
-
-.main-layout {{
-  display: grid;
-  grid-template-columns: 260px 1fr 220px;
-  grid-template-rows: auto 1fr;
-  gap: 0;
-  height: calc(100vh - 54px);
-}}
-
-/* ── Navigation panel ────────────────────────────────────────── */
-.nav-panel {{
-  background: #16213e;
-  border-right: 1px solid #0f3460;
-  overflow-y: auto;
-  padding: 12px 8px;
-  grid-row: 1 / 3;
-}}
-.nav-panel h2 {{
-  font-size: 0.8rem;
-  color: #6080c0;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  padding: 0 6px 8px;
-  border-bottom: 1px solid #0f3460;
-  margin-bottom: 8px;
-}}
-.round-group {{ margin-bottom: 6px; }}
-.round-label {{
-  font-size: 0.72rem;
-  color: #8090b0;
-  padding: 2px 6px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}}
-.turn-btn {{
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 0.8rem;
-  color: #a0b4d0;
-  cursor: pointer;
-  transition: background 0.15s;
-}}
-.turn-btn:hover {{ background: #1f3060; }}
-.turn-btn.active {{ background: #0f3460; color: #8eb4ff; font-weight: 600; }}
-.turn-btn.skipped {{ opacity: 0.45; font-style: italic; }}
-
-/* ── Center: board + events ─────────────────────────────────── */
-.center-panel {{
-  overflow-y: auto;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}}
-
-.turn-header {{
-  background: #16213e;
-  border-radius: 8px;
-  padding: 10px 14px;
-  border-left: 4px solid #4e8ef7;
-}}
-.turn-header h2 {{ font-size: 1rem; font-weight: 700; }}
-.turn-header .sub {{ font-size: 0.78rem; color: #8090b0; margin-top: 2px; }}
-
-.section-title {{
-  font-size: 0.75rem;
-  color: #6080c0;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-bottom: 6px;
-}}
-
-/* Event feed */
-.event-feed {{
-  background: #16213e;
-  border-radius: 8px;
-  padding: 10px 12px;
-}}
-.event-item {{
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  padding: 4px 0;
-  border-bottom: 1px solid #1f2e50;
-  font-size: 0.82rem;
-}}
-.event-item:last-child {{ border-bottom: none; }}
-.event-icon {{ width: 18px; text-align: center; flex-shrink: 0; }}
-.event-actor {{
-  font-weight: 600;
-  min-width: 28px;
-  color: #8eb4ff;
-  flex-shrink: 0;
-}}
-.event-type {{
-  color: #6080c0;
-  font-size: 0.72rem;
-  min-width: 80px;
-  flex-shrink: 0;
-}}
-.event-detail {{ color: #c0d0e8; }}
-.event-feed.empty {{ color: #4060a0; font-style: italic; font-size: 0.82rem; }}
-
-/* Board */
-.board-section {{
-  background: #16213e;
-  border-radius: 8px;
-  padding: 10px 12px;
-}}
-.board-grid {{
-  display: grid;
-  grid-template-columns: repeat(10, 1fr);
-  gap: 3px;
-  margin-top: 6px;
-}}
-.tile {{
-  aspect-ratio: 1;
-  border-radius: 4px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.55rem;
-  position: relative;
-  border: 1px solid #2a3a5a;
-  background: #1a2a40;
-  cursor: default;
-  transition: transform 0.1s;
-}}
-.tile:hover {{ transform: scale(1.08); z-index: 10; }}
-.tile .tile-idx {{ color: #4060a0; font-size: 0.5rem; }}
-.tile .tile-kind {{ font-size: 0.58rem; }}
-.tile.owned {{ border-width: 2px; }}
-.tile .pawn {{
-  position: absolute;
-  top: 1px;
-  right: 1px;
-  font-size: 0.55rem;
-  line-height: 1;
-}}
-.tile-tooltip {{
-  display: none;
-  position: absolute;
-  bottom: 110%;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #0a1020;
-  border: 1px solid #3050a0;
-  border-radius: 6px;
-  padding: 5px 8px;
-  font-size: 0.72rem;
-  color: #c0d0e8;
-  white-space: nowrap;
-  z-index: 100;
-  pointer-events: none;
-}}
-.tile:hover .tile-tooltip {{ display: block; }}
-
-/* F value bar */
-.f-bar-wrap {{
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 8px;
-  font-size: 0.78rem;
-}}
-.f-bar-bg {{
-  flex: 1;
-  height: 8px;
-  background: #1a2a40;
-  border-radius: 4px;
-  overflow: hidden;
-}}
-.f-bar-fill {{
-  height: 100%;
-  background: linear-gradient(90deg, #4e8ef7, #f0a030);
-  border-radius: 4px;
-  transition: width 0.3s;
-}}
-
-/* ── Right: player panels ───────────────────────────────────── */
-.players-panel {{
-  background: #13193a;
-  border-left: 1px solid #0f3460;
-  overflow-y: auto;
-  padding: 12px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  grid-row: 1 / 3;
-}}
-.player-card {{
-  border-radius: 8px;
-  padding: 8px 10px;
-  border: 1px solid #2a3a5a;
-  font-size: 0.78rem;
-}}
-.player-card.dead {{ opacity: 0.45; }}
-.player-card.active-actor {{ border-width: 2px; }}
-.player-name {{
-  font-weight: 700;
-  font-size: 0.85rem;
-  margin-bottom: 4px;
-}}
-.player-char {{ font-size: 0.72rem; color: #8090b0; margin-bottom: 4px; }}
-.player-stat-row {{
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-bottom: 2px;
-}}
-.stat {{
-  background: #1a2a40;
-  border-radius: 10px;
-  padding: 1px 7px;
-  font-size: 0.7rem;
-}}
-.stat.big {{ font-size: 0.78rem; padding: 2px 8px; }}
-.mark-badge {{
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: 8px;
-  font-size: 0.67rem;
-  margin-top: 2px;
-}}
-.mark-clear {{ background: #1a3a1a; color: #60c060; }}
-.mark-marked {{ background: #3a1a1a; color: #ff6060; }}
-.mark-immune {{ background: #1a1a3a; color: #6080ff; }}
-.tricks-row {{ font-size: 0.68rem; color: #6080a0; margin-top: 2px; }}
-
-/* ── Controls bar ───────────────────────────────────────────── */
-.controls {{
-  background: #10192e;
-  border-top: 1px solid #0f3460;
-  padding: 8px 14px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  grid-column: 2 / 3;
-}}
-.ctrl-btn {{
-  background: #1f3060;
-  color: #a0b8e0;
-  border: 1px solid #2a4080;
-  border-radius: 6px;
-  padding: 5px 14px;
-  font-size: 0.82rem;
-  cursor: pointer;
-  transition: background 0.15s;
-}}
-.ctrl-btn:hover {{ background: #2a4080; }}
-.ctrl-btn:disabled {{ opacity: 0.35; cursor: default; }}
-.turn-counter {{ font-size: 0.8rem; color: #6080a0; }}
-.progress-bar-bg {{
-  flex: 1;
-  height: 6px;
-  background: #1a2a40;
-  border-radius: 3px;
-  overflow: hidden;
-}}
-.progress-bar-fill {{
-  height: 100%;
-  background: #4e8ef7;
-  transition: width 0.2s;
-}}
+* {{ box-sizing:border-box; margin:0; padding:0; }}
+body {{ font-family:"Segoe UI","Apple SD Gothic Neo",sans-serif; background:linear-gradient(180deg,#0a1020,#0c1322); color:#e7eefc; min-height:100vh; }}
+header {{ background:rgba(10,18,33,.96); border-bottom:1px solid #273755; padding:10px 16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }}
+h1 {{ font-size:1rem; color:#ffd060; }}
+.badge {{ background:#1c2943; border:1px solid #32486f; border-radius:999px; padding:3px 10px; font-size:.75rem; color:#c9d7f4; }}
+.badge.winner {{ color:#72e289; border-color:#72e289; }}
+.layout {{ display:grid; grid-template-columns:280px minmax(0,1fr) 300px; min-height:calc(100vh - 54px); }}
+.nav-panel,.players-panel {{ background:rgba(24,35,58,.96); padding:12px 10px; overflow-y:auto; }}
+.nav-panel {{ border-right:1px solid #273755; }}
+.players-panel {{ border-left:1px solid #273755; }}
+.main-panel {{ padding:14px; display:flex; flex-direction:column; gap:12px; }}
+.section,.legend-box,.player-card {{ background:rgba(24,35,58,.96); border:1px solid #273755; border-radius:14px; padding:10px; }}
+.sec-title {{ font-size:.72rem; color:#8aa5d8; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px; }}
+.round-label {{ font-size:.7rem; color:#8aa5d8; text-transform:uppercase; letter-spacing:.08em; padding:6px 4px 4px; }}
+.frame-btn {{ width:100%; text-align:left; border:1px solid transparent; background:transparent; color:#c8d7f2; border-radius:10px; padding:7px 9px; cursor:pointer; margin-bottom:4px; font-size:.78rem; }}
+.frame-btn:hover {{ background:#15233c; border-color:#294067; }}
+.frame-btn.active {{ background:#243454; border-color:#ffd060; color:#ffd060; }}
+.frame-btn small {{ display:block; color:#93a7ce; margin-top:2px; }}
+.frame-header,.progress-row,.legend-row,.stat-row,.chip-row,.controls {{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }}
+.frame-header {{ justify-content:space-between; }}
+.frame-title {{ font-size:1rem; font-weight:700; }}
+.frame-sub,.status-sub {{ color:#93a7ce; font-size:.78rem; margin-top:4px; }}
+.progress-bar,.f-bar {{ flex:1; height:8px; background:#0c1525; border-radius:999px; overflow:hidden; }}
+.progress-fill {{ height:100%; width:0; background:linear-gradient(90deg,#4e8ef7,#73d0ff); }}
+.f-fill {{ height:100%; width:0; background:linear-gradient(90deg,#4e8ef7,#f0a030); }}
+.center-grid {{ display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:12px; }}
+.board-shell {{ min-height:720px; background:linear-gradient(180deg,#10203a,#0f1830); border-radius:18px; border:1px solid #294067; padding:14px; }}
+.board-track {{ display:grid; grid-template-columns:repeat(11,minmax(0,1fr)); grid-template-rows:repeat(11,minmax(0,1fr)); gap:6px; width:100%; aspect-ratio:1; }}
+.board-center {{ grid-column:3 / span 7; grid-row:3 / span 7; border-radius:18px; border:1px solid #31507d; background:linear-gradient(180deg,rgba(17,31,52,.96),rgba(11,20,34,.96)); padding:12px; display:flex; flex-direction:column; gap:8px; }}
+.status-grid {{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }}
+.status-card {{ background:rgba(15,23,39,.86); border:1px solid #294067; border-radius:12px; padding:8px; }}
+.status-label {{ font-size:.62rem; color:#93a7ce; text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; }}
+.status-value {{ font-size:.92rem; font-weight:700; }}
+.tile {{ border:1px solid #31486e; border-radius:12px; background:linear-gradient(180deg,rgba(16,26,42,.98),rgba(11,18,30,.96)); position:relative; padding:6px; overflow:hidden; }}
+.tile.owned {{ border-width:2px; }}
+.tile.special {{ box-shadow:inset 0 0 0 1px rgba(255,255,255,.08); }}
+.tile.current-event {{ box-shadow:0 0 0 3px rgba(255,208,96,.30); }}
+.tile-number {{ color:#7e95bf; font-size:.58rem; }}
+.tile-kind {{ display:block; margin-top:2px; font-size:.88rem; font-weight:700; }}
+.tile-zone {{ margin-top:2px; font-size:.56rem; color:#89a1c9; }}
+.tile-meta {{ position:absolute; left:6px; right:6px; bottom:6px; font-size:.54rem; color:#c2d2ef; }}
+.tile-pawns {{ position:absolute; top:6px; right:6px; display:flex; gap:3px; flex-wrap:wrap; justify-content:flex-end; max-width:44px; }}
+.pawn-dot {{ width:10px; height:10px; border-radius:50%; border:1px solid rgba(255,255,255,.75); }}
+.event-feed {{ display:flex; flex-direction:column; gap:6px; min-height:80px; }}
+.event-item {{ display:grid; grid-template-columns:24px 40px 128px minmax(0,1fr); gap:8px; align-items:center; font-size:.8rem; }}
+.event-type {{ color:#8aa5d8; }}
+.player-card.active {{ border-width:2px; }}
+.player-card.dead {{ opacity:.55; }}
+.player-name {{ font-weight:700; display:flex; align-items:center; justify-content:space-between; gap:8px; }}
+.player-character {{ color:#9bb0d8; margin-top:2px; }}
+.chip,.mark {{ border-radius:999px; padding:2px 7px; font-size:.68rem; background:#0f1727; border:1px solid #355188; }}
+.mark-clear {{ background:#163321; color:#72e289; }}
+.mark-marked {{ background:#3d1920; color:#ff8f8f; }}
+.mark-immune {{ background:#1a2340; color:#87a8ff; }}
+.ctrl-btn {{ border:1px solid #355188; background:#182846; color:#e7eefc; border-radius:10px; padding:8px 10px; cursor:pointer; }}
+.ctrl-btn:disabled {{ opacity:.45; cursor:default; }}
+@media (max-width:1240px) {{ .layout {{ grid-template-columns:240px 1fr; }} .players-panel {{ grid-column:1 / span 2; border-left:none; border-top:1px solid #273755; }} .center-grid {{ grid-template-columns:1fr; }} }}
+@media (max-width:980px) {{ .layout {{ grid-template-columns:1fr; }} .nav-panel {{ border-right:none; border-bottom:1px solid #273755; max-height:240px; }} .players-panel {{ grid-column:auto; }} }}
 </style>
 </head>
 <body>
-
 <header>
-  <h1>🎮 게임 리플레이</h1>
-  <span class="meta-badge">세션 {session_id_short}</span>
-  <span class="meta-badge">이벤트 {total_events}개</span>
-  <span class="meta-badge">턴 {total_turns}개</span>
-  <span class="meta-badge">라운드 {total_rounds}개</span>
+  <h1>Replay</h1>
+  <span class="badge">session {session_id_short}</span>
+  <span class="badge" id="frame-counter">0 / 0</span>
+  <span class="badge">turns {total_turns}</span>
+  <span class="badge">rounds {total_rounds}</span>
   {winner_badge}
 </header>
-
-<div class="main-layout">
-
-  <!-- Nav panel -->
-  <div class="nav-panel">
-    <h2>턴 목록</h2>
-    <div id="nav-list"></div>
-  </div>
-
-  <!-- Center: turn view + controls -->
-  <div class="center-panel" id="center-panel">
-    <div class="turn-header" id="turn-header">
-      <h2 id="turn-title">—</h2>
-      <div class="sub" id="turn-sub"></div>
-    </div>
-
-    <div class="event-feed" id="event-feed">
-      <div class="section-title">이벤트</div>
-      <div id="event-list"></div>
-    </div>
-
-    <div class="board-section">
-      <div class="section-title">보드 상태</div>
-      <div class="f-bar-wrap">
-        <span>F값</span>
-        <div class="f-bar-bg"><div class="f-bar-fill" id="f-bar" style="width:0%"></div></div>
-        <span id="f-value-text">—</span>
-        <span style="font-size:0.72rem;color:#8090b0">징표: <span id="marker-owner">—</span></span>
+<div class="layout">
+  <aside class="nav-panel"><div class="sec-title">Timeline</div><div id="nav-list"></div></aside>
+  <main class="main-panel">
+    <section class="section">
+      <div class="frame-header">
+        <div><div class="frame-title" id="frame-title"></div><div class="frame-sub" id="frame-sub"></div></div>
+        <div class="controls">
+          <button class="ctrl-btn" id="btn-first" onclick="goToFrame(0)">First</button>
+          <button class="ctrl-btn" id="btn-prev" onclick="prevFrame()">Prev</button>
+          <button class="ctrl-btn" id="btn-next" onclick="nextFrame()">Next</button>
+          <button class="ctrl-btn" id="btn-last" onclick="goToFrame(FRAMES.length - 1)">Last</button>
+        </div>
       </div>
-      <div class="board-grid" id="board-grid"></div>
+      <div class="progress-row" style="margin-top:10px"><div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div><span id="progress-text">0%</span></div>
+    </section>
+    <div class="center-grid">
+      <section class="board-shell"><div class="sec-title">Board</div><div class="board-track" id="board-track"></div></section>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <section class="legend-box">
+          <div class="sec-title">Situation</div>
+          <div class="legend-row"><span>Frame</span><strong id="legend-frame">-</strong></div>
+          <div class="legend-row"><span>Round</span><strong id="legend-round">-</strong></div>
+          <div class="legend-row"><span>Turn</span><strong id="legend-turn">-</strong></div>
+          <div class="legend-row"><span>Actor</span><strong id="legend-actor">-</strong></div>
+          <div class="legend-row"><span>Type</span><strong id="legend-type">-</strong></div>
+          <div class="legend-row"><span>Marker</span><strong id="legend-marker">-</strong></div>
+          <div class="legend-row"><span>F</span><strong id="legend-f">0.00</strong></div>
+          <div class="f-bar" style="margin-top:8px"><div class="f-fill" id="f-fill"></div></div>
+        </section>
+        <section class="legend-box"><div class="sec-title">Recent Events</div><div class="event-feed" id="event-feed"></div></section>
+      </div>
     </div>
-  </div>
-
-  <!-- Controls bar -->
-  <div class="controls">
-    <button class="ctrl-btn" id="btn-first" onclick="goToTurn(0)">⏮</button>
-    <button class="ctrl-btn" id="btn-prev" onclick="prevTurn()">◀</button>
-    <div class="progress-bar-bg">
-      <div class="progress-bar-fill" id="progress-bar" style="width:0%"></div>
-    </div>
-    <span class="turn-counter" id="turn-counter">—</span>
-    <button class="ctrl-btn" id="btn-next" onclick="nextTurn()">▶</button>
-    <button class="ctrl-btn" id="btn-last" onclick="goToTurn(TURNS.length-1)">⏭</button>
-  </div>
-
-  <!-- Players panel -->
-  <div class="players-panel" id="players-panel"></div>
-
+  </main>
+  <aside class="players-panel" id="players-panel"></aside>
 </div>
-
 <script>
 const META = {meta_json};
 const TURNS = {turns_json};
+const FRAMES = {frames_json};
 const PLAYER_COLORS = {player_colors_json};
-const PLAYER_COLORS_LIGHT = {player_colors_light_json};
-
-let currentTurnIdx = 0;
-
-// ── Build nav list ─────────────────────────────────────────────────────────
+const PLAYER_LIGHTS = {player_lights_json};
+const TILE_LABELS = {tile_labels_json};
+let currentFrameIdx = 0;
+function tilePosition(i) {{ if (i <= 10) return {{row:1,col:i + 1}}; if (i <= 19) return {{row:i - 9,col:11}}; if (i <= 30) return {{row:11,col:31 - i}}; return {{row:41 - i,col:1}}; }}
+function playerColor(id) {{ return id == null ? "#9bb0d8" : PLAYER_COLORS[(id - 1) % PLAYER_COLORS.length]; }}
 function buildNav() {{
-  const container = document.getElementById('nav-list');
-  let currentRound = -1;
-  let roundDiv = null;
-
-  TURNS.forEach((turn, i) => {{
-    if (turn.round_index !== currentRound) {{
-      currentRound = turn.round_index;
-      const label = document.createElement('div');
-      label.className = 'round-label';
-      label.textContent = `Round ${{currentRound}}`;
-      roundDiv = document.createElement('div');
-      roundDiv.className = 'round-group';
-      roundDiv.appendChild(label);
-      container.appendChild(roundDiv);
-    }}
-    const btn = document.createElement('button');
-    btn.className = 'turn-btn' + (turn.skipped ? ' skipped' : '');
-    btn.id = `nav-turn-${{i}}`;
-    const pid = turn.acting_player_id;
-    btn.textContent = `T${{turn.turn_index}} P${{pid ?? '?'}}` + (turn.skipped ? ' (skip)' : '');
-    btn.onclick = () => goToTurn(i);
-    if (roundDiv) roundDiv.appendChild(btn);
+  const host = document.getElementById("nav-list"); host.innerHTML = ""; let lastRound = null;
+  FRAMES.forEach((frame, idx) => {{
+    const roundIndex = frame.round_index || 0;
+    if (roundIndex !== lastRound) {{ lastRound = roundIndex; const label = document.createElement("div"); label.className = "round-label"; label.textContent = roundIndex > 0 ? `Round ${roundIndex}` : "Session"; host.appendChild(label); }}
+    const btn = document.createElement("button"); btn.className = "frame-btn"; btn.id = `frame-btn-${idx}`; btn.innerHTML = `${frame.nav_label}<small>${frame.event_type}</small>`; btn.onclick = () => goToFrame(idx); host.appendChild(btn);
   }});
 }}
-
-// ── Render a turn ──────────────────────────────────────────────────────────
-function renderTurn(idx) {{
-  currentTurnIdx = idx;
-  const turn = TURNS[idx];
-  const pid = turn.acting_player_id;
-  const color = pid !== null ? PLAYER_COLORS[((pid - 1) % PLAYER_COLORS.length)] : '#8090b0';
-
-  // Header
-  document.getElementById('turn-title').textContent =
-    `Turn ${{turn.turn_index}} — P${{pid ?? '?'}}` + (turn.skipped ? ' (건너뜀)' : '');
-  document.getElementById('turn-header').style.borderLeftColor = color;
-  document.getElementById('turn-sub').textContent = `Round ${{turn.round_index}}`;
-
-  // Event feed
-  const listEl = document.getElementById('event-list');
-  listEl.innerHTML = '';
-  if (turn.events.length === 0) {{
-    listEl.innerHTML = '<div style="color:#4060a0;font-style:italic;font-size:0.82rem">이벤트 없음</div>';
-  }} else {{
-    turn.events.forEach(e => {{
-      const row = document.createElement('div');
-      row.className = 'event-item';
-      const actorColor = e.actor.startsWith('P') ?
-        PLAYER_COLORS[((parseInt(e.actor.slice(1)) - 1) % PLAYER_COLORS.length)] : '#8090b0';
-      row.innerHTML = `
-        <span class="event-icon">${{e.icon}}</span>
-        <span class="event-actor" style="color:${{actorColor}}">${{e.actor}}</span>
-        <span class="event-type">${{e.type}}</span>
-        <span class="event-detail">${{e.detail}}</span>
-      `;
-      listEl.appendChild(row);
-    }});
-  }}
-
-  // Board
-  renderBoard(turn);
-
-  // Players
-  renderPlayers(turn);
-
-  // Controls
-  document.getElementById('btn-prev').disabled = idx === 0;
-  document.getElementById('btn-first').disabled = idx === 0;
-  document.getElementById('btn-next').disabled = idx === TURNS.length - 1;
-  document.getElementById('btn-last').disabled = idx === TURNS.length - 1;
-  const pct = TURNS.length > 1 ? (idx / (TURNS.length - 1) * 100) : 0;
-  document.getElementById('progress-bar').style.width = pct + '%';
-  document.getElementById('turn-counter').textContent = `${{idx + 1}} / ${{TURNS.length}}`;
-
-  // Nav highlight
-  document.querySelectorAll('.turn-btn').forEach(b => b.classList.remove('active'));
-  const navBtn = document.getElementById(`nav-turn-${{idx}}`);
-  if (navBtn) {{
-    navBtn.classList.add('active');
-    navBtn.scrollIntoView({{ block: 'nearest' }});
+function renderEventFeed(frame) {{
+  const feed = document.getElementById("event-feed"); const items = frame.recent_events || [];
+  feed.innerHTML = items.length ? items.map((event) => `<div class="event-item"><div>${event.icon}</div><div style="color:${playerColor(event.actor_id)}">${event.actor}</div><div class="event-type">${event.event_type}</div><div>${event.detail}</div></div>`).join("") : '<div class="status-sub">No visible events yet.</div>';
+}}
+function renderBoard(frame) {{
+  const track = document.getElementById("board-track"); const board = frame.board || {{}}; const tiles = board.tiles || []; const players = frame.players || []; const pawnMap = new Map();
+  players.forEach((player) => {{ if (player.alive === false) return; const pos = Number(player.position ?? 0); if (!pawnMap.has(pos)) pawnMap.set(pos, []); pawnMap.get(pos).push(player.player_id); }});
+  track.innerHTML = "";
+  const center = document.createElement("div"); center.className = "board-center"; center.innerHTML = `<div class="status-value">${frame.title}</div><div class="status-sub">${frame.subtitle || "-"}</div><div class="status-grid"><div class="status-card"><div class="status-label">Current Event</div><div class="status-value">${frame.event.icon} ${frame.event.actor}</div><div class="status-sub">${frame.event.detail || "-"}</div></div><div class="status-card"><div class="status-label">Frame</div><div class="status-value">${frame.frame_index + 1} / ${FRAMES.length}</div><div class="status-sub">${frame.event_type}</div></div><div class="status-card"><div class="status-label">Round / Turn</div><div class="status-value">R${frame.round_index || "-"} / T${frame.turn_index || "-"}</div><div class="status-sub">Replay timeline</div></div><div class="status-card"><div class="status-label">Marker / F</div><div class="status-value">${board.marker_owner_player_id ? `P${board.marker_owner_player_id}` : "-"} / ${Number(board.f_value || 0).toFixed(2)}</div><div class="status-sub">Public board state</div></div></div>`; track.appendChild(center);
+  let highlightedTile = null; if (frame.event_type === "player_move") {{ const parts = String(frame.event.detail || "").split("->"); if (parts.length === 2) highlightedTile = Number(parts[1].trim()) - 1; }} if (frame.event_type === "tile_purchased") {{ const match = String(frame.event.detail || "").match(/tile\\s+(\\d+)/); if (match) highlightedTile = Number(match[1]) - 1; }}
+  for (let idx = 0; idx < 40; idx += 1) {{
+    const tile = tiles[idx] || {{}}; const pos = tilePosition(idx); const owner = tile.owner_player_id; const card = document.createElement("div"); card.className = "tile"; card.style.gridColumn = String(pos.col); card.style.gridRow = String(pos.row);
+    if (owner != null) {{ const ci = (owner - 1) % PLAYER_COLORS.length; card.classList.add("owned"); card.style.borderColor = PLAYER_COLORS[ci]; card.style.background = `linear-gradient(180deg, ${PLAYER_LIGHTS[ci]}, #101a2d)`; }}
+    if (["F1", "F2", "S"].includes(tile.tile_kind)) card.classList.add("special");
+    if (highlightedTile === idx) card.classList.add("current-event");
+    const pawns = pawnMap.get(idx) || []; const pawnMarkup = pawns.map((pid) => `<span class="pawn-dot" style="background:${playerColor(pid)}"></span>`).join(""); const meta = []; if (owner != null) meta.push(`P${owner}`); if (tile.rent_cost != null) meta.push(`R${tile.rent_cost}`); if ((tile.score_coin_count || 0) > 0) meta.push(`C${tile.score_coin_count}`);
+    card.innerHTML = `<div class="tile-number">${idx + 1}</div><span class="tile-kind">${TILE_LABELS[tile.tile_kind] || tile.tile_kind || "?"}</span><div class="tile-zone">${tile.zone_color || "-"}</div><div class="tile-pawns">${pawnMarkup}</div><div class="tile-meta">${meta.join(" ") || "-"}</div>`; track.appendChild(card);
   }}
 }}
-
-// ── Board rendering ────────────────────────────────────────────────────────
-const TILE_KIND_ICONS = {{
-  F1: '🏁', F2: '🏁', S: '⭐', T2: '🏘', T3: '🏛', MALICIOUS: '☠️',
-}};
-
-function renderBoard(turn) {{
-  const grid = document.getElementById('board-grid');
-  grid.innerHTML = '';
-  const board = turn.board || {{}};
-  const tiles = board.tiles || [];
-  const ownedMap = turn.owned_tiles || {{}};
-  const pawnMap = turn.pawn_positions || {{}};
-
-  for (let i = 0; i < 40; i++) {{
-    const tile = tiles[i] || {{}};
-    const tileDiv = document.createElement('div');
-    tileDiv.className = 'tile';
-
-    const ownerId = ownedMap[String(i)];
-    if (ownerId != null) {{
-      const ci = (ownerId - 1) % PLAYER_COLORS.length;
-      tileDiv.style.borderColor = PLAYER_COLORS[ci];
-      tileDiv.style.background = PLAYER_COLORS_LIGHT[ci];
-      tileDiv.classList.add('owned');
-    }}
-
-    const kind = tile.tile_kind || '?';
-    const icon = TILE_KIND_ICONS[kind] || '▪';
-    tileDiv.innerHTML = `<span class="tile-idx">${{i}}</span><span class="tile-kind">${{icon}}</span>`;
-
-    const pawns = pawnMap[String(i)];
-    if (pawns && pawns.length > 0) {{
-      const pawnSpan = document.createElement('span');
-      pawnSpan.className = 'pawn';
-      pawnSpan.textContent = pawns.map(p => `👤`).join('');
-      tileDiv.appendChild(pawnSpan);
-    }}
-
-    // Tooltip
-    const tt = document.createElement('div');
-    tt.className = 'tile-tooltip';
-    const ownerNote = ownerId ? ` | P${{ownerId}}소유` : '';
-    const rentNote = tile.rent_cost ? ` | 렌트${{tile.rent_cost}}` : '';
-    const coinNote = tile.score_coin_count ? ` | 🪙${{tile.score_coin_count}}` : '';
-    const pawnNote = pawns && pawns.length ? ` | P${{pawns.join(',')}}` : '';
-    tt.textContent = `[${{i}}] ${{kind}}${{ownerNote}}${{rentNote}}${{coinNote}}${{pawnNote}}`;
-    tileDiv.appendChild(tt);
-
-    grid.appendChild(tileDiv);
-  }}
-
-  // F bar
-  const fVal = board.f_value ?? 0;
-  const fPct = Math.min(100, Math.max(0, (fVal / 10) * 100));
-  document.getElementById('f-bar').style.width = fPct + '%';
-  document.getElementById('f-value-text').textContent = typeof fVal === 'number' ? fVal.toFixed(2) : fVal;
-  const marker = board.marker_owner_player_id;
-  document.getElementById('marker-owner').textContent = marker != null ? `P${{marker}}` : '—';
-}}
-
-// ── Player panels ──────────────────────────────────────────────────────────
-function renderPlayers(turn) {{
-  const panel = document.getElementById('players-panel');
-  panel.innerHTML = '<div style="font-size:0.75rem;color:#6080c0;text-transform:uppercase;letter-spacing:1px;padding:0 4px 8px;border-bottom:1px solid #1a2a40;margin-bottom:8px">플레이어</div>';
-
-  const players = turn.players || [];
-  const actorId = turn.acting_player_id;
-
-  players.forEach((p, i) => {{
-    const ci = ((p.player_id - 1) % PLAYER_COLORS.length);
-    const color = PLAYER_COLORS[ci];
-    const colorLight = PLAYER_COLORS_LIGHT[ci];
-    const isActor = p.player_id === actorId;
-
-    const card = document.createElement('div');
-    card.className = 'player-card' + (p.alive ? '' : ' dead') + (isActor ? ' active-actor' : '');
-    card.style.borderColor = color;
-    if (isActor) card.style.background = colorLight.replace(')', ', 0.08)').replace('rgb', 'rgba');
-
-    const markClass = p.mark_status === 'marked' ? 'mark-marked' :
-                      p.mark_status === 'immune' ? 'mark-immune' : 'mark-clear';
-
-    const effects = (p.public_effects || []).join(', ');
-    const pubTricks = (p.public_tricks || []).join(', ') || '—';
-    const hidden = p.hidden_trick_count || 0;
-
-    card.innerHTML = `
-      <div class="player-name" style="color:${{color}}">
-        ${{isActor ? '▶ ' : ''}}P${{p.player_id}} ${{p.alive ? '' : '💀'}}
-      </div>
-      <div class="player-char">${{p.character || '?'}} · tile ${{p.position}}</div>
-      <div class="player-stat-row">
-        <span class="stat big">💰${{p.cash}}</span>
-        <span class="stat big">🔮${{p.shards}}</span>
-        <span class="stat">🪙${{p.hand_score_coins}}+${{p.placed_score_coins}}</span>
-        <span class="stat">🏠${{p.owned_tile_count}}</span>
-      </div>
-      <span class="mark-badge ${{markClass}}">${{p.mark_status}}</span>
-      ${{effects ? `<div style="font-size:0.65rem;color:#8090b0;margin-top:3px">⚡ ${{effects}}</div>` : ''}}
-      <div class="tricks-row">잔꾀: ${{pubTricks}} [${{hidden}}H]</div>
-    `;
-    panel.appendChild(card);
+function renderPlayers(frame) {{
+  const panel = document.getElementById("players-panel"); panel.innerHTML = '<div class="sec-title">Players</div>'; const actorId = frame.acting_player_id;
+  (frame.players || []).forEach((player) => {{
+    const pid = player.player_id; const color = playerColor(pid); const markStatus = player.mark_status || "clear"; const tricks = (player.public_tricks || []).join(", ") || "-"; const effects = player.public_effects || []; const burdens = player.burden_summary || []; const card = document.createElement("div");
+    card.className = "player-card" + (pid === actorId ? " active" : "") + (player.alive === false ? " dead" : ""); if (pid === actorId) card.style.borderColor = color;
+    card.innerHTML = `<div class="player-name" style="color:${color}"><span>P${pid}</span><span>${player.alive === false ? "OUT" : `tile ${Number(player.position || 0) + 1}`}</span></div><div class="player-character">${player.character || "-"}</div><div class="status-sub">${player.display_name || `Player ${pid}`}</div><div class="stat-row" style="margin-top:6px"><span class="chip">$ ${player.cash ?? "?"}</span><span class="chip">Sh ${player.shards ?? "?"}</span><span class="chip">Hand ${player.hand_score_coins ?? "?"}</span><span class="chip">Placed ${player.placed_score_coins ?? "?"}</span><span class="chip">Tiles ${player.owned_tile_count ?? "?"}</span></div><div style="margin-top:6px"><span class="mark mark-${markStatus}">${markStatus}</span></div><div class="status-sub" style="margin-top:6px">Public tricks: ${tricks}${player.hidden_trick_count ? ` (+${player.hidden_trick_count} hidden)` : ""}</div>${player.pending_mark_source ? `<div class="status-sub">Marked by P${player.pending_mark_source}</div>` : ""}${burdens.length ? `<div class="status-sub">Burdens: ${burdens.join(", ")}</div>` : ""}${effects.length ? `<div class="chip-row" style="margin-top:6px">${effects.map((name) => `<span class="chip">${name}</span>`).join("")}</div>` : ""}`; panel.appendChild(card);
   }});
 }}
-
-// ── Navigation helpers ─────────────────────────────────────────────────────
-function goToTurn(idx) {{
-  if (idx >= 0 && idx < TURNS.length) renderTurn(idx);
+function renderFrame(idx) {{
+  currentFrameIdx = idx; const frame = FRAMES[idx];
+  document.getElementById("frame-title").textContent = frame.title; document.getElementById("frame-sub").textContent = frame.subtitle || ""; document.getElementById("frame-counter").textContent = `${idx + 1} / ${FRAMES.length}`;
+  document.getElementById("legend-frame").textContent = `${idx + 1} / ${FRAMES.length}`; document.getElementById("legend-round").textContent = frame.round_index || "-"; document.getElementById("legend-turn").textContent = frame.turn_index || "-"; document.getElementById("legend-actor").textContent = frame.acting_player_id ? `P${frame.acting_player_id}` : "-"; document.getElementById("legend-type").textContent = frame.event_type; document.getElementById("legend-marker").textContent = frame.board.marker_owner_player_id ? `P${frame.board.marker_owner_player_id}` : "-"; document.getElementById("legend-f").textContent = Number(frame.board.f_value || 0).toFixed(2); document.getElementById("f-fill").style.width = `${Math.max(0, Math.min(100, (Number(frame.board.f_value || 0) / 15) * 100))}%`; document.getElementById("progress-fill").style.width = `${FRAMES.length > 1 ? (idx / (FRAMES.length - 1)) * 100 : 0}%`; document.getElementById("progress-text").textContent = `${Math.round(FRAMES.length > 1 ? (idx / (FRAMES.length - 1)) * 100 : 0)}%`;
+  renderEventFeed(frame); renderBoard(frame); renderPlayers(frame);
+  document.querySelectorAll(".frame-btn").forEach((button) => button.classList.remove("active")); const active = document.getElementById(`frame-btn-${idx}`); if (active) {{ active.classList.add("active"); active.scrollIntoView({{ block: "nearest" }}); }}
+  document.getElementById("btn-first").disabled = idx === 0; document.getElementById("btn-prev").disabled = idx === 0; document.getElementById("btn-next").disabled = idx === FRAMES.length - 1; document.getElementById("btn-last").disabled = idx === FRAMES.length - 1;
 }}
-function prevTurn() {{ goToTurn(currentTurnIdx - 1); }}
-function nextTurn() {{ goToTurn(currentTurnIdx + 1); }}
-
-// Keyboard navigation
-document.addEventListener('keydown', e => {{
-  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') nextTurn();
-  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') prevTurn();
-  if (e.key === 'Home') goToTurn(0);
-  if (e.key === 'End') goToTurn(TURNS.length - 1);
-}});
-
-// ── Init ───────────────────────────────────────────────────────────────────
-buildNav();
-if (TURNS.length > 0) renderTurn(0);
+function goToFrame(idx) {{ if (idx >= 0 && idx < FRAMES.length) renderFrame(idx); }}
+function prevFrame() {{ goToFrame(currentFrameIdx - 1); }}
+function nextFrame() {{ goToFrame(currentFrameIdx + 1); }}
+document.addEventListener("keydown", (event) => {{ if (event.key === "ArrowRight" || event.key === "ArrowDown") nextFrame(); if (event.key === "ArrowLeft" || event.key === "ArrowUp") prevFrame(); if (event.key === "Home") goToFrame(0); if (event.key === "End") goToFrame(FRAMES.length - 1); }});
+buildNav(); if (FRAMES.length > 0) renderFrame(0);
 </script>
 </body>
 </html>
@@ -763,30 +492,30 @@ if (TURNS.length > 0) renderTurn(0);
 
 
 def render_html(proj: ReplayProjection) -> str:
-    """Render the full game replay as a self-contained HTML page."""
+    """Render the replay as a self-contained HTML timeline."""
     session = proj.session
     session_id_short = session.session_id[:8] if session.session_id else "unknown"
-
-    meta = _build_meta(proj)
-    turns_data = _build_turn_data(proj)
-
-    winner = session.winner_player_id
-    if winner is not None:
-        ci = (winner - 1) % len(_PLAYER_COLORS)
-        bg = _PLAYER_COLORS[ci]
-        winner_badge = f'<span class="meta-badge winner">P{winner} 승리</span>'
-    else:
-        winner_badge = ""
-
-    html = _HTML_TEMPLATE.format(
-        session_id_short=session_id_short,
-        total_events=session.total_events,
-        total_turns=len(session.turns),
-        total_rounds=len(session.rounds),
-        winner_badge=winner_badge,
-        meta_json=json.dumps(meta, ensure_ascii=False),
-        turns_json=json.dumps(turns_data, ensure_ascii=False),
-        player_colors_json=json.dumps(_PLAYER_COLORS),
-        player_colors_light_json=json.dumps(_PLAYER_COLORS_LIGHT),
+    turns = _build_turn_data(proj)
+    frames = _build_frames(proj)
+    meta = _build_meta(proj, frames)
+    winner_badge = (
+        f'<span class="badge winner">P{session.winner_player_id} wins</span>'
+        if session.winner_player_id is not None
+        else ""
     )
+    replacements = {
+        "{session_id_short}": session_id_short,
+        "{total_turns}": str(meta["total_turns"]),
+        "{total_rounds}": str(meta["total_rounds"]),
+        "{winner_badge}": winner_badge,
+        "{meta_json}": json.dumps(meta, ensure_ascii=False),
+        "{turns_json}": json.dumps(turns, ensure_ascii=False),
+        "{frames_json}": json.dumps(frames, ensure_ascii=False),
+        "{player_colors_json}": json.dumps(_PLAYER_COLORS, ensure_ascii=False),
+        "{player_lights_json}": json.dumps(_PLAYER_LIGHTS, ensure_ascii=False),
+        "{tile_labels_json}": json.dumps(_TILE_LABELS, ensure_ascii=False),
+    }
+    html = _HTML_TEMPLATE
+    for needle, value in replacements.items():
+        html = html.replace(needle, value)
     return html
