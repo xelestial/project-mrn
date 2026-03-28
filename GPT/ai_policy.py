@@ -9,33 +9,105 @@ from characters import CHARACTERS, CARD_TO_NAMES
 from config import CellKind
 from policy_groups import MARK_ACTOR_BASE_RISK, MARK_ACTOR_NAMES, RENT_ESCAPE_CHARACTERS, RENT_EXPANSION_CHARACTERS, RENT_FRAGILE_DISRUPTORS
 from policy_mark_utils import mark_guess_distribution, mark_guess_policy_params, mark_priority_exposure_factor, mark_target_profile_factor, public_mark_guess_candidates
+from policy.profile.presets import DEFAULT_PROFILE_REGISTRY
+from policy.context.turn_plan import PlayerIntentState, build_turn_plan_context
+from policy.context.survival_context import build_policy_survival_context
+from policy.decision.hidden_trick import resolve_hidden_trick_choice_run
+from policy.decision.active_flip import resolve_random_active_flip_choice, resolve_scored_active_flip_choice
+from policy.decision.lap_reward import (
+    BasicLapRewardInputs,
+    V2ProfileLapRewardInputs,
+    V3LapRewardInputs,
+    evaluate_basic_lap_reward,
+    evaluate_v3_lap_reward,
+    normalize_lap_reward_scores,
+    resolve_lap_reward_bundle,
+)
+from policy.decision.mark_target import (
+    filter_public_mark_candidates,
+    run_public_mark_choice,
+)
+from policy.decision.movement import generic_land_spend_penalty
+from policy.decision.trick_usage import apply_trick_preserve_rules
+from policy.decision.support_choices import (
+    DistressMarkerInputs,
+    EscapeSeekInputs,
+    build_distress_marker_bonus,
+    count_burden_cards,
+    should_seek_escape_package_from_inputs,
+)
+from policy.decision.trick_reward import resolve_trick_reward_choice_run
+from policy.decision.purchase import (
+    PurchaseBenefitInputs,
+    TraitPurchaseDecisionInputs,
+    assess_purchase_decision_from_inputs,
+    assess_v3_purchase_window_with_traits,
+    build_immediate_win_purchase_result,
+    build_purchase_benefit,
+    build_purchase_debug_context,
+    build_purchase_debug_payload,
+    build_purchase_early_debug_payload,
+    build_purchase_reserve_floor,
+    count_owned_tiles_in_block,
+    prepare_v3_purchase_benefit_with_traits,
+    would_purchase_trigger_immediate_win,
+)
+from policy.decision.runtime_bridge import choose_active_flip_card_runtime, choose_burden_exchange_on_supply_runtime, choose_coin_placement_tile_runtime, choose_doctrine_relief_target_runtime, choose_draft_card_runtime, choose_final_character_runtime, choose_geo_bonus_runtime, choose_hidden_trick_card_runtime, choose_lap_reward_runtime, choose_mark_target_runtime, choose_movement_runtime, choose_purchase_tile_runtime, choose_specific_trick_reward_runtime, choose_trick_to_use_runtime
+from policy.character_traits import (
+    escape_package_names,
+    is_active_money_drain_character,
+    is_ajeon,
+    is_assassin,
+    is_bandit,
+    is_eosa,
+    is_builder_character,
+    is_baksu,
+    is_route_runner_character,
+    is_cleanup_character,
+    is_controller_character,
+    is_direct_denial_character,
+    is_gakju,
+    is_pabalggun,
+    is_growth_character,
+    is_low_cash_controller_character,
+    is_low_cash_disruptor_character,
+    is_low_cash_escape_character,
+    is_low_cash_income_character,
+    is_mansin,
+    is_shard_hunter_character,
+    is_swindler,
+    is_tamgwanori,
+    marker_package_names,
+)
+from policy.environment_traits import (
+    CLEANUP_THREAT_WEATHERS,
+    FORTUNE_CLEANUP_CARD_MULTIPLIERS,
+    FORTUNE_POSITIVE_CLEANUP_CARD_MULTIPLIERS,
+    WEATHER_SHARD_BONUS_WEATHERS,
+    WEATHER_TRICK_BONUS_WEATHERS,
+    count_cleanup_fortunes,
+    fortune_cleanup_deck_profile,
+    has_color_rent_double_weather,
+    is_cleanup_threat_weather,
+    weather_character_adjustment,
+)
+from policy.evaluator import score_character_v1, score_character_v2, score_target_v1, score_target_v2
 from state import GameState, PlayerState
 from trick_cards import TrickCard
 from policy_hooks import PolicyDecisionTraceRecorder, PolicyHookDispatcher
-from weather_cards import COLOR_RENT_DOUBLE_WEATHERS
 from survival_common import (
     ActionGuardContext,
+    CleanupStrategyContext,
     SurvivalSignals,
     SurvivalOrchestratorState,
     build_action_guard_context,
+    build_cleanup_strategy_context,
     build_survival_orchestrator,
     evaluate_character_survival_priority,
     evaluate_character_survival_advice,
     evaluate_swindle_guard,
     is_action_survivable,
 )
-
-
-ACTIVE_MONEY_DRAIN_CHARACTERS = {"탐관오리", "산적", "아전", "추노꾼", "만신"}
-LOW_CASH_INCOME_CHARACTERS = {"객주", "아전", "만신"}
-LOW_CASH_ESCAPE_CHARACTERS = {"객주", "파발꾼", "탈출 노비"}
-LOW_CASH_CONTROLLER_CHARACTERS = {"교리 연구관", "교리 감독관"}
-LOW_CASH_DISRUPTORS = {"자객", "아전", "만신", "교리 연구관", "교리 감독관"}
-CLEANUP_THREAT_WEATHERS = {"긴급 피난"}
-FORTUNE_CLEANUP_CARD_MULTIPLIERS = {"화재 발생": 1.0, "산불 발생": 2.0}
-FORTUNE_POSITIVE_CLEANUP_CARD_MULTIPLIERS = {"자원 재활용": -1.0, "모두의 재활용": -1.0}
-WEATHER_SHARD_BONUS_WEATHERS = {"성물의 날", "풍년든 가을"}
-WEATHER_TRICK_BONUS_WEATHERS = {"잔꾀 부리기", "전략 변경"}
 
 @dataclass(slots=True)
 class MovementDecision:
@@ -157,7 +229,7 @@ class BasePolicy:
         threat_targets = sorted(self._alive_enemies(state, player), key=lambda op: self._estimated_threat(state, player, op), reverse=True)
         top_threat = threat_targets[0] if threat_targets else None
         land_race = self._early_land_race_context(state, player)
-        baksu_online = character_name == "박수" and player.shards >= 5
+        baksu_online = is_baksu(player.current_character) and player.shards >= 5
         manshin_online = character_name == "만신" and player.shards >= 7
         top_tags = self._predicted_opponent_archetypes(state, player, top_threat) if top_threat else set()
         exclusive_blocks = self._exclusive_blocks_owned(state, player.player_id)
@@ -176,6 +248,10 @@ class BasePolicy:
         reserve_gap = max(0.0, float(liquidity["reserve"]) - float(player.cash))
         money_distress = max(0.0, reserve_gap * 0.55 + max(0.0, cleanup_pressure - 1.0) * 0.30)
         profile = self._profile_from_mode()
+        cleanup_strategy = self._cleanup_strategy_context(
+            self._generic_survival_context(state, player, character_name),
+            player,
+        )
 
         if character_name == "중매꾼":
             adjacent_value = self._matchmaker_adjacent_value(state, player)
@@ -283,6 +359,11 @@ class BasePolicy:
             if any(n in combo_names for n in {"뇌절왕", "극심한 분리불안", "도움 닫기"}):
                 combo += 1.6
                 reasons.append("lap_token_combo")
+            if cleanup_strategy.growth_locked:
+                penalty = 0.70 + 0.32 * cleanup_strategy.stage_score
+                economy -= penalty
+                combo -= 0.18 * cleanup_strategy.stage_score
+                reasons.append("cleanup_growth_lock")
         if character_name == "파발꾼":
             economy += 1.0 * cross_start + 0.55 * land_f * land_f_value
             combo += 0.6 * sum(1 for n in combo_names if n in {"과속", "이럇!", "도움 닫기"})
@@ -331,8 +412,17 @@ class BasePolicy:
             if burden_count >= 1 and has_marks and legal_low_cash_targets > 0:
                 disruption += 0.35 * legal_low_cash_targets
                 reasons.append("burden_dump_fragile_target")
+            if player.shards < 5:
+                if burden_count >= 1 and has_marks and (legal_visible_burden_peak > 0 or legal_low_cash_targets > 0):
+                    combo += 0.45 + 0.20 * cleanup_strategy.stage_score
+                    reasons.append("precheckpoint_baksu_window")
+                else:
+                    penalty = 1.35 + 0.35 * cleanup_strategy.stage_score
+                    survival -= penalty
+                    combo -= 0.25
+                    reasons.append("precheckpoint_baksu_needs_certainty")
         if character_name == "어사":
-            if top_threat and ("shard_attack" in top_tags or top_threat.current_character in {"산적", "자객", "탐관오리", "사기꾼"}):
+            if top_threat and ("shard_attack" in top_tags or is_bandit(top_threat.current_character) or is_assassin(top_threat.current_character) or is_tamgwanori(top_threat.current_character) or is_swindler(top_threat.current_character)):
                 disruption += 1.8
                 reasons.append("muroe_counter")
         if character_name in {"교리 연구관", "교리 감독관"}:
@@ -345,6 +435,10 @@ class BasePolicy:
                 meta += 0.95 + 0.85 * float(marker_plan["best_score"])
                 disruption += 0.30 * float(marker_plan["best_score"])
                 reasons.append("marker_strips_needed_leader_face")
+            if cleanup_strategy.controller_bias > 0.0:
+                survival += 0.30 + 0.28 * cleanup_strategy.controller_bias
+                meta += 0.10 * cleanup_strategy.stage_score
+                reasons.append("cleanup_controller_window")
         if character_name in {"객주", "파발꾼", "사기꾼"}:
             economy += 0.15 * player.cash
         elif character_name == "중매꾼":
@@ -507,7 +601,7 @@ class BasePolicy:
             if token_window >= 1.20 and character_name in {"객주", "파발꾼", "교리 연구관", "교리 감독관", "박수"}:
                 combo += 0.48 + 0.14 * token_window + 0.10 * distress_level
                 reasons.append("v3_token_window")
-            if legal_visible_burden_total > 0.0 and next((top_threat.cash if top_threat else 0), 0) >= 0:
+            if legal_visible_burden_total > 0.0 and (top_threat.cash if top_threat else 0) >= 0:
                 if character_name in {"박수", "만신", "산적", "자객", "추노꾼"}:
                     disruption += 0.35 + 0.10 * legal_visible_burden_total + 0.06 * distress_level
                     reasons.append("v3_burden_attack_timing")
@@ -600,6 +694,7 @@ class BasePolicy:
         return score, reasons
 
     def choose_trick_to_use(self, state: GameState, player: PlayerState, hand: list[TrickCard]) -> TrickCard | None:
+        raise NotImplementedError("legacy body removed; live path delegates later")
         supported = {
             "성물 수집가": 1.8, "건강 검진": 1.2, "우대권": 1.4, "무료 증정": 1.6,
             "신의뜻": 1.0, "가벼운 분리불안": 0.9, "극심한 분리불안": 1.2, "마당발": 1.4, "뇌고왕": 1.1, "뇌절왕": 1.3,
@@ -623,21 +718,21 @@ class BasePolicy:
             score = supported.get(card.name, -99.0)
             if token_profile and card.name in {"극심한 분리불안", "도움 닫기", "과속", "이럇!", "뇌절왕"}:
                 score += 0.9 + token_place_bias
-            if token_profile and card.name in {"무료 증정", "마당발"} and player.current_character in {"중매꾼", "건설업자"}:
+            if token_profile and card.name in {"?? ??", "???"} and is_builder_character(player.current_character):
                 score += 0.8
             if token_profile and card.name in {"재뿌리기", "긴장감 조성"} and player.hand_coins >= 2:
                 score += 0.5
             if self._profile_from_mode() == "v3_gpt":
-                if card.name in {"무료 증정", "마당발"} and player.current_character in {"중매꾼", "건설업자"}:
+                if card.name in {"?? ??", "???"} and is_builder_character(player.current_character):
                     score += 0.55
-                if card.name in {"과속", "이럇!", "도움 닫기", "극심한 분리불안"} and player.current_character in {"파발꾼", "객주", "탈출 노비"}:
+                if card.name in {"??", "??!", "?? ??", "??? ????"} and is_route_runner_character(player.current_character):
                     score += 0.45
                 if card.name in {"건강 검진", "우대권", "뇌절왕"} and sum(1 for c in player.trick_hand if c.is_burden) > 0:
                     score += 0.60
-                if player.current_character == "아전" and card.name in {"과속", "이럇!", "도움 닫기", "극심한 분리불안", "가벼운 분리불안"}:
+                if is_ajeon(player.current_character) and card.name in {"??", "??!", "?? ??", "??? ????", "??? ????"}:
                     stack_ctx = self._enemy_stack_metrics(state, player)
                     score += 0.55 * float(stack_ctx["max_enemy_stack"]) + 0.85 * float(stack_ctx["max_enemy_owned_stack"])
-                if player.current_character == "객주" and card.name in {"과속", "이럇!", "도움 닫기", "극심한 분리불안", "가벼운 분리불안"}:
+                if is_gakju(player.current_character) and card.name in {"??", "??!", "?? ??", "??? ????", "??? ????"}:
                     lap_ctx = self._lap_engine_context(state, player)
                     score += 0.95 * float(lap_ctx["fast_window"]) + 0.70 * float(lap_ctx["rich_pool"]) + 0.55 * float(lap_ctx["double_lap_threat"])
             if card.name == "무료 증정" and player.cash >= 3:
@@ -682,6 +777,7 @@ class BasePolicy:
         return best
 
     def choose_specific_trick_reward(self, state: GameState, player: PlayerState, choices: list[TrickCard]) -> TrickCard | None:
+        raise NotImplementedError("legacy body removed; live path delegates later")
         if not choices:
             return None
         def score(card: TrickCard) -> float:
@@ -697,7 +793,16 @@ class BasePolicy:
         return player.cash >= card.burden_cost
 
     def choose_hidden_trick_card(self, state: GameState, player: PlayerState, hand: list[TrickCard]) -> TrickCard | None:
-        return None
+        raise NotImplementedError("legacy body removed; live path delegates later")
+        if not hand:
+            return None
+        choice_run = resolve_hidden_trick_choice_run(hand, actor_name=player.current_character)
+        self._set_debug(
+            "hide_trick",
+            player.player_id,
+            choice_run.debug_payload,
+        )
+        return choice_run.choice
 
     def _common_token_place_bonus(self, state: GameState, player: PlayerState, pos: int, revisit_gap: int) -> float:
         if state.tile_owner[pos] != player.player_id or player.hand_coins <= 0:
@@ -748,46 +853,19 @@ class BasePolicy:
 
     def _lap_reward_bundle(self, state: GameState, cash_unit_score: float, shard_unit_score: float, coin_unit_score: float, preferred: str | None = None) -> LapRewardDecision:
         rules = state.config.rules.lap_reward
-        rem_cash = max(0, int(getattr(state, "lap_reward_cash_pool_remaining", rules.cash_pool)))
-        rem_shards = max(0, int(getattr(state, "lap_reward_shards_pool_remaining", rules.shards_pool)))
-        rem_coins = max(0, int(getattr(state, "lap_reward_coins_pool_remaining", rules.coins_pool)))
-        best: tuple[float, int, int, int, str] | None = None
-        preferred_bonus = {preferred: 0.08} if preferred else {}
-        for cash_units in range(0, min(rem_cash, rules.points_budget // max(1, rules.cash_point_cost)) + 1):
-            cash_points = cash_units * rules.cash_point_cost
-            if cash_points > rules.points_budget:
-                break
-            shard_cap = min(rem_shards, (rules.points_budget - cash_points) // max(1, rules.shards_point_cost))
-            for shard_units in range(0, shard_cap + 1):
-                spent = cash_points + shard_units * rules.shards_point_cost
-                coin_cap = min(rem_coins, (rules.points_budget - spent) // max(1, rules.coins_point_cost))
-                for coin_units in range(0, coin_cap + 1):
-                    total_spent = spent + coin_units * rules.coins_point_cost
-                    if total_spent <= 0 or total_spent > rules.points_budget:
-                        continue
-                    utility = (
-                        cash_units * cash_unit_score
-                        + shard_units * shard_unit_score
-                        + coin_units * coin_unit_score
-                        + 0.02 * total_spent
-                    )
-                    if preferred:
-                        dominant = max(((cash_units, "cash"), (shard_units, "shards"), (coin_units, "coins")), key=lambda item: (item[0], preferred_bonus.get(item[1], 0.0)))[1]
-                        utility += preferred_bonus.get(dominant, 0.0)
-                    candidate = (utility, cash_units, shard_units, coin_units, preferred or "mixed")
-                    if best is None or candidate > best:
-                        best = candidate
-        if best is None:
-            return LapRewardDecision("blocked")
-        _, cash_units, shard_units, coin_units, _ = best
-        components = [(cash_units, "cash"), (shard_units, "shards"), (coin_units, "coins")]
-        choice = max(components, key=lambda item: item[0])[1] if sum(v for v, _ in components) > 0 else "blocked"
-        if preferred == "cash" and cash_units > 0:
-            choice = "cash"
-        elif preferred == "shards" and shard_units > 0:
-            choice = "shards"
-        elif preferred == "coins" and coin_units > 0:
-            choice = "coins"
+        choice, cash_units, shard_units, coin_units = resolve_lap_reward_bundle(
+            cash_pool=max(0, int(getattr(state, "lap_reward_cash_pool_remaining", rules.cash_pool))),
+            shards_pool=max(0, int(getattr(state, "lap_reward_shards_pool_remaining", rules.shards_pool))),
+            coins_pool=max(0, int(getattr(state, "lap_reward_coins_pool_remaining", rules.coins_pool))),
+            points_budget=rules.points_budget,
+            cash_point_cost=rules.cash_point_cost,
+            shards_point_cost=rules.shards_point_cost,
+            coins_point_cost=rules.coins_point_cost,
+            cash_unit_score=cash_unit_score,
+            shard_unit_score=shard_unit_score,
+            coin_unit_score=coin_unit_score,
+            preferred=preferred,
+        )
         return LapRewardDecision(choice=choice, cash_units=cash_units, shard_units=shard_units, coin_units=coin_units)
 
 
@@ -873,6 +951,7 @@ class BasePolicy:
 
 
     def choose_geo_bonus(self, state: GameState, player: PlayerState, actor_name: str) -> str:
+        raise NotImplementedError("legacy body removed; live path delegates later")
         survival_ctx = self._generic_survival_context(state, player, actor_name)
         f_ctx = self._f_progress_context(state, player)
         money_distress = float(survival_ctx.get("money_distress", 0.0))
@@ -929,37 +1008,12 @@ class BasePolicy:
 
 
 class HeuristicPolicy(BasePolicy):
-    character_values = {
-        "어사": 6.0,
-        "탐관오리": 7.5,
-        "자객": 7.2,
-        "산적": 7.0,
-        "추노꾼": 6.8,
-        "탈출 노비": 6.2,
-        "파발꾼": 7.9,
-        "아전": 7.0,
-        "교리 연구관": 6.4,
-        "교리 감독관": 6.4,
-        "박수": 7.2,
-        "만신": 6.9,
-        "객주": 7.6,
-        "중매꾼": 7.4,
-        "건설업자": 7.8,
-        "사기꾼": 7.7,
-    }
-
-    V2_PROFILES = {"control", "growth", "balanced", "avoid_control", "aggressive", "token_opt", "v3_gpt"}
-    VALID_CHARACTER_POLICIES = {"random", "arena", "heuristic_v1", "heuristic_v3_gpt", *(f"heuristic_v2_{p}" for p in V2_PROFILES)}
-    VALID_LAP_POLICIES = {"heuristic_v1", "heuristic_v3_gpt", "cash_focus", "shard_focus", "coin_focus", "balanced", *(f"heuristic_v2_{p}" for p in V2_PROFILES)}
-    PROFILE_WEIGHTS = {
-        "control": {"expansion": 1.0, "economy": 1.1, "disruption": 1.7, "meta": 1.6, "combo": 1.0, "survival": 1.4},
-        "growth": {"expansion": 1.8, "economy": 1.7, "disruption": 0.7, "meta": 0.9, "combo": 1.2, "survival": 1.0},
-        "balanced": {"expansion": 1.2, "economy": 1.2, "disruption": 1.2, "meta": 1.1, "combo": 1.1, "survival": 1.1},
-        "avoid_control": {"expansion": 1.0, "economy": 1.4, "disruption": 0.7, "meta": 1.0, "combo": 1.0, "survival": 1.8},
-        "aggressive": {"expansion": 2.0, "economy": 1.0, "disruption": 1.3, "meta": 0.8, "combo": 1.5, "survival": 0.6},
-        "token_opt": {"expansion": 1.5, "economy": 1.4, "disruption": 1.0, "meta": 1.0, "combo": 1.9, "survival": 0.9},
-        "v3_gpt": {"expansion": 1.68, "economy": 1.55, "disruption": 1.28, "meta": 1.18, "combo": 2.15, "survival": 1.18},
-    }
+    PROFILE_REGISTRY = DEFAULT_PROFILE_REGISTRY
+    character_values = PROFILE_REGISTRY.default_character_values
+    V2_PROFILES = PROFILE_REGISTRY.profile_keys()
+    VALID_CHARACTER_POLICIES = PROFILE_REGISTRY.valid_character_modes()
+    VALID_LAP_POLICIES = PROFILE_REGISTRY.valid_lap_modes()
+    PROFILE_WEIGHTS = PROFILE_REGISTRY.profile_weights
 
     def __init__(self, character_policy_mode: str = "heuristic_v1", lap_policy_mode: str = "heuristic_v1", rng=None, player_lap_policy_modes: Optional[dict[int, str]] = None):
         super().__init__()
@@ -967,13 +1021,90 @@ class HeuristicPolicy(BasePolicy):
             raise ValueError(f"Unsupported character_policy_mode: {character_policy_mode}")
         if lap_policy_mode not in self.VALID_LAP_POLICIES:
             raise ValueError(f"Unsupported lap_policy_mode: {lap_policy_mode}")
-        self.character_policy_mode = character_policy_mode
-        self.lap_policy_mode = lap_policy_mode
-        self.player_lap_policy_modes = dict(player_lap_policy_modes or {})
-        for pid, mode in self.player_lap_policy_modes.items():
+        self.character_policy_mode = self.canonical_character_policy_mode(character_policy_mode)
+        self.lap_policy_mode = self.canonical_lap_policy_mode(lap_policy_mode)
+        self.player_lap_policy_modes = {}
+        for pid, mode in dict(player_lap_policy_modes or {}).items():
             if mode not in self.VALID_LAP_POLICIES:
                 raise ValueError(f"Unsupported lap policy for player {pid}: {mode}")
+            self.player_lap_policy_modes[int(pid)] = self.canonical_lap_policy_mode(mode)
         self.rng = rng
+        self._player_intents: dict[int, PlayerIntentState] = {}
+
+    def _remember_player_intent(
+        self,
+        state: GameState,
+        player: PlayerState,
+        character_name: str | None,
+        *,
+        reason: str,
+    ) -> PlayerIntentState:
+        name = character_name or player.current_character or ""
+        plan_key = "land_grab"
+        resource_intent = "balanced"
+        if is_gakju(name):
+            plan_key = "lap_engine"
+            resource_intent = "card_preserve"
+        elif is_baksu(name) or is_mansin(name):
+            plan_key = "survival_recovery"
+            resource_intent = "shard_checkpoint"
+        elif is_controller_character(name):
+            plan_key = "controller_disrupt"
+            resource_intent = "cash_first"
+        round_index = int(getattr(state, "round_index", 0))
+        intent = PlayerIntentState(
+            plan_key=plan_key,
+            resource_intent=resource_intent,
+            reason=reason,
+            source_character=name,
+            plan_confidence=0.75,
+            plan_start_round=round_index,
+            expires_after_round=round_index + 1,
+        )
+        self._player_intents[player.player_id] = intent
+        return intent
+
+    def _current_player_intent(
+        self,
+        state: GameState,
+        player: PlayerState,
+        character_name: str | None = None,
+    ) -> PlayerIntentState:
+        intent = self._player_intents.get(player.player_id)
+        if intent is None:
+            return self._remember_player_intent(state, player, character_name, reason="bootstrap")
+        return intent
+
+    def _generic_land_spend_penalty(
+        self,
+        state: GameState,
+        player: PlayerState,
+        pos: int,
+        move_total: int,
+        *,
+        use_cards: bool,
+        card_count: int,
+        intent: PlayerIntentState | None = None,
+    ) -> float:
+        intent = intent or self._current_player_intent(state, player, player.current_character)
+        return generic_land_spend_penalty(
+            current_character=player.current_character,
+            rounds_completed=int(getattr(state, "round_index", 0)),
+            cell_kind=state.board[pos],
+            owner=state.tile_owner[pos],
+            crosses_start=((player.position + move_total) >= len(state.board)),
+            use_cards=use_cards,
+            card_count=card_count,
+            intent=intent,
+        )
+
+    @classmethod
+    def canonical_character_policy_mode(cls, mode: str) -> str:
+        return cls.PROFILE_REGISTRY.canonicalize_character_mode(mode)
+
+    @classmethod
+    def canonical_lap_policy_mode(cls, mode: str) -> str:
+        return cls.PROFILE_REGISTRY.canonicalize_lap_mode(mode)
 
     def set_rng(self, rng) -> None:
         self.rng = rng
@@ -1021,11 +1152,11 @@ class HeuristicPolicy(BasePolicy):
                 score += 5.0 + card.burden_cost
             if card.name in combo_priority:
                 score += 3.5
-            if player.current_character in {"중매꾼", "건설업자"} and card.name in {"무료 증정", "마당발"}:
+            if is_builder_character(player.current_character) and card.name in {"?? ??", "???"}:
                 score += 2.0
-            if player.current_character == "파발꾼" and card.name in {"과속", "이럇!", "도움 닫기"}:
+            if is_pabalggun(player.current_character) and card.name in {"??", "??!", "?? ??"}:
                 score += 1.5
-            if player.current_character in {"산적", "아전", "탐관오리"} and card.name == "성물 수집가":
+            if (is_bandit(player.current_character) or is_ajeon(player.current_character) or is_tamgwanori(player.current_character)) and card.name == "?? ???":
                 score += 1.5
             if card.is_anytime:
                 score += 0.5
@@ -1067,12 +1198,7 @@ class HeuristicPolicy(BasePolicy):
         return self.character_policy_mode.startswith("heuristic_v2_")
 
     def _profile_from_mode(self, mode: str | None = None) -> str:
-        mode = mode or self.character_policy_mode
-        if mode == "heuristic_v3_gpt":
-            return "v3_gpt"
-        if mode.startswith("heuristic_v2_"):
-            return mode.split("heuristic_v2_", 1)[1]
-        return "balanced"
+        return self.PROFILE_REGISTRY.resolve_profile_key(mode or self.character_policy_mode)
 
     def _lap_mode_for_player(self, player_id: int) -> str:
         return self.player_lap_policy_modes.get(player_id, self.lap_policy_mode)
@@ -1164,7 +1290,7 @@ class HeuristicPolicy(BasePolicy):
         if cell in {CellKind.T2, CellKind.T3}:
             if owner is None or owner == player.player_id:
                 return 0.0
-            if player.current_character == "사기꾼" and not self._takeover_protected(state, pos):
+            if is_swindler(player.current_character) and not self._takeover_protected(state, pos):
                 return float(state.config.rules.economy.rent_cost_for(state, pos) * 2)
             return float(state.config.rules.economy.rent_cost_for(state, pos))
         if cell == CellKind.MALICIOUS:
@@ -1457,7 +1583,7 @@ class HeuristicPolicy(BasePolicy):
             score += 3.5
         if self._exclusive_blocks_owned(state, opponent.player_id) >= max(1, state.config.rules.end.monopolies_to_trigger_end - 1):
             score += 2.5
-        if opponent.current_character in {"중매꾼", "건설업자", "객주", "사기꾼"}:
+        if is_growth_character(opponent.current_character) or is_gakju(opponent.current_character):
             score += 1.8
         if self._visible_burden_count(viewer, opponent) >= 2:
             score -= 0.6
@@ -1804,7 +1930,7 @@ class HeuristicPolicy(BasePolicy):
         }
 
     def _burden_context(self, state: GameState, viewer: PlayerState, legal_targets: Optional[list[PlayerState]] = None) -> dict[str, float]:
-        own_burden = sum(1 for c in viewer.trick_hand if c.is_burden)
+        own_burden = count_burden_cards(viewer.trick_hand)
         own_burden_cost = sum(float(c.burden_cost) for c in viewer.trick_hand if c.is_burden)
         alive_players = [p for p in state.players if p.alive]
         visible_other_burdens = sum(self._visible_burden_count(viewer, p) for p in alive_players if p.player_id != viewer.player_id)
@@ -1824,7 +1950,7 @@ class HeuristicPolicy(BasePolicy):
             cleanup_pressure *= 1.15
         elif supply_gap <= 0.5:
             cleanup_pressure *= 0.9
-        public_cleanup_active = any(name in CLEANUP_THREAT_WEATHERS for name in state.current_weather_effects)
+        public_cleanup_active = any(is_cleanup_threat_weather(name) for name in state.current_weather_effects)
         deck_cleanup = self._fortune_cleanup_deck_profile(state)
         if public_cleanup_active:
             cleanup_pressure *= 1.15
@@ -1978,6 +2104,8 @@ class HeuristicPolicy(BasePolicy):
         leader_rent_pressure, _ = self._rent_pressure_breakdown(state, leader, leader.current_character or "")
         leader_marks = self._allowed_mark_targets(state, leader)
         leader_burden = self._burden_context(state, leader, legal_targets=leader_marks)
+        leader_mobility = self._mobility_leverage_score(leader)
+        leader_lap_ctx = self._lap_engine_context(state, leader)
 
         expansion_need = 0.0
         if buy_value > 0.0:
@@ -1999,7 +2127,26 @@ class HeuristicPolicy(BasePolicy):
             escape_need += 0.55 * leader_rent_pressure
         if leader_liquidity["cash_after_reserve"] <= 0.0:
             escape_need += 0.22 * max(0.0, -leader_liquidity["cash_after_reserve"])
+        if is_gakju(leader.current_character):
+            escape_need += (
+                0.65 * leader_mobility
+                + 0.80 * float(leader_lap_ctx["double_lap_threat"])
+                + 0.45 * float(leader_lap_ctx["rich_pool"])
+            )
+            if cross_start > 0.18:
+                escape_need += 0.55 + 0.55 * cross_start
+            if land_f > 0.12:
+                escape_need += 0.20 + 0.45 * land_f
         add({"객주"}, escape_need, "leader_needs_lap_cash")
+        if is_gakju(leader.current_character):
+            gakju_engine_core = (
+                0.90
+                + 0.75 * leader_mobility
+                + 0.95 * float(leader_lap_ctx["double_lap_threat"])
+                + 0.45 * float(leader_lap_ctx["rich_pool"])
+                + (0.55 if cross_start > 0.18 else 0.0)
+            )
+            add({"객주"}, gakju_engine_core, "leader_gakju_engine_core")
         add({"파발꾼", "탈출 노비"}, 0.82 * escape_need, "leader_needs_mobility_escape")
 
         burden_need = 0.0
@@ -2133,7 +2280,7 @@ class HeuristicPolicy(BasePolicy):
 
     def _has_uhsa_alive(self, state: GameState, exclude_player_id: Optional[int] = None) -> bool:
         return any(
-            p.alive and p.current_character == "어사" and (exclude_player_id is None or p.player_id != exclude_player_id)
+            p.alive and is_eosa(p.current_character) and (exclude_player_id is None or p.player_id != exclude_player_id)
             for p in state.players
         )
 
@@ -2390,7 +2537,7 @@ class HeuristicPolicy(BasePolicy):
             exposure = self._mark_priority_exposure_factor("산적", character_name)
             profile = max(0.55, self._mark_target_profile_factor("산적", character_name))
             if exposure > 0.0:
-                enemy_bandit_shards = max((p.shards for p in state.players if p.alive and p.current_character == "산적" and p.player_id != player.player_id), default=0)
+                enemy_bandit_shards = max((p.shards for p in state.players if p.alive and is_bandit(p.current_character) and p.player_id != player.player_id), default=0)
                 expected_loss += enemy_bandit_shards * 0.35 * exposure * profile
                 worst_loss = max(worst_loss, float(enemy_bandit_shards))
         own_burdens = sum(card.burden_cost for card in player.trick_hand if card.is_burden)
@@ -2421,7 +2568,7 @@ class HeuristicPolicy(BasePolicy):
         mod = float(state.tile_rent_modifiers_this_turn.get(pos, 1))
         block_id = state.block_ids[pos]
         tile_color = state.block_color_map.get(block_id)
-        if tile_color is not None and any(COLOR_RENT_DOUBLE_WEATHERS.get(name) == tile_color for name in state.current_weather_effects):
+        if has_color_rent_double_weather(state.current_weather_effects, tile_color):
             mod *= 2.0
         if mod <= 0.0:
             return 0.0
@@ -2519,7 +2666,7 @@ class HeuristicPolicy(BasePolicy):
         reasons: list[str] = []
         for opponent in self._alive_enemies(state, player):
             name = opponent.current_character
-            if name not in ACTIVE_MONEY_DRAIN_CHARACTERS:
+            if not is_active_money_drain_character(name):
                 continue
             if name == "탐관오리" and my_attr in {"관원", "상민"}:
                 contribution = 0.55 + 0.18 * max(1.0, float(opponent.shards)) + 0.08 * max(0.0, float(player.shards))
@@ -2695,8 +2842,8 @@ class HeuristicPolicy(BasePolicy):
         worst_cleanup_cost = float(survival_ctx.get("worst_cleanup_cost", 0.0))
         active_cleanup_cost = float(survival_ctx.get("active_cleanup_cost", 0.0))
         money_distress = float(survival_ctx.get("money_distress", 0.0))
-        baksu_online = player.current_character == "박수" and player.shards >= 5
-        baksu_stable = player.current_character == "박수" and player.shards >= 7
+        baksu_online = is_baksu(player.current_character) and player.shards >= 5
+        baksu_stable = is_baksu(player.current_character) and player.shards >= 7
         if baksu_online:
             own_burdens = max(0.0, own_burdens - (2.0 if baksu_stable else 1.0))
             latent_cleanup_cost *= 0.55 if baksu_stable else 0.72
@@ -2736,12 +2883,19 @@ class HeuristicPolicy(BasePolicy):
                 return "cleanup_downside_floor"
         if latent_cleanup_cost >= max(8.0, reserve + 3.0) and remaining_cash < reserve + 3.0:
             return "latent_cleanup_floor"
-        distress_buffer = reserve + (1.5 if (player.current_character == "박수" and player.shards >= 7) else 2.5 if (player.current_character == "박수" and player.shards >= 5) else 4.0)
+        distress_buffer = reserve + (1.5 if (is_baksu(player.current_character) and player.shards >= 7) else 2.5 if (is_baksu(player.current_character) and player.shards >= 5) else 4.0)
         if (money_distress >= 1.0 or two_turn_lethal_prob >= 0.18) and remaining_cash < distress_buffer:
             return "distress_operating_floor"
         if worst_cleanup_cost >= max(16.0, reserve + 6.0) and remaining_cash < reserve + 5.0:
             return "worst_cleanup_tail_floor"
         return None
+
+    def _cleanup_strategy_context(self, survival_ctx: dict[str, float], player: PlayerState) -> CleanupStrategyContext:
+        return build_cleanup_strategy_context(
+            survival_ctx,
+            cash=float(player.cash),
+            shards=int(player.shards),
+        )
 
     def _reachable_purchase_floor(self, state: GameState, player: PlayerState) -> float | None:
         board_len = len(state.board)
@@ -2791,9 +2945,9 @@ class HeuristicPolicy(BasePolicy):
         advice = evaluate_character_survival_advice(
             state=orchestrator,
             is_growth=character_name in {"중매꾼", "건설업자", "사기꾼"},
-            is_income=character_name in LOW_CASH_INCOME_CHARACTERS | LOW_CASH_ESCAPE_CHARACTERS,
-            is_controller=character_name in LOW_CASH_CONTROLLER_CHARACTERS,
-            is_cleanup=character_name in {"박수", "만신", "교리 연구관", "교리 감독관"},
+            is_income=is_low_cash_income_character(character_name) or is_low_cash_escape_character(character_name),
+            is_controller=is_low_cash_controller_character(character_name),
+            is_cleanup=is_cleanup_character(character_name),
             cash=float(player.cash),
             purchase_floor=purchase_floor,
             swindle_floor=swindle_floor,
@@ -2897,6 +3051,7 @@ class HeuristicPolicy(BasePolicy):
         public_mark_risk, _ = self._public_mark_risk_breakdown(state, player, character_name)
         growth_floor = self._reachable_purchase_floor(state, player)
         swindle_floor = self._reachable_swindle_floor(state, player)
+        cleanup_strategy = self._cleanup_strategy_context(survival_ctx, player)
 
         if character_name in {"중매꾼", "건설업자"}:
             operating_floor = reserve + (growth_floor if growth_floor is not None else 4.0)
@@ -2951,30 +3106,36 @@ class HeuristicPolicy(BasePolicy):
                 penalty = 1.20 * money_distress + 0.45 * float(survival_ctx.get("two_turn_lethal_prob", 0.0))
                 adjustment -= penalty
                 reasons.append(f"swindle_money_distress={penalty:.2f}")
-        if character_name in LOW_CASH_ESCAPE_CHARACTERS and urgency > 0.0:
+        if is_low_cash_escape_character(character_name) and urgency > 0.0:
             bonus = 1.15 + 1.10 * urgency + 0.20 * survival_ctx["recovery_score"]
             adjustment += bonus
             reasons.append(f"survival_escape_bonus={bonus:.2f}")
-        if character_name in LOW_CASH_DISRUPTORS and (urgency > 0.6 or cash_after_reserve <= 0.0 or money_distress > 0.8):
+        if is_low_cash_disruptor_character(character_name) and (urgency > 0.6 or cash_after_reserve <= 0.0 or money_distress > 0.8):
             bonus = 0.55 + 0.35 * urgency + 0.35 * money_distress + (0.40 if player.cash <= reserve + 1.5 else 0.0)
             adjustment += bonus
             reasons.append(f"survival_lowcash_actor={bonus:.2f}")
-        if character_name in LOW_CASH_INCOME_CHARACTERS and needs_income:
+        if is_low_cash_income_character(character_name) and needs_income:
             bonus = 0.95 + 0.55 * money_distress + 0.25 * max(0.0, -cash_after_reserve)
             adjustment += bonus
             reasons.append(f"income_recovery_bias={bonus:.2f}")
-        if character_name in LOW_CASH_CONTROLLER_CHARACTERS and controller_need > 0.0:
+        if is_low_cash_controller_character(character_name) and controller_need > 0.0:
             bonus = 0.85 + 0.70 * controller_need + 0.25 * urgency
             adjustment += bonus
             reasons.append(f"controller_drain_relief={bonus:.2f}")
+        if is_low_cash_controller_character(character_name) and cleanup_strategy.controller_bias > 0.0:
+            bonus = 0.40 + 0.30 * cleanup_strategy.controller_bias + 0.15 * cleanup_strategy.stage_score
+            adjustment += bonus
+            reasons.append(f"cleanup_controller_bias={bonus:.2f}")
         burden_cleanup_gap = float(survival_ctx.get("cleanup_cash_gap", 0.0))
         latent_cleanup_cost = float(survival_ctx.get("latent_cleanup_cost", 0.0))
         expected_cleanup_cost = float(survival_ctx.get("expected_cleanup_cost", 0.0))
         own_burden_cost = float(survival_ctx.get("own_burden_cost", 0.0))
         if character_name == "박수" and own_burden_cost > 0.0:
             bonus = 1.20 + 0.35 * own_burden_cost + 0.55 * min(3.0, burden_cleanup_gap) + 0.30 * float(survival_ctx.get("public_cleanup_active", 0.0))
-            if player.shards >= 4:
+            if player.shards >= 5:
                 bonus += 1.60
+            elif player.shards < 5:
+                bonus -= 0.95 + 0.12 * max(0, 5 - player.shards)
             removed, payout = self._failed_mark_fallback_metrics(player, 5)
             if removed > 0:
                 bonus += 0.55 * removed + 0.12 * payout
@@ -2991,11 +3152,15 @@ class HeuristicPolicy(BasePolicy):
             penalty = 0.90 + 0.12 * latent_cleanup_cost + 0.30 * urgency
             adjustment -= penalty
             reasons.append(f"cleanup_growth_lock={penalty:.2f}")
+        if cleanup_strategy.growth_locked and character_name in {"중매꾼", "건설업자", "사기꾼"}:
+            penalty = 0.70 + 0.35 * cleanup_strategy.stage_score
+            adjustment -= penalty
+            reasons.append(f"cleanup_strategy_growth_lock={penalty:.2f}")
         if urgency >= 2.0 and character_name in {"중매꾼", "건설업자", "사기꾼"}:
             panic_penalty = 1.85 + 0.35 * urgency
             adjustment -= panic_penalty
             reasons.append(f"panic_growth_lock={panic_penalty:.2f}")
-        if urgency >= 1.0 and character_name in LOW_CASH_ESCAPE_CHARACTERS and reserve_gap > 0.0:
+        if urgency >= 1.0 and is_low_cash_escape_character(character_name) and reserve_gap > 0.0:
             reserve_bonus = 0.30 * reserve_gap
             adjustment += reserve_bonus
             reasons.append(f"reserve_escape_bias={reserve_bonus:.2f}")
@@ -3471,6 +3636,7 @@ class HeuristicPolicy(BasePolicy):
         }
         survival_ctx = self._generic_survival_context(state, player, player.current_character)
         decisive_ctx = self._trick_decisive_context(state, player, survival_ctx)
+        intent = self._current_player_intent(state, player, player.current_character)
         best = None
         best_score = 0.0
         details = {}
@@ -3513,6 +3679,23 @@ class HeuristicPolicy(BasePolicy):
                 score -= 0.8
             score += self._trick_decisive_adjustment(state, player, card, survival_ctx, decisive_ctx)
             score += self._trick_preserve_adjustment(state, player, card, hand, survival_ctx, decisive_ctx)
+            score += apply_trick_preserve_rules(
+                card_name=card.name,
+                actor_name=player.current_character,
+                hand_names={c.name for c in hand},
+                rounds_completed=int(getattr(state, "round_index", 0)),
+                strategic_mode=float(decisive_ctx.get("strategic_mode", 0.0)),
+                intent=intent,
+                survival_urgency=float(survival_ctx.get("survival_urgency", 0.0)),
+                cleanup_cash_gap=float(survival_ctx.get("cleanup_cash_gap", 0.0)),
+                has_relic_collector_window=False,
+                has_help_run_window=False,
+                has_neojeol_chain_window=False,
+                short_range_frontier_is_better=False,
+            )
+            if self._profile_from_mode() == "v3_gpt" and card.name in {"성물 수집가", "도움 닫기"}:
+                details[card.name] = -999.0
+                continue
             details[card.name] = round(score, 3)
             if score > best_score:
                 best = card
@@ -3548,6 +3731,7 @@ class HeuristicPolicy(BasePolicy):
         return pick
 
     def choose_burden_exchange_on_supply(self, state: GameState, player: PlayerState, card: TrickCard) -> bool:
+        raise NotImplementedError("legacy body removed; live path delegates later")
         if player.cash < card.burden_cost:
             return False
         if self._is_random_mode():
@@ -3572,9 +3756,19 @@ class HeuristicPolicy(BasePolicy):
         return remaining_cash >= target_floor
 
     def choose_hidden_trick_card(self, state: GameState, player: PlayerState, hand: list[TrickCard]) -> TrickCard | None:
-        return None
+        raise NotImplementedError("legacy body removed; live path delegates later")
+        if not hand:
+            return None
+        choice_run = resolve_hidden_trick_choice_run(hand, actor_name=player.current_character)
+        self._set_debug(
+            "hide_trick",
+            player.player_id,
+            choice_run.debug_payload,
+        )
+        return choice_run.choice
 
     def choose_movement(self, state: GameState, player: PlayerState) -> MovementDecision:
+        raise NotImplementedError("legacy body removed; live path delegates later")
         best_score = -10**9
         best = MovementDecision(False, ())
         board_len = len(state.board)
@@ -3659,6 +3853,7 @@ class HeuristicPolicy(BasePolicy):
         cross_start = self._will_cross_start(state, player)
         land_f = self._will_land_on_f(state, player)
         survival_ctx = self._generic_survival_context(state, player, player.current_character)
+        cleanup_strategy = self._cleanup_strategy_context(survival_ctx, player)
         f_ctx = self._f_progress_context(state, player)
         survival_cash_pressure = (
             survival_ctx["survival_urgency"] >= 1.0
@@ -3704,7 +3899,7 @@ class HeuristicPolicy(BasePolicy):
                 emergency = float(denial_snapshot["emergency"])
                 liquidity = self._liquidity_risk_metrics(state, player, player.current_character)
                 rent_pressure, _ = self._rent_pressure_breakdown(state, player, player.current_character or "")
-                burden_count = sum(1 for c in player.trick_hand if c.is_burden)
+                burden_count = count_burden_cards(player.trick_hand)
                 burden_context = self._burden_context(state, player)
                 cleanup_pressure = float(burden_context.get("cleanup_pressure", 0.0))
                 low_cash = max(0.0, 7.0 - player.cash)
@@ -3715,7 +3910,7 @@ class HeuristicPolicy(BasePolicy):
                     shard_score += 0.45
                 if denial_snapshot.get("near_end"):
                     shard_score += 0.55
-                if player.current_character in {"교리 연구관", "교리 감독관", "산적", "탐관오리", "아전", "어사", "사기꾼"}:
+                if is_controller_character(player.current_character) or is_bandit(player.current_character) or is_tamgwanori(player.current_character) or is_ajeon(player.current_character) or is_eosa(player.current_character) or is_swindler(player.current_character):
                     shard_score += 0.4
                 if placeable:
                     coin_score += 0.45
@@ -3768,6 +3963,7 @@ class HeuristicPolicy(BasePolicy):
                 token_window = self._token_placement_window_metrics(state, player)
                 cleanup_pressure = float(survival_ctx.get("cleanup_pressure", 0.0))
                 negative_risk = max(float(survival_ctx.get("next_draw_negative_cleanup_prob", 0.0)), float(survival_ctx.get("two_draw_negative_cleanup_prob", 0.0)))
+                burden_count = float(survival_ctx.get("own_burdens", 0.0))
                 shard_checkpoint_need = min(max(0, 5 - player.shards), 2) + 0.8 * min(max(0, 7 - player.shards), 2)
                 distress_level = max(0.0, 10.0 - player.cash) / 4.0 + 0.75 * max(0.0, cleanup_pressure - 1.5) + 1.20 * max(0.0, negative_risk - 0.15)
                 cash_score += 0.52 * max(0.0, 12.0 - player.cash) + 0.28 * float(survival_ctx.get("expected_cleanup_cost", 0.0)) + 0.16 * distress_level
@@ -3781,6 +3977,12 @@ class HeuristicPolicy(BasePolicy):
                     coin_score += 0.78
                 if placeable:
                     coin_score += 0.55
+                cash_score += cleanup_strategy.lap_cash_preference
+                shard_score += cleanup_strategy.lap_shard_preference
+                if cleanup_strategy.growth_locked:
+                    coin_score -= 0.55 + 0.22 * cleanup_strategy.stage_score
+                if burden_count >= 1.0 and player.shards < 7:
+                    shard_score += 0.30 + 0.18 * burden_count
                 if cleanup_pressure >= 1.8 or negative_risk >= 0.18 or survival_cash_pressure:
                     cash_score += 0.92 + 0.24 * cleanup_pressure + 0.30 * max(0.0, negative_risk - 0.18)
                     shard_score += 0.28 * shard_checkpoint_need
@@ -3788,16 +3990,24 @@ class HeuristicPolicy(BasePolicy):
                 elif placeable or own_land >= 0.12 or token_window["window_score"] >= 0.80:
                     cash_score -= 0.40
                     coin_score += 2.75 + 0.82 * token_window["window_score"] + 0.62 * own_land
-                    if player.current_character not in {"박수", "만신"} or (player.current_character == "박수" and player.shards >= 5) or (player.current_character == "만신" and player.shards >= 7):
+                    if (
+                        not cleanup_strategy.growth_locked
+                        and (
+                            player.current_character not in {"박수", "만신"}
+                            or (is_baksu(player.current_character) and player.shards >= 5)
+                            or (is_mansin(player.current_character) and player.shards >= 7)
+                        )
+                    ):
                         preferred_override = "coins"
                 if cleanup_pressure < 1.20 and negative_risk < 0.12 and player.cash >= max(7, int(float(survival_ctx.get("reserve", 0.0)) + 1.0)):
                     cash_score -= 0.55
                     if placeable:
                         coin_score += 1.55 + 0.30 * token_window["window_score"]
-                        preferred_override = preferred_override or "coins"
+                        if not cleanup_strategy.growth_locked:
+                            preferred_override = preferred_override or "coins"
                     elif buy_value >= 1.0:
                         coin_score += 0.70
-                if player.current_character == "박수":
+                if is_baksu(player.current_character):
                     if player.shards < 5:
                         shard_score += 3.10 + 0.35 * max(0, 5 - player.shards)
                         preferred_override = "shards"
@@ -3807,14 +4017,22 @@ class HeuristicPolicy(BasePolicy):
                     else:
                         cash_score += 0.20
                         coin_score += 0.46
-                elif player.current_character == "만신":
+                elif is_mansin(player.current_character):
                     if player.shards < 7:
                         shard_score += 1.35 + 0.15 * max(0, 7 - player.shards)
                     else:
                         cash_score += 0.18
                         coin_score += 0.28
+                if is_controller_character(player.current_character) and cleanup_strategy.stage_score >= 1.0:
+                    cash_score += 0.22 * cleanup_strategy.stage_score
+                    if player.shards < 7:
+                        shard_score += 0.18 * cleanup_strategy.stage_score
                 if player.shards >= 7 and token_window["window_score"] >= 1.10 and player.hand_coins > 0 and not survival_cash_pressure and negative_risk < 0.22:
                     coin_score += 0.85
+                if player.shards >= 10 and cleanup_strategy.cleanup_stage in {"stable", "strained"}:
+                    cash_score -= 0.20
+                    shard_score -= 0.55
+                    coin_score += 0.72
                 if current_char in {"객주", "파발꾼"} and cross_start > 0.25:
                     cash_score += 0.35
                     coin_score += 0.35
@@ -3827,26 +4045,33 @@ class HeuristicPolicy(BasePolicy):
             preferred = preferred_override or max([("cash", cash_score), ("shards", shard_score), ("coins", coin_score)], key=lambda x: x[1])[0]
             return self._lap_reward_bundle(state, cash_unit, shard_unit, coin_unit, preferred=preferred)
         if mode == "balanced":
-            if survival_cash_pressure:
-                return self._lap_reward_bundle(state, 1.0, 0.2, 0.1, preferred="cash")
-            if placeable and player.hand_coins < 2:
-                return self._lap_reward_bundle(state, 0.2, 0.1, 1.0, preferred="coins")
-            if player.cash < 8:
-                return self._lap_reward_bundle(state, 1.0, 0.2, 0.1, preferred="cash")
-            if player.current_character in {"산적", "탐관오리", "아전"} or player.shards < 4:
-                return self._lap_reward_bundle(state, 0.2, 1.0, 0.1, preferred="shards")
-            return self._lap_reward_bundle(state, 1.0, 0.2, 0.1, preferred="cash")
-        if survival_cash_pressure:
-            return self._lap_reward_bundle(state, 1.0, 0.2, 0.1, preferred="cash")
-        if player.cash < 8:
-            return self._lap_reward_bundle(state, 1.0, 0.2, 0.1, preferred="cash")
-        if player.current_character in {"산적", "탐관오리", "아전"}:
-            return LapRewardDecision("shards")
-        if placeable:
-            return LapRewardDecision("coins")
-        return self._lap_reward_bundle(state, 1.0, 0.2, 0.1, preferred="cash")
+            cash_unit, shard_unit, coin_unit, preferred = evaluate_basic_lap_reward(
+                BasicLapRewardInputs(
+                    current_character=player.current_character,
+                    cash=player.cash,
+                    shards=player.shards,
+                    placeable=placeable and player.hand_coins < 2,
+                    survival_cash_pressure=survival_cash_pressure,
+                    is_shard_hunter=is_shard_hunter_character(player.current_character) or is_ajeon(player.current_character),
+                ),
+                balanced=True,
+            )
+            return self._lap_reward_bundle(state, cash_unit, shard_unit, coin_unit, preferred=preferred)
+        cash_unit, shard_unit, coin_unit, preferred = evaluate_basic_lap_reward(
+            BasicLapRewardInputs(
+                current_character=player.current_character,
+                cash=player.cash,
+                shards=player.shards,
+                placeable=placeable,
+                survival_cash_pressure=survival_cash_pressure,
+                is_shard_hunter=is_shard_hunter_character(player.current_character) or is_ajeon(player.current_character),
+            ),
+            balanced=False,
+        )
+        return self._lap_reward_bundle(state, cash_unit, shard_unit, coin_unit, preferred=preferred)
 
     def choose_coin_placement_tile(self, state: GameState, player: PlayerState) -> Optional[int]:
+        raise NotImplementedError("legacy body removed; live path delegates later")
         candidates = [
             i for i in player.visited_owned_tile_indices
             if state.tile_owner[i] == player.player_id and state.tile_coins[i] < state.config.rules.token.max_coins_per_tile
@@ -3880,6 +4105,7 @@ class HeuristicPolicy(BasePolicy):
         return True
 
     def choose_purchase_tile(self, state: GameState, player: PlayerState, pos: int, cell: CellKind, cost: int, *, source: str = "landing") -> bool:
+        raise NotImplementedError("legacy body removed; live path delegates later")
         if cost <= 0 or self._is_random_mode():
             return True
         liquidity = self._liquidity_risk_metrics(state, player, player.current_character)
@@ -3900,143 +4126,355 @@ class HeuristicPolicy(BasePolicy):
             return False
         complete_monopoly = self._would_complete_monopoly_with_purchase(state, player, pos)
         blocks_enemy = self._would_block_enemy_monopoly_with_purchase(state, player, pos)
-        immediate_win = False
-        if state.config.rules.end.tiles_to_trigger_end and player.tiles_owned + 1 >= state.config.rules.end.tiles_to_trigger_end:
-            immediate_win = True
-        if state.config.rules.end.monopolies_to_trigger_end and complete_monopoly:
-            immediate_win = True
+        immediate_win = would_purchase_trigger_immediate_win(
+            tiles_owned=player.tiles_owned,
+            tiles_to_trigger_end=state.config.rules.end.tiles_to_trigger_end,
+            monopolies_to_trigger_end=state.config.rules.end.monopolies_to_trigger_end,
+            complete_monopoly=complete_monopoly,
+        )
+        profile = self._profile_from_mode()
+        survival_view = build_policy_survival_context(survival_ctx, cash=player.cash, shards=player.shards)
+        token_window_value = 0.0
+
         if immediate_win:
-            decision = True
+            result = build_immediate_win_purchase_result(reserve=reserve)
         else:
-            benefit = 0.8
-            if cell == CellKind.T3:
-                benefit += 1.4
-            elif cell == CellKind.T2:
-                benefit += 0.8
-            if complete_monopoly:
-                benefit += 2.4
-            if blocks_enemy:
-                benefit += 3.2
-            elif state.block_ids[pos] >= 0:
-                owned_in_block = sum(1 for i, bid in enumerate(state.block_ids) if bid == state.block_ids[pos] and state.tile_owner[i] == player.player_id)
-                benefit += 0.45 * owned_in_block
-            profile = self._profile_from_mode()
-            if profile in {"growth", "aggressive"}:
-                benefit += 0.35
-            if profile == "token_opt" and state.tile_owner[pos] is None:
-                benefit += 0.25
-            money_distress = float(survival_ctx.get("money_distress", 0.0))
-            cleanup_pressure = float(survival_ctx.get("cleanup_pressure", 0.0))
-            if profile == "v3_gpt":
-                baksu_online = player.current_character == "박수" and player.shards >= 5
-                safe_low_cost_t3 = cell == CellKind.T3 and cost <= 3 and remaining_cash >= reserve + 1.0
-                if own_burdens := float(survival_ctx.get("own_burdens", 0.0)):
-                    benefit -= 0.16 * own_burdens
-                token_window_value = self._best_token_window_value(state, player)
-                safe_growth_buy = cell in {CellKind.T2, CellKind.T3} and cost <= 4 and remaining_cash >= reserve + 1.0 and cleanup_pressure < 1.40 and money_distress < 1.0
-                if token_window_value >= max(3.35 if safe_low_cost_t3 else 2.85, 1.45 * benefit) and not complete_monopoly and not blocks_enemy and not safe_low_cost_t3 and not safe_growth_buy:
-                    self._set_debug("buy", player.player_id, {"tile": pos, "decision": False, "reason": "v3_prefers_token_window", "benefit": round(benefit, 3), "token_window": round(token_window_value, 3)})
-                    return False
-                if safe_low_cost_t3:
-                    benefit += 1.45
-                elif cell == CellKind.T3 and remaining_cash >= reserve + 1.0:
-                    benefit += 0.65
-                if safe_growth_buy:
-                    benefit += 1.10 + (0.45 if cell == CellKind.T3 else 0.28)
-                if baksu_online and float(survival_ctx.get("cleanup_pressure", 0.0)) >= 1.0:
-                    benefit += 0.85
-                if player.current_character in {"중매꾼", "건설업자", "사기꾼"} and token_window_value >= 1.0:
-                    benefit += 0.18
-            reserve_floor = reserve + 1.35 * float(survival_ctx.get("two_turn_lethal_prob", 0.0)) + 0.85 * money_distress
-            reserve_floor += 0.60 * float(survival_ctx.get("latent_cleanup_cost", 0.0))
-            reserve_floor += 0.55 * float(survival_ctx.get("expected_cleanup_cost", 0.0))
-            reserve_floor += 0.50 * float(survival_ctx.get("downside_expected_cleanup_cost", 0.0))
-            reserve_floor += 0.10 * float(survival_ctx.get("worst_cleanup_cost", 0.0))
-            if float(survival_ctx.get("public_cleanup_active", 0.0)) > 0.0:
-                reserve_floor += 0.65 * float(survival_ctx.get("active_cleanup_cost", 0.0))
-            if float(survival_ctx.get("needs_income", 0.0)) > 0.0:
-                reserve_floor += 1.0
-            token_window_value = self._best_token_window_value(state, player)
-            shortfall = max(0.0, reserve_floor - remaining_cash)
-            danger_cash = remaining_cash <= max(6.0, 0.70 * reserve_floor)
-            hard_reason = self._survival_hard_guard_reason(state, player, survival_ctx, post_action_cash=remaining_cash)
-            own_burdens = float(survival_ctx.get("own_burdens", 0.0))
-            next_neg = float(survival_ctx.get("next_draw_negative_cleanup_prob", 0.0))
-            two_neg = float(survival_ctx.get("two_draw_negative_cleanup_prob", 0.0))
-            negative_cards = float(survival_ctx.get("remaining_negative_cleanup_cards", 0.0))
-            downside_cleanup = float(survival_ctx.get("downside_expected_cleanup_cost", 0.0))
-            worst_cleanup = float(survival_ctx.get("worst_cleanup_cost", 0.0))
-            cleanup_lock = (
-                float(survival_ctx.get("public_cleanup_active", 0.0)) > 0.0
-                and remaining_cash < float(survival_ctx.get("active_cleanup_cost", 0.0))
-                and not blocks_enemy and not complete_monopoly
-            ) or (
-                float(survival_ctx.get("latent_cleanup_cost", 0.0)) >= max(8.0, player.cash * 0.8)
-                and remaining_cash < reserve_floor
-                and not blocks_enemy and not complete_monopoly
-            ) or (
-                own_burdens >= 1.0 and next_neg >= 0.10 and remaining_cash < max(reserve + 3.0, downside_cleanup + 2.0, 0.60 * worst_cleanup + 1.5)
-                and not blocks_enemy and not complete_monopoly
-            ) or (
-                own_burdens >= 2.0 and negative_cards > 0.0 and (two_neg >= 0.22 or downside_cleanup >= 8.0)
-                and remaining_cash < max(reserve + 4.0, downside_cleanup + 2.5, 0.75 * worst_cleanup + 2.0)
-                and not blocks_enemy and not complete_monopoly
-            ) or (
-                own_burdens >= 3.0 and negative_cards > 0.0 and remaining_cash < max(reserve + 5.0, downside_cleanup + 3.0, worst_cleanup + 1.0)
-                and not blocks_enemy and not complete_monopoly
-            ) or (
-                hard_reason is not None and not blocks_enemy and not complete_monopoly
+            owned_in_block = count_owned_tiles_in_block(
+                block_ids=state.block_ids,
+                tile_owner=state.tile_owner,
+                pos=pos,
+                player_id=player.player_id,
             )
-            token_preferred = token_window_value >= benefit + (1.2 if profile == "v3_gpt" else 1.6) and not complete_monopoly and not blocks_enemy
-            v3_cleanup_soft_block = (
-                profile == "v3_gpt"
-                and not complete_monopoly
-                and not blocks_enemy
-                and not (player.current_character == "박수" and player.shards >= 5 and cell == CellKind.T3 and cost <= 3 and remaining_cash >= max(reserve - 1.0, 0.0))
-                and (
-                    cleanup_pressure >= 2.0
-                    or money_distress >= 1.15
-                    or float(survival_ctx.get("two_turn_lethal_prob", 0.0)) >= 0.22
+            benefit = build_purchase_benefit(
+                PurchaseBenefitInputs(
+                    cell=cell,
+                    profile=profile,
+                    complete_monopoly=complete_monopoly,
+                    blocks_enemy=blocks_enemy,
+                    owned_in_block=owned_in_block,
+                    is_unowned_tile=state.tile_owner[pos] is None,
                 )
-                and remaining_cash < reserve_floor + 0.6
             )
-            decision = not (
-                shortfall > benefit
-                or token_preferred
-                or (danger_cash and shortfall > 0.15)
-                or (money_distress >= 1.0 and not blocks_enemy and not complete_monopoly and not (profile == "v3_gpt" and player.current_character == "박수" and player.shards >= 5 and cell == CellKind.T3 and cost <= 3) and remaining_cash < reserve_floor + 1.5)
-                or cleanup_lock
-                or v3_cleanup_soft_block
+            token_window_value = self._best_token_window_value(state, player)
+            if profile == "v3_gpt":
+                prepared = prepare_v3_purchase_benefit_with_traits(
+                    current_character=player.current_character,
+                    shards=player.shards,
+                    cell=cell,
+                    cost=cost,
+                    remaining_cash=remaining_cash,
+                    reserve=reserve,
+                    cleanup_pressure=survival_view.cleanup_pressure,
+                    money_distress=survival_view.money_distress,
+                    own_burdens=survival_view.own_burdens,
+                    token_window_value=token_window_value,
+                    complete_monopoly=complete_monopoly,
+                    blocks_enemy=blocks_enemy,
+                    current_benefit=benefit,
+                )
+                if prepared.early_token_window_veto:
+                    self._set_debug(
+                        "buy",
+                        player.player_id,
+                        build_purchase_early_debug_payload(
+                            source=source,
+                            pos=pos,
+                            cell_name=cell.name,
+                            cost=cost,
+                            decision=False,
+                            reason="v3_prefers_token_window",
+                            benefit=benefit,
+                            token_window=token_window_value,
+                        ),
+                    )
+                    return False
+                benefit = prepared.benefit
+                purchase_window = assess_v3_purchase_window_with_traits(
+                    current_character=player.current_character,
+                    shards=player.shards,
+                    cell=cell,
+                    cost=cost,
+                    remaining_cash=remaining_cash,
+                    reserve=reserve,
+                    survival=survival_view,
+                    token_window_value=token_window_value,
+                    benefit=benefit,
+                    complete_monopoly=complete_monopoly,
+                    blocks_enemy=blocks_enemy,
+                )
+                reserve_floor = purchase_window.reserve_floor
+            else:
+                purchase_window = None
+                reserve_floor = build_purchase_reserve_floor(
+                    reserve=reserve,
+                    remaining_cash=remaining_cash,
+                    survival=survival_view,
+                    public_cleanup_active=survival_view.public_cleanup_active,
+                    active_cleanup_cost=survival_view.active_cleanup_cost,
+                    downside_expected_cleanup_cost=survival_view.downside_expected_cleanup_cost,
+                    worst_cleanup_cost=survival_view.worst_cleanup_cost,
+                    latent_cleanup_cost=survival_view.latent_cleanup_cost,
+                    needs_income=survival_view.needs_income,
+                )
+
+            result = assess_purchase_decision_from_inputs(
+                TraitPurchaseDecisionInputs(
+                    profile=profile,
+                    current_character=player.current_character,
+                    cash_before=float(player.cash),
+                    remaining_cash=float(remaining_cash),
+                    reserve=float(reserve),
+                    reserve_floor=float(reserve_floor),
+                    benefit=float(benefit),
+                    token_window_value=float(token_window_value),
+                    money_distress=float(survival_view.money_distress),
+                    complete_monopoly=complete_monopoly,
+                    blocks_enemy=blocks_enemy,
+                    hard_reason=self._survival_hard_guard_reason(state, player, survival_ctx, post_action_cash=remaining_cash),
+                    own_burdens=float(survival_view.own_burdens),
+                    next_neg=float(survival_view.next_draw_negative_cleanup_prob),
+                    two_neg=float(survival_view.two_draw_negative_cleanup_prob),
+                    negative_cards=float(survival_view.remaining_negative_cleanup_cards),
+                    downside_cleanup=float(survival_view.downside_expected_cleanup_cost),
+                    worst_cleanup=float(survival_view.worst_cleanup_cost),
+                    public_cleanup_active=bool(survival_view.public_cleanup_active),
+                    active_cleanup_cost=float(survival_view.active_cleanup_cost),
+                    latent_cleanup_cost=float(survival_view.latent_cleanup_cost),
+                    purchase_window=purchase_window,
+                )
             )
-            if (
-                profile == "v3_gpt"
-                and player.current_character == "박수"
-                and player.shards >= 5
-                and cell == CellKind.T3
-                and cost <= 3
-                and remaining_cash >= max(reserve - 1.0, 0.0)
-                and hard_reason is None
-            ):
-                decision = True
-        self._set_debug("purchase_decision", player.player_id, {
-            "source": source,
-            "pos": pos,
-            "cell": cell.name,
-            "cost": cost,
-            "cash_before": player.cash,
-            "cash_after": remaining_cash,
-            "reserve": round(reserve, 3),
-            "money_distress": round(float(survival_ctx.get("money_distress", 0.0)), 3),
-            "two_turn_lethal_prob": round(float(survival_ctx.get("two_turn_lethal_prob", 0.0)), 3),
-            "latent_cleanup_cost": round(float(survival_ctx.get("latent_cleanup_cost", 0.0)), 3),
-            "cleanup_cash_gap": round(float(survival_ctx.get("cleanup_cash_gap", 0.0)), 3),
-            "expected_loss": round(liquidity["expected_loss"], 3),
-            "worst_loss": round(liquidity["worst_loss"], 3),
-            "blocks_enemy_monopoly": blocks_enemy,
-            "token_window_value": round(token_window_value if not immediate_win else 0.0, 3),
-            "decision": decision,
-        })
-        return decision
+
+        self._set_debug(
+            "purchase_decision",
+            player.player_id,
+            build_purchase_debug_payload(
+                context=build_purchase_debug_context(
+                    source=source,
+                    pos=pos,
+                    cell_name=cell.name,
+                    cost=cost,
+                    cash_before=float(player.cash),
+                    cash_after=float(remaining_cash),
+                    reserve=float(reserve),
+                    money_distress=float(survival_view.money_distress),
+                    two_turn_lethal_prob=float(survival_view.signals.two_turn_lethal_prob),
+                    latent_cleanup_cost=float(survival_view.latent_cleanup_cost),
+                    cleanup_cash_gap=float(survival_view.cleanup_cash_gap),
+                    expected_loss=float(liquidity["expected_loss"]),
+                    worst_loss=float(liquidity["worst_loss"]),
+                    blocks_enemy_monopoly=blocks_enemy,
+                    token_window_value=float(0.0 if immediate_win else token_window_value),
+                ),
+                result=result,
+            ),
+        )
+        return result.decision
+
+    def choose_lap_reward(self, state: GameState, player: PlayerState) -> LapRewardDecision:
+        raise NotImplementedError("legacy body removed; live path delegates later")
+        mode = self._lap_mode_for_player(player.player_id)
+        if mode == "cash_focus":
+            return self._lap_reward_bundle(state, 1.0, 0.01, 0.01, preferred="cash")
+        if mode == "shard_focus":
+            return self._lap_reward_bundle(state, 0.01, 1.0, 0.01, preferred="shards")
+        if mode == "coin_focus":
+            return self._lap_reward_bundle(state, 0.01, 0.01, 1.0, preferred="coins")
+
+        placeable = any(
+            state.tile_owner[i] == player.player_id
+            and state.tile_coins[i] < state.config.rules.token.max_coins_per_tile
+            for i in player.visited_owned_tile_indices
+        )
+        buy_value = self._expected_buy_value(state, player)
+        cross_start = self._will_cross_start(state, player)
+        land_f = self._will_land_on_f(state, player)
+        survival_ctx = self._generic_survival_context(state, player, player.current_character)
+        cleanup_strategy = self._cleanup_strategy_context(survival_ctx, player)
+        f_ctx = self._f_progress_context(state, player)
+        survival_cash_pressure = (
+            survival_ctx["survival_urgency"] >= 1.0
+            and (
+                player.cash <= 4
+                or survival_ctx["rent_pressure"] >= 1.2
+                or survival_ctx["lethal_hit_prob"] > 0.0
+                or survival_ctx["own_burden_cost"] > 0.0
+                or survival_ctx["cleanup_pressure"] >= 2.0
+            )
+        )
+
+        if mode.startswith("heuristic_v2_") or mode == "heuristic_v3_gpt":
+            profile = self._profile_from_mode(mode)
+            current_char = player.current_character
+            preferred_override: str | None = None
+
+            coin_score = (2.5 if placeable else -0.5) + (1.6 if (is_gakju(current_char) or is_swindler(current_char)) else 0.0) + 1.2 * cross_start
+            if current_char == "ä»¥ë¬â„“è¢?":
+                coin_score += 0.9 + 0.35 * self._matchmaker_adjacent_value(state, player)
+            elif current_char == "å«„ëŒê½•?ë‚†ì˜„":
+                coin_score += 1.00 + 0.55 * self._builder_free_purchase_value(state, player)
+
+            shard_score = 0.8 + (1.9 if (is_shard_hunter_character(current_char) or is_baksu(current_char) or is_mansin(current_char)) else 0.0)
+            shard_score += 0.35 * max(0, 6 - player.shards) + max(0.0, 0.7 * land_f * float(f_ctx["land_f_value"]))
+            if current_char == "ä»¥ë¬â„“è¢?" and player.shards < 2:
+                shard_score += 0.75 + 0.20 * max(0, 2 - player.shards)
+            if is_baksu(current_char):
+                shard_score += 0.25 * min(2, player.shards // 5 + 1)
+            if is_mansin(current_char):
+                shard_score += 0.18 * min(2, player.shards // 7 + 1)
+
+            cash_score = 1.2 + 0.4 * max(0, 10 - player.cash)
+            if survival_cash_pressure:
+                cash_score += 1.35 + 0.95 * survival_ctx["survival_urgency"] + 0.25 * max(0.0, -survival_ctx["cash_after_reserve"])
+                coin_score -= 0.55 * survival_ctx["survival_urgency"]
+                shard_score -= 0.40 * survival_ctx["survival_urgency"]
+                if placeable and survival_ctx["recovery_score"] >= 1.2:
+                    coin_score += 0.25
+            if not bool(f_ctx["is_leader"]):
+                cash_score += 0.45 + 0.30 * float(f_ctx["avoid_f_acceleration"])
+                shard_score -= 0.35 + 0.20 * float(f_ctx["avoid_f_acceleration"])
+            if is_gakju(current_char):
+                shard_score += max(0.0, 0.9 * land_f * float(f_ctx["land_f_value"]))
+                coin_score += 0.8 * cross_start
+
+            if profile == "v3_gpt":
+                token_window = self._token_placement_window_metrics(state, player)
+                lap_ctx = self._lap_engine_context(state, player)
+                cash_score, shard_score, coin_score, preferred = evaluate_v3_lap_reward(
+                    V3LapRewardInputs(
+                        current_character=current_char,
+                        cash=player.cash,
+                        shards=player.shards,
+                        hand_coins=player.hand_coins,
+                        placeable=placeable,
+                        buy_value=buy_value,
+                        cross_start=cross_start,
+                        land_f=land_f,
+                        land_f_value=float(f_ctx["land_f_value"]),
+                        own_land=self._prob_land_on_placeable_own_tile(state, player),
+                        token_window_score=float(token_window["window_score"]),
+                        token_window_nearest_distance=float(token_window["nearest_distance"]),
+                        token_window_revisit_prob=float(token_window["revisit_prob"]),
+                        cleanup_pressure=float(survival_ctx.get("cleanup_pressure", 0.0)),
+                        next_negative_cleanup_prob=float(survival_ctx.get("next_draw_negative_cleanup_prob", 0.0)),
+                        two_negative_cleanup_prob=float(survival_ctx.get("two_draw_negative_cleanup_prob", 0.0)),
+                        expected_cleanup_cost=float(survival_ctx.get("expected_cleanup_cost", 0.0)),
+                        survival_cash_pressure=survival_cash_pressure,
+                        burden_count=float(survival_ctx.get("own_burdens", 0.0)),
+                        lap_cash_preference=cleanup_strategy.lap_cash_preference,
+                        lap_shard_preference=cleanup_strategy.lap_shard_preference,
+                        cleanup_growth_locked=cleanup_strategy.growth_locked,
+                        cleanup_stage=cleanup_strategy.cleanup_stage,
+                        cleanup_stage_score=cleanup_strategy.stage_score,
+                        is_leader=bool(f_ctx["is_leader"]),
+                        rich_pool=float(lap_ctx["rich_pool"]),
+                        is_baksu=is_baksu(current_char),
+                        is_mansin=is_mansin(current_char),
+                        is_shard_hunter=is_shard_hunter_character(current_char),
+                        is_controller=is_controller_character(current_char),
+                        is_gakju=is_gakju(current_char),
+                    ),
+                    plan_ctx=build_turn_plan_context(
+                        self._current_player_intent(state, player, current_char),
+                        cleanup_strategy,
+                        current_character=current_char,
+                        cash=player.cash,
+                        shards=player.shards,
+                    ),
+                )
+                cash_unit, shard_unit, coin_unit, preferred = normalize_lap_reward_scores(
+                    cash_score=cash_score,
+                    shard_score=shard_score,
+                    coin_score=coin_score,
+                    lap_reward_cash=float(state.config.coins.lap_reward_cash),
+                    lap_reward_shards=float(state.config.shards.lap_reward_shards),
+                    lap_reward_coins=float(state.config.coins.lap_reward_coins),
+                    preferred_override=preferred,
+                )
+                return self._lap_reward_bundle(state, cash_unit, shard_unit, coin_unit, preferred=preferred)
+
+            if profile in {"control", "growth", "avoid_control", "aggressive", "token_opt"}:
+                denial_snapshot = self._leader_denial_snapshot(state, player) if profile == "control" else {}
+                liquidity = self._liquidity_risk_metrics(state, player, current_char) if profile == "control" else {"cash_after_reserve": 0.0}
+                rent_pressure, _ = self._rent_pressure_breakdown(state, player, current_char or "") if profile == "control" else (0.0, [])
+                burden_context = self._burden_context(state, player) if profile == "control" else {}
+                token_window = self._token_placement_window_metrics(state, player) if profile == "token_opt" else {"window_score": 0.0, "placeable_count": 0.0, "nearest_distance": 999.0, "revisit_prob": 0.0}
+                cash_score, shard_score, coin_score, preferred_profile = apply_v2_profile_lap_reward_bias(
+                    cash_score,
+                    shard_score,
+                    coin_score,
+                    inputs=V2ProfileLapRewardInputs(
+                        profile=profile,
+                        cash=player.cash,
+                        shards=player.shards,
+                        hand_coins=player.hand_coins,
+                        placeable=placeable,
+                        buy_value=buy_value,
+                        land_f=land_f,
+                        land_f_value=float(f_ctx["land_f_value"]),
+                        own_land=self._prob_land_on_placeable_own_tile(state, player) if profile == "token_opt" else 0.0,
+                        token_combo=self._token_teleport_combo_score(player) if profile == "token_opt" else 0.0,
+                        token_window_score=float(token_window["window_score"]),
+                        token_window_placeable_count=float(token_window["placeable_count"]),
+                        token_window_nearest_distance=float(token_window["nearest_distance"]),
+                        token_window_revisit_prob=float(token_window["revisit_prob"]),
+                        emergency=float(denial_snapshot.get("emergency", 0.0)),
+                        finisher_window=self._control_finisher_window(player)[0] if profile == "control" else 0.0,
+                        low_cash=max(0.0, 7.0 - player.cash) if profile == "control" else 0.0,
+                        cash_after_reserve=float(liquidity["cash_after_reserve"]),
+                        rent_pressure=rent_pressure,
+                        burden_count=float(count_burden_cards(player.trick_hand)),
+                        cleanup_pressure=float(burden_context.get("cleanup_pressure", 0.0)),
+                        solo_leader=bool(denial_snapshot.get("solo_leader", False)),
+                        near_end=bool(denial_snapshot.get("near_end", False)),
+                        is_controller_role=(
+                            is_controller_character(current_char)
+                            or is_bandit(current_char)
+                            or is_tamgwanori(current_char)
+                            or is_ajeon(current_char)
+                            or is_eosa(current_char)
+                            or is_swindler(current_char)
+                        ),
+                    ),
+                )
+                preferred_override = preferred_override or preferred_profile
+
+            cash_unit, shard_unit, coin_unit, preferred = normalize_lap_reward_scores(
+                cash_score=cash_score,
+                shard_score=shard_score,
+                coin_score=coin_score,
+                lap_reward_cash=float(state.config.coins.lap_reward_cash),
+                lap_reward_shards=float(state.config.shards.lap_reward_shards),
+                lap_reward_coins=float(state.config.coins.lap_reward_coins),
+                preferred_override=preferred_override,
+            )
+            return self._lap_reward_bundle(state, cash_unit, shard_unit, coin_unit, preferred=preferred)
+
+        if mode == "balanced":
+            cash_unit, shard_unit, coin_unit, preferred = evaluate_basic_lap_reward(
+                BasicLapRewardInputs(
+                    current_character=player.current_character,
+                    cash=player.cash,
+                    shards=player.shards,
+                    placeable=placeable and player.hand_coins < 2,
+                    survival_cash_pressure=survival_cash_pressure,
+                    is_shard_hunter=is_shard_hunter_character(player.current_character) or is_ajeon(player.current_character),
+                ),
+                balanced=True,
+            )
+            return self._lap_reward_bundle(state, cash_unit, shard_unit, coin_unit, preferred=preferred)
+
+        cash_unit, shard_unit, coin_unit, preferred = evaluate_basic_lap_reward(
+            BasicLapRewardInputs(
+                current_character=player.current_character,
+                cash=player.cash,
+                shards=player.shards,
+                placeable=placeable,
+                survival_cash_pressure=survival_cash_pressure,
+                is_shard_hunter=is_shard_hunter_character(player.current_character) or is_ajeon(player.current_character),
+            ),
+            balanced=False,
+        )
+        return self._lap_reward_bundle(state, cash_unit, shard_unit, coin_unit, preferred=preferred)
 
     def _escape_package_names(self) -> set[str]:
         return {"박수", "만신", "탈출 노비"}
@@ -4158,6 +4596,7 @@ class HeuristicPolicy(BasePolicy):
         return bonus
 
     def choose_draft_card(self, state: GameState, player: PlayerState, offered_cards: list[int]) -> int:
+        raise NotImplementedError("legacy body removed; live path delegates later")
         if self._is_random_mode():
             choice = self._choice(offered_cards)
             self._set_debug("draft_card", player.player_id, {
@@ -4186,7 +4625,7 @@ class HeuristicPolicy(BasePolicy):
                 hard_block_details[card_no] = dict(survival_detail)
             bonus = marker_bonus.get(active_name, 0.0)
             if bonus > 0.0:
-                bonus *= max(1.0, survival_orchestrator.weight_multiplier if survival_orchestrator.survival_first and active_name in LOW_CASH_INCOME_CHARACTERS | LOW_CASH_ESCAPE_CHARACTERS | LOW_CASH_CONTROLLER_CHARACTERS | {"박수", "만신"} else 1.0)
+                bonus *= max(1.0, survival_orchestrator.weight_multiplier if survival_orchestrator.survival_first and (is_low_cash_income_character(active_name) or is_low_cash_escape_character(active_name) or is_low_cash_controller_character(active_name) or is_baksu(active_name) or is_mansin(active_name)) else 1.0)
                 score += bonus
                 why = [*why, f"distress_marker_bonus={bonus:.2f}"]
             survival_bonus, survival_why = self._character_survival_adjustment(state, player, active_name, survival_ctx)
@@ -4217,6 +4656,7 @@ class HeuristicPolicy(BasePolicy):
         return choice
 
     def choose_final_character(self, state: GameState, player: PlayerState, card_choices: list[int]) -> str:
+        raise NotImplementedError("legacy body removed; live path delegates later")
         options = [state.active_by_card[c] for c in card_choices]
         if self._is_random_mode():
             choice = self._choice(options)
@@ -4245,7 +4685,7 @@ class HeuristicPolicy(BasePolicy):
                 hard_block_details[name] = dict(survival_detail)
             bonus = marker_bonus.get(name, 0.0)
             if bonus > 0.0:
-                bonus *= max(1.0, survival_orchestrator.weight_multiplier if survival_orchestrator.survival_first and name in LOW_CASH_INCOME_CHARACTERS | LOW_CASH_ESCAPE_CHARACTERS | LOW_CASH_CONTROLLER_CHARACTERS | {"박수", "만신"} else 1.0)
+                bonus *= max(1.0, survival_orchestrator.weight_multiplier if survival_orchestrator.survival_first and (is_low_cash_income_character(name) or is_low_cash_escape_character(name) or is_low_cash_controller_character(name) or is_baksu(name) or is_mansin(name)) else 1.0)
                 score += bonus
                 why = [*why, f"distress_marker_bonus={bonus:.2f}"]
             survival_bonus, survival_why = self._character_survival_adjustment(state, player, name, survival_ctx)
@@ -4258,6 +4698,7 @@ class HeuristicPolicy(BasePolicy):
         if not candidate_pool:
             candidate_pool = list(options)
         choice = max(candidate_pool, key=lambda n: (scored[n], n))
+        self._remember_player_intent(state, player, choice, reason="choose_final_character")
         self._set_debug("final_character", player.player_id, {
             "policy": self.character_policy_mode,
             "offered_cards": card_choices,
@@ -4274,71 +4715,49 @@ class HeuristicPolicy(BasePolicy):
         return choice
 
     def choose_mark_target(self, state: GameState, player: PlayerState, actor_name: str) -> Optional[str]:
+        raise NotImplementedError("legacy body removed; live path delegates later")
         legal_targets = self._allowed_mark_targets(state, player)
-        candidates = self._public_mark_guess_candidates(state, player)
-        if not legal_targets or not candidates:
-            self._set_debug("mark_target", player.player_id, {
-                "policy": self.character_policy_mode,
-                "actor_name": actor_name,
-                "candidate_scores": {},
-                "candidate_probabilities": {},
-                "chosen_target": None,
-                "reasons": ["no_public_guess_candidates" if legal_targets else "no_legal_targets"],
-            })
-            return None
-        if self._is_random_mode():
-            choice = self._choice(candidates)
-            self._set_debug("mark_target", player.player_id, {
-                "policy": self.character_policy_mode,
-                "actor_name": actor_name,
-                "candidate_scores": {c: 0.0 for c in candidates},
-                "candidate_probabilities": {c: round(1.0 / len(candidates), 3) for c in candidates},
-                "chosen_target": choice,
-                "reasons": ["uniform_random_public_guess"],
-            })
-            return choice
-        scored = {}
-        reasons = {}
-        for target_name in candidates:
-            score, why = self._public_target_name_score_breakdown(state, player, actor_name, target_name)
-            scored[target_name] = score
-            reasons[target_name] = why
-        probabilities, dist_meta = self._mark_guess_distribution(scored, len(legal_targets))
-        ordered = sorted(candidates, key=lambda name: (probabilities[name], scored[name], name), reverse=True)
-        top_name = ordered[0]
-        top_probability = dist_meta["top_probability"]
-        choice = self._weighted_choice(candidates, [probabilities[name] for name in candidates])
-        self._set_debug("mark_target", player.player_id, {
-            "policy": self.character_policy_mode,
-            "actor_name": actor_name,
-            "candidate_scores": {name: round(val, 3) for name, val in scored.items()},
-            "candidate_probabilities": {name: round(probabilities[name], 3) for name in candidates},
-            "chosen_target": choice,
-            "top_candidate": top_name,
-            "uniform_mix": round(dist_meta["uniform_mix"], 3),
-            "ambiguity": round(dist_meta["ambiguity"], 3),
-            "top_probability": round(top_probability, 3),
-            "second_probability": round(dist_meta["second_probability"], 3),
-            "reasons": reasons[choice],
-        })
-        return choice
+        candidates = filter_public_mark_candidates(
+            actor_name,
+            self._public_mark_guess_candidates(state, player),
+            state.active_by_card.values(),
+        )
+        choice_run = run_public_mark_choice(
+            candidates,
+            policy=self.character_policy_mode,
+            actor_name=actor_name,
+            legal_target_count=len(legal_targets),
+            is_random_mode=self._is_random_mode(),
+            scorer=lambda target_name: self._public_target_name_score_breakdown(
+                state,
+                player,
+                actor_name,
+                target_name,
+            ),
+            distribution_builder=self._mark_guess_distribution,
+            chooser=self._weighted_choice,
+            random_chooser=self._choice,
+        )
+        self._set_debug("mark_target", player.player_id, choice_run.debug_payload)
+        return choice_run.choice
 
     def choose_active_flip_card(self, state: GameState, player: PlayerState, flippable_cards: list[int]) -> Optional[int]:
+        raise NotImplementedError("legacy body removed; live path delegates later")
         if not flippable_cards:
             return None
         if self._is_random_mode():
-            choice = self._choice(flippable_cards)
-            self._set_debug("marker_flip", player.player_id, {
-                "policy": self.character_policy_mode,
-                "candidate_scores": {str(c): 0.0 for c in flippable_cards},
-                "chosen_card": choice,
-                "reasons": ["uniform_random"],
-            })
-            return choice
+            resolution = resolve_random_active_flip_choice(
+                flippable_cards,
+                policy=self.character_policy_mode,
+                chooser=self._choice,
+            )
+            self._set_debug("marker_flip", player.player_id, resolution.debug_payload)
+            return resolution.choice
         scored = {}
         reasons = {}
-        denial_snapshot = self._leader_denial_snapshot(state, player) if self._is_v2_mode() else None
-        marker_plan = self._leader_marker_flip_plan(state, player, denial_snapshot.get("top_threat") if denial_snapshot else None) if self._is_v2_mode() else None
+        advanced_marker_mode = self._is_v2_mode() or self._profile_from_mode() == "v3_gpt"
+        denial_snapshot = self._leader_denial_snapshot(state, player) if advanced_marker_mode else None
+        marker_plan = self._leader_marker_flip_plan(state, player, denial_snapshot.get("top_threat") if denial_snapshot else None) if advanced_marker_mode else None
         opportunities = marker_plan["opportunities"] if marker_plan else {}
         survival_ctx = self._generic_survival_context(state, player, player.current_character)
         controller_need = float(survival_ctx.get("controller_need", 0.0))
@@ -4348,7 +4767,7 @@ class HeuristicPolicy(BasePolicy):
             current = state.active_by_card[card_no]
             a, b = CARD_TO_NAMES[card_no]
             flipped = b if current == a else a
-            if self._is_v2_mode():
+            if advanced_marker_mode:
                 current_score, _ = self._character_score_breakdown_v2(state, player, current)
                 flipped_score, flipped_reasons = self._character_score_breakdown_v2(state, player, flipped)
                 deny = 0.0
@@ -4376,13 +4795,13 @@ class HeuristicPolicy(BasePolicy):
                     elif flipped_need > current_need:
                         flipped_reasons = [f"avoid_feeding_leader={flipped_need - current_need:.2f}", *flipped_reasons]
                 if controller_need > 0.0 or money_distress > 0.0:
-                    if current in ACTIVE_MONEY_DRAIN_CHARACTERS and flipped not in ACTIVE_MONEY_DRAIN_CHARACTERS:
+                    if is_active_money_drain_character(current) and not is_active_money_drain_character(flipped):
                         relief = 0.95 + 0.75 * controller_need + 0.35 * money_distress
                         if current == "만신" and own_burden_cost > 0.0:
                             relief += 0.25 * own_burden_cost
                         deny += relief
                         flipped_reasons = [f"money_relief_flip={relief:.2f}", *flipped_reasons]
-                    elif flipped in ACTIVE_MONEY_DRAIN_CHARACTERS and current not in ACTIVE_MONEY_DRAIN_CHARACTERS:
+                    elif is_active_money_drain_character(flipped) and not is_active_money_drain_character(current):
                         deny -= 0.80 + 0.55 * controller_need + 0.25 * money_distress
                         flipped_reasons = ["avoid_enable_money_drain", *flipped_reasons]
                 scored[card_no] = (flipped_score - current_score) + deny
@@ -4391,26 +4810,292 @@ class HeuristicPolicy(BasePolicy):
                 current_score, _ = self._character_score_breakdown(state, player, current)
                 flipped_score, flipped_reasons = self._character_score_breakdown(state, player, flipped)
                 score = flipped_score - current_score
-                if (controller_need > 0.0 or money_distress > 0.0) and current in ACTIVE_MONEY_DRAIN_CHARACTERS and flipped not in ACTIVE_MONEY_DRAIN_CHARACTERS:
+                if (controller_need > 0.0 or money_distress > 0.0) and is_active_money_drain_character(current) and not is_active_money_drain_character(flipped):
                     score += 0.90 + 0.70 * controller_need + 0.30 * money_distress
                     flipped_reasons = ["money_relief_flip", *flipped_reasons]
-                elif (controller_need > 0.0 or money_distress > 0.0) and flipped in ACTIVE_MONEY_DRAIN_CHARACTERS and current not in ACTIVE_MONEY_DRAIN_CHARACTERS:
+                elif (controller_need > 0.0 or money_distress > 0.0) and is_active_money_drain_character(flipped) and not is_active_money_drain_character(current):
                     score -= 0.75 + 0.50 * controller_need + 0.20 * money_distress
                     flipped_reasons = ["avoid_enable_money_drain", *flipped_reasons]
                 scored[card_no] = score
                 reasons[card_no] = [f"flip_to={flipped}", *flipped_reasons]
-        choice = max(flippable_cards, key=lambda c: (scored[c], -c))
-        self._set_debug("marker_flip", player.player_id, {
-            "policy": self.character_policy_mode,
-            "candidate_scores": {str(c): round(scored[c], 3) for c in flippable_cards},
-            "chosen_card": choice,
-            "chosen_to": (CARD_TO_NAMES[choice][1] if state.active_by_card[choice] == CARD_TO_NAMES[choice][0] else CARD_TO_NAMES[choice][0]),
-            "reasons": reasons[choice],
-            "generic_survival_score": round(survival_ctx["generic_survival_score"], 3),
-            "money_distress": round(money_distress, 3),
-            "controller_need": round(controller_need, 3),
-        })
-        return choice
+        resolution = resolve_scored_active_flip_choice(
+            flippable_cards,
+            scored=scored,
+            reasons=reasons,
+            policy=self.character_policy_mode,
+            chosen_to_resolver=lambda choice: (CARD_TO_NAMES[choice][1] if state.active_by_card[choice] == CARD_TO_NAMES[choice][0] else CARD_TO_NAMES[choice][0]),
+            generic_survival_score=survival_ctx["generic_survival_score"],
+            money_distress=money_distress,
+            controller_need=controller_need,
+        )
+        self._set_debug("marker_flip", player.player_id, resolution.debug_payload)
+        return resolution.choice
+
+    def _weather_character_adjustment(self, state: GameState, player: PlayerState, character_name: str) -> tuple[float, list[str]]:
+        del player
+        return weather_character_adjustment(
+            getattr(state, "current_weather_effects", set()) or set(),
+            character_name,
+        )
+
+    def _fortune_cleanup_deck_profile(self, state: GameState) -> dict[str, float]:
+        negative_cards = dict(FORTUNE_CLEANUP_CARD_MULTIPLIERS)
+        positive_cards = dict(FORTUNE_POSITIVE_CLEANUP_CARD_MULTIPLIERS)
+        cleanup_cards = {**negative_cards, **positive_cards}
+
+        def _at_least_one_prob(total_cards: int, success_cards: int, draws: int) -> float:
+            if total_cards <= 0 or success_cards <= 0 or draws <= 0:
+                return 0.0
+            draws = min(draws, total_cards)
+            failures = total_cards - success_cards
+            if draws > failures:
+                return 1.0
+            try:
+                no_success = math.comb(failures, draws) / math.comb(total_cards, draws)
+            except ValueError:
+                return 0.0
+            return max(0.0, min(1.0, 1.0 - no_success))
+
+        def _expected_multiplier(cards: list[Any]) -> float:
+            if not cards:
+                return 0.0
+            total = 0.0
+            for card in cards:
+                total += cleanup_cards.get(getattr(card, "name", ""), 0.0)
+            return total / len(cards)
+
+        def _expected_negative_multiplier(cards: list[Any]) -> float:
+            if not cards:
+                return 0.0
+            total = 0.0
+            for card in cards:
+                total += max(0.0, cleanup_cards.get(getattr(card, "name", ""), 0.0))
+            return total / len(cards)
+
+        draw_pile = list(getattr(state, "fortune_draw_pile", []) or [])
+        discard_pile = list(getattr(state, "fortune_discard_pile", []) or [])
+        source = draw_pile if draw_pile else discard_pile
+        remaining_draws = len(source)
+        fire_count, wildfire_count, recycle_count, public_recycle_count = count_cleanup_fortunes(source)
+        negative_cleanup_cards = fire_count + wildfire_count
+        positive_cleanup_cards = recycle_count + public_recycle_count
+        all_cleanup_cards = negative_cleanup_cards + positive_cleanup_cards
+
+        total_cycle_cards = len(draw_pile) + len(discard_pile)
+        cycle_fire_count, cycle_wildfire_count, cycle_recycle_count, cycle_public_recycle_count = count_cleanup_fortunes(draw_pile + discard_pile)
+        total_negative_cleanup_cards = cycle_fire_count + cycle_wildfire_count
+        total_positive_cleanup_cards = cycle_recycle_count + cycle_public_recycle_count
+        total_cleanup_cards = total_negative_cleanup_cards + total_positive_cleanup_cards
+
+        next_draw_cleanup_prob = (all_cleanup_cards / remaining_draws) if remaining_draws > 0 else 0.0
+        next_draw_negative_cleanup_prob = (negative_cleanup_cards / remaining_draws) if remaining_draws > 0 else 0.0
+        next_draw_positive_cleanup_prob = (positive_cleanup_cards / remaining_draws) if remaining_draws > 0 else 0.0
+        two_draw_cleanup_prob = _at_least_one_prob(remaining_draws, all_cleanup_cards, 2)
+        two_draw_negative_cleanup_prob = _at_least_one_prob(remaining_draws, negative_cleanup_cards, 2)
+        two_draw_positive_cleanup_prob = _at_least_one_prob(remaining_draws, positive_cleanup_cards, 2)
+        three_draw_cleanup_prob = _at_least_one_prob(remaining_draws, all_cleanup_cards, 3)
+        cycle_cleanup_prob = (total_cleanup_cards / total_cycle_cards) if total_cycle_cards > 0 else 0.0
+        cycle_negative_cleanup_prob = (total_negative_cleanup_cards / total_cycle_cards) if total_cycle_cards > 0 else 0.0
+        cycle_positive_cleanup_prob = (total_positive_cleanup_cards / total_cycle_cards) if total_cycle_cards > 0 else 0.0
+
+        conditional_multiplier = (
+            (((1.0 * cycle_fire_count) + (2.0 * cycle_wildfire_count) + (-1.0 * cycle_recycle_count) + (-1.0 * cycle_public_recycle_count)) / total_cleanup_cards)
+            if total_cleanup_cards > 0 else 0.0
+        )
+        conditional_negative_multiplier = (
+            (((1.0 * cycle_fire_count) + (2.0 * cycle_wildfire_count)) / total_negative_cleanup_cards)
+            if total_negative_cleanup_cards > 0 else 0.0
+        )
+        next_draw_expected_factor = _expected_multiplier(source)
+        next_draw_negative_expected_factor = _expected_negative_multiplier(source)
+        persistent_expected_factor = cycle_cleanup_prob * conditional_multiplier
+        persistent_negative_expected_factor = cycle_negative_cleanup_prob * conditional_negative_multiplier
+        two_draw_expected_factor = two_draw_cleanup_prob * conditional_multiplier
+        two_draw_negative_expected_factor = two_draw_negative_cleanup_prob * conditional_negative_multiplier
+        three_draw_expected_factor = three_draw_cleanup_prob * conditional_multiplier
+        worst_multiplier = 2.0 if cycle_wildfire_count > 0 else 1.0 if cycle_fire_count > 0 else 0.0
+        return {
+            "remaining_draws": float(remaining_draws),
+            "remaining_fire_count": float(fire_count),
+            "remaining_wildfire_count": float(wildfire_count),
+            "remaining_recycle_count": float(recycle_count),
+            "remaining_public_recycle_count": float(public_recycle_count),
+            "remaining_cleanup_cards": float(all_cleanup_cards),
+            "remaining_negative_cleanup_cards": float(negative_cleanup_cards),
+            "remaining_positive_cleanup_cards": float(positive_cleanup_cards),
+            "next_draw_cleanup_prob": float(next_draw_cleanup_prob),
+            "next_draw_negative_cleanup_prob": float(next_draw_negative_cleanup_prob),
+            "next_draw_positive_cleanup_prob": float(next_draw_positive_cleanup_prob),
+            "two_draw_cleanup_prob": float(two_draw_cleanup_prob),
+            "two_draw_negative_cleanup_prob": float(two_draw_negative_cleanup_prob),
+            "two_draw_positive_cleanup_prob": float(two_draw_positive_cleanup_prob),
+            "three_draw_cleanup_prob": float(three_draw_cleanup_prob),
+            "cycle_cleanup_prob": float(cycle_cleanup_prob),
+            "cycle_negative_cleanup_prob": float(cycle_negative_cleanup_prob),
+            "cycle_positive_cleanup_prob": float(cycle_positive_cleanup_prob),
+            "conditional_cleanup_multiplier": float(conditional_multiplier),
+            "conditional_negative_cleanup_multiplier": float(conditional_negative_multiplier),
+            "expected_cleanup_multiplier": float(next_draw_expected_factor),
+            "expected_negative_cleanup_multiplier": float(next_draw_negative_expected_factor),
+            "persistent_expected_cleanup_multiplier": float(persistent_expected_factor),
+            "persistent_negative_cleanup_multiplier": float(persistent_negative_expected_factor),
+            "two_draw_expected_cleanup_multiplier": float(two_draw_expected_factor),
+            "two_draw_negative_expected_cleanup_multiplier": float(two_draw_negative_expected_factor),
+            "three_draw_expected_cleanup_multiplier": float(three_draw_expected_factor),
+            "worst_cleanup_multiplier": float(worst_multiplier),
+            "reshuffle_imminent": 1.0 if (not draw_pile and bool(discard_pile)) else 0.0,
+        }
+
+    def _fortune_cleanup_deck_profile(self, state: GameState) -> dict[str, float]:
+        return fortune_cleanup_deck_profile(
+            list(getattr(state, "fortune_draw_pile", []) or []),
+            list(getattr(state, "fortune_discard_pile", []) or []),
+        )
+
+    def _escape_package_names(self) -> set[str]:
+        return escape_package_names()
+
+    def _marker_package_names(self) -> set[str]:
+        return marker_package_names()
+
+    def _should_seek_escape_package(self, state: GameState, player: PlayerState) -> bool:
+        burden_count = sum(1 for c in player.trick_hand if c.is_burden)
+        legal_marks = self._allowed_mark_targets(state, player)
+        burden_context = self._burden_context(state, player, legal_targets=legal_marks)
+        cleanup_pressure = float(burden_context.get("cleanup_pressure", 0.0))
+        rent_pressure, _ = self._rent_pressure_breakdown(state, player, player.current_character or "")
+        survival_ctx = self._generic_survival_context(state, player, player.current_character)
+        money_distress = float(survival_ctx.get("money_distress", 0.0))
+        two_turn_lethal_prob = float(survival_ctx.get("two_turn_lethal_prob", 0.0))
+        cash_after_reserve = float(survival_ctx.get("cash_after_reserve", 0.0))
+        front_enemy_density = float(survival_ctx.get("front_enemy_density", 0.0))
+        controller_need = float(survival_ctx.get("controller_need", 0.0))
+        return should_seek_escape_package_from_inputs(
+            EscapeSeekInputs(
+                burden_count=float(burden_count),
+                cleanup_pressure=cleanup_pressure,
+                rent_pressure=rent_pressure,
+                money_distress=money_distress,
+                two_turn_lethal_prob=two_turn_lethal_prob,
+                cash_after_reserve=cash_after_reserve,
+                front_enemy_density=front_enemy_density,
+                controller_need=controller_need,
+                active_drain_pressure=float(survival_ctx.get("active_drain_pressure", 0.0)),
+                cash=float(player.cash),
+            )
+        )
+
+    def _distress_marker_bonus(self, state: GameState, player: PlayerState, candidate_names: list[str]) -> dict[str, float]:
+        survival_ctx = self._generic_survival_context(state, player, player.current_character)
+        rescue_pressure = self._should_seek_escape_package(state, player)
+        denial_snapshot = self._leader_denial_snapshot(state, player) if self._is_v2_mode() else {"emergency": 0.0, "near_end": False, "top_threat": None}
+        leader_emergency = float(denial_snapshot["emergency"])
+        urgent_denial = self._is_v2_mode() and leader_emergency >= 2.0
+        controller_need = float(survival_ctx.get("controller_need", 0.0))
+        rescue_names = self._escape_package_names()
+        marker_names = self._marker_package_names()
+        active_names = {name for name in state.active_by_card.values() if name}
+        future_rescue_live = bool(active_names & rescue_names)
+        marker_plan = self._leader_marker_flip_plan(state, player, denial_snapshot.get("top_threat")) if urgent_denial else {"best_score": 0.0}
+        return build_distress_marker_bonus(
+            DistressMarkerInputs(
+                rescue_pressure=rescue_pressure,
+                urgent_denial=urgent_denial,
+                leader_emergency=leader_emergency,
+                controller_need=controller_need,
+                money_distress=float(survival_ctx.get("money_distress", 0.0)),
+                future_rescue_live=future_rescue_live,
+                marker_counter=float(marker_plan["best_score"]),
+                near_end=bool(denial_snapshot["near_end"]),
+                marker_owner_id=state.marker_owner_id,
+                player_id=player.player_id,
+                candidate_names=tuple(candidate_names),
+                marker_names=frozenset(marker_names),
+                rescue_names=frozenset(rescue_names),
+                direct_denial_names=frozenset(name for name in candidate_names if is_direct_denial_character(name)),
+            )
+        )
+
+    def _visible_burden_count(self, viewer: PlayerState, target: PlayerState) -> int:
+        return count_burden_cards(self._visible_tricks(viewer, target))
+
+    def choose_specific_trick_reward(self, state: GameState, player: PlayerState, choices: list[TrickCard]) -> TrickCard | None:
+        raise NotImplementedError("legacy body removed; live path delegates later")
+        if not choices:
+            return None
+        survival_ctx = self._generic_survival_context(state, player, player.current_character)
+
+        def score(card: TrickCard) -> float:
+            if card.is_burden:
+                return -10.0
+            immediate_cost = self._predict_trick_cash_cost(card)
+            if immediate_cost > 0.0 and not self._is_action_survivable(state, player, immediate_cost=immediate_cost, survival_ctx=survival_ctx, buffer=0.5):
+                return -999.0
+            base = {"臾대즺 利앹젙": 4.0, "?곕?沅?": 3.4, "?깅Ъ ?섏쭛媛": 3.0, "嫄닿컯 寃吏?": 2.5, "洹밸룄???먯뒯???먯삤??": 2.0}.get(card.name, 1.0)
+            return base + self._trick_survival_adjustment(state, player, card, survival_ctx)
+
+        choice_run = resolve_trick_reward_choice_run(
+            choices=choices,
+            scorer=score,
+            generic_survival_score=survival_ctx["generic_survival_score"],
+            survival_urgency=survival_ctx["survival_urgency"],
+        )
+        self._set_debug("trick_reward", player.player_id, choice_run.debug_payload)
+        return choice_run.choice
+
+    def choose_purchase_tile(self, state: GameState, player: PlayerState, pos: int, cell: CellKind, cost: int, *, source: str = "landing") -> bool:
+        return choose_purchase_tile_runtime(self, state, player, pos, cell, cost, source=source)
+
+    def choose_lap_reward(self, state: GameState, player: PlayerState) -> LapRewardDecision:
+        return choose_lap_reward_runtime(self, state, player)
+
+    def choose_trick_to_use(self, state: GameState, player: PlayerState, hand: list[TrickCard]) -> TrickCard | None:
+        return choose_trick_to_use_runtime(self, state, player, hand)
+
+    def choose_specific_trick_reward(self, state: GameState, player: PlayerState, choices: list[TrickCard]) -> TrickCard | None:
+        return choose_specific_trick_reward_runtime(self, state, player, choices)
+
+    def choose_hidden_trick_card(self, state: GameState, player: PlayerState, hand: list[TrickCard]) -> TrickCard | None:
+        return choose_hidden_trick_card_runtime(self, state, player, hand)
+
+    def choose_mark_target(self, state: GameState, player: PlayerState, actor_name: str) -> Optional[str]:
+        return choose_mark_target_runtime(self, state, player, actor_name)
+
+    def choose_coin_placement_tile(self, state: GameState, player: PlayerState) -> Optional[int]:
+        return choose_coin_placement_tile_runtime(self, state, player)
+
+    def choose_active_flip_card(self, state: GameState, player: PlayerState, flippable_cards: list[int]) -> Optional[int]:
+        return choose_active_flip_card_runtime(self, state, player, flippable_cards)
+
+    def choose_burden_exchange_on_supply(self, state: GameState, player: PlayerState, card: TrickCard) -> bool:
+        return choose_burden_exchange_on_supply_runtime(self, state, player, card)
+
+    def choose_doctrine_relief_target(self, state: GameState, player: PlayerState, candidates: list[PlayerState]) -> Optional[int]:
+        return choose_doctrine_relief_target_runtime(self, state, player, candidates)
+
+    def choose_movement(self, state: GameState, player: PlayerState) -> MovementDecision:
+        return choose_movement_runtime(self, state, player)
+
+    def choose_draft_card(self, state: GameState, player: PlayerState, offered_cards: list[int]) -> int:
+        return choose_draft_card_runtime(self, state, player, offered_cards)
+
+    def choose_final_character(self, state: GameState, player: PlayerState, card_choices: list[int]) -> str:
+        return choose_final_character_runtime(self, state, player, card_choices)
+
+    def choose_geo_bonus(self, state: GameState, player: PlayerState, actor_name: str) -> str:
+        return choose_geo_bonus_runtime(self, state, player, actor_name)
+
+    def _character_score_breakdown(self, state: GameState, player: PlayerState, character_name: str) -> tuple[float, list[str]]:
+        return score_character_v1(self, state, player, character_name)
+
+    def _character_score_breakdown_v2(self, state: GameState, player: PlayerState, character_name: str) -> tuple[float, list[str]]:
+        return score_character_v2(self, state, player, character_name)
+
+    def _target_score_breakdown(self, state: GameState, player: PlayerState, actor_name: str, target: PlayerState) -> tuple[float, list[str]]:
+        return score_target_v1(self, state, player, actor_name, target)
+
+    def _target_score_breakdown_v2(self, state: GameState, player: PlayerState, actor_name: str, target: PlayerState) -> tuple[float, list[str]]:
+        return score_target_v2(self, state, player, actor_name, target)
 
 class ArenaPolicy:
     """Routes decisions to per-player HeuristicPolicy instances for mixed-policy arena tests."""
@@ -4429,14 +5114,16 @@ class ArenaPolicy:
         src_modes = dict(player_character_policy_modes or {})
         if not src_modes:
             src_modes = {i + 1: mode for i, mode in enumerate(self.DEFAULT_LINEUP)}
-        self.player_character_policy_modes = {int(pid): mode for pid, mode in src_modes.items()}
-        self.player_lap_policy_modes = {int(pid): mode for pid, mode in dict(player_lap_policy_modes or {}).items()}
-        for pid, mode in self.player_character_policy_modes.items():
+        self.player_character_policy_modes = {}
+        for pid, mode in src_modes.items():
             if mode not in HeuristicPolicy.VALID_CHARACTER_POLICIES or mode == "arena":
                 raise ValueError(f"Unsupported arena character policy for player {pid}: {mode}")
-        for pid, mode in self.player_lap_policy_modes.items():
+            self.player_character_policy_modes[int(pid)] = HeuristicPolicy.canonical_character_policy_mode(mode)
+        self.player_lap_policy_modes = {}
+        for pid, mode in dict(player_lap_policy_modes or {}).items():
             if mode not in HeuristicPolicy.VALID_LAP_POLICIES:
                 raise ValueError(f"Unsupported arena lap policy for player {pid}: {mode}")
+            self.player_lap_policy_modes[int(pid)] = HeuristicPolicy.canonical_lap_policy_mode(mode)
         self.rng = rng
         self._policies: dict[int, HeuristicPolicy] = {}
         for pid in range(1, 5):

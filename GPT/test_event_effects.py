@@ -3,6 +3,7 @@ import unittest
 from config import DEFAULT_CONFIG, CellKind
 from engine import GameEngine
 from ai_policy import BasePolicy, MovementDecision, LapRewardDecision
+from fortune_cards import FortuneCard
 from state import GameState
 
 
@@ -154,12 +155,36 @@ class EventEffectIntegrationTests(unittest.TestCase):
 
 
     def test_fortune_card_apply_can_be_overridden(self):
-        from fortune_cards import FortuneCard
         card = FortuneCard(deck_index=1, name='성과금', effect='x')
         self.engine.events.clear('fortune.card.apply')
         self.engine.events.register('fortune.card.apply', lambda state, player, card: {'type': 'CUSTOM_FORTUNE', 'name': card.name})
         result = self.engine._apply_fortune_card(self.state, self.player, card)
         self.assertEqual(result['type'], 'CUSTOM_FORTUNE')
+
+    def test_good_thing_fortune_always_gives_other_players_four_cash(self):
+        actor = self.state.players[0]
+        actor.current_character = "산적"
+        actor.cash = 20
+        self.state.players[1].cash = 5
+        self.state.players[1].current_character = "객주"
+        self.state.players[2].cash = 7
+        self.state.players[2].current_character = "교리 감독관"
+        self.state.players[3].cash = 9
+        self.state.players[3].current_character = "박수"
+
+        result = self.engine._apply_fortune_card_impl(
+            self.state,
+            actor,
+            FortuneCard(deck_index=999, name="남 좋은 일", effect="[효과] 당신을 제외하고 모두 4냥 받습니다"),
+        )
+
+        self.assertEqual(result["type"], "OTHERS_GAIN")
+        self.assertEqual(result["amount"], 4)
+        self.assertEqual(result["affected_players"], 3)
+        self.assertEqual(actor.cash, 20)
+        self.assertEqual(self.state.players[1].cash, 9)
+        self.assertEqual(self.state.players[2].cash, 11)
+        self.assertEqual(self.state.players[3].cash, 13)
 
     def test_fortune_movement_can_be_overridden(self):
         self.engine.events.clear('fortune.movement.resolve')

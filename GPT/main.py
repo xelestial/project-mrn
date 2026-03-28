@@ -6,10 +6,10 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from statistics import mean, median
 
-from ai_policy import HeuristicPolicy
 from config import DEFAULT_CONFIG, GameConfig
 from engine import GameEngine
 from metadata import GAME_VERSION
+from policy.factory import PolicyFactory
 from stats_utils import compute_basic_stats_from_games
 from text_encoding import configure_utf8_io
 
@@ -85,7 +85,10 @@ def summarize(results, policy_mode: str):
 
 def run_batch(simulations: int = 1000, seed: int = 42, config: GameConfig | None = None, policy_mode: str = "heuristic_v3_gpt"):
     rng = random.Random(seed)
-    policy = HeuristicPolicy(character_policy_mode=policy_mode, lap_policy_mode="heuristic_v3_gpt")
+    policy = PolicyFactory.create_runtime_policy(
+        policy_mode=policy_mode,
+        lap_policy_mode="heuristic_v3_gpt",
+    )
     runtime_config = config if config is not None else DEFAULT_CONFIG
     results = []
     for _ in range(simulations):
@@ -95,7 +98,10 @@ def run_batch(simulations: int = 1000, seed: int = 42, config: GameConfig | None
 
 
 def run_single_logged(seed: int = 42, config: GameConfig | None = None, policy_mode: str = "heuristic_v3_gpt"):
-    policy = HeuristicPolicy(character_policy_mode=policy_mode, lap_policy_mode="heuristic_v3_gpt")
+    policy = PolicyFactory.create_runtime_policy(
+        policy_mode=policy_mode,
+        lap_policy_mode="heuristic_v3_gpt",
+    )
     runtime_config = config if config is not None else DEFAULT_CONFIG
     engine = GameEngine(config=runtime_config, policy=policy, rng=random.Random(seed), enable_logging=True)
     return engine.run()

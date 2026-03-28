@@ -16,8 +16,9 @@ from board_layout_creator import load_board_config
 from config import DEFAULT_CONFIG
 from doc_integrity import summarize_integrity
 from engine import GameEngine
-from metadata import GAME_VERSION
 from game_rules_loader import load_ruleset
+from metadata import GAME_VERSION
+from policy.factory import PolicyFactory
 from stats_utils import compute_basic_stats_from_games
 from text_encoding import configure_utf8_io
 
@@ -424,9 +425,12 @@ def run(
             player_character_policy_modes = {1: "heuristic_v3_gpt", 2: "heuristic_v2_token_opt", 3: "heuristic_v2_control", 4: "heuristic_v2_balanced"}
         if not player_lap_policy_modes:
             player_lap_policy_modes = dict(player_character_policy_modes)
-        policy = ArenaPolicy(player_character_policy_modes=player_character_policy_modes, player_lap_policy_modes=player_lap_policy_modes)
-    else:
-        policy = HeuristicPolicy(character_policy_mode=policy_mode, lap_policy_mode=lap_policy_mode, player_lap_policy_modes=player_lap_policy_modes)
+    policy = PolicyFactory.create_runtime_policy(
+        policy_mode=policy_mode,
+        lap_policy_mode=lap_policy_mode,
+        player_lap_policy_modes=player_lap_policy_modes,
+        player_character_policy_modes=player_character_policy_modes,
+    )
     outer_rng = random.Random(seed)
     running = RunningSummary(
         policy_mode=policy_mode,
