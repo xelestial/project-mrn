@@ -23,7 +23,7 @@ from policy.decision.character_choice import (
 )
 from policy.decision.mark_target import filter_public_mark_candidates, run_public_mark_choice
 from policy.decision.coin_placement import choose_coin_placement_tile_id
-from policy.decision.hidden_trick import resolve_hidden_trick_choice_run
+from policy.decision.hidden_trick import COMBO_PRIORITY_TRICKS, resolve_hidden_trick_choice_run
 from policy.decision.active_flip import resolve_random_active_flip_choice, resolve_scored_active_flip_choice
 from policy.decision.movement import apply_movement_intent_adjustment, resolve_movement_choice
 from policy.decision.purchase import (
@@ -990,6 +990,217 @@ def _build_movement_trace(*, resolution: Any, intent: Any, f_ctx: dict[str, Any]
     )
 
 
+def _build_trick_use_trace(
+    *,
+    hand: list[Any],
+    resolution: Any,
+    generic_survival_score: float,
+    survival_urgency: float,
+    strategic_mode: float,
+    intent: Any,
+) -> DecisionTrace:
+    detector_hits = []
+    score_map = dict(getattr(resolution, "score_map", {}) or {})
+    top_score = max(score_map.values(), default=0.0)
+    chosen = getattr(resolution, "choice", None)
+    if chosen is None:
+        detector_hits.append(
+            build_detector_hit(
+                "no_positive_trick_line",
+                kind="guard",
+                severity=0.72,
+                confidence=0.86,
+                reason="No trick card cleared the minimum value threshold, so the hand was preserved.",
+                tags=("trick_use", "card_preserve"),
+                score_delta=-max(0.0, float(top_score)),
+            )
+        )
+    else:
+        if survival_urgency >= 1.0:
+            detector_hits.append(
+                build_detector_hit(
+                    "emergency_trick_use",
+                    kind="advantage",
+                    severity=min(1.0, survival_urgency / 2.0),
+                    confidence=0.82,
+                    reason="The chosen trick was committed in a high-survival-urgency spot.",
+                    tags=("trick_use", "survival", chosen.name),
+                    score_delta=max(0.0, float(score_map.get(chosen.name, 0.0))),
+                )
+            )
+        if strategic_mode >= 1.0:
+            detector_hits.append(
+                build_detector_hit(
+                    "decisive_trick_window",
+                    kind="advantage",
+                    severity=min(1.0, strategic_mode / 2.0),
+                    confidence=0.78,
+                    reason="The chosen trick aligned with a decisive tactical window.",
+                    tags=("trick_use", "tempo", chosen.name),
+                    score_delta=max(0.0, float(score_map.get(chosen.name, 0.0))),
+                )
+            )
+        if bool(getattr(chosen, "is_anytime", False)):
+            detector_hits.append(
+                build_detector_hit(
+                    "spent_anytime_trick",
+                    kind="preference",
+                    severity=0.45,
+                    confidence=0.72,
+                    reason="An anytime trick was spent now instead of being held for a later reaction window.",
+                    tags=("trick_use", "anytime", chosen.name),
+                )
+            )
+    return DecisionTrace(
+        decision_type="trick_use",
+        features={
+            "hand": [getattr(card, "name", str(card)) for card in hand],
+            "score_map": score_map,
+            "generic_survival_score": generic_survival_score,
+            "survival_urgency": survival_urgency,
+            "strategic_mode": strategic_mode,
+            "intent": None if intent is None else getattr(intent, "resource_intent", None),
+        },
+        detector_hits=tuple(detector_hits),
+        effect_adjustments=(
+            {"kind": "top_score", "value": round(float(top_score), 3)},
+        ),
+        final_choice=None if chosen is None else {"name": chosen.name, "is_anytime": bool(getattr(chosen, "is_anytime", False))},
+    )
+
+
+def _build_hidden_trick_trace(*, actor_name: str | None, hand: list[Any], choice: Any, score_map: dict[str, float]) -> DecisionTrace:
+    detector_hits = []
+    if choice is None:
+        detector_hits.append(
+            build_detector_hit(
+                "no_hidden_trick_choice",
+                kind="hard_veto",
+                severity=1.0,
+                confidence=1.0,
+                reason="No trick card was available to hide.",
+                tags=("hidden_trick",),
+            )
+        )
+    else:
+        if bool(getattr(choice, "is_burden", False)):
+            detector_hits.append(
+                build_detector_hit(
+                    "hide_burden_first",
+                    kind="advantage",
+                    severity=0.9,
+                    confidence=0.9,
+                    reason="A burden card was hidden first to reduce exposed downside.",
+                    tags=("hidden_trick", "burden", choice.name),
+                    score_delta=float(getattr(choice, "burden_cost", 0.0)),
+                )
+            )
+        if getattr(choice, "name", "") in COMBO_PRIORITY_TRICKS:
+            detector_hits.append(
+                build_detector_hit(
+                    "hide_combo_piece",
+                    kind="preference",
+                    severity=0.68,
+                    confidence=0.76,
+                    reason="A combo-priority trick was hidden to preserve future sequencing value.",
+                    tags=("hidden_trick", "combo", choice.name),
+                    score_delta=float(score_map.get(choice.name, 0.0)),
+                )
+            )
+        if bool(getattr(choice, "is_anytime", False)):
+            detector_hits.append(
+                build_detector_hit(
+                    "hide_anytime_flex",
+                    kind="preference",
+                    severity=0.42,
+                    confidence=0.7,
+                    reason="An anytime trick was hidden to preserve flexible reaction timing.",
+                    tags=("hidden_trick", "anytime", choice.name),
+                )
+            )
+    return DecisionTrace(
+        decision_type="hidden_trick",
+        features={
+            "actor_name": actor_name,
+            "hand": [
+                {
+                    "name": getattr(card, "name", str(card)),
+                    "is_burden": bool(getattr(card, "is_burden", False)),
+                    "burden_cost": int(getattr(card, "burden_cost", 0) or 0),
+                    "is_anytime": bool(getattr(card, "is_anytime", False)),
+                }
+                for card in hand
+            ],
+            "score_map": dict(score_map),
+        },
+        detector_hits=tuple(detector_hits),
+        effect_adjustments=(),
+        final_choice=None if choice is None else {"name": choice.name},
+    )
+
+
+def _build_trick_reward_trace(
+    *,
+    choices: list[Any],
+    choice_run: Any,
+    generic_survival_score: float,
+    survival_urgency: float,
+) -> DecisionTrace:
+    detector_hits = []
+    chosen = getattr(choice_run, "choice", None)
+    score_map = dict((choice_run.debug_payload or {}).get("scores", {}) or {})
+    top_score = max(score_map.values(), default=0.0)
+    if chosen is not None:
+        if any(bool(getattr(card, "is_burden", False)) for card in choices) and not bool(getattr(chosen, "is_burden", False)):
+            detector_hits.append(
+                build_detector_hit(
+                    "avoid_reward_burden",
+                    kind="guard",
+                    severity=0.82,
+                    confidence=0.86,
+                    reason="The reward picker avoided taking a burden card when a safer trick reward existed.",
+                    tags=("trick_reward", chosen.name),
+                )
+            )
+        if top_score >= 3.0:
+            detector_hits.append(
+                build_detector_hit(
+                    "high_value_trick_reward",
+                    kind="advantage",
+                    severity=min(1.0, float(top_score) / 4.0),
+                    confidence=0.8,
+                    reason="The chosen reward came from a clearly strong trick reward slot.",
+                    tags=("trick_reward", chosen.name),
+                    score_delta=float(score_map.get(chosen.name, 0.0)),
+                )
+            )
+        if survival_urgency >= 1.0:
+            detector_hits.append(
+                build_detector_hit(
+                    "survival_safe_reward_pick",
+                    kind="preference",
+                    severity=min(1.0, survival_urgency / 2.0),
+                    confidence=0.75,
+                    reason="Reward choice was evaluated under elevated survival pressure.",
+                    tags=("trick_reward", chosen.name),
+                )
+            )
+    return DecisionTrace(
+        decision_type="trick_reward",
+        features={
+            "choices": [getattr(card, "name", str(card)) for card in choices],
+            "score_map": score_map,
+            "generic_survival_score": generic_survival_score,
+            "survival_urgency": survival_urgency,
+        },
+        detector_hits=tuple(detector_hits),
+        effect_adjustments=(
+            {"kind": "top_score", "value": round(float(top_score), 3)},
+        ),
+        final_choice=None if chosen is None else {"name": chosen.name},
+    )
+
+
 def choose_movement_runtime(policy: Any, state: Any, player: Any):
     from ai_policy import MovementDecision
 
@@ -1227,12 +1438,22 @@ def choose_trick_to_use_runtime(policy: Any, state: Any, player: Any, hand: list
     policy._set_debug(
         "trick_use",
         player.player_id,
-        build_trick_use_debug_payload(
-            score_map=resolution.score_map,
-            chosen_name=None if resolution.choice is None else resolution.choice.name,
-            generic_survival_score=survival_ctx["generic_survival_score"],
-            survival_urgency=survival_ctx["survival_urgency"],
-            strategic_mode=decisive_ctx["strategic_mode"],
+        _payload_with_trace(
+            build_trick_use_debug_payload(
+                score_map=resolution.score_map,
+                chosen_name=None if resolution.choice is None else resolution.choice.name,
+                generic_survival_score=survival_ctx["generic_survival_score"],
+                survival_urgency=survival_ctx["survival_urgency"],
+                strategic_mode=decisive_ctx["strategic_mode"],
+            ),
+            _build_trick_use_trace(
+                hand=list(hand),
+                resolution=resolution,
+                generic_survival_score=float(survival_ctx["generic_survival_score"]),
+                survival_urgency=float(survival_ctx["survival_urgency"]),
+                strategic_mode=float(decisive_ctx["strategic_mode"]),
+                intent=intent,
+            ),
         ),
     )
     return resolution.choice
@@ -1279,7 +1500,19 @@ def choose_mark_target_runtime(policy: Any, state: Any, player: Any, actor_name:
 
 def choose_hidden_trick_card_runtime(policy: Any, state: Any, player: Any, hand: list[Any]) -> Any:
     choice_run = resolve_hidden_trick_choice_run(hand, actor_name=player.current_character)
-    policy._set_debug("hide_trick", player.player_id, choice_run.debug_payload)
+    policy._set_debug(
+        "hide_trick",
+        player.player_id,
+        _payload_with_trace(
+            choice_run.debug_payload,
+            _build_hidden_trick_trace(
+                actor_name=player.current_character,
+                hand=list(hand),
+                choice=choice_run.choice,
+                score_map=dict(choice_run.debug_payload.get("scores", {})),
+            ),
+        ),
+    )
     return choice_run.choice
 
 
@@ -1534,7 +1767,19 @@ def choose_specific_trick_reward_runtime(policy: Any, state: Any, player: Any, c
         generic_survival_score=survival_ctx["generic_survival_score"],
         survival_urgency=survival_ctx["survival_urgency"],
     )
-    policy._set_debug("trick_reward", player.player_id, choice_run.debug_payload)
+    policy._set_debug(
+        "trick_reward",
+        player.player_id,
+        _payload_with_trace(
+            choice_run.debug_payload,
+            _build_trick_reward_trace(
+                choices=list(choices),
+                choice_run=choice_run,
+                generic_survival_score=float(survival_ctx["generic_survival_score"]),
+                survival_urgency=float(survival_ctx["survival_urgency"]),
+            ),
+        ),
+    )
     return choice_run.choice
 
 

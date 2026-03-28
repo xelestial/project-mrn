@@ -314,6 +314,16 @@ class GameEngine:
         chosen = None
         if hasattr(self.policy, "choose_hidden_trick_card"):
             chosen = self.policy.choose_hidden_trick_card(state, player, list(player.trick_hand))
+            hidden_debug = self.policy.pop_debug("hide_trick", player.player_id) if hasattr(self.policy, "pop_debug") else None
+            if hidden_debug is not None:
+                self._record_ai_decision(
+                    state,
+                    player,
+                    "hidden_trick",
+                    hidden_debug,
+                    result=None if chosen is None else {"deck_index": chosen.deck_index, "name": chosen.name},
+                    source_event="hide_trick",
+                )
         if chosen is not None and any(c.deck_index == chosen.deck_index for c in player.trick_hand):
             player.hidden_trick_deck_index = chosen.deck_index
             return

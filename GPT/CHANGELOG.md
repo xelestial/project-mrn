@@ -339,6 +339,7 @@ Current release aligned the simulator with the latest validated rules and added 
 - AI log analysis: added `analyze_ai_decisions.py` to summarize detector hits, final choices, and decision-family frequencies from `ai_decisions.jsonl`.
 - AI trace polish: movement traces now expose `best_single_card`, `best_double_card`, `hold_cards_default`, and `single_card_tempo_pick` so no-card turns are still explainable.
 - AI purchase tuning: `v3_gpt` now lets safe growth buys override small token-window waits, and logs the override as `safe_growth_beats_token_wait`.
+- AI trace coverage: `trick_use`, `hide_trick`, and `trick_reward` now emit canonical `DecisionTrace` payloads, so trick-family choices are included in offline decision-log analysis.
 
 ## 0.7.59
 - Added external JSON ruleset loading (`ruleset.json`) for injected `GameRules`.

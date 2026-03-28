@@ -3586,3 +3586,47 @@ def test_choose_hidden_trick_card_uses_helper_resolution_in_live_policy() -> Non
     assert debug is not None
     assert debug["chosen"] == "burden"
     assert debug["scores"]["burden"] > debug["scores"]["plain"]
+    assert debug["trace"]["decision_type"] == "hidden_trick"
+    detector_keys = [hit["key"] for hit in debug["trace"]["detector_hits"]]
+    assert "hide_burden_first" in detector_keys
+
+
+def test_choose_trick_to_use_runtime_records_pipeline_trace() -> None:
+    policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt")
+    state = GameState.create(GameConfig())
+    player = state.players[0]
+    player.current_character = CARD_TO_NAMES[7][0]
+    hand = [
+        TrickCard(deck_index=1, name="plain_a", description=""),
+        TrickCard(deck_index=2, name="plain_b", description=""),
+    ]
+
+    chosen = choose_trick_to_use_runtime(policy, state, player, hand)
+    debug = policy.pop_debug("trick_use", player.player_id)
+
+    assert chosen is None
+    assert debug is not None
+    assert debug["trace"]["decision_type"] == "trick_use"
+    detector_keys = [hit["key"] for hit in debug["trace"]["detector_hits"]]
+    assert "no_positive_trick_line" in detector_keys
+
+
+def test_choose_specific_trick_reward_runtime_records_pipeline_trace() -> None:
+    policy = HeuristicPolicy(character_policy_mode="heuristic_v3_gpt")
+    state = GameState.create(GameConfig())
+    player = state.players[0]
+    player.current_character = CARD_TO_NAMES[7][0]
+    choices = [
+        TrickCard(deck_index=1, name="plain_reward", description=""),
+        TrickCard(deck_index=2, name="가벼운 짐", description=""),
+    ]
+
+    chosen = choose_specific_trick_reward_runtime(policy, state, player, choices)
+    debug = policy.pop_debug("trick_reward", player.player_id)
+
+    assert chosen is not None
+    assert chosen.name == "plain_reward"
+    assert debug is not None
+    assert debug["trace"]["decision_type"] == "trick_reward"
+    detector_keys = [hit["key"] for hit in debug["trace"]["detector_hits"]]
+    assert "avoid_reward_burden" in detector_keys

@@ -19,6 +19,9 @@ Role: `canonical plan for rewriting GPT AI decisions into reusable node/pipeline
   - coin placement runtime
   - active flip runtime
   - burden exchange runtime
+  - trick-use runtime
+  - hidden-trick selection runtime
+  - trick reward runtime
 - reattached movement intent adjustment to the modular runtime path so card-preserve / lap-engine bias is no longer lost after bridge delegation
 - added regression coverage for:
   - purchase trace embedding
@@ -36,12 +39,12 @@ Role: `canonical plan for rewriting GPT AI decisions into reusable node/pipeline
 - purchase traces now emit `safe_growth_beats_token_wait` when `v3_gpt` deliberately buys a safe growth tile instead of over-waiting for a modest score-coin window
 
 ### Still Pending
-- trick-family pipeline work after the manual trick audit
 - optional node-graph visualization layer over the new trace substrate
 
-### First-Pass Completion Note
-- the original first-pass scope is now complete for all non-trick decision families listed below
-- remaining work is intentionally limited to the trick family and optional visualization / introspection layers
+### Completion Note
+- the original first-pass non-trick scope is complete
+- the follow-through trick-family scope is now also traced through the same substrate
+- remaining work is intentionally limited to optional visualization / introspection layers
 
 ## Goal
 Rewrite the existing GPT AI decision logic into a pipeline-oriented structure that is:
@@ -51,7 +54,7 @@ Rewrite the existing GPT AI decision logic into a pipeline-oriented structure th
 - reusable across live play and replay analysis
 - compatible with future visual node-style debugging
 
-This plan covers all major AI decisions, but the first implementation pass explicitly excludes `잔꾀` decision pipelines.
+This plan now covers all major GPT AI runtime decisions exposed through the current policy bridge.
 
 ## Scope Freeze
 
@@ -68,16 +71,11 @@ This plan covers all major AI decisions, but the first implementation pass expli
 - active flip choice
 - burden exchange choice
 
-### Explicitly Excluded From First Implementation
-- trick-use decision pipeline
-- hidden trick choice pipeline
-- trick reward choice pipeline
-- anytime trick prompt/window pipeline
-
-Reason:
-- trick cards should be manually audited first
-- the current trick system mixes deck data, timing rules, held-anytime behavior, and per-card runtime effects
-- freezing a pipeline design before that audit would lock in unclear assumptions
+### Trick-Family Follow-Through
+- trick-use decision pipeline is now traced
+- hidden trick choice pipeline is now traced
+- trick reward choice pipeline is now traced
+- anytime trick timing remains a separate runtime/prompt concern, but its choice outputs now land in the common trace schema
 
 ## Why A Pipeline Rewrite Is Worth Doing
 The current runtime is already partly decomposed, but it is still hard to answer:
