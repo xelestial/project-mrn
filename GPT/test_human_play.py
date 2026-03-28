@@ -106,6 +106,8 @@ def test_play_html_renderer() -> list[str]:
         errors.append("play HTML missing HUMAN_SEAT constant")
     if "submitDecision" not in html:
         errors.append("play HTML missing submitDecision function")
+    if "request_type" not in html or "legal_choices" not in html or "public_context" not in html:
+        errors.append("play HTML missing canonical prompt-envelope fields")
     if "marker_owner_player_id" not in html:
         errors.append("play HTML missing canonical marker owner field")
     if "public_tricks" not in html:
@@ -202,15 +204,21 @@ def test_human_policy_prompt_and_response() -> list[str]:
         if policy.pending_prompt is None:
             errors.append("pending_prompt never set for human seat")
             # unblock
-            policy.submit_response({"option_id": "dice"})
+            policy.submit_response({"choice_id": "dice"})
             done.wait(timeout=3.0)
             return errors
 
-        if policy.pending_prompt.get("type") != "movement":
-            errors.append(f"Expected type=movement, got {policy.pending_prompt.get('type')}")
+        if policy.pending_prompt.get("request_type") != "movement":
+            errors.append(
+                f"Expected request_type=movement, got {policy.pending_prompt.get('request_type')}"
+            )
+        if "legal_choices" not in policy.pending_prompt:
+            errors.append("pending_prompt missing legal_choices")
+        if "public_context" not in policy.pending_prompt:
+            errors.append("pending_prompt missing public_context")
 
         # Submit response
-        ok = policy.submit_response({"option_id": "dice"})
+        ok = policy.submit_response({"choice_id": "dice"})
         if not ok:
             errors.append("submit_response returned False unexpectedly")
 
@@ -269,8 +277,12 @@ def test_human_policy_final_character_returns_name() -> list[str]:
         options = prompt.get("options", [])
         if [opt.get("label") for opt in options] != ["B", "C"]:
             errors.append(f"Unexpected final_character labels: {options}")
+        if prompt.get("request_type") != "final_character":
+            errors.append(f"Expected request_type=final_character, got {prompt.get('request_type')}")
+        if [opt.get("choice_id") for opt in prompt.get("legal_choices", [])] != ["1", "2"]:
+            errors.append(f"Unexpected legal_choices: {prompt.get('legal_choices')}")
 
-        ok = policy.submit_response({"option_id": "2"})
+        ok = policy.submit_response({"choice_id": "2"})
         if not ok:
             errors.append("submit_response returned False for final_character")
 
@@ -294,7 +306,7 @@ def test_prompt_endpoint_idle(port: int) -> list[str]:
     errors = []
     try:
         data = _get_json(f"http://127.0.0.1:{port}/prompt")
-        if data.get("type") is not None:
+        if data.get("request_type") is not None:
             # It's possible a decision prompt appeared; that's fine
             pass  # skip — game may have started quickly
     except Exception as e:
@@ -309,13 +321,13 @@ def test_decision_no_prompt(port: int) -> list[str]:
     time.sleep(0.3)
     try:
         data = _get_json(f"http://127.0.0.1:{port}/prompt")
-        if data.get("type") is not None:
+        if data.get("request_type") is not None:
             return []  # game has a prompt — skip this test
     except Exception:
         pass
 
     code, resp = _post_json(f"http://127.0.0.1:{port}/decision",
-                             {"option_id": "dice"})
+                             {"choice_id": "dice"})
     if code not in (409, 200):  # 200 is also ok if a prompt arrived just now
         errors.append(f"Expected 409 (no prompt), got {code}")
     return errors
@@ -392,10 +404,10 @@ def main() -> int:
                     f"http://127.0.0.1:{PORT}/prompt", timeout=2
                 )
                 data = json.loads(resp.read())
-                if data.get("type"):
-                    opts = data.get("options", [])
-                    opt_id = opts[0]["id"] if opts else "dice"
-                    _post_json(f"http://127.0.0.1:{PORT}/decision", {"option_id": opt_id})
+                if data.get("request_type"):
+                    opts = data.get("legal_choices", [])
+                    opt_id = opts[0]["choice_id"] if opts else "dice"
+                    _post_json(f"http://127.0.0.1:{PORT}/decision", {"choice_id": opt_id})
             except Exception:
                 pass
             time.sleep(0.05)

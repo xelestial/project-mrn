@@ -123,10 +123,10 @@ class HumanPlayServer(LiveGameServer):
             def _serve_prompt(self) -> None:
                 policy = server_ref._human_policy
                 if policy is None:
-                    payload = {"type": None}
+                    payload = {"request_type": None, "type": None}
                 else:
                     prompt = policy.pending_prompt
-                    payload = prompt if prompt is not None else {"type": None}
+                    payload = prompt if prompt is not None else {"request_type": None, "type": None}
                 body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")

@@ -9,8 +9,8 @@ Use it to answer:
 - which plans are reference-only
 - which plans are superseded and should no longer drive implementation
 
-This index was reviewed on `2026-03-28` against:
-- current branch `codex/GPT-MAIN`
+This index was reviewed on `2026-03-29` against:
+- current branch `main`
 - `main`
 - `CLAUDE-MAIN`
 - `GEMINI-MAIN`
@@ -49,6 +49,12 @@ Practical implications:
 - Notes:
   - this is the top-level plan to follow for replay and playable visualization
   - it is the main GPT-owned architecture/product plan for this topic
+  - implementation status on `main` is now:
+    - Phase 1: baseline complete
+    - Phase 2: baseline complete
+    - Phase 3: baseline complete
+    - Phase 4: baseline complete for human-play runtime, but prompt-contract cleanup remains
+    - Phase 5: not complete; still the main forward UI track
 
 ### 2. Turn Advantage Analysis
 - File: `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md`
@@ -177,11 +183,19 @@ When deciding what to follow next:
 
 1. Use `PLAN/GPT_ONLINE_STYLE_REPLAY_VISUALIZATION_PLAN.md` for replay/playable game work.
 2. Use `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md` as the shared boundary baseline before parallel implementation.
-3. Use `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md` only for GPT-side analysis tooling.
-4. Use completed documents only as implementation history or rationale.
-5. Use `PLAN/VISUALIZATION_GAME_PLAN.md` as the lower-layer substrate reference for visual runtime work.
-6. Use `PLAN/[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md` as a technical-choice proposal, not as the active product plan.
-7. Use Claude documents as reference for shared contracts, not as the active GPT task list.
+3. Treat current GPT-owned follow-up as:
+   - prompt envelope normalization / cleanup
+   - replay renderer/projection alignment
+   - plan/status document maintenance
+4. Treat current CLAUDE-owned follow-up as:
+   - canonical public-state/event naming convergence
+   - validator refresh toward the shared contract
+   - substrate completeness review for Phase 5
+5. Use `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md` only for GPT-side analysis tooling.
+6. Use completed documents only as implementation history or rationale.
+7. Use `PLAN/VISUALIZATION_GAME_PLAN.md` as the lower-layer substrate reference for visual runtime work.
+8. Use `PLAN/[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md` as a technical-choice proposal, not as the active product plan.
+9. Use Claude documents as reference for shared contracts, not as the active GPT task list.
 
 ## Cleanup Decisions
 

@@ -9,6 +9,27 @@ Companion reference:
 - technical proposal reference: `PLAN/[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md`
 - branch reference: `CLAUDE-MAIN:PLAN/VISUALIZATION_GAME_PLAN.md`
 
+## Current Main Status Snapshot
+Reviewed on: `2026-03-29`
+
+This plan remains the canonical top-level plan, but `main` has moved materially past the original "replay-first" starting point.
+
+Current status on `main`:
+- Phase 1 visual substrate: baseline complete
+- Phase 2 offline replay viewer: baseline complete
+- Phase 3 live spectator: baseline complete
+- Phase 4 human-play baseline: baseline complete
+- Phase 5 full match UI: not complete
+
+Current GPT-owned follow-up:
+- normalize the prompt envelope to the shared contract
+- clean up replay renderer / projection compatibility
+- keep plan/status documents synchronized with actual `main`
+
+Current CLAUDE-owned follow-up:
+- converge validators and substrate naming on canonical shared-contract fields
+- confirm Phase 5 substrate completeness for renderer consumption
+
 ## Goal
 Turn the current CLI simulator into a visual game runtime that supports:
 
@@ -75,6 +96,11 @@ So this plan treats replay as Phase 1 of the playable visual runtime, not as an 
   - helper/wrapper refactor
   - evaluator refactor
   - runtime bridge refactor
+- `main`-branch visualization/runtime milestones already landed:
+  - replay projection + replay renderers
+  - live spectator HTTP loop
+  - browser-driven human-play baseline
+  - human-play crash/test/public-state blocker fixes
 
 ### What `/result` Can Do Today
 `/result` currently contains:
@@ -452,6 +478,8 @@ This plan must follow the project's architecture direction.
 ## Phase Plan
 
 ## Phase 1. Replay-Grade Structured Output
+Status on `main`: `BASELINE COMPLETE`
+
 Goal:
 - produce replay-quality structured logs and snapshots
 - exclude trick-system fidelity from the first pass
@@ -475,6 +503,8 @@ Success:
 - one game can be replayed as a public match screen without rereading raw JSON manually
 
 ## Phase 2. Offline Replay Viewer
+Status on `main`: `BASELINE COMPLETE`
+
 Goal:
 - replay completed games like a visual online match
 
@@ -488,6 +518,8 @@ Important:
 - offline replay does not require live networking
 
 ## Phase 3. Live Spectator Mode
+Status on `main`: `BASELINE COMPLETE`
+
 Goal:
 - observe a running simulation without refresh
 
@@ -500,6 +532,8 @@ Important:
 - use append-only event updates where possible
 
 ## Phase 4. Human Play Runtime
+Status on `main`: `BASELINE COMPLETE, FOLLOW-UP CLEANUP STILL ACTIVE`
+
 Goal:
 - attach a human player to one or more seats
 
@@ -518,8 +552,14 @@ Required work:
 
 Success:
 - a human can play one seat while AI controls the others
+- remaining work is no longer baseline viability, but contract cleanup:
+  - prompt envelope convergence
+  - documentation/status convergence
+  - replay/live contract alignment polishing
 
 ## Phase 5. Full Match UI
+Status on `main`: `NOT COMPLETE`
+
 Goal:
 - make it feel like a real playable game screen
 
@@ -561,15 +601,19 @@ Conclusion:
 - first implementation should deliberately skip trick support until trick rules are separately audited
 
 ## Recommended Starting Point
-Start here, in this exact order.
+Original start order has largely been completed on `main`.
 
-1. Define the shared event/projection schema
-2. Instrument replay-grade structured output from deterministic rerun
-3. Build one offline HTML replay for a single suspicious game
-4. Confirm the UI can show all public information listed above
-5. Add prompt objects and human decision adapter
-6. Upgrade the same renderer into live spectator mode
-7. Enable actual human-vs-AI play
+Use this as the current next-step order:
+
+1. Normalize GPT prompt envelopes to the shared contract
+2. Refresh plan/status documents to reflect actual `main`
+3. Finish replay renderer/projection contract cleanup
+4. Refresh CLAUDE-side validator/substrate naming toward canonical contract fields
+5. Begin Phase 5 UI work:
+   - prompt-family-specific widgets
+   - richer board presentation
+   - movement/event animation
+   - full online-match style panel polish
 
 ## Minimum Schema To Implement First
 

@@ -20,6 +20,8 @@ import threading
 from itertools import combinations
 from typing import Any, Optional
 
+from viewer.prompt_contract import build_prompt_envelope, extract_choice_id
+
 # ---------------------------------------------------------------------------
 # Timeout for waiting on browser input (seconds)
 # ---------------------------------------------------------------------------
@@ -128,16 +130,31 @@ class HumanHttpPolicy:
                 "card_values": [a, b],
             })
 
-        prompt = {
-            "type": "movement",
-            "player_id": player.player_id + 1,
-            "options": options,
-            "player_cash": player.cash,
-            "player_position": player.position,
-        }
+        legal_choices = [
+            {
+                "choice_id": opt["id"],
+                "label": opt["label"],
+                "value": {
+                    "use_cards": opt["use_cards"],
+                    "card_values": list(opt["card_values"]),
+                },
+            }
+            for opt in options
+        ]
+        prompt = build_prompt_envelope(
+            request_type="movement",
+            player_id=player.player_id + 1,
+            legal_choices=legal_choices,
+            public_context={
+                "player_cash": player.cash,
+                "player_position": player.position,
+            },
+            can_pass=False,
+            timeout_ms=int(TIMEOUT_S * 1000),
+        )
 
         def _parse(r: dict):
-            sel = r.get("option_id", "dice")
+            sel = extract_choice_id(r, "dice")
             for opt in options:
                 if opt["id"] == sel:
                     return MovementDecision(
@@ -189,16 +206,33 @@ class HumanHttpPolicy:
         if not options:
             return LapRewardDecision(choice="blocked")
 
-        prompt = {
-            "type": "lap_reward",
-            "player_id": player.player_id + 1,
-            "options": options,
-            "budget": budget,
-            "pools": {"cash": cash_pool, "shards": shards_pool, "coins": coins_pool},
-        }
+        legal_choices = [
+            {
+                "choice_id": opt["id"],
+                "label": opt["label"],
+                "value": {
+                    "choice": opt["choice"],
+                    "cash_units": opt["cash_units"],
+                    "shard_units": opt["shard_units"],
+                    "coin_units": opt["coin_units"],
+                },
+            }
+            for opt in options
+        ]
+        prompt = build_prompt_envelope(
+            request_type="lap_reward",
+            player_id=player.player_id + 1,
+            legal_choices=legal_choices,
+            public_context={
+                "budget": budget,
+                "pools": {"cash": cash_pool, "shards": shards_pool, "coins": coins_pool},
+            },
+            can_pass=False,
+            timeout_ms=int(TIMEOUT_S * 1000),
+        )
 
         def _parse(r: dict):
-            sel = r.get("option_id", options[0]["id"])
+            sel = extract_choice_id(r, options[0]["id"])
             for opt in options:
                 if opt["id"] == sel:
                     return LapRewardDecision(
@@ -229,14 +263,22 @@ class HumanHttpPolicy:
                 "card_index": card_index,
             })
 
-        prompt = {
-            "type": "draft_card",
-            "player_id": player.player_id + 1,
-            "options": options,
-        }
+        prompt = build_prompt_envelope(
+            request_type="draft_card",
+            player_id=player.player_id + 1,
+            legal_choices=[
+                {
+                    "choice_id": opt["id"],
+                    "label": opt["label"],
+                    "value": {"card_index": opt["card_index"]},
+                }
+                for opt in options
+            ],
+            timeout_ms=int(TIMEOUT_S * 1000),
+        )
 
         def _parse(r: dict):
-            sel = r.get("option_id")
+            sel = extract_choice_id(r)
             if sel is not None:
                 for opt in options:
                     if opt["id"] == sel:
@@ -263,14 +305,25 @@ class HumanHttpPolicy:
                 "character_name": char_name,
             })
 
-        prompt = {
-            "type": "final_character",
-            "player_id": player.player_id + 1,
-            "options": options,
-        }
+        prompt = build_prompt_envelope(
+            request_type="final_character",
+            player_id=player.player_id + 1,
+            legal_choices=[
+                {
+                    "choice_id": opt["id"],
+                    "label": opt["label"],
+                    "value": {
+                        "card_index": opt["card_index"],
+                        "character_name": opt["character_name"],
+                    },
+                }
+                for opt in options
+            ],
+            timeout_ms=int(TIMEOUT_S * 1000),
+        )
 
         def _parse(r: dict):
-            sel = r.get("option_id")
+            sel = extract_choice_id(r)
             if sel is not None:
                 for opt in options:
                     if opt["id"] == str(sel):
@@ -295,14 +348,23 @@ class HumanHttpPolicy:
                 "deck_index": card.deck_index,
             })
 
-        prompt = {
-            "type": "trick_to_use",
-            "player_id": player.player_id + 1,
-            "options": options,
-        }
+        prompt = build_prompt_envelope(
+            request_type="trick_to_use",
+            player_id=player.player_id + 1,
+            legal_choices=[
+                {
+                    "choice_id": opt["id"],
+                    "label": opt["label"],
+                    "value": {"deck_index": opt["deck_index"]},
+                }
+                for opt in options
+            ],
+            can_pass=True,
+            timeout_ms=int(TIMEOUT_S * 1000),
+        )
 
         def _parse(r: dict):
-            sel = r.get("option_id", "none")
+            sel = extract_choice_id(r, "none")
             if sel == "none":
                 return None
             for card in hand:
@@ -323,22 +385,26 @@ class HumanHttpPolicy:
             return self._ai.choose_purchase_tile(state, player, pos, cell, cost, source=source)
 
         tile = state.tiles[pos]
-        prompt = {
-            "type": "purchase_tile",
-            "player_id": player.player_id + 1,
-            "options": [
-                {"id": "yes", "label": f"Buy tile {pos} (cost {cost})", "value": True},
-                {"id": "no",  "label": "Skip purchase", "value": False},
+        prompt = build_prompt_envelope(
+            request_type="purchase_tile",
+            player_id=player.player_id + 1,
+            legal_choices=[
+                {"choice_id": "yes", "label": f"Buy tile {pos} (cost {cost})", "value": True},
+                {"choice_id": "no", "label": "Skip purchase", "value": False},
             ],
-            "tile_index": pos,
-            "tile_zone": tile.zone_color,
-            "cost": cost,
-            "player_cash": player.cash,
-            "source": source,
-        }
+            public_context={
+                "tile_index": pos,
+                "tile_zone": tile.zone_color,
+                "cost": cost,
+                "player_cash": player.cash,
+                "source": source,
+            },
+            can_pass=True,
+            timeout_ms=int(TIMEOUT_S * 1000),
+        )
 
         def _parse(r: dict):
-            return r.get("option_id", "yes") == "yes"
+            return extract_choice_id(r, "yes") == "yes"
 
         return self._ask(prompt, _parse, lambda: self._ai.choose_purchase_tile(state, player, pos, cell, cost, source=source))
 
@@ -361,14 +427,23 @@ class HumanHttpPolicy:
                 "deck_index": card.deck_index,
             })
 
-        prompt = {
-            "type": "hidden_trick_card",
-            "player_id": player.player_id + 1,
-            "options": options,
-        }
+        prompt = build_prompt_envelope(
+            request_type="hidden_trick_card",
+            player_id=player.player_id + 1,
+            legal_choices=[
+                {
+                    "choice_id": opt["id"],
+                    "label": opt["label"],
+                    "value": {"deck_index": opt["deck_index"]},
+                }
+                for opt in options
+            ],
+            can_pass=True,
+            timeout_ms=int(TIMEOUT_S * 1000),
+        )
 
         def _parse(r: dict):
-            sel = r.get("option_id", "none")
+            sel = extract_choice_id(r, "none")
             if sel == "none":
                 return None
             for card in hand:
@@ -391,15 +466,24 @@ class HumanHttpPolicy:
         for p in alive:
             options.append({"id": str(p.player_id), "label": f"Player {p.player_id}"})
 
-        prompt = {
-            "type": "mark_target",
-            "player_id": player.player_id + 1,
-            "actor_name": str(actor_name),
-            "options": options,
-        }
+        prompt = build_prompt_envelope(
+            request_type="mark_target",
+            player_id=player.player_id + 1,
+            legal_choices=[
+                {
+                    "choice_id": opt["id"],
+                    "label": opt["label"],
+                    "value": None if opt["id"] == "none" else {"target_player_id": int(opt["id"])},
+                }
+                for opt in options
+            ],
+            public_context={"actor_name": str(actor_name)},
+            can_pass=True,
+            timeout_ms=int(TIMEOUT_S * 1000),
+        )
 
         def _parse(r: dict):
-            sel = r.get("option_id", "none")
+            sel = extract_choice_id(r, "none")
             if sel == "none":
                 return None
             try:
@@ -426,14 +510,22 @@ class HumanHttpPolicy:
 
         options = [{"id": str(idx), "label": f"Tile {idx}", "tile_index": idx} for idx in owned]
 
-        prompt = {
-            "type": "coin_placement",
-            "player_id": player.player_id + 1,
-            "options": options,
-        }
+        prompt = build_prompt_envelope(
+            request_type="coin_placement",
+            player_id=player.player_id + 1,
+            legal_choices=[
+                {
+                    "choice_id": opt["id"],
+                    "label": opt["label"],
+                    "value": {"tile_index": opt["tile_index"]},
+                }
+                for opt in options
+            ],
+            timeout_ms=int(TIMEOUT_S * 1000),
+        )
 
         def _parse(r: dict):
-            sel = r.get("option_id")
+            sel = extract_choice_id(r)
             if sel is not None:
                 try:
                     return int(sel)

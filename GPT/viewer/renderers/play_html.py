@@ -408,9 +408,10 @@ async function pollPrompt() {{
   try {{
     const resp = await fetch("/prompt");
     const data = await resp.json();
-    if (data.type && !isDecisionVisible()) {{
+    const requestType = data.request_type || data.type;
+    if (requestType && !isDecisionVisible()) {{
       showDecision(data);
-    }} else if (!data.type && isDecisionVisible()) {{
+    }} else if (!requestType && isDecisionVisible()) {{
       hideDecision();
     }}
   }} catch (e) {{
@@ -425,14 +426,17 @@ function showDecision(prompt) {{
   const options = document.getElementById("dp-options");
   const badge = document.getElementById("decision-badge");
 
-  title.textContent = decisionTitle(prompt.type);
+  const requestType = prompt.request_type || prompt.type;
+  title.textContent = decisionTitle(requestType);
   sub.textContent = decisionSubtitle(prompt);
   options.innerHTML = "";
-  for (const opt of (prompt.options || [])) {{
+  const legalChoices = prompt.legal_choices || prompt.options || [];
+  for (const opt of legalChoices) {{
     const button = document.createElement("button");
     button.className = "dp-btn";
-    button.textContent = opt.label || String(opt.id);
-    button.onclick = () => submitDecision(opt.id, button, options);
+    const choiceId = opt.choice_id || opt.id;
+    button.textContent = opt.label || String(choiceId);
+    button.onclick = () => submitDecision(choiceId, button, options);
     options.appendChild(button);
   }}
 
@@ -463,7 +467,7 @@ async function submitDecision(optionId, clicked, container) {{
     const resp = await fetch("/decision", {{
       method: "POST",
       headers: {{ "Content-Type": "application/json" }},
-      body: JSON.stringify({{ option_id: optionId }}),
+      body: JSON.stringify({{ choice_id: optionId }}),
     }});
     if (resp.ok) {{
       setTimeout(hideDecision, 180);
@@ -493,18 +497,20 @@ function decisionTitle(type) {{
 }}
 
 function decisionSubtitle(prompt) {{
-  if (prompt.type === "movement") {{
-    return `pos ${{prompt.player_position ?? "?"}} / cash ${{prompt.player_cash ?? "?"}}`;
+  const requestType = prompt.request_type || prompt.type;
+  const ctx = prompt.public_context || prompt;
+  if (requestType === "movement") {{
+    return `pos ${{ctx.player_position ?? "?"}} / cash ${{ctx.player_cash ?? "?"}}`;
   }}
-  if (prompt.type === "purchase_tile") {{
-    return `tile ${{prompt.tile_index ?? "?"}} / cost ${{prompt.cost ?? "?"}} / cash ${{prompt.player_cash ?? "?"}}`;
+  if (requestType === "purchase_tile") {{
+    return `tile ${{ctx.tile_index ?? "?"}} / cost ${{ctx.cost ?? "?"}} / cash ${{ctx.player_cash ?? "?"}}`;
   }}
-  if (prompt.type === "lap_reward") {{
-    const pools = prompt.pools || {{}};
-    return `budget ${{prompt.budget ?? "?"}} / cash ${{pools.cash ?? "?"}} / shards ${{pools.shards ?? "?"}} / coins ${{pools.coins ?? "?"}}`;
+  if (requestType === "lap_reward") {{
+    const pools = ctx.pools || {{}};
+    return `budget ${{ctx.budget ?? "?"}} / cash ${{pools.cash ?? "?"}} / shards ${{pools.shards ?? "?"}} / coins ${{pools.coins ?? "?"}}`;
   }}
-  if (prompt.type === "mark_target") {{
-    return prompt.actor_name || "";
+  if (requestType === "mark_target") {{
+    return ctx.actor_name || "";
   }}
   return "";
 }}
