@@ -437,16 +437,46 @@ Use this as the implementation-start checklist.
 
 | Item | Scope | Owner | Status |
 |------|------|------|--------|
-| Event names frozen | replay/live shared events | Shared | pending |
-| Core field names frozen | event and snapshot payloads | Shared | pending |
-| `public_phase` values frozen | replay/live phase model | Shared | pending |
-| Prompt envelope frozen | live decision request/response | Shared | pending |
-| Visibility rules frozen | public vs analysis boundary | Shared | pending |
-| Public state schema frozen | player/board/tile public state | Shared | pending |
+| Event names frozen | replay/live shared events | Shared | claude:agreed |
+| Core field names frozen | event and snapshot payloads | Shared | claude:agreed |
+| `public_phase` values frozen | replay/live phase model | Shared | claude:agreed |
+| Prompt envelope frozen | live decision request/response | Shared | claude:agreed |
+| Visibility rules frozen | public vs analysis boundary | Shared | claude:agreed |
+| Public state schema frozen | player/board/tile public state | Shared | claude:agreed |
 
 Recommended rule:
 - do not begin parallel implementation until every row is at least reviewed
 - do not rename frozen fields casually once implementation starts
+
+## Claude Review Note
+
+Reviewed by: Claude Sonnet 4.6 | Date: 2026-03-28
+
+**Overall: AGREED.** The shared contract is a compatible superset of the Claude substrate plan (`VISUALIZATION_GAME_PLAN.md`). All additions are reasonable.
+
+### Field alignment decisions
+
+The following field name differences exist between `VISUALIZATION_GAME_PLAN.md` and this contract.
+Claude substrate implementation will follow the shared contract names.
+
+| Location | VISUALIZATION_GAME_PLAN | This contract | Decision |
+|---|---|---|---|
+| `TilePublicState` | `index`, `kind` | `tile_index`, `tile_kind` | use contract |
+| `PlayerPublicState` mark fields | `pending_mark: bool`, `is_mark_source: bool` | `mark_status`, `pending_mark_source` | use contract |
+| `BoardPublicState` | no `f_value`, no `marker_owner` | `f_value`, `marker_owner_player_id` included | use contract |
+| Event envelope | `round_index`, `turn_index` only | + `session_id`, `step_index`, `public_phase` | use contract |
+| `PlayerPublicState` extras | absent | `seat`, `display_name`, `burden_summary` added | use contract |
+
+### What Claude will implement against this contract
+
+- `CLAUDE/engine.py` event emission will use the frozen event names in Layer 1
+- `CLAUDE/viewer/public_state.py` will use the field names defined here, not the older VISUALIZATION_GAME_PLAN names
+- `public_payload` / `analysis_payload` split will be enforced from the start
+- Hidden information (e.g. hidden trick card contents) will never appear in `public_payload`
+
+### No blocking issues found
+
+The contract is implementable as written. Claude can begin Phase 1-S substrate work against this contract.
 
 ## Dependency Injection And Flexibility Guide
 
