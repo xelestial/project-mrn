@@ -227,6 +227,8 @@ def test_html_renderer(events: list[dict]) -> list[str]:
                     errors.append("weather_reveal frame title still missing actual weather name")
                 elif not str(first_weather.get("weather", "")).strip():
                     errors.append("weather_reveal frame missing carried weather field")
+                elif not str(first_weather.get("weather_effect", "")).strip():
+                    errors.append("weather_reveal frame missing weather effect text")
                 first_dice = next(
                     (frame for frame in parsed if frame.get("event_type") == "dice_roll"),
                     None,

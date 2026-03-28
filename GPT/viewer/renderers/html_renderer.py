@@ -5,12 +5,14 @@ from copy import deepcopy
 import json
 
 from characters import CARD_TO_NAMES
+from weather_cards import load_weather_definitions
 from ..replay import ReplayProjection
 
 
 _PLAYER_COLORS = ["#4e8ef7", "#e85d5d", "#5dbf5d", "#f0a030"]
 _PLAYER_LIGHTS = ["#1d355d", "#56252a", "#214827", "#5a4418"]
 _TILE_LABELS = {"F1": "F", "F2": "F", "S": "S", "T2": "2", "T3": "3", "MALICIOUS": "M"}
+_WEATHER_EFFECTS = {card.name: card.effect for card in load_weather_definitions()}
 _VISIBLE_FRAME_EVENTS = {
     "session_start",
     "round_start",
@@ -321,6 +323,7 @@ def _build_frames(proj: ReplayProjection) -> list[dict]:
                 "players": deepcopy(players),
                 "board": _normalize_board(board),
                 "weather": current_weather,
+                "weather_effect": _weather_effect_text(current_weather),
             }
         )
     return frames
@@ -343,6 +346,10 @@ def _frame_weather(event: dict, current_weather: str) -> str:
     if event.get("event_type") == "weather_reveal":
         return event.get("weather_name") or event.get("weather") or event.get("card", "") or current_weather
     return current_weather
+
+
+def _weather_effect_text(weather_name: str) -> str:
+    return _WEATHER_EFFECTS.get(weather_name, "")
 
 
 _HTML_TEMPLATE = """<!DOCTYPE html>
@@ -484,7 +491,8 @@ function renderBoard(frame) {
   players.forEach((player) => { if (player.alive === false) return; const pos = Number(player.position ?? 0); if (!pawnMap.has(pos)) pawnMap.set(pos, []); pawnMap.get(pos).push(player.player_id); });
   track.innerHTML = "";
   const weatherText = frame.weather || "-";
-  const center = document.createElement("div"); center.className = "board-center"; center.innerHTML = `<div class="status-value">${frame.title}</div><div class="status-sub">${frame.subtitle || "-"}</div><div class="status-grid"><div class="status-card"><div class="status-label">Current Event</div><div class="status-value">${frame.event.icon} ${frame.event.actor}</div><div class="status-sub">${frame.event.detail || "-"}</div></div><div class="status-card"><div class="status-label">Frame</div><div class="status-value">${frame.frame_index + 1} / ${FRAMES.length}</div><div class="status-sub">${frame.event_type}</div></div><div class="status-card"><div class="status-label">Round / Turn / Weather</div><div class="status-value">R${frame.round_index || "-"} / T${frame.turn_index || "-"}</div><div class="status-sub">${weatherText}</div></div><div class="status-card"><div class="status-label">Marker / F</div><div class="status-value">${board.marker_owner_player_id ? `P${board.marker_owner_player_id}` : "-"} / ${Number(board.f_value || 0).toFixed(2)}</div><div class="status-sub">Public board state</div></div></div>`; track.appendChild(center);
+  const weatherEffect = frame.weather_effect || "";
+  const center = document.createElement("div"); center.className = "board-center"; center.innerHTML = `<div class="status-value">${frame.title}</div><div class="status-sub">${frame.subtitle || "-"}</div><div class="status-grid"><div class="status-card"><div class="status-label">Current Event</div><div class="status-value">${frame.event.icon} ${frame.event.actor}</div><div class="status-sub">${frame.event.detail || "-"}</div></div><div class="status-card"><div class="status-label">Frame</div><div class="status-value">${frame.frame_index + 1} / ${FRAMES.length}</div><div class="status-sub">${frame.event_type}</div></div><div class="status-card"><div class="status-label">Round / Turn / Weather</div><div class="status-value">R${frame.round_index || "-"} / T${frame.turn_index || "-"}</div><div class="status-sub">${weatherText}</div><div class="status-sub">${weatherEffect || "No weather effect text."}</div></div><div class="status-card"><div class="status-label">Marker / F</div><div class="status-value">${board.marker_owner_player_id ? `P${board.marker_owner_player_id}` : "-"} / ${Number(board.f_value || 0).toFixed(2)}</div><div class="status-sub">Public board state</div></div></div>`; track.appendChild(center);
   let highlightedTile = null; if (frame.event_type === "player_move") { const parts = String(frame.event.detail || "").split("->"); if (parts.length === 2) highlightedTile = Number(parts[1].trim()) - 1; } if (frame.event_type === "tile_purchased") { const match = String(frame.event.detail || "").match(/tile\\s+(\\d+)/); if (match) highlightedTile = Number(match[1]) - 1; }
   for (let idx = 0; idx < 40; idx += 1) {
     const tile = tiles[idx] || {}; const pos = tilePosition(idx); const owner = tile.owner_player_id; const card = document.createElement("div"); card.className = "tile"; card.style.gridColumn = String(pos.col); card.style.gridRow = String(pos.row);
