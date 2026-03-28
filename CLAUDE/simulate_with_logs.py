@@ -57,6 +57,22 @@ def result_to_dict(result, log_level: str = "summary", integrity: dict | None = 
     return payload
 
 
+def _compute_asset_hashes(player_character_policy_modes: dict) -> dict[str, str]:
+    """player_id → asset_hash 매핑. 임포트 실패 시 빈 dict 반환."""
+    if not player_character_policy_modes:
+        return {}
+    try:
+        from policy.profile.presets import get_default_registry
+        from policy.asset.policy_asset import compute_spec_hash
+        registry = get_default_registry()
+        return {
+            str(pid): compute_spec_hash(registry.resolve(mode))
+            for pid, mode in player_character_policy_modes.items()
+        }
+    except Exception:
+        return {}
+
+
 class RunningSummary:
     def __init__(
         self,
@@ -70,6 +86,9 @@ class RunningSummary:
         self.lap_policy_mode = lap_policy_mode
         self.player_lap_policy_modes = dict(player_lap_policy_modes or {})
         self.player_character_policy_modes = dict(player_character_policy_modes or {})
+        self.policy_asset_hashes: dict[str, str] = _compute_asset_hashes(
+            self.player_character_policy_modes
+        )
         self.integrity = dict(integrity or _integrity_summary())
         self.games = 0
         self.end_reasons = Counter()
@@ -176,6 +195,7 @@ class RunningSummary:
             "lap_policy_mode": self.lap_policy_mode,
             "player_lap_policy_modes": {str(k): v for k, v in self.player_lap_policy_modes.items()},
             "player_character_policy_modes": {str(k): v for k, v in self.player_character_policy_modes.items()},
+            "policy_asset_hashes": self.policy_asset_hashes,
             "games": self.games,
             "end_reasons": dict(self.end_reasons),
             "weather_counts": dict(self.weather_counts),

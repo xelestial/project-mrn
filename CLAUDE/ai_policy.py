@@ -9,6 +9,11 @@ from characters import CHARACTERS, CARD_TO_NAMES
 from config import CellKind
 from policy_groups import MARK_ACTOR_BASE_RISK, MARK_ACTOR_NAMES, RENT_ESCAPE_CHARACTERS, RENT_EXPANSION_CHARACTERS, RENT_FRAGILE_DISRUPTORS
 from policy.profile.presets import get_default_registry as _get_profile_registry
+from policy.profile.spec import PolicyProfileSpec
+from policy.context.intent import PlayerIntentState, TurnPlanContext
+from policy.asset.policy_asset import PolicyAssetFactory
+from policy.character_eval.context_builder import build_char_eval_context
+from policy.character_eval.registry import get_evaluator
 from policy_mark_utils import mark_guess_distribution, mark_guess_policy_params, mark_priority_exposure_factor, mark_target_profile_factor, public_mark_guess_candidates
 from state import GameState, PlayerState
 from trick_cards import TrickCard
@@ -16,6 +21,7 @@ from policy_hooks import PolicyDecisionTraceRecorder, PolicyHookDispatcher
 from weather_cards import COLOR_RENT_DOUBLE_WEATHERS
 from survival_common import (
     ActionGuardContext,
+    CleanupStrategyContext,
     SurvivalSignals,
     SurvivalOrchestratorState,
     build_action_guard_context,
@@ -101,476 +107,20 @@ class BasePolicy:
         return True
 
     def _character_score_breakdown_v2(self, state: GameState, player: PlayerState, character_name: str) -> tuple[float, list[str]]:
-        w = self._weights()
+        """캐릭터 점수 계산 — CharacterEvaluator 레지스트리에 위임."""
+        ectx = build_char_eval_context(state, player, self)
+        evaluator = get_evaluator(character_name)
+        expansion, economy, disruption, meta, combo, survival, reasons = evaluator.score(
+            state, player, character_name, ectx, self
+        )
         score = self.character_values.get(character_name, 0.0)
-        reasons=[f"base={score:.1f}"]
-        expansion = economy = disruption = meta = combo = survival = 0.0
-        buy_value = self._expected_buy_value(state, player)
-        cross_start = self._will_cross_start(state, player)
-        land_f = self._will_land_on_f(state, player)
-        f_ctx = self._f_progress_context(state, player)
-        land_f_value = float(f_ctx["land_f_value"])
-        burden_count = sum(1 for c in player.trick_hand if c.name in {"무거운 짐", "가벼운 짐"})
-        legal_marks = self._allowed_mark_targets(state, player)
-        has_marks = bool(legal_marks)
-        burden_context = self._burden_context(state, player, legal_targets=legal_marks)
-        monopoly = self._monopoly_block_metrics(state, player)
-        liquidity = self._liquidity_risk_metrics(state, player, character_name)
-        cleanup_pressure = burden_context["cleanup_pressure"]
-        legal_visible_burden_total = burden_context["legal_visible_burden_total"]
-        legal_visible_burden_peak = burden_context["legal_visible_burden_peak"]
-        legal_low_cash_targets = burden_context["legal_low_cash_targets"]
-        own_near_complete = monopoly["own_near_complete"]
-        own_claimable_blocks = monopoly["own_claimable_blocks"]
-        deny_now = monopoly["deny_now"]
-        enemy_near_complete = monopoly["enemy_near_complete"]
-        contested_blocks = monopoly["contested_blocks"]
-        scammer = self._scammer_takeover_metrics(state, player)
-        threat_targets = sorted(self._alive_enemies(state, player), key=lambda op: self._estimated_threat(state, player, op), reverse=True)
-        top_threat = threat_targets[0] if threat_targets else None
-        top_tags = self._predicted_opponent_archetypes(state, player, top_threat) if top_threat else set()
-        exclusive_blocks = self._exclusive_blocks_owned(state, player.player_id)
-        placeable = any(state.tile_owner[i] == player.player_id and state.tile_coins[i] < state.config.rules.token.max_coins_per_tile for i in player.visited_owned_tile_indices)
-        combo_names = {c.name for c in player.trick_hand}
-        leader_pressure = self._leader_pressure(state, player, top_threat)
-        denial_snapshot = self._leader_denial_snapshot(state, player, threat_targets=threat_targets, top_threat=top_threat)
-        leader_emergency = float(denial_snapshot["emergency"])
-        leader_is_solo = bool(denial_snapshot["solo_leader"])
-        leader_near_end = bool(denial_snapshot["near_end"])
-        top_threat_cross = self._will_cross_start(state, top_threat) if top_threat else 0.0
-        top_threat_land_f = self._will_land_on_f(state, top_threat) if top_threat else 0.0
-
-        if character_name == "중매꾼":
-            adjacent_value = self._matchmaker_adjacent_value(state, player)
-            expansion += 1.15 + 0.75 * buy_value + adjacent_value
-            if leader_pressure > 0 and top_threat and ("expansion" in top_tags or top_threat.tiles_owned >= 5):
-                disruption += 1.0 + 0.35 * leader_pressure + 0.35 * max(0.0, buy_value) + 0.20 * adjacent_value
-                reasons.append("deny_leader_expansion")
-            if "무료 증정" in combo_names or "마당발" in combo_names:
-                combo += 1.6 + 0.35 * adjacent_value
-                reasons.append("expansion_trick_combo")
-            if player.shards <= 0:
-                expansion -= 0.55
-                reasons.append("matchmaker_adjacent_shard_gate")
-        if character_name == "건설업자":
-            build_value = self._builder_free_purchase_value(state, player)
-            expansion += 1.18 + 0.68 * buy_value + 0.90 * build_value
-            if leader_pressure > 0 and top_threat and ("expansion" in top_tags or top_threat.tiles_owned >= 5):
-                disruption += 1.0 + 0.35 * leader_pressure + 0.30 * max(0.0, buy_value)
-                reasons.append("deny_leader_expansion")
-            if "무료 증정" in combo_names or "마당발" in combo_names:
-                combo += 1.2 + 0.45 * build_value
-                reasons.append("expansion_trick_combo")
-        if character_name == "사기꾼":
-            enemy_tiles = sum(p.tiles_owned for p in self._alive_enemies(state, player))
-            expansion += 1.2 + 0.25 * enemy_tiles
-            if leader_pressure > 0 and top_threat and top_threat.tiles_owned >= 4:
-                disruption += 1.0 + 0.35 * leader_pressure
-                reasons.append("deny_leader_takeover_lines")
-            if land_f > 0.15 or "극심한 분리불안" in combo_names:
-                combo += 1.8
-                reasons.append("arrival_takeover_combo")
-            if exclusive_blocks >= 2:
-                expansion -= 0.9
-                reasons.append("monopoly_blocks_takeover")
-            if scammer["coin_value"] > 0.0:
-                expansion += 0.75 * scammer["coin_value"]
-                disruption += 0.55 * scammer["coin_value"]
-                reasons.append("takeover_coin_swing")
-            if scammer["best_tile_coins"] >= 2:
-                combo += 0.9 + 0.25 * scammer["best_tile_coins"]
-                reasons.append("rich_tile_takeover")
-            if scammer["blocks_enemy_monopoly"] > 0.0:
-                disruption += 1.4 * scammer["blocks_enemy_monopoly"]
-                reasons.append("blocks_monopoly_with_coin_swing")
-            if scammer["finishes_own_monopoly"] > 0.0:
-                expansion += 1.2 * scammer["finishes_own_monopoly"]
-                reasons.append("finishes_monopoly_via_takeover")
-        if character_name == "추노꾼":
-            disruption += 0.8
-            if buy_value > 0:
-                disruption += 2.6
-                reasons.append("post_buy_rent_trap")
-            if leader_pressure > 0 and top_threat and top_threat.tiles_owned >= 5:
-                disruption += 1.0 + 0.45 * leader_pressure
-                reasons.append("leader_position_punish")
-            if has_marks and any(op.cash >= 8 for op in legal_marks):
-                disruption += 1.1
-        if character_name == "객주":
-            economy += 2.0 * cross_start + 1.2 * land_f * land_f_value + 0.25 * len(player.visited_owned_tile_indices)
-            if leader_pressure > 0 and top_threat and (top_threat_cross > 0.3 or top_threat_land_f > 0.2 or "geo" in top_tags):
-                disruption += 1.0 + 0.3 * leader_pressure
-                reasons.append("deny_leader_lap_engine")
-            if cross_start > 0.3:
-                reasons.append("near_start_cross")
-            if land_f > 0.2:
-                reasons.append("f_tile_bonus")
-            if any(n in combo_names for n in {"뇌절왕", "극심한 분리불안", "도움 닫기"}):
-                combo += 1.6
-                reasons.append("lap_token_combo")
-        if character_name == "파발꾼":
-            economy += 1.0 * cross_start + 0.55 * land_f * land_f_value
-            combo += 0.6 * sum(1 for n in combo_names if n in {"과속", "이럇!", "도움 닫기"})
-            if combo > 0:
-                reasons.append("speed_combo")
-        if character_name == "탈출 노비":
-            economy += 0.3 * self._reachable_specials_with_one_short(state, player)
-            if cross_start > 0.2:
-                combo += 0.8
-                reasons.append("escape_runner")
-        if character_name in {"산적", "아전", "탐관오리"}:
-            economy += 0.35 * player.shards
-            if "성물 수집가" in combo_names:
-                combo += 1.3
-                reasons.append("shard_combo")
-        if character_name == "자객":
-            if has_marks and top_threat and ("expansion" in top_tags or "geo" in top_tags or "combo_ready" in top_tags or top_threat.tiles_owned >= 5):
-                disruption += 2.4 + 0.45 * leader_pressure
-                reasons.append("prevent_big_turn")
-        if character_name == "산적":
-            if has_marks and top_threat and (top_threat.cash >= 12 or top_threat.tiles_owned >= 5):
-                disruption += 1.8 + 0.15 * player.shards + 0.35 * leader_pressure
-                reasons.append("cash_damage_value")
-        if character_name == "만신":
-            if top_threat and "burden" in top_tags:
-                disruption += 2.0
-                reasons.append("burden_purge")
-            if legal_visible_burden_total > 0:
-                disruption += 1.4 + 1.2 * legal_visible_burden_total + 0.45 * legal_visible_burden_peak
-                reasons.append("public_burden_cleanup_value")
-            if cleanup_pressure >= 2.5:
-                survival += 0.45 * cleanup_pressure
-                reasons.append("future_fire_insurance")
-            if legal_visible_burden_total > 0 and legal_low_cash_targets > 0:
-                disruption += 0.35 * legal_low_cash_targets
-                reasons.append("cash_fragile_cleanup")
-        if character_name == "박수":
-            if burden_count >= 1:
-                combo += 1.0 + 0.45 * burden_count
-                survival += 1.4 + 1.05 * burden_count + 0.55 * cleanup_pressure
-                reasons.append("future_burden_escape")
-                # [시스템 이해] 조각 5개 이상 + 짐 보유 = 폴백 확정
-                # 지목 성공/실패 무관하게 짐 1장 제거 + 비용만큼 현금 획득
-                # → 짐 파산 걱정 없이 구매 공격적으로 가능
-                if player.shards >= 5:
-                    removed, payout = self._failed_mark_fallback_metrics(player, 5)
-                    # 폴백 1회로 짐 제거 + 현금 확보 → 이 상태에서 구매 가능해짐
-                    survival += 0.8 + 0.15 * payout
-                    economy += 0.5  # 현금 회수로 경제 활성화
-                    reasons.append(f"baksu_fallback_guaranteed(+{payout}냥)")
-                    # 짐 2장 이상 + 조각 10개이면 2회 폴백 가능
-                    if burden_count >= 2 and player.shards >= 10:
-                        survival += 0.6
-                        reasons.append("baksu_double_fallback_possible")
-            else:
-                if has_marks and legal_visible_burden_total > 0:
-                    survival -= 0.5
-                    reasons.append("baksu_no_burden_mark_ok")
-                else:
-                    survival -= 1.2
-                    reasons.append("baksu_no_own_burden_waste")
-            if burden_count >= 1 and has_marks and legal_low_cash_targets > 0:
-                disruption += 0.35 * legal_low_cash_targets
-                reasons.append("burden_dump_fragile_target")
-        if character_name == "어사":
-            if top_threat and ("shard_attack" in top_tags or top_threat.current_character in {"산적", "자객", "탐관오리", "사기꾼"}):
-                disruption += 1.8
-                reasons.append("muroe_counter")
-            # [v3_claude] 어사: 우선권 1 → 지목 위협 없음 + 가장 먼저 이동
-            # 어사·탐관오리는 같은 카드(card_no=1, pair 관계) → 동시에 존재 불가
-            # 어사 active 시: 무뢰 속성 인물 능력 봉쇄 (탐관오리, 자객, 산적, 사기꾼)
-            if self._profile_from_mode() == "v3_claude" and buy_value > 0.0:
-                expansion += 0.8 + 0.3 * buy_value
-                survival += 0.6
-                reasons.append("v3_uhsa_first_mover")
-        if character_name == "탐관오리":
-            # [v3_claude] 탐관오리: 어사의 반대 면 (card_no=1, pair=어사)
-            # → 어사가 active이면 탐관오리는 존재할 수 없음 (드래프트에서 같은 카드)
-            # 능력: 관원/상민 속성 플레이어가 이동할 때
-            #   - 그 플레이어 자신의 조각 // 2 만큼 탐관오리에게 지급
-            #   - 대가로 그 플레이어는 주사위 1개 추가 (이동 버프 → 상대에게 유리할 수 있음)
-            # 무뢰 속성 → 어사 active 시 능력 봉쇄 (어사와 같은 카드이므로 공존 불가이긴 함)
-            if self._profile_from_mode() == "v3_claude":
-                # 우선권 1: 먼저 이동 = 빈 땅 선점
-                if buy_value > 0.0:
-                    expansion += 0.7 + 0.2 * buy_value
-                    reasons.append("v3_tangwan_first_mover")
-                survival += 0.5  # 지목 위협 없음
-                # 세금 수입: 관원/상민 상대가 자신의 조각 //2 만큼 지불
-                # 단 그 대가로 상대 이동이 빨라짐 → 부분 상쇄
-                alive_enemies = self._alive_enemies(state, player)
-                taxable = [
-                    p for p in alive_enemies
-                    if p.current_character
-                    and CHARACTERS.get(p.current_character)
-                    and CHARACTERS[p.current_character].attribute in {"관원", "상민"}
-                ]
-                if taxable:
-                    # 세금 = 상대(관원/상민) 각자의 조각 // 2
-                    total_tax = sum(p.shards // 2 for p in taxable)
-                    # 상대 이동 버프(주사위 추가) 부작용 약 35% 상쇄 → 순이득 65%
-                    net_tax = total_tax * 0.65
-                    if net_tax >= 0.5:
-                        economy += 0.3 + 0.12 * net_tax
-                        reasons.append(f"v3_tangwan_net_tax({total_tax}냥×0.65={net_tax:.1f})")
-        if character_name in {"교리 연구관", "교리 감독관"}:
-            meta += 1.2
-            # [burden_patch] 짐을 들고 있을수록 교리 계열의 짐 제거 가치가 커진다.
-            # 턴 시작 시 자기 짐 1장 무료 제거 → 짐 장수/비용에 비례 가산
-            own_burden_cost = float(sum(c.burden_cost for c in player.trick_hand if c.is_burden))
-            own_burden_count = sum(1 for c in player.trick_hand if c.is_burden)
-            if own_burden_count >= 1:
-                meta += 1.0 + 0.55 * own_burden_cost
-                reasons.append("doctrine_burden_relief_value")
-            marker_plan = self._leader_marker_flip_plan(state, player, top_threat) if top_threat else {"best_score": 0.0}
-            if top_threat and ("expansion" in top_tags or "geo" in top_tags or top_threat.tiles_owned >= 5):
-                meta += 1.6 + 0.35 * leader_pressure
-                reasons.append("flip_meta_denial")
-            if float(marker_plan["best_score"]) > 0.0:
-                meta += 0.95 + 0.85 * float(marker_plan["best_score"])
-                disruption += 0.30 * float(marker_plan["best_score"])
-                reasons.append("marker_strips_needed_leader_face")
-        if character_name in {"객주", "파발꾼", "사기꾼"}:
-            economy += 0.15 * player.cash
-        elif character_name == "중매꾼":
-            economy += 0.10 * player.cash + 0.20 * self._matchmaker_adjacent_value(state, player)
-        elif character_name == "건설업자":
-            economy += 0.09 * player.cash + 0.28 * self._builder_free_purchase_value(state, player)
-        if character_name in {"객주", "파발꾼", "탈출 노비"} and placeable:
-            economy += 0.8
-        if character_name == "중매꾼" and own_near_complete > 0:
-            expansion += 2.25 * own_near_complete + 0.65 * own_claimable_blocks + 0.35 * self._matchmaker_adjacent_value(state, player)
-            reasons.append("monopoly_finish_value")
-        if character_name == "건설업자" and own_near_complete > 0:
-            expansion += 2.05 * own_near_complete + 0.45 * own_claimable_blocks + 0.45 * self._builder_free_purchase_value(state, player)
-            reasons.append("monopoly_finish_value")
-        if character_name in {"객주", "파발꾼", "탈출 노비"} and own_claimable_blocks > 0:
-            economy += 0.65 * own_claimable_blocks
-            reasons.append("monopoly_route_value")
-        if character_name == "중매꾼" and own_claimable_blocks > 0:
-            economy += 0.55 * own_claimable_blocks + 0.20 * self._matchmaker_adjacent_value(state, player)
-            reasons.append("monopoly_route_value")
-        if character_name == "건설업자" and own_claimable_blocks > 0:
-            economy += 0.45 * own_claimable_blocks + 0.25 * self._builder_free_purchase_value(state, player)
-            reasons.append("monopoly_route_value")
-        if character_name == "사기꾼" and enemy_near_complete > 0:
-            disruption += 2.2 * enemy_near_complete + 0.45 * contested_blocks
-            reasons.append("preempt_monopoly_takeover")
-        if character_name in {"추노꾼", "자객", "산적"} and enemy_near_complete > 0:
-            disruption += 1.6 * enemy_near_complete + 0.35 * deny_now
-            reasons.append("deny_enemy_monopoly")
-        if character_name in {"파발꾼", "탈출 노비"} and deny_now > 0:
-            survival += 0.55 * deny_now
-            reasons.append("monopoly_danger_escape")
-        if leader_emergency > 0.0 and top_threat and top_threat.player_id != player.player_id:
-            if character_name in {"자객", "산적", "추노꾼", "사기꾼", "박수", "만신", "어사"}:
-                disruption += 1.55 + 0.55 * leader_emergency
-                if leader_is_solo:
-                    disruption += 0.45
-                if leader_near_end:
-                    disruption += 0.55
-                reasons.append("emergency_leader_denial")
-            if character_name in {"교리 연구관", "교리 감독관"}:
-                meta += 1.45 + 0.50 * leader_emergency
-                disruption += 0.35 * leader_emergency
-                reasons.append("emergency_marker_denial")
-            if leader_near_end and character_name in {"중매꾼", "건설업자", "객주", "파발꾼"}:
-                expansion -= 0.85 + 0.25 * leader_emergency
-                economy -= 0.35 * leader_emergency
-                if character_name == "건설업자" and player.shards > 0:
-                    expansion += 0.20
-                reasons.append("leader_race_deprioritized")
-        # survival / risk
-        leading = sum(1 for op in self._alive_enemies(state, player) if self._estimated_threat(state, player, player) >= self._estimated_threat(state, player, op)) == len(self._alive_enemies(state, player))
-        if self._profile_from_mode() == "avoid_control":
-            if character_name in {"중매꾼", "건설업자", "사기꾼"} and (leading or top_threat and has_marks):
-                survival -= 1.4
-                reasons.append("avoid_being_targeted")
-            if character_name in {"객주", "아전", "교리 연구관", "교리 감독관"}:
-                survival += 1.1
-        profile = self._profile_from_mode()
-        if profile == "control":
-            finisher_window, finisher_reason = self._control_finisher_window(player)
-            if leader_emergency > 0.0:
-                if character_name in {"사기꾼", "교리 연구관", "교리 감독관", "객주", "탈출 노비", "파발꾼", "어사"}:
-                    disruption += 0.55 + 0.30 * leader_emergency
-                    meta += 0.15 * leader_emergency
-                    reasons.append("control_efficient_denial")
-                if leader_near_end and character_name in {"교리 연구관", "교리 감독관", "사기꾼", "객주", "탈출 노비"}:
-                    disruption += 0.55
-                    survival += 0.25
-                    reasons.append("control_endgame_lock")
-            elif buy_value > 0.0 and character_name in {"중매꾼", "건설업자", "사기꾼", "객주", "파발꾼"}:
-                expansion += 0.45 + 0.20 * buy_value
-                economy += 0.20
-                if character_name == "중매꾼":
-                    expansion += 0.22 + 0.10 * self._matchmaker_adjacent_value(state, player)
-                elif character_name == "건설업자":
-                    expansion += 0.18 + 0.12 * self._builder_free_purchase_value(state, player)
-                reasons.append("control_keeps_pace")
-            if finisher_window > 0.0:
-                if character_name in {"중매꾼", "건설업자", "사기꾼", "객주", "파발꾼"}:
-                    expansion += 0.85 + 0.35 * finisher_window + 0.18 * buy_value
-                    economy += 0.35 + 0.18 * finisher_window
-                    combo += 0.18 * finisher_window
-                    reasons.append(f"control_finisher_window={finisher_reason}")
-                if character_name in {"자객", "산적", "추노꾼"}:
-                    disruption -= 0.45 + 0.15 * finisher_window
-                    survival -= 0.10 * finisher_window
-                    reasons.append("control_finisher_avoids_redundant_denial")
-        if profile == "aggressive":
-            if character_name in {"중매꾼", "건설업자", "사기꾼", "추노꾼", "자객"}:
-                combo += 0.9
-                reasons.append("aggressive_push")
-
-        if profile == "v3_claude":
-            # [v3_claude] 우선권 인식 전략
-            char_priority = {"어사":1,"탐관오리":1,"자객":2,"산적":2,"추노꾼":3,"탈출 노비":3,
-                             "파발꾼":4,"아전":4,"교리 연구관":5,"교리 감독관":5,"박수":6,"만신":6,
-                             "객주":7,"중매꾼":7,"건설업자":8,"사기꾼":8}
-            my_priority = char_priority.get(character_name, 5)
-            alive_lower_priority = sum(
-                1 for p in state.players
-                if p.alive and p.player_id != player.player_id
-                and char_priority.get(p.current_character or "", 5) > my_priority
-            )
-            if my_priority <= 3:
-                survival += 0.6 + 0.10 * alive_lower_priority
-                reasons.append(f"v3_high_priority_safe(p={my_priority})")
-            elif my_priority >= 7:
-                survival -= 0.4 + 0.08 * alive_lower_priority
-                reasons.append(f"v3_low_priority_exposed(p={my_priority})")
-
-            # ② 지목형 인물: 대상 수 실측
-            if character_name in {"자객", "산적", "추노꾼", "박수", "만신"}:
-                mark_targets = sum(
-                    1 for p in state.players
-                    if p.alive and p.player_id != player.player_id
-                    and char_priority.get(p.current_character or "", 5) > my_priority
-                )
-                if mark_targets >= 2:
-                    disruption += 0.7 + 0.2 * mark_targets
-                    reasons.append(f"v3_mark_targets={mark_targets}")
-                elif mark_targets == 1:
-                    disruption += 0.3
-                    reasons.append("v3_mark_target_limited")
-                else:
-                    disruption -= 0.8
-                    reasons.append("v3_mark_target_none")
-
-            # ③ 교리 계열: 리더 종속 + 징표 제어 가치
-            if character_name in {"교리 연구관", "교리 감독관"} and top_threat:
-                meta += 0.6 + 0.4 * leader_pressure
-                reasons.append("v3_marker_control_value")
-
-            # ④ 중매꾼: 빈 구역 많을 때 강화, 조각 없으면 감점
-            if character_name == "중매꾼":
-                if player.shards >= 1 and buy_value > 0.0:
-                    expansion += 1.0 + 0.3 * buy_value
-                    reasons.append("v3_matchmaker_expansion")
-                elif player.shards == 0:
-                    expansion -= 0.6
-                    reasons.append("v3_matchmaker_no_shards")
-
-            # ⑤ 건설업자/사기꾼: 구매 기회 있을 때 적극 활용
-            if character_name == "건설업자" and buy_value > 0.0:
-                expansion += 0.8 + 0.4 * buy_value
-                reasons.append("v3_builder_buy_window")
-            if character_name == "사기꾼" and buy_value > 0.0:
-                expansion += 0.6 + 0.3 * buy_value
-                reasons.append("v3_swindler_buy_window")
-
-            # ⑥ 파발꾼 과집중 억제: 랩이 2회 이상 돌았고 구매 기회가 있을 때 감점
-            if character_name == "파발꾼":
-                rounds_done = getattr(state, 'rounds_completed', 0)
-                if rounds_done >= 6 and buy_value > 0.5:
-                    expansion -= 0.4
-                    reasons.append("v3_pabalkun_overuse_penalty")
-
-            # ⑦ 상황 인식 전략 전환: 상대 타일이 나보다 2개 이상 많으면 견제 우선
-            my_tiles = player.tiles_owned
-            max_enemy_tiles = max(
-                (p.tiles_owned for p in state.players if p.alive and p.player_id != player.player_id),
-                default=0
-            )
-            tile_gap = max_enemy_tiles - my_tiles
-            if tile_gap >= 2:
-                # 상대가 앞서면 견제/방해형 인물 가산
-                if character_name in {"추노꾼", "자객", "만신", "교리 연구관", "교리 감독관"}:
-                    disruption += 0.5 + 0.15 * tile_gap
-                    reasons.append(f"v3_catch_up_mode(gap={tile_gap})")
-                # 구매형 인물도 여전히 가산 (따라잡기 필요)
-                if character_name in {"중매꾼", "건설업자", "사기꾼"} and buy_value > 0.0:
-                    expansion += 0.4 + 0.1 * tile_gap
-                    reasons.append("v3_catch_up_buy")
-        if profile == "token_opt":
-            own_land = self._prob_land_on_placeable_own_tile(state, player)
-            token_combo = self._token_teleport_combo_score(player)
-            if character_name in {"객주", "파발꾼", "탈출 노비"}:
-                economy += 1.2 * cross_start + 0.7 * land_f * land_f_value
-                combo += token_combo
-                reasons.append("token_route_mobility")
-            if character_name in {"객주", "중매꾼", "건설업자", "사기꾼"}:
-                economy += 1.4 * own_land
-                reasons.append("own_tile_token_arrival")
-            if character_name in {"자객", "추노꾼", "산적"} and top_threat and leader_pressure >= 2.5:
-                disruption += 0.8 + 0.25 * leader_pressure
-                reasons.append("token_threshold_counter")
-            if placeable:
-                combo += 0.8 + 1.4 * own_land + token_combo
-                reasons.append("token_placeable_pressure")
-
-        if self._has_uhsa_alive(state, exclude_player_id=player.player_id) and CHARACTERS[character_name].attribute == "무뢰":
-            survival -= 1.8
-            reasons.append("uhsa_blocks_muroe")
-        reserve_gap = max(0.0, liquidity["reserve"] - player.cash)
-        if reserve_gap > 0.0:
-            survival -= 0.55 * reserve_gap
-            reasons.append(f"cash_dry={reserve_gap:.2f}")
-        if profile == "control":
-            if reserve_gap > 0.0 and character_name in {"자객", "산적", "추노꾼"}:
-                disruption -= 0.35 * reserve_gap
-                survival -= 0.20 * reserve_gap
-                reasons.append("control_avoids_costly_denial_when_dry")
-            if reserve_gap <= 1.0 and character_name in {"사기꾼", "객주", "파발꾼", "탈출 노비"}:
-                survival += 0.20
-                economy += 0.15
-                reasons.append("control_low_cost_stability")
-        if character_name in RENT_ESCAPE_CHARACTERS:
-            survival += 0.22 * liquidity["expected_loss"] + 0.10 * liquidity["worst_loss"]
-            reasons.append("liquidity_escape_value")
-        if character_name in RENT_EXPANSION_CHARACTERS and reserve_gap > 0.0:
-            expansion -= 0.45 * reserve_gap
-            survival -= 0.25 * reserve_gap
-            reasons.append("expansion_cash_drag")
-        if character_name in {"박수", "만신", "객주"} and liquidity["own_burden_cost"] > 0.0:
-            survival += 0.25 * liquidity["own_burden_cost"]
-            reasons.append("burden_liquidity_cover")
-        mark_risk, mark_reasons = self._public_mark_risk_breakdown(state, player, character_name)
-        if mark_risk > 0.0:
-            survival -= mark_risk
-            reasons.append(f"mark_risk={mark_risk:.2f}")
-            reasons.extend(mark_reasons)
-        rent_pressure, rent_reasons = self._rent_pressure_breakdown(state, player, character_name)
-        if rent_pressure > 0.0:
-            rent_economy, rent_combo, rent_survival = self._apply_rent_pressure_adjustment_v2(state, player, character_name, cross_start, land_f, rent_pressure, reasons)
-            economy += rent_economy
-            combo += rent_combo
-            survival += rent_survival
-            reasons.append(f"rent_pressure={rent_pressure:.2f}")
-            reasons.extend(rent_reasons)
-        # [burden_patch] 짐 보유 시 프로파일별 survival 가중치 동적 보정.
-        # PROFILE_WEIGHTS의 고정값은 유지하되, 짐을 들고 있을수록
-        # 생존 신호가 실제 결정에 더 강하게 반영되도록 가중치를 일시 상향한다.
-        # 보정량은 프로파일 기본 가중치가 낮을수록 크게 적용한다.
+        reasons = [f"base={score:.1f}"] + reasons
+        w = ectx.w
+        # 짐 보유 시 프로파일별 survival 가중치 동적 보정
         own_burden_count = sum(1 for c in player.trick_hand if c.is_burden)
         if own_burden_count >= 1:
             base_sw = w["survival"]
-            # 목표: 짐 1장당 최소 1.1 수준의 유효 생존 가중치를 보장
-            # 부족분을 own_burden_count 에 비례해 보정
-            # v3_claude는 expansion 1.6으로 구매 많아 현금이 얇아짐
-            # → 짐 보유 시 목표 survival 가중치를 더 높게 설정해 짐 청산 인물 선호 강화
-            if profile == "v3_claude":
+            if ectx.profile == "v3_claude":
                 target_sw = min(1.6, base_sw + 0.7 * own_burden_count)
             else:
                 target_sw = min(1.4, base_sw + 0.5 * own_burden_count)
@@ -949,29 +499,12 @@ class BasePolicy:
 
 
 class HeuristicPolicy(BasePolicy):
-    # character_values와 PROFILE_WEIGHTS는 profiles/*.json에서 로드한다.
-    # 하위 호환을 위해 클래스 변수는 유지하되 registry 로드로 초기화한다.
-    # 직접 수정하지 말 것 — profiles/policy_weights_*.json 또는
-    # profiles/character_values_*.json을 수정하라.
+    # profiles/*.json에서 로드. 직접 수정하지 말 것.
     _profile_registry = _get_profile_registry()
-
-    character_values: dict[str, float] = _profile_registry.resolve("heuristic_v2_balanced").character_values
 
     V2_PROFILES = {"control", "growth", "balanced", "avoid_control", "aggressive", "token_opt", "v3_claude"}
     VALID_CHARACTER_POLICIES = {"random", "arena", "heuristic_v1", *(f"heuristic_v2_{p}" for p in V2_PROFILES)}
     VALID_LAP_POLICIES = {"heuristic_v1", "cash_focus", "shard_focus", "coin_focus", "balanced", *(f"heuristic_v2_{p}" for p in V2_PROFILES)}
-
-    # PROFILE_WEIGHTS: profiles/policy_weights_*.json에서 로드
-    # (comprehension은 클래스 스코프 미참조 제약으로 명시적 딕셔너리 사용)
-    PROFILE_WEIGHTS: dict[str, dict[str, float]] = {
-        "control":       _get_profile_registry().resolve("heuristic_v2_control").weights,
-        "growth":        _get_profile_registry().resolve("heuristic_v2_growth").weights,
-        "balanced":      _get_profile_registry().resolve("heuristic_v2_balanced").weights,
-        "avoid_control": _get_profile_registry().resolve("heuristic_v2_avoid_control").weights,
-        "aggressive":    _get_profile_registry().resolve("heuristic_v2_aggressive").weights,
-        "token_opt":     _get_profile_registry().resolve("heuristic_v2_token_opt").weights,
-        "v3_claude":     _get_profile_registry().resolve("heuristic_v3_claude_exp").weights,
-    }
 
     def __init__(self, character_policy_mode: str = "heuristic_v1", lap_policy_mode: str = "heuristic_v1", rng=None, player_lap_policy_modes: Optional[dict[int, str]] = None):
         super().__init__()
@@ -986,9 +519,22 @@ class HeuristicPolicy(BasePolicy):
             if mode not in self.VALID_LAP_POLICIES:
                 raise ValueError(f"Unsupported lap policy for player {pid}: {mode}")
         self.rng = rng
+        # 프로파일별 인물 점수 — 인스턴스 생성 시점에 profile spec에서 로드
+        self.character_values: dict[str, float] = self._profile_spec().character_values
+        # Phase 2: PolicyAsset — spec + SurvivalStrategy + TurnContextBuilder
+        self._asset = PolicyAssetFactory.from_profile(self._profile_spec(), self)
+        # 플레이어별 의도 상태 (Intent Memory Contract)
+        self._player_intent: dict[int, PlayerIntentState] = {}
 
     def set_rng(self, rng) -> None:
         self.rng = rng
+
+    def _intent(self, player_id: int) -> PlayerIntentState:
+        """플레이어 의도 상태를 반환한다. 없으면 기본값으로 초기화."""
+        return self._player_intent.setdefault(player_id, PlayerIntentState())
+
+    def _set_intent(self, player_id: int, intent: PlayerIntentState) -> None:
+        self._player_intent[player_id] = intent
 
     def _choice(self, values):
         values = list(values)
@@ -1082,17 +628,24 @@ class HeuristicPolicy(BasePolicy):
     def _is_v2_mode(self) -> bool:
         return self.character_policy_mode.startswith("heuristic_v2_")
 
+    def _profile_spec(self, mode: str | None = None) -> PolicyProfileSpec:
+        """mode 문자열을 registry로 해석해 PolicyProfileSpec을 반환한다."""
+        m = mode or self.character_policy_mode
+        try:
+            return self._profile_registry.resolve(m)
+        except KeyError:
+            return self._profile_registry.resolve("heuristic_v2_balanced")
+
     def _profile_from_mode(self, mode: str | None = None) -> str:
-        mode = mode or self.character_policy_mode
-        if mode.startswith("heuristic_v2_"):
-            return mode.split("heuristic_v2_", 1)[1]
-        return "balanced"
+        """프로파일 단축 키(alias)를 반환한다. 내부 비교에 사용."""
+        spec = self._profile_spec(mode)
+        return spec.aliases[0] if spec.aliases else spec.name
 
     def _lap_mode_for_player(self, player_id: int) -> str:
         return self.player_lap_policy_modes.get(player_id, self.lap_policy_mode)
 
     def _weights(self, mode: str | None = None) -> dict[str, float]:
-        return self.PROFILE_WEIGHTS[self._profile_from_mode(mode)]
+        return self._profile_spec(mode).weights
 
     def _moves_for_turn(self, player: PlayerState) -> list[int]:
         remaining = self._remaining_cards(player)
@@ -1774,6 +1327,11 @@ class HeuristicPolicy(BasePolicy):
             "deck_two_draw_cleanup_prob": float(deck_two_draw_cleanup_prob),
             "deck_cycle_cleanup_prob": float(deck_cycle_cleanup_prob),
         }
+
+    def _cleanup_strategy_context(self, state: GameState, player: PlayerState) -> CleanupStrategyContext:
+        """CleanupStrategyContext를 빌드해 반환한다."""
+        ctx = self._burden_context(state, player)
+        return CleanupStrategyContext.from_burden_context(ctx, cash=float(player.cash))
 
     def _leader_pressure(self, state: GameState, player: PlayerState, opponent: PlayerState | None) -> float:
         if opponent is None:
@@ -2580,9 +2138,9 @@ class HeuristicPolicy(BasePolicy):
         ).reserve)
 
     def _build_survival_orchestrator(self, state: GameState, player: PlayerState, character_name: str | None = None) -> tuple[dict[str, float], SurvivalOrchestratorState]:
-        survival_ctx = self._generic_survival_context(state, player, character_name)
-        orchestrator = build_survival_orchestrator(SurvivalSignals.from_mapping(survival_ctx))
-        return survival_ctx, orchestrator
+        ctx = self._asset.context_builder.build(state, player, character_name)
+        assessment = self._asset.survival.evaluate(ctx)
+        return ctx.to_survival_dict(), assessment.orchestrator
 
     def _survival_policy_character_advice(self, state: GameState, player: PlayerState, character_name: str, orchestrator: SurvivalOrchestratorState) -> tuple[float, list[str], bool, dict[str, object]]:
         purchase_floor = self._reachable_purchase_floor(state, player)
@@ -3162,51 +2720,8 @@ class HeuristicPolicy(BasePolicy):
 
 
     def choose_trick_to_use(self, state: GameState, player: PlayerState, hand: list[TrickCard]) -> TrickCard | None:
-        supported = {
-            "성물 수집가": 1.8, "건강 검진": 1.2, "우대권": 1.4, "무료 증정": 1.6,
-            "신의뜻": 1.0, "가벼운 분리불안": 0.9, "극심한 분리불안": 1.2, "마당발": 1.4, "뇌고왕": 1.1, "뇌절왕": 1.3,
-            "재뿌리기": 1.2, "긴장감 조성": 1.3, "무역의 선물": 1.0, "도움 닫기": 1.1, "번뜩임": 0.8,
-            "느슨함 혐오자": 0.9, "극도의 느슨함 혐오자": 1.5,
-            "과속": 0.8, "저속": 0.3, "이럇!": 0.7, "아주 큰 화목 난로": 1.0, "거대한 산불": 1.3,
-            "무거운 짐": -0.6, "가벼운 짐": -0.3,
-        }
-        survival_ctx = self._generic_survival_context(state, player, player.current_character)
-        best = None
-        best_score = 0.0
-        details = {}
-        for card in hand:
-            immediate_cost = self._predict_trick_cash_cost(card)
-            if immediate_cost > 0.0 and not self._is_action_survivable(state, player, immediate_cost=immediate_cost, survival_ctx=survival_ctx, buffer=0.5):
-                details[card.name] = -999.0
-                continue
-            score = supported.get(card.name, -99.0)
-            if card.name == "무료 증정" and player.cash >= 3:
-                score += 0.6
-            if card.name == "과속" and player.cash >= 2:
-                score += 0.4
-            if card.name == "저속":
-                score += 0.2 if player.cash < 6 else -0.5
-            if card.name == "재뿌리기":
-                score += 0.4 if any(state.tile_owner[i] not in {None, player.player_id} for i in range(len(state.board)) if state.tile_at(i).purchase_cost is not None) else -1.0
-            if card.name == "긴장감 조성":
-                score += 0.5 if player.tiles_owned > 0 else -1.0
-            if card.name == "무역의 선물":
-                score += 0.4 if player.tiles_owned > 0 and any(own is not None and own != player.player_id for own in state.tile_owner) else -1.0
-            if card.name in {"무거운 짐", "가벼운 짐"}:
-                score = -1.0
-            score += self._trick_survival_adjustment(state, player, card, survival_ctx)
-            details[card.name] = round(score, 3)
-            if score > best_score:
-                best = card
-                best_score = score
-        self._set_debug("trick_use", player.player_id, {
-            "scores": details,
-            "chosen": None if best is None else best.name,
-            "generic_survival_score": round(survival_ctx["generic_survival_score"], 3),
-            "survival_urgency": round(survival_ctx["survival_urgency"], 3),
-        })
-        return best
-
+        from policy.decision.trick_use import choose_trick_to_use as _impl
+        return _impl(state, player, hand, self)
     def choose_specific_trick_reward(self, state: GameState, player: PlayerState, choices: list[TrickCard]) -> TrickCard | None:
         if not choices:
             return None
@@ -3262,325 +2777,11 @@ class HeuristicPolicy(BasePolicy):
         return None
 
     def choose_movement(self, state: GameState, player: PlayerState) -> MovementDecision:
-        best_score = -10**9
-        best = MovementDecision(False, ())
-        board_len = len(state.board)
-        survival_ctx = self._generic_survival_context(state, player, player.current_character)
-        f_ctx = self._f_progress_context(state, player)
-
-        token_profile = self._profile_from_mode() == "token_opt"
-        v3_profile = self._profile_from_mode() == "v3_claude"
-        placeable_tiles = set(self._placeable_own_tiles(state, player))
-
-        def _move_bonus(pos: int) -> float:
-            bonus = 0.0
-            if token_profile and pos in placeable_tiles and player.hand_coins > 0:
-                revisit_gap = (pos - player.position) % board_len
-                bonus += 8.5 + 0.9 * state.tile_coins[pos] + (1.2 if revisit_gap <= 4 else 0.4)
-            if token_profile and state.tile_owner[pos] == player.player_id:
-                bonus += 2.2 + 0.25 * state.tile_coins[pos]
-            if token_profile and state.board[pos] in {CellKind.F1, CellKind.F2}:
-                bonus += max(0.0, 0.35 * float(f_ctx["land_f_value"]))
-            # [v3_claude] 탐관오리 전략: 상대가 내 칸으로 오면 조각 2개당 1냥 수취
-            # 탐관오리는 이동 방향이 아니라 '머물 위치'가 중요
-            # → 상대 플레이어들이 자주 지나가는 칸(교통량 높은 칸)에 위치하는 게 유리
-            # → 이동 결정: 상대 뒤쪽(상대가 지나쳐갈 위치)보다는 빈 타일 매입이 우선
-            # (별도 이동 보너스 없음 - 탐관오리의 이동 우선순위는 일반 구매/F칸 논리를 따름)
-            return bonus
-
-        def _eval_move(pos: int, move_total: int, *, use_cards: bool = False, card_count: int = 0) -> float:
-            predicted_cost = self._predict_tile_landing_cost(state, player, pos)
-            cell = state.board[pos]
-            # [burden_patch v3] 악성 타일 강화 회피:
-            # 카드 사용 여부와 무관하게, 악성 타일 비용이 생존선을 침범하면 하드 블록
-            if cell == CellKind.MALICIOUS and predicted_cost > 0.0:
-                if not self._is_action_survivable(state, player, immediate_cost=predicted_cost, survival_ctx=survival_ctx, buffer=0.0):
-                    return -10**8
-            if use_cards and predicted_cost > 0.0 and not self._is_action_survivable(state, player, immediate_cost=predicted_cost, survival_ctx=survival_ctx, buffer=0.5 * card_count):
-                return -10**8
-            projected_cash = self._project_end_turn_cash(state, player, immediate_cost=predicted_cost, crosses_start=(player.position + move_total >= len(state.board)))
-            score = self._landing_score(state, player, pos)
-            score += _move_bonus(pos)
-            score += self._movement_survival_adjustment(state, player, pos, move_total, survival_ctx, projected_cash=projected_cash)
-            score += self._f_move_adjustment(state, player, pos, move_total, survival_ctx, f_ctx, use_cards=use_cards, card_count=card_count)
-            if use_cards and predicted_cost > 0.0 and not self._is_action_survivable(state, player, immediate_cost=predicted_cost, survival_ctx=survival_ctx, buffer=0.0):
-                score -= 8.0
-            return score
-
-        base_scores = []
-        for d1 in range(1, 7):
-            for d2 in range(1, 7):
-                move_total = d1 + d2
-                pos = (player.position + move_total) % board_len
-                base_scores.append(_eval_move(pos, move_total, use_cards=False, card_count=0))
-        avg_no_cards = sum(base_scores) / len(base_scores)
-        best_score = avg_no_cards
-
-        # [burden_patch v3] 악성 타일 회피 우선: 카드 없이 가면 악성 타일이 불가피할 때
-        # 주사위 카드로 악성 타일을 피할 수 있으면 평균 점수 비교 대신 우선 선택
-        no_card_malicious_unavoidable = all(
-            state.board[(player.position + d1 + d2) % board_len] == CellKind.MALICIOUS
-            or not self._is_action_survivable(
-                state, player,
-                immediate_cost=self._predict_tile_landing_cost(state, player, (player.position + d1 + d2) % board_len),
-                survival_ctx=survival_ctx, buffer=0.0,
-            )
-            for d1 in range(1, 7) for d2 in range(1, 7)
-        )
-
-        remaining = self._remaining_cards(player)
-        for c in remaining:
-            vals = []
-            for d in range(1, 7):
-                move_total = c + d
-                pos = (player.position + move_total) % board_len
-                vals.append(_eval_move(pos, move_total, use_cards=True, card_count=1))
-            score = sum(vals) / len(vals)
-            # 카드로 악성 타일을 일부 피할 수 있고, 카드 없인 불가피하면 보너스
-            if no_card_malicious_unavoidable:
-                safe_count = sum(
-                    1 for d in range(1, 7)
-                    if state.board[(player.position + c + d) % board_len] != CellKind.MALICIOUS
-                    and self._is_action_survivable(
-                        state, player,
-                        immediate_cost=self._predict_tile_landing_cost(state, player, (player.position + c + d) % board_len),
-                        survival_ctx=survival_ctx, buffer=0.0,
-                    )
-                )
-                if safe_count > 0:
-                    score += 4.0 + 0.8 * safe_count  # 악성 회피 가능성에 강한 보너스
-            if score > best_score:
-                best_score = score
-                best = MovementDecision(True, (c,))
-        for a, b in combinations(remaining, 2):
-            move_total = a + b
-            pos = (player.position + move_total) % board_len
-            score = _eval_move(pos, move_total, use_cards=True, card_count=2)
-            if score > best_score:
-                best_score = score
-                best = MovementDecision(True, (a, b))
-        return best
-
+        from policy.decision.movement import choose_movement as _impl
+        return _impl(state, player, self)
     def choose_lap_reward(self, state: GameState, player: PlayerState) -> LapRewardDecision:
-        mode = self._lap_mode_for_player(player.player_id)
-        if mode == "cash_focus":
-            return self._lap_reward_bundle(state, 1.0, 0.01, 0.01, preferred="cash")
-        if mode == "shard_focus":
-            return self._lap_reward_bundle(state, 0.01, 1.0, 0.01, preferred="shards")
-        if mode == "coin_focus":
-            return self._lap_reward_bundle(state, 0.01, 0.01, 1.0, preferred="coins")
-        placeable = any(state.tile_owner[i] == player.player_id and state.tile_coins[i] < state.config.rules.token.max_coins_per_tile for i in player.visited_owned_tile_indices)
-        buy_value = self._expected_buy_value(state, player)
-        cross_start = self._will_cross_start(state, player)
-        land_f = self._will_land_on_f(state, player)
-        survival_ctx = self._generic_survival_context(state, player, player.current_character)
-        f_ctx = self._f_progress_context(state, player)
-        # [burden_patch] survival_urgency >= 1.0 이 너무 늦은 트리거였음.
-        # 짐 2장 이상이거나 latent_cleanup_cost 가 현금 50% 초과면 urgency 무관하게 현금 압박 상태로 본다.
-        _scp_burdens = sum(1 for c in player.trick_hand if c.is_burden)
-        _scp_latent = float(survival_ctx.get("latent_cleanup_cost", 0.0))
-        survival_cash_pressure = (
-            (
-                survival_ctx["survival_urgency"] >= 1.0
-                and (
-                    player.cash <= 4
-                    or survival_ctx["rent_pressure"] >= 1.2
-                    or survival_ctx["lethal_hit_prob"] > 0.0
-                    or survival_ctx["own_burden_cost"] > 0.0
-                    or survival_ctx["cleanup_pressure"] >= 2.0
-                )
-            )
-            or (_scp_burdens >= 2)
-            or (_scp_burdens >= 1 and _scp_latent >= player.cash * 0.5)
-        )
-        if mode.startswith("heuristic_v2_"):
-            profile = self._profile_from_mode(mode)
-            preferred_override: str | None = None
-            current_char = player.current_character
-            coin_score = (2.5 if placeable else -0.5) + (1.6 if current_char in {"객주", "사기꾼"} else 0.0) + 1.2 * cross_start
-            if current_char == "중매꾼":
-                coin_score += 0.9 + 0.35 * self._matchmaker_adjacent_value(state, player)
-            elif current_char == "건설업자":
-                coin_score += 1.00 + 0.55 * self._builder_free_purchase_value(state, player)
-            shard_score = 0.8 + (1.9 if current_char in {"산적", "탐관오리", "아전"} else 0.0) + 0.35 * max(0, 6 - player.shards) + max(0.0, 0.7 * land_f * float(f_ctx["land_f_value"]))
-            if current_char == "중매꾼" and player.shards < 2:
-                shard_score += 0.75 + 0.20 * max(0, 2 - player.shards)
-            if current_char == "박수":
-                # 폴백 임계(5개) 미달: 조각 적극 모으기. 임계 달성 후: 현금/코인 전환
-                if player.shards < 5:
-                    shard_score += 0.80 + 0.12 * (5 - player.shards)
-                else:
-                    shard_score -= 0.30  # 임계 달성 후 조각 선호 억제 → 현금/코인으로
-            if current_char == "만신":
-                # 폴백 임계(7개) 미달: 적극 모으기. 임계 달성 후: 현금/코인 전환
-                visible_enemy_burdens = sum(
-                    self._visible_burden_count(state.players[player.player_id], p)
-                    for p in state.players
-                    if p.alive and p.player_id != player.player_id
-                )
-                if player.shards < 7:
-                    base_shard = 0.70 + 0.10 * (7 - player.shards)
-                else:
-                    base_shard = -0.20  # 임계 달성 후 억제
-                shard_score += base_shard + 0.15 * min(2, visible_enemy_burdens)
-            cash_score = 1.2 + 0.4 * max(0, 10 - player.cash)
-            if survival_cash_pressure:
-                cash_score += 1.35 + 0.95 * survival_ctx["survival_urgency"] + 0.25 * max(0.0, -survival_ctx["cash_after_reserve"])
-                coin_score -= 0.55 * survival_ctx["survival_urgency"]
-                shard_score -= 0.40 * survival_ctx["survival_urgency"]
-                if placeable and survival_ctx["recovery_score"] >= 1.2:
-                    coin_score += 0.25
-            # [burden_patch] 짐 보유 시 랩보상에서 현금 선택 압력 추가
-            # latent_cleanup_cost 가 크거나 짐을 여러 장 들고 있으면 현금으로 유동성을 확보해야 한다.
-            _lap_latent = float(survival_ctx.get("latent_cleanup_cost", 0.0))
-            _lap_burdens = float(survival_ctx.get("own_burdens", 0.0))
-            _lap_expected = float(survival_ctx.get("expected_cleanup_cost", 0.0))
-            if _lap_burdens >= 1.0:
-                # 짐 1장당 +0.70, latent_cleanup / expected_cleanup 가중치 반영
-                cash_score += 0.70 * _lap_burdens + 0.40 * _lap_latent + 0.35 * _lap_expected
-                coin_score -= 0.30 * _lap_burdens
-                shard_score -= 0.20 * _lap_burdens
-            if not bool(f_ctx["is_leader"]):
-                cash_score += 0.45 + 0.30 * float(f_ctx["avoid_f_acceleration"])
-                shard_score -= 0.35 + 0.20 * float(f_ctx["avoid_f_acceleration"])
-            if current_char == "객주":
-                shard_score += max(0.0, 0.9 * land_f * float(f_ctx["land_f_value"]))
-                coin_score += 0.8 * cross_start
-            if profile == "control":
-                denial_snapshot = self._leader_denial_snapshot(state, player)
-                emergency = float(denial_snapshot["emergency"])
-                liquidity = self._liquidity_risk_metrics(state, player, player.current_character)
-                rent_pressure, _ = self._rent_pressure_breakdown(state, player, player.current_character or "")
-                burden_count = sum(1 for c in player.trick_hand if c.is_burden)
-                burden_context = self._burden_context(state, player)
-                cleanup_pressure = float(burden_context.get("cleanup_pressure", 0.0))
-                low_cash = max(0.0, 7.0 - player.cash)
-                finisher_window, _ = self._control_finisher_window(player)
-                shard_score += 1.1 + 0.55 * emergency
-                cash_score += 0.1
-                if denial_snapshot.get("solo_leader"):
-                    shard_score += 0.45
-                if denial_snapshot.get("near_end"):
-                    shard_score += 0.55
-                if player.current_character in {"교리 연구관", "교리 감독관", "산적", "탐관오리", "아전", "어사", "사기꾼"}:
-                    shard_score += 0.4
-                if placeable:
-                    coin_score += 0.45
-                if finisher_window > 0.0 and placeable and liquidity["cash_after_reserve"] >= 0.5:
-                    coin_score += 1.85 + 0.55 * finisher_window
-                    cash_score += 0.25 * finisher_window
-                    preferred_override = "coins"
-                if finisher_window > 0.0 and buy_value > 0.0 and liquidity["cash_after_reserve"] >= 0.0:
-                    cash_score += 0.35 + 0.15 * finisher_window
-                if low_cash > 0.0:
-                    cash_score += 0.55 * low_cash
-                if liquidity["cash_after_reserve"] <= 0.0:
-                    cash_score += 0.9 + 0.2 * max(0.0, -float(liquidity["cash_after_reserve"]))
-                if rent_pressure >= 1.7:
-                    cash_score += 0.45 + 0.18 * rent_pressure
-                if burden_count >= 1 and cleanup_pressure >= 2.2:
-                    cash_score += 0.5 + 0.18 * burden_count + 0.08 * max(0.0, cleanup_pressure - 2.2)
-                if player.cash <= 3:
-                    cash_score += 2.0
-                elif player.cash <= 5 and liquidity["cash_after_reserve"] <= -0.5 and emergency < 3.0:
-                    cash_score += 1.5
-                elif player.cash <= 6 and rent_pressure >= 2.0 and emergency < 2.6:
-                    cash_score += 1.25
-            elif profile == "growth":
-                shard_score += 0.4
-                coin_score += 0.8
-            elif profile == "avoid_control":
-                cash_score += 0.8
-            elif profile == "aggressive":
-                coin_score += 1.8
-                cash_score -= 0.2
-            elif profile == "token_opt":
-                own_land = self._prob_land_on_placeable_own_tile(state, player)
-                token_combo = self._token_teleport_combo_score(player)
-                token_window = self._token_placement_window_metrics(state, player)
-                coin_score += 1.8 + 2.1 * own_land + 0.9 * token_combo + 0.75 * token_window["window_score"]
-                if token_window["placeable_count"] <= 0.0:
-                    coin_score -= 2.1
-                    cash_score += 0.55
-                if token_window["nearest_distance"] <= 4.0:
-                    coin_score += 0.9
-                if token_window["revisit_prob"] >= 0.28:
-                    coin_score += 0.8
-                if player.hand_coins >= 3 and token_window["revisit_prob"] < 0.12:
-                    cash_score += 0.9
-                shard_score += max(0.0, 0.20 * land_f * float(f_ctx["land_f_value"]))
-                cash_score -= 0.2
-            elif profile == "v3_claude":
-                # [v3_claude v2] 랩보상 원칙:
-                # 초반(랩 1회 이하): 코인 투자 가능 (타일 기반 구축)
-                # 중반(랩 2회+): 현금 우선 전환
-                # 조각: 인물별 임계까지만, 항상 산적/탐관오리/아전 보정 포함
-                laps_done = getattr(state, 'rounds_completed', 0) // max(1, sum(1 for p in state.players if p.alive))
-                char = current_char or ""
-
-                # 조각 임계
-                shard_threshold = 5 if char == "박수" else 7 if char == "만신" else 4
-                gap = shard_threshold - player.shards
-                if gap > 0:
-                    # 임계까지 부족한 만큼 강하게 선호
-                    # 특히 임계 바로 1개 아래(gap=1)일 때 강제에 가깝게
-                    urgency_bonus = 2.0 if gap == 1 else (0.8 + 0.12 * gap)
-                    shard_score += urgency_bonus
-                    if gap == 1 and char in {"박수", "만신"}:
-                        # 조각 1개만 더 있으면 폴백 확정 → 현금/코인 억제
-                        cash_score -= 0.8
-                        coin_score -= 0.8
-                        reasons_lap = f"shard_one_away_from_fallback({char})"
-                elif char in {"산적", "탐관오리", "아전"}:
-                    shard_score += 0.5  # 조각 현금환전 인물은 계속 유지
-                else:
-                    shard_score -= 0.3  # 임계 초과 억제
-
-                # 코인: 초반 + 타일 있고 재방문 가능할 때만
-                if laps_done <= 1 and placeable:
-                    token_window = self._token_placement_window_metrics(state, player)
-                    if token_window["revisit_prob"] >= 0.18:
-                        coin_score += 1.0 + 0.6 * token_window["revisit_prob"]
-                    else:
-                        coin_score -= 0.2
-                elif placeable and player.hand_coins < 1:
-                    token_window = self._token_placement_window_metrics(state, player)
-                    if token_window["revisit_prob"] >= 0.25:
-                        coin_score += 0.6
-                    else:
-                        coin_score -= 0.4
-                else:
-                    coin_score -= 0.5
-
-                # 현금: 중후반 강화 + 생존 압박 시
-                cash_score += 0.5 + 0.2 * max(0, laps_done - 1)
-                if player.cash < 10:
-                    cash_score += 0.8
-            cash_unit = cash_score / max(1.0, float(state.config.coins.lap_reward_cash))
-            shard_unit = shard_score / max(1.0, float(state.config.shards.lap_reward_shards))
-            coin_unit = coin_score / max(1.0, float(state.config.coins.lap_reward_coins))
-            preferred = preferred_override or max([("cash", cash_score), ("shards", shard_score), ("coins", coin_score)], key=lambda x: x[1])[0]
-            return self._lap_reward_bundle(state, cash_unit, shard_unit, coin_unit, preferred=preferred)
-        if mode == "balanced":
-            if survival_cash_pressure:
-                return self._lap_reward_bundle(state, 1.0, 0.2, 0.1, preferred="cash")
-            if placeable and player.hand_coins < 2:
-                return self._lap_reward_bundle(state, 0.2, 0.1, 1.0, preferred="coins")
-            if player.cash < 8:
-                return self._lap_reward_bundle(state, 1.0, 0.2, 0.1, preferred="cash")
-            if player.current_character in {"산적", "탐관오리", "아전"} or player.shards < 4:
-                return self._lap_reward_bundle(state, 0.2, 1.0, 0.1, preferred="shards")
-            return self._lap_reward_bundle(state, 1.0, 0.2, 0.1, preferred="cash")
-        if survival_cash_pressure:
-            return self._lap_reward_bundle(state, 1.0, 0.2, 0.1, preferred="cash")
-        if player.cash < 8:
-            return self._lap_reward_bundle(state, 1.0, 0.2, 0.1, preferred="cash")
-        if player.current_character in {"산적", "탐관오리", "아전"}:
-            return LapRewardDecision("shards")
-        if placeable:
-            return LapRewardDecision("coins")
-        return self._lap_reward_bundle(state, 1.0, 0.2, 0.1, preferred="cash")
-
+        from policy.decision.lap_reward import choose_lap_reward as _impl
+        return _impl(state, player, self)
     def choose_coin_placement_tile(self, state: GameState, player: PlayerState) -> Optional[int]:
         candidates = [
             i for i in player.visited_owned_tile_indices
@@ -3614,138 +2815,8 @@ class HeuristicPolicy(BasePolicy):
         return True
 
     def choose_purchase_tile(self, state: GameState, player: PlayerState, pos: int, cell: CellKind, cost: int, *, source: str = "landing") -> bool:
-        if cost <= 0 or self._is_random_mode():
-            return True
-        liquidity = self._liquidity_risk_metrics(state, player, player.current_character)
-        survival_ctx = self._generic_survival_context(state, player, player.current_character)
-        remaining_cash = player.cash - cost
-        reserve = max(float(liquidity["reserve"]), float(survival_ctx["reserve"]))
-        if not self._is_action_survivable(state, player, immediate_cost=float(cost), survival_ctx=survival_ctx, reserve_floor=reserve, buffer=0.5):
-            self._set_debug("purchase_decision", player.player_id, {
-                "source": source,
-                "pos": pos,
-                "cell": cell.name,
-                "cost": cost,
-                "decision": False,
-                "reason": "global_action_survival_guard",
-                "reserve": round(float(reserve), 3),
-                "cash": player.cash,
-            })
-            return False
-        complete_monopoly = self._would_complete_monopoly_with_purchase(state, player, pos)
-        blocks_enemy = self._would_block_enemy_monopoly_with_purchase(state, player, pos)
-        immediate_win = False
-        if state.config.rules.end.tiles_to_trigger_end and player.tiles_owned + 1 >= state.config.rules.end.tiles_to_trigger_end:
-            immediate_win = True
-        if state.config.rules.end.monopolies_to_trigger_end and complete_monopoly:
-            immediate_win = True
-        if immediate_win:
-            decision = True
-        else:
-            benefit = 0.8
-            if cell == CellKind.T3:
-                benefit += 1.4
-            elif cell == CellKind.T2:
-                benefit += 0.8
-            if complete_monopoly:
-                benefit += 2.4
-            if blocks_enemy:
-                benefit += 3.2
-            elif state.block_ids[pos] >= 0:
-                owned_in_block = sum(1 for i, bid in enumerate(state.block_ids) if bid == state.block_ids[pos] and state.tile_owner[i] == player.player_id)
-                benefit += 0.45 * owned_in_block
-            profile = self._profile_from_mode()
-            if profile in {"growth", "aggressive"}:
-                benefit += 0.35
-            if profile == "token_opt" and state.tile_owner[pos] is None:
-                benefit += 0.25
-            # [burden_patch] aggressive/token_opt/growth는 기본 survival 가중치가 낮아
-            # 짐 보유 중에도 구매를 강행하는 경향이 있다.
-            # 짐 보유 시 benefit을 프로파일별로 추가 감산해 구매 억제를 보완한다.
-            own_burden_count_purchase = sum(1 for c in player.trick_hand if c.is_burden)
-            if own_burden_count_purchase >= 1:
-                burden_benefit_penalty = {
-                    "aggressive": 0.55,
-                    "token_opt":  0.35,
-                    "growth":     0.30,
-                    "balanced":   0.10,
-                    "control":    0.05,
-                    "avoid_control": 0.0,
-                    "v3_claude":  0.45,  # 짐 보유 중 구매 강하게 억제 (생존 우선)
-                }.get(profile, 0.10)
-                benefit -= burden_benefit_penalty * own_burden_count_purchase
-            money_distress = float(survival_ctx.get("money_distress", 0.0))
-            reserve_floor = reserve + 1.25 * float(survival_ctx.get("two_turn_lethal_prob", 0.0)) + 0.65 * money_distress
-            # [burden_patch] 짐 보유 중 구매 억제 강화: latent/expected 가중치를 0.28/0.22 → 0.65/0.50 으로 상향
-            # 짐을 들고 있는 상태에서 구매로 현금을 소진하면 청산 시 파산 위험이 크게 높아진다.
-            latent_cleanup = float(survival_ctx.get("latent_cleanup_cost", 0.0))
-            expected_cleanup = float(survival_ctx.get("expected_cleanup_cost", 0.0))
-            # [v3_claude] 짐 없을 때 reserve_floor 경감 (구매 억제 과잉 해소)
-            #             짐 있을 때 reserve_floor 강화 (파산 방지)
-            if profile == "v3_claude":
-                if own_burden_count_purchase == 0:
-                    # 짐 없으면 latent/expected 반영 비율을 낮춰 구매 문턱 낮춤
-                    reserve_floor += 0.30 * latent_cleanup
-                    reserve_floor += 0.20 * expected_cleanup
-                else:
-                    # 짐 보유 중엔 기존보다 더 강하게 reserve 확보
-                    reserve_floor += 0.85 * latent_cleanup
-                    reserve_floor += 0.70 * expected_cleanup
-            else:
-                reserve_floor += 0.65 * latent_cleanup
-                reserve_floor += 0.50 * expected_cleanup
-            if float(survival_ctx.get("public_cleanup_active", 0.0)) > 0.0:
-                reserve_floor += 0.65 * float(survival_ctx.get("active_cleanup_cost", 0.0))
-            if float(survival_ctx.get("needs_income", 0.0)) > 0.0:
-                reserve_floor += 1.0
-            shortfall = max(0.0, reserve_floor - remaining_cash)
-            danger_cash = remaining_cash <= max(5.0, 0.60 * reserve_floor)
-            own_burdens = float(survival_ctx.get("own_burdens", 0.0))
-            cleanup_lock = (
-                float(survival_ctx.get("public_cleanup_active", 0.0)) > 0.0
-                and remaining_cash < float(survival_ctx.get("active_cleanup_cost", 0.0))
-                and not blocks_enemy and not complete_monopoly
-            ) or (
-                float(survival_ctx.get("latent_cleanup_cost", 0.0)) >= max(8.0, player.cash * 0.8)
-                and remaining_cash < reserve_floor
-                and not blocks_enemy and not complete_monopoly
-            ) or (
-                # [burden_patch] 짐 2장 이상 보유 중 현금이 빠듯하면 구매 차단
-                own_burdens >= 2.0
-                and float(survival_ctx.get("expected_cleanup_cost", 0.0)) >= player.cash * 0.45
-                and remaining_cash < reserve_floor
-                and not blocks_enemy and not complete_monopoly
-            )
-            # [v3_claude + 시스템 이해] 박수 + 조각 5개 이상 + 짐 있으면
-            # 폴백이 확정되어 짐 파산 위험이 없으므로 cleanup_lock 해제
-            if profile == "v3_claude" and cleanup_lock and own_burden_count_purchase >= 1:
-                if player.current_character == "박수" and player.shards >= 5:
-                    cleanup_lock = False  # 폴백으로 짐 해소 확정 → 구매 허용
-            decision = not (
-                shortfall > benefit
-                or (danger_cash and shortfall > 0.25)
-                or (money_distress >= 1.1 and not blocks_enemy and not complete_monopoly and remaining_cash < reserve_floor + 1.0)
-                or cleanup_lock
-            )
-        self._set_debug("purchase_decision", player.player_id, {
-            "source": source,
-            "pos": pos,
-            "cell": cell.name,
-            "cost": cost,
-            "cash_before": player.cash,
-            "cash_after": remaining_cash,
-            "reserve": round(reserve, 3),
-            "money_distress": round(float(survival_ctx.get("money_distress", 0.0)), 3),
-            "two_turn_lethal_prob": round(float(survival_ctx.get("two_turn_lethal_prob", 0.0)), 3),
-            "latent_cleanup_cost": round(float(survival_ctx.get("latent_cleanup_cost", 0.0)), 3),
-            "cleanup_cash_gap": round(float(survival_ctx.get("cleanup_cash_gap", 0.0)), 3),
-            "expected_loss": round(liquidity["expected_loss"], 3),
-            "worst_loss": round(liquidity["worst_loss"], 3),
-            "blocks_enemy_monopoly": blocks_enemy,
-            "decision": decision,
-        })
-        return decision
-
+        from policy.decision.purchase import choose_purchase_tile as _impl
+        return _impl(state, player, pos, cell, cost, self, source=source)
     def _escape_package_names(self) -> set[str]:
         return {"박수", "만신", "탈출 노비"}
 
@@ -3866,241 +2937,17 @@ class HeuristicPolicy(BasePolicy):
         return bonus
 
     def choose_draft_card(self, state: GameState, player: PlayerState, offered_cards: list[int]) -> int:
-        if self._is_random_mode():
-            choice = self._choice(offered_cards)
-            self._set_debug("draft_card", player.player_id, {
-                "policy": self.character_policy_mode,
-                "offered_cards": offered_cards,
-                "candidate_scores": {str(c): 0.0 for c in offered_cards},
-                "chosen_card": choice,
-                "reasons": ["uniform_random"],
-            })
-            return choice
-        scored = {}
-        reasons = {}
-        survival_ctx, survival_orchestrator = self._build_survival_orchestrator(state, player, player.current_character)
-        marker_bonus = self._distress_marker_bonus(state, player, [state.active_by_card[c] for c in offered_cards])
-        for card_no in offered_cards:
-            active_name = state.active_by_card[card_no]
-            score, why = (self._character_score_breakdown_v2(state, player, active_name) if self._is_v2_mode() else self._character_score_breakdown(state, player, active_name))
-            survival_policy_bonus, survival_policy_why, survival_hard_block, survival_detail = self._survival_policy_character_advice(state, player, active_name, survival_orchestrator)
-            if survival_policy_bonus != 0.0:
-                score += survival_policy_bonus
-                why = [*why, *survival_policy_why]
-            bonus = marker_bonus.get(active_name, 0.0)
-            if bonus > 0.0:
-                bonus *= max(1.0, survival_orchestrator.weight_multiplier if survival_orchestrator.survival_first and active_name in LOW_CASH_INCOME_CHARACTERS | LOW_CASH_ESCAPE_CHARACTERS | LOW_CASH_CONTROLLER_CHARACTERS | {"박수", "만신"} else 1.0)
-                score += bonus
-                why = [*why, f"distress_marker_bonus={bonus:.2f}"]
-            survival_bonus, survival_why = self._character_survival_adjustment(state, player, active_name, survival_ctx)
-            if survival_bonus != 0.0:
-                score += survival_bonus
-                why = [*why, *survival_why]
-            scored[card_no] = score
-            reasons[card_no] = why
-        choice = max(offered_cards, key=lambda c: (scored[c], -c))
-        self._set_debug("draft_card", player.player_id, {
-            "policy": self.character_policy_mode,
-            "offered_cards": offered_cards,
-            "candidate_scores": {str(c): round(scored[c], 3) for c in offered_cards},
-            "candidate_characters": {str(c): state.active_by_card[c] for c in offered_cards},
-            "generic_survival_score": round(survival_ctx["generic_survival_score"], 3),
-            "survival_urgency": round(survival_ctx["survival_urgency"], 3),
-            "survival_first": survival_orchestrator.survival_first,
-            "survival_weight_multiplier": round(survival_orchestrator.weight_multiplier, 3),
-            "survival_severity_by_candidate": {state.active_by_card[c]: self._survival_policy_character_advice(state, player, state.active_by_card[c], survival_orchestrator)[3] for c in offered_cards},
-            "chosen_card": choice,
-            "chosen_character": state.active_by_card[choice],
-            "reasons": reasons[choice],
-        })
-        return choice
-
+        from policy.decision.draft import choose_draft_card as _impl
+        return _impl(state, player, offered_cards, self)
     def choose_final_character(self, state: GameState, player: PlayerState, card_choices: list[int]) -> str:
-        options = [state.active_by_card[c] for c in card_choices]
-        if self._is_random_mode():
-            choice = self._choice(options)
-            self._set_debug("final_character", player.player_id, {
-                "policy": self.character_policy_mode,
-                "offered_cards": card_choices,
-                "candidate_scores": {name: 0.0 for name in options},
-                "chosen_character": choice,
-                "reasons": ["uniform_random"],
-            })
-            return choice
-        scored = {}
-        reasons = {}
-        survival_ctx, survival_orchestrator = self._build_survival_orchestrator(state, player, player.current_character)
-        marker_bonus = self._distress_marker_bonus(state, player, options)
-        for name in options:
-            score, why = (self._character_score_breakdown_v2(state, player, name) if self._is_v2_mode() else self._character_score_breakdown(state, player, name))
-            survival_policy_bonus, survival_policy_why, survival_hard_block, survival_detail = self._survival_policy_character_advice(state, player, name, survival_orchestrator)
-            if survival_policy_bonus != 0.0:
-                score += survival_policy_bonus
-                why = [*why, *survival_policy_why]
-            bonus = marker_bonus.get(name, 0.0)
-            if bonus > 0.0:
-                bonus *= max(1.0, survival_orchestrator.weight_multiplier if survival_orchestrator.survival_first and name in LOW_CASH_INCOME_CHARACTERS | LOW_CASH_ESCAPE_CHARACTERS | LOW_CASH_CONTROLLER_CHARACTERS | {"박수", "만신"} else 1.0)
-                score += bonus
-                why = [*why, f"distress_marker_bonus={bonus:.2f}"]
-            survival_bonus, survival_why = self._character_survival_adjustment(state, player, name, survival_ctx)
-            if survival_bonus != 0.0:
-                score += survival_bonus
-                why = [*why, *survival_why]
-            scored[name] = score
-            reasons[name] = why
-        choice = max(options, key=lambda n: (scored[n], n))
-        self._set_debug("final_character", player.player_id, {
-            "policy": self.character_policy_mode,
-            "offered_cards": card_choices,
-            "candidate_scores": {name: round(scored[name], 3) for name in options},
-            "generic_survival_score": round(survival_ctx["generic_survival_score"], 3),
-            "survival_urgency": round(survival_ctx["survival_urgency"], 3),
-            "survival_first": survival_orchestrator.survival_first,
-            "survival_weight_multiplier": round(survival_orchestrator.weight_multiplier, 3),
-            "survival_severity_by_candidate": {name: self._survival_policy_character_advice(state, player, name, survival_orchestrator)[3] for name in options},
-            "chosen_character": choice,
-            "reasons": reasons[choice],
-        })
-        return choice
-
+        from policy.decision.draft import choose_final_character as _impl
+        return _impl(state, player, card_choices, self)
     def choose_mark_target(self, state: GameState, player: PlayerState, actor_name: str) -> Optional[str]:
-        legal_targets = self._allowed_mark_targets(state, player)
-        candidates = self._public_mark_guess_candidates(state, player)
-        if not legal_targets or not candidates:
-            self._set_debug("mark_target", player.player_id, {
-                "policy": self.character_policy_mode,
-                "actor_name": actor_name,
-                "candidate_scores": {},
-                "candidate_probabilities": {},
-                "chosen_target": None,
-                "reasons": ["no_public_guess_candidates" if legal_targets else "no_legal_targets"],
-            })
-            return None
-        if self._is_random_mode():
-            choice = self._choice(candidates)
-            self._set_debug("mark_target", player.player_id, {
-                "policy": self.character_policy_mode,
-                "actor_name": actor_name,
-                "candidate_scores": {c: 0.0 for c in candidates},
-                "candidate_probabilities": {c: round(1.0 / len(candidates), 3) for c in candidates},
-                "chosen_target": choice,
-                "reasons": ["uniform_random_public_guess"],
-            })
-            return choice
-        scored = {}
-        reasons = {}
-        for target_name in candidates:
-            score, why = self._public_target_name_score_breakdown(state, player, actor_name, target_name)
-            scored[target_name] = score
-            reasons[target_name] = why
-        probabilities, dist_meta = self._mark_guess_distribution(scored, len(legal_targets))
-        ordered = sorted(candidates, key=lambda name: (probabilities[name], scored[name], name), reverse=True)
-        top_name = ordered[0]
-        top_probability = dist_meta["top_probability"]
-        choice = self._weighted_choice(candidates, [probabilities[name] for name in candidates])
-        self._set_debug("mark_target", player.player_id, {
-            "policy": self.character_policy_mode,
-            "actor_name": actor_name,
-            "candidate_scores": {name: round(val, 3) for name, val in scored.items()},
-            "candidate_probabilities": {name: round(probabilities[name], 3) for name in candidates},
-            "chosen_target": choice,
-            "top_candidate": top_name,
-            "uniform_mix": round(dist_meta["uniform_mix"], 3),
-            "ambiguity": round(dist_meta["ambiguity"], 3),
-            "top_probability": round(top_probability, 3),
-            "second_probability": round(dist_meta["second_probability"], 3),
-            "reasons": reasons[choice],
-        })
-        return choice
-
+        from policy.decision.mark_target import choose_mark_target as _impl
+        return _impl(state, player, actor_name, self)
     def choose_active_flip_card(self, state: GameState, player: PlayerState, flippable_cards: list[int]) -> Optional[int]:
-        if not flippable_cards:
-            return None
-        if self._is_random_mode():
-            choice = self._choice(flippable_cards)
-            self._set_debug("marker_flip", player.player_id, {
-                "policy": self.character_policy_mode,
-                "candidate_scores": {str(c): 0.0 for c in flippable_cards},
-                "chosen_card": choice,
-                "reasons": ["uniform_random"],
-            })
-            return choice
-        scored = {}
-        reasons = {}
-        denial_snapshot = self._leader_denial_snapshot(state, player) if self._is_v2_mode() else None
-        marker_plan = self._leader_marker_flip_plan(state, player, denial_snapshot.get("top_threat") if denial_snapshot else None) if self._is_v2_mode() else None
-        opportunities = marker_plan["opportunities"] if marker_plan else {}
-        survival_ctx = self._generic_survival_context(state, player, player.current_character)
-        controller_need = float(survival_ctx.get("controller_need", 0.0))
-        money_distress = float(survival_ctx.get("money_distress", 0.0))
-        own_burden_cost = float(survival_ctx.get("own_burden_cost", 0.0))
-        for card_no in flippable_cards:
-            current = state.active_by_card[card_no]
-            a, b = CARD_TO_NAMES[card_no]
-            flipped = b if current == a else a
-            if self._is_v2_mode():
-                current_score, _ = self._character_score_breakdown_v2(state, player, current)
-                flipped_score, flipped_reasons = self._character_score_breakdown_v2(state, player, flipped)
-                deny = 0.0
-                for op in self._alive_enemies(state, player):
-                    tags = self._predicted_opponent_archetypes(state, player, op)
-                    if flipped in {"자객", "산적", "객주", "중매꾼", "건설업자"} and ("expansion" in tags or "geo" in tags or "cash_rich" in tags):
-                        deny += 0.6
-                    if current in {"중매꾼", "건설업자", "객주", "자객"} and ("expansion" in tags or "geo" in tags):
-                        deny += 0.6
-                if denial_snapshot and denial_snapshot["emergency"] > 0.0:
-                    if flipped in {"자객", "산적", "추노꾼", "사기꾼", "박수", "만신", "어사"}:
-                        deny += 0.9 + 0.25 * float(denial_snapshot["emergency"])
-                    if flipped in {"교리 연구관", "교리 감독관"}:
-                        deny += 0.8 + 0.3 * float(denial_snapshot["emergency"])
-                    if current in {"중매꾼", "건설업자", "객주", "파발꾼"} and denial_snapshot["near_end"]:
-                        deny += 0.7
-                card_plan = opportunities.get(card_no, {})
-                counter_delta = float(card_plan.get("score", 0.0))
-                if counter_delta != 0.0:
-                    deny += 1.15 * counter_delta
-                    flipped_need = float(card_plan.get("flipped_need", 0.0))
-                    current_need = float(card_plan.get("current_need", 0.0))
-                    if current_need > flipped_need:
-                        flipped_reasons = [f"counter_leader_needed_face={current_need - flipped_need:.2f}", *flipped_reasons]
-                    elif flipped_need > current_need:
-                        flipped_reasons = [f"avoid_feeding_leader={flipped_need - current_need:.2f}", *flipped_reasons]
-                if controller_need > 0.0 or money_distress > 0.0:
-                    if current in ACTIVE_MONEY_DRAIN_CHARACTERS and flipped not in ACTIVE_MONEY_DRAIN_CHARACTERS:
-                        relief = 0.95 + 0.75 * controller_need + 0.35 * money_distress
-                        if current == "만신" and own_burden_cost > 0.0:
-                            relief += 0.25 * own_burden_cost
-                        deny += relief
-                        flipped_reasons = [f"money_relief_flip={relief:.2f}", *flipped_reasons]
-                    elif flipped in ACTIVE_MONEY_DRAIN_CHARACTERS and current not in ACTIVE_MONEY_DRAIN_CHARACTERS:
-                        deny -= 0.80 + 0.55 * controller_need + 0.25 * money_distress
-                        flipped_reasons = ["avoid_enable_money_drain", *flipped_reasons]
-                scored[card_no] = (flipped_score - current_score) + deny
-                reasons[card_no] = [f"flip_to={flipped}", f"deny={deny:.1f}", *flipped_reasons]
-            else:
-                current_score, _ = self._character_score_breakdown(state, player, current)
-                flipped_score, flipped_reasons = self._character_score_breakdown(state, player, flipped)
-                score = flipped_score - current_score
-                if (controller_need > 0.0 or money_distress > 0.0) and current in ACTIVE_MONEY_DRAIN_CHARACTERS and flipped not in ACTIVE_MONEY_DRAIN_CHARACTERS:
-                    score += 0.90 + 0.70 * controller_need + 0.30 * money_distress
-                    flipped_reasons = ["money_relief_flip", *flipped_reasons]
-                elif (controller_need > 0.0 or money_distress > 0.0) and flipped in ACTIVE_MONEY_DRAIN_CHARACTERS and current not in ACTIVE_MONEY_DRAIN_CHARACTERS:
-                    score -= 0.75 + 0.50 * controller_need + 0.20 * money_distress
-                    flipped_reasons = ["avoid_enable_money_drain", *flipped_reasons]
-                scored[card_no] = score
-                reasons[card_no] = [f"flip_to={flipped}", *flipped_reasons]
-        choice = max(flippable_cards, key=lambda c: (scored[c], -c))
-        self._set_debug("marker_flip", player.player_id, {
-            "policy": self.character_policy_mode,
-            "candidate_scores": {str(c): round(scored[c], 3) for c in flippable_cards},
-            "chosen_card": choice,
-            "chosen_to": (CARD_TO_NAMES[choice][1] if state.active_by_card[choice] == CARD_TO_NAMES[choice][0] else CARD_TO_NAMES[choice][0]),
-            "reasons": reasons[choice],
-            "generic_survival_score": round(survival_ctx["generic_survival_score"], 3),
-            "money_distress": round(money_distress, 3),
-            "controller_need": round(controller_need, 3),
-        })
-        return choice
+        from policy.decision.marker_flip import choose_active_flip_card as _impl
+        return _impl(state, player, flippable_cards, self)
 
 class ArenaPolicy:
     """Routes decisions to per-player HeuristicPolicy instances for mixed-policy arena tests."""

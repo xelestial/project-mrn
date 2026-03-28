@@ -1,68 +1,33 @@
 from __future__ import annotations
-"""GptPlayerAgent — wraps GPT HeuristicPolicy as an AbstractPlayerAgent.
-
-GPT의 ai_policy는 CLAUDE와 survival_common 등 일부 모듈이 다르므로
-sys.modules를 일시 교체해 GPT 버전으로 격리 로드한다.
-"""
+"""GptPlayerAgent — wraps GPT HeuristicPolicy as an AbstractPlayerAgent."""
 
 import os
-import sys
-from typing import Any, Optional
+from typing import Any
 
 from .base_agent import AbstractPlayerAgent
+from .runtime_loader import load_policy_runtime
 
 _CLAUDE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _GPT_DIR = os.path.normpath(os.path.join(_CLAUDE_DIR, "..", "GPT"))
-
-# GPT 모듈과 충돌하는 모듈 목록 (CLAUDE와 다를 수 있는 것들)
-_GPT_OWN_MODULES = [
-    "survival_common", "policy_groups", "policy_mark_utils",
-    "policy_hooks", "ai_policy",
-    # policy 패키지
-    "policy", "policy.profile", "policy.profile.spec",
-    "policy.profile.registry", "policy.profile.presets",
-]
-
-
-def _load_gpt_policy_class():
-    """
-    GPT의 HeuristicPolicy 클래스를 격리 로드해 반환한다.
-    CLAUDE의 sys.modules를 보존하고 복원한다.
-    """
-    # 1. 충돌 모듈의 현재(CLAUDE) 버전 저장
-    saved = {k: sys.modules.pop(k) for k in _GPT_OWN_MODULES if k in sys.modules}
-
-    # 2. GPT 경로를 path 최상위에 삽입
-    sys.path.insert(0, _GPT_DIR)
-    orig_cwd = os.getcwd()
-    os.chdir(_GPT_DIR)
-
-    try:
-        # 3. GPT 버전으로 새로 임포트
-        import ai_policy as _gpt_ai_policy  # noqa: PLC0415
-        GptPolicy = _gpt_ai_policy.HeuristicPolicy
-        return GptPolicy
-    finally:
-        # 4. GPT 버전을 sys.modules에서 제거
-        for k in _GPT_OWN_MODULES:
-            sys.modules.pop(k, None)
-        # 5. CLAUDE 버전 복원
-        sys.modules.update(saved)
-        # 6. 경로 복원
-        if _GPT_DIR in sys.path:
-            sys.path.remove(_GPT_DIR)
-        os.chdir(orig_cwd)
-
-
-# 모듈 임포트 시 한 번만 로드
-_GptHeuristicPolicy = _load_gpt_policy_class()
+_GPT_RUNTIME_MODULES = (
+    "survival_common",
+    "policy_groups",
+    "policy_mark_utils",
+    "policy_hooks",
+    "ai_policy",
+)
+_GPT_RUNTIME = load_policy_runtime(
+    runtime_id="gpt",
+    root_dir=_GPT_DIR,
+    isolated_modules=_GPT_RUNTIME_MODULES,
+)
 
 
 class GptPlayerAgent(AbstractPlayerAgent):
     """GPT HeuristicPolicy를 AbstractPlayerAgent로 래핑."""
 
     def __init__(self, profile: str = "heuristic_v3_gpt"):
-        self._policy = _GptHeuristicPolicy(
+        self._policy = _GPT_RUNTIME.heuristic_policy_cls(
             character_policy_mode=profile,
             lap_policy_mode=profile,
         )
