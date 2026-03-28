@@ -203,7 +203,7 @@ def test_html_renderer(events: list[dict]) -> list[str]:
                     errors.append(
                         f"first replay frame is not session_start: {first.get('event_type')}"
                     )
-                if first.get("title") != "Session Start":
+                if first.get("title") != "게임 시작":
                     errors.append(f"unexpected first frame title: {first.get('title')}")
                 first_draft = next(
                     (frame for frame in parsed if frame.get("event_type") == "draft_pick"),
@@ -221,9 +221,9 @@ def test_html_renderer(events: list[dict]) -> list[str]:
                 )
                 if first_weather is None:
                     errors.append("missing weather_reveal frame in replay HTML")
-                elif not str(first_weather.get("title", "")).startswith("Weather: "):
+                elif not str(first_weather.get("title", "")).startswith("날씨 공개 - "):
                     errors.append("weather_reveal frame title is not populated")
-                elif str(first_weather.get("title", "")).strip() == "Weather: -":
+                elif str(first_weather.get("title", "")).strip() == "날씨 공개 - -":
                     errors.append("weather_reveal frame title still missing actual weather name")
                 elif not str(first_weather.get("weather", "")).strip():
                     errors.append("weather_reveal frame missing carried weather field")
@@ -276,6 +276,11 @@ def test_html_renderer(events: list[dict]) -> list[str]:
             errors.append(f"FRAMES JSON parse error: {exc}")
     else:
         errors.append("Could not extract FRAMES JSON from HTML")
+
+    if "현재 상황" not in html:
+        errors.append("HTML missing Korean situation heading")
+    if "종료 시간" not in html:
+        errors.append("HTML missing end-time label")
 
     return errors
 

@@ -13,6 +13,7 @@ _PLAYER_COLORS = ["#4e8ef7", "#e85d5d", "#5dbf5d", "#f0a030"]
 _PLAYER_LIGHTS = ["#1d355d", "#56252a", "#214827", "#5a4418"]
 _TILE_LABELS = {"F1": "F", "F2": "F", "S": "S", "T2": "2", "T3": "3", "MALICIOUS": "M"}
 _WEATHER_EFFECTS = {card.name: card.effect for card in load_weather_definitions()}
+_DEFAULT_END_TIME_LIMIT = 15.0
 _VISIBLE_FRAME_EVENTS = {
     "session_start",
     "round_start",
@@ -58,6 +59,17 @@ def _draft_card_names(card_no: object) -> str:
     return f"{left} / {right}"
 
 
+def _remaining_end_time(f_value: float | int | None, threshold: float = _DEFAULT_END_TIME_LIMIT) -> float:
+    return max(0.0, float(threshold) - float(f_value or 0.0))
+
+
+def _format_end_time(value: float | int) -> str:
+    numeric = float(value)
+    if numeric.is_integer():
+        return str(int(numeric))
+    return f"{numeric:.2f}"
+
+
 def _event_display(event: dict) -> dict:
     etype = event.get("event_type", "?")
     actor_id = event.get("acting_player_id")
@@ -86,9 +98,9 @@ def _event_display(event: dict) -> dict:
     }
     detail = ""
     if etype == "session_start":
-        detail = f"{event.get('player_count', '?')} players"
+        detail = f"플레이어 {event.get('player_count', '?')}명"
     elif etype == "round_start":
-        detail = f"round {event.get('round_index', '?')}"
+        detail = f"{event.get('round_index', '?')} 라운드"
     elif etype == "weather_reveal":
         detail = event.get("weather_name") or event.get("weather") or event.get("card", "")
     elif etype == "draft_pick":
@@ -158,15 +170,18 @@ def _event_display(event: dict) -> dict:
             pieces.append(f"승점 +{coins}")
         detail = " / ".join(pieces) if pieces else str(event.get("choice", event.get("resource_delta", "")))
     elif etype == "f_value_change":
-        detail = f"{event.get('before', '?')} -> {event.get('after', '?')}"
+        before_remaining = _remaining_end_time(event.get("before", 0.0))
+        after_remaining = _remaining_end_time(event.get("after", 0.0))
+        detail = f"{_format_end_time(before_remaining)} -> {_format_end_time(after_remaining)}"
     elif etype == "bankruptcy":
-        detail = "bankrupt"
+        detail = "파산"
     elif etype == "turn_end_snapshot":
-        detail = "snapshot"
+        detail = "턴 종료 스냅샷"
     elif etype == "game_end":
-        detail = event.get("end_reason", event.get("reason", "game end"))
+        detail = event.get("end_reason", event.get("reason", "게임 종료"))
     return {
         "event_type": etype,
+        "event_label": _event_type_korean(etype),
         "icon": icons.get(etype, ">"),
         "actor": f"P{actor_id}" if actor_id is not None else "-",
         "actor_id": actor_id,
@@ -273,27 +288,27 @@ def _apply_known_updates(event: dict, players: list[dict], board: dict) -> tuple
 def _frame_title(event: dict) -> str:
     etype = event.get("event_type")
     if etype == "session_start":
-        return "Session Start"
+        return "게임 시작"
     if etype == "round_start":
-        return f"Round {event.get('round_index', '?')} Start"
+        return f"{event.get('round_index', '?')} 라운드 시작"
     if etype == "weather_reveal":
         weather_name = event.get("weather_name") or event.get("weather") or event.get("card", "-")
-        return f"Weather: {weather_name}"
+        return f"날씨 공개 - {weather_name}"
     if etype == "draft_pick":
-        return f"Draft Pick - P{event.get('acting_player_id', '?')}"
+        return f"P{event.get('acting_player_id', '?')} 드래프트 선택"
     if etype == "final_character_choice":
-        return f"Final Character - P{event.get('acting_player_id', '?')}"
+        return f"P{event.get('acting_player_id', '?')} 최종 캐릭터 선택"
     if etype == "turn_start":
-        return f"Turn {event.get('turn_index', '?')} Start"
+        return f"{event.get('turn_index', '?')} 턴 시작"
     if etype == "turn_end_snapshot":
-        return f"Turn {event.get('turn_index', '?')} End"
+        return f"{event.get('turn_index', '?')} 턴 종료"
     if etype == "marker_transferred":
         return "징표 이동"
     if etype == "marker_flip":
-        return "징표 카드 Flip"
+        return "징표 카드 뒤집기"
     if etype == "game_end":
-        return "Game End"
-    return etype.replace("_", " ").title()
+        return "게임 종료"
+    return _event_type_korean(etype)
 
 
 def _event_type_korean(etype: str | None) -> str:
@@ -315,7 +330,7 @@ def _event_type_korean(etype: str | None) -> str:
         "marker_transferred": "징표 이동",
         "marker_flip": "징표 카드 뒤집기",
         "lap_reward_chosen": "랩 보상 선택",
-        "f_value_change": "F값 변화",
+        "f_value_change": "종료 시간 변화",
         "bankruptcy": "파산",
         "turn_end_snapshot": "턴 종료",
         "game_end": "게임 종료",
@@ -421,6 +436,7 @@ def _build_meta(proj: ReplayProjection, frames: list[dict]) -> dict:
         "total_frames": len(frames),
         "winner_player_id": session.winner_player_id,
         "end_reason": session.end_reason,
+        "end_time_limit": _DEFAULT_END_TIME_LIMIT,
     }
 
 
@@ -507,44 +523,44 @@ h1 { font-size:1rem; color:#ffd060; }
 </head>
 <body>
 <header>
-  <h1>Replay</h1>
-  <span class="badge">session {session_id_short}</span>
+  <h1>리플레이</h1>
+  <span class="badge">세션 {session_id_short}</span>
   <span class="badge" id="frame-counter">0 / 0</span>
-  <span class="badge">turns {total_turns}</span>
-  <span class="badge">rounds {total_rounds}</span>
+  <span class="badge">턴 {total_turns}</span>
+  <span class="badge">라운드 {total_rounds}</span>
   {winner_badge}
 </header>
 <div class="layout">
-  <aside class="nav-panel"><div class="sec-title">Timeline</div><div id="nav-list"></div></aside>
+  <aside class="nav-panel"><div class="sec-title">타임라인</div><div id="nav-list"></div></aside>
   <main class="main-panel">
     <section class="section">
       <div class="frame-header">
         <div><div class="frame-title" id="frame-title"></div><div class="frame-sub" id="frame-sub"></div></div>
         <div class="controls">
-          <button class="ctrl-btn" id="btn-first" onclick="goToFrame(0)">First</button>
-          <button class="ctrl-btn" id="btn-prev" onclick="prevFrame()">Prev</button>
-          <button class="ctrl-btn" id="btn-next" onclick="nextFrame()">Next</button>
-          <button class="ctrl-btn" id="btn-last" onclick="goToFrame(FRAMES.length - 1)">Last</button>
+          <button class="ctrl-btn" id="btn-first" onclick="goToFrame(0)">처음</button>
+          <button class="ctrl-btn" id="btn-prev" onclick="prevFrame()">이전</button>
+          <button class="ctrl-btn" id="btn-next" onclick="nextFrame()">다음</button>
+          <button class="ctrl-btn" id="btn-last" onclick="goToFrame(FRAMES.length - 1)">마지막</button>
         </div>
       </div>
       <div class="progress-row" style="margin-top:10px"><div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div><span id="progress-text">0%</span></div>
     </section>
     <div class="center-grid">
-      <section class="board-shell"><div class="sec-title">Board</div><div class="board-track" id="board-track"></div></section>
+      <section class="board-shell"><div class="sec-title">보드</div><div class="board-track" id="board-track"></div></section>
       <div style="display:flex;flex-direction:column;gap:12px">
         <section class="legend-box">
-          <div class="sec-title">Situation</div>
-          <div class="legend-row"><span>Weather</span><strong id="legend-weather">-</strong></div>
-          <div class="legend-row"><span>Frame</span><strong id="legend-frame">-</strong></div>
-          <div class="legend-row"><span>Round</span><strong id="legend-round">-</strong></div>
-          <div class="legend-row"><span>Turn</span><strong id="legend-turn">-</strong></div>
-          <div class="legend-row"><span>Actor</span><strong id="legend-actor">-</strong></div>
-          <div class="legend-row"><span>Type</span><strong id="legend-type">-</strong></div>
+          <div class="sec-title">현재 상황</div>
+          <div class="legend-row"><span>날씨</span><strong id="legend-weather">-</strong></div>
+          <div class="legend-row"><span>프레임</span><strong id="legend-frame">-</strong></div>
+          <div class="legend-row"><span>라운드</span><strong id="legend-round">-</strong></div>
+          <div class="legend-row"><span>턴</span><strong id="legend-turn">-</strong></div>
+          <div class="legend-row"><span>행동 플레이어</span><strong id="legend-actor">-</strong></div>
+          <div class="legend-row"><span>이벤트</span><strong id="legend-type">-</strong></div>
           <div class="legend-row"><span>징표 소유자</span><strong id="legend-marker">-</strong></div>
-          <div class="legend-row"><span>F값</span><strong id="legend-f">0.00</strong></div>
+          <div class="legend-row"><span>종료 시간</span><strong id="legend-f">15</strong></div>
           <div class="f-bar" style="margin-top:8px"><div class="f-fill" id="f-fill"></div></div>
         </section>
-        <section class="legend-box"><div class="sec-title">Recent Events</div><div class="event-feed" id="event-feed"></div></section>
+        <section class="legend-box"><div class="sec-title">최근 이벤트</div><div class="event-feed" id="event-feed"></div></section>
       </div>
     </div>
   </main>
@@ -554,12 +570,15 @@ h1 { font-size:1rem; color:#ffd060; }
 const META = {meta_json};
 const TURNS = {turns_json};
 const FRAMES = {frames_json};
+const END_TIME_LIMIT = Number(META.end_time_limit || 15);
 const PLAYER_COLORS = {player_colors_json};
 const PLAYER_LIGHTS = {player_lights_json};
 const TILE_LABELS = {tile_labels_json};
 let currentFrameIdx = 0;
 function tilePosition(i) { if (i <= 10) return {row:1,col:i + 1}; if (i <= 19) return {row:i - 9,col:11}; if (i <= 30) return {row:11,col:31 - i}; return {row:41 - i,col:1}; }
 function playerColor(id) { return id == null ? "#9bb0d8" : PLAYER_COLORS[(id - 1) % PLAYER_COLORS.length]; }
+function remainingEndTime(value) { return Math.max(0, END_TIME_LIMIT - Number(value || 0)); }
+function formatEndTime(value) { return Number.isInteger(value) ? String(value) : value.toFixed(2); }
 function buildNav() {
   const host = document.getElementById("nav-list"); host.innerHTML = ""; let lastRound = null;
   FRAMES.forEach((frame, idx) => {
@@ -570,7 +589,7 @@ function buildNav() {
 }
 function renderEventFeed(frame) {
   const feed = document.getElementById("event-feed"); const items = frame.recent_events || [];
-  feed.innerHTML = items.length ? items.map((event) => `<div class="event-item"><div>${event.icon}</div><div style="color:${playerColor(event.actor_id)}">${event.actor}</div><div class="event-type">${event.event_type}</div><div>${event.detail}</div></div>`).join("") : '<div class="status-sub">No visible events yet.</div>';
+  feed.innerHTML = items.length ? items.map((event) => `<div class="event-item"><div>${event.icon}</div><div style="color:${playerColor(event.actor_id)}">${event.actor}</div><div class="event-type">${event.event_label || event.event_type}</div><div>${event.detail}</div></div>`).join("") : '<div class="status-sub">아직 공개된 이벤트가 없습니다.</div>';
 }
 function renderBoard(frame) {
   const track = document.getElementById("board-track"); const board = frame.board || {}; const tiles = board.tiles || []; const players = frame.players || []; const pawnMap = new Map();
@@ -578,7 +597,8 @@ function renderBoard(frame) {
   track.innerHTML = "";
   const weatherText = frame.weather || "-";
   const weatherEffect = frame.weather_effect || "";
-  const center = document.createElement("div"); center.className = "board-center"; center.innerHTML = `<div class="status-value">${frame.title}</div><div class="status-sub">${frame.subtitle || "-"}</div><div class="status-grid"><div class="status-card"><div class="status-label">현재 이벤트</div><div class="status-value">${frame.event.icon} ${frame.event.actor}</div><div class="status-sub">${frame.event.detail || "-"}</div></div><div class="status-card"><div class="status-label">프레임</div><div class="status-value">${frame.frame_index + 1} / ${FRAMES.length}</div><div class="status-sub">${frame.event_type}</div></div><div class="status-card"><div class="status-label">라운드 / 턴 / 날씨</div><div class="status-value">R${frame.round_index || "-"} / T${frame.turn_index || "-"}</div><div class="status-sub">${weatherText}</div><div class="status-sub">${weatherEffect || "No weather effect text."}</div></div><div class="status-card"><div class="status-label">징표 소유자 / F값</div><div class="status-value">${board.marker_owner_player_id ? `P${board.marker_owner_player_id}` : "-"} / ${Number(board.f_value || 0).toFixed(2)}</div><div class="status-sub">전역 보드 상태</div></div></div>`; track.appendChild(center);
+  const remaining = remainingEndTime(board.f_value);
+  const center = document.createElement("div"); center.className = "board-center"; center.innerHTML = `<div class="status-value">${frame.title}</div><div class="status-sub">${frame.subtitle || "-"}</div><div class="status-grid"><div class="status-card"><div class="status-label">현재 이벤트</div><div class="status-value">${frame.event.icon} ${frame.event.actor}</div><div class="status-sub">${frame.event.detail || "-"}</div></div><div class="status-card"><div class="status-label">프레임</div><div class="status-value">${frame.frame_index + 1} / ${FRAMES.length}</div><div class="status-sub">${frame.event.event_label || frame.event_type}</div></div><div class="status-card"><div class="status-label">라운드 / 턴 / 날씨</div><div class="status-value">${frame.round_index || "-"} 라운드 / ${frame.turn_index || "-"} 턴</div><div class="status-sub">${weatherText}</div><div class="status-sub">${weatherEffect || "-"}</div></div><div class="status-card"><div class="status-label">징표 소유자 / 종료 시간</div><div class="status-value">${board.marker_owner_player_id ? `P${board.marker_owner_player_id}` : "-"} / ${formatEndTime(remaining)}</div><div class="status-sub">공개 보드 상태</div></div></div>`; track.appendChild(center);
   let highlightedTile = null; if (frame.event_type === "player_move") { const parts = String(frame.event.detail || "").split("->"); if (parts.length === 2) highlightedTile = Number(parts[1].trim()) - 1; } if (frame.event_type === "tile_purchased") { const match = String(frame.event.detail || "").match(/tile\\s+(\\d+)/); if (match) highlightedTile = Number(match[1]) - 1; }
   for (let idx = 0; idx < 40; idx += 1) {
     const tile = tiles[idx] || {}; const pos = tilePosition(idx); const owner = tile.owner_player_id; const card = document.createElement("div"); card.className = "tile"; card.style.gridColumn = String(pos.col); card.style.gridRow = String(pos.row);
@@ -602,17 +622,18 @@ function renderBoard(frame) {
   }
 }
 function renderPlayers(frame) {
-  const panel = document.getElementById("players-panel"); panel.innerHTML = '<div class="sec-title">Players</div>'; const actorId = frame.acting_player_id;
+  const panel = document.getElementById("players-panel"); panel.innerHTML = '<div class="sec-title">플레이어</div>'; const actorId = frame.acting_player_id;
   (frame.players || []).forEach((player) => {
     const pid = player.player_id; const color = playerColor(pid); const markStatus = player.mark_status || "clear"; const publicTricks = (player.public_tricks || []).join(", ") || "-"; const hiddenCount = Number(player.hidden_trick_count || 0); const effects = player.public_effects || []; const card = document.createElement("div");
     card.className = "player-card" + (pid === actorId ? " active" : "") + (player.alive === false ? " dead" : ""); if (pid === actorId) card.style.borderColor = color;
-    card.innerHTML = `<div class="player-name" style="color:${color}"><span>P${pid}</span><span>${player.alive === false ? "OUT" : `tile ${Number(player.position || 0) + 1}`}</span></div><div class="player-character">${player.character || "-"}</div><div class="status-sub">${player.display_name || `Player ${pid}`}</div><div class="stat-row" style="margin-top:6px"><span class="chip">$ ${player.cash ?? "?"}</span><span class="chip">Sh ${player.shards ?? "?"}</span><span class="chip">승점 보유 ${player.hand_score_coins ?? "?"}</span><span class="chip">승점 배치 ${player.placed_score_coins ?? "?"}</span><span class="chip">타일 ${player.owned_tile_count ?? "?"}</span></div><div style="margin-top:6px"><span class="mark mark-${markStatus}">${markStatus}</span></div><div class="status-sub" style="margin-top:6px">공개 잔꾀: ${publicTricks}</div><div class="status-sub">비공개 잔꾀: ${hiddenCount}장</div>${player.pending_mark_source ? `<div class="status-sub">지목 출처: P${player.pending_mark_source}</div>` : ""}${effects.length ? `<div class="chip-row" style="margin-top:6px">${effects.map((name) => `<span class="chip">${name}</span>`).join("")}</div>` : ""}`; panel.appendChild(card);
+    card.innerHTML = `<div class="player-name" style="color:${color}"><span>P${pid}</span><span>${player.alive === false ? "탈락" : `타일 ${Number(player.position || 0) + 1}`}</span></div><div class="player-character">${player.character || "-"}</div><div class="status-sub">${player.display_name || `Player ${pid}`}</div><div class="stat-row" style="margin-top:6px"><span class="chip">$ ${player.cash ?? "?"}</span><span class="chip">Sh ${player.shards ?? "?"}</span><span class="chip">승점 보유 ${player.hand_score_coins ?? "?"}</span><span class="chip">승점 배치 ${player.placed_score_coins ?? "?"}</span><span class="chip">타일 ${player.owned_tile_count ?? "?"}</span></div><div style="margin-top:6px"><span class="mark mark-${markStatus}">${markStatus}</span></div><div class="status-sub" style="margin-top:6px">공개 잔꾀: ${publicTricks}</div><div class="status-sub">비공개 잔꾀: ${hiddenCount}장</div>${player.pending_mark_source ? `<div class="status-sub">지목 출처: P${player.pending_mark_source}</div>` : ""}${effects.length ? `<div class="chip-row" style="margin-top:6px">${effects.map((name) => `<span class="chip">${name}</span>`).join("")}</div>` : ""}`; panel.appendChild(card);
   });
 }
 function renderFrame(idx) {
   currentFrameIdx = idx; const frame = FRAMES[idx];
   document.getElementById("frame-title").textContent = frame.title; document.getElementById("frame-sub").textContent = frame.subtitle || ""; document.getElementById("frame-counter").textContent = `${idx + 1} / ${FRAMES.length}`;
-  document.getElementById("legend-weather").textContent = frame.weather || "-"; document.getElementById("legend-frame").textContent = `${idx + 1} / ${FRAMES.length}`; document.getElementById("legend-round").textContent = frame.round_index || "-"; document.getElementById("legend-turn").textContent = frame.turn_index || "-"; document.getElementById("legend-actor").textContent = frame.acting_player_id ? `P${frame.acting_player_id}` : "-"; document.getElementById("legend-type").textContent = frame.event_type; document.getElementById("legend-marker").textContent = frame.board.marker_owner_player_id ? `P${frame.board.marker_owner_player_id}` : "-"; document.getElementById("legend-f").textContent = Number(frame.board.f_value || 0).toFixed(2); document.getElementById("f-fill").style.width = `${Math.max(0, Math.min(100, (Number(frame.board.f_value || 0) / 15) * 100))}%`; document.getElementById("progress-fill").style.width = `${FRAMES.length > 1 ? (idx / (FRAMES.length - 1)) * 100 : 0}%`; document.getElementById("progress-text").textContent = `${Math.round(FRAMES.length > 1 ? (idx / (FRAMES.length - 1)) * 100 : 0)}%`;
+  const remaining = remainingEndTime(frame.board.f_value);
+  document.getElementById("legend-weather").textContent = frame.weather || "-"; document.getElementById("legend-frame").textContent = `${idx + 1} / ${FRAMES.length}`; document.getElementById("legend-round").textContent = frame.round_index || "-"; document.getElementById("legend-turn").textContent = frame.turn_index || "-"; document.getElementById("legend-actor").textContent = frame.acting_player_id ? `P${frame.acting_player_id}` : "-"; document.getElementById("legend-type").textContent = frame.event.event_label || frame.event_type; document.getElementById("legend-marker").textContent = frame.board.marker_owner_player_id ? `P${frame.board.marker_owner_player_id}` : "-"; document.getElementById("legend-f").textContent = formatEndTime(remaining); document.getElementById("f-fill").style.width = `${Math.max(0, Math.min(100, (remaining / END_TIME_LIMIT) * 100))}%`; document.getElementById("progress-fill").style.width = `${FRAMES.length > 1 ? (idx / (FRAMES.length - 1)) * 100 : 0}%`; document.getElementById("progress-text").textContent = `${Math.round(FRAMES.length > 1 ? (idx / (FRAMES.length - 1)) * 100 : 0)}%`;
   renderEventFeed(frame); renderBoard(frame); renderPlayers(frame);
   document.querySelectorAll(".frame-btn").forEach((button) => button.classList.remove("active")); const active = document.getElementById(`frame-btn-${idx}`); if (active) { active.classList.add("active"); active.scrollIntoView({ block: "nearest" }); }
   document.getElementById("btn-first").disabled = idx === 0; document.getElementById("btn-prev").disabled = idx === 0; document.getElementById("btn-next").disabled = idx === FRAMES.length - 1; document.getElementById("btn-last").disabled = idx === FRAMES.length - 1;
@@ -636,7 +657,7 @@ def render_html(proj: ReplayProjection) -> str:
     frames = _build_frames(proj)
     meta = _build_meta(proj, frames)
     winner_badge = (
-        f'<span class="badge winner">P{session.winner_player_id} wins</span>'
+        f'<span class="badge winner">P{session.winner_player_id} 승리</span>'
         if session.winner_player_id is not None
         else ""
     )
