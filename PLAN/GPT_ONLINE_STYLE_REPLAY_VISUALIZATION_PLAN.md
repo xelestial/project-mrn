@@ -22,9 +22,9 @@ Current status on `main`:
 - Phase 5 full match UI: not complete
 
 Current GPT-owned follow-up:
-- normalize the prompt envelope to the shared contract
-- clean up replay renderer / projection compatibility
 - keep plan/status documents synchronized with actual `main`
+- continue replay/live UI polish for Phase 5
+- keep replay wording/layout human-friendly as the viewer matures
 
 Current CLAUDE-owned follow-up:
 - converge validators and substrate naming on canonical shared-contract fields
@@ -42,15 +42,16 @@ The target is a maintainable visual runtime built on top of the existing engine 
 Implementation blocker:
 - parallel implementation should start only after the `SHARED_VISUAL_RUNTIME_CONTRACT.md` schema names and prompt envelope are frozen as `v1`
 
-Current scope change:
-- trick systems are explicitly excluded from the first implementation target
-- first implementation should not attempt:
-  - trick inventory rendering
-  - hidden/public trick replay fidelity
-  - anytime trick prompt handling
-  - trick-use decision UI
-  - trick effect animation
-- trick support should return only after a separate manual audit of trick rules and timing
+Current scope note:
+- the original first-pass scope deliberately deferred full trick-system fidelity
+- `main` has since moved beyond that initial cutoff:
+  - replay now exposes public trick use timing
+  - replay now exposes marker flip timing/details
+  - public player state now carries remaining dice-card information
+- what is still deferred is not "all trick support", but full Phase 5 polish:
+  - richer live/play prompt presentation parity
+  - fuller animation and hover-detail polish
+  - any future analysis-only overlays beyond public replay
 
 ## Final Product Target
 The end state should support two modes on top of the same state/projection model.
@@ -587,33 +588,38 @@ Not good enough if:
 - we expect accurate trick timing / hidden-trick replay from current artifacts
 
 ### For Phase 2 Live Human Play
-Current data is **not yet sufficient**.
+Current data is **baseline sufficient, but not final-form complete**.
 
-Main blockers:
-- no formal prompt/wait-state contract
-- no replay/live shared projection schema
-- no explicit anytime-trick decision window model for UI-facing play
-- no live renderer transport yet
+What is already true on `main`:
+- formal prompt/wait-state objects exist
+- replay/live shared public-state and event flow exist
+- live spectator transport exists
+- one human can play against AI through the browser/runtime path
+
+Remaining gaps:
+- shared-contract document still trails some implemented fields/events
+- Phase 5 polish is still incomplete
+- anytime-trick/live timing fidelity still needs final contract-hardening if expanded further
 
 Conclusion:
 - replay-first is still the right order
-- but replay must be built with live-play contracts in mind
-- first implementation should deliberately skip trick support until trick rules are separately audited
+- replay has in fact already been built into a live-play-capable baseline
+- the remaining work is contract synchronization and Phase 5 completion, not baseline viability
 
 ## Recommended Starting Point
 Original start order has largely been completed on `main`.
 
 Use this as the current next-step order:
 
-1. Normalize GPT prompt envelopes to the shared contract
-2. Refresh plan/status documents to reflect actual `main`
-3. Finish replay renderer/projection contract cleanup
-4. Refresh CLAUDE-side validator/substrate naming toward canonical contract fields
-5. Begin Phase 5 UI work:
+1. Refresh plan/status/contract documents to reflect actual `main`
+2. Refresh CLAUDE-side validator/substrate naming toward canonical contract fields
+3. Continue Phase 5 UI work:
    - prompt-family-specific widgets
    - richer board presentation
    - movement/event animation
    - full online-match style panel polish
+4. Keep replay/live wording and event summaries human-readable
+5. Preserve replay/live contract parity while Phase 5 expands
 
 ## Minimum Schema To Implement First
 

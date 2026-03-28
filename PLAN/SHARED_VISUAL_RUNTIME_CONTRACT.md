@@ -75,6 +75,7 @@ Required event families:
 - `turn_start`
 - `trick_window_open`
 - `trick_window_closed`
+- `trick_used`
 - `dice_roll`
 - `player_move`
 - `landing_resolved`
@@ -84,6 +85,7 @@ Required event families:
 - `fortune_resolved`
 - `mark_resolved`
 - `marker_transferred`
+- `marker_flip`
 - `lap_reward_chosen`
 - `f_value_change`
 - `bankruptcy`
@@ -158,6 +160,7 @@ Must include:
 - `pending_mark_source`
 - `public_effects`
 - `burden_summary`
+- `remaining_dice_cards`
 
 ### TilePublicState
 Must include:
@@ -250,6 +253,22 @@ Must include:
 - `player_id`
 - `window_phase`
 - `used_trick` or `null`
+
+### TrickUsedEvent
+Must include:
+- `player_id`
+- `phase`
+- `card_name`
+- `card_description`
+- `resolution`
+
+### MarkerFlipEvent
+Must include:
+- `player_id`
+- `card_no`
+- `from_character`
+- `to_character`
+- `reason`
 
 ### FortuneDrawnEvent
 Must include:
@@ -364,6 +383,7 @@ Freeze the final names for:
 - `turn_start`
 - `trick_window_open`
 - `trick_window_closed`
+- `trick_used`
 - `dice_roll`
 - `player_move`
 - `landing_resolved`
@@ -373,6 +393,7 @@ Freeze the final names for:
 - `fortune_resolved`
 - `mark_resolved`
 - `marker_transferred`
+- `marker_flip`
 - `lap_reward_chosen`
 - `f_value_change`
 - `bankruptcy`

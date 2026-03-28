@@ -53,8 +53,11 @@ Practical implications:
     - Phase 1: baseline complete
     - Phase 2: baseline complete
     - Phase 3: baseline complete
-    - Phase 4: baseline complete for human-play runtime, but prompt-contract cleanup remains
+    - Phase 4: baseline complete for human-play runtime
     - Phase 5: not complete; still the main forward UI track
+  - current document-maintenance gap is now mostly:
+    - shared-contract synchronization with implemented replay/live fields
+    - Phase 5 progress tracking
 
 ### 2. Turn Advantage Analysis
 - File: `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md`
@@ -184,9 +187,9 @@ When deciding what to follow next:
 1. Use `PLAN/GPT_ONLINE_STYLE_REPLAY_VISUALIZATION_PLAN.md` for replay/playable game work.
 2. Use `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md` as the shared boundary baseline before parallel implementation.
 3. Treat current GPT-owned follow-up as:
-   - prompt envelope normalization / cleanup
-   - replay renderer/projection alignment
-   - plan/status document maintenance
+   - plan/status/contract document maintenance
+   - replay/live UI polish for Phase 5
+   - human-readable replay/live wording/layout refinement
 4. Treat current CLAUDE-owned follow-up as:
    - canonical public-state/event naming convergence
    - validator refresh toward the shared contract
