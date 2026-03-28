@@ -80,6 +80,7 @@ class HumanPlayServer(LiveGameServer):
             )
             engine.run()
         except Exception as exc:
+            self._game_error = repr(exc)
             import traceback
             print(f"[human-game] ERROR: {exc}", flush=True)
             traceback.print_exc()

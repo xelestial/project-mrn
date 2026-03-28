@@ -89,6 +89,7 @@ class LiveGameServer:
 
         self._stream = VisEventStream()
         self._done = threading.Event()
+        self._game_error: str | None = None
         self._game_thread: threading.Thread | None = None
         self._http_server: ThreadingHTTPServer | None = None
 
@@ -139,6 +140,7 @@ class LiveGameServer:
             )
             engine.run()
         except Exception as exc:
+            self._game_error = repr(exc)
             print(f"[live-game] ERROR: {exc}", flush=True)
         finally:
             self._done.set()
@@ -218,6 +220,7 @@ class LiveGameServer:
                     "done": server_ref._done.is_set(),
                     "total": len(events),
                     "session_id": session_id,
+                    "error": server_ref._game_error,
                 }
                 body = json.dumps(payload).encode("utf-8")
                 self.send_response(200)

@@ -254,8 +254,14 @@ class HumanHttpPolicy:
             return self._ai.choose_final_character(state, player, card_choices)
 
         options = []
-        for name in card_choices:
-            options.append({"id": name, "label": name})
+        for card_index in card_choices:
+            char_name = _card_name(state, card_index)
+            options.append({
+                "id": str(card_index),
+                "label": char_name,
+                "card_index": card_index,
+                "character_name": char_name,
+            })
 
         prompt = {
             "type": "final_character",
@@ -265,8 +271,10 @@ class HumanHttpPolicy:
 
         def _parse(r: dict):
             sel = r.get("option_id")
-            if sel in card_choices:
-                return sel
+            if sel is not None:
+                for opt in options:
+                    if opt["id"] == str(sel):
+                        return opt["character_name"]
             return self._ai.choose_final_character(state, player, card_choices)
 
         return self._ask(prompt, _parse, lambda: self._ai.choose_final_character(state, player, card_choices))
