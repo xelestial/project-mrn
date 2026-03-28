@@ -29,22 +29,33 @@ TIMEOUT_S = 300.0  # 5 minutes
 
 
 class HumanHttpPolicy:
-    """Policy that blocks for human input on the designated seat.
+    """Policy that blocks for human input on one or more designated seats.
 
     Parameters
     ----------
-    human_seat:
-        player_id of the human player (0-based).
+    human_seat / human_seats:
+        player_id of the human player (0-based), or a collection of such seats.
     ai_fallback:
         Policy instance used for AI players and non-interactive decisions.
     """
 
-    def __init__(self, human_seat: int, ai_fallback: Any) -> None:
-        self._seat = human_seat
+    def __init__(
+        self,
+        human_seat: int | None,
+        ai_fallback: Any,
+        human_seats: list[int] | tuple[int, ...] | set[int] | None = None,
+    ) -> None:
+        seats = set(int(seat) for seat in (human_seats or ([] if human_seat is None else [human_seat])))
+        if not seats:
+            raise ValueError("HumanHttpPolicy requires at least one human seat")
+        self._seats = frozenset(seats)
         self._ai = ai_fallback
         self._lock = threading.Lock()
         self._pending: dict | None = None          # current prompt waiting for input
         self._response_queue: queue.Queue = queue.Queue(maxsize=1)
+
+    def _is_human_seat(self, player_id: int) -> bool:
+        return player_id in self._seats
 
     # ------------------------------------------------------------------
     # Prompt state (read by HTTP handler)
@@ -106,7 +117,7 @@ class HumanHttpPolicy:
     # ------------------------------------------------------------------
 
     def choose_movement(self, state: Any, player: Any) -> Any:
-        if player.player_id != self._seat:
+        if not self._is_human_seat(player.player_id):
             return self._ai.choose_movement(state, player)
 
         from ai_policy import MovementDecision
@@ -170,7 +181,7 @@ class HumanHttpPolicy:
     # ------------------------------------------------------------------
 
     def choose_lap_reward(self, state: Any, player: Any) -> Any:
-        if player.player_id != self._seat:
+        if not self._is_human_seat(player.player_id):
             return self._ai.choose_lap_reward(state, player)
 
         from ai_policy import LapRewardDecision
@@ -250,7 +261,7 @@ class HumanHttpPolicy:
     # ------------------------------------------------------------------
 
     def choose_draft_card(self, state: Any, player: Any, offered_cards: Any) -> Any:
-        if player.player_id != self._seat:
+        if not self._is_human_seat(player.player_id):
             return self._ai.choose_draft_card(state, player, offered_cards)
 
         options = []
@@ -298,7 +309,7 @@ class HumanHttpPolicy:
     # ------------------------------------------------------------------
 
     def choose_final_character(self, state: Any, player: Any, card_choices: Any) -> Any:
-        if player.player_id != self._seat:
+        if not self._is_human_seat(player.player_id):
             return self._ai.choose_final_character(state, player, card_choices)
 
         options = []
@@ -349,7 +360,7 @@ class HumanHttpPolicy:
     # ------------------------------------------------------------------
 
     def choose_trick_to_use(self, state: Any, player: Any, hand: Any) -> Any:
-        if player.player_id != self._seat:
+        if not self._is_human_seat(player.player_id):
             return self._ai.choose_trick_to_use(state, player, hand)
 
         options = [{"id": "none", "label": "Skip (no trick)", "deck_index": None}]
@@ -399,7 +410,7 @@ class HumanHttpPolicy:
     def choose_purchase_tile(
         self, state: Any, player: Any, pos: Any, cell: Any, cost: Any, *, source: str = "landing"
     ) -> bool:
-        if player.player_id != self._seat:
+        if not self._is_human_seat(player.player_id):
             return self._ai.choose_purchase_tile(state, player, pos, cell, cost, source=source)
 
         tile = state.tiles[pos]
@@ -435,7 +446,7 @@ class HumanHttpPolicy:
     # ------------------------------------------------------------------
 
     def choose_hidden_trick_card(self, state: Any, player: Any, hand: Any) -> Any:
-        if player.player_id != self._seat:
+        if not self._is_human_seat(player.player_id):
             return self._ai.choose_hidden_trick_card(state, player, hand)
 
         if not hand:
@@ -486,7 +497,7 @@ class HumanHttpPolicy:
     # ------------------------------------------------------------------
 
     def choose_mark_target(self, state: Any, player: Any, actor_name: Any) -> Any:
-        if player.player_id != self._seat:
+        if not self._is_human_seat(player.player_id):
             return self._ai.choose_mark_target(state, player, actor_name)
 
         alive = [p for p in state.players if p.alive and p.player_id != player.player_id]
@@ -530,7 +541,7 @@ class HumanHttpPolicy:
     # ------------------------------------------------------------------
 
     def choose_coin_placement_tile(self, state: Any, player: Any) -> Any:
-        if player.player_id != self._seat:
+        if not self._is_human_seat(player.player_id):
             return self._ai.choose_coin_placement_tile(state, player)
 
         owned = [
@@ -577,7 +588,7 @@ class HumanHttpPolicy:
     # ------------------------------------------------------------------
 
     def choose_geo_bonus(self, state: Any, player: Any, char: Any) -> Any:
-        if player.player_id != self._seat:
+        if not self._is_human_seat(player.player_id):
             return self._ai.choose_geo_bonus(state, player, char)
 
         options = [
@@ -617,7 +628,7 @@ class HumanHttpPolicy:
         return self._ask(prompt, _parse, lambda: self._ai.choose_geo_bonus(state, player, char))
 
     def choose_doctrine_relief_target(self, state: Any, player: Any, candidates: Any) -> Any:
-        if player.player_id != self._seat:
+        if not self._is_human_seat(player.player_id):
             return self._ai.choose_doctrine_relief_target(state, player, candidates)
 
         options = []
@@ -668,7 +679,7 @@ class HumanHttpPolicy:
         return self._ask(prompt, _parse, lambda: self._ai.choose_doctrine_relief_target(state, player, candidates))
 
     def choose_active_flip_card(self, state: Any, player: Any, flippable_cards: Any) -> Any:
-        if player.player_id != self._seat:
+        if not self._is_human_seat(player.player_id):
             return self._ai.choose_active_flip_card(state, player, flippable_cards)
         if not flippable_cards:
             return None
@@ -719,7 +730,7 @@ class HumanHttpPolicy:
         return self._ask(prompt, _parse, lambda: self._ai.choose_active_flip_card(state, player, flippable_cards))
 
     def choose_specific_trick_reward(self, state: Any, player: Any, choices: Any) -> Any:
-        if player.player_id != self._seat:
+        if not self._is_human_seat(player.player_id):
             return self._ai.choose_specific_trick_reward(state, player, choices)
 
         options = [
@@ -762,7 +773,7 @@ class HumanHttpPolicy:
         return self._ask(prompt, _parse, lambda: self._ai.choose_specific_trick_reward(state, player, choices))
 
     def choose_burden_exchange_on_supply(self, state: Any, player: Any, card: Any) -> bool:
-        if player.player_id != self._seat:
+        if not self._is_human_seat(player.player_id):
             return self._ai.choose_burden_exchange_on_supply(state, player, card)
 
         prompt = build_prompt_envelope(

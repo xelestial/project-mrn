@@ -6,11 +6,11 @@ Extends LiveGameServer with two extra endpoints:
     POST /decision  → JSON: {"option_id": "..."}, returns 200/400
     GET  /play      → serves the extended play HTML page
 
-The game uses HumanHttpPolicy for one designated player seat; the rest of
-the seats are controlled by HeuristicPolicy.
+The game uses HumanHttpPolicy for one or more designated player seats; the
+rest of the seats are controlled by HeuristicPolicy.
 
 Usage:
-    server = HumanPlayServer(seed=42, port=8765, human_seat=0)
+    server = HumanPlayServer(seed=42, port=8765, human_seats=[0])
     server.start()   # blocks; Ctrl-C to stop
 """
 from __future__ import annotations
@@ -33,8 +33,8 @@ class HumanPlayServer(LiveGameServer):
 
     Parameters
     ----------
-    human_seat:
-        player_id of the human player (0-based, default 0).
+    human_seats:
+        player_id list of the human players (0-based, default [0]).
     All other parameters are forwarded to LiveGameServer.
     """
 
@@ -45,9 +45,14 @@ class HumanPlayServer(LiveGameServer):
         turn_delay: float = 0.10,
         host: str = "127.0.0.1",
         human_seat: int = 0,
+        human_seats: list[int] | tuple[int, ...] | set[int] | None = None,
     ) -> None:
         super().__init__(seed=seed, port=port, turn_delay=turn_delay, host=host)
-        self.human_seat = human_seat
+        seats = list(sorted(set(int(seat) for seat in (human_seats or [human_seat]))))
+        if not seats:
+            seats = [0]
+        self.human_seat = seats[0]
+        self.human_seats = seats
         self._human_policy: Any = None  # set in _run_game before engine starts
 
     # ------------------------------------------------------------------
@@ -67,6 +72,7 @@ class HumanPlayServer(LiveGameServer):
             )
             human_policy = HumanHttpPolicy(
                 human_seat=self.human_seat,
+                human_seats=self.human_seats,
                 ai_fallback=ai_fallback,
             )
             self._human_policy = human_policy
@@ -180,6 +186,7 @@ class HumanPlayServer(LiveGameServer):
                     session_id=session_id,
                     seed=server_ref.seed,
                     human_seat=server_ref.human_seat,
+                    human_seats=server_ref.human_seats,
                     poll_interval_ms=200,
                 )
                 body = html.encode("utf-8")

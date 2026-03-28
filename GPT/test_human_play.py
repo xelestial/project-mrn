@@ -28,10 +28,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 # ---------------------------------------------------------------------------
 
 def _start_human_server(seed: int = 99, port: int = 18866, human_seat: int = 0,
+                         human_seats: list[int] | None = None,
                          turn_delay: float = 0.0):
     from viewer.prompt_server import HumanPlayServer
     server = HumanPlayServer(seed=seed, port=port, turn_delay=turn_delay,
-                              human_seat=human_seat)
+                              human_seat=human_seat, human_seats=human_seats)
 
     def _run():
         server.start()
@@ -91,7 +92,7 @@ def _post_json(url: str, data: dict) -> tuple[int, dict]:
 def test_play_html_renderer() -> list[str]:
     errors = []
     from viewer.renderers.play_html import render_play_html
-    html = render_play_html(session_id="test", seed=42, human_seat=1, poll_interval_ms=200)
+    html = render_play_html(session_id="test", seed=42, human_seat=1, human_seats=[1, 2], poll_interval_ms=200)
     if not html:
         errors.append("render_play_html returned empty string")
         return errors
@@ -105,6 +106,8 @@ def test_play_html_renderer() -> list[str]:
         errors.append("play HTML does not reference /decision endpoint")
     if "HUMAN_SEAT" not in html:
         errors.append("play HTML missing HUMAN_SEAT constant")
+    if "HUMAN_SEATS" not in html:
+        errors.append("play HTML missing HUMAN_SEATS constant")
     if "submitDecision" not in html:
         errors.append("play HTML missing submitDecision function")
     if "board-track" not in html or "prompt-summary" not in html:
@@ -146,6 +149,58 @@ def test_play_html_renderer() -> list[str]:
     ):
         if stale_field in html:
             errors.append(f"play HTML still references stale field '{stale_field}'")
+    return errors
+
+
+def test_human_policy_multiple_human_seats() -> list[str]:
+    errors = []
+    try:
+        from viewer.human_policy import HumanHttpPolicy
+        from ai_policy import HeuristicPolicy, MovementDecision
+        from config import DEFAULT_CONFIG
+        from state import GameState
+
+        ai = HeuristicPolicy(
+            character_policy_mode="heuristic_v1",
+            lap_policy_mode="heuristic_v1",
+        )
+        policy = HumanHttpPolicy(human_seat=0, human_seats=[0, 2], ai_fallback=ai)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[2]
+
+        result = [None]
+        done = threading.Event()
+
+        def _call():
+            result[0] = policy.choose_movement(state, player)
+            done.set()
+
+        threading.Thread(target=_call, daemon=True).start()
+
+        for _ in range(20):
+            if policy.pending_prompt is not None:
+                break
+            time.sleep(0.05)
+
+        prompt = policy.pending_prompt
+        if prompt is None:
+            errors.append("pending_prompt never set for secondary human seat")
+            return errors
+        if prompt.get("player_id") != 3:
+            errors.append(f"Expected prompt for P3, got {prompt.get('player_id')!r}")
+
+        ok = policy.submit_response({"choice_id": "dice"})
+        if not ok:
+            errors.append("submit_response returned False for secondary human seat")
+
+        done.wait(timeout=3.0)
+        if not done.is_set():
+            errors.append("secondary human seat did not unblock")
+        elif not isinstance(result[0], MovementDecision):
+            errors.append(f"Expected MovementDecision, got {type(result[0])}")
+    except Exception as e:
+        import traceback
+        errors.append(f"Exception: {e}\n{traceback.format_exc()}")
     return errors
 
 
@@ -679,6 +734,7 @@ def main() -> int:
     unit_tests = [
         ("play_html_renderer",          test_play_html_renderer),
         ("human_policy_ai_seat",        test_human_policy_ai_seat),
+        ("human_policy_multi_humans",   test_human_policy_multiple_human_seats),
         ("human_policy_prompt_response",test_human_policy_prompt_and_response),
         ("human_policy_final_character",test_human_policy_final_character_returns_name),
         ("human_policy_geo_bonus",      test_human_policy_geo_bonus_prompt),
