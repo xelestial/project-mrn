@@ -1,70 +1,64 @@
 # EXAMPLE Trick Card Source Snapshot
 
-이 파일은 **유효한 잔꾀 정보 문서가 아닙니다**.
+이 파일은 **유효한 잔꾀 규칙 문서가 아니다**.
 
 목적:
-- 현재 소스코드가 잔꾀를 어떻게 보고 있는지 예시 형태로 보여주기
-- 구조 설계와 검토용 빠른 참고 자료 제공
+- 현재 소스코드가 잔꾀를 어떤 범주로 보고 있는지 예시를 빠르게 보여주기
+- 구조 검토용 샘플 제공
 
-즉 이 파일은 authoritative rule document가 아니라, 현재 구현 스냅샷 예시입니다.
+이 파일을 authoritative source로 쓰면 안 되는 이유:
+- 카드 설명문 전체 의미를 다 담지 않는다
+- 상태 플래그가 실제 어디서 소비되는지 충분히 설명하지 않는다
+- 자동 선택 / 수동 선택 / held 트리거 / 재굴림 훅 차이를 완전히 설명하지 않는다
+- 실제 검증 기준 문서는
+  - [C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\DATA\GPT_TRICK_CARD_RUNTIME_GUIDE.md](C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\DATA\GPT_TRICK_CARD_RUNTIME_GUIDE.md)
+  - [C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\GPT\engine.py](C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\GPT\engine.py)
+  - [C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\GPT\effect_handlers.py](C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\GPT\effect_handlers.py)
+  를 함께 봐야 한다
 
-정식 설명은 아래 문서를 봐야 합니다.
-- [GPT_TRICK_CARD_RUNTIME_GUIDE.md](C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\DATA\GPT_TRICK_CARD_RUNTIME_GUIDE.md)
+## 예시 분류
 
-## 현재 소스 기준 예시 분류
+### 직접 사용 즉시 상태를 바꾸는 카드
+- `성물 수집가` -> `extra_shard_gain_this_turn += 1`
+- `건강 검진` -> `global_rent_half_this_turn = True`
+- `우대권` -> `rent_waiver_count_this_turn += 1`
+- `뇌고왕` -> `trick_personal_rent_half_this_turn = True`
+- `무료 증정` -> `trick_free_purchase_this_turn = True`
+- `신의뜻` -> `trick_same_tile_shard_rake_this_turn = True`
+- `가벼운 분리불안` -> `trick_same_tile_cash2_this_turn = True`
+- `마당발` -> `trick_one_extra_adjacent_buy_this_turn = True`
+- `도움 닫기` -> `trick_encounter_boost_this_turn = True`
+- `느슨함 혐오자` -> `global_rent_double_this_turn = True`
+- `극도의 느슨함 혐오자` -> `global_rent_double_permanent = True`
+- `과속` -> `cash -2`, `trick_dice_delta_this_turn += 1`
+- `저속` -> `cash +2`, `trick_dice_delta_this_turn -= 1`
+- `이럇!` -> alive 전원 `trick_dice_delta_this_turn += 1`
 
-### 즉시 효과 / 상태 플래그
-- `성물 수집가` -> extra shard turn buff
-- `건강 검진` -> global rent half this turn
-- `우대권` -> rent waiver count +1
-- `뇌고왕` -> personal rent half this turn
-- `뇌절왕` -> zone chain this turn
-- `무료 증정` -> free purchase once
-- `신의뜻` -> same-tile shard rake flag
-- `가벼운 분리불안` -> same-tile cash flag
-- `마당발` -> one extra adjacent buy
-- `도움 닫기` -> encounter boost flag
-- `느슨함 혐오자` -> global rent double this turn
-- `극도의 느슨함 혐오자` -> global rent double permanent
-- `과속` -> cash -2, dice +1
-- `저속` -> cash +2, dice -1
-- `이럇!` -> all alive players dice +1
-- `아주 큰 화목 난로` -> shards +1, F +1
-- `거대한 산불` -> shards +2, F +2
+### 자동 대상 선택 카드
+- `재뿌리기` -> 상대 타일 중 엔진 자동 선택, 이번 라운드 렌트 `0`
+- `긴장감 조성` -> 자기 타일 중 엔진 자동 선택, 이번 라운드 렌트 `2배 이상`
+- `무역의 선물` -> 내 저가치 타일 + 상대 고가치 타일 자동 교환
+- `번뜩임` -> 자동 `1장 대 1장` 교환
 
-### 자동 대상 선택형
-- `재뿌리기` -> highest enemy tile auto-target
-- `긴장감 조성` -> highest own tile auto-target
-- `무역의 선물` -> lowest own tile + highest enemy tile auto-swap
-- `번뜩임` -> auto 1-for-1 trick exchange
+### 손패에 들고 있다가 다른 훅에서 처리되는 카드
+- `강제 매각` -> 적 소유 타일 도착 시 자동 발동
+- `뭘리권` -> 이동 굴림 후 재굴림 훅
+- `뭔칙휜` -> 이동 굴림 후 재굴림 훅
+- `뇌절왕` -> 현재 구현상 실제 연쇄 이동은 도착 처리에서 손패 보유 여부로 판단
 
-### 후속 트리거형
-- `극심한 분리불안` -> forced arrival to farthest player
-- `강제 매각` -> triggered on landing enemy-owned tile
-- `뭘리권` -> reroll helper during movement
-- `뭔칙휜` -> reroll helper during movement
+### burden 카드
+- `무거운 짐` -> 사용 시 `4` 지불 후 버림
+- `가벼운 짐` -> 사용 시 `2` 지불 후 버림
 
-### burden
-- `무거운 짐` -> pay 4 and discard
-- `가벼운 짐` -> pay 2 and discard
+### 현재 구현상 주의가 필요한 카드
+- `성물 수집가` -> 값은 쌓이지만 활성 소비처가 보이지 않음
+- `호객꾼` -> 분류는 있으나 활성 처리 경로가 불명확함
+- `뇌절왕` -> 설명 플래그와 실제 활성 코드가 어긋남
+- `번뜩임` -> 설명보다 좁게 구현되어 현재는 1대1 교환만 함
 
-### held / incomplete caution
-- `호객꾼` -> held-style classification exists, but current active runtime path should be rechecked before treating it as fully supported
+## 다시 강조
 
-## 예시 파일이라서 빠진 것
+이 파일은 **예시 스냅샷**이다.
 
-이 파일에는 아래가 완전하게 들어 있지 않습니다.
-
-- 공개/비공개 처리 세부
-- 사용 단계 구분
-- 보급 시 교환 처리
-- 도착/조우/재굴림 타이밍
-- UI에서 필요한 선택 항목
-- 규칙 설명과 구현 불일치
-
-따라서 실제 검토 기준은 이 파일이 아니라:
-- [GPT_TRICK_CARD_RUNTIME_GUIDE.md](C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\DATA\GPT_TRICK_CARD_RUNTIME_GUIDE.md)
-- [trick.csv](C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\GPT\trick.csv)
-- [engine.py](C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\GPT\engine.py)
-- [effect_handlers.py](C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\GPT\effect_handlers.py)
-를 함께 봐야 합니다.
+실제 잔꾀 처리의 정확한 기준은 아래 문서다.
+- [C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\DATA\GPT_TRICK_CARD_RUNTIME_GUIDE.md](C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\DATA\GPT_TRICK_CARD_RUNTIME_GUIDE.md)
