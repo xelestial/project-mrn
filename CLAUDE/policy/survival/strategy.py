@@ -14,11 +14,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from survival_common import (
-    SurvivalSignals,
-    SurvivalOrchestratorState,
-    build_survival_orchestrator,
-)
+from .signals import SurvivalSignals
+from .orchestrator import SurvivalOrchestratorState, build_survival_orchestrator
 
 if TYPE_CHECKING:
     from policy.context.turn_context import TurnContext
