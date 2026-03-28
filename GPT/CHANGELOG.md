@@ -6,6 +6,7 @@
 - Adjusted replay board presentation for readability: hollow-square loop layout, larger pawn markers with player numbers, clearer special-tile labels (`운수`, `종료 - 1`, `종료 - 2`), visible tile color bands, and more readable tile-price wording (`3냥`, `5냥`).
 - Improved replay/player panels to show public-vs-hidden trick separation, remaining dice cards, weather descriptions, and other public-state details more clearly.
 - Reordered replay frames toward real gameplay flow inside turns and updated intermediate frame state so move, lap-reward, rent, purchase, and dice-card consumption are visible before the next terminal snapshot.
+- Brought markdown replay output closer to the HTML viewer by switching it to Korean labels, human-readable event summaries, 1-based tile wording, and clearer public-state tables.
 
 ## v0.7.61-auditfix2 (2026-03-27)
 - Corrected README baseline values so current runtime defaults now match `ruleset.json` / `GameConfig` (20 cash / 0 hand coins / 4 shards) instead of older experiment presets.

@@ -146,12 +146,18 @@ def test_markdown_renderer(events: list[dict]) -> list[str]:
         errors.append("markdown output is empty")
         return errors
 
-    if "# GPT Visual Replay" not in md:
+    if "# GPT 시각 리플레이" not in md:
         errors.append("markdown missing header")
-    if "## Round" not in md:
+    if "## 1 라운드" not in md:
         errors.append("markdown missing round headers")
-    if "### Turn" not in md:
+    if "### 1 턴" not in md:
         errors.append("markdown missing turn headers")
+    if "주사위 카드" not in md and "주사위 " not in md:
+        errors.append("markdown missing human-readable dice summary")
+    if "플레이어 공개 상태" not in md:
+        errors.append("markdown missing Korean snapshot heading")
+    if "공개/비공개 잔꾀" not in md:
+        errors.append("markdown missing trick visibility columns")
 
     return errors
 
