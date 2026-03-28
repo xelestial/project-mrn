@@ -223,6 +223,14 @@ def test_html_renderer(events: list[dict]) -> list[str]:
                     errors.append("weather_reveal frame title is not populated")
                 elif str(first_weather.get("title", "")).strip() == "Weather: -":
                     errors.append("weather_reveal frame title still missing actual weather name")
+                first_dice = next(
+                    (frame for frame in parsed if frame.get("event_type") == "dice_roll"),
+                    None,
+                )
+                if first_dice is None:
+                    errors.append("missing dice_roll frame in replay HTML")
+                elif str(first_dice.get("subtitle", "")).startswith("[] ->"):
+                    errors.append("dice_roll frame still shows empty dice array placeholder")
         except json.JSONDecodeError as exc:
             errors.append(f"FRAMES JSON parse error: {exc}")
     else:

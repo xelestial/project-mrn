@@ -85,8 +85,16 @@ def _event_display(event: dict) -> dict:
         detail = f"turn {event.get('turn_index', '?')}"
     elif etype == "dice_roll":
         dice = event.get("dice_values") or event.get("dice") or []
+        used_cards = event.get("used_cards") or []
+        formula = event.get("formula") or ""
         total = event.get("total_move", event.get("move", event.get("total", "?")))
-        detail = f"{dice} -> {total}"
+        if formula:
+            source = "cards" if used_cards and not dice else "dice" if dice and not used_cards else "mix"
+            detail = f"{formula} -> {total} ({source})"
+        elif dice:
+            detail = f"{dice} -> {total}"
+        else:
+            detail = f"{total}"
     elif etype == "player_move":
         src = event.get("from_tile_index", event.get("from_pos", "?"))
         dst = event.get("to_tile_index", event.get("to_pos", "?"))
