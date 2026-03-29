@@ -9,7 +9,7 @@ Use it to answer:
 - which plans are reference-only
 - which plans are superseded and should no longer drive implementation
 
-This index was reviewed on `2026-03-29` against:
+This index was reviewed on `2026-03-30` against:
 - current branch `main`
 - `main`
 - `CLAUDE-MAIN`
@@ -74,6 +74,23 @@ Practical implications:
 - Notes:
   - this is the top-level React transition plan for backend/frontend parallel work
   - it now links detailed companion specs for implementation-level execution
+  - D1/B1 baseline code has started (`apps/server` skeleton + repository scaffolds)
+  - B2 baseline code has started (websocket stream + in-memory `seq` replay buffer)
+  - B3 baseline code has started (prompt pending/timeout/decision-ack skeleton path)
+  - B3 timeout fallback trace baseline added (`decision_timeout_fallback`)
+  - B2/B3 hardening has started (seat token auth + decision mismatch guards)
+  - B2 reconnect hardening baseline added (`RESUME_GAP_TOO_OLD` handling)
+  - B1 replay export baseline added (`GET /api/v1/sessions/{session_id}/replay`)
+  - all-AI runtime fan-out baseline has started (background engine run + incremental stream publication)
+  - F1 frontend baseline has started (`apps/web` scaffold + stream client/hook)
+  - F1 REST session client baseline added (`create/start/runtime-status`) with one-click all-AI start/connect flow
+  - F1 test baseline added (Vitest + reducer unit tests)
+  - F1 selector/contract parser tests added (`snapshot/timeline/situation`)
+  - F2 pre-structure has started (feature component split + selector layer + board placeholder)
+  - F2 snapshot baseline added (stream snapshot -> public board/player render)
+  - F2 ring-board baseline added (`tile_index` coordinate mapping)
+  - F2 board-near incident stack baseline added
+  - B2 fan-out hardening baseline added (subscriber queue push + slow-consumer drop-oldest policy)
 
 ### 1B. React Detailed Execution Backlog
 - File: `PLAN/[PLAN]_REACT_ONLINE_GAME_DETAILED_EXECUTION.md`

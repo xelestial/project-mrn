@@ -14,7 +14,7 @@ This is a structure specification, not visual design artwork.
 ## Frontend Module Layout
 
 ```text
-frontend/src/
+apps/web/src/
   app/
     App.tsx
     routes.tsx
@@ -64,7 +64,7 @@ frontend/src/
   shared/
     ui/
     utils/
-  tests/
+apps/web/tests/
 ```
 
 ## App-Level Layout

@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`  
 Owner: `Shared (Backend: CLAUDE, Frontend: GPT)`  
-Updated: `2026-03-29`  
+Updated: `2026-03-30`  
 Depends on: `PLAN/ONLINE_GAME_ARCHITECTURE_PLAN.md`, `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`
 
 ## Purpose
@@ -74,6 +74,46 @@ Current policy:
 - Until `DOCS/API`, `DOCS/FRONTEND`, and `DOCS/BACKEND` scaffolds are created in-repo, these detailed specs are authored in `PLAN/`.
 - Once frontend/backend scaffolds exist, these docs should be migrated without changing semantics.
 - New online-runtime implementation should prefer the target directory layout in `PLAN/[PLAN]_REPOSITORY_DIRECTORY_SPEC.md` over legacy `GPT/` placement.
+
+---
+
+## Implementation Status Snapshot (`2026-03-30`)
+
+- D1 scaffold and B1 baseline code have started in repository:
+  - server skeleton: `apps/server/src/*`
+  - migration scaffolds: `apps/web`, `packages/*`, `docs/*`, `tests/*`, `tools/*`
+- B2 baseline has started:
+  - websocket stream endpoint with heartbeat and `resume(last_seq)` replay
+  - in-memory per-session `seq` message buffer service
+  - `resume` gap-too-old guard path (`RESUME_GAP_TOO_OLD`) added
+- B3 baseline has started:
+  - prompt pending/timeout/decision-ack service skeleton wired
+  - debug prompt route and websocket decision ack flow added
+  - prompt timeout fallback trace event baseline added (`decision_timeout_fallback`)
+- B2/B3 hardening has started:
+  - websocket token auth for seat vs spectator path
+  - unauthorized/mismatched decision rejection paths
+  - subscriber fan-out queue path with slow-consumer drop-oldest backpressure baseline
+- runtime fan-out baseline has started:
+  - all-AI sessions trigger background engine run and stream publish
+  - engine append events are now forwarded to websocket stream immediately
+- F1 frontend baseline has started:
+  - React+TS scaffold under `apps/web`
+  - websocket stream client and baseline live connection panel
+  - first reducer-driven stream state slice integrated
+  - REST session client baseline added (`create/start/runtime-status`)
+  - one-click all-AI session create/start + auto-connect flow added
+  - Vitest baseline added with reducer unit test
+  - selector/contract parser tests added (`snapshot`, `timeline`, `situation`)
+  - runtime status auto-refresh baseline added
+  - F2 pre-structure started (connection/situation/timeline/board placeholder components)
+  - F2 snapshot baseline added (public board tiles + player panels from stream snapshot)
+  - F2 ring-board baseline added (40-tile coordinate mapping)
+  - F2 board-near incident stack baseline added
+- next implementation target:
+  - B2/B3 hardening (reconnect stress, backpressure, fallback wiring)
+  - runtime watchdog/ops hardening and prompt fallback integration
+  - F1 hardening (install/build pipeline, reducer/store baseline)
 
 ---
 

@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`  
 Owner: `Shared`  
-Updated: `2026-03-29`  
+Updated: `2026-03-30`  
 Parents:
 - `PLAN/REACT_ONLINE_GAME_IMPL_PLAN.md`
 - `PLAN/[PLAN]_ONLINE_GAME_INTERFACE_SPEC.md`
@@ -182,6 +182,56 @@ Response `data`:
 }
 ```
 
+## 7) Runtime Status
+
+`GET /api/v1/sessions/{session_id}/runtime-status`
+
+Response `data`:
+
+```json
+{
+  "session_id": "sess_abc123",
+  "runtime": {
+    "status": "running"
+  }
+}
+```
+
+Possible runtime status:
+
+- `idle`
+- `running`
+- `finished`
+- `failed`
+- `stop_requested`
+
+## 8) Debug Prompt Injection (Dev Only)
+
+`POST /api/v1/sessions/{session_id}/prompts/debug`
+
+Purpose:
+
+- inject a prompt envelope for transport/prompt-flow smoke testing
+- not intended as production gameplay endpoint
+
+Request:
+
+```json
+{
+  "request_id": "req_debug_move_1",
+  "request_type": "movement",
+  "player_id": 1,
+  "timeout_ms": 30000,
+  "choices": [
+    { "choice_id": "roll", "title": "Roll dice", "description": "Normal move." }
+  ],
+  "public_context": {
+    "round_index": 1,
+    "turn_index": 1
+  }
+}
+```
+
 ## WebSocket API
 
 Endpoint:
@@ -193,6 +243,11 @@ Spectator mode:
 - token omitted
 - receives events only
 - no prompts
+
+Seat mode:
+
+- `token` query param required (`session_token` from join API)
+- only seat-authenticated sockets can submit `decision`
 
 ## Server to Client Messages
 
@@ -310,6 +365,12 @@ Payload:
 }
 ```
 
+Server-side validation:
+
+- spectator decision submission => `UNAUTHORIZED_SEAT`
+- seat decision with mismatched `player_id` => `PLAYER_MISMATCH`
+- stale/missing prompt request => `decision_ack.status=stale`
+
 ## Timeout and Idempotency Rules
 
 - `request_id` is unique per prompt.
@@ -317,6 +378,9 @@ Payload:
 - Duplicate decisions for accepted request return `decision_ack.status=stale`.
 - Timeout triggers server fallback once.
 - Fallback result is emitted as public events.
+- Recommended fallback trace event payload:
+  - `event_type=decision_timeout_fallback`
+  - `request_id`, `player_id`, `fallback_policy`, `round_index`, `turn_index`
 
 ## Resume Rules
 
@@ -340,7 +404,9 @@ Payload:
 | `INVALID_STATE_TRANSITION` | REST | Illegal session lifecycle change | no |
 | `PROMPT_TIMEOUT` | WS | Prompt expired before decision | no |
 | `STALE_REQUEST_ID` | WS | Decision for outdated prompt | no |
+| `PLAYER_MISMATCH` | WS | Decision player_id does not match authenticated seat | no |
 | `DECISION_REJECTED` | WS | Invalid choice payload or seat mismatch | depends |
+| `RUNTIME_EXECUTION_FAILED` | WS | Background engine execution failed | no |
 | `RESUME_GAP_TOO_OLD` | WS | Replay buffer cannot satisfy last_seq | yes |
 | `INTERNAL_SERVER_ERROR` | REST/WS | Unexpected server fault | yes |
 

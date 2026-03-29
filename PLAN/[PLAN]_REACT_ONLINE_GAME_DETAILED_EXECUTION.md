@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`  
 Owner: `Shared (Backend: CLAUDE, Frontend: GPT)`  
-Updated: `2026-03-29`  
+Updated: `2026-03-30`  
 Parent: `PLAN/REACT_ONLINE_GAME_IMPL_PLAN.md`
 
 ## Purpose
@@ -15,6 +15,59 @@ It is intentionally execution-focused:
 - phase entry/exit criteria
 - test and verification gates
 - risk controls and fallback policy
+
+## Current Progress Snapshot (`2026-03-30`)
+
+- `D1` scaffold: in progress
+  - created baseline roots: `apps/`, `packages/`, `docs/`, `tests/`, `tools/`
+  - added placeholder READMEs for migration-safe structure anchoring
+- `B1` baseline: in progress
+  - added FastAPI app skeleton at `apps/server/src/app.py`
+  - added session lifecycle REST routes (`create/list/get/join/start`)
+  - added replay export REST route (`GET /api/v1/sessions/{session_id}/replay`)
+  - added in-memory `SessionService` and initial unit tests
+- `B2` baseline: in progress
+  - added websocket endpoint `WS /api/v1/sessions/{session_id}/stream`
+  - added in-memory stream buffer service with monotonic `seq`
+  - added baseline `resume(last_seq)` replay behavior and heartbeat messages
+  - added seat-token-aware websocket authorization path
+  - added subscriber fan-out push path (published event -> connected socket queue)
+  - added queue-overflow drop-oldest policy for slow consumers (backpressure baseline)
+  - added `resume` gap-too-old guard (`RESUME_GAP_TOO_OLD`) and buffered replay fallback
+  - stream message envelope now includes `server_time_ms` on buffered stream path
+  - remaining: reconnect stress handling and load-level backpressure tuning
+- `B3` baseline: in progress
+  - added in-memory prompt lifecycle service (`pending`, `submit_decision`, `timeout_pending`)
+  - added debug prompt route for end-to-end prompt envelope smoke path
+  - websocket decision ack now validates pending prompt status (`accepted/rejected/stale`)
+  - timeout path now emits public fallback trace event (`decision_timeout_fallback`)
+  - added spectator decision block and authenticated player mismatch block
+  - remaining: engine fallback execution wiring and stale-request hardening
+- runtime fan-out baseline: in progress
+  - all-AI session start now triggers background engine execution
+  - emitted vis events are published into websocket stream buffer in order
+  - incremental live fan-out is now active (event append -> immediate WS publish bridge)
+  - remaining: runtime watchdog and backpressure tuning
+- `F1` baseline: in progress
+  - created React+TS scaffold files under `apps/web`
+  - added baseline stream contract types and websocket client
+  - added `useGameStream` hook and minimal connection/status UI
+  - added first domain reducer slice (`gameStreamReducer`) and hook integration
+  - added REST session API client and one-click all-AI session start/connect path
+  - added cross-session `seq` reset guard in stream hook
+  - added vitest baseline and reducer unit tests
+  - added selector/contract parser unit tests for snapshot/timeline/situation extraction
+  - added runtime status auto-refresh baseline in app shell
+  - dependency install/build pipeline now green on local environment
+  - remaining: broader domain store expansion and parser/contract tests
+- `F2` baseline: started
+  - split baseline UI into feature components (`status`, `timeline`, `board` placeholder)
+  - added stream selector layer (`domain/selectors/streamSelectors.ts`)
+  - added snapshot-driven public board/player baseline rendering
+  - added 40-tile ring board layout mapping (`tile_index` -> ring coordinates)
+  - added board-near recent incident card stack baseline (`IncidentCardStack`)
+  - remaining: pawn movement animation, richer labels/localization, theater depth
+- `B4+`: not started in code
 
 ## Execution Policy
 
