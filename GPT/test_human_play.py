@@ -139,6 +139,8 @@ def test_play_html_renderer() -> list[str]:
         errors.append("play HTML missing canonical public_tricks field")
     if "owned_tile_count" not in html or "placed_score_coins" not in html:
         errors.append("play HTML missing canonical player stat fields")
+    if "여기서 보이는 이름 그대로 엔진에 전달됩니다." in html:
+        errors.append("play HTML still exposes engine-facing draft/final note")
     for stale_field in (
         "marker_owner_id",
         "trick_cards_visible",
