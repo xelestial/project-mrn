@@ -19,8 +19,20 @@ import { IncidentCardStack } from "./features/theater/IncidentCardStack";
 import { PromptOverlay } from "./features/prompt/PromptOverlay";
 
 type SeatType = "human" | "ai";
+type ViewRoute = "lobby" | "match";
+
+const LOBBY_HASH = "#/lobby";
+const MATCH_HASH = "#/match";
+
+function parseRouteFromHash(hash: string): ViewRoute {
+  if (hash === MATCH_HASH) {
+    return "match";
+  }
+  return "lobby";
+}
 
 export function App() {
+  const [route, setRoute] = useState<ViewRoute>(() => parseRouteFromHash(window.location.hash));
   const [sessionInput, setSessionInput] = useState("");
   const [tokenInput, setTokenInput] = useState("");
   const [sessionId, setSessionId] = useState("");
@@ -52,6 +64,24 @@ export function App() {
   const snapshot = selectLatestSnapshot(stream.messages);
   const activePrompt = selectActivePrompt(stream.messages);
   const latestPromptAck = selectLatestDecisionAck(stream.messages, activePrompt?.requestId ?? promptRequestId);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      setRoute(parseRouteFromHash(window.location.hash));
+    };
+    window.addEventListener("hashchange", onHashChange);
+    if (!window.location.hash) {
+      window.location.hash = LOBBY_HASH;
+    }
+    return () => {
+      window.removeEventListener("hashchange", onHashChange);
+    };
+  }, []);
+
+  const navigateRoute = (next: ViewRoute) => {
+    window.location.hash = next === "match" ? MATCH_HASH : LOBBY_HASH;
+    setRoute(next);
+  };
 
   useEffect(() => {
     const seat = Number(joinSeatInput) || 1;
@@ -136,6 +166,9 @@ export function App() {
     const normalized = sessionInput.trim();
     setSessionId(normalized);
     setToken(tokenInput.trim() || undefined);
+    if (normalized) {
+      navigateRoute("match");
+    }
   };
 
   const onCreateCustomSession = async () => {
@@ -197,6 +230,7 @@ export function App() {
       setNotice(
         `AI session started: ${created.session_id} host_token=${created.host_token} join_tokens=${JSON.stringify(created.join_tokens)}`
       );
+      navigateRoute("match");
       await refreshSessions();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create/start AI session");
@@ -246,6 +280,7 @@ export function App() {
       setTokenInput(joined.session_token);
       setToken(joined.session_token);
       setNotice(`Joined seat P${joined.player_id}. Connected with session token.`);
+      navigateRoute("match");
       await refreshSessions();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to join seat");
@@ -285,174 +320,196 @@ export function App() {
       <header className="header">
         <h1>MRN Online Viewer (React/FastAPI)</h1>
         <p>Custom lobby controls are enabled: create, join, start, connect, and live stream observe.</p>
+        <div className="route-tabs">
+          <button
+            type="button"
+            className={route === "lobby" ? "route-tab route-tab-active" : "route-tab"}
+            onClick={() => navigateRoute("lobby")}
+          >
+            Lobby
+          </button>
+          <button
+            type="button"
+            className={route === "match" ? "route-tab route-tab-active" : "route-tab"}
+            onClick={() => navigateRoute("match")}
+          >
+            Match
+          </button>
+        </div>
       </header>
 
-      <section className="panel">
-        <h2>Lobby Controls</h2>
-        <div className="lobby-grid">
-          <div>
-            <h3>Create Session</h3>
-            <label>
-              Seed
-              <input value={seedInput} onChange={(e) => setSeedInput(e.target.value)} />
-            </label>
-            <label>
-              AI Profile
-              <input value={aiProfile} onChange={(e) => setAiProfile(e.target.value)} />
-            </label>
-            <div className="seat-grid">
-              {seatTypes.map((seatType, idx) => (
-                <label key={`seat-${idx + 1}`}>
-                  Seat {idx + 1}
-                  <select
-                    value={seatType}
-                    onChange={(e) => {
-                      const next = [...seatTypes];
-                      next[idx] = e.target.value === "human" ? "human" : "ai";
-                      setSeatTypes(next);
-                    }}
-                  >
-                    <option value="human">human</option>
-                    <option value="ai">ai</option>
-                  </select>
+      {route === "lobby" ? (
+        <>
+          <section className="panel">
+            <h2>Lobby Controls</h2>
+            <div className="lobby-grid">
+              <div>
+                <h3>Create Session</h3>
+                <label>
+                  Seed
+                  <input value={seedInput} onChange={(e) => setSeedInput(e.target.value)} />
                 </label>
+                <label>
+                  AI Profile
+                  <input value={aiProfile} onChange={(e) => setAiProfile(e.target.value)} />
+                </label>
+                <div className="seat-grid">
+                  {seatTypes.map((seatType, idx) => (
+                    <label key={`seat-${idx + 1}`}>
+                      Seat {idx + 1}
+                      <select
+                        value={seatType}
+                        onChange={(e) => {
+                          const next = [...seatTypes];
+                          next[idx] = e.target.value === "human" ? "human" : "ai";
+                          setSeatTypes(next);
+                        }}
+                      >
+                        <option value="human">human</option>
+                        <option value="ai">ai</option>
+                      </select>
+                    </label>
+                  ))}
+                </div>
+                <div className="actions">
+                  <button type="button" disabled={busy} onClick={onCreateCustomSession}>
+                    Create Custom Session
+                  </button>
+                  <button type="button" disabled={busy} onClick={onCreateAndStartAi}>
+                    Create + Start AI Session
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <h3>Host / Join</h3>
+                <label>
+                  Session ID
+                  <input value={sessionInput} onChange={(e) => setSessionInput(e.target.value)} placeholder="sess_xxx" />
+                </label>
+                <label>
+                  Host Token
+                  <input
+                    value={hostTokenInput}
+                    onChange={(e) => setHostTokenInput(e.target.value)}
+                    placeholder="host_xxx"
+                  />
+                </label>
+                <div className="actions">
+                  <button type="button" disabled={busy} onClick={onStartByHostToken}>
+                    Start Session
+                  </button>
+                </div>
+                <label>
+                  Join Seat
+                  <input value={joinSeatInput} onChange={(e) => setJoinSeatInput(e.target.value)} />
+                </label>
+                <label>
+                  Join Token
+                  <input
+                    value={joinTokenInput}
+                    onChange={(e) => setJoinTokenInput(e.target.value)}
+                    placeholder="seat_join_token"
+                  />
+                </label>
+                <label>
+                  Display Name
+                  <input value={displayNameInput} onChange={(e) => setDisplayNameInput(e.target.value)} />
+                </label>
+                <div className="actions">
+                  <button type="button" disabled={busy} onClick={onJoinSeat}>
+                    Join and Connect
+                  </button>
+                </div>
+                {Object.keys(lastJoinTokens).length > 0 ? (
+                  <p className="mono">
+                    Last create tokens:{" "}
+                    {Object.entries(lastJoinTokens)
+                      .map(([k, v]) => `S${k}:${v}`)
+                      .join(" | ")}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </section>
+
+          <section className="panel">
+            <h2>Stream Connection</h2>
+            <form onSubmit={onConnect} className="form">
+              <label>
+                Session ID
+                <input value={sessionInput} onChange={(e) => setSessionInput(e.target.value)} placeholder="sess_xxx" />
+              </label>
+              <label>
+                Session Token (optional)
+                <input
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="session_p1_xxx (or empty for spectator)"
+                />
+              </label>
+              <div className="actions">
+                <button type="submit" disabled={busy}>
+                  Connect
+                </button>
+                <button type="button" onClick={refreshSessions} disabled={busy}>
+                  Refresh Sessions
+                </button>
+              </div>
+            </form>
+            {notice ? <p className="notice ok">{notice}</p> : null}
+            {error ? <p className="notice err">{error}</p> : null}
+          </section>
+
+          <section className="panel">
+            <h2>Session List ({sessions.length})</h2>
+            <div className="timeline">
+              {sessions.map((s) => (
+                <article key={s.session_id} className="timeline-item">
+                  <strong>{s.session_id}</strong>
+                  <span>{s.status}</span>
+                  <small>
+                    R{s.round_index ?? 0} / T{s.turn_index ?? 0}
+                  </small>
+                  <button type="button" onClick={() => onUseSession(s.session_id)}>
+                    Use session
+                  </button>
+                </article>
               ))}
             </div>
-            <div className="actions">
-              <button type="button" disabled={busy} onClick={onCreateCustomSession}>
-                Create Custom Session
-              </button>
-              <button type="button" disabled={busy} onClick={onCreateAndStartAi}>
-                Create + Start AI Session
-              </button>
+          </section>
+        </>
+      ) : (
+        <>
+          <ConnectionPanel status={stream.status} lastSeq={stream.lastSeq} runtime={runtime} />
+          <SituationPanel model={situation} />
+          <BoardPanel snapshot={snapshot} />
+          <IncidentCardStack items={timeline} />
+          <PlayersPanel snapshot={snapshot} />
+          <TimelinePanel items={timeline} />
+
+          <PromptOverlay
+            prompt={activePrompt}
+            collapsed={promptCollapsed}
+            busy={promptBusy}
+            secondsLeft={promptSecondsLeft}
+            onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
+            onSelectChoice={onSelectPromptChoice}
+          />
+
+          <section className="panel">
+            <h2>Recent Messages ({stream.messages.length})</h2>
+            <div className="messages">
+              {stream.messages
+                .slice()
+                .reverse()
+                .map((message, idx) => (
+                  <pre key={`${message.seq}-${idx}`}>{JSON.stringify(message, null, 2)}</pre>
+                ))}
             </div>
-          </div>
-
-          <div>
-            <h3>Host / Join</h3>
-            <label>
-              Session ID
-              <input value={sessionInput} onChange={(e) => setSessionInput(e.target.value)} placeholder="sess_xxx" />
-            </label>
-            <label>
-              Host Token
-              <input
-                value={hostTokenInput}
-                onChange={(e) => setHostTokenInput(e.target.value)}
-                placeholder="host_xxx"
-              />
-            </label>
-            <div className="actions">
-              <button type="button" disabled={busy} onClick={onStartByHostToken}>
-                Start Session
-              </button>
-            </div>
-            <label>
-              Join Seat
-              <input value={joinSeatInput} onChange={(e) => setJoinSeatInput(e.target.value)} />
-            </label>
-            <label>
-              Join Token
-              <input
-                value={joinTokenInput}
-                onChange={(e) => setJoinTokenInput(e.target.value)}
-                placeholder="seat_join_token"
-              />
-            </label>
-            <label>
-              Display Name
-              <input value={displayNameInput} onChange={(e) => setDisplayNameInput(e.target.value)} />
-            </label>
-            <div className="actions">
-              <button type="button" disabled={busy} onClick={onJoinSeat}>
-                Join and Connect
-              </button>
-            </div>
-            {Object.keys(lastJoinTokens).length > 0 ? (
-              <p className="mono">
-                Last create tokens:{" "}
-                {Object.entries(lastJoinTokens)
-                  .map(([k, v]) => `S${k}:${v}`)
-                  .join(" | ")}
-              </p>
-            ) : null}
-          </div>
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>Stream Connection</h2>
-        <form onSubmit={onConnect} className="form">
-          <label>
-            Session ID
-            <input value={sessionInput} onChange={(e) => setSessionInput(e.target.value)} placeholder="sess_xxx" />
-          </label>
-          <label>
-            Session Token (optional)
-            <input
-              value={tokenInput}
-              onChange={(e) => setTokenInput(e.target.value)}
-              placeholder="session_p1_xxx (or empty for spectator)"
-            />
-          </label>
-          <div className="actions">
-            <button type="submit" disabled={busy}>
-              Connect
-            </button>
-            <button type="button" onClick={refreshSessions} disabled={busy}>
-              Refresh Sessions
-            </button>
-          </div>
-        </form>
-        {notice ? <p className="notice ok">{notice}</p> : null}
-        {error ? <p className="notice err">{error}</p> : null}
-      </section>
-
-      <section className="panel">
-        <h2>Session List ({sessions.length})</h2>
-        <div className="timeline">
-          {sessions.map((s) => (
-            <article key={s.session_id} className="timeline-item">
-              <strong>{s.session_id}</strong>
-              <span>{s.status}</span>
-              <small>
-                R{s.round_index ?? 0} / T{s.turn_index ?? 0}
-              </small>
-              <button type="button" onClick={() => onUseSession(s.session_id)}>
-                Use session
-              </button>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <ConnectionPanel status={stream.status} lastSeq={stream.lastSeq} runtime={runtime} />
-      <SituationPanel model={situation} />
-      <BoardPanel snapshot={snapshot} />
-      <IncidentCardStack items={timeline} />
-      <PlayersPanel snapshot={snapshot} />
-      <TimelinePanel items={timeline} />
-
-      <PromptOverlay
-        prompt={activePrompt}
-        collapsed={promptCollapsed}
-        busy={promptBusy}
-        secondsLeft={promptSecondsLeft}
-        onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
-        onSelectChoice={onSelectPromptChoice}
-      />
-
-      <section className="panel">
-        <h2>Recent Messages ({stream.messages.length})</h2>
-        <div className="messages">
-          {stream.messages
-            .slice()
-            .reverse()
-            .map((message, idx) => (
-              <pre key={`${message.seq}-${idx}`}>{JSON.stringify(message, null, 2)}</pre>
-            ))}
-        </div>
-      </section>
+          </section>
+        </>
+      )}
     </main>
   );
 }

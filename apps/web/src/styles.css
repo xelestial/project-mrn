@@ -27,6 +27,27 @@ body {
   color: #b6c5e7;
 }
 
+.route-tabs {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.route-tab {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid #345a93;
+  background: #102649;
+  color: #c8d9fb;
+  cursor: pointer;
+}
+
+.route-tab-active {
+  border-color: #ffda77;
+  color: #ffda77;
+  background: #17335f;
+}
+
 .panel {
   background: #0e1f3d;
   border: 1px solid #274679;
@@ -59,6 +80,21 @@ body {
 
 .panel h3 {
   margin: 0 0 8px;
+}
+
+.lobby-grid label {
+  display: grid;
+  gap: 4px;
+  color: #b8c8ec;
+}
+
+.lobby-grid input,
+.lobby-grid select {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #355588;
+  background: #0a1831;
+  color: #e8efff;
 }
 
 .form label {
