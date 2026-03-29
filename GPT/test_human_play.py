@@ -151,6 +151,8 @@ def test_play_html_renderer() -> list[str]:
         errors.append("play HTML missing processing-state handler")
     if "pushActivity" not in html or "renderActivityOverlay" not in html:
         errors.append("play HTML missing other-player activity overlay handlers")
+    if "positionDecisionPanel" not in html or "purchase-anchored" not in html or "tile-callout" not in html:
+        errors.append("play HTML missing purchase prompt tile anchoring")
     if "setTimeout(hideDecision,180)" in html:
         errors.append("play HTML still hides decision overlay before backend state advances")
     for stale_field in (
