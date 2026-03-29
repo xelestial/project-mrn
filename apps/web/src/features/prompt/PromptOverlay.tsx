@@ -6,6 +6,7 @@ type PromptOverlayProps = {
   collapsed: boolean;
   busy: boolean;
   secondsLeft: number | null;
+  feedbackMessage?: string;
   onToggleCollapse: () => void;
   onSelectChoice: (choiceId: string) => void;
 };
@@ -15,6 +16,7 @@ export function PromptOverlay({
   collapsed,
   busy,
   secondsLeft,
+  feedbackMessage,
   onToggleCollapse,
   onSelectChoice,
 }: PromptOverlayProps) {
@@ -79,7 +81,8 @@ export function PromptOverlay({
           {prompt.choices.length === 0 ? <p>선택지 정보가 없습니다.</p> : null}
         </div>
       ) : null}
-      {busy ? <p className="notice ok">처리 중... 엔진 응답을 기다리는 중입니다.</p> : null}
+      {feedbackMessage ? <p className="notice err">{feedbackMessage}</p> : null}
+      {busy ? <p className="notice ok">처리 중입니다. 엔진 응답을 기다리는 중입니다.</p> : null}
     </section>
   );
 }

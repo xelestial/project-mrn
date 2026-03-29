@@ -79,7 +79,8 @@ It is intentionally execution-focused:
   - added ack-status unlock handling for rejected/stale decisions
   - added countdown baseline in prompt overlay
   - added keyboard/focus baseline (first-choice focus, focus restore, Escape collapse)
-  - remaining: stale/timeout user messaging polish
+  - added stale/rejected inline feedback messaging in prompt overlay
+  - remaining: timeout fallback explanation copy polish
 - `F4` baseline: started
   - added lobby control panel for custom seat composition and seed/profile inputs
   - added host-start path with explicit host token input

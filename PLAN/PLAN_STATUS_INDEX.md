@@ -97,6 +97,7 @@ Practical implications:
   - F3 rejected/stale ack unlock baseline added
   - F3 prompt countdown baseline added
   - F3 keyboard/focus baseline added (focus restore + Escape collapse)
+  - F3 stale/rejected feedback messaging baseline added (prompt overlay inline guidance)
   - F4 lobby baseline started (custom session create/join/start/session list)
   - F4 join-token state baseline added (seat-based auto-fill from created session)
   - F4 join-token UX polish baseline added (seat select + one-click token apply chips)

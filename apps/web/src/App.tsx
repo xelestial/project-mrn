@@ -56,6 +56,7 @@ export function App() {
   const [promptBusy, setPromptBusy] = useState(false);
   const [promptRequestId, setPromptRequestId] = useState("");
   const [promptExpiresAtMs, setPromptExpiresAtMs] = useState<number | null>(null);
+  const [promptFeedback, setPromptFeedback] = useState("");
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   const stream = useGameStream({ sessionId, token });
@@ -126,6 +127,7 @@ export function App() {
       setPromptBusy(false);
       setPromptRequestId("");
       setPromptExpiresAtMs(null);
+      setPromptFeedback("");
       return;
     }
     if (activePrompt.requestId !== promptRequestId) {
@@ -133,6 +135,7 @@ export function App() {
       setPromptCollapsed(false);
       setPromptRequestId(activePrompt.requestId);
       setPromptExpiresAtMs(Date.now() + activePrompt.timeoutMs);
+      setPromptFeedback("");
     }
   }, [activePrompt, promptRequestId]);
 
@@ -142,11 +145,19 @@ export function App() {
     }
     if (latestPromptAck.status === "rejected") {
       setPromptBusy(false);
-      setError(latestPromptAck.reason ? `Decision rejected: ${latestPromptAck.reason}` : "Decision rejected");
+      setPromptFeedback(
+        latestPromptAck.reason
+          ? `선택이 거절되었습니다: ${latestPromptAck.reason}`
+          : "선택이 거절되었습니다. 다른 선택지를 시도해주세요."
+      );
     }
     if (latestPromptAck.status === "stale") {
       setPromptBusy(false);
-      setError(latestPromptAck.reason ? `Decision stale: ${latestPromptAck.reason}` : "Decision request is stale");
+      setPromptFeedback(
+        latestPromptAck.reason
+          ? `선택이 만료되었습니다: ${latestPromptAck.reason}`
+          : "선택 요청이 만료되었습니다. 현재 요청을 다시 확인해주세요."
+      );
     }
   }, [latestPromptAck, promptBusy]);
 
@@ -310,6 +321,7 @@ export function App() {
       return;
     }
     setPromptBusy(true);
+    setPromptFeedback("");
     stream.sendDecision({
       requestId: activePrompt.requestId,
       playerId: activePrompt.playerId,
@@ -395,6 +407,7 @@ export function App() {
             collapsed={promptCollapsed}
             busy={promptBusy}
             secondsLeft={promptSecondsLeft}
+            feedbackMessage={promptFeedback}
             onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
             onSelectChoice={onSelectPromptChoice}
           />

@@ -118,6 +118,7 @@ Current policy:
   - F3 ack-state handling baseline added (rejected/stale unlock)
   - F3 prompt countdown baseline added
   - F3 keyboard/focus baseline added (first choice focus, Escape collapse)
+  - F3 stale/rejected inline feedback baseline added in prompt overlay
   - F4 lobby baseline started (custom create/join/start/session-list in app shell)
   - F4 lobby/match route split baseline added (hash-based route tabs)
   - F4 join-token UX polish baseline added (seat dropdown + one-click token apply)
