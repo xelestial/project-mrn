@@ -152,8 +152,16 @@ def test_play_html_renderer() -> list[str]:
         errors.append("play HTML missing prompt submission lock state")
     if "setDecisionPendingState" not in html:
         errors.append("play HTML missing processing-state handler")
+    if "network-badge" not in html or "setNetworkState" not in html:
+        errors.append("play HTML missing network failure visibility handlers")
+    if "handleDecisionKeydown" not in html or "focusDecisionButton" not in html:
+        errors.append("play HTML missing keyboard decision navigation handlers")
+    if 'aria-live="polite"' not in html or 'aria-modal="true"' not in html:
+        errors.append("play HTML missing accessibility live/dialog attributes")
     if "pushActivity" not in html or "renderActivityOverlay" not in html:
         errors.append("play HTML missing other-player activity overlay handlers")
+    if "incident-stack" not in html or "pushIncident" not in html:
+        errors.append("play HTML missing board incident-card overlay handlers")
     if "renderStoryRail" not in html or "story-card" not in html:
         errors.append("play HTML missing persistent public action rail")
     if "renderBankruptcyBanner" not in html or "bankruptcyPlayerId" not in html:
@@ -162,6 +170,8 @@ def test_play_html_renderer() -> list[str]:
         errors.append("play HTML missing purchase prompt tile anchoring")
     if "pushAssetEffectsFromEvent" not in html or "syncSnapshotEconomy" not in html or "renderAssetLog" not in html:
         errors.append("play HTML missing economy tracking helpers")
+    if "runaway_step_choice" not in html or "runaway_choice" not in html:
+        errors.append("play HTML missing runaway-step choice wiring")
     if "setTimeout(hideDecision,180)" in html:
         errors.append("play HTML still hides decision overlay before backend state advances")
     for stale_field in (
@@ -747,6 +757,68 @@ def test_human_policy_burden_exchange_prompt() -> list[str]:
     return errors
 
 
+def test_human_policy_runaway_step_choice_prompt() -> list[str]:
+    errors = []
+    try:
+        from viewer.human_policy import HumanHttpPolicy
+        from ai_policy import HeuristicPolicy
+        from config import DEFAULT_CONFIG
+        from state import GameState
+
+        ai = HeuristicPolicy(
+            character_policy_mode="heuristic_v1",
+            lap_policy_mode="heuristic_v1",
+        )
+        policy = HumanHttpPolicy(human_seat=0, ai_fallback=ai)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+
+        result = [None]
+        done = threading.Event()
+
+        def _call():
+            result[0] = policy.choose_runaway_slave_step(
+                state,
+                player,
+                11,
+                12,
+                SimpleNamespace(name="S"),
+            )
+            done.set()
+
+        threading.Thread(target=_call, daemon=True).start()
+
+        for _ in range(20):
+            if policy.pending_prompt is not None:
+                break
+            time.sleep(0.05)
+
+        prompt = policy.pending_prompt
+        if prompt is None:
+            errors.append("pending_prompt never set for runaway_step_choice")
+            return errors
+        if prompt.get("request_type") != "runaway_step_choice":
+            errors.append(f"Expected request_type=runaway_step_choice, got {prompt.get('request_type')}")
+        if prompt.get("can_pass") is not False:
+            errors.append(f"runaway_step_choice should require a choice, got can_pass={prompt.get('can_pass')!r}")
+        choice_ids = [opt.get("choice_id") for opt in prompt.get("legal_choices", [])]
+        if choice_ids != ["take_bonus", "stay"]:
+            errors.append(f"Unexpected runaway_step_choice choices: {choice_ids}")
+
+        ok = policy.submit_response({"choice_id": "stay"})
+        if not ok:
+            errors.append("submit_response returned False for runaway_step_choice")
+        done.wait(timeout=3.0)
+        if not done.is_set():
+            errors.append("choose_runaway_slave_step did not unblock")
+        elif result[0] is not False:
+            errors.append(f"Expected False (stay) from runaway_step_choice, got {result[0]!r}")
+    except Exception as e:
+        import traceback
+        errors.append(f"Exception: {e}\n{traceback.format_exc()}")
+    return errors
+
+
 # ---------------------------------------------------------------------------
 # Integration tests (with live server)
 # ---------------------------------------------------------------------------
@@ -836,6 +908,7 @@ def main() -> int:
         ("human_policy_active_flip",    test_human_policy_active_flip_prompt),
         ("human_policy_hidden_trick",   test_human_policy_hidden_trick_requires_selection),
         ("human_policy_burden_exchange",test_human_policy_burden_exchange_prompt),
+        ("human_policy_runaway_step",   test_human_policy_runaway_step_choice_prompt),
     ]
     all_passed = True
     for name, fn in unit_tests:

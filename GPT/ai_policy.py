@@ -839,6 +839,17 @@ class BasePolicy:
     def choose_movement(self, state: GameState, player: PlayerState) -> MovementDecision:
         raise NotImplementedError
 
+    def choose_runaway_slave_step(
+        self,
+        state: GameState,
+        player: PlayerState,
+        one_short_pos: int,
+        bonus_target_pos: int,
+        bonus_target_kind: CellKind,
+    ) -> bool:
+        # Default keeps existing AI behavior: take the optional +1 into special tile.
+        return True
+
     def choose_lap_reward(self, state: GameState, player: PlayerState) -> LapRewardDecision:
         raise NotImplementedError
 
@@ -5153,6 +5164,22 @@ class ArenaPolicy:
 
     def choose_movement(self, state: GameState, player: PlayerState):
         return self._policy_for_player(player).choose_movement(state, player)
+
+    def choose_runaway_slave_step(
+        self,
+        state: GameState,
+        player: PlayerState,
+        one_short_pos: int,
+        bonus_target_pos: int,
+        bonus_target_kind: CellKind,
+    ) -> bool:
+        return self._policy_for_player(player).choose_runaway_slave_step(
+            state,
+            player,
+            one_short_pos,
+            bonus_target_pos,
+            bonus_target_kind,
+        )
 
     def choose_purchase_tile(self, state: GameState, player: PlayerState, pos: int, cell: CellKind, cost: int, *, source: str = "landing") -> bool:
         return self._policy_for_player(player).choose_purchase_tile(state, player, pos, cell, cost, source=source)

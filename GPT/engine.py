@@ -771,6 +771,10 @@ class GameEngine:
             used_cards=movement_meta.get("used_cards", []),
             formula=movement_meta.get("formula", ""),
             move=move,
+            runaway_choice=movement_meta.get("runaway_choice"),
+            runaway_one_short_pos=movement_meta.get("runaway_one_short_pos"),
+            runaway_bonus_target_pos=movement_meta.get("runaway_bonus_target_pos"),
+            runaway_bonus_target_kind=movement_meta.get("runaway_bonus_target_kind"),
         )
         if len(self._strategy_stats) <= player.player_id:
             self._strategy_stats = [
@@ -1590,16 +1594,46 @@ class GameEngine:
         elif mode == "dice":
             move = sum(dice)
 
+
+        runaway_choice = None
+        runaway_one_short_pos = None
+        runaway_bonus_target_pos = None
+        runaway_bonus_target_kind = None
         if char == "탈출 노비":
             board_len = len(state.board)
             one_short_pos = (player.position + move) % board_len
             target_pos = (one_short_pos + 1) % board_len
-            if state.board[target_pos] in {CellKind.F1, CellKind.F2, CellKind.S}:
-                move += 1
+            target_kind = state.board[target_pos]
+            if target_kind in {CellKind.F1, CellKind.F2, CellKind.S}:
+                chooser = getattr(self.policy, "choose_runaway_slave_step", None)
+                choose_bonus = True
+                if callable(chooser):
+                    choose_bonus = bool(
+                        chooser(
+                            state,
+                            player,
+                            one_short_pos,
+                            target_pos,
+                            target_kind,
+                        )
+                    )
+                if choose_bonus:
+                    move += 1
+                    runaway_choice = "take_bonus"
+                else:
+                    runaway_choice = "stay"
+                runaway_one_short_pos = one_short_pos
+                runaway_bonus_target_pos = target_pos
+                runaway_bonus_target_kind = target_kind.name
 
         player.extra_dice_count_this_turn = 0
         player.trick_dice_delta_this_turn = 0
         meta = {"used_cards": used_cards, "dice": dice, "formula": "+".join(map(str, used_cards + dice)) if (used_cards or dice) else "0", "mode": mode}
+        if runaway_choice is not None:
+            meta["runaway_choice"] = runaway_choice
+            meta["runaway_one_short_pos"] = runaway_one_short_pos
+            meta["runaway_bonus_target_pos"] = runaway_bonus_target_pos
+            meta["runaway_bonus_target_kind"] = runaway_bonus_target_kind
         if rerolls:
             meta["rerolls"] = rerolls
         return move, meta

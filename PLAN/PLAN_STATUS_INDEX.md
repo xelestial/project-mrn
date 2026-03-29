@@ -151,6 +151,15 @@ These are still useful, but they are not the current top-level execution plan on
   - focuses on board-game-grade readability and presentation
   - turns the current Phase 5 viewer from a functional tool UI into a stronger match UI
   - should be treated as the current GPT-owned UX execution proposal under the canonical visualization plan
+  - latest audit update (`2026-03-29`) added explicit P0 gaps:
+    - live template text/encoding normalization
+    - turn-theater v2 dominance
+    - board-near incident cards for purchase/rent/fortune/weather
+  - implementation update (`2026-03-29`, continued):
+    - `runaway_step_choice` prompt path is now wired end-to-end (engine -> human policy -> renderer)
+    - board-near incident cards are now implemented in live viewer (`incident-stack`)
+    - network failure visibility baseline is implemented (`network-badge`, reconnect states)
+    - keyboard + ARIA baseline for decision overlay is implemented
 
 ### Claude Architecture Refactor
 - File: `PLAN/CLAUDE_ARCHITECTURE_REFACTOR_PLAN.md`

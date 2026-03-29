@@ -176,6 +176,67 @@ class HumanHttpPolicy:
 
         return self._ask(prompt, _parse, lambda: self._ai.choose_movement(state, player))
 
+    def choose_runaway_slave_step(
+        self,
+        state: Any,
+        player: Any,
+        one_short_pos: int,
+        bonus_target_pos: int,
+        bonus_target_kind: Any,
+    ) -> bool:
+        ai_fallback = getattr(self._ai, "choose_runaway_slave_step", None)
+        if callable(ai_fallback):
+            fallback_fn = lambda: bool(
+                ai_fallback(state, player, one_short_pos, bonus_target_pos, bonus_target_kind)
+            )
+        else:
+            fallback_fn = lambda: True
+        if not self._is_human_seat(player.player_id):
+            return fallback_fn()
+
+        kind_name = getattr(bonus_target_kind, "name", str(bonus_target_kind))
+        options = [
+            {
+                "id": "take_bonus",
+                "label": f"+1 적용: {bonus_target_pos}칸({kind_name})으로 이동",
+                "value": {"take_bonus": True},
+            },
+            {
+                "id": "stay",
+                "label": f"유지: {one_short_pos}칸에 정지",
+                "value": {"take_bonus": False},
+            },
+        ]
+        prompt = build_prompt_envelope(
+            request_type="runaway_step_choice",
+            player_id=player.player_id + 1,
+            legal_choices=[
+                {
+                    "choice_id": opt["id"],
+                    "label": opt["label"],
+                    "value": dict(opt["value"]),
+                }
+                for opt in options
+            ],
+            public_context={
+                "player_position": player.position,
+                "one_short_pos": one_short_pos,
+                "bonus_target_pos": bonus_target_pos,
+                "bonus_target_kind": kind_name,
+            },
+            can_pass=False,
+            timeout_ms=int(TIMEOUT_S * 1000),
+        )
+
+        def _parse(r: dict):
+            sel = extract_choice_id(r, "take_bonus")
+            for opt in options:
+                if opt["id"] == sel:
+                    return bool(opt["value"]["take_bonus"])
+            return True
+
+        return bool(self._ask(prompt, _parse, fallback_fn))
+
     # ------------------------------------------------------------------
     # choose_lap_reward
     # ------------------------------------------------------------------

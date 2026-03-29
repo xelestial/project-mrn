@@ -73,6 +73,106 @@ The most important public consequences should always be obvious:
 
 Right now, these are visible, but not yet staged as the main experience.
 
+## Current Source Audit (2026-03-29)
+
+Audit target:
+- `GPT/viewer/renderers/play_html.py`
+- `GPT/viewer/human_policy.py`
+- `GPT/viewer/prompt_server.py`
+- `GPT/viewer/live_server.py`
+- `GPT/run_human_play.py`
+
+### Audit Summary
+
+The viewer now has meaningful Phase 5 foundations:
+- prompt anchoring
+- public action overlay
+- story rail
+- event feed scroll
+- asset delta panel
+- bankruptcy banner
+
+However, the current user-play UX is still below "commercial board-game" quality in three critical areas.
+
+### Critical Gaps
+
+1. Text rendering/encoding quality is inconsistent in the live template.
+- Several user-facing labels still appear as mojibake-like strings in source.
+- This directly harms readability and trust in the UI.
+
+2. Network/polling failure handling is console-only.
+- `pollEvents` and `pollPrompt` currently fail with `console.warn(...)` but no in-UI recovery guidance.
+- During local hiccups, users can mistake delay/failure for input bugs.
+
+3. Accessibility and input resilience are incomplete.
+- No keyboard-first decision navigation contract is defined yet.
+- No ARIA/live-region strategy is documented for turn/alert changes.
+- This is a practical UX issue for long sessions, not just compliance polish.
+
+### Priority Backlog (Updated)
+
+P0 (must do first):
+- Encoding normalization pass for all live-viewer player-facing strings.
+- Turn theater v2:
+  - one dominant current-turn stage card
+  - ordered action chips: movement -> landing -> purchase/rent/fortune/weather
+  - explicit actor handoff between turns
+- Incident card layer near board:
+  - purchase
+  - rent
+  - fortune
+  - weather
+  - visible as board-near, not side-panel-only
+
+P1 (next):
+- Prompt guidance pack:
+  - concise "what changed" line before next prompt opens
+  - stronger actionable hints in each prompt family
+- Failure UX:
+  - visible reconnect/wait state for polling failures
+  - clear stale-state indicator when backend response is delayed
+- Accessibility baseline:
+  - keyboard selection flow
+  - focus ring/return focus policy
+  - live-region notices for turn/bankruptcy/critical events
+
+P2 (after stabilization):
+- Motion polish:
+  - staged movement animation
+  - rent/purchase/weather/fortune micro-transition cards
+- Live/replay wording parity hardening with shared phrase dictionary
+
+### Implementation Progress Update (2026-03-29, Continued)
+
+Completed in this slice:
+
+- `탈출 노비` 선택 이동이 실제 사람 프롬프트(`runaway_step_choice`)로 연결됨
+  - engine emits `runaway_choice` metadata on `dice_roll`
+  - live prompt shows explicit `+1 이동` vs `정지` choices
+  - replay/live event detail now exposes the actual chosen branch
+- 보드 중앙 `incident-stack` 사건 카드 레이어 연결 완료
+  - purchase / rent / weather / fortune / landing-resolved feed surfaced near board center
+- 네트워크 실패 가시화 1차 완료
+  - header `network-badge` added
+  - `/events` and `/prompt` polling failures now surface as `연결 지연` / `재연결 중` UI state
+- 접근성/입력 회복력 1차 완료
+  - decision overlay now includes dialog ARIA attributes
+  - keyboard decision navigation added (arrow keys + enter/space)
+  - `aria-live` announcement channel added for turn/prompt/bankruptcy milestones
+
+Still open:
+
+- full string/encoding normalization pass for all user-facing labels in live template
+- stronger theatrical action staging (dominant lane + visual hierarchy polish)
+- motion layer polish and replay/live wording dictionary convergence
+
+### Acceptance Delta Added
+
+This proposal now additionally requires:
+- no unreadable user-facing mojibake text in live viewer
+- players can understand connection state without dev console
+- each non-human turn is readable through one theater lane without scanning all panels
+
 ## UX Direction
 
 ### A. Turn Theater
