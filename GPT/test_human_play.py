@@ -145,6 +145,12 @@ def test_play_html_renderer() -> list[str]:
         errors.append("play HTML still exposes legacy hidden-trick skip wording")
     if "Skip (no trick)" in html:
         errors.append("play HTML still exposes legacy trick skip wording")
+    if "decisionSubmitting" not in html or "promptSignature" not in html:
+        errors.append("play HTML missing prompt submission lock state")
+    if "setDecisionPendingState" not in html:
+        errors.append("play HTML missing processing-state handler")
+    if "setTimeout(hideDecision,180)" in html:
+        errors.append("play HTML still hides decision overlay before backend state advances")
     for stale_field in (
         "marker_owner_id",
         "trick_cards_visible",
