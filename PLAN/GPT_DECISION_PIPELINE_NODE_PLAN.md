@@ -1,6 +1,6 @@
 # GPT Decision Pipeline Node Plan
 
-Status: `ACTIVE`
+Status: `COMPLETE`
 Role: `canonical plan for rewriting GPT AI decisions into reusable node/pipeline form`
 
 ## Current Implementation Snapshot
@@ -39,12 +39,13 @@ Role: `canonical plan for rewriting GPT AI decisions into reusable node/pipeline
 - purchase traces now emit `safe_growth_beats_token_wait` when `v3_gpt` deliberately buys a safe growth tile instead of over-waiting for a modest score-coin window
 
 ### Still Pending
-- optional node-graph visualization layer over the new trace substrate
+- none in the currently committed scope
 
 ### Completion Note
 - the original first-pass non-trick scope is complete
 - the follow-through trick-family scope is now also traced through the same substrate
-- remaining work is intentionally limited to optional visualization / introspection layers
+- the optional visualization / introspection layer is now available through Mermaid export in [GPT/analyze_ai_decisions.py](/Users/SIL-EDITOR/Desktop/Workspace/project-mrn/GPT/analyze_ai_decisions.py)
+- current plan scope is complete; future work is optional UI/tooling polish rather than missing pipeline coverage
 
 ## Goal
 Rewrite the existing GPT AI decision logic into a pipeline-oriented structure that is:

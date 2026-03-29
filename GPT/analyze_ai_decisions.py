@@ -65,10 +65,96 @@ def summarize_ai_decisions(rows: list[dict]) -> dict:
     }
 
 
+def select_ai_decision_row(
+    rows: list[dict],
+    *,
+    decision_key: str = "",
+    player_id: int | None = None,
+    row_index: int = 0,
+) -> dict | None:
+    filtered = []
+    for row in rows:
+        if decision_key and str(row.get("decision_key", "")) != decision_key:
+            continue
+        if player_id is not None and int(row.get("player_id", -1)) != player_id:
+            continue
+        filtered.append(row)
+    if row_index < 0 or row_index >= len(filtered):
+        return None
+    return filtered[row_index]
+
+
+def _compact_json(value: object, *, limit: int = 120) -> str:
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if len(text) > limit:
+        return text[: limit - 3] + "..."
+    return text
+
+
+def build_trace_mermaid(row: dict) -> str:
+    trace = ((row.get("payload") or {}).get("trace") or {})
+    decision_key = str(row.get("decision_key", "unknown"))
+    player_id = row.get("player_id", "?")
+    lines = [
+        "flowchart LR",
+        f'    root["{decision_key} / P{player_id}"]',
+        '    features["features"]',
+        '    effects["effect_adjustments"]',
+        '    final["final_choice"]',
+        "    root --> features",
+    ]
+    feature_items = list((trace.get("features") or {}).items())
+    if feature_items:
+        for idx, (key, value) in enumerate(feature_items[:8], start=1):
+            node = f"feature_{idx}"
+            lines.append(f'    {node}["{key}: {_compact_json(value)}"]')
+            lines.append(f"    features --> {node}")
+    else:
+        lines.append('    feature_empty["(none)"]')
+        lines.append("    features --> feature_empty")
+
+    detector_hits = list(trace.get("detector_hits") or [])
+    if detector_hits:
+        lines.append('    detectors["detector_hits"]')
+        lines.append("    features --> detectors")
+        for idx, hit in enumerate(detector_hits[:8], start=1):
+            key = str(hit.get("key", "?"))
+            kind = str(hit.get("kind", "?"))
+            severity = hit.get("severity", "")
+            node = f"detector_{idx}"
+            lines.append(f'    {node}["{key}\\n{kind} / severity={severity}"]')
+            lines.append(f"    detectors --> {node}")
+            lines.append(f"    {node} --> effects")
+    else:
+        lines.append("    features --> effects")
+
+    effect_items = list(trace.get("effect_adjustments") or [])
+    if effect_items:
+        for idx, item in enumerate(effect_items[:8], start=1):
+            node = f"effect_{idx}"
+            if isinstance(item, dict):
+                label = f'{item.get("kind", "effect")}: {_compact_json(item.get("value", item.get("values")))}'
+            else:
+                label = _compact_json(item)
+            lines.append(f'    {node}["{label}"]')
+            lines.append(f"    effects --> {node}")
+            lines.append(f"    {node} --> final")
+    else:
+        lines.append("    effects --> final")
+
+    lines.append(f'    choice_value["{_compact_json(trace.get("final_choice"))}"]')
+    lines.append("    final --> choice_value")
+    return "\n".join(lines)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True, help="Path to ai_decisions.jsonl")
     ap.add_argument("--output", default="", help="Optional path to write summary json")
+    ap.add_argument("--decision-key", default="", help="Optional decision key filter for mermaid export")
+    ap.add_argument("--player-id", type=int, default=None, help="Optional player id filter for mermaid export")
+    ap.add_argument("--row-index", type=int, default=0, help="0-based filtered row index for mermaid export")
+    ap.add_argument("--mermaid-output", default="", help="Optional path to write a mermaid graph for one decision row")
     args = ap.parse_args()
 
     rows = _load_rows(args.input)
@@ -77,6 +163,18 @@ def main() -> None:
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    if args.mermaid_output:
+        selected = select_ai_decision_row(
+            rows,
+            decision_key=args.decision_key,
+            player_id=args.player_id,
+            row_index=args.row_index,
+        )
+        if selected is None:
+            raise SystemExit("No matching ai_decision row found for mermaid export.")
+        mermaid_path = Path(args.mermaid_output)
+        mermaid_path.parent.mkdir(parents=True, exist_ok=True)
+        mermaid_path.write_text(build_trace_mermaid(selected), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 

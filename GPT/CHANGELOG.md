@@ -1,3 +1,8 @@
+## v0.7.67-ai-node-graph-export (2026-03-29)
+- Completed the planned AI decision pipeline pass by adding Mermaid node-graph export on top of `ai_decisions.jsonl`.
+- `analyze_ai_decisions.py` can now filter a single decision row and render `features -> detector_hits -> effect_adjustments -> final_choice` as a reusable Mermaid flowchart for offline review.
+- Added regression coverage for row selection and Mermaid graph generation so the visualization layer stays aligned with the canonical `DecisionTrace` payload shape.
+
 ## v0.7.66-ai-log-driven-tuning (2026-03-29)
 - Used `ai_decisions.jsonl` analysis to tune GPT decision nodes instead of only reading end-game summaries.
 - Reduced over-eager rescue/marker weighting in draft/final character choice by removing extra off-marker-owner bonus and narrowing which character families receive survival-first marker amplification.
