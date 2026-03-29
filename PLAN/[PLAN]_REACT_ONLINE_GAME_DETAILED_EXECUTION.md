@@ -73,6 +73,7 @@ It is intentionally execution-focused:
   - added prompt overlay component with full-card choices and collapse toggle
   - added decision submit wiring from UI (`useGameStream.sendDecision`)
   - added prompt selector unit tests
+  - added ack-status unlock handling for rejected/stale decisions
   - remaining: countdown UX, keyboard/focus/a11y depth, stale/timeout user messaging polish
 - `B4+`: not started in code
 

@@ -14,6 +14,11 @@ export type PromptViewModel = {
   choices: PromptChoiceViewModel[];
 };
 
+export type DecisionAckViewModel = {
+  status: "accepted" | "rejected" | "stale";
+  reason: string;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
 }
@@ -83,3 +88,26 @@ export function selectActivePrompt(messages: InboundMessage[]): PromptViewModel 
   };
 }
 
+export function selectLatestDecisionAck(messages: InboundMessage[], requestId: string): DecisionAckViewModel | null {
+  if (!requestId.trim()) {
+    return null;
+  }
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.type !== "decision_ack") {
+      continue;
+    }
+    if (message.payload["request_id"] !== requestId) {
+      continue;
+    }
+    const status = message.payload["status"];
+    if (status !== "accepted" && status !== "rejected" && status !== "stale") {
+      return null;
+    }
+    return {
+      status,
+      reason: typeof message.payload["reason"] === "string" ? message.payload["reason"] : "",
+    };
+  }
+  return null;
+}

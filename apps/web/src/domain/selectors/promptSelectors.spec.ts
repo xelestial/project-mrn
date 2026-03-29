@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InboundMessage } from "../../core/contracts/stream";
-import { selectActivePrompt } from "./promptSelectors";
+import { selectActivePrompt, selectLatestDecisionAck } from "./promptSelectors";
 
 describe("promptSelectors", () => {
   it("returns active prompt when unresolved", () => {
@@ -44,5 +44,18 @@ describe("promptSelectors", () => {
     ];
     expect(selectActivePrompt(messages)).toBeNull();
   });
-});
 
+  it("returns latest decision ack status for request id", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "decision_ack",
+        seq: 5,
+        session_id: "s1",
+        payload: { request_id: "req_1", status: "rejected", reason: "invalid_choice" },
+      },
+    ];
+    const ack = selectLatestDecisionAck(messages, "req_1");
+    expect(ack?.status).toBe("rejected");
+    expect(ack?.reason).toBe("invalid_choice");
+  });
+});

@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useGameStream } from "./hooks/useGameStream";
 import { createSession, getRuntimeStatus, startSession } from "./infra/http/sessionApi";
 import { selectLatestSnapshot, selectSituation, selectTimeline } from "./domain/selectors/streamSelectors";
-import { selectActivePrompt } from "./domain/selectors/promptSelectors";
+import { selectActivePrompt, selectLatestDecisionAck } from "./domain/selectors/promptSelectors";
 import { ConnectionPanel } from "./features/status/ConnectionPanel";
 import { SituationPanel } from "./features/status/SituationPanel";
 import { TimelinePanel } from "./features/timeline/TimelinePanel";
@@ -28,6 +28,7 @@ export function App() {
   const situation = selectSituation(stream.messages);
   const snapshot = selectLatestSnapshot(stream.messages);
   const activePrompt = selectActivePrompt(stream.messages);
+  const latestPromptAck = selectLatestDecisionAck(stream.messages, activePrompt?.requestId ?? promptRequestId);
 
   useEffect(() => {
     if (!sessionId.trim()) {
@@ -120,6 +121,20 @@ export function App() {
       setPromptRequestId(activePrompt.requestId);
     }
   }, [activePrompt, promptRequestId]);
+
+  useEffect(() => {
+    if (!promptBusy || !latestPromptAck) {
+      return;
+    }
+    if (latestPromptAck.status === "rejected") {
+      setPromptBusy(false);
+      setError(latestPromptAck.reason ? `선택 거절: ${latestPromptAck.reason}` : "선택이 거절되었습니다.");
+    }
+    if (latestPromptAck.status === "stale") {
+      setPromptBusy(false);
+      setError(latestPromptAck.reason ? `선택 만료: ${latestPromptAck.reason}` : "선택 요청이 만료되었습니다.");
+    }
+  }, [latestPromptAck, promptBusy]);
 
   const onSelectPromptChoice = (choiceId: string) => {
     if (!activePrompt || promptBusy) {
