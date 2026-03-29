@@ -95,6 +95,7 @@ Current policy:
   - websocket token auth for seat vs spectator path
   - unauthorized/mismatched decision rejection paths
   - subscriber fan-out queue path with slow-consumer drop-oldest backpressure baseline
+  - slow-consumer drop-oldest regression test baseline added (`apps/server/tests/test_stream_service.py`)
 - runtime fan-out baseline has started:
   - all-AI sessions trigger background engine run and stream publish
   - engine append events are now forwarded to websocket stream immediately

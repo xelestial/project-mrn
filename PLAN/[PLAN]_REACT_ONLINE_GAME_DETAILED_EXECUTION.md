@@ -33,6 +33,7 @@ It is intentionally execution-focused:
   - added seat-token-aware websocket authorization path
   - added subscriber fan-out push path (published event -> connected socket queue)
   - added queue-overflow drop-oldest policy for slow consumers (backpressure baseline)
+  - added slow-consumer drop-oldest regression test (`apps/server/tests/test_stream_service.py`)
   - added `resume` gap-too-old guard (`RESUME_GAP_TOO_OLD`) and buffered replay fallback
   - stream message envelope now includes `server_time_ms` on buffered stream path
   - added API-level resume-gap regression test (`apps/server/tests/test_stream_api.py`, fastapi-gated)

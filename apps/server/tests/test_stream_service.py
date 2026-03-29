@@ -73,6 +73,23 @@ class StreamServiceTests(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_slow_subscriber_drops_oldest_message_when_queue_is_full(self) -> None:
+        service = StreamService(queue_size=2)
+
+        async def _run() -> None:
+            queue = await service.subscribe("s1", "c1")
+            await service.publish("s1", "event", {"n": 1})
+            await service.publish("s1", "event", {"n": 2})
+            await service.publish("s1", "event", {"n": 3})
+
+            first = await asyncio.wait_for(queue.get(), timeout=0.5)
+            second = await asyncio.wait_for(queue.get(), timeout=0.5)
+
+            self.assertEqual([first["seq"], second["seq"]], [2, 3])
+            await service.unsubscribe("s1", "c1")
+
+        asyncio.run(_run())
+
 
 if __name__ == "__main__":
     unittest.main()

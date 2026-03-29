@@ -4,8 +4,6 @@ import asyncio
 import time
 from collections import defaultdict
 from dataclasses import dataclass
-from queue import Empty as QueueEmpty
-from queue import Full as QueueFull
 
 
 @dataclass(slots=True)
@@ -93,14 +91,14 @@ class StreamService:
         try:
             queue.put_nowait(message)
             return
-        except QueueFull:
+        except asyncio.QueueFull:
             pass
         try:
             queue.get_nowait()
-        except QueueEmpty:
+        except asyncio.QueueEmpty:
             pass
         try:
             queue.put_nowait(message)
-        except QueueFull:
+        except asyncio.QueueFull:
             # If still full due to race, drop this message.
             pass
