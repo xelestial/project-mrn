@@ -96,17 +96,20 @@ Practical implications:
   - F2 board-near incident stack baseline added
   - F2 board movement UX baseline added (last-move summary + from/to tile highlight + pawn arrive pulse)
   - F2 selector localization baseline added (Korean event labels + richer timeline detail summaries)
+  - F2 selector fixture coverage expanded (dice/marker/heartbeat detail cases)
   - F3 prompt baseline started (active prompt selector + decision submit overlay)
   - F3 rejected/stale ack unlock baseline added
   - F3 prompt countdown baseline added
   - F3 keyboard/focus baseline added (focus restore + Escape collapse)
   - F3 stale/rejected feedback messaging baseline added (prompt overlay inline guidance)
+  - F3 prompt-type helper copy baseline added
   - F4 lobby baseline started (custom session create/join/start/session list)
   - F4 join-token state baseline added (seat-based auto-fill from created session)
   - F4 join-token UX polish baseline added (seat select + one-click token apply chips)
   - F4 session-list quick-select baseline added (`Use session`)
   - F4 lobby/match route split baseline added (hash-route tabs)
   - F4 dedicated lobby view extraction baseline added (`features/lobby/LobbyView.tsx`)
+  - F4 URL cleanup baseline added (connected match hash removes token parameter)
   - B2 fan-out hardening baseline added (subscriber queue push + slow-consumer drop-oldest policy)
   - B2 slow-consumer drop-oldest regression test baseline added (`apps/server/tests/test_stream_service.py`)
   - B2 backpressure observability baseline added (`heartbeat.payload.backpressure`, drop counters)

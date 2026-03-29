@@ -69,7 +69,8 @@ It is intentionally execution-focused:
   - added reducer out-of-order buffering (`pendingBySeq`) with contiguous flush
   - added gap-triggered `resume(last_seq)` request path in stream hook
   - dependency install/build pipeline now green on local environment
-  - remaining: broader parser fixtures for less-common event payload variants
+  - parser fixtures expanded for less-common payload variants (`dice_roll`, `marker_transferred`, heartbeat backpressure)
+  - remaining: parser fixtures for future prompt metadata variants
 - `F2` baseline: started
   - split baseline UI into feature components (`status`, `timeline`, `board` placeholder)
   - added stream selector layer (`domain/selectors/streamSelectors.ts`)
@@ -79,7 +80,7 @@ It is intentionally execution-focused:
   - added last-move board summary and from/to tile highlight baseline
   - added pawn-arrive pulse animation baseline
   - added localized selector labels/detail summaries
-  - remaining: theater depth polish
+  - remaining: optional board-side micro-animation polish
 - `F3` baseline: started
   - added prompt selector baseline (`selectActivePrompt`) with ack-aware closing
   - added prompt overlay component with full-card choices and collapse toggle
@@ -90,7 +91,8 @@ It is intentionally execution-focused:
   - added keyboard/focus baseline (first-choice focus, focus restore, Escape collapse)
   - added stale/rejected inline feedback messaging in prompt overlay
   - added timeout fallback waiting copy in prompt overlay
-  - remaining: optional prompt-type-specific helper copy
+  - added prompt-type-specific helper copy baseline
+  - remaining: optional helper-copy refinement by game mode
 - `F4` baseline: started
   - added lobby control panel for custom seat composition and seed/profile inputs
   - added host-start path with explicit host token input
@@ -102,7 +104,8 @@ It is intentionally execution-focused:
   - added lobby/match route split baseline (hash-based route tabs)
   - added dedicated lobby page extraction (`features/lobby/LobbyView.tsx`)
   - added route deep-link baseline (`#/match?session=...&token=...`)
-  - remaining: optional URL cleanup UX
+  - added connected-state URL cleanup baseline (token stripped from hash)
+  - remaining: optional URL short-state policy
 - `B4+`: not started in code
 
 ## Execution Policy

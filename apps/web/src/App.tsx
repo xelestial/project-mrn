@@ -57,8 +57,8 @@ function buildMatchHash(sessionId: string, token?: string): string {
   if (token && token.trim()) {
     params.set("token", token.trim());
   }
-  const qs = params.toString();
-  return qs ? `${MATCH_HASH}?${qs}` : MATCH_HASH;
+  const query = params.toString();
+  return query ? `${MATCH_HASH}?${query}` : MATCH_HASH;
 }
 
 export function App() {
@@ -110,6 +110,7 @@ export function App() {
         setToken(parsed.token || undefined);
       }
     };
+
     window.addEventListener("hashchange", onHashChange);
     if (!window.location.hash) {
       window.location.hash = LOBBY_HASH;
@@ -132,9 +133,9 @@ export function App() {
 
   useEffect(() => {
     const seat = Number(joinSeatInput) || 1;
-    const autoToken = lastJoinTokens[String(seat)] ?? "";
-    if (autoToken) {
-      setJoinTokenInput(autoToken);
+    const tokenBySeat = lastJoinTokens[String(seat)] ?? "";
+    if (tokenBySeat) {
+      setJoinTokenInput(tokenBySeat);
     }
   }, [joinSeatInput, lastJoinTokens]);
 
@@ -155,13 +156,11 @@ export function App() {
           setRuntime(runtimeState.runtime);
         }
       } catch {
-        // Keep UI stable on polling failures.
+        // Keep current runtime view on polling error.
       }
     };
     void tick();
-    const id = window.setInterval(() => {
-      void tick();
-    }, 4000);
+    const id = window.setInterval(() => void tick(), 4000);
     return () => {
       active = false;
       window.clearInterval(id);
@@ -219,6 +218,18 @@ export function App() {
     }
   }, [activePrompt, promptBusy, promptSecondsLeft]);
 
+  useEffect(() => {
+    if (route !== "match" || stream.status !== "connected") {
+      return;
+    }
+    const parsed = parseHashState(window.location.hash);
+    if (!parsed.token || !sessionId.trim()) {
+      return;
+    }
+    const safeHash = buildMatchHash(sessionId.trim());
+    window.history.replaceState(null, "", safeHash);
+  }, [route, sessionId, stream.status]);
+
   const refreshSessions = async () => {
     try {
       const result = await listSessions();
@@ -228,8 +239,8 @@ export function App() {
     }
   };
 
-  const onConnect = (e: FormEvent) => {
-    e.preventDefault();
+  const onConnect = (event: FormEvent) => {
+    event.preventDefault();
     setError("");
     setNotice("");
     const normalized = sessionInput.trim();
@@ -258,10 +269,10 @@ export function App() {
       setSessionInput(created.session_id);
       setHostTokenInput(created.host_token);
       setLastJoinTokens(created.join_tokens);
-      const selectedSeat = Number(joinSeatInput) || 1;
-      const autoJoinToken = created.join_tokens[String(selectedSeat)] ?? "";
-      if (autoJoinToken) {
-        setJoinTokenInput(autoJoinToken);
+      const seat = Number(joinSeatInput) || 1;
+      const autoToken = created.join_tokens[String(seat)] ?? "";
+      if (autoToken) {
+        setJoinTokenInput(autoToken);
       }
       setNotice(
         `Session created: ${created.session_id} host_token=${created.host_token} join_tokens=${JSON.stringify(created.join_tokens)}`

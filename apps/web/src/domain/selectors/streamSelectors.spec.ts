@@ -97,4 +97,48 @@ describe("streamSelectors", () => {
     expect(move?.fromTileIndex).toBe(5);
     expect(move?.toTileIndex).toBe(8);
   });
+
+  it("formats less-common event details for timeline", () => {
+    const timeline = selectTimeline(
+      [
+        {
+          type: "event",
+          seq: 30,
+          session_id: "s1",
+          payload: {
+            event_type: "dice_roll",
+            cards_used: [1, 4],
+            total_move: 5,
+          },
+        },
+        {
+          type: "event",
+          seq: 31,
+          session_id: "s1",
+          payload: {
+            event_type: "marker_transferred",
+            from_player_id: 2,
+            to_player_id: 1,
+          },
+        },
+        {
+          type: "heartbeat",
+          seq: 32,
+          session_id: "s1",
+          payload: {
+            interval_ms: 5000,
+            backpressure: {
+              subscriber_count: 1,
+              drop_count: 7,
+              queue_size: 256,
+            },
+          },
+        },
+      ],
+      3
+    );
+    expect(timeline[0].detail).toContain("drop 7");
+    expect(timeline[1].detail).toContain("[징표]");
+    expect(timeline[2].detail).toContain("주사위 카드 1, 4 사용");
+  });
 });

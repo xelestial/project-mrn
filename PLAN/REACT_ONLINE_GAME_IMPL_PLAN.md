@@ -121,15 +121,19 @@ Current policy:
   - F2 board-near incident stack baseline added
   - F2 board movement readability baseline added (recent move summary + tile highlight + pawn arrive pulse)
   - F2 localized selector labels baseline added (Korean event labels and detail summaries)
+  - F2 parser fixture coverage expanded (dice/marker/heartbeat detail)
   - F3 prompt baseline started (overlay + choice submit + collapse)
   - F3 ack-state handling baseline added (rejected/stale unlock)
   - F3 prompt countdown baseline added
   - F3 keyboard/focus baseline added (first choice focus, Escape collapse)
   - F3 stale/rejected inline feedback baseline added in prompt overlay
+  - F3 request-type helper copy baseline added in prompt overlay
+  - F5 incident theater depth baseline added (tone badge + seq meta)
   - F4 lobby baseline started (custom create/join/start/session-list in app shell)
   - F4 lobby/match route split baseline added (hash-based route tabs)
   - F4 join-token UX polish baseline added (seat dropdown + one-click token apply)
   - F4 dedicated lobby view extraction baseline added (`features/lobby/LobbyView.tsx`)
+  - F4 URL cleanup baseline added (connected match hash token removal)
 - next implementation target:
   - B2/B3 hardening (reconnect stress, backpressure, fallback wiring)
   - runtime watchdog/ops hardening and prompt fallback integration
@@ -573,7 +577,7 @@ Frontend done when:
 |---|---|---|---|
 | OI1 | Engine sync runtime bridge to async FastAPI | CLAUDE | `asyncio.to_thread`/executor policy |
 | OI2 | Extract board tile layout constants from legacy renderer | GPT | Move to shared board schema |
-| OI3 | Full prompt type coverage audit in human policy and React UI | GPT | Must pass before F3 close |
+| OI3 | Full prompt type coverage audit in human policy and React UI | GPT | In progress: helper copy + selector fixture expansion complete, full prompt matrix pending |
 | OI4 | Final UI stack decision (plain CSS modules vs utility stack) | GPT | Keep complexity bounded |
 | OI5 | Session persistence after restart | CLAUDE | Out of scope for v1 |
 | OI6 | Migrate detailed specs from `PLAN/` to `DOCS/*` after scaffold | Shared | Keep links stable with redirect note |

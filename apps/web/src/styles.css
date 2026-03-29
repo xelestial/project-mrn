@@ -357,6 +357,37 @@ body {
   font-size: 12px;
 }
 
+.incident-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.incident-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #4f77b0;
+  font-size: 11px;
+}
+
+.incident-seq {
+  color: #b6c5e7;
+  font-size: 11px;
+}
+
+.incident-move {
+  border-color: #3d79c0;
+}
+
+.incident-economy {
+  border-color: #8c6b30;
+}
+
+.incident-system {
+  border-color: #47618e;
+}
+
 .prompt-overlay {
   border-color: #c99e2f;
 }
@@ -374,6 +405,12 @@ body {
   border: 1px solid #4e79bd;
   background: #1c3764;
   color: #f4f8ff;
+}
+
+.prompt-helper {
+  margin: 6px 0;
+  color: #ffd788;
+  font-size: 13px;
 }
 
 .prompt-choices {
