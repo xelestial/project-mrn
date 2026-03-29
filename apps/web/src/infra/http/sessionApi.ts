@@ -56,6 +56,9 @@ export type RuntimeStatusResult = {
     status: string;
     reason?: string;
     error?: string;
+    watchdog_state?: string;
+    started_at_ms?: number;
+    last_activity_ms?: number;
   };
 };
 
@@ -122,4 +125,3 @@ export async function startSession(args: { sessionId: string; hostToken: string 
 export async function getRuntimeStatus(sessionId: string): Promise<RuntimeStatusResult> {
   return requestJson<RuntimeStatusResult>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/runtime-status`);
 }
-

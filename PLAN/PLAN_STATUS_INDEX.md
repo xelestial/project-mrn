@@ -112,6 +112,7 @@ Practical implications:
   - B2 backpressure observability baseline added (`heartbeat.payload.backpressure`, drop counters)
   - B2 client reconnect polish added (exponential backoff + jitter)
   - B4 runtime watchdog baseline added (inactivity warning + runtime status activity fields)
+  - B4 runtime visibility baseline added in web connection panel (watchdog/last-activity)
 
 ### 1B. React Detailed Execution Backlog
 - File: `PLAN/[PLAN]_REACT_ONLINE_GAME_DETAILED_EXECUTION.md`

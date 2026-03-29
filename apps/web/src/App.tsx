@@ -6,6 +6,7 @@ import {
   joinSession,
   listSessions,
   type PublicSessionResult,
+  type RuntimeStatusResult,
   startSession,
 } from "./infra/http/sessionApi";
 import {
@@ -67,7 +68,7 @@ export function App() {
   const [sessionId, setSessionId] = useState("");
   const [token, setToken] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
-  const [runtime, setRuntime] = useState("-");
+  const [runtime, setRuntime] = useState<RuntimeStatusResult["runtime"]>({ status: "-" });
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -151,7 +152,7 @@ export function App() {
       try {
         const runtimeState = await getRuntimeStatus(sessionId.trim());
         if (active) {
-          setRuntime(runtimeState.runtime.status);
+          setRuntime(runtimeState.runtime);
         }
       } catch {
         // Keep UI stable on polling failures.
@@ -289,7 +290,7 @@ export function App() {
       });
       await startSession({ sessionId: created.session_id, hostToken: created.host_token });
       const runtimeState = await getRuntimeStatus(created.session_id);
-      setRuntime(runtimeState.runtime.status);
+      setRuntime(runtimeState.runtime);
       setSessionInput(created.session_id);
       setSessionId(created.session_id);
       setTokenInput("");

@@ -52,6 +52,7 @@ It is intentionally execution-focused:
   - emitted vis events are published into websocket stream buffer in order
   - incremental live fan-out is now active (event append -> immediate WS publish bridge)
   - runtime watchdog baseline added (inactivity warning + `last_activity_ms`)
+  - frontend connection panel now surfaces watchdog/runtime activity fields
   - remaining: watchdog timeout policy tuning per environment
 - `F1` baseline: in progress
   - created React+TS scaffold files under `apps/web`
