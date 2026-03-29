@@ -106,6 +106,7 @@ Current policy:
   - Vitest baseline added with reducer unit test
   - selector/contract parser tests added (`snapshot`, `timeline`, `situation`)
   - runtime status auto-refresh baseline added
+  - websocket auto-reconnect baseline added (incremental backoff)
   - F2 pre-structure started (connection/situation/timeline/board placeholder components)
   - F2 snapshot baseline added (public board tiles + player panels from stream snapshot)
   - F2 ring-board baseline added (40-tile coordinate mapping)

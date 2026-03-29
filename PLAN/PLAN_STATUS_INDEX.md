@@ -86,6 +86,7 @@ Practical implications:
   - F1 REST session client baseline added (`create/start/runtime-status`) with one-click all-AI start/connect flow
   - F1 test baseline added (Vitest + reducer unit tests)
   - F1 selector/contract parser tests added (`snapshot/timeline/situation`)
+  - F1 websocket auto-reconnect baseline added (incremental backoff)
   - F2 pre-structure has started (feature component split + selector layer + board placeholder)
   - F2 snapshot baseline added (stream snapshot -> public board/player render)
   - F2 ring-board baseline added (`tile_index` coordinate mapping)

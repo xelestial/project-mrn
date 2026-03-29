@@ -4,9 +4,22 @@ export class StreamClient {
   private socket: WebSocket | null = null;
   private onMessageHandlers: Array<(message: InboundMessage) => void> = [];
   private onStatusHandlers: Array<(status: ConnectionStatus) => void> = [];
+  private reconnectTimer: number | null = null;
+  private reconnectAttempt = 0;
+  private closedByUser = false;
+  private lastConnectParams: { sessionId: string; token?: string; onOpenResumeSeq?: number } | null = null;
 
   connect(params: { sessionId: string; token?: string; onOpenResumeSeq?: number }): void {
-    this.disconnect();
+    this.closedByUser = false;
+    this.lastConnectParams = params;
+    this.clearReconnectTimer();
+    if (this.socket) {
+      this.socket.onclose = null;
+      this.socket.onerror = null;
+      this.socket.onmessage = null;
+      this.socket.close();
+      this.socket = null;
+    }
     this.emitStatus("connecting");
     const tokenQuery = params.token ? `?token=${encodeURIComponent(params.token)}` : "";
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
@@ -15,13 +28,20 @@ export class StreamClient {
     this.socket = new WebSocket(url);
 
     this.socket.onopen = () => {
+      this.reconnectAttempt = 0;
       this.emitStatus("connected");
       if (typeof params.onOpenResumeSeq === "number" && params.onOpenResumeSeq >= 0) {
         this.send({ type: "resume", last_seq: params.onOpenResumeSeq });
       }
     };
 
-    this.socket.onclose = () => this.emitStatus("disconnected");
+    this.socket.onclose = () => {
+      this.emitStatus("disconnected");
+      this.socket = null;
+      if (!this.closedByUser) {
+        this.scheduleReconnect();
+      }
+    };
     this.socket.onerror = () => this.emitStatus("error");
     this.socket.onmessage = (event) => {
       try {
@@ -34,10 +54,14 @@ export class StreamClient {
   }
 
   disconnect(): void {
+    this.closedByUser = true;
+    this.clearReconnectTimer();
+    this.lastConnectParams = null;
     if (this.socket) {
       this.socket.close();
       this.socket = null;
     }
+    this.reconnectAttempt = 0;
   }
 
   send(message: OutboundMessage): void {
@@ -64,5 +88,25 @@ export class StreamClient {
   private emitStatus(status: ConnectionStatus): void {
     this.onStatusHandlers.forEach((handler) => handler(status));
   }
-}
 
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer !== null || !this.lastConnectParams) {
+      return;
+    }
+    const delay = Math.min(1000 * (this.reconnectAttempt + 1), 5000);
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null;
+      this.reconnectAttempt += 1;
+      if (!this.closedByUser && this.lastConnectParams) {
+        this.connect(this.lastConnectParams);
+      }
+    }, delay);
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+}

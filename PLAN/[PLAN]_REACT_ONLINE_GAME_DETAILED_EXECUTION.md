@@ -58,6 +58,7 @@ It is intentionally execution-focused:
   - added vitest baseline and reducer unit tests
   - added selector/contract parser unit tests for snapshot/timeline/situation extraction
   - added runtime status auto-refresh baseline in app shell
+  - added websocket auto-reconnect baseline with incremental backoff
   - dependency install/build pipeline now green on local environment
   - remaining: broader domain store expansion and parser/contract tests
 - `F2` baseline: started
