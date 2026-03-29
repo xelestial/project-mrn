@@ -35,6 +35,7 @@ It is intentionally execution-focused:
   - added queue-overflow drop-oldest policy for slow consumers (backpressure baseline)
   - added `resume` gap-too-old guard (`RESUME_GAP_TOO_OLD`) and buffered replay fallback
   - stream message envelope now includes `server_time_ms` on buffered stream path
+  - added API-level resume-gap regression test (`apps/server/tests/test_stream_api.py`, fastapi-gated)
   - remaining: reconnect stress handling and load-level backpressure tuning
 - `B3` baseline: in progress
   - added in-memory prompt lifecycle service (`pending`, `submit_decision`, `timeout_pending`)

@@ -80,6 +80,7 @@ Practical implications:
   - B3 timeout fallback trace baseline added (`decision_timeout_fallback`)
   - B2/B3 hardening has started (seat token auth + decision mismatch guards)
   - B2 reconnect hardening baseline added (`RESUME_GAP_TOO_OLD` handling)
+  - B2 API regression test baseline added (`apps/server/tests/test_stream_api.py`, fastapi-gated)
   - B1 replay export baseline added (`GET /api/v1/sessions/{session_id}/replay`)
   - all-AI runtime fan-out baseline has started (background engine run + incremental stream publication)
   - F1 frontend baseline has started (`apps/web` scaffold + stream client/hook)

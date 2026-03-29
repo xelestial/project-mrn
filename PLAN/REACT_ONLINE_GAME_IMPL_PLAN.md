@@ -86,6 +86,7 @@ Current policy:
   - websocket stream endpoint with heartbeat and `resume(last_seq)` replay
   - in-memory per-session `seq` message buffer service
   - `resume` gap-too-old guard path (`RESUME_GAP_TOO_OLD`) added
+  - API-level resume-gap regression test baseline added (`apps/server/tests/test_stream_api.py`)
 - B3 baseline has started:
   - prompt pending/timeout/decision-ack service skeleton wired
   - debug prompt route and websocket decision ack flow added
