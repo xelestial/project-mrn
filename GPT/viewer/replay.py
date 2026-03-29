@@ -119,13 +119,18 @@ class SessionReplay:
     @property
     def winner_player_id(self) -> int | None:
         if self.game_end:
-            return self.game_end.get("winner_player_id")
+            winner = self.game_end.get("winner_player_id")
+            if winner is not None:
+                return winner
+            winner_ids = self.game_end.get("winner_ids") or []
+            if winner_ids:
+                return winner_ids[0]
         return None
 
     @property
     def end_reason(self) -> str:
         if self.game_end:
-            return self.game_end.get("reason", "")
+            return str(self.game_end.get("reason") or self.game_end.get("end_reason") or "")
         return ""
 
 
@@ -219,8 +224,12 @@ class ReplayProjection:
             )
 
         session_id = events[0].get("session_id", "")
-        session_start = events[0] if events[0].get("event_type") == "session_start" else {}
-        game_end = events[-1] if events[-1].get("event_type") == "game_end" else None
+        session_start = next((event for event in events if event.get("event_type") == "session_start"), {})
+        game_end = None
+        for event in reversed(events):
+            if event.get("event_type") == "game_end":
+                game_end = event
+                break
 
         turns: list[TurnReplay] = []
         rounds: list[RoundReplay] = []

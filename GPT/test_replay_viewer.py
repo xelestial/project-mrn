@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from viewer.renderers.html_renderer import render_html
 from viewer.renderers.markdown_renderer import render_markdown
+from viewer.renderers.phrase_dict import EVENT_LABELS_KO, LANDING_TYPE_LABELS_KO
 from viewer.replay import ReplayProjection, TurnReplay
 from viewer.stream import VisEventStream
 
@@ -134,6 +135,54 @@ def test_rounds(events: list[dict]) -> list[str]:
         if rnd.round_index == 1 and not rnd.weather_name:
             errors.append("round 1 weather name missing")
 
+    return errors
+
+
+def test_phrase_dictionary_completeness(_events: list[dict]) -> list[str]:
+    errors: list[str] = []
+    required_event_types = {
+        "session_start",
+        "round_start",
+        "weather_reveal",
+        "draft_pick",
+        "final_character_choice",
+        "turn_start",
+        "trick_used",
+        "dice_roll",
+        "player_move",
+        "landing_resolved",
+        "rent_paid",
+        "tile_purchased",
+        "fortune_drawn",
+        "fortune_resolved",
+        "mark_resolved",
+        "marker_transferred",
+        "marker_flip",
+        "lap_reward_chosen",
+        "f_value_change",
+        "bankruptcy",
+        "turn_end_snapshot",
+        "game_end",
+    }
+    required_landing_types = {
+        "PURCHASE",
+        "PURCHASE_FAIL",
+        "PURCHASE_SKIP_POLICY",
+        "PURCHASE_BLOCKED_THIS_TURN",
+        "RENT",
+        "RENT_FAILSAFE",
+        "FORTUNE",
+        "MARK",
+        "FORCE_SALE",
+        "NO_EFFECT",
+    }
+
+    missing_event_labels = sorted(key for key in required_event_types if key not in EVENT_LABELS_KO)
+    missing_landing_labels = sorted(key for key in required_landing_types if key not in LANDING_TYPE_LABELS_KO)
+    if missing_event_labels:
+        errors.append(f"phrase_dict missing event labels: {', '.join(missing_event_labels)}")
+    if missing_landing_labels:
+        errors.append(f"phrase_dict missing landing labels: {', '.join(missing_landing_labels)}")
     return errors
 
 
@@ -399,6 +448,7 @@ def run_suite(seed: int) -> tuple[bool, list[str]]:
         ("snapshots", test_snapshots),
         ("key_events", test_key_events),
         ("rounds", test_rounds),
+        ("phrase_dictionary_completeness", test_phrase_dictionary_completeness),
         ("markdown_renderer", test_markdown_renderer),
         ("html_renderer", test_html_renderer),
         ("jsonl_roundtrip", test_jsonl_roundtrip),

@@ -53,6 +53,8 @@ class HumanHttpPolicy:
         self._lock = threading.Lock()
         self._pending: dict | None = None          # current prompt waiting for input
         self._response_queue: queue.Queue = queue.Queue(maxsize=1)
+        self._prompt_seq = 0
+        self._active_flip_seen_cards_by_owner: dict[int, set[int]] = {}
 
     def _is_human_seat(self, player_id: int) -> bool:
         return player_id in self._seats
@@ -91,6 +93,9 @@ class HumanHttpPolicy:
 
     def _ask(self, prompt: dict, parser, fallback_fn):
         """Set prompt, block for response, parse, or fall back on timeout."""
+        self._prompt_seq += 1
+        prompt = dict(prompt)
+        prompt["prompt_instance_id"] = self._prompt_seq
         with self._lock:
             self._pending = prompt
         try:
@@ -424,12 +429,32 @@ class HumanHttpPolicy:
         if not self._is_human_seat(player.player_id):
             return self._ai.choose_trick_to_use(state, player, hand)
 
+        full_hand_cards = list(getattr(player, "trick_hand", []) or list(hand))
+        trick_phase = (
+            "anytime"
+            if hand and all(bool(getattr(card, "is_anytime", False)) for card in hand)
+            else "regular"
+        )
+        usable_deck_indices = {getattr(card, "deck_index", None) for card in hand}
+        hidden_deck_index = getattr(player, "hidden_trick_deck_index", None)
+        full_hand_context = [
+            {
+                "deck_index": getattr(card, "deck_index", None),
+                "name": getattr(card, "name", str(card)),
+                "card_description": getattr(card, "description", ""),
+                "is_hidden": (hidden_deck_index is not None and getattr(card, "deck_index", None) == hidden_deck_index),
+                "is_usable": getattr(card, "deck_index", None) in usable_deck_indices,
+            }
+            for card in full_hand_cards
+        ]
+
         options = [{"id": "none", "label": "이번에는 잔꾀를 사용하지 않음", "deck_index": None}]
         for card in hand:
             options.append({
                 "id": str(card.deck_index),
                 "label": card.name,
                 "deck_index": card.deck_index,
+                "card_description": getattr(card, "description", ""),
             })
 
         prompt = build_prompt_envelope(
@@ -439,7 +464,10 @@ class HumanHttpPolicy:
                 {
                     "choice_id": opt["id"],
                     "label": opt["label"],
-                    "value": {"deck_index": opt["deck_index"]},
+                    "value": {
+                        "deck_index": opt["deck_index"],
+                        "card_description": opt.get("card_description", ""),
+                    },
                 }
                 for opt in options
             ],
@@ -447,7 +475,13 @@ class HumanHttpPolicy:
                 "player_cash": player.cash,
                 "player_position": player.position,
                 "hand_count": len(hand),
-                "hand_names": [getattr(card, "name", str(card)) for card in hand],
+                "usable_hand_count": len(hand),
+                "total_hand_count": len(full_hand_context),
+                "hidden_trick_count": sum(1 for item in full_hand_context if item.get("is_hidden")),
+                "hidden_trick_deck_index": hidden_deck_index,
+                "hand_names": [item["name"] for item in full_hand_context],
+                "full_hand": full_hand_context,
+                "trick_phase": trick_phase,
             },
             can_pass=True,
             timeout_ms=int(TIMEOUT_S * 1000),
@@ -519,6 +553,7 @@ class HumanHttpPolicy:
                 "id": str(card.deck_index),
                 "label": card.name,
                 "deck_index": card.deck_index,
+                "card_description": getattr(card, "description", ""),
             })
 
         prompt = build_prompt_envelope(
@@ -528,7 +563,10 @@ class HumanHttpPolicy:
                 {
                     "choice_id": opt["id"],
                     "label": opt["label"],
-                    "value": {"deck_index": opt["deck_index"]},
+                    "value": {
+                        "deck_index": opt["deck_index"],
+                        "card_description": opt.get("card_description", ""),
+                    },
                 }
                 for opt in options
             ],
@@ -560,10 +598,27 @@ class HumanHttpPolicy:
         if not self._is_human_seat(player.player_id):
             return self._ai.choose_mark_target(state, player, actor_name)
 
-        alive = [p for p in state.players if p.alive and p.player_id != player.player_id]
-        options = [{"id": "none", "label": "No target"}]
-        for p in alive:
-            options.append({"id": str(p.player_id), "label": f"Player {p.player_id}"})
+        if _is_mark_skill_blocked_by_uhsa(state, player, actor_name):
+            return None
+
+        legal_targets = _legal_mark_target_players(state, player)
+        if not legal_targets:
+            return None
+
+        options = [{"id": "none", "label": "No target", "target_character": None, "target_player_id": None}]
+        for target in legal_targets:
+            target_character = str(getattr(target, "current_character", "") or "")
+            target_player_id = int(getattr(target, "player_id", -1))
+            if not target_character or target_player_id < 0:
+                continue
+            options.append(
+                {
+                    "id": str(target_player_id),
+                    "label": f"{target_character} / P{target_player_id + 1}",
+                    "target_character": target_character,
+                    "target_player_id": target_player_id + 1,
+                }
+            )
 
         prompt = build_prompt_envelope(
             request_type="mark_target",
@@ -572,7 +627,12 @@ class HumanHttpPolicy:
                 {
                     "choice_id": opt["id"],
                     "label": opt["label"],
-                    "value": None if opt["id"] == "none" else {"target_player_id": int(opt["id"])},
+                    "value": None
+                    if opt["id"] == "none"
+                    else {
+                        "target_character": opt["target_character"],
+                        "target_player_id": opt["target_player_id"],
+                    },
                 }
                 for opt in options
             ],
@@ -580,6 +640,15 @@ class HumanHttpPolicy:
                 "actor_name": str(actor_name),
                 "player_cash": player.cash,
                 "player_position": player.position,
+                "target_count": len(options) - 1,
+                "target_pairs": [
+                    {
+                        "target_character": opt["target_character"],
+                        "target_player_id": opt["target_player_id"],
+                    }
+                    for opt in options
+                    if opt["id"] != "none"
+                ],
             },
             can_pass=True,
             timeout_ms=int(TIMEOUT_S * 1000),
@@ -589,10 +658,10 @@ class HumanHttpPolicy:
             sel = extract_choice_id(r, "none")
             if sel == "none":
                 return None
-            try:
-                return int(sel)
-            except ValueError:
-                return None
+            for opt in options:
+                if opt["id"] == sel:
+                    return opt["target_character"]
+            return None
 
         return self._ask(prompt, _parse, lambda: self._ai.choose_mark_target(state, player, actor_name))
 
@@ -743,9 +812,37 @@ class HumanHttpPolicy:
             return self._ai.choose_active_flip_card(state, player, flippable_cards)
         if not flippable_cards:
             return None
+        pending_owner_id = getattr(state, "pending_marker_flip_owner_id", None)
+        marker_owner_id = getattr(state, "marker_owner_id", None)
+        if pending_owner_id is not None and pending_owner_id != player.player_id:
+            return None
+        if marker_owner_id is not None and marker_owner_id != player.player_id:
+            return None
+        try:
+            from characters import CARD_TO_NAMES
+
+            all_flip_cards = list(CARD_TO_NAMES.keys())
+        except Exception:
+            all_flip_cards = list(flippable_cards)
+        owner_seen = self._active_flip_seen_cards_by_owner.setdefault(player.player_id, set())
+        if len(flippable_cards) >= len(all_flip_cards):
+            owner_seen.clear()
+        selectable_cards = [int(card_index) for card_index in flippable_cards if int(card_index) not in owner_seen]
+        if not selectable_cards:
+            owner_seen.clear()
+            return None
 
         options = []
-        for card_index in flippable_cards:
+        options.append(
+            {
+                "id": "none",
+                "label": "뒤집기 종료",
+                "card_index": None,
+                "current_name": "",
+                "flipped_name": "",
+            }
+        )
+        for card_index in selectable_cards:
             current_name, flipped_name = _flip_names(state, card_index)
             options.append({
                 "id": str(card_index),
@@ -762,7 +859,9 @@ class HumanHttpPolicy:
                 {
                     "choice_id": opt["id"],
                     "label": opt["label"],
-                    "value": {
+                    "value": None
+                    if opt["id"] == "none"
+                    else {
                         "card_index": opt["card_index"],
                         "current_name": opt["current_name"],
                         "flipped_name": opt["flipped_name"],
@@ -773,17 +872,30 @@ class HumanHttpPolicy:
             public_context={
                 "player_cash": player.cash,
                 "player_position": player.position,
-                "flip_count": len(options),
-                "flip_labels": [opt["label"] for opt in options],
+                "flip_count": len(selectable_cards),
+                "flip_labels": [opt["label"] for opt in options if opt["id"] != "none"],
+                "already_flipped_count": len(owner_seen),
+                "already_flipped_cards": sorted(owner_seen),
+                "flip_limit": None,
+                "flip_mode": "multi",
+                "flip_trigger": "marker_owner_changed",
+                "marker_owner_player_id": None if marker_owner_id is None else int(marker_owner_id) + 1,
+                "pending_marker_flip_owner_id": None if pending_owner_id is None else int(pending_owner_id) + 1,
             },
+            can_pass=True,
             timeout_ms=int(TIMEOUT_S * 1000),
         )
 
         def _parse(r: dict):
-            sel = extract_choice_id(r)
+            sel = extract_choice_id(r, "none")
+            if sel == "none":
+                owner_seen.clear()
+                return None
             if sel is not None:
                 for opt in options:
                     if opt["id"] == sel:
+                        if opt["card_index"] is not None:
+                            owner_seen.add(int(opt["card_index"]))
                         return opt["card_index"]
             return self._ai.choose_active_flip_card(state, player, flippable_cards)
 
@@ -911,3 +1023,52 @@ def _flip_names(state: Any, card_index: int) -> tuple[str, str]:
         pass
     name = _card_name(state, card_index)
     return name, name
+
+
+def _legal_mark_target_players(state: Any, player: Any) -> list[Any]:
+    """Mirror engine/AI legality for mark targeting in human prompts."""
+
+    try:
+        order = list(getattr(state, "current_round_order", []) or [])
+        my_idx = order.index(player.player_id)
+        allowed_pids = set(order[my_idx + 1 :])
+    except ValueError:
+        allowed_pids = set()
+    except Exception:
+        allowed_pids = None
+
+    out: list[Any] = []
+    for target in getattr(state, "players", []):
+        if not getattr(target, "alive", False):
+            continue
+        if getattr(target, "player_id", None) == player.player_id:
+            continue
+        if allowed_pids is not None and getattr(target, "player_id", None) not in allowed_pids:
+            continue
+        if not getattr(target, "current_character", None):
+            continue
+        if getattr(target, "revealed_this_round", False):
+            continue
+        out.append(target)
+    return out
+
+
+def _is_mark_skill_blocked_by_uhsa(state: Any, player: Any, actor_name: Any) -> bool:
+    """Defensive check: mirror engine's Uhsa suppression for 무뢰 actors."""
+
+    try:
+        from characters import CARD_TO_NAMES, CHARACTERS
+
+        uhsa_name = CARD_TO_NAMES[1][0]
+        muroe_attribute = CHARACTERS[CARD_TO_NAMES[2][0]].attribute
+        actor = CHARACTERS.get(str(actor_name))
+        if actor is None or actor.attribute != muroe_attribute:
+            return False
+        return any(
+            getattr(other, "alive", False)
+            and getattr(other, "player_id", None) != player.player_id
+            and getattr(other, "current_character", None) == uhsa_name
+            for other in getattr(state, "players", [])
+        )
+    except Exception:
+        return False

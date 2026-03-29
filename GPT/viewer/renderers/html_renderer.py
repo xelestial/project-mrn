@@ -6,6 +6,7 @@ import json
 
 from characters import CARD_TO_NAMES
 from weather_cards import load_weather_definitions
+from .phrase_dict import EVENT_LABELS_KO, LANDING_TYPE_LABELS_KO
 from ..replay import ReplayProjection
 
 
@@ -74,20 +75,8 @@ def _format_end_time(value: float | int) -> str:
 def _landing_summary(landing: dict | None) -> str:
     info = landing or {}
     ltype = str(info.get("type", "") or "")
-    labels = {
-        "PURCHASE": "토지 구매",
-        "PURCHASE_FAIL": "토지 구매 실패",
-        "PURCHASE_SKIP_POLICY": "구매 없이 턴 종료",
-        "PURCHASE_BLOCKED_THIS_TURN": "토지 구매 불가",
-        "RENT": "통행료 정산",
-        "RENT_FAILSAFE": "통행료 정산",
-        "FORTUNE": "운수 처리",
-        "MARK": "지목 처리",
-        "FORCE_SALE": "강제 매각",
-        "NO_EFFECT": "효과 없음",
-    }
-    if ltype in labels:
-        return labels[ltype]
+    if ltype in LANDING_TYPE_LABELS_KO:
+        return LANDING_TYPE_LABELS_KO[ltype]
     if "PURCHASE" in ltype:
         return "토지 구매 처리"
     if "RENT" in ltype:
@@ -145,7 +134,10 @@ def _event_display(event: dict) -> dict:
     if etype == "session_start":
         detail = f"플레이어 {event.get('player_count', '?')}명"
     elif etype == "round_start":
+        marker_owner = event.get("marker_owner_player_id")
         detail = f"{event.get('round_index', '?')} 라운드"
+        if marker_owner is not None:
+            detail += f" / 징표 P{marker_owner}"
     elif etype == "weather_reveal":
         detail = event.get("weather_name") or event.get("weather") or event.get("card", "")
     elif etype == "draft_pick":
@@ -156,7 +148,7 @@ def _event_display(event: dict) -> dict:
         detail = f"{event.get('turn_index', '?')} 턴"
     elif etype == "dice_roll":
         dice = event.get("dice_values") or event.get("dice") or []
-        used_cards = event.get("used_cards") or []
+        used_cards = event.get("cards_used") or event.get("used_cards") or []
         formula = event.get("formula") or ""
         total = event.get("total_move", event.get("move", event.get("total", "?")))
         if formula:
@@ -185,7 +177,10 @@ def _event_display(event: dict) -> dict:
         dst = event.get("to_tile_index", event.get("to_tile", event.get("to_pos", "?")))
         src = src + 1 if isinstance(src, int) else src
         dst = dst + 1 if isinstance(dst, int) else dst
+        path = list(event.get("path") or [])
         detail = f"{src} -> {dst}"
+        if path:
+            detail += f" ({len(path)}칸)"
     elif etype == "landing_resolved":
         detail = _landing_summary(event.get("landing"))
     elif etype == "rent_paid":
@@ -196,16 +191,21 @@ def _event_display(event: dict) -> dict:
     elif etype == "tile_purchased":
         tile_index = event.get("tile_index", "?")
         tile_label = tile_index + 1 if isinstance(tile_index, int) else tile_index
-        detail = f"tile {tile_label} cost {event.get('cost', '?')}"
+        detail = f"{tile_label}번 칸 / 비용 {event.get('cost', '?')}냥"
     elif etype == "fortune_drawn":
         detail = event.get("card_name", "")
     elif etype == "fortune_resolved":
         detail = str((event.get("resolution") or {}).get("type", "resolved"))
     elif etype == "mark_resolved":
-        detail = str(event.get("effect_type", "mark"))
+        source_id = event.get("source_player_id", event.get("acting_player_id"))
+        target_id = event.get("target_player_id")
+        effect = str(event.get("effect_type", "mark"))
+        detail = f"{effect}"
+        if source_id is not None and target_id is not None:
+            detail = f"P{source_id} -> P{target_id} ({effect})"
     elif etype == "marker_transferred":
-        from_owner = event.get("from_owner", "?")
-        to_owner = event.get("to_owner", event.get("new_owner_player_id", event.get("owner_player_id", "?")))
+        from_owner = event.get("from_player_id", event.get("from_owner", "?"))
+        to_owner = event.get("to_player_id", event.get("to_owner", event.get("new_owner_player_id", event.get("owner_player_id", "?"))))
         pending = event.get("marker_flip_pending_for")
         detail = f"[징표]가 P{from_owner}에서 P{to_owner}에게 이동함"
         if pending is not None:
@@ -237,7 +237,7 @@ def _event_display(event: dict) -> dict:
     elif etype == "turn_end_snapshot":
         detail = "턴 종료 스냅샷"
     elif etype == "game_end":
-        detail = event.get("end_reason", event.get("reason", "게임 종료"))
+        detail = event.get("reason", event.get("end_reason", "게임 종료"))
     return {
         "event_type": etype,
         "event_label": _event_type_korean(etype),
@@ -321,7 +321,7 @@ def _apply_known_updates(event: dict, players: list[dict], board: dict) -> tuple
         return players, board
     if etype == "dice_roll":
         pid = event.get("acting_player_id")
-        used_cards = list(event.get("used_cards") or [])
+        used_cards = list(event.get("cards_used") or event.get("used_cards") or [])
         if pid is not None and used_cards:
             for player in players:
                 if player.get("player_id") != pid:
@@ -392,8 +392,8 @@ def _apply_known_updates(event: dict, players: list[dict], board: dict) -> tuple
         return players, board
     if etype == "marker_transferred":
         board["marker_owner_player_id"] = event.get(
-            "to_owner",
-            event.get("new_owner_player_id", event.get("owner_player_id")),
+            "to_player_id",
+            event.get("to_owner", event.get("new_owner_player_id", event.get("owner_player_id"))),
         )
         return players, board
     if etype == "f_value_change" and event.get("after") is not None:
@@ -438,31 +438,7 @@ def _frame_title(event: dict) -> str:
 
 
 def _event_type_korean(etype: str | None) -> str:
-    labels = {
-        "session_start": "게임 시작",
-        "round_start": "라운드 시작",
-        "weather_reveal": "날씨 공개",
-        "draft_pick": "드래프트 선택",
-        "final_character_choice": "최종 캐릭터 선택",
-        "turn_start": "턴 시작",
-        "trick_used": "잔꾀 사용",
-        "dice_roll": "이동값 결정",
-        "player_move": "말 이동",
-        "landing_resolved": "도착 칸 처리",
-        "rent_paid": "통행료 지불",
-        "tile_purchased": "토지 구매",
-        "fortune_drawn": "운수 카드 공개",
-        "fortune_resolved": "운수 효과 처리",
-        "mark_resolved": "지목 처리",
-        "marker_transferred": "징표 이동",
-        "marker_flip": "징표 카드 뒤집기",
-        "lap_reward_chosen": "랩 보상 선택",
-        "f_value_change": "종료 시간 변화",
-        "bankruptcy": "파산",
-        "turn_end_snapshot": "턴 종료",
-        "game_end": "게임 종료",
-    }
-    return labels.get(etype or "", (etype or "").replace("_", " "))
+    return EVENT_LABELS_KO.get(etype or "", (etype or "").replace("_", " "))
 
 
 def _frame_nav_label(event: dict) -> str:

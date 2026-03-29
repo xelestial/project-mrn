@@ -112,35 +112,32 @@ However, the current user-play UX is still below "commercial board-game" quality
 ### Priority Backlog (Updated)
 
 P0 (must do first):
-- Encoding normalization pass for all live-viewer player-facing strings.
-- Turn theater v2:
-  - one dominant current-turn stage card
-  - ordered action chips: movement -> landing -> purchase/rent/fortune/weather
-  - explicit actor handoff between turns
-- Incident card layer near board:
-  - purchase
-  - rent
-  - fortune
-  - weather
-  - visible as board-near, not side-panel-only
+- [DONE] Encoding normalization pass for live-viewer player-facing strings.
+- [DONE] Turn theater v2:
+  - dominant current-turn stage card
+  - ordered public action lane
+  - explicit actor handoff readability
+- [DONE] Incident card layer near board (`incident-stack`):
+  - purchase / rent / fortune / weather / landing
+  - board-near presentation (not side-panel-only)
 
 P1 (next):
-- Prompt guidance pack:
-  - concise "what changed" line before next prompt opens
-  - stronger actionable hints in each prompt family
-- Failure UX:
-  - visible reconnect/wait state for polling failures
-  - clear stale-state indicator when backend response is delayed
-- Accessibility baseline:
+- [DONE] Prompt guidance pack:
+  - [DONE] concise "what changed" line before prompt opens
+  - [DONE] prompt-family-specific actionable hint expansion
+- [DONE] Failure UX:
+  - reconnect/wait state on polling failures
+  - stale-state indicator (`업데이트 지연 Ns`) for delayed backend heartbeat
+- [DONE] Accessibility baseline:
   - keyboard selection flow
-  - focus ring/return focus policy
-  - live-region notices for turn/bankruptcy/critical events
+  - focus return policy
+  - live-region notices for turn/bankruptcy/critical milestones
 
 P2 (after stabilization):
-- Motion polish:
-  - staged movement animation
-  - rent/purchase/weather/fortune micro-transition cards
-- Live/replay wording parity hardening with shared phrase dictionary
+- [DONE] Motion polish baseline:
+  - staged movement animation (tile flash)
+  - incident/activity/theater motion transitions
+- [DONE] Live/replay wording parity hardening with shared phrase dictionary
 
 ### Implementation Progress Update (2026-03-29, Continued)
 
@@ -155,19 +152,89 @@ Completed in this slice:
 - 네트워크 실패 가시화 1차 완료
   - header `network-badge` added
   - `/events` and `/prompt` polling failures now surface as `연결 지연` / `재연결 중` UI state
+  - stale-state badge now escalates to `업데이트 지연 Ns` when backend heartbeat is delayed
 - 접근성/입력 회복력 1차 완료
   - decision overlay now includes dialog ARIA attributes
   - keyboard decision navigation added (arrow keys + enter/space)
   - `aria-live` announcement channel added for turn/prompt/bankruptcy milestones
+  - focus-return policy added (decision close -> previous focus restore)
 - 사용자 표기 정리 1차 완료
   - `play_html`의 핵심 이벤트/행동/자원 문구를 사람 친화 한국어로 교체
   - 턴 극장/자원 로그/이벤트 라벨의 `??` 형태 임시 표기를 대폭 제거
 
-Still open:
+Closed in this follow-up:
 
-- full string/encoding normalization pass for all user-facing labels in live template
-- stronger theatrical action staging (dominant lane + visual hierarchy polish)
-- motion layer polish and replay/live wording dictionary convergence
+- replay/live wording dictionary convergence is now wired to a shared source-of-truth module
+  - `GPT/viewer/renderers/phrase_dict.py` now provides canonical Korean event and landing labels
+  - replay renderers (`html_renderer.py`, `markdown_renderer.py`) consume the shared module
+  - live renderer (`play_html.py`) now receives the same labels through injected JSON maps
+  - regression tests now assert:
+    - live HTML no longer ships unresolved phrase placeholders
+    - replay phrase dictionary includes all current canonical event/landing keys
+
+Verification:
+
+- `python GPT/test_human_play.py` (PASS)
+- `python GPT/test_live_server.py` (PASS)
+- `python GPT/test_replay_viewer.py` (PASS)
+
+### Implementation Progress Update (2026-03-29, Motion Polish Pass)
+
+Completed in this pass:
+
+- live viewer theater and incident cards now use staged motion transitions:
+  - enter animation for `turn theater` cards
+  - enter/fade transition for bottom activity overlay
+  - enter transition for board-near incident stack cards
+- move readability polish:
+  - source/destination tile flash animation on `player_move`
+- event label consistency in live view:
+  - unified live label map override for user-facing event names
+
+Verification:
+
+- `python GPT/test_human_play.py` (PASS)
+- `python GPT/test_live_server.py` (PASS)
+- `python GPT/test_replay_viewer.py` (PASS)
+
+### Implementation Progress Update (2026-03-29, Phase 5 Follow-up)
+
+Completed in this follow-up:
+
+- live decision labels now normalize common engine/English wording into human-readable Korean phrasing:
+  - `Skip purchase` -> `구매 없이 턴 종료`
+  - `Hide nothing` -> `이번에는 숨김 안 함`
+  - `Skip (no trick)` -> `이번에는 사용 안 함`
+  - `Use card(s)` -> `주사위 카드 사용`
+- board tile kind labels now use player-facing text for special tiles:
+  - `F1/F2` -> `종료 - 1 / 종료 - 2`
+  - `S` -> `운수`
+- turn theater now renders a dominant top card (`현재 턴 핵심`) before secondary rail cards.
+- landing resolution event detail now summarizes public outcome more clearly, including
+  `PURCHASE_SKIP_POLICY` -> `구매 없이 턴 종료`.
+
+Verification:
+
+- `python GPT/test_human_play.py` (PASS)
+- `python GPT/test_live_server.py` (PASS)
+- `python GPT/test_replay_viewer.py` (PASS)
+
+### Implementation Progress Update (2026-03-29, Contract/Replay/Live Pass)
+
+Completed in this pass:
+
+- shared-contract payload sync on GPT engine side:
+  - canonical fields added for `dice_roll`, `player_move`, `mark_resolved`, `marker_transferred`, `weather_reveal`, `game_end`, `round_start`
+  - compatibility aliases kept so existing replay/live consumers remain stable
+- replay fallback/compatibility cleanup:
+  - replay projection now resolves `session_start`/`game_end` more robustly
+  - replay renderers now prefer canonical payload names with alias fallback
+  - marker/game-end wording fallback paths were tightened
+- live Phase 5 readability improvements:
+  - movement/event detail now reads canonical fields (`from_tile_index`, `to_tile_index`, `cards_used`, `total_move`)
+  - event feed retention increased (`40 -> 200`) so longer turns can be reviewed without immediate truncation
+  - board center end-time indicator now shows remaining end time (`15 - f_value`) instead of raw `f_value`
+  - purchase prompt tile callout and tile meta wording were normalized into player-facing text (`구매 예정`, `통행료 N냥`)
 
 ### Acceptance Delta Added
 
@@ -300,14 +367,18 @@ Deliverables:
 
 ## Immediate Next Slice
 
-The first implementation slice should do all of the following together:
+The original first slice is now complete:
 
-- add a board-game-style public action rail
-- strengthen the turn banner / spectator continuity layer
-- keep the current bottom overlay as transient emphasis, but add a persistent action lane
-- prepare the layout for later animation and richer event cards
+- board-game-style public action rail
+- stronger turn banner / spectator continuity layer
+- persistent action lane + transient bottom overlay
+- motion-ready layout for richer event cards
 
-This is the minimum slice that meaningfully shifts the viewer from "tool UI" toward "match UI".
+Current next slice should focus on:
+
+- long-session UX tuning (density/spacing at 1080p and below)
+- optional prompt-card simplification per request type (reduce cognitive load for very long choice lists)
+- final pass for replay/live wording parity whenever new event types are added
 
 ## Rule Clarification To Preserve During UX Work
 

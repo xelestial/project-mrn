@@ -42,7 +42,7 @@ Goal:
 - Build a FastAPI session lifecycle skeleton.
 
 Implementation:
-1. Add `CLAUDE/server/app.py` composition root.
+1. Add `apps/server/src/app.py` composition root.
 2. Add in-memory `SessionService` with explicit state machine:
    - `waiting`, `in_progress`, `finished`, `aborted`.
 3. Implement:
@@ -122,7 +122,7 @@ Goal:
 - Start React app with strict typed contracts and infra ports.
 
 Implementation:
-1. Create `frontend/` (Vite + React + TS strict).
+1. Create `apps/web/` (Vite + React + TS strict).
 2. Add core contract types for event/prompt envelopes.
 3. Add stream client abstraction and state reducer skeleton.
 4. Add initial CI checks:

@@ -268,6 +268,9 @@ class EngineEffectHandlers:
             state,
             from_owner=previous_owner + 1,
             to_owner=state.marker_owner_id + 1,
+            from_player_id=previous_owner + 1,
+            to_player_id=state.marker_owner_id + 1,
+            reason="character_marker_effect",
             marker_flip_pending_for=None if state.pending_marker_flip_owner_id is None else state.pending_marker_flip_owner_id + 1,
         )
         return event
@@ -296,58 +299,91 @@ class EngineEffectHandlers:
             card_names = CARD_TO_NAMES
         else:
             card_names = engine.CARD_TO_NAMES
-        chosen_card = engine.policy.choose_active_flip_card(state, owner, flippable_cards)
-        flip_debug = engine.policy.pop_debug("marker_flip", owner.player_id) if hasattr(engine.policy, "pop_debug") else None
-        if chosen_card is None:
+        remaining_cards = list(flippable_cards)
+        flipped_events: list[dict] = []
+        while remaining_cards:
+            chosen_card = engine.policy.choose_active_flip_card(state, owner, list(remaining_cards))
+            flip_debug = engine.policy.pop_debug("marker_flip", owner.player_id) if hasattr(engine.policy, "pop_debug") else None
+            if chosen_card is None:
+                if not flipped_events:
+                    engine._record_ai_decision(
+                        state,
+                        owner,
+                        "marker_flip",
+                        flip_debug,
+                        result={"chosen_card": None, "skipped": True},
+                        source_event="marker_flip",
+                    )
+                    event = {
+                        "event": "marker_flip_skip",
+                        "player": owner.player_id + 1,
+                        "character": owner.current_character,
+                        "decision": flip_debug,
+                    }
+                    engine._log(event)
+                    state.pending_marker_flip_owner_id = None
+                    return event
+                break
+            if chosen_card not in remaining_cards:
+                engine._log(
+                    {
+                        "event": "marker_flip_invalid_choice",
+                        "player": owner.player_id + 1,
+                        "chosen_card": chosen_card,
+                        "remaining_cards": list(remaining_cards),
+                    }
+                )
+                break
+
+            a, b = card_names[chosen_card]
+            current = state.active_by_card[chosen_card]
+            flipped = b if current == a else a
+            state.active_by_card[chosen_card] = flipped
+            event = {
+                "event": "marker_flip",
+                "player": owner.player_id + 1,
+                "card_no": chosen_card,
+                "from_character": current,
+                "to_character": flipped,
+                "decision": flip_debug,
+            }
+            flipped_events.append(event)
             engine._record_ai_decision(
                 state,
                 owner,
                 "marker_flip",
                 flip_debug,
-                result={"chosen_card": None, "skipped": True},
+                result={
+                    "chosen_card": chosen_card,
+                    "from_character": current,
+                    "to_character": flipped,
+                    "flip_index": len(flipped_events),
+                },
                 source_event="marker_flip",
             )
-            event = {
-                "event": "marker_flip_skip",
-                "player": owner.player_id + 1,
-                "character": owner.current_character,
-                "decision": flip_debug,
-            }
             engine._log(event)
-            state.pending_marker_flip_owner_id = None
-            return event
-        a, b = card_names[chosen_card]
-        current = state.active_by_card[chosen_card]
-        flipped = b if current == a else a
-        state.active_by_card[chosen_card] = flipped
-        event = {
-            "event": "marker_flip",
-            "player": owner.player_id + 1,
-            "card_no": chosen_card,
-            "from_character": current,
-            "to_character": flipped,
-            "decision": flip_debug,
-        }
-        engine._record_ai_decision(
-            state,
-            owner,
-            "marker_flip",
-            flip_debug,
-            result={"chosen_card": chosen_card, "from_character": current, "to_character": flipped},
-            source_event="marker_flip",
-        )
-        engine._log(event)
-        engine._emit_vis(
-            "marker_flip",
-            Phase.WEATHER,
-            owner.player_id + 1,
-            state,
-            card_no=chosen_card,
-            from_character=current,
-            to_character=flipped,
-        )
+            engine._emit_vis(
+                "marker_flip",
+                Phase.WEATHER,
+                owner.player_id + 1,
+                state,
+                card_no=chosen_card,
+                from_character=current,
+                to_character=flipped,
+                flip_index=len(flipped_events),
+                remaining_flip_candidates=len(remaining_cards) - 1,
+            )
+            remaining_cards.remove(chosen_card)
+
         state.pending_marker_flip_owner_id = None
-        return event
+        if not flipped_events:
+            return None
+        return {
+            "event": "marker_flip_sequence",
+            "player": owner.player_id + 1,
+            "flip_count": len(flipped_events),
+            "cards": [row["card_no"] for row in flipped_events],
+        }
 
     def handle_lap_reward(self, state: GameState, player: PlayerState) -> dict:
         engine = self.engine

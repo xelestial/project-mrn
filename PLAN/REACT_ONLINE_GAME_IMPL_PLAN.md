@@ -67,11 +67,13 @@ Detailed implementation specifications are maintained in:
 - `PLAN/[PLAN]_REACT_COMPONENT_STRUCTURE_SPEC.md`
 - `PLAN/[PLAN]_ONLINE_GAME_INTERFACE_SPEC.md`
 - `PLAN/[PLAN]_ONLINE_GAME_API_SPEC.md`
+- `PLAN/[PLAN]_REPOSITORY_DIRECTORY_SPEC.md`
 
 Current policy:
 
 - Until `DOCS/API`, `DOCS/FRONTEND`, and `DOCS/BACKEND` scaffolds are created in-repo, these detailed specs are authored in `PLAN/`.
 - Once frontend/backend scaffolds exist, these docs should be migrated without changing semantics.
+- New online-runtime implementation should prefer the target directory layout in `PLAN/[PLAN]_REPOSITORY_DIRECTORY_SPEC.md` over legacy `GPT/` placement.
 
 ---
 
@@ -124,24 +126,33 @@ If docs and code disagree, code wins and docs update in same task.
 
 ## B1. FastAPI app and session API
 
-New backend package:
+Canonical backend package target:
 
 ```text
-CLAUDE/server/
-  __init__.py
-  app.py
-  models.py
-  session_manager.py
-  game_server.py
-  prompt_dispatcher.py
-  broadcaster.py
-  connection_registry.py
-  services/
-    session_service.py
-    runtime_service.py
-    prompt_service.py
-    auth_service.py
+apps/server/
+  src/
+    app.py
+    routes/
+      sessions.py
+      stream.py
+      health.py
+    services/
+      session_service.py
+      runtime_service.py
+      prompt_service.py
+      auth_service.py
+    infra/
+      ws/
+      logging/
+    adapters/
+      engine_adapter.py
+      policy_router.py
 ```
+
+Compatibility note:
+
+- Existing `CLAUDE/server` references are legacy transition notes.
+- New implementation should be placed under `apps/server` per repository directory spec.
 
 REST endpoints:
 
@@ -220,8 +231,10 @@ Required fields:
 
 ## F1. React scaffold and stream client
 
+Canonical frontend package target:
+
 ```text
-frontend/
+apps/web/
   src/
     app/
     core/
@@ -245,8 +258,13 @@ frontend/
       lobby/
       replay/
     shared/ui/
-    tests/
+  tests/
 ```
+
+Compatibility note:
+
+- Existing `frontend/` references are legacy scaffold wording.
+- New implementation should be placed under `apps/web` per repository directory spec.
 
 Core hook:
 
@@ -444,13 +462,13 @@ Backend:
 
 ```bash
 pip install fastapi uvicorn[standard] websockets
-uvicorn CLAUDE.server.app:app --reload --port 8000
+uvicorn apps.server.src.app:app --reload --port 8000
 ```
 
 Frontend:
 
 ```bash
-cd frontend
+cd apps/web
 npm create vite@latest . -- --template react-ts
 npm install
 npm run dev
@@ -503,3 +521,4 @@ Frontend done when:
 | OI8 | State store final decision (`zustand` only vs hybrid) | GPT | Decide before F2 close |
 | OI9 | Structured log retention and rotation policy | CLAUDE | Needed for ops |
 | OI10 | Legacy vs React parity checklist artifact | Shared | Required before cutover |
+| OI11 | Legacy path (`GPT/`, `CLAUDE/`, `frontend/`) reference cleanup | Shared | align docs/scripts to `apps/*` + `packages/*` |

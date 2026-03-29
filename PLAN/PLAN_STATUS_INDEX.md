@@ -107,6 +107,24 @@ Practical implications:
   - defines envelope format, endpoint payloads, ws message types, error catalog
   - implementation and test updates should follow this spec for transport-level changes
 
+### 1F. Repository Directory Specification
+- File: `PLAN/[PLAN]_REPOSITORY_DIRECTORY_SPEC.md`
+- Status: `ACTIVE`
+- Role: target repository layout and migration mapping away from legacy `GPT/`-centric placement
+- Notes:
+  - defines target `apps/` + `packages/` structure for online runtime
+  - specifies write-location policy for new server/web/runtime-contract work
+  - provides phased migration map from legacy paths to target paths
+
+### 1G. Implementation Document Usage Guide
+- File: `PLAN/[PLAN]_IMPLEMENTATION_DOCUMENT_USAGE_GUIDE.md`
+- Status: `ACTIVE`
+- Role: mandatory document reading/usage order to prevent mixing legacy and active plans
+- Notes:
+  - defines authoritative reading order before coding
+  - defines conflict resolution and do-not-drive reference docs
+  - should be checked before implementation starts
+
 ### 2. Turn Advantage Analysis
 - File: `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md`
 - Status: `ACTIVE`
@@ -263,6 +281,7 @@ When deciding what to follow next:
    - `PLAN/[PLAN]_REACT_COMPONENT_STRUCTURE_SPEC.md`
    - `PLAN/[PLAN]_ONLINE_GAME_INTERFACE_SPEC.md`
    - `PLAN/[PLAN]_ONLINE_GAME_API_SPEC.md`
+   - `PLAN/[PLAN]_REPOSITORY_DIRECTORY_SPEC.md`
 4. Use `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md` as the shared boundary baseline before parallel implementation.
 5. Treat current GPT-owned follow-up as:
    - plan/status/contract document maintenance
@@ -279,6 +298,21 @@ When deciding what to follow next:
 9. Use `PLAN/VISUALIZATION_GAME_PLAN.md` as the lower-layer substrate reference for visual runtime work.
 10. Use `PLAN/[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md` as a technical-choice proposal, not as the active product plan.
 11. Use Claude documents as reference for shared contracts, not as the active GPT task list.
+
+## Implementation Reading Rule (Mandatory)
+
+Before implementation work, read documents in this order:
+
+1. `PLAN/PLAN_STATUS_INDEX.md`
+2. `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`
+3. `PLAN/REACT_ONLINE_GAME_IMPL_PLAN.md`
+4. `PLAN/[PLAN]_REACT_ONLINE_GAME_DETAILED_EXECUTION.md`
+5. task-specific specs:
+   - `PLAN/[PLAN]_REACT_COMPONENT_STRUCTURE_SPEC.md`
+   - `PLAN/[PLAN]_ONLINE_GAME_INTERFACE_SPEC.md`
+   - `PLAN/[PLAN]_ONLINE_GAME_API_SPEC.md`
+   - `PLAN/[PLAN]_REPOSITORY_DIRECTORY_SPEC.md`
+6. `PLAN/[PLAN]_IMPLEMENTATION_DOCUMENT_USAGE_GUIDE.md` for conflict and reference policy
 
 ## Current Claude Direction
 

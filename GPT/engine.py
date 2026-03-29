@@ -155,7 +155,9 @@ class GameEngine:
             None,
             state,
             winner_ids=[winner + 1 for winner in result.winner_ids],
+            winner_player_id=(result.winner_ids[0] + 1) if result.winner_ids else None,
             end_reason=result.end_reason,
+            reason=result.end_reason,
             total_turns=result.total_turns,
             snapshot=build_turn_end_snapshot(state),
         )
@@ -506,7 +508,16 @@ class GameEngine:
         state.current_weather = None
         state.current_weather_effects = set()
         self._resolve_marker_flip(state)
-        self._emit_vis("round_start", Phase.WEATHER, None, state)
+        alive_ids = [p.player_id + 1 for p in state.players if p.alive]
+        self._emit_vis(
+            "round_start",
+            Phase.WEATHER,
+            None,
+            state,
+            initial=bool(initial),
+            alive_player_ids=alive_ids,
+            marker_owner_player_id=state.marker_owner_id + 1,
+        )
         self._run_draft(state)
         self._apply_round_weather(state)
         self._emit_vis(
@@ -515,6 +526,7 @@ class GameEngine:
             None,
             state,
             weather=state.current_weather.name if state.current_weather else None,
+            weather_name=state.current_weather.name if state.current_weather else None,
             effects=list(state.current_weather_effects),
         )
         alive = [p for p in state.players if p.alive]
@@ -767,10 +779,15 @@ class GameEngine:
             Phase.MOVEMENT,
             player.player_id + 1,
             state,
+            player_id=player.player_id + 1,
             dice=movement_meta.get("dice", []),
+            dice_values=movement_meta.get("dice", []),
             used_cards=movement_meta.get("used_cards", []),
+            cards_used=movement_meta.get("used_cards", []),
             formula=movement_meta.get("formula", ""),
             move=move,
+            total_move=move,
+            move_modifier_reason=movement_meta.get("mode", "unknown"),
             runaway_choice=movement_meta.get("runaway_choice"),
             runaway_one_short_pos=movement_meta.get("runaway_one_short_pos"),
             runaway_bonus_target_pos=movement_meta.get("runaway_bonus_target_pos"),
@@ -894,8 +911,10 @@ class GameEngine:
                     Phase.MARK,
                     source.player_id + 1,
                     state,
+                    source_player_id=source.player_id + 1,
                     effect_type=etype,
                     target_player_id=player.player_id + 1,
+                    success=True,
                     resolution={"amount": amount, **outcome},
                 )
             elif etype == "hunter_pull":
@@ -905,8 +924,10 @@ class GameEngine:
                     Phase.MARK,
                     source.player_id + 1,
                     state,
+                    source_player_id=source.player_id + 1,
                     effect_type=etype,
                     target_player_id=player.player_id + 1,
+                    success=True,
                     resolution=result,
                 )
             elif etype == "baksu_transfer":
@@ -916,8 +937,10 @@ class GameEngine:
                     Phase.MARK,
                     source.player_id + 1,
                     state,
+                    source_player_id=source.player_id + 1,
                     effect_type=etype,
                     target_player_id=player.player_id + 1,
+                    success=True,
                     resolution={"type": "baksu_transfer"},
                 )
             elif etype == "manshin_remove_burdens":
@@ -927,8 +950,10 @@ class GameEngine:
                     Phase.MARK,
                     source.player_id + 1,
                     state,
+                    source_player_id=source.player_id + 1,
                     effect_type=etype,
                     target_player_id=player.player_id + 1,
+                    success=True,
                     resolution={"type": "manshin_remove_burdens"},
                 )
             else:
@@ -1742,16 +1767,29 @@ class GameEngine:
             log_row["chain_segments"] = chain_segments
         self._log(log_row)
         laps_gained = sum(seg["laps_gained"] for seg in chain_segments)
+        path: list[int] = []
+        cursor = old_pos
+        for seg in chain_segments:
+            seg_move = int(seg.get("move", 0) or 0)
+            for _ in range(max(0, seg_move)):
+                cursor = (cursor + 1) % board_len
+                path.append(cursor)
+        movement_source = movement_meta.get("mode", "unknown")
         self._emit_vis(
             "player_move",
             Phase.MOVEMENT,
             player.player_id + 1,
             state,
+            player_id=player.player_id + 1,
             from_tile=old_pos,
+            from_tile_index=old_pos,
             to_tile=player.position,
+            to_tile_index=player.position,
             move=total_move,
             crossed_start=laps_gained > 0,
             formula=movement_meta.get("formula", ""),
+            path=path,
+            movement_source=movement_source,
         )
 
     def _apply_geo_bonus(self, player: PlayerState, choice: str) -> dict:

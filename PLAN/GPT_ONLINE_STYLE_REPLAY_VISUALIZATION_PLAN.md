@@ -9,6 +9,11 @@ Companion reference:
 - technical proposal reference: `PLAN/[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md`
 - branch reference: `CLAUDE-MAIN:PLAN/VISUALIZATION_GAME_PLAN.md`
 
+Implementation reading guard:
+- before coding, follow `PLAN/[PLAN]_IMPLEMENTATION_DOCUMENT_USAGE_GUIDE.md`
+- use only `ACTIVE` documents as execution drivers
+- treat proposal/reference/complete docs as non-authoritative support material
+
 ## Current Main Status Snapshot
 Reviewed on: `2026-03-29`
 
@@ -648,7 +653,8 @@ What is already true on `main`:
 - one human can play against AI through the browser/runtime path
 
 Remaining gaps:
-- shared-contract document still trails some implemented fields/events
+- shared-contract document/code drift was reduced on `2026-03-29` (canonical payload + alias policy sync)
+- CLAUDE/GPT validator parity still needs periodic follow-up as Phase 5 expands
 - Phase 5 polish is still incomplete
 - anytime-trick/live timing fidelity still needs final contract-hardening if expanded further
 

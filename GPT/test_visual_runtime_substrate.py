@@ -87,7 +87,7 @@ def test_game_engine_emits_visual_stream_that_validates() -> None:
 
     result = engine.run()
     events = stream.to_list()
-    validation = validate_vis_stream(events)
+    validation = validate_vis_stream(events, strict_payload=True)
     event_types = {event["event_type"] for event in events}
 
     assert result.total_turns > 0

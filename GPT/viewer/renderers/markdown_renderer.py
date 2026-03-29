@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from characters import CARD_TO_NAMES
+from .phrase_dict import EVENT_LABELS_KO, LANDING_TYPE_LABELS_KO
 from ..replay import ReplayProjection
 
 
@@ -20,49 +21,13 @@ def _draft_label(card_no: object) -> str:
 
 
 def _event_title(event_type: str) -> str:
-    labels = {
-        "session_start": "게임 시작",
-        "round_start": "라운드 시작",
-        "weather_reveal": "날씨 공개",
-        "draft_pick": "드래프트 선택",
-        "final_character_choice": "최종 캐릭터 선택",
-        "turn_start": "턴 시작",
-        "trick_used": "잔꾀 사용",
-        "dice_roll": "이동값 결정",
-        "player_move": "말 이동",
-        "landing_resolved": "도착 칸 처리",
-        "rent_paid": "통행료 지불",
-        "tile_purchased": "토지 구매",
-        "fortune_drawn": "운수 카드 공개",
-        "fortune_resolved": "운수 효과 처리",
-        "mark_resolved": "지목 처리",
-        "marker_transferred": "징표 이동",
-        "marker_flip": "징표 카드 뒤집기",
-        "lap_reward_chosen": "랩 보상 선택",
-        "f_value_change": "종료 시간 변화",
-        "bankruptcy": "파산",
-        "turn_end_snapshot": "턴 종료",
-        "game_end": "게임 종료",
-    }
-    return labels.get(event_type, event_type.replace("_", " "))
+    return EVENT_LABELS_KO.get(event_type, event_type.replace("_", " "))
 
 
 def _landing_summary(event: dict) -> str:
     landing = event.get("landing") or {}
     ltype = str(landing.get("type", "") or "")
-    labels = {
-        "PURCHASE": "토지 구매",
-        "PURCHASE_FAIL": "토지 구매 실패",
-        "PURCHASE_SKIP_POLICY": "구매 없이 턴 종료",
-        "PURCHASE_BLOCKED_THIS_TURN": "토지 구매 불가",
-        "RENT": "통행료 정산",
-        "RENT_FAILSAFE": "통행료 정산",
-        "FORTUNE": "운수 처리",
-        "MARK": "지목 처리",
-        "FORCE_SALE": "강제 매각",
-        "NO_EFFECT": "효과 없음",
-    }
-    return labels.get(ltype, ltype or "도착 처리")
+    return LANDING_TYPE_LABELS_KO.get(ltype, ltype or "도착 처리")
 
 
 def _render_event_line(event: dict) -> str:
@@ -96,7 +61,7 @@ def _render_event_line(event: dict) -> str:
 
     if event_type == "dice_roll":
         dice = event.get("dice_values") or event.get("dice") or []
-        used_cards = event.get("used_cards") or []
+        used_cards = event.get("cards_used") or event.get("used_cards") or []
         formula = event.get("formula") or ""
         total = event.get("total_move", event.get("move", event.get("total", "?")))
         if used_cards and not dice:
@@ -138,8 +103,8 @@ def _render_event_line(event: dict) -> str:
         return f"- {title}: {event.get('effect_type', 'mark')}"
 
     if event_type == "marker_transferred":
-        src = event.get("from_owner", "?")
-        dst = event.get("to_owner", event.get("new_owner_player_id", event.get("owner_player_id", "?")))
+        src = event.get("from_player_id", event.get("from_owner", "?"))
+        dst = event.get("to_player_id", event.get("to_owner", event.get("new_owner_player_id", event.get("owner_player_id", "?"))))
         pending = event.get("marker_flip_pending_for")
         note = f"[징표]가 P{src}에서 P{dst}에게 이동함"
         if pending is not None:
@@ -172,7 +137,7 @@ def _render_event_line(event: dict) -> str:
         return f"- {title}: {actor_label}"
 
     if event_type == "game_end":
-        return f"- {title}: {event.get('end_reason', event.get('reason', '게임 종료'))}"
+        return f"- {title}: {event.get('reason', event.get('end_reason', '게임 종료'))}"
 
     detail_keys = [
         key

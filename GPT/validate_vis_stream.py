@@ -30,8 +30,22 @@ KNOWN_EVENT_TYPES = {
     "game_end",
 }
 
+REQUIRED_PAYLOAD_FIELDS: dict[str, set[str]] = {
+    "session_start": {"player_count", "players"},
+    "round_start": {"marker_owner_player_id"},
+    "weather_reveal": {"weather_name", "effects"},
+    "dice_roll": {"player_id", "dice_values", "cards_used", "total_move"},
+    "player_move": {"player_id", "from_tile_index", "to_tile_index", "path", "movement_source"},
+    "rent_paid": {"payer_player_id", "owner_player_id", "tile_index", "base_amount", "final_amount"},
+    "tile_purchased": {"player_id", "tile_index", "cost", "purchase_source"},
+    "mark_resolved": {"source_player_id", "target_player_id", "success", "resolution"},
+    "marker_transferred": {"from_player_id", "to_player_id"},
+    "lap_reward_chosen": {"choice", "amount", "resource_delta"},
+    "f_value_change": {"before", "delta", "after"},
+    "game_end": {"winner_ids", "winner_player_id", "reason", "total_turns", "snapshot"},
+}
 
-def validate_vis_stream(events: list[dict]) -> dict:
+def validate_vis_stream(events: list[dict], *, strict_payload: bool = False) -> dict:
     errors: list[str] = []
     if not events:
         return {"ok": False, "errors": ["empty_event_stream"], "counts": {}}
@@ -69,6 +83,12 @@ def validate_vis_stream(events: list[dict]) -> dict:
             if field not in event:
                 errors.append(f"missing_envelope:{field}")
                 break
+        if strict_payload:
+            event_type = event.get("event_type")
+            required_fields = REQUIRED_PAYLOAD_FIELDS.get(event_type, set())
+            for field in required_fields:
+                if field not in event:
+                    errors.append(f"missing_payload:{event_type}:{field}:step={event.get('step_index')}")
 
     return {
         "ok": not errors,

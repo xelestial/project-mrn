@@ -138,6 +138,12 @@ def test_play_html_renderer() -> list[str]:
         errors.append("play HTML missing canonical prompt-envelope fields")
     if "marker_owner_player_id" not in html:
         errors.append("play HTML missing canonical marker owner field")
+    if "__EVENT_LABELS_JSON__" in html or "__LANDING_TYPE_LABELS_JSON__" in html:
+        errors.append("play HTML still contains unresolved phrase-dictionary placeholders")
+    if "EVENT_LABELS=" not in html or "LANDING_TYPE_LABELS=" not in html:
+        errors.append("play HTML missing injected shared phrase dictionaries")
+    if "function eventTypeLabel(type){return EVENT_LABELS[type]||type}" not in html:
+        errors.append("play HTML does not use shared EVENT_LABELS mapping")
     if "public_tricks" not in html:
         errors.append("play HTML missing canonical public_tricks field")
     if "owned_tile_count" not in html or "placed_score_coins" not in html:
@@ -156,6 +162,24 @@ def test_play_html_renderer() -> list[str]:
         errors.append("play HTML missing network failure visibility handlers")
     if "handleDecisionKeydown" not in html or "focusDecisionButton" not in html:
         errors.append("play HTML missing keyboard decision navigation handlers")
+    if "focusBeforeDecision" not in html:
+        errors.append("play HTML missing focus-return handling for decision overlay")
+    if "promptActionHint" not in html:
+        errors.append("play HTML missing prompt action-guide helper")
+    if "다음 행동 가이드" not in html:
+        errors.append("play HTML missing prompt summary action-guide line")
+    if "trickEffectText" not in html or "card_description" not in html:
+        errors.append("play HTML missing trick effect text rendering for trick prompts")
+    if "isTrickUseDecisionType" not in html or "buildTrickHandOverview" not in html:
+        errors.append("play HTML missing full-hand trick overview helpers")
+    if "dp-trick-hand-overview" not in html or ".dp-trick-hand-card.hidden" not in html:
+        errors.append("play HTML missing hidden-trick visual distinction styles")
+    if "isCharacterDecisionType" not in html or "characterChoiceGuideText" not in html:
+        errors.append("play HTML missing character-choice prompt helpers")
+    if "dp-char-guide" not in html or "character-choice" not in html:
+        errors.append("play HTML missing character-choice visual treatment")
+    if "클릭해서 이번 턴에 사용할 인물을 고르세요" not in html:
+        errors.append("play HTML missing character-choice instruction copy")
     if 'aria-live="polite"' not in html or 'aria-modal="true"' not in html:
         errors.append("play HTML missing accessibility live/dialog attributes")
     if "pushActivity" not in html or "renderActivityOverlay" not in html:
@@ -415,6 +439,96 @@ def test_human_policy_final_character_returns_name() -> list[str]:
     return errors
 
 
+def test_human_policy_mark_target_character_player_pairs() -> list[str]:
+    errors = []
+    try:
+        from viewer.human_policy import HumanHttpPolicy
+        from ai_policy import HeuristicPolicy
+        from config import DEFAULT_CONFIG
+        from state import GameState
+        from characters import CARD_TO_NAMES
+
+        ai = HeuristicPolicy(
+            character_policy_mode="heuristic_v1",
+            lap_policy_mode="heuristic_v1",
+        )
+        policy = HumanHttpPolicy(human_seat=0, ai_fallback=ai)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+
+        # Simulate round order so only players after seat 0 are legal targets.
+        state.current_round_order = [2, 0, 1, 3]
+        state.players[0].current_character = CARD_TO_NAMES[2][0]  # 자객
+        state.players[1].current_character = CARD_TO_NAMES[2][1]  # 산적
+        state.players[2].current_character = CARD_TO_NAMES[5][0]  # 교리 연구관 (not legal this turn)
+        state.players[3].current_character = CARD_TO_NAMES[6][0]  # 박수
+        for p in state.players:
+            p.alive = True
+            p.revealed_this_round = False
+
+        result = [None]
+        done = threading.Event()
+
+        def _call():
+            result[0] = policy.choose_mark_target(state, player, CARD_TO_NAMES[2][0])
+            done.set()
+
+        threading.Thread(target=_call, daemon=True).start()
+
+        for _ in range(20):
+            if policy.pending_prompt is not None:
+                break
+            time.sleep(0.05)
+
+        prompt = policy.pending_prompt
+        if prompt is None:
+            errors.append("pending_prompt never set for mark_target")
+            return errors
+        if prompt.get("request_type") != "mark_target":
+            errors.append(f"Expected request_type=mark_target, got {prompt.get('request_type')}")
+
+        legal_choices = prompt.get("legal_choices", [])
+        labels = [opt.get("label") for opt in legal_choices]
+        expected_labels = [
+            "No target",
+            f"{CARD_TO_NAMES[2][1]} / P2",
+            f"{CARD_TO_NAMES[6][0]} / P4",
+        ]
+        if labels != expected_labels:
+            errors.append(f"Unexpected mark_target labels: {labels!r}")
+
+        choice_ids = [opt.get("choice_id") for opt in legal_choices]
+        if choice_ids != ["none", "1", "3"]:
+            errors.append(f"Unexpected mark_target choice_ids: {choice_ids!r}")
+
+        target_pairs = prompt.get("public_context", {}).get("target_pairs", [])
+        if len(target_pairs) != 2:
+            errors.append(f"Expected 2 target_pairs, got {target_pairs!r}")
+
+        ok = policy.submit_response({"choice_id": "1"})
+        if not ok:
+            errors.append("submit_response returned False for mark_target")
+        done.wait(timeout=3.0)
+        if not done.is_set():
+            errors.append("choose_mark_target did not unblock")
+        elif result[0] != CARD_TO_NAMES[2][1]:
+            errors.append(f"Expected selected target character {CARD_TO_NAMES[2][1]!r}, got {result[0]!r}")
+
+        # Defensive suppression: if Uhsa is active elsewhere, 무뢰 mark skills should not prompt.
+        state.players[1].current_character = CARD_TO_NAMES[1][0]  # 어사
+        state.current_round_order = [0, 1, 2, 3]
+        policy2 = HumanHttpPolicy(human_seat=0, ai_fallback=ai)
+        blocked = policy2.choose_mark_target(state, state.players[0], CARD_TO_NAMES[2][0])
+        if blocked is not None:
+            errors.append("Expected mark_target to be suppressed by Uhsa, but got a target")
+        if policy2.pending_prompt is not None:
+            errors.append("Suppressed mark_target should not leave a pending prompt")
+    except Exception as e:
+        import traceback
+        errors.append(f"Exception: {e}\n{traceback.format_exc()}")
+    return errors
+
+
 def test_human_policy_geo_bonus_prompt() -> list[str]:
     errors = []
     try:
@@ -624,8 +738,17 @@ def test_human_policy_active_flip_prompt() -> list[str]:
             return errors
         if prompt.get("request_type") != "active_flip":
             errors.append(f"Expected request_type=active_flip, got {prompt.get('request_type')}")
-        if len(prompt.get("legal_choices", [])) != 2:
-            errors.append("active_flip should expose all flippable cards")
+        if len(prompt.get("legal_choices", [])) != 3:
+            errors.append("active_flip should expose flippable cards plus explicit stop option")
+        ctx = prompt.get("public_context", {})
+        if ctx.get("flip_mode") != "multi":
+            errors.append(f"active_flip should expose flip_mode='multi', got {ctx.get('flip_mode')!r}")
+        if ctx.get("flip_limit", "sentinel") is not None:
+            errors.append(f"active_flip should expose flip_limit=None, got {ctx.get('flip_limit')!r}")
+        if ctx.get("marker_owner_player_id") != 1:
+            errors.append(
+                f"active_flip should expose marker_owner_player_id=1 for seat0 owner, got {ctx.get('marker_owner_player_id')!r}"
+            )
 
         ok = policy.submit_response({"choice_id": "1"})
         if not ok:
@@ -635,6 +758,115 @@ def test_human_policy_active_flip_prompt() -> list[str]:
             errors.append("choose_active_flip_card did not unblock")
         elif result[0] != 1:
             errors.append(f"Expected flipped card index 1, got {result[0]!r}")
+    except Exception as e:
+        import traceback
+        errors.append(f"Exception: {e}\n{traceback.format_exc()}")
+    return errors
+
+
+def test_human_policy_active_flip_requires_marker_owner() -> list[str]:
+    errors = []
+    try:
+        from viewer.human_policy import HumanHttpPolicy
+        from ai_policy import HeuristicPolicy
+        from config import DEFAULT_CONFIG
+        from state import GameState
+
+        ai = HeuristicPolicy(
+            character_policy_mode="heuristic_v1",
+            lap_policy_mode="heuristic_v1",
+        )
+        policy = HumanHttpPolicy(human_seat=0, ai_fallback=ai)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+
+        state.marker_owner_id = 1
+        state.pending_marker_flip_owner_id = 1
+        result = policy.choose_active_flip_card(state, player, [1, 2])
+        if result is not None:
+            errors.append(f"Expected non-owner active_flip to return None, got {result!r}")
+        if policy.pending_prompt is not None:
+            errors.append("Non-owner active_flip should not open a prompt")
+    except Exception as e:
+        import traceback
+        errors.append(f"Exception: {e}\n{traceback.format_exc()}")
+    return errors
+
+
+def test_human_policy_trick_to_use_full_hand_context() -> list[str]:
+    errors = []
+    try:
+        from viewer.human_policy import HumanHttpPolicy
+        from ai_policy import HeuristicPolicy
+        from config import DEFAULT_CONFIG
+        from state import GameState
+
+        ai = HeuristicPolicy(
+            character_policy_mode="heuristic_v1",
+            lap_policy_mode="heuristic_v1",
+        )
+        policy = HumanHttpPolicy(human_seat=0, ai_fallback=ai)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        all_cards = [
+            SimpleNamespace(deck_index=31, name="A", description="desc-a"),
+            SimpleNamespace(deck_index=32, name="B", description="desc-b"),
+            SimpleNamespace(deck_index=33, name="C", description="desc-c"),
+        ]
+        player.trick_hand = list(all_cards)
+        player.hidden_trick_deck_index = 32
+        usable_hand = [all_cards[0]]
+
+        result = [None]
+        done = threading.Event()
+
+        def _call():
+            result[0] = policy.choose_trick_to_use(state, player, usable_hand)
+            done.set()
+
+        threading.Thread(target=_call, daemon=True).start()
+
+        for _ in range(20):
+            if policy.pending_prompt is not None:
+                break
+            time.sleep(0.05)
+
+        prompt = policy.pending_prompt
+        if prompt is None:
+            errors.append("pending_prompt never set for trick_to_use")
+            return errors
+        if prompt.get("request_type") != "trick_to_use":
+            errors.append(f"Expected request_type=trick_to_use, got {prompt.get('request_type')}")
+        ctx = prompt.get("public_context", {})
+        if ctx.get("usable_hand_count") != 1:
+            errors.append(f"Expected usable_hand_count=1, got {ctx.get('usable_hand_count')!r}")
+        if ctx.get("total_hand_count") != 3:
+            errors.append(f"Expected total_hand_count=3, got {ctx.get('total_hand_count')!r}")
+        full_hand = ctx.get("full_hand", [])
+        if len(full_hand) != 3:
+            errors.append(f"Expected full_hand length=3, got {len(full_hand)}")
+        else:
+            hidden = sum(1 for item in full_hand if item.get("is_hidden"))
+            usable = sum(1 for item in full_hand if item.get("is_usable"))
+            if hidden != 1:
+                errors.append(f"Expected one hidden card in full_hand, got {hidden}")
+            if usable != 1:
+                errors.append(f"Expected one usable card in full_hand, got {usable}")
+
+        choice_ids = [opt.get("choice_id") for opt in prompt.get("legal_choices", [])]
+        if "none" not in choice_ids or "31" not in choice_ids:
+            errors.append(f"Unexpected trick_to_use choices: {choice_ids}")
+        if "32" in choice_ids:
+            errors.append("hidden/non-usable card should not become legal choice in trick_to_use")
+
+        ok = policy.submit_response({"choice_id": "none"})
+        if not ok:
+            errors.append("submit_response returned False for trick_to_use")
+        done.wait(timeout=3.0)
+        if not done.is_set():
+            errors.append("choose_trick_to_use did not unblock")
+        elif result[0] is not None:
+            errors.append("Expected trick_to_use 'none' response to return None")
     except Exception as e:
         import traceback
         errors.append(f"Exception: {e}\n{traceback.format_exc()}")
@@ -902,10 +1134,13 @@ def main() -> int:
         ("human_policy_multi_humans",   test_human_policy_multiple_human_seats),
         ("human_policy_prompt_response",test_human_policy_prompt_and_response),
         ("human_policy_final_character",test_human_policy_final_character_returns_name),
+        ("human_policy_mark_target",    test_human_policy_mark_target_character_player_pairs),
         ("human_policy_geo_bonus",      test_human_policy_geo_bonus_prompt),
         ("human_policy_doctrine_relief",test_human_policy_doctrine_relief_prompt),
         ("human_policy_trick_reward",   test_human_policy_specific_trick_reward_prompt),
         ("human_policy_active_flip",    test_human_policy_active_flip_prompt),
+        ("human_policy_active_flip_owner", test_human_policy_active_flip_requires_marker_owner),
+        ("human_policy_trick_context",  test_human_policy_trick_to_use_full_hand_context),
         ("human_policy_hidden_trick",   test_human_policy_hidden_trick_requires_selection),
         ("human_policy_burden_exchange",test_human_policy_burden_exchange_prompt),
         ("human_policy_runaway_step",   test_human_policy_runaway_step_choice_prompt),

@@ -55,9 +55,12 @@ Current state:
 - replay HTML has been materially improved for human-readable viewing
 - replay frame ordering now better matches gameplay comprehension
 - replay frame state now reflects movement, lap rewards, rent, tile ownership, and remaining dice cards more immediately
+- replay projection now resolves winner/reason/session boundaries with stronger fallback
+- replay markdown/html now prefers canonical payload keys (`cards_used`, `from_tile_index`, `to_player_id`) while keeping alias fallback
+- replay/live now share canonical event/landing Korean labels through `GPT/viewer/renderers/phrase_dict.py`
 
 Remaining issue:
-- smaller compatibility gaps and fallback-path cleanup still remain
+- long-tail wording/label parity drift can still reappear if new event payload fields are added but not mapped in `phrase_dict.py`
 - replay polish still needs periodic alignment with current event wording and ordering
 
 Target areas:

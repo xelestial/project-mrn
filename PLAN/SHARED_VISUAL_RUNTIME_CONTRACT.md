@@ -138,6 +138,65 @@ So every event stream must be:
 - append-only
 - deterministic in sequence
 
+## Main Sync Snapshot (2026-03-29)
+
+This section records the currently implemented `main` contract surface so docs do not drift from code.
+
+### Session / Round / Weather
+- `session_start` payload includes:
+  - `player_count`
+  - `players` (`PlayerPublicState[]`)
+- `round_start` payload includes:
+  - `initial`
+  - `alive_player_ids`
+  - `marker_owner_player_id`
+- `weather_reveal` payload includes:
+  - canonical: `weather_name`, `effects`
+  - compatibility alias: `weather`
+
+### Movement / Mark / Endgame
+- `dice_roll` payload includes:
+  - `player_id`, `dice_values`, `cards_used`, `total_move`, `move_modifier_reason`
+  - runaway optional metadata when applicable:
+    - `runaway_choice`
+    - `runaway_one_short_pos`
+    - `runaway_bonus_target_pos`
+    - `runaway_bonus_target_kind`
+  - compatibility aliases:
+    - `dice`, `used_cards`, `move`
+- `player_move` payload includes:
+  - `player_id`
+  - `from_tile_index`, `to_tile_index`
+  - `path`
+  - `crossed_start`
+  - `movement_source`
+  - compatibility aliases:
+    - `from_tile`, `to_tile`, `move`, `formula`
+- `mark_resolved` payload includes:
+  - `source_player_id`, `target_player_id`
+  - `success`
+  - `effect_type`
+  - `resolution`
+- `marker_transferred` payload includes:
+  - canonical: `from_player_id`, `to_player_id`, `reason`
+  - compatibility aliases: `from_owner`, `to_owner`
+- `game_end` payload includes:
+  - `winner_ids`
+  - `winner_player_id`
+  - `reason`
+  - `end_reason` (compatibility alias retained)
+  - `total_turns`
+  - `snapshot`
+
+### Alias Policy
+
+When canonical fields are introduced, existing replay/live consumers should not break.
+
+Current policy:
+- emit canonical fields first
+- keep legacy aliases during migration windows
+- gradually remove alias dependence from renderers/tests before deleting alias emission
+
 ## Public State Schemas
 
 ### PlayerPublicState
