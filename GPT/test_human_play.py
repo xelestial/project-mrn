@@ -114,7 +114,7 @@ def test_play_html_renderer() -> list[str]:
         errors.append("play HTML missing Phase 5 board/prompt panels")
     if "dp-context-list" not in html:
         errors.append("play HTML missing prompt context panel")
-    for flow_marker in ("phase-strip", "legend-phase", "move-trail", "move-from", "activity-overlay", "asset-log"):
+    for flow_marker in ("phase-strip", "legend-phase", "move-trail", "move-from", "activity-overlay", "asset-log", "story-rail-shell", "story-rail"):
         if flow_marker not in html:
             errors.append(f"play HTML missing flow marker '{flow_marker}'")
     for phase5_widget in (
@@ -151,6 +151,8 @@ def test_play_html_renderer() -> list[str]:
         errors.append("play HTML missing processing-state handler")
     if "pushActivity" not in html or "renderActivityOverlay" not in html:
         errors.append("play HTML missing other-player activity overlay handlers")
+    if "renderStoryRail" not in html or "story-card" not in html:
+        errors.append("play HTML missing persistent public action rail")
     if "positionDecisionPanel" not in html or "purchase-anchored" not in html or "tile-callout" not in html:
         errors.append("play HTML missing purchase prompt tile anchoring")
     if "pushAssetEffectsFromEvent" not in html or "syncSnapshotEconomy" not in html or "renderAssetLog" not in html:

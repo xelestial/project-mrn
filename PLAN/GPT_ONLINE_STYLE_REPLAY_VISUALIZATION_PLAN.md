@@ -25,6 +25,9 @@ Current GPT-owned follow-up:
 - keep plan/status documents synchronized with actual `main`
 - continue replay/live UI polish for Phase 5
 - keep replay wording/layout human-friendly as the viewer matures
+- execute the commercial-grade Phase 5 UX overhaul proposal:
+  - `PLAN/[PROPOSAL]_GPT_PHASE5_COMMERCIAL_UI_UX_OVERHAUL.md`
+  - prioritize turn theater, contextual prompts, public action continuity, and board-first readability
 
 Current CLAUDE-owned follow-up:
 - converge validators and substrate naming on canonical shared-contract fields

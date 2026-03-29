@@ -61,6 +61,9 @@ Practical implications:
   - current explicit work split is:
     - GPT: upper runtime, prompt flow, replay/live renderer polish, Phase 5 user-facing UI growth
     - CLAUDE: lower substrate verification, canonical contract stability, validator maintenance, and related lower-layer bug fixes
+  - current Phase 5 execution proposal:
+    - `PLAN/[PROPOSAL]_GPT_PHASE5_COMMERCIAL_UI_UX_OVERHAUL.md`
+    - use it as the active user-facing UX follow-up for the live/replay viewer
 
 ### 2. Turn Advantage Analysis
 - File: `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md`
@@ -139,6 +142,15 @@ These are still useful, but they are not the current top-level execution plan on
     - public vs analysis view split
     - JSON-schema-first contracts
   - should be treated as a technical proposal, not the canonical product plan
+
+### GPT Phase 5 Commercial UI/UX Overhaul
+- File: `PLAN/[PROPOSAL]_GPT_PHASE5_COMMERCIAL_UI_UX_OVERHAUL.md`
+- Status: `PROPOSAL`
+- Role: active Phase 5 user-experience redesign track for replay/live visualization
+- Notes:
+  - focuses on board-game-grade readability and presentation
+  - turns the current Phase 5 viewer from a functional tool UI into a stronger match UI
+  - should be treated as the current GPT-owned UX execution proposal under the canonical visualization plan
 
 ### Claude Architecture Refactor
 - File: `PLAN/CLAUDE_ARCHITECTURE_REFACTOR_PLAN.md`

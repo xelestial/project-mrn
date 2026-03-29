@@ -1,3 +1,8 @@
+## v0.7.68-phase5-ux-overhaul-start (2026-03-29)
+- Opened a dedicated Phase 5 commercial UI/UX overhaul track so live/replay visualization can move beyond tool-style panels toward a board-game-grade match presentation.
+- Added the first live-viewer "public action rail" slice: recent public actions now persist as larger story cards instead of only flashing as transient overlays.
+- Recorded the `탈출 노비` one-short special-tile clarification as an explicit balance-history note: it is an optional choice, not intended as a forced automatic redirect.
+
 ## v0.7.67-ai-node-graph-export (2026-03-29)
 - Completed the planned AI decision pipeline pass by adding Mermaid node-graph export on top of `ai_decisions.jsonl`.
 - `analyze_ai_decisions.py` can now filter a single decision row and render `features -> detector_hits -> effect_adjustments -> final_choice` as a reusable Mermaid flowchart for offline review.
