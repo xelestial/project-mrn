@@ -83,6 +83,7 @@ It is intentionally execution-focused:
   - added seat-join path (`session_id`, `seat`, `join_token`, `display_name`) with auto-connect
   - added session list refresh panel for in-app lifecycle visibility
   - added create-time join-token state management with seat-based auto-fill
+  - added session-list quick select action (`Use session`)
   - remaining: dedicated lobby route split and join-token UX polish
 - `B4+`: not started in code
 

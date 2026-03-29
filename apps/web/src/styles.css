@@ -155,6 +155,16 @@ body {
   color: #a9bbdf;
 }
 
+.timeline-item button {
+  justify-self: start;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid #4e79bd;
+  background: #1b3560;
+  color: #eef4ff;
+  cursor: pointer;
+}
+
 .board-ring {
   display: grid;
   grid-template-columns: repeat(11, minmax(0, 1fr));

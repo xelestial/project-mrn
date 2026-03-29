@@ -254,6 +254,12 @@ export function App() {
     }
   };
 
+  const onUseSession = (id: string) => {
+    setSessionInput(id);
+    setSessionId(id);
+    setNotice(`Session selected: ${id}`);
+  };
+
   const onSelectPromptChoice = (choiceId: string) => {
     if (!activePrompt || promptBusy) {
       return;
@@ -412,6 +418,9 @@ export function App() {
               <small>
                 R{s.round_index ?? 0} / T{s.turn_index ?? 0}
               </small>
+              <button type="button" onClick={() => onUseSession(s.session_id)}>
+                Use session
+              </button>
             </article>
           ))}
         </div>
