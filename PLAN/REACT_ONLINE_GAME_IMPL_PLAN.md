@@ -94,6 +94,7 @@ Current policy:
 - B2/B3 hardening has started:
   - websocket token auth for seat vs spectator path
   - unauthorized/mismatched decision rejection paths
+  - API-level decision-auth regression tests added (`UNAUTHORIZED_SEAT`, `PLAYER_MISMATCH`)
   - subscriber fan-out queue path with slow-consumer drop-oldest backpressure baseline
   - slow-consumer drop-oldest regression test baseline added (`apps/server/tests/test_stream_service.py`)
 - runtime fan-out baseline has started:

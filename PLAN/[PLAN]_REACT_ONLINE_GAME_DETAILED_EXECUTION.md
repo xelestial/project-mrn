@@ -44,6 +44,7 @@ It is intentionally execution-focused:
   - websocket decision ack now validates pending prompt status (`accepted/rejected/stale`)
   - timeout path now emits public fallback trace event (`decision_timeout_fallback`)
   - added spectator decision block and authenticated player mismatch block
+  - added API-level decision auth regression tests (`UNAUTHORIZED_SEAT`, `PLAYER_MISMATCH`)
   - remaining: engine fallback execution wiring and stale-request hardening
 - runtime fan-out baseline: in progress
   - all-AI session start now triggers background engine execution
