@@ -117,6 +117,9 @@ def test_play_html_renderer() -> list[str]:
     for flow_marker in ("phase-strip", "legend-phase", "move-trail", "move-from", "activity-overlay", "asset-log", "story-rail-shell", "story-rail", "bankruptcy-banner"):
         if flow_marker not in html:
             errors.append(f"play HTML missing flow marker '{flow_marker}'")
+    for click_guard in ("width:100%", "min-height:88px", ".dp-btn>*{pointer-events:none}"):
+        if click_guard not in html:
+            errors.append(f"play HTML missing click-area guard '{click_guard}'")
     for phase5_widget in (
         "movement-route",
         "reward-breakdown",
