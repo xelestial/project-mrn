@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useGameStream } from "./hooks/useGameStream";
 import {
   createSession,
@@ -34,6 +34,7 @@ export function App() {
   const [aiProfile, setAiProfile] = useState("balanced");
   const [seedInput, setSeedInput] = useState("42");
   const [hostTokenInput, setHostTokenInput] = useState("");
+  const [lastJoinTokens, setLastJoinTokens] = useState<Record<string, string>>({});
   const [joinSeatInput, setJoinSeatInput] = useState("1");
   const [joinTokenInput, setJoinTokenInput] = useState("");
   const [displayNameInput, setDisplayNameInput] = useState("Player");
@@ -52,20 +53,13 @@ export function App() {
   const activePrompt = selectActivePrompt(stream.messages);
   const latestPromptAck = selectLatestDecisionAck(stream.messages, activePrompt?.requestId ?? promptRequestId);
 
-  const joinTokens = useMemo(() => {
-    const map = new Map<number, string>();
-    const text = notice.match(/join_tokens=(\{.*\})/);
-    if (!text) {
-      return map;
+  useEffect(() => {
+    const seat = Number(joinSeatInput) || 1;
+    const autoToken = lastJoinTokens[String(seat)] ?? "";
+    if (autoToken) {
+      setJoinTokenInput(autoToken);
     }
-    try {
-      const parsed = JSON.parse(text[1]) as Record<string, string>;
-      Object.entries(parsed).forEach(([seat, tok]) => map.set(Number(seat), tok));
-    } catch {
-      // ignore parse failure
-    }
-    return map;
-  }, [notice]);
+  }, [joinSeatInput, lastJoinTokens]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
@@ -160,6 +154,7 @@ export function App() {
       });
       setSessionInput(created.session_id);
       setHostTokenInput(created.host_token);
+      setLastJoinTokens(created.join_tokens);
       const selectedSeat = Number(joinSeatInput) || 1;
       const autoJoinToken = created.join_tokens[String(selectedSeat)] ?? "";
       if (autoJoinToken) {
@@ -198,6 +193,7 @@ export function App() {
       setTokenInput("");
       setToken(undefined);
       setHostTokenInput(created.host_token);
+      setLastJoinTokens(created.join_tokens);
       setNotice(
         `AI session started: ${created.session_id} host_token=${created.host_token} join_tokens=${JSON.stringify(created.join_tokens)}`
       );
@@ -366,8 +362,13 @@ export function App() {
                 Join and Connect
               </button>
             </div>
-            {joinTokens.size > 0 ? (
-              <p className="mono">Last create tokens: {Array.from(joinTokens.entries()).map(([k, v]) => `S${k}:${v}`).join(" | ")}</p>
+            {Object.keys(lastJoinTokens).length > 0 ? (
+              <p className="mono">
+                Last create tokens:{" "}
+                {Object.entries(lastJoinTokens)
+                  .map(([k, v]) => `S${k}:${v}`)
+                  .join(" | ")}
+              </p>
             ) : null}
           </div>
         </div>
@@ -446,4 +447,3 @@ export function App() {
     </main>
   );
 }
-

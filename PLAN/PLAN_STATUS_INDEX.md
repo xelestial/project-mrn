@@ -96,6 +96,7 @@ Practical implications:
   - F3 prompt countdown baseline added
   - F3 keyboard/focus baseline added (focus restore + Escape collapse)
   - F4 lobby baseline started (custom session create/join/start/session list)
+  - F4 join-token state baseline added (seat-based auto-fill from created session)
   - B2 fan-out hardening baseline added (subscriber queue push + slow-consumer drop-oldest policy)
 
 ### 1B. React Detailed Execution Backlog
