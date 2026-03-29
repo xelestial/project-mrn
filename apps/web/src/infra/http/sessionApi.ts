@@ -12,19 +12,45 @@ type ApiEnvelope<T> = {
   error: { code: string; message: string; retryable: boolean } | null;
 };
 
-type CreateSessionResult = {
+export type SeatPublic = {
+  seat: number;
+  seat_type: SeatType;
+  ai_profile?: string | null;
+  player_id?: number | null;
+  connected?: boolean;
+};
+
+export type CreateSessionResult = {
   session_id: string;
   status: string;
   host_token: string;
   join_tokens: Record<string, string>;
+  seats?: SeatPublic[];
 };
 
-type PublicSessionResult = {
+export type PublicSessionResult = {
   session_id: string;
   status: string;
+  round_index?: number;
+  turn_index?: number;
+  created_at?: string;
+  started_at?: string | null;
+  seats?: SeatPublic[];
 };
 
-type RuntimeStatusResult = {
+export type JoinSessionResult = {
+  session_id: string;
+  seat: number;
+  player_id: number;
+  session_token: string;
+  role: "seat";
+};
+
+export type ListSessionsResult = {
+  sessions: PublicSessionResult[];
+};
+
+export type RuntimeStatusResult = {
   session_id: string;
   runtime: {
     status: string;
@@ -62,10 +88,31 @@ export async function createSession(args: {
   });
 }
 
-export async function startSession(args: {
+export async function listSessions(): Promise<ListSessionsResult> {
+  return requestJson<ListSessionsResult>("/api/v1/sessions");
+}
+
+export async function getSession(args: { sessionId: string }): Promise<PublicSessionResult> {
+  return requestJson<PublicSessionResult>(`/api/v1/sessions/${encodeURIComponent(args.sessionId)}`);
+}
+
+export async function joinSession(args: {
   sessionId: string;
-  hostToken: string;
-}): Promise<PublicSessionResult> {
+  seat: number;
+  joinToken: string;
+  displayName?: string;
+}): Promise<JoinSessionResult> {
+  return requestJson<JoinSessionResult>(`/api/v1/sessions/${encodeURIComponent(args.sessionId)}/join`, {
+    method: "POST",
+    body: JSON.stringify({
+      seat: args.seat,
+      join_token: args.joinToken,
+      display_name: args.displayName ?? null,
+    }),
+  });
+}
+
+export async function startSession(args: { sessionId: string; hostToken: string }): Promise<PublicSessionResult> {
   return requestJson<PublicSessionResult>(`/api/v1/sessions/${encodeURIComponent(args.sessionId)}/start`, {
     method: "POST",
     body: JSON.stringify({ host_token: args.hostToken }),
@@ -75,3 +122,4 @@ export async function startSession(args: {
 export async function getRuntimeStatus(sessionId: string): Promise<RuntimeStatusResult> {
   return requestJson<RuntimeStatusResult>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/runtime-status`);
 }
+

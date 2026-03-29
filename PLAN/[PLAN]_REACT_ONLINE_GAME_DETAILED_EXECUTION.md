@@ -76,6 +76,12 @@ It is intentionally execution-focused:
   - added ack-status unlock handling for rejected/stale decisions
   - added countdown baseline in prompt overlay
   - remaining: keyboard/focus/a11y depth and stale/timeout user messaging polish
+- `F4` baseline: started
+  - added lobby control panel for custom seat composition and seed/profile inputs
+  - added host-start path with explicit host token input
+  - added seat-join path (`session_id`, `seat`, `join_token`, `display_name`) with auto-connect
+  - added session list refresh panel for in-app lifecycle visibility
+  - remaining: dedicated lobby route split and join-token UX polish
 - `B4+`: not started in code
 
 ## Execution Policy

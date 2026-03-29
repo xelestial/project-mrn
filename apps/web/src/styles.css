@@ -39,6 +39,28 @@ body {
   gap: 10px;
 }
 
+.lobby-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.seat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mono {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.panel h3 {
+  margin: 0 0 8px;
+}
+
 .form label {
   display: grid;
   gap: 4px;
@@ -260,6 +282,10 @@ body {
 }
 
 @media (max-width: 920px) {
+  .lobby-grid {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+
   .board-ring {
     min-height: 480px;
     gap: 4px;

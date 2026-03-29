@@ -1,6 +1,13 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useGameStream } from "./hooks/useGameStream";
-import { createSession, getRuntimeStatus, startSession } from "./infra/http/sessionApi";
+import {
+  createSession,
+  getRuntimeStatus,
+  joinSession,
+  listSessions,
+  type PublicSessionResult,
+  startSession,
+} from "./infra/http/sessionApi";
 import { selectLatestSnapshot, selectSituation, selectTimeline } from "./domain/selectors/streamSelectors";
 import { selectActivePrompt, selectLatestDecisionAck } from "./domain/selectors/promptSelectors";
 import { ConnectionPanel } from "./features/status/ConnectionPanel";
@@ -11,6 +18,8 @@ import { PlayersPanel } from "./features/players/PlayersPanel";
 import { IncidentCardStack } from "./features/theater/IncidentCardStack";
 import { PromptOverlay } from "./features/prompt/PromptOverlay";
 
+type SeatType = "human" | "ai";
+
 export function App() {
   const [sessionInput, setSessionInput] = useState("");
   const [tokenInput, setTokenInput] = useState("");
@@ -20,17 +29,43 @@ export function App() {
   const [runtime, setRuntime] = useState("-");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+
+  const [seatTypes, setSeatTypes] = useState<SeatType[]>(["human", "ai", "ai", "ai"]);
+  const [aiProfile, setAiProfile] = useState("balanced");
+  const [seedInput, setSeedInput] = useState("42");
+  const [hostTokenInput, setHostTokenInput] = useState("");
+  const [joinSeatInput, setJoinSeatInput] = useState("1");
+  const [joinTokenInput, setJoinTokenInput] = useState("");
+  const [displayNameInput, setDisplayNameInput] = useState("Player");
+  const [sessions, setSessions] = useState<PublicSessionResult[]>([]);
+
   const [promptCollapsed, setPromptCollapsed] = useState(false);
   const [promptBusy, setPromptBusy] = useState(false);
   const [promptRequestId, setPromptRequestId] = useState("");
   const [promptExpiresAtMs, setPromptExpiresAtMs] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
+
   const stream = useGameStream({ sessionId, token });
   const timeline = selectTimeline(stream.messages);
   const situation = selectSituation(stream.messages);
   const snapshot = selectLatestSnapshot(stream.messages);
   const activePrompt = selectActivePrompt(stream.messages);
   const latestPromptAck = selectLatestDecisionAck(stream.messages, activePrompt?.requestId ?? promptRequestId);
+
+  const joinTokens = useMemo(() => {
+    const map = new Map<number, string>();
+    const text = notice.match(/join_tokens=(\{.*\})/);
+    if (!text) {
+      return map;
+    }
+    try {
+      const parsed = JSON.parse(text[1]) as Record<string, string>;
+      Object.entries(parsed).forEach(([seat, tok]) => map.set(Number(seat), tok));
+    } catch {
+      // ignore parse failure
+    }
+    return map;
+  }, [notice]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
@@ -49,7 +84,7 @@ export function App() {
           setRuntime(runtimeState.runtime.status);
         }
       } catch {
-        // Keep UI stable; manual refresh still available.
+        // Keep UI stable on polling failures.
       }
     };
     void tick();
@@ -61,60 +96,6 @@ export function App() {
       window.clearInterval(id);
     };
   }, [sessionId]);
-
-  const onConnect = (e: FormEvent) => {
-    e.preventDefault();
-    setError("");
-    setNotice("");
-    setSessionId(sessionInput.trim());
-    setToken(tokenInput.trim() || undefined);
-  };
-
-  const onCreateAndStartAi = async () => {
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      const created = await createSession({
-        seats: [
-          { seat: 1, seat_type: "ai", ai_profile: "gpt" },
-          { seat: 2, seat_type: "ai", ai_profile: "claude" },
-          { seat: 3, seat_type: "ai", ai_profile: "gpt" },
-          { seat: 4, seat_type: "ai", ai_profile: "claude" },
-        ],
-        config: { seed: 42 },
-      });
-      await startSession({ sessionId: created.session_id, hostToken: created.host_token });
-      const runtimeState = await getRuntimeStatus(created.session_id);
-      setRuntime(runtimeState.runtime.status);
-      setSessionInput(created.session_id);
-      setTokenInput("");
-      setToken(undefined);
-      setSessionId(created.session_id);
-      setNotice(`AI 세션 시작 완료: ${created.session_id}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "세션 생성/시작 중 오류가 발생했습니다.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onRefreshRuntime = async () => {
-    if (!sessionId.trim()) {
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      const runtimeState = await getRuntimeStatus(sessionId.trim());
-      setRuntime(runtimeState.runtime.status);
-      setNotice(`Runtime 상태 갱신: ${runtimeState.runtime.status}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Runtime 상태 조회 실패");
-    } finally {
-      setBusy(false);
-    }
-  };
 
   useEffect(() => {
     if (!activePrompt) {
@@ -137,20 +118,152 @@ export function App() {
     }
     if (latestPromptAck.status === "rejected") {
       setPromptBusy(false);
-      setError(latestPromptAck.reason ? `선택 거절: ${latestPromptAck.reason}` : "선택이 거절되었습니다.");
+      setError(latestPromptAck.reason ? `Decision rejected: ${latestPromptAck.reason}` : "Decision rejected");
     }
     if (latestPromptAck.status === "stale") {
       setPromptBusy(false);
-      setError(latestPromptAck.reason ? `선택 만료: ${latestPromptAck.reason}` : "선택 요청이 만료되었습니다.");
+      setError(latestPromptAck.reason ? `Decision stale: ${latestPromptAck.reason}` : "Decision request is stale");
     }
   }, [latestPromptAck, promptBusy]);
+
+  const refreshSessions = async () => {
+    try {
+      const result = await listSessions();
+      setSessions(result.sessions);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to list sessions");
+    }
+  };
+
+  const onConnect = (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setNotice("");
+    const normalized = sessionInput.trim();
+    setSessionId(normalized);
+    setToken(tokenInput.trim() || undefined);
+  };
+
+  const onCreateCustomSession = async () => {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const seats = seatTypes.map((seatType, index) => ({
+        seat: index + 1,
+        seat_type: seatType,
+        ai_profile: seatType === "ai" ? aiProfile : undefined,
+      }));
+      const created = await createSession({
+        seats,
+        config: { seed: Number(seedInput) || 42 },
+      });
+      setSessionInput(created.session_id);
+      setHostTokenInput(created.host_token);
+      const selectedSeat = Number(joinSeatInput) || 1;
+      const autoJoinToken = created.join_tokens[String(selectedSeat)] ?? "";
+      if (autoJoinToken) {
+        setJoinTokenInput(autoJoinToken);
+      }
+      setNotice(
+        `Session created: ${created.session_id} host_token=${created.host_token} join_tokens=${JSON.stringify(created.join_tokens)}`
+      );
+      await refreshSessions();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create session");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onCreateAndStartAi = async () => {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const created = await createSession({
+        seats: [
+          { seat: 1, seat_type: "ai", ai_profile: "gpt" },
+          { seat: 2, seat_type: "ai", ai_profile: "claude" },
+          { seat: 3, seat_type: "ai", ai_profile: "gpt" },
+          { seat: 4, seat_type: "ai", ai_profile: "claude" },
+        ],
+        config: { seed: Number(seedInput) || 42 },
+      });
+      await startSession({ sessionId: created.session_id, hostToken: created.host_token });
+      const runtimeState = await getRuntimeStatus(created.session_id);
+      setRuntime(runtimeState.runtime.status);
+      setSessionInput(created.session_id);
+      setSessionId(created.session_id);
+      setTokenInput("");
+      setToken(undefined);
+      setHostTokenInput(created.host_token);
+      setNotice(
+        `AI session started: ${created.session_id} host_token=${created.host_token} join_tokens=${JSON.stringify(created.join_tokens)}`
+      );
+      await refreshSessions();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create/start AI session");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onStartByHostToken = async () => {
+    const current = sessionInput.trim() || sessionId.trim();
+    if (!current || !hostTokenInput.trim()) {
+      setError("Session ID and host token are required.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await startSession({ sessionId: current, hostToken: hostTokenInput.trim() });
+      setSessionId(current);
+      setNotice(`Session started by host: ${current}`);
+      await refreshSessions();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to start session");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onJoinSeat = async () => {
+    const current = sessionInput.trim() || sessionId.trim();
+    const seat = Number(joinSeatInput);
+    if (!current || !seat || !joinTokenInput.trim()) {
+      setError("Session ID, seat, and join token are required.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const joined = await joinSession({
+        sessionId: current,
+        seat,
+        joinToken: joinTokenInput.trim(),
+        displayName: displayNameInput.trim() || undefined,
+      });
+      setSessionInput(current);
+      setSessionId(current);
+      setTokenInput(joined.session_token);
+      setToken(joined.session_token);
+      setNotice(`Joined seat P${joined.player_id}. Connected with session token.`);
+      await refreshSessions();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to join seat");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const onSelectPromptChoice = (choiceId: string) => {
     if (!activePrompt || promptBusy) {
       return;
     }
     if (!activePrompt.playerId) {
-      setError("프롬프트 player_id가 유효하지 않습니다.");
+      setError("Prompt player_id is invalid.");
       return;
     }
     setPromptBusy(true);
@@ -168,10 +281,100 @@ export function App() {
   return (
     <main className="page">
       <header className="header">
-        <h1>MRN Online Viewer (F1 Baseline)</h1>
-        <p>세션 ID/토큰으로 연결하거나, AI 4인 세션을 즉시 시작할 수 있습니다.</p>
+        <h1>MRN Online Viewer (React/FastAPI)</h1>
+        <p>Custom lobby controls are enabled: create, join, start, connect, and live stream observe.</p>
       </header>
+
       <section className="panel">
+        <h2>Lobby Controls</h2>
+        <div className="lobby-grid">
+          <div>
+            <h3>Create Session</h3>
+            <label>
+              Seed
+              <input value={seedInput} onChange={(e) => setSeedInput(e.target.value)} />
+            </label>
+            <label>
+              AI Profile
+              <input value={aiProfile} onChange={(e) => setAiProfile(e.target.value)} />
+            </label>
+            <div className="seat-grid">
+              {seatTypes.map((seatType, idx) => (
+                <label key={`seat-${idx + 1}`}>
+                  Seat {idx + 1}
+                  <select
+                    value={seatType}
+                    onChange={(e) => {
+                      const next = [...seatTypes];
+                      next[idx] = e.target.value === "human" ? "human" : "ai";
+                      setSeatTypes(next);
+                    }}
+                  >
+                    <option value="human">human</option>
+                    <option value="ai">ai</option>
+                  </select>
+                </label>
+              ))}
+            </div>
+            <div className="actions">
+              <button type="button" disabled={busy} onClick={onCreateCustomSession}>
+                Create Custom Session
+              </button>
+              <button type="button" disabled={busy} onClick={onCreateAndStartAi}>
+                Create + Start AI Session
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <h3>Host / Join</h3>
+            <label>
+              Session ID
+              <input value={sessionInput} onChange={(e) => setSessionInput(e.target.value)} placeholder="sess_xxx" />
+            </label>
+            <label>
+              Host Token
+              <input
+                value={hostTokenInput}
+                onChange={(e) => setHostTokenInput(e.target.value)}
+                placeholder="host_xxx"
+              />
+            </label>
+            <div className="actions">
+              <button type="button" disabled={busy} onClick={onStartByHostToken}>
+                Start Session
+              </button>
+            </div>
+            <label>
+              Join Seat
+              <input value={joinSeatInput} onChange={(e) => setJoinSeatInput(e.target.value)} />
+            </label>
+            <label>
+              Join Token
+              <input
+                value={joinTokenInput}
+                onChange={(e) => setJoinTokenInput(e.target.value)}
+                placeholder="seat_join_token"
+              />
+            </label>
+            <label>
+              Display Name
+              <input value={displayNameInput} onChange={(e) => setDisplayNameInput(e.target.value)} />
+            </label>
+            <div className="actions">
+              <button type="button" disabled={busy} onClick={onJoinSeat}>
+                Join and Connect
+              </button>
+            </div>
+            {joinTokens.size > 0 ? (
+              <p className="mono">Last create tokens: {Array.from(joinTokens.entries()).map(([k, v]) => `S${k}:${v}`).join(" | ")}</p>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>Stream Connection</h2>
         <form onSubmit={onConnect} className="form">
           <label>
             Session ID
@@ -179,29 +382,47 @@ export function App() {
           </label>
           <label>
             Session Token (optional)
-            <input value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} placeholder="session_p1_xxx" />
+            <input
+              value={tokenInput}
+              onChange={(e) => setTokenInput(e.target.value)}
+              placeholder="session_p1_xxx (or empty for spectator)"
+            />
           </label>
           <div className="actions">
             <button type="submit" disabled={busy}>
               Connect
             </button>
-            <button type="button" onClick={onCreateAndStartAi} disabled={busy}>
-              AI 4인 세션 생성/시작
-            </button>
-            <button type="button" onClick={onRefreshRuntime} disabled={busy || !sessionId.trim()}>
-              Runtime 갱신
+            <button type="button" onClick={refreshSessions} disabled={busy}>
+              Refresh Sessions
             </button>
           </div>
         </form>
         {notice ? <p className="notice ok">{notice}</p> : null}
         {error ? <p className="notice err">{error}</p> : null}
       </section>
+
+      <section className="panel">
+        <h2>Session List ({sessions.length})</h2>
+        <div className="timeline">
+          {sessions.map((s) => (
+            <article key={s.session_id} className="timeline-item">
+              <strong>{s.session_id}</strong>
+              <span>{s.status}</span>
+              <small>
+                R{s.round_index ?? 0} / T{s.turn_index ?? 0}
+              </small>
+            </article>
+          ))}
+        </div>
+      </section>
+
       <ConnectionPanel status={stream.status} lastSeq={stream.lastSeq} runtime={runtime} />
       <SituationPanel model={situation} />
       <BoardPanel snapshot={snapshot} />
       <IncidentCardStack items={timeline} />
       <PlayersPanel snapshot={snapshot} />
       <TimelinePanel items={timeline} />
+
       <PromptOverlay
         prompt={activePrompt}
         collapsed={promptCollapsed}
@@ -210,6 +431,7 @@ export function App() {
         onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
         onSelectChoice={onSelectPromptChoice}
       />
+
       <section className="panel">
         <h2>Recent Messages ({stream.messages.length})</h2>
         <div className="messages">
@@ -224,3 +446,4 @@ export function App() {
     </main>
   );
 }
+
