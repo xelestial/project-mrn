@@ -56,14 +56,56 @@ Practical implications:
     - Phase 4: baseline complete for human-play runtime
     - Phase 5: not complete; still the main forward UI track
   - current document-maintenance gap is now mostly:
-    - shared-contract synchronization with implemented replay/live fields
     - Phase 5 progress tracking
+    - validator parity follow-up as contract fields evolve
+  - shared-contract sync update (`2026-03-29`):
+    - canonical movement/mark/end payload fields and alias policy were re-aligned in code + contract doc
   - current explicit work split is:
     - GPT: upper runtime, prompt flow, replay/live renderer polish, Phase 5 user-facing UI growth
     - CLAUDE: lower substrate verification, canonical contract stability, validator maintenance, and related lower-layer bug fixes
   - current Phase 5 execution proposal:
     - `PLAN/[PROPOSAL]_GPT_PHASE5_COMMERCIAL_UI_UX_OVERHAUL.md`
     - use it as the active user-facing UX follow-up for the live/replay viewer
+
+### 1A. React Online Implementation (Top-Level)
+- File: `PLAN/REACT_ONLINE_GAME_IMPL_PLAN.md`
+- Status: `ACTIVE`
+- Role: execution bridge from current Python viewer to React + FastAPI online runtime
+- Notes:
+  - this is the top-level React transition plan for backend/frontend parallel work
+  - it now links detailed companion specs for implementation-level execution
+
+### 1B. React Detailed Execution Backlog
+- File: `PLAN/[PLAN]_REACT_ONLINE_GAME_DETAILED_EXECUTION.md`
+- Status: `ACTIVE`
+- Role: phase-by-phase detailed implementation backlog and DoD gates
+- Notes:
+  - source of truth for B1-B4, F1-F6 granular delivery checks
+  - includes quality gates, risk register, and PR update rules
+
+### 1C. React Component Structure Spec
+- File: `PLAN/[PLAN]_REACT_COMPONENT_STRUCTURE_SPEC.md`
+- Status: `ACTIVE`
+- Role: detailed component architecture and UI responsibility boundaries
+- Notes:
+  - defines component tree, feature ownership, selector boundaries, test matrix
+  - canonical frontend reference for prompt/board/theater/player-panel composition
+
+### 1D. Online Interface Spec
+- File: `PLAN/[PLAN]_ONLINE_GAME_INTERFACE_SPEC.md`
+- Status: `ACTIVE`
+- Role: DI-facing backend/frontend interface boundary spec
+- Notes:
+  - defines service protocols, frontend ports, prompt/decision interface mapping
+  - canonical boundary reference for adapter-oriented implementation
+
+### 1E. Online API Spec
+- File: `PLAN/[PLAN]_ONLINE_GAME_API_SPEC.md`
+- Status: `ACTIVE`
+- Role: concrete REST + WebSocket API contract
+- Notes:
+  - defines envelope format, endpoint payloads, ws message types, error catalog
+  - implementation and test updates should follow this spec for transport-level changes
 
 ### 2. Turn Advantage Analysis
 - File: `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md`
@@ -151,15 +193,21 @@ These are still useful, but they are not the current top-level execution plan on
   - focuses on board-game-grade readability and presentation
   - turns the current Phase 5 viewer from a functional tool UI into a stronger match UI
   - should be treated as the current GPT-owned UX execution proposal under the canonical visualization plan
-  - latest audit update (`2026-03-29`) added explicit P0 gaps:
-    - live template text/encoding normalization
-    - turn-theater v2 dominance
-    - board-near incident cards for purchase/rent/fortune/weather
+  - latest audit update (`2026-03-29`) added explicit P0 gaps and follow-up closure tracking:
+    - live template text/encoding normalization (closed)
+    - turn-theater v2 dominance (closed)
+    - board-near incident cards for purchase/rent/fortune/weather (closed)
   - implementation update (`2026-03-29`, continued):
     - `runaway_step_choice` prompt path is now wired end-to-end (engine -> human policy -> renderer)
     - board-near incident cards are now implemented in live viewer (`incident-stack`)
     - network failure visibility baseline is implemented (`network-badge`, reconnect states)
     - keyboard + ARIA baseline for decision overlay is implemented
+  - follow-up update (`2026-03-29`, late):
+    - replay/live Korean phrase convergence is now centralized via `GPT/viewer/renderers/phrase_dict.py`
+    - live renderer now consumes shared phrase maps via injected JSON (`EVENT_LABELS`, `LANDING_TYPE_LABELS`)
+    - stale-state network visibility now escalates to `업데이트 지연 Ns`
+    - phrase-dictionary regressions are now covered by replay/human-play tests
+    - prompt guidance pack is now closed with per-request actionable hints in live prompt summary/overlay
 
 ### Claude Architecture Refactor
 - File: `PLAN/CLAUDE_ARCHITECTURE_REFACTOR_PLAN.md`
@@ -209,22 +257,28 @@ Reason:
 When deciding what to follow next:
 
 1. Use `PLAN/GPT_ONLINE_STYLE_REPLAY_VISUALIZATION_PLAN.md` for replay/playable game work.
-2. Use `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md` as the shared boundary baseline before parallel implementation.
-3. Treat current GPT-owned follow-up as:
+2. Use `PLAN/REACT_ONLINE_GAME_IMPL_PLAN.md` as the React transition top-level execution plan.
+3. Use React detailed specs as active implementation references:
+   - `PLAN/[PLAN]_REACT_ONLINE_GAME_DETAILED_EXECUTION.md`
+   - `PLAN/[PLAN]_REACT_COMPONENT_STRUCTURE_SPEC.md`
+   - `PLAN/[PLAN]_ONLINE_GAME_INTERFACE_SPEC.md`
+   - `PLAN/[PLAN]_ONLINE_GAME_API_SPEC.md`
+4. Use `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md` as the shared boundary baseline before parallel implementation.
+5. Treat current GPT-owned follow-up as:
    - plan/status/contract document maintenance
    - replay/live UI polish for Phase 5
    - human-readable replay/live wording/layout refinement
-4. Treat current CLAUDE-owned follow-up as:
+6. Treat current CLAUDE-owned follow-up as:
    - canonical public-state/event naming convergence
    - validator refresh toward the shared contract
    - substrate completeness review for Phase 5
    - lower-layer bug fixes discovered by that completeness review
    - lower-layer portability discipline for future non-HTML clients
-5. Use `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md` only for GPT-side analysis tooling.
-6. Use completed documents only as implementation history or rationale.
-7. Use `PLAN/VISUALIZATION_GAME_PLAN.md` as the lower-layer substrate reference for visual runtime work.
-8. Use `PLAN/[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md` as a technical-choice proposal, not as the active product plan.
-9. Use Claude documents as reference for shared contracts, not as the active GPT task list.
+7. Use `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md` only for GPT-side analysis tooling.
+8. Use completed documents only as implementation history or rationale.
+9. Use `PLAN/VISUALIZATION_GAME_PLAN.md` as the lower-layer substrate reference for visual runtime work.
+10. Use `PLAN/[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md` as a technical-choice proposal, not as the active product plan.
+11. Use Claude documents as reference for shared contracts, not as the active GPT task list.
 
 ## Current Claude Direction
 
