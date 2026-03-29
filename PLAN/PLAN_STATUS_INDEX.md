@@ -93,6 +93,7 @@ Practical implications:
   - F2 board-near incident stack baseline added
   - F3 prompt baseline started (active prompt selector + decision submit overlay)
   - F3 rejected/stale ack unlock baseline added
+  - F3 prompt countdown baseline added
   - B2 fan-out hardening baseline added (subscriber queue push + slow-consumer drop-oldest policy)
 
 ### 1B. React Detailed Execution Backlog

@@ -4,11 +4,19 @@ type PromptOverlayProps = {
   prompt: PromptViewModel | null;
   collapsed: boolean;
   busy: boolean;
+  secondsLeft: number | null;
   onToggleCollapse: () => void;
   onSelectChoice: (choiceId: string) => void;
 };
 
-export function PromptOverlay({ prompt, collapsed, busy, onToggleCollapse, onSelectChoice }: PromptOverlayProps) {
+export function PromptOverlay({
+  prompt,
+  collapsed,
+  busy,
+  secondsLeft,
+  onToggleCollapse,
+  onSelectChoice,
+}: PromptOverlayProps) {
   if (!prompt) {
     return null;
   }
@@ -21,7 +29,8 @@ export function PromptOverlay({ prompt, collapsed, busy, onToggleCollapse, onSel
         </button>
       </div>
       <p>
-        요청 ID {prompt.requestId} / 대상 P{prompt.playerId} / 제한 {Math.ceil(prompt.timeoutMs / 1000)}초
+        요청 ID {prompt.requestId} / 대상 P{prompt.playerId} / 제한 {Math.ceil(prompt.timeoutMs / 1000)}초 / 남은 시간{" "}
+        {secondsLeft ?? "-"}초
       </p>
       {!collapsed ? (
         <div className="prompt-choices">
@@ -44,4 +53,3 @@ export function PromptOverlay({ prompt, collapsed, busy, onToggleCollapse, onSel
     </section>
   );
 }
-

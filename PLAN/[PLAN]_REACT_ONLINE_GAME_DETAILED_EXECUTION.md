@@ -74,7 +74,8 @@ It is intentionally execution-focused:
   - added decision submit wiring from UI (`useGameStream.sendDecision`)
   - added prompt selector unit tests
   - added ack-status unlock handling for rejected/stale decisions
-  - remaining: countdown UX, keyboard/focus/a11y depth, stale/timeout user messaging polish
+  - added countdown baseline in prompt overlay
+  - remaining: keyboard/focus/a11y depth and stale/timeout user messaging polish
 - `B4+`: not started in code
 
 ## Execution Policy

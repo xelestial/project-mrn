@@ -23,12 +23,19 @@ export function App() {
   const [promptCollapsed, setPromptCollapsed] = useState(false);
   const [promptBusy, setPromptBusy] = useState(false);
   const [promptRequestId, setPromptRequestId] = useState("");
+  const [promptExpiresAtMs, setPromptExpiresAtMs] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const stream = useGameStream({ sessionId, token });
   const timeline = selectTimeline(stream.messages);
   const situation = selectSituation(stream.messages);
   const snapshot = selectLatestSnapshot(stream.messages);
   const activePrompt = selectActivePrompt(stream.messages);
   const latestPromptAck = selectLatestDecisionAck(stream.messages, activePrompt?.requestId ?? promptRequestId);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!sessionId.trim()) {
@@ -113,12 +120,14 @@ export function App() {
     if (!activePrompt) {
       setPromptBusy(false);
       setPromptRequestId("");
+      setPromptExpiresAtMs(null);
       return;
     }
     if (activePrompt.requestId !== promptRequestId) {
       setPromptBusy(false);
       setPromptCollapsed(false);
       setPromptRequestId(activePrompt.requestId);
+      setPromptExpiresAtMs(Date.now() + activePrompt.timeoutMs);
     }
   }, [activePrompt, promptRequestId]);
 
@@ -152,6 +161,9 @@ export function App() {
       choicePayload: {},
     });
   };
+
+  const promptSecondsLeft =
+    promptExpiresAtMs === null ? null : Math.max(0, Math.ceil((promptExpiresAtMs - nowMs) / 1000));
 
   return (
     <main className="page">
@@ -194,6 +206,7 @@ export function App() {
         prompt={activePrompt}
         collapsed={promptCollapsed}
         busy={promptBusy}
+        secondsLeft={promptSecondsLeft}
         onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
         onSelectChoice={onSelectPromptChoice}
       />
