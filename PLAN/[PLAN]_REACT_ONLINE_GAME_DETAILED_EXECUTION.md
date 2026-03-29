@@ -85,9 +85,10 @@ It is intentionally execution-focused:
   - added seat-join path (`session_id`, `seat`, `join_token`, `display_name`) with auto-connect
   - added session list refresh panel for in-app lifecycle visibility
   - added create-time join-token state management with seat-based auto-fill
+  - added seat-select + one-click join-token apply controls
   - added session-list quick select action (`Use session`)
   - added lobby/match route split baseline (hash-based route tabs)
-  - remaining: dedicated lobby page extraction and join-token UX polish
+  - remaining: dedicated lobby page extraction
 - `B4+`: not started in code
 
 ## Execution Policy

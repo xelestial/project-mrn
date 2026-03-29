@@ -78,6 +78,27 @@ body {
   word-break: break-all;
 }
 
+.token-list {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.token-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.token-actions button {
+  padding: 5px 8px;
+  border-radius: 999px;
+  border: 1px solid #486fa8;
+  background: #163058;
+  color: #d8e8ff;
+  cursor: pointer;
+}
+
 .panel h3 {
   margin: 0 0 8px;
 }

@@ -402,7 +402,12 @@ export function App() {
                 </div>
                 <label>
                   Join Seat
-                  <input value={joinSeatInput} onChange={(e) => setJoinSeatInput(e.target.value)} />
+                  <select value={joinSeatInput} onChange={(e) => setJoinSeatInput(e.target.value)}>
+                    <option value="1">Seat 1</option>
+                    <option value="2">Seat 2</option>
+                    <option value="3">Seat 3</option>
+                    <option value="4">Seat 4</option>
+                  </select>
                 </label>
                 <label>
                   Join Token
@@ -422,12 +427,23 @@ export function App() {
                   </button>
                 </div>
                 {Object.keys(lastJoinTokens).length > 0 ? (
-                  <p className="mono">
-                    Last create tokens:{" "}
-                    {Object.entries(lastJoinTokens)
-                      .map(([k, v]) => `S${k}:${v}`)
-                      .join(" | ")}
-                  </p>
+                  <div className="token-list">
+                    <p className="mono">Last create join tokens</p>
+                    <div className="token-actions">
+                      {Object.entries(lastJoinTokens).map(([seat, value]) => (
+                        <button
+                          key={`token-${seat}`}
+                          type="button"
+                          onClick={() => {
+                            setJoinSeatInput(seat);
+                            setJoinTokenInput(value);
+                          }}
+                        >
+                          Use Seat {seat} token
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 ) : null}
               </div>
             </div>
