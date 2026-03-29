@@ -89,7 +89,8 @@ It is intentionally execution-focused:
   - added seat-select + one-click join-token apply controls
   - added session-list quick select action (`Use session`)
   - added lobby/match route split baseline (hash-based route tabs)
-  - remaining: dedicated lobby page extraction
+  - added dedicated lobby page extraction (`features/lobby/LobbyView.tsx`)
+  - remaining: optional route deep-link and navigation polish
 - `B4+`: not started in code
 
 ## Execution Policy

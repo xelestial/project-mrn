@@ -17,8 +17,8 @@ import { BoardPanel } from "./features/board/BoardPanel";
 import { PlayersPanel } from "./features/players/PlayersPanel";
 import { IncidentCardStack } from "./features/theater/IncidentCardStack";
 import { PromptOverlay } from "./features/prompt/PromptOverlay";
+import { LobbyView, type LobbySeatType } from "./features/lobby/LobbyView";
 
-type SeatType = "human" | "ai";
 type ViewRoute = "lobby" | "match";
 
 const LOBBY_HASH = "#/lobby";
@@ -42,7 +42,7 @@ export function App() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
-  const [seatTypes, setSeatTypes] = useState<SeatType[]>(["human", "ai", "ai", "ai"]);
+  const [seatTypes, setSeatTypes] = useState<LobbySeatType[]>(["human", "ai", "ai", "ai"]);
   const [aiProfile, setAiProfile] = useState("balanced");
   const [seedInput, setSeedInput] = useState("42");
   const [hostTokenInput, setHostTokenInput] = useState("");
@@ -295,6 +295,12 @@ export function App() {
     setNotice(`Session selected: ${id}`);
   };
 
+  const onSeatTypeChange = (index: number, value: LobbySeatType) => {
+    const next = [...seatTypes];
+    next[index] = value;
+    setSeatTypes(next);
+  };
+
   const onSelectPromptChoice = (choiceId: string) => {
     if (!activePrompt || promptBusy) {
       return;
@@ -339,162 +345,42 @@ export function App() {
       </header>
 
       {route === "lobby" ? (
-        <>
-          <section className="panel">
-            <h2>Lobby Controls</h2>
-            <div className="lobby-grid">
-              <div>
-                <h3>Create Session</h3>
-                <label>
-                  Seed
-                  <input value={seedInput} onChange={(e) => setSeedInput(e.target.value)} />
-                </label>
-                <label>
-                  AI Profile
-                  <input value={aiProfile} onChange={(e) => setAiProfile(e.target.value)} />
-                </label>
-                <div className="seat-grid">
-                  {seatTypes.map((seatType, idx) => (
-                    <label key={`seat-${idx + 1}`}>
-                      Seat {idx + 1}
-                      <select
-                        value={seatType}
-                        onChange={(e) => {
-                          const next = [...seatTypes];
-                          next[idx] = e.target.value === "human" ? "human" : "ai";
-                          setSeatTypes(next);
-                        }}
-                      >
-                        <option value="human">human</option>
-                        <option value="ai">ai</option>
-                      </select>
-                    </label>
-                  ))}
-                </div>
-                <div className="actions">
-                  <button type="button" disabled={busy} onClick={onCreateCustomSession}>
-                    Create Custom Session
-                  </button>
-                  <button type="button" disabled={busy} onClick={onCreateAndStartAi}>
-                    Create + Start AI Session
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <h3>Host / Join</h3>
-                <label>
-                  Session ID
-                  <input value={sessionInput} onChange={(e) => setSessionInput(e.target.value)} placeholder="sess_xxx" />
-                </label>
-                <label>
-                  Host Token
-                  <input
-                    value={hostTokenInput}
-                    onChange={(e) => setHostTokenInput(e.target.value)}
-                    placeholder="host_xxx"
-                  />
-                </label>
-                <div className="actions">
-                  <button type="button" disabled={busy} onClick={onStartByHostToken}>
-                    Start Session
-                  </button>
-                </div>
-                <label>
-                  Join Seat
-                  <select value={joinSeatInput} onChange={(e) => setJoinSeatInput(e.target.value)}>
-                    <option value="1">Seat 1</option>
-                    <option value="2">Seat 2</option>
-                    <option value="3">Seat 3</option>
-                    <option value="4">Seat 4</option>
-                  </select>
-                </label>
-                <label>
-                  Join Token
-                  <input
-                    value={joinTokenInput}
-                    onChange={(e) => setJoinTokenInput(e.target.value)}
-                    placeholder="seat_join_token"
-                  />
-                </label>
-                <label>
-                  Display Name
-                  <input value={displayNameInput} onChange={(e) => setDisplayNameInput(e.target.value)} />
-                </label>
-                <div className="actions">
-                  <button type="button" disabled={busy} onClick={onJoinSeat}>
-                    Join and Connect
-                  </button>
-                </div>
-                {Object.keys(lastJoinTokens).length > 0 ? (
-                  <div className="token-list">
-                    <p className="mono">Last create join tokens</p>
-                    <div className="token-actions">
-                      {Object.entries(lastJoinTokens).map(([seat, value]) => (
-                        <button
-                          key={`token-${seat}`}
-                          type="button"
-                          onClick={() => {
-                            setJoinSeatInput(seat);
-                            setJoinTokenInput(value);
-                          }}
-                        >
-                          Use Seat {seat} token
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </section>
-
-          <section className="panel">
-            <h2>Stream Connection</h2>
-            <form onSubmit={onConnect} className="form">
-              <label>
-                Session ID
-                <input value={sessionInput} onChange={(e) => setSessionInput(e.target.value)} placeholder="sess_xxx" />
-              </label>
-              <label>
-                Session Token (optional)
-                <input
-                  value={tokenInput}
-                  onChange={(e) => setTokenInput(e.target.value)}
-                  placeholder="session_p1_xxx (or empty for spectator)"
-                />
-              </label>
-              <div className="actions">
-                <button type="submit" disabled={busy}>
-                  Connect
-                </button>
-                <button type="button" onClick={refreshSessions} disabled={busy}>
-                  Refresh Sessions
-                </button>
-              </div>
-            </form>
-            {notice ? <p className="notice ok">{notice}</p> : null}
-            {error ? <p className="notice err">{error}</p> : null}
-          </section>
-
-          <section className="panel">
-            <h2>Session List ({sessions.length})</h2>
-            <div className="timeline">
-              {sessions.map((s) => (
-                <article key={s.session_id} className="timeline-item">
-                  <strong>{s.session_id}</strong>
-                  <span>{s.status}</span>
-                  <small>
-                    R{s.round_index ?? 0} / T{s.turn_index ?? 0}
-                  </small>
-                  <button type="button" onClick={() => onUseSession(s.session_id)}>
-                    Use session
-                  </button>
-                </article>
-              ))}
-            </div>
-          </section>
-        </>
+        <LobbyView
+          busy={busy}
+          seedInput={seedInput}
+          aiProfile={aiProfile}
+          seatTypes={seatTypes}
+          sessionInput={sessionInput}
+          hostTokenInput={hostTokenInput}
+          joinSeatInput={joinSeatInput}
+          joinTokenInput={joinTokenInput}
+          displayNameInput={displayNameInput}
+          tokenInput={tokenInput}
+          notice={notice}
+          error={error}
+          lastJoinTokens={lastJoinTokens}
+          sessions={sessions}
+          onSeedInput={setSeedInput}
+          onAiProfile={setAiProfile}
+          onSeatTypeChange={onSeatTypeChange}
+          onCreateCustomSession={onCreateCustomSession}
+          onCreateAndStartAi={onCreateAndStartAi}
+          onSessionInput={setSessionInput}
+          onHostTokenInput={setHostTokenInput}
+          onStartByHostToken={onStartByHostToken}
+          onJoinSeatInput={setJoinSeatInput}
+          onJoinTokenInput={setJoinTokenInput}
+          onDisplayNameInput={setDisplayNameInput}
+          onJoinSeat={onJoinSeat}
+          onUseToken={(seat, value) => {
+            setJoinSeatInput(seat);
+            setJoinTokenInput(value);
+          }}
+          onConnect={onConnect}
+          onTokenInput={setTokenInput}
+          onRefreshSessions={refreshSessions}
+          onUseSession={onUseSession}
+        />
       ) : (
         <>
           <ConnectionPanel status={stream.status} lastSeq={stream.lastSeq} runtime={runtime} />

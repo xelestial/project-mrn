@@ -102,6 +102,7 @@ Practical implications:
   - F4 join-token UX polish baseline added (seat select + one-click token apply chips)
   - F4 session-list quick-select baseline added (`Use session`)
   - F4 lobby/match route split baseline added (hash-route tabs)
+  - F4 dedicated lobby view extraction baseline added (`features/lobby/LobbyView.tsx`)
   - B2 fan-out hardening baseline added (subscriber queue push + slow-consumer drop-oldest policy)
   - B2 slow-consumer drop-oldest regression test baseline added (`apps/server/tests/test_stream_service.py`)
 

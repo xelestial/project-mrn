@@ -121,6 +121,7 @@ Current policy:
   - F4 lobby baseline started (custom create/join/start/session-list in app shell)
   - F4 lobby/match route split baseline added (hash-based route tabs)
   - F4 join-token UX polish baseline added (seat dropdown + one-click token apply)
+  - F4 dedicated lobby view extraction baseline added (`features/lobby/LobbyView.tsx`)
 - next implementation target:
   - B2/B3 hardening (reconnect stress, backpressure, fallback wiring)
   - runtime watchdog/ops hardening and prompt fallback integration
