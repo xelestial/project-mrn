@@ -67,6 +67,12 @@ It is intentionally execution-focused:
   - added 40-tile ring board layout mapping (`tile_index` -> ring coordinates)
   - added board-near recent incident card stack baseline (`IncidentCardStack`)
   - remaining: pawn movement animation, richer labels/localization, theater depth
+- `F3` baseline: started
+  - added prompt selector baseline (`selectActivePrompt`) with ack-aware closing
+  - added prompt overlay component with full-card choices and collapse toggle
+  - added decision submit wiring from UI (`useGameStream.sendDecision`)
+  - added prompt selector unit tests
+  - remaining: countdown UX, keyboard/focus/a11y depth, stale/timeout user messaging polish
 - `B4+`: not started in code
 
 ## Execution Policy

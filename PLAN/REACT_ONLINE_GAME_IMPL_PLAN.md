@@ -110,6 +110,7 @@ Current policy:
   - F2 snapshot baseline added (public board tiles + player panels from stream snapshot)
   - F2 ring-board baseline added (40-tile coordinate mapping)
   - F2 board-near incident stack baseline added
+  - F3 prompt baseline started (overlay + choice submit + collapse)
 - next implementation target:
   - B2/B3 hardening (reconnect stress, backpressure, fallback wiring)
   - runtime watchdog/ops hardening and prompt fallback integration

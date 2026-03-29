@@ -12,6 +12,12 @@ export function useGameStream({ sessionId, token }: UseGameStreamArgs): {
   status: ConnectionStatus;
   lastSeq: number;
   messages: InboundMessage[];
+  sendDecision: (args: {
+    requestId: string;
+    playerId: number;
+    choiceId: string;
+    choicePayload?: Record<string, unknown>;
+  }) => void;
 } {
   const client = useMemo(() => new StreamClient(), []);
   const [state, dispatch] = useReducer(gameStreamReducer, initialGameStreamState);
@@ -51,5 +57,21 @@ export function useGameStream({ sessionId, token }: UseGameStreamArgs): {
     return () => client.disconnect();
   }, [client, sessionId, token]);
 
-  return { status: state.status, messages: state.messages, lastSeq: state.lastSeq };
+  const sendDecision = (args: {
+    requestId: string;
+    playerId: number;
+    choiceId: string;
+    choicePayload?: Record<string, unknown>;
+  }) => {
+    client.send({
+      type: "decision",
+      request_id: args.requestId,
+      player_id: args.playerId,
+      choice_id: args.choiceId,
+      choice_payload: args.choicePayload,
+      client_seq: lastSeqRef.current,
+    });
+  };
+
+  return { status: state.status, messages: state.messages, lastSeq: state.lastSeq, sendDecision };
 }

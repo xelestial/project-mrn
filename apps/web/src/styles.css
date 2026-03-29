@@ -218,6 +218,47 @@ body {
   font-size: 12px;
 }
 
+.prompt-overlay {
+  border-color: #c99e2f;
+}
+
+.prompt-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.prompt-head button {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #4e79bd;
+  background: #1c3764;
+  color: #f4f8ff;
+}
+
+.prompt-choices {
+  display: grid;
+  gap: 8px;
+}
+
+.prompt-choice-card {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid #355588;
+  background: #1a2f56;
+  color: #e8efff;
+  cursor: pointer;
+}
+
+.prompt-choice-card:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 @media (max-width: 920px) {
   .board-ring {
     min-height: 480px;

@@ -2,12 +2,14 @@ import { FormEvent, useEffect, useState } from "react";
 import { useGameStream } from "./hooks/useGameStream";
 import { createSession, getRuntimeStatus, startSession } from "./infra/http/sessionApi";
 import { selectLatestSnapshot, selectSituation, selectTimeline } from "./domain/selectors/streamSelectors";
+import { selectActivePrompt } from "./domain/selectors/promptSelectors";
 import { ConnectionPanel } from "./features/status/ConnectionPanel";
 import { SituationPanel } from "./features/status/SituationPanel";
 import { TimelinePanel } from "./features/timeline/TimelinePanel";
 import { BoardPanel } from "./features/board/BoardPanel";
 import { PlayersPanel } from "./features/players/PlayersPanel";
 import { IncidentCardStack } from "./features/theater/IncidentCardStack";
+import { PromptOverlay } from "./features/prompt/PromptOverlay";
 
 export function App() {
   const [sessionInput, setSessionInput] = useState("");
@@ -18,10 +20,14 @@ export function App() {
   const [runtime, setRuntime] = useState("-");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [promptCollapsed, setPromptCollapsed] = useState(false);
+  const [promptBusy, setPromptBusy] = useState(false);
+  const [promptRequestId, setPromptRequestId] = useState("");
   const stream = useGameStream({ sessionId, token });
   const timeline = selectTimeline(stream.messages);
   const situation = selectSituation(stream.messages);
   const snapshot = selectLatestSnapshot(stream.messages);
+  const activePrompt = selectActivePrompt(stream.messages);
 
   useEffect(() => {
     if (!sessionId.trim()) {
@@ -102,6 +108,36 @@ export function App() {
     }
   };
 
+  useEffect(() => {
+    if (!activePrompt) {
+      setPromptBusy(false);
+      setPromptRequestId("");
+      return;
+    }
+    if (activePrompt.requestId !== promptRequestId) {
+      setPromptBusy(false);
+      setPromptCollapsed(false);
+      setPromptRequestId(activePrompt.requestId);
+    }
+  }, [activePrompt, promptRequestId]);
+
+  const onSelectPromptChoice = (choiceId: string) => {
+    if (!activePrompt || promptBusy) {
+      return;
+    }
+    if (!activePrompt.playerId) {
+      setError("프롬프트 player_id가 유효하지 않습니다.");
+      return;
+    }
+    setPromptBusy(true);
+    stream.sendDecision({
+      requestId: activePrompt.requestId,
+      playerId: activePrompt.playerId,
+      choiceId,
+      choicePayload: {},
+    });
+  };
+
   return (
     <main className="page">
       <header className="header">
@@ -139,6 +175,13 @@ export function App() {
       <IncidentCardStack items={timeline} />
       <PlayersPanel snapshot={snapshot} />
       <TimelinePanel items={timeline} />
+      <PromptOverlay
+        prompt={activePrompt}
+        collapsed={promptCollapsed}
+        busy={promptBusy}
+        onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
+        onSelectChoice={onSelectPromptChoice}
+      />
       <section className="panel">
         <h2>Recent Messages ({stream.messages.length})</h2>
         <div className="messages">

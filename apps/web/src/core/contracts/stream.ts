@@ -37,6 +37,13 @@ export type InboundMessage =
 
 export type OutboundMessage =
   | { type: "resume"; last_seq: number }
-  | { type: "decision"; request_id: string; player_id: number; choice_id: string; client_seq: number };
+  | {
+      type: "decision";
+      request_id: string;
+      player_id: number;
+      choice_id: string;
+      choice_payload?: Record<string, unknown>;
+      client_seq: number;
+    };
 
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "disconnected" | "error";
