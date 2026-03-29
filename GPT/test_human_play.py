@@ -141,6 +141,10 @@ def test_play_html_renderer() -> list[str]:
         errors.append("play HTML missing canonical player stat fields")
     if "여기서 보이는 이름 그대로 엔진에 전달됩니다." in html:
         errors.append("play HTML still exposes engine-facing draft/final note")
+    if "Hide nothing" in html:
+        errors.append("play HTML still exposes legacy hidden-trick skip wording")
+    if "Skip (no trick)" in html:
+        errors.append("play HTML still exposes legacy trick skip wording")
     for stale_field in (
         "marker_owner_id",
         "trick_cards_visible",
@@ -608,6 +612,66 @@ def test_human_policy_active_flip_prompt() -> list[str]:
     return errors
 
 
+def test_human_policy_hidden_trick_requires_selection() -> list[str]:
+    errors = []
+    try:
+        from viewer.human_policy import HumanHttpPolicy
+        from ai_policy import HeuristicPolicy
+        from config import DEFAULT_CONFIG
+        from state import GameState
+
+        ai = HeuristicPolicy(
+            character_policy_mode="heuristic_v1",
+            lap_policy_mode="heuristic_v1",
+        )
+        policy = HumanHttpPolicy(human_seat=0, ai_fallback=ai)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        hand = [
+            SimpleNamespace(deck_index=11, name="마당발"),
+            SimpleNamespace(deck_index=12, name="건강 검진"),
+        ]
+
+        result = [None]
+        done = threading.Event()
+
+        def _call():
+            result[0] = policy.choose_hidden_trick_card(state, player, hand)
+            done.set()
+
+        threading.Thread(target=_call, daemon=True).start()
+
+        for _ in range(20):
+            if policy.pending_prompt is not None:
+                break
+            time.sleep(0.05)
+
+        prompt = policy.pending_prompt
+        if prompt is None:
+            errors.append("pending_prompt never set for hidden_trick_card")
+            return errors
+        if prompt.get("request_type") != "hidden_trick_card":
+            errors.append(f"Expected request_type=hidden_trick_card, got {prompt.get('request_type')}")
+        if prompt.get("can_pass") is not False:
+            errors.append(f"hidden_trick_card should require a choice, got can_pass={prompt.get('can_pass')!r}")
+        choice_ids = [opt.get("choice_id") for opt in prompt.get("legal_choices", [])]
+        if choice_ids != ["11", "12"]:
+            errors.append(f"Unexpected hidden_trick_card choices: {choice_ids}")
+
+        ok = policy.submit_response({"choice_id": "12"})
+        if not ok:
+            errors.append("submit_response returned False for hidden_trick_card")
+        done.wait(timeout=3.0)
+        if not done.is_set():
+            errors.append("choose_hidden_trick_card did not unblock")
+        elif result[0] is not hand[1]:
+            errors.append("Expected selected hidden trick card object to be returned")
+    except Exception as e:
+        import traceback
+        errors.append(f"Exception: {e}\n{traceback.format_exc()}")
+    return errors
+
+
 def test_human_policy_burden_exchange_prompt() -> list[str]:
     errors = []
     try:
@@ -751,6 +815,7 @@ def main() -> int:
         ("human_policy_doctrine_relief",test_human_policy_doctrine_relief_prompt),
         ("human_policy_trick_reward",   test_human_policy_specific_trick_reward_prompt),
         ("human_policy_active_flip",    test_human_policy_active_flip_prompt),
+        ("human_policy_hidden_trick",   test_human_policy_hidden_trick_requires_selection),
         ("human_policy_burden_exchange",test_human_policy_burden_exchange_prompt),
     ]
     all_passed = True

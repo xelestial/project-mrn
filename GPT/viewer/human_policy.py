@@ -363,7 +363,7 @@ class HumanHttpPolicy:
         if not self._is_human_seat(player.player_id):
             return self._ai.choose_trick_to_use(state, player, hand)
 
-        options = [{"id": "none", "label": "Skip (no trick)", "deck_index": None}]
+        options = [{"id": "none", "label": "이번에는 잔꾀를 사용하지 않음", "deck_index": None}]
         for card in hand:
             options.append({
                 "id": str(card.deck_index),
@@ -452,7 +452,7 @@ class HumanHttpPolicy:
         if not hand:
             return None
 
-        options = [{"id": "none", "label": "Hide nothing", "deck_index": None}]
+        options = []
         for card in hand:
             options.append({
                 "id": str(card.deck_index),
@@ -476,19 +476,18 @@ class HumanHttpPolicy:
                 "player_position": player.position,
                 "hand_count": len(hand),
                 "hand_names": [getattr(card, "name", str(card)) for card in hand],
+                "selection_required": True,
             },
-            can_pass=True,
+            can_pass=False,
             timeout_ms=int(TIMEOUT_S * 1000),
         )
 
         def _parse(r: dict):
-            sel = extract_choice_id(r, "none")
-            if sel == "none":
-                return None
+            sel = extract_choice_id(r)
             for card in hand:
                 if str(card.deck_index) == sel:
                     return card
-            return None
+            return self._ai.choose_hidden_trick_card(state, player, hand)
 
         return self._ask(prompt, _parse, lambda: self._ai.choose_hidden_trick_card(state, player, hand))
 
