@@ -337,9 +337,18 @@ Payload:
 
 ```json
 {
-  "interval_ms": 5000
+  "interval_ms": 5000,
+  "backpressure": {
+    "subscriber_count": 2,
+    "drop_count": 4,
+    "queue_size": 256
+  }
 }
 ```
+
+Notes:
+- `backpressure.drop_count` is cumulative per session since process start.
+- Clients may surface this as transport health telemetry.
 
 ## Client to Server Messages
 
@@ -407,6 +416,7 @@ Server-side validation:
 | `PLAYER_MISMATCH` | WS | Decision player_id does not match authenticated seat | no |
 | `DECISION_REJECTED` | WS | Invalid choice payload or seat mismatch | depends |
 | `RUNTIME_EXECUTION_FAILED` | WS | Background engine execution failed | no |
+| `RUNTIME_STALLED_WARN` | WS | Runtime inactivity watchdog warning | yes |
 | `RESUME_GAP_TOO_OLD` | WS | Replay buffer cannot satisfy last_seq | yes |
 | `INTERNAL_SERVER_ERROR` | REST/WS | Unexpected server fault | yes |
 

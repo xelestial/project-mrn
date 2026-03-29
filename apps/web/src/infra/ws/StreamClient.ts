@@ -71,6 +71,13 @@ export class StreamClient {
     this.socket.send(JSON.stringify(message));
   }
 
+  requestResume(lastSeq: number): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    this.send({ type: "resume", last_seq: Math.max(0, Math.floor(lastSeq)) });
+  }
+
   onMessage(handler: (message: InboundMessage) => void): () => void {
     this.onMessageHandlers.push(handler);
     return () => {
@@ -93,7 +100,9 @@ export class StreamClient {
     if (this.reconnectTimer !== null || !this.lastConnectParams) {
       return;
     }
-    const delay = Math.min(1000 * (this.reconnectAttempt + 1), 5000);
+    const base = Math.min(1000 * 2 ** this.reconnectAttempt, 10000);
+    const jitter = Math.floor(Math.random() * 300);
+    const delay = base + jitter;
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
       this.reconnectAttempt += 1;

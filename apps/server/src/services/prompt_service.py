@@ -24,6 +24,8 @@ class PromptService:
         request_id = str(prompt.get("request_id", "")).strip()
         if not request_id:
             raise ValueError("missing_request_id")
+        if request_id in self._pending:
+            raise ValueError("duplicate_pending_request_id")
         player_id = int(prompt.get("player_id", 0))
         timeout_ms = int(prompt.get("timeout_ms", 30000))
         item = PendingPrompt(

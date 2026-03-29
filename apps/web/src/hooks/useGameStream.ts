@@ -23,11 +23,19 @@ export function useGameStream({ sessionId, token }: UseGameStreamArgs): {
   const [state, dispatch] = useReducer(gameStreamReducer, initialGameStreamState);
   const lastSeqRef = useRef(0);
   const activeSessionRef = useRef("");
+  const lastResumeRequestAtRef = useRef(0);
 
   useEffect(() => {
     const offMessage = client.onMessage((message) => {
       if (typeof message.seq === "number") {
-        lastSeqRef.current = message.seq;
+        const expected = lastSeqRef.current + 1;
+        if (message.seq > expected) {
+          const now = Date.now();
+          if (now - lastResumeRequestAtRef.current > 1000) {
+            lastResumeRequestAtRef.current = now;
+            client.requestResume(lastSeqRef.current);
+          }
+        }
       }
       dispatch({ type: "message", message });
     });
@@ -40,18 +48,24 @@ export function useGameStream({ sessionId, token }: UseGameStreamArgs): {
   }, [client]);
 
   useEffect(() => {
+    lastSeqRef.current = state.lastSeq;
+  }, [state.lastSeq]);
+
+  useEffect(() => {
     const normalized = sessionId.trim();
     if (!normalized) {
       client.disconnect();
       dispatch({ type: "reset" });
       lastSeqRef.current = 0;
       activeSessionRef.current = "";
+      lastResumeRequestAtRef.current = 0;
       return;
     }
     if (activeSessionRef.current !== normalized) {
       lastSeqRef.current = 0;
       dispatch({ type: "reset" });
       activeSessionRef.current = normalized;
+      lastResumeRequestAtRef.current = 0;
     }
     client.connect({ sessionId: normalized, token, onOpenResumeSeq: lastSeqRef.current });
     return () => client.disconnect();

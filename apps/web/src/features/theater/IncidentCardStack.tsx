@@ -5,15 +5,15 @@ type IncidentCardStackProps = {
 };
 
 export function IncidentCardStack({ items }: IncidentCardStackProps) {
-  const top = items.slice(0, 3);
+  const top = items.slice(0, 4);
   return (
     <section className="panel">
-      <h2>최근 사건</h2>
+      <h2>최근 사건 카드</h2>
       <div className="incident-stack">
         {top.map((item) => (
           <article key={`incident-${item.seq}`} className="incident-card">
             <strong>{item.label}</strong>
-            <small>{item.detail}</small>
+            <small>{item.detail || "-"}</small>
             <span>#{item.seq}</span>
           </article>
         ))}
@@ -21,4 +21,3 @@ export function IncidentCardStack({ items }: IncidentCardStackProps) {
     </section>
   );
 }
-

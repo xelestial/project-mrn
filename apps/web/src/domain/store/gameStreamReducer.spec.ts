@@ -22,6 +22,37 @@ describe("gameStreamReducer", () => {
     expect(state.messages[49].seq).toBe(60);
   });
 
+  it("buffers out-of-order messages and flushes contiguous sequence", () => {
+    let state = initialGameStreamState;
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: { type: "event", seq: 2, session_id: "s1", payload: { n: 2 } },
+    });
+    expect(state.lastSeq).toBe(0);
+    expect(state.messages).toHaveLength(0);
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: { type: "event", seq: 1, session_id: "s1", payload: { n: 1 } },
+    });
+    expect(state.lastSeq).toBe(2);
+    expect(state.messages.map((m) => m.seq)).toEqual([1, 2]);
+  });
+
+  it("ignores duplicate/old sequence messages", () => {
+    let state = initialGameStreamState;
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: { type: "event", seq: 1, session_id: "s1", payload: { n: 1 } },
+    });
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: { type: "event", seq: 1, session_id: "s1", payload: { n: 999 } },
+    });
+    expect(state.lastSeq).toBe(1);
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0].payload).toEqual({ n: 1 });
+  });
+
   it("resets to initial state", () => {
     const dirty = gameStreamReducer(initialGameStreamState, {
       type: "message",
@@ -31,4 +62,3 @@ describe("gameStreamReducer", () => {
     expect(reset).toEqual(initialGameStreamState);
   });
 });
-

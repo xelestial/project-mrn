@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InboundMessage } from "../../core/contracts/stream";
-import { selectLatestSnapshot, selectSituation, selectTimeline } from "./streamSelectors";
+import { selectLastMove, selectLatestSnapshot, selectSituation, selectTimeline } from "./streamSelectors";
 
 const snapshotEvent: InboundMessage = {
   type: "event",
@@ -55,7 +55,7 @@ describe("streamSelectors", () => {
     expect(snapshot?.tiles[0].tileKind).toBe("T3");
   });
 
-  it("builds timeline labels from recent messages", () => {
+  it("builds localized timeline labels from recent messages", () => {
     const timeline = selectTimeline([
       snapshotEvent,
       {
@@ -66,7 +66,7 @@ describe("streamSelectors", () => {
       },
     ]);
     expect(timeline[0].seq).toBe(10);
-    expect(timeline[0].label).toBe("Decision Ack");
+    expect(timeline[0].label).toBe("선택 응답");
   });
 
   it("extracts basic situation from latest message", () => {
@@ -74,6 +74,27 @@ describe("streamSelectors", () => {
     expect(situation.round).toBe("2");
     expect(situation.turn).toBe("5");
     expect(situation.actor).toBe("3");
-    expect(situation.eventType).toBe("Turn End Snapshot");
+    expect(situation.eventType).toBe("턴 종료 스냅샷");
+  });
+
+  it("extracts recent move summary from player_move event", () => {
+    const move = selectLastMove([
+      snapshotEvent,
+      {
+        type: "event",
+        seq: 12,
+        session_id: "s1",
+        payload: {
+          event_type: "player_move",
+          acting_player_id: 2,
+          from_tile_index: 5,
+          to_tile_index: 8,
+        },
+      },
+    ]);
+    expect(move).not.toBeNull();
+    expect(move?.playerId).toBe(2);
+    expect(move?.fromTileIndex).toBe(5);
+    expect(move?.toTileIndex).toBe(8);
   });
 });

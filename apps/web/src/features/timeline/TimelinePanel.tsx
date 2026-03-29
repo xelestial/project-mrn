@@ -7,7 +7,7 @@ type TimelinePanelProps = {
 export function TimelinePanel({ items }: TimelinePanelProps) {
   return (
     <section className="panel">
-      <h2>Timeline ({items.length})</h2>
+      <h2>타임라인 ({items.length})</h2>
       <div className="timeline">
         {items.map((item) => (
           <article key={item.seq} className="timeline-item">
@@ -20,4 +20,3 @@ export function TimelinePanel({ items }: TimelinePanelProps) {
     </section>
   );
 }
-

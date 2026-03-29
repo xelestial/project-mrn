@@ -50,6 +50,17 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(len(timed_out), 1)
         self.assertEqual(timed_out[0].request_id, "r3")
 
+    def test_rejects_duplicate_pending_request_id(self) -> None:
+        payload = {
+            "request_id": "dup1",
+            "request_type": "movement",
+            "player_id": 1,
+            "timeout_ms": 30000,
+        }
+        self.service.create_prompt("s1", payload)
+        with self.assertRaises(ValueError):
+            self.service.create_prompt("s1", payload)
+
 
 if __name__ == "__main__":
     unittest.main()

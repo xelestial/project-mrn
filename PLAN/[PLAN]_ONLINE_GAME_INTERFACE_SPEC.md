@@ -180,6 +180,19 @@ type StreamInboundMessage =
   | { type: "heartbeat"; seq: number; session_id: string; payload: HeartbeatPayload };
 ```
 
+## HeartbeatPayload
+
+```ts
+type HeartbeatPayload = {
+  interval_ms: number;
+  backpressure?: {
+    subscriber_count: number;
+    drop_count: number;
+    queue_size: number;
+  };
+};
+```
+
 ## PromptEnvelope
 
 Mandatory fields:

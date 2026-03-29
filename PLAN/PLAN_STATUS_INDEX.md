@@ -89,10 +89,13 @@ Practical implications:
   - F1 test baseline added (Vitest + reducer unit tests)
   - F1 selector/contract parser tests added (`snapshot/timeline/situation`)
   - F1 websocket auto-reconnect baseline added (incremental backoff)
+  - F1 stream ordering resilience baseline added (out-of-order buffer + gap-triggered resume request)
   - F2 pre-structure has started (feature component split + selector layer + board placeholder)
   - F2 snapshot baseline added (stream snapshot -> public board/player render)
   - F2 ring-board baseline added (`tile_index` coordinate mapping)
   - F2 board-near incident stack baseline added
+  - F2 board movement UX baseline added (last-move summary + from/to tile highlight + pawn arrive pulse)
+  - F2 selector localization baseline added (Korean event labels + richer timeline detail summaries)
   - F3 prompt baseline started (active prompt selector + decision submit overlay)
   - F3 rejected/stale ack unlock baseline added
   - F3 prompt countdown baseline added
@@ -106,6 +109,9 @@ Practical implications:
   - F4 dedicated lobby view extraction baseline added (`features/lobby/LobbyView.tsx`)
   - B2 fan-out hardening baseline added (subscriber queue push + slow-consumer drop-oldest policy)
   - B2 slow-consumer drop-oldest regression test baseline added (`apps/server/tests/test_stream_service.py`)
+  - B2 backpressure observability baseline added (`heartbeat.payload.backpressure`, drop counters)
+  - B2 client reconnect polish added (exponential backoff + jitter)
+  - B4 runtime watchdog baseline added (inactivity warning + runtime status activity fields)
 
 ### 1B. React Detailed Execution Backlog
 - File: `PLAN/[PLAN]_REACT_ONLINE_GAME_DETAILED_EXECUTION.md`

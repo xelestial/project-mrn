@@ -8,7 +8,12 @@ import {
   type PublicSessionResult,
   startSession,
 } from "./infra/http/sessionApi";
-import { selectLatestSnapshot, selectSituation, selectTimeline } from "./domain/selectors/streamSelectors";
+import {
+  selectLastMove,
+  selectLatestSnapshot,
+  selectSituation,
+  selectTimeline,
+} from "./domain/selectors/streamSelectors";
 import { selectActivePrompt, selectLatestDecisionAck } from "./domain/selectors/promptSelectors";
 import { ConnectionPanel } from "./features/status/ConnectionPanel";
 import { SituationPanel } from "./features/status/SituationPanel";
@@ -25,14 +30,38 @@ const LOBBY_HASH = "#/lobby";
 const MATCH_HASH = "#/match";
 
 function parseRouteFromHash(hash: string): ViewRoute {
-  if (hash === MATCH_HASH) {
+  if (hash.startsWith(MATCH_HASH)) {
     return "match";
   }
   return "lobby";
 }
 
+function parseHashState(hash: string): { route: ViewRoute; sessionId?: string; token?: string } {
+  const route = parseRouteFromHash(hash);
+  if (!hash.includes("?")) {
+    return { route };
+  }
+  const query = hash.split("?")[1] ?? "";
+  const params = new URLSearchParams(query);
+  const sessionId = params.get("session") ?? undefined;
+  const token = params.get("token") ?? undefined;
+  return { route, sessionId, token };
+}
+
+function buildMatchHash(sessionId: string, token?: string): string {
+  const params = new URLSearchParams();
+  if (sessionId.trim()) {
+    params.set("session", sessionId.trim());
+  }
+  if (token && token.trim()) {
+    params.set("token", token.trim());
+  }
+  const qs = params.toString();
+  return qs ? `${MATCH_HASH}?${qs}` : MATCH_HASH;
+}
+
 export function App() {
-  const [route, setRoute] = useState<ViewRoute>(() => parseRouteFromHash(window.location.hash));
+  const [route, setRoute] = useState<ViewRoute>(() => parseHashState(window.location.hash).route);
   const [sessionInput, setSessionInput] = useState("");
   const [tokenInput, setTokenInput] = useState("");
   const [sessionId, setSessionId] = useState("");
@@ -63,16 +92,28 @@ export function App() {
   const timeline = selectTimeline(stream.messages);
   const situation = selectSituation(stream.messages);
   const snapshot = selectLatestSnapshot(stream.messages);
+  const lastMove = selectLastMove(stream.messages);
   const activePrompt = selectActivePrompt(stream.messages);
   const latestPromptAck = selectLatestDecisionAck(stream.messages, activePrompt?.requestId ?? promptRequestId);
 
   useEffect(() => {
     const onHashChange = () => {
-      setRoute(parseRouteFromHash(window.location.hash));
+      const parsed = parseHashState(window.location.hash);
+      setRoute(parsed.route);
+      if (parsed.sessionId) {
+        setSessionInput(parsed.sessionId);
+        setSessionId(parsed.sessionId);
+      }
+      if (parsed.token !== undefined) {
+        setTokenInput(parsed.token);
+        setToken(parsed.token || undefined);
+      }
     };
     window.addEventListener("hashchange", onHashChange);
     if (!window.location.hash) {
       window.location.hash = LOBBY_HASH;
+    } else {
+      onHashChange();
     }
     return () => {
       window.removeEventListener("hashchange", onHashChange);
@@ -80,7 +121,11 @@ export function App() {
   }, []);
 
   const navigateRoute = (next: ViewRoute) => {
-    window.location.hash = next === "match" ? MATCH_HASH : LOBBY_HASH;
+    if (next === "match") {
+      window.location.hash = buildMatchHash(sessionInput || sessionId, tokenInput || token);
+    } else {
+      window.location.hash = LOBBY_HASH;
+    }
     setRoute(next);
   };
 
@@ -161,6 +206,18 @@ export function App() {
     }
   }, [latestPromptAck, promptBusy]);
 
+  const promptSecondsLeft =
+    promptExpiresAtMs === null ? null : Math.max(0, Math.ceil((promptExpiresAtMs - nowMs) / 1000));
+
+  useEffect(() => {
+    if (!activePrompt || promptBusy) {
+      return;
+    }
+    if (promptSecondsLeft === 0) {
+      setPromptFeedback("시간이 만료되었습니다. 엔진의 자동 처리 결과를 기다리는 중입니다.");
+    }
+  }, [activePrompt, promptBusy, promptSecondsLeft]);
+
   const refreshSessions = async () => {
     try {
       const result = await listSessions();
@@ -178,6 +235,7 @@ export function App() {
     setSessionId(normalized);
     setToken(tokenInput.trim() || undefined);
     if (normalized) {
+      window.location.hash = buildMatchHash(normalized, tokenInput.trim() || undefined);
       navigateRoute("match");
     }
   };
@@ -304,6 +362,9 @@ export function App() {
     setSessionInput(id);
     setSessionId(id);
     setNotice(`Session selected: ${id}`);
+    if (route === "match") {
+      window.location.hash = buildMatchHash(id, tokenInput.trim() || undefined);
+    }
   };
 
   const onSeatTypeChange = (index: number, value: LobbySeatType) => {
@@ -329,9 +390,6 @@ export function App() {
       choicePayload: {},
     });
   };
-
-  const promptSecondsLeft =
-    promptExpiresAtMs === null ? null : Math.max(0, Math.ceil((promptExpiresAtMs - nowMs) / 1000));
 
   return (
     <main className="page">
@@ -397,7 +455,7 @@ export function App() {
         <>
           <ConnectionPanel status={stream.status} lastSeq={stream.lastSeq} runtime={runtime} />
           <SituationPanel model={situation} />
-          <BoardPanel snapshot={snapshot} />
+          <BoardPanel snapshot={snapshot} lastMove={lastMove} />
           <IncidentCardStack items={timeline} />
           <PlayersPanel snapshot={snapshot} />
           <TimelinePanel items={timeline} />

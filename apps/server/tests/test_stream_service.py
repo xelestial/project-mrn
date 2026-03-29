@@ -86,6 +86,10 @@ class StreamServiceTests(unittest.TestCase):
             second = await asyncio.wait_for(queue.get(), timeout=0.5)
 
             self.assertEqual([first["seq"], second["seq"]], [2, 3])
+            stats = await service.backpressure_stats("s1")
+            self.assertEqual(stats["subscriber_count"], 1)
+            self.assertEqual(stats["queue_size"], 2)
+            self.assertGreaterEqual(stats["drop_count"], 1)
             await service.unsubscribe("s1", "c1")
 
         asyncio.run(_run())

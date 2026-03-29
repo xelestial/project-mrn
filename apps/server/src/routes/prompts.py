@@ -63,7 +63,18 @@ async def create_debug_prompt(
         }
 
     prompt_payload = payload.model_dump()
-    pending = prompts.create_prompt(session_id=session_id, prompt=prompt_payload)
+    try:
+        pending = prompts.create_prompt(session_id=session_id, prompt=prompt_payload)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "data": None,
+            "error": {
+                "code": "PROMPT_REJECTED",
+                "message": str(exc),
+                "retryable": False,
+            },
+        }
     msg = await stream.publish(session_id, "prompt", prompt_payload)
     return _ok(
         {
@@ -73,4 +84,3 @@ async def create_debug_prompt(
             "http_status": status.HTTP_200_OK,
         }
     )
-

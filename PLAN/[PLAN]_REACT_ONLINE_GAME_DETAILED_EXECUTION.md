@@ -37,7 +37,8 @@ It is intentionally execution-focused:
   - added `resume` gap-too-old guard (`RESUME_GAP_TOO_OLD`) and buffered replay fallback
   - stream message envelope now includes `server_time_ms` on buffered stream path
   - added API-level resume-gap regression test (`apps/server/tests/test_stream_api.py`, fastapi-gated)
-  - remaining: reconnect stress handling and load-level backpressure tuning
+  - heartbeat now includes backpressure stats (`subscriber_count`, `drop_count`, `queue_size`)
+  - remaining: reconnect soak test and production threshold tuning
 - `B3` baseline: in progress
   - added in-memory prompt lifecycle service (`pending`, `submit_decision`, `timeout_pending`)
   - added debug prompt route for end-to-end prompt envelope smoke path
@@ -50,7 +51,8 @@ It is intentionally execution-focused:
   - all-AI session start now triggers background engine execution
   - emitted vis events are published into websocket stream buffer in order
   - incremental live fan-out is now active (event append -> immediate WS publish bridge)
-  - remaining: runtime watchdog and backpressure tuning
+  - runtime watchdog baseline added (inactivity warning + `last_activity_ms`)
+  - remaining: watchdog timeout policy tuning per environment
 - `F1` baseline: in progress
   - created React+TS scaffold files under `apps/web`
   - added baseline stream contract types and websocket client
@@ -62,15 +64,21 @@ It is intentionally execution-focused:
   - added selector/contract parser unit tests for snapshot/timeline/situation extraction
   - added runtime status auto-refresh baseline in app shell
   - added websocket auto-reconnect baseline with incremental backoff
+  - upgraded reconnect strategy to exponential backoff + jitter
+  - added reducer out-of-order buffering (`pendingBySeq`) with contiguous flush
+  - added gap-triggered `resume(last_seq)` request path in stream hook
   - dependency install/build pipeline now green on local environment
-  - remaining: broader domain store expansion and parser/contract tests
+  - remaining: broader parser fixtures for less-common event payload variants
 - `F2` baseline: started
   - split baseline UI into feature components (`status`, `timeline`, `board` placeholder)
   - added stream selector layer (`domain/selectors/streamSelectors.ts`)
   - added snapshot-driven public board/player baseline rendering
   - added 40-tile ring board layout mapping (`tile_index` -> ring coordinates)
   - added board-near recent incident card stack baseline (`IncidentCardStack`)
-  - remaining: pawn movement animation, richer labels/localization, theater depth
+  - added last-move board summary and from/to tile highlight baseline
+  - added pawn-arrive pulse animation baseline
+  - added localized selector labels/detail summaries
+  - remaining: theater depth polish
 - `F3` baseline: started
   - added prompt selector baseline (`selectActivePrompt`) with ack-aware closing
   - added prompt overlay component with full-card choices and collapse toggle
@@ -80,7 +88,8 @@ It is intentionally execution-focused:
   - added countdown baseline in prompt overlay
   - added keyboard/focus baseline (first-choice focus, focus restore, Escape collapse)
   - added stale/rejected inline feedback messaging in prompt overlay
-  - remaining: timeout fallback explanation copy polish
+  - added timeout fallback waiting copy in prompt overlay
+  - remaining: optional prompt-type-specific helper copy
 - `F4` baseline: started
   - added lobby control panel for custom seat composition and seed/profile inputs
   - added host-start path with explicit host token input
@@ -91,7 +100,8 @@ It is intentionally execution-focused:
   - added session-list quick select action (`Use session`)
   - added lobby/match route split baseline (hash-based route tabs)
   - added dedicated lobby page extraction (`features/lobby/LobbyView.tsx`)
-  - remaining: optional route deep-link and navigation polish
+  - added route deep-link baseline (`#/match?session=...&token=...`)
+  - remaining: optional URL cleanup UX
 - `B4+`: not started in code
 
 ## Execution Policy

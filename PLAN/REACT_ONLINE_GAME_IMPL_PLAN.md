@@ -87,6 +87,7 @@ Current policy:
   - in-memory per-session `seq` message buffer service
   - `resume` gap-too-old guard path (`RESUME_GAP_TOO_OLD`) added
   - API-level resume-gap regression test baseline added (`apps/server/tests/test_stream_api.py`)
+  - heartbeat backpressure payload baseline added (`subscriber_count`, `drop_count`, `queue_size`)
 - B3 baseline has started:
   - prompt pending/timeout/decision-ack service skeleton wired
   - debug prompt route and websocket decision ack flow added
@@ -97,6 +98,7 @@ Current policy:
   - API-level decision-auth regression tests added (`UNAUTHORIZED_SEAT`, `PLAYER_MISMATCH`)
   - subscriber fan-out queue path with slow-consumer drop-oldest backpressure baseline
   - slow-consumer drop-oldest regression test baseline added (`apps/server/tests/test_stream_service.py`)
+  - runtime watchdog baseline added (inactivity warning + `last_activity_ms` in runtime status)
 - runtime fan-out baseline has started:
   - all-AI sessions trigger background engine run and stream publish
   - engine append events are now forwarded to websocket stream immediately
@@ -110,10 +112,15 @@ Current policy:
   - selector/contract parser tests added (`snapshot`, `timeline`, `situation`)
   - runtime status auto-refresh baseline added
   - websocket auto-reconnect baseline added (incremental backoff)
+  - websocket reconnect polish added (exponential backoff + jitter)
+  - out-of-order stream buffer baseline added in reducer (`pendingBySeq`, contiguous flush)
+  - seq-gap triggered resume-request baseline added in stream hook
   - F2 pre-structure started (connection/situation/timeline/board placeholder components)
   - F2 snapshot baseline added (public board tiles + player panels from stream snapshot)
   - F2 ring-board baseline added (40-tile coordinate mapping)
   - F2 board-near incident stack baseline added
+  - F2 board movement readability baseline added (recent move summary + tile highlight + pawn arrive pulse)
+  - F2 localized selector labels baseline added (Korean event labels and detail summaries)
   - F3 prompt baseline started (overlay + choice submit + collapse)
   - F3 ack-state handling baseline added (rejected/stale unlock)
   - F3 prompt countdown baseline added

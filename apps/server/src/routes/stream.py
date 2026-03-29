@@ -83,6 +83,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
     async def _heartbeat() -> None:
         while not stop_event.is_set():
             latest = await stream_service.latest_seq(session_id)
+            pressure = await stream_service.backpressure_stats(session_id)
             timed_out = prompt_service.timeout_pending(session_id=session_id)
             for pending in timed_out:
                 public_context = pending.payload.get("public_context", {})
@@ -117,7 +118,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                     "seq": latest,
                     "session_id": session_id,
                     "server_time_ms": int(time.time() * 1000),
-                    "payload": {"interval_ms": 5000},
+                    "payload": {"interval_ms": 5000, "backpressure": pressure},
                 }
             )
             try:

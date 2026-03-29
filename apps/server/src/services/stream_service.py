@@ -33,6 +33,7 @@ class StreamService:
         self._seq: dict[str, int] = defaultdict(int)
         self._buffers: dict[str, list[StreamMessage]] = defaultdict(list)
         self._subscribers: dict[str, dict[str, asyncio.Queue[dict]]] = defaultdict(dict)
+        self._drop_counts: dict[str, int] = defaultdict(int)
         self._lock = asyncio.Lock()
 
     async def publish(self, session_id: str, msg_type: str, payload: dict) -> StreamMessage:
@@ -50,7 +51,9 @@ class StreamService:
             if len(buf) > self._max_buffer:
                 del buf[: len(buf) - self._max_buffer]
             for queue in self._subscribers.get(session_id, {}).values():
-                self._offer_latest(queue, item.to_dict())
+                dropped = self._offer_latest(queue, item.to_dict())
+                if dropped:
+                    self._drop_counts[session_id] += 1
             return item
 
     async def snapshot(self, session_id: str) -> list[StreamMessage]:
@@ -73,6 +76,14 @@ class StreamService:
         async with self._lock:
             return self._seq.get(session_id, 0)
 
+    async def backpressure_stats(self, session_id: str) -> dict:
+        async with self._lock:
+            return {
+                "subscriber_count": len(self._subscribers.get(session_id, {})),
+                "drop_count": self._drop_counts.get(session_id, 0),
+                "queue_size": self._queue_size,
+            }
+
     async def subscribe(self, session_id: str, connection_id: str) -> asyncio.Queue[dict]:
         async with self._lock:
             queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=self._queue_size)
@@ -87,10 +98,10 @@ class StreamService:
                     self._subscribers.pop(session_id, None)
 
     @staticmethod
-    def _offer_latest(queue: asyncio.Queue[dict], message: dict) -> None:
+    def _offer_latest(queue: asyncio.Queue[dict], message: dict) -> bool:
         try:
             queue.put_nowait(message)
-            return
+            return False
         except asyncio.QueueFull:
             pass
         try:
@@ -99,6 +110,7 @@ class StreamService:
             pass
         try:
             queue.put_nowait(message)
+            return True
         except asyncio.QueueFull:
             # If still full due to race, drop this message.
-            pass
+            return True

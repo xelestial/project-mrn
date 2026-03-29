@@ -25,7 +25,15 @@ export type InboundMessage =
       seq: number;
       session_id: string;
       server_time_ms?: number;
-      payload: Record<string, unknown>;
+      payload: {
+        interval_ms?: number;
+        backpressure?: {
+          subscriber_count?: number;
+          drop_count?: number;
+          queue_size?: number;
+        };
+        [key: string]: unknown;
+      };
     }
   | {
       type: "error";
