@@ -1,3 +1,4 @@
+import { KeyboardEvent, useEffect, useRef } from "react";
 import type { PromptViewModel } from "../../domain/selectors/promptSelectors";
 
 type PromptOverlayProps = {
@@ -17,11 +18,40 @@ export function PromptOverlay({
   onToggleCollapse,
   onSelectChoice,
 }: PromptOverlayProps) {
+  const rootRef = useRef<HTMLElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!prompt) {
+      if (previousFocusRef.current) {
+        previousFocusRef.current.focus();
+        previousFocusRef.current = null;
+      }
+      return;
+    }
+    if (collapsed) {
+      return;
+    }
+    if (!previousFocusRef.current && document.activeElement instanceof HTMLElement) {
+      previousFocusRef.current = document.activeElement;
+    }
+    const firstChoice = rootRef.current?.querySelector<HTMLButtonElement>(".prompt-choice-card");
+    firstChoice?.focus();
+  }, [prompt, collapsed]);
+
   if (!prompt) {
     return null;
   }
+
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onToggleCollapse();
+    }
+  };
+
   return (
-    <section className="panel prompt-overlay" aria-busy={busy}>
+    <section ref={rootRef} className="panel prompt-overlay" aria-busy={busy} onKeyDown={onKeyDown} tabIndex={-1}>
       <div className="prompt-head">
         <h2>선택 요청: {prompt.requestType}</h2>
         <button type="button" onClick={onToggleCollapse}>

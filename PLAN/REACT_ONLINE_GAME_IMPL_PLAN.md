@@ -114,6 +114,7 @@ Current policy:
   - F3 prompt baseline started (overlay + choice submit + collapse)
   - F3 ack-state handling baseline added (rejected/stale unlock)
   - F3 prompt countdown baseline added
+  - F3 keyboard/focus baseline added (first choice focus, Escape collapse)
   - F4 lobby baseline started (custom create/join/start/session-list in app shell)
 - next implementation target:
   - B2/B3 hardening (reconnect stress, backpressure, fallback wiring)
