@@ -159,6 +159,9 @@ Completed in this slice:
   - decision overlay now includes dialog ARIA attributes
   - keyboard decision navigation added (arrow keys + enter/space)
   - `aria-live` announcement channel added for turn/prompt/bankruptcy milestones
+- 사용자 표기 정리 1차 완료
+  - `play_html`의 핵심 이벤트/행동/자원 문구를 사람 친화 한국어로 교체
+  - 턴 극장/자원 로그/이벤트 라벨의 `??` 형태 임시 표기를 대폭 제거
 
 Still open:
 
