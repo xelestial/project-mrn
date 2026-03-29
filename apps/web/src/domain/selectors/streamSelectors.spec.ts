@@ -66,7 +66,7 @@ describe("streamSelectors", () => {
       },
     ]);
     expect(timeline[0].seq).toBe(10);
-    expect(timeline[0].label).toBe("decision_ack");
+    expect(timeline[0].label).toBe("Decision Ack");
   });
 
   it("extracts basic situation from latest message", () => {
@@ -74,7 +74,6 @@ describe("streamSelectors", () => {
     expect(situation.round).toBe("2");
     expect(situation.turn).toBe("5");
     expect(situation.actor).toBe("3");
-    expect(situation.eventType).toBe("turn_end_snapshot");
+    expect(situation.eventType).toBe("Turn End Snapshot");
   });
 });
-

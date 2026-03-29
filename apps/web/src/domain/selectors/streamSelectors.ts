@@ -53,12 +53,46 @@ function asNumberText(value: unknown): string {
   return typeof value === "number" ? String(value) : "-";
 }
 
+const EVENT_LABELS: Record<string, string> = {
+  session_start: "Session Start",
+  round_start: "Round Start",
+  weather_reveal: "Weather Reveal",
+  draft_pick: "Draft Pick",
+  final_character_choice: "Final Character",
+  turn_start: "Turn Start",
+  dice_roll: "Dice Roll",
+  player_move: "Player Move",
+  landing_resolved: "Landing Resolved",
+  tile_purchased: "Tile Purchased",
+  marker_transferred: "Marker Transferred",
+  lap_reward_chosen: "Lap Reward Chosen",
+  fortune_drawn: "Fortune Drawn",
+  fortune_resolved: "Fortune Resolved",
+  turn_end_snapshot: "Turn End Snapshot",
+  decision_timeout_fallback: "Timeout Fallback",
+};
+
 function pickEventLabel(message: InboundMessage): string {
   if (message.type !== "event") {
-    return message.type;
+    if (message.type === "prompt") {
+      return "Prompt";
+    }
+    if (message.type === "decision_ack") {
+      return "Decision Ack";
+    }
+    if (message.type === "heartbeat") {
+      return "Heartbeat";
+    }
+    if (message.type === "error") {
+      return "Error";
+    }
+    return "Unknown";
   }
   const eventType = message.payload["event_type"];
-  return typeof eventType === "string" && eventType.trim() ? eventType : "event";
+  if (typeof eventType === "string" && eventType.trim()) {
+    return EVENT_LABELS[eventType] ?? eventType;
+  }
+  return "Event";
 }
 
 function pickEventDetail(message: InboundMessage): string {
