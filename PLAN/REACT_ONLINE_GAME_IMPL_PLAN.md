@@ -171,10 +171,12 @@ Current policy:
     - GitHub Actions workflow wiring for backend tests, manifest gate, web tests/build
     - active-code legacy path gate added (`python tools/legacy_path_audit.py --roots apps packages tools --strict`)
     - file: `.github/workflows/ci.yml`
-- next implementation target:
-  - B2/B3 hardening (reconnect stress, backpressure, fallback reliability)
-  - B5 hardening (manifest contract coverage in reconnect/integration/E2E paths)
-  - F7 closure (manifest-hash rehydrate + non-default seat/topology regression)
+- next implementation target (maintenance mode):
+  - release gate rerun on each contract-impacting change (`C1`) or release candidate cycle
+  - validator/contract parity follow-up (`SHARED_VISUAL_RUNTIME_CONTRACT` vs `validate_vis_stream` strict payloads)
+  - docs sync pass (`docs/*` canonical specs + `PLAN/PLAN_STATUS_INDEX.md` evidence update in same PR)
+  - v2 backlog decision gate:
+    - `OI5` (session persistence after restart) remains deferred and does not block v1 runtime
   - completed matrix closure (`2026-03-31`):
     - backend matrix tests (`apps/server/tests/test_parameter_service.py`, `apps/server/tests/test_sessions_api.py`)
     - browser matrix parity fixture (`apps/web/e2e/parity.spec.ts`, `apps/web/e2e/fixtures/parameter_matrix_economy_dice_2seat.json`)
@@ -200,6 +202,9 @@ Current policy:
   - CLAUDE-track substrate validator cleanup (`2026-03-31`) passed:
     - `python -m pytest GPT/test_visual_runtime_substrate.py` (`2 passed`)
     - `python GPT/test_replay_viewer.py` (`Phase 2: ALL TESTS PASSED`)
+  - contract/validator maintenance-loop check (`2026-03-31`) passed:
+    - shared contract payload rows vs strict validator required-field sets were rechecked
+    - no canonical drift found for `round_start` / `trick_used`
   - docs migration closure (`2026-03-31`):
     - detailed active specs are mirrored under `docs/api`, `docs/backend`, `docs/frontend`, `docs/architecture`
     - compatibility mirror notes added to matching `PLAN/[PLAN]_...` files
@@ -705,7 +710,7 @@ Merge rule:
 | OI2 | Extract board tile layout constants from legacy renderer | GPT | Closed (2026-03-31): board projection constants/modules are extracted (`boardProjection` + `boardGridForTileCount`), ring/line grid sizing is parameterized, React board no longer depends on fixed `11x11` template literals, and projection tests pass (`boardProjection.spec.ts`) |
 | OI3 | Full prompt type coverage audit in human policy and React UI | GPT | Complete: helper/label catalog + coverage tests enforce full human-policy request-type matrix |
 | OI4 | Final UI stack decision (plain CSS modules vs utility stack) | GPT | Complete: plain-CSS-first strategy fixed for v1 (`PLAN/[DECISION]_REACT_UI_STACK_STRATEGY.md`) |
-| OI5 | Session persistence after restart | CLAUDE | Out of scope for v1 |
+| OI5 | Session persistence after restart | Shared | Deferred to v2 backlog (decision fixed on `2026-03-31`); keep out of v1 scope unless persistence ADR is approved |
 | OI6 | Migrate detailed specs from `PLAN/` to `docs/*` after scaffold | Shared | Closed (2026-03-31): canonical detailed specs now live under `docs/*`; `PLAN/` mirrors retain redirect notes |
 | OI7 | WS and prompt schema freeze with examples | Shared | Complete: frozen schemas/examples under `packages/runtime-contracts/ws/*` + validation test `apps/server/tests/test_runtime_contract_examples.py` |
 | OI8 | State store final decision (`zustand` only vs hybrid) | GPT | Complete: reducer+selector-first baseline fixed for v1 (`useReducer` stream store, no zustand dependency in current phase) |

@@ -72,6 +72,20 @@ Minimum evidence:
 
 If any gate is skipped, include explicit reason and follow-up owner.
 
+## Latest Execution Log (`2026-03-31`)
+
+- Guardrails:
+  - `parameter_manifest_gate --check`: pass
+  - `encoding_gate --check`: pass
+  - `legacy_path_audit --strict`: pass (`GPT/`, `CLAUDE/`, `frontend/` all zero)
+- Backend reliability batch:
+  - `14 passed, 9 skipped`
+- Frontend reconnect/manifest/projection batch:
+  - `23 passed`
+- Replay/substrate parity batch:
+  - `GPT/test_visual_runtime_substrate.py`: `2 passed`
+  - `GPT/test_replay_viewer.py`: `Phase 2: ALL TESTS PASSED`
+
 ## Rollback Rule
 
 If release gate fails after runtime/API/schema changes:
@@ -79,4 +93,3 @@ If release gate fails after runtime/API/schema changes:
 1. revert the failing merge candidate branch changes (not ad-hoc file edits on `main`)
 2. reopen with corrected contract/tests/docs in one PR
 3. re-run the full gate sequence
-

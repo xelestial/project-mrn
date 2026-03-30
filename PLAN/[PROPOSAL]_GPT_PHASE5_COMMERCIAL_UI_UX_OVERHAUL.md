@@ -1,9 +1,15 @@
 # GPT Phase 5 Commercial UI/UX Overhaul Proposal
 
-Status: `ACTIVE`
+Status: `CLOSED REFERENCE`
 Owner: `GPT`
 Scope: `Phase 5 live + replay viewer user-facing UX`
 Reviewed on: `2026-03-29`
+
+## Closure Note (`2026-03-31`)
+
+- This proposal is closed for the current v1 scope.
+- Keep this file as implementation reference/history.
+- New UX changes should be tracked from the active top-level plans (`PLAN_STATUS_INDEX`, `REACT_ONLINE_GAME_IMPL_PLAN`) rather than reopening this proposal as a live backlog.
 
 ## Why This Proposal Exists
 

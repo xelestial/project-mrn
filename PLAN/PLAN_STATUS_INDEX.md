@@ -68,7 +68,7 @@ Practical implications:
     - CLAUDE: lower substrate verification, canonical contract stability, validator maintenance, and lower-layer bug fixes
   - current Phase 5 execution proposal:
     - `PLAN/[PROPOSAL]_GPT_PHASE5_COMMERCIAL_UI_UX_OVERHAUL.md`
-    - use it as the active user-facing UX follow-up for the live/replay viewer
+    - closure record/reference for the completed Phase 5 UX slice
 
 ### 1A. React Online Implementation (Top-Level)
 - File: `PLAN/REACT_ONLINE_GAME_IMPL_PLAN.md`
@@ -355,12 +355,12 @@ These are still useful, but they are not the current top-level execution plan on
 
 ### GPT Phase 5 Commercial UI/UX Overhaul
 - File: `PLAN/[PROPOSAL]_GPT_PHASE5_COMMERCIAL_UI_UX_OVERHAUL.md`
-- Status: `PROPOSAL`
-- Role: active Phase 5 user-experience redesign track for replay/live visualization
+- Status: `CLOSED REFERENCE`
+- Role: closure/reference record for Phase 5 user-experience redesign work
 - Notes:
   - focuses on board-game-grade readability and presentation
   - turns the current Phase 5 viewer from a functional tool UI into a stronger match UI
-  - should be treated as the current GPT-owned UX execution proposal under the canonical visualization plan
+  - should be treated as completed implementation reference, not an active execution queue
   - latest audit update (`2026-03-29`) added explicit P0 gaps and follow-up closure tracking:
     - live template text/encoding normalization (closed)
     - turn-theater v2 dominance (closed)
@@ -508,6 +508,13 @@ Cross-plan guardrail:
   - backend reliability batch: `14 passed, 9 skipped`
   - frontend reconnect/manifest/projection batch: `23 passed`
   - substrate/replay batch: `GPT/test_visual_runtime_substrate.py` (`2 passed`), `GPT/test_replay_viewer.py` (`ALL TESTS PASSED`)
+- Contract/validator maintenance-loop check (`2026-03-31`) is complete:
+  - shared contract (`PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`) vs strict validator fields reviewed
+  - `round_start` / `trick_used` strict payload requirements are aligned and tests pass
+  - no canonical contract drift detected in this loop pass
+- OI5 decision update (`2026-03-31`):
+  - session persistence after restart remains deferred to v2 backlog
+  - v1 scope remains unchanged (no persistence migration in active queue)
 - Encoding cleanup sweep (`2026-03-31`) is complete:
   - `PLAN/` + `docs/` markdown files scanned for mojibake/replacement-character patterns
   - no remaining UTF-8 corruption lines detected under current scan rules

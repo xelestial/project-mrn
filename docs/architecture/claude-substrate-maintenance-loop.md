@@ -56,6 +56,17 @@ Changes are acceptable only if:
 2. payload requirements match emitted canonical fields
 3. replay checks pass across deterministic seeds
 
+## Latest Loop Result (`2026-03-31`)
+
+- Contract/validator sync check:
+  - `round_start` strict fields aligned (`initial`, `alive_player_ids`, `marker_owner_player_id`)
+  - `trick_used` strict fields aligned (`phase`, `card_name`, `card_description`, `resolution`)
+- Verification:
+  - `python -m pytest GPT/test_visual_runtime_substrate.py` -> `2 passed`
+  - `python GPT/test_replay_viewer.py` -> `Phase 2: ALL TESTS PASSED`
+- Drift verdict:
+  - no canonical contract drift detected in this loop pass
+
 ## Escalation Rule
 
 If a contract drift is found that affects frontend/API behavior:
@@ -63,4 +74,3 @@ If a contract drift is found that affects frontend/API behavior:
 1. classify as `C1 Contract` in PR description
 2. update relevant API/interface docs in same PR
 3. include compatibility note when aliases are touched
-

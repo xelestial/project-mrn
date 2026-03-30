@@ -656,7 +656,9 @@ What is already true on `main`:
 
 Remaining gaps:
 - shared-contract document/code drift was reduced on `2026-03-29` (canonical payload + alias policy sync)
-- CLAUDE/GPT validator parity still needs periodic follow-up as Phase 5 expands
+- CLAUDE/GPT validator parity now runs in a maintenance loop:
+  - latest loop (`2026-03-31`) passed with no canonical field drift
+  - strict payload alignment reconfirmed for `round_start` and `trick_used`
 - Phase 5 v1 closure is complete; only optional presentation polish remains
 - anytime-trick/live timing fidelity still needs final contract-hardening if expanded further
 
