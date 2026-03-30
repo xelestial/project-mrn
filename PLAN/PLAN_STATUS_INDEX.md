@@ -373,7 +373,7 @@ These are still useful, but they are not the current top-level execution plan on
   - follow-up update (`2026-03-29`, late):
     - replay/live Korean phrase convergence is now centralized via `GPT/viewer/renderers/phrase_dict.py`
     - live renderer now consumes shared phrase maps via injected JSON (`EVENT_LABELS`, `LANDING_TYPE_LABELS`)
-    - stale-state network visibility now escalates to `업데이트 지연 Ns`
+    - stale-state network visibility now escalates to `업데이트 지연 N초`
     - phrase-dictionary regressions are now covered by replay/human-play tests
     - prompt guidance pack is now closed with per-request actionable hints in live prompt summary/overlay
 
@@ -508,6 +508,9 @@ Cross-plan guardrail:
   - backend reliability batch: `14 passed, 9 skipped`
   - frontend reconnect/manifest/projection batch: `23 passed`
   - substrate/replay batch: `GPT/test_visual_runtime_substrate.py` (`2 passed`), `GPT/test_replay_viewer.py` (`ALL TESTS PASSED`)
+- Encoding cleanup sweep (`2026-03-31`) is complete:
+  - `PLAN/` + `docs/` markdown files scanned for mojibake/replacement-character patterns
+  - no remaining UTF-8 corruption lines detected under current scan rules
 
 ## Implementation Reading Rule (Mandatory)
 
