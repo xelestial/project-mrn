@@ -313,11 +313,11 @@ They are no longer the active source of truth for future planning.
 ### Engine Dependency Review
 - File: `PLAN/[ANALYSIS]_CLAUDE_ENGINE_DEPENDENCY_REVIEW.md`
 - Status: `ANALYSIS`
-- Role: AI 전략 판단 제외 엔진/게임 구조 의존성 현황 검토
+- Role: engine dependency and policy-boundary analysis for AI/runtime integration
 - Notes:
-  - 결론: 대규모 리팩터링 불필요
-  - 유일한 선택적 개선 항목: `BasePolicy Protocol` (base_policy.py 추가)
-  - 시각화 Phase 1-S 진입 전 참고 자료
+  - confirms full engine rewrite is not a prerequisite for visualization/runtime progress
+  - recommends explicit policy boundary (`BasePolicy` protocol + adapters) for low-coupling evolution
+  - alignment outcome is tracked in `PLAN/[AGREE]_ENGINE_POLICY_CONTRACT_ALIGNMENT.md`
 
 ## Reference Plans
 

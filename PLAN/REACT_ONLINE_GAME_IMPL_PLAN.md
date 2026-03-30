@@ -1,7 +1,7 @@
 # React Online Game Implementation Plan
 
 Status: `ACTIVE`  
-Owner: `Shared (Backend: CLAUDE, Frontend: GPT)`  
+Owner: `Shared (Execution: GPT for backend/frontend tracks)`  
 Updated: `2026-03-31`  
 Depends on: `PLAN/ONLINE_GAME_ARCHITECTURE_PLAN.md`, `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`
 
@@ -73,9 +73,9 @@ Detailed implementation specifications are maintained in:
 
 Current policy:
 
-- Until `DOCS/API`, `DOCS/FRONTEND`, and `DOCS/BACKEND` scaffolds are created in-repo, these detailed specs are authored in `PLAN/`.
-- Once frontend/backend scaffolds exist, these docs should be migrated without changing semantics.
-- New online-runtime implementation should prefer the target directory layout in `PLAN/[PLAN]_REPOSITORY_DIRECTORY_SPEC.md` over legacy `GPT/` placement.
+- Detailed active specs are canonical under `docs/api`, `docs/frontend`, `docs/backend`, and `docs/architecture`.
+- `PLAN/[PLAN]_...` mirrors remain for execution tracking and status-driven redirects.
+- New online-runtime implementation should follow `PLAN/[PLAN]_REPOSITORY_DIRECTORY_SPEC.md` and update canonical `docs/*` specs in the same task when interfaces change.
 
 ---
 
@@ -218,9 +218,9 @@ Use this structure consistently:
 
 - `PLAN/`: plans, proposals, status trackers
 - `DATA/`: game data specs and data snapshots
-- `DOCS/API/`: REST and WebSocket contract docs
-- `DOCS/FRONTEND/`: component specs, behavior docs, test matrix
-- `DOCS/BACKEND/`: service boundaries, DI graphs, runtime operations
+- `docs/api/`: REST and WebSocket contract docs
+- `docs/frontend/`: component specs, behavior docs, test matrix
+- `docs/backend/`: service boundaries, DI graphs, runtime operations
 - `SYNC/`: cross-agent handoff notes
 
 Filename conventions:
@@ -438,7 +438,7 @@ Test naming:
 
 For each frontend feature commit:
 
-1. Update component doc in `DOCS/FRONTEND/components/`
+1. Update component doc in `docs/frontend/components/`
 2. Update API/contract doc if payload changed
 3. Update plan status index
 
@@ -472,7 +472,7 @@ Proposed baseline (exact pins at scaffold date):
 Version lock process:
 
 - Pin exact versions in lockfile
-- Record matrix in `DOCS/FRONTEND/versions.md`
+- Record matrix in `docs/frontend/versions.md`
 
 ## F7. Required information per UI area
 
@@ -706,7 +706,7 @@ Merge rule:
 | OI3 | Full prompt type coverage audit in human policy and React UI | GPT | Complete: helper/label catalog + coverage tests enforce full human-policy request-type matrix |
 | OI4 | Final UI stack decision (plain CSS modules vs utility stack) | GPT | Complete: plain-CSS-first strategy fixed for v1 (`PLAN/[DECISION]_REACT_UI_STACK_STRATEGY.md`) |
 | OI5 | Session persistence after restart | CLAUDE | Out of scope for v1 |
-| OI6 | Migrate detailed specs from `PLAN/` to `DOCS/*` after scaffold | Shared | Closed (2026-03-31): canonical detailed specs now live under `docs/*`; `PLAN/` mirrors retain redirect notes |
+| OI6 | Migrate detailed specs from `PLAN/` to `docs/*` after scaffold | Shared | Closed (2026-03-31): canonical detailed specs now live under `docs/*`; `PLAN/` mirrors retain redirect notes |
 | OI7 | WS and prompt schema freeze with examples | Shared | Complete: frozen schemas/examples under `packages/runtime-contracts/ws/*` + validation test `apps/server/tests/test_runtime_contract_examples.py` |
 | OI8 | State store final decision (`zustand` only vs hybrid) | GPT | Complete: reducer+selector-first baseline fixed for v1 (`useReducer` stream store, no zustand dependency in current phase) |
 | OI9 | Structured log retention and rotation policy | Shared | Closed (2026-03-31): env-driven rotation settings + bootstrap + test coverage + backend runbook (`docs/backend/runtime-logging-policy.md`) |
