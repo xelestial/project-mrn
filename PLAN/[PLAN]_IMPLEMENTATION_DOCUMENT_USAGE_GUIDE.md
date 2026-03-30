@@ -30,6 +30,8 @@ Read in this exact order:
    - transport/API work: `docs/api/online-game-api-spec.md`
    - gameplay parameter decoupling work: `docs/architecture/parameter-driven-runtime-decoupling.md`
    - pipeline consistency/coupling audit work: `docs/architecture/pipeline-consistency-and-coupling-audit.md`
+   - release-gate operations work: `docs/architecture/react-fastapi-release-playbook.md`
+   - Claude substrate maintenance work: `docs/architecture/claude-substrate-maintenance-loop.md`
    - frontend state-store architecture changes: `PLAN/[DECISION]_REACT_STATE_STORE_STRATEGY.md`
    - UI stack/styling architecture changes: `PLAN/[DECISION]_REACT_UI_STACK_STRATEGY.md`
    - release/cutover parity validation: `docs/architecture/legacy-vs-react-parity-checklist.md`
@@ -51,6 +53,8 @@ If a task touches multiple areas, read all relevant task-specific specs.
 | REST/WS payloads | `docs/api/online-game-api-spec.md` | interface spec |
 | gameplay parameter change impact | `docs/architecture/parameter-driven-runtime-decoupling.md` | API/interface specs |
 | coupling/inconsistency/missing-test audit baseline | `docs/architecture/pipeline-consistency-and-coupling-audit.md` | decoupling plan + detailed execution |
+| release gate execution and evidence policy | `docs/architecture/react-fastapi-release-playbook.md` | parity checklist + status index |
+| Claude substrate contract loop | `docs/architecture/claude-substrate-maintenance-loop.md` | shared runtime contract + status index |
 | frontend state-store direction | `PLAN/[DECISION]_REACT_STATE_STORE_STRATEGY.md` | React top-level plan + detailed execution |
 | UI stack/styling direction | `PLAN/[DECISION]_REACT_UI_STACK_STRATEGY.md` | React top-level plan |
 | release parity/cutover readiness | `docs/architecture/legacy-vs-react-parity-checklist.md` | detailed execution + status index |

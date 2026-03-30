@@ -203,6 +203,10 @@ Current policy:
   - docs migration closure (`2026-03-31`):
     - detailed active specs are mirrored under `docs/api`, `docs/backend`, `docs/frontend`, `docs/architecture`
     - compatibility mirror notes added to matching `PLAN/[PLAN]_...` files
+  - P4 operations docs closure (`2026-03-31`):
+    - release gate playbook: `docs/architecture/react-fastapi-release-playbook.md`
+    - Claude substrate maintenance loop: `docs/architecture/claude-substrate-maintenance-loop.md`
+    - implementation usage guide now maps both docs as canonical references
 
 ---
 

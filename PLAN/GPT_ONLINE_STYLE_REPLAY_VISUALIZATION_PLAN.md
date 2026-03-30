@@ -38,6 +38,7 @@ Current CLAUDE-owned follow-up:
 - latest closure (`2026-03-31`):
   - strict vis-stream validator payload coverage was tightened for `round_start` and `trick_used`
   - substrate regression checks passed (`GPT/test_visual_runtime_substrate.py`, `GPT/test_replay_viewer.py`)
+  - maintenance loop doc is now explicit: `docs/architecture/claude-substrate-maintenance-loop.md`
 
 Current CLAUDE direction in practice:
 - do not reopen broad alias-expansion work

@@ -56,8 +56,11 @@ Practical implications:
     - Phase 4: baseline complete for human-play runtime
     - Phase 5: complete (v1 + commercial UX slice)
   - current document-maintenance gap is now mostly:
-    - validator parity follow-up as contract fields evolve
-    - parameter/manifest guardrail evidence sync on each closure pass
+    - periodic validator parity follow-up as contract fields evolve
+    - periodic parameter/manifest guardrail evidence sync on each closure pass
+  - maintenance loop docs are now explicit (`2026-03-31`):
+    - release operations: `docs/architecture/react-fastapi-release-playbook.md`
+    - Claude substrate loop: `docs/architecture/claude-substrate-maintenance-loop.md`
   - shared-contract sync update (`2026-03-29`):
     - canonical movement/mark/end payload fields and alias policy were re-aligned in code + contract doc
   - current explicit work split is:
@@ -499,6 +502,7 @@ Cross-plan guardrail:
 - P2 closure update (`2026-03-31`): rule-id vs label separation is now closed in active paths (`eventToneCatalog`, `choice_id`-first prompt contract tests).
 - P3 closure update (`2026-03-31`): human-play prompt UX now distinguishes actionable prompts vs observer prompts, so non-local turns no longer force blocking input overlays.
 - Phase 5 closure update (`2026-03-31`): commercial UX next-slice is closed (match-layout density tuning, large-prompt compact mode, and wording parity hardening for additional event families).
+- P4 operations closure update (`2026-03-31`): release playbook and Claude substrate maintenance loop docs were added under `docs/architecture` and linked into the implementation usage guide.
 
 ## Implementation Reading Rule (Mandatory)
 

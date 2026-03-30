@@ -9,6 +9,8 @@ Canonical active runtime docs:
 - `docs/architecture/pipeline-consistency-and-coupling-audit.md`
 - `docs/architecture/legacy-vs-react-parity-checklist.md`
 - `docs/architecture/legacy-reference-cleanup-policy.md`
+- `docs/architecture/react-fastapi-release-playbook.md`
+- `docs/architecture/claude-substrate-maintenance-loop.md`
 
 Legacy compatibility mirrors:
 

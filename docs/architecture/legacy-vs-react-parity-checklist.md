@@ -9,6 +9,7 @@ Updated: `2026-03-31`
 Purpose:
 - track cutover readiness from legacy viewer/runtime paths to React/FastAPI runtime
 - prevent hidden regressions during migration
+- release-time execution should follow: `docs/architecture/react-fastapi-release-playbook.md`
 
 ## Scope
 
