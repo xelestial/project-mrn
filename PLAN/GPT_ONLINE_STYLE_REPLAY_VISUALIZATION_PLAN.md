@@ -15,7 +15,7 @@ Implementation reading guard:
 - treat proposal/reference/complete docs as non-authoritative support material
 
 ## Current Main Status Snapshot
-Reviewed on: `2026-03-29`
+Reviewed on: `2026-03-31`
 
 This plan remains the canonical top-level plan, but `main` has moved materially past the original "replay-first" starting point.
 
@@ -33,7 +33,8 @@ Current GPT-owned follow-up:
 
 Current CLAUDE-owned follow-up:
 - converge validators and substrate naming on canonical shared-contract fields
-- maintain validator coverage and lower-layer bug fixes as Phase 5 grows
+- maintain validator coverage and lower-layer bug fixes as contract fields evolve
+- keep Claude work scoped to substrate verification (no viewer/runtime ownership drift)
 
 Current CLAUDE direction in practice:
 - do not reopen broad alias-expansion work
@@ -612,7 +613,7 @@ Success:
   - replay/live contract alignment polishing
 
 ## Phase 5. Full Match UI
-Status on `main`: `NOT COMPLETE`
+Status on `main`: `COMPLETE (v1 + commercial UX slice)`
 
 Goal:
 - make it feel like a real playable game screen
@@ -667,7 +668,7 @@ Use this as the current next-step order:
 
 1. Refresh plan/status/contract documents to reflect actual `main`
 2. Refresh CLAUDE-side validator/substrate naming toward canonical contract fields
-3. Continue Phase 5 UI work:
+3. Maintain Phase 5 UI quality and apply optional incremental upgrades:
    - prompt-family-specific widgets
    - richer board presentation
    - movement/event animation

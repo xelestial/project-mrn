@@ -184,6 +184,12 @@ Current policy:
   - runtime hardening regression sweep (`2026-03-31`):
     - `python -m pytest apps/server/tests/test_error_payload.py apps/server/tests/test_structured_log.py apps/server/tests/test_stream_api.py apps/server/tests/test_stream_service.py apps/server/tests/test_runtime_service.py apps/server/tests/test_prompt_service.py apps/server/tests/test_runtime_contract_examples.py`
     - result: `21 passed, 9 skipped` (fastapi-gated stream API tests skipped in this environment)
+  - P0 consistency rerun (`2026-03-31`) passed:
+    - `python tools/parameter_manifest_gate.py --check`
+    - `python tools/encoding_gate.py`
+    - `python tools/legacy_path_audit.py --roots apps packages tools --strict`
+    - backend parameter path suite: `11 passed, 8 skipped`
+    - web manifest/selector suite: `15 passed`
   - docs migration closure (`2026-03-31`):
     - detailed active specs are mirrored under `docs/api`, `docs/backend`, `docs/frontend`, `docs/architecture`
     - compatibility mirror notes added to matching `PLAN/[PLAN]_...` files

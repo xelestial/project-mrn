@@ -463,6 +463,12 @@ Current closure level for priority phases:
 - `P0` Source registry/fingerprint baseline: `DONE (baseline)`
   - root-source fingerprint builder + manifest hash are wired
   - snapshot stale gate is active in CI (`tools/parameter_manifest_gate.py --check`)
+  - rerun verification (`2026-03-31`) passed:
+    - `python tools/parameter_manifest_gate.py --check`
+    - `python tools/encoding_gate.py`
+    - `python tools/legacy_path_audit.py --roots apps packages tools --strict`
+    - backend parameter suite: `11 passed, 8 skipped`
+    - web manifest/selector suite: `15 passed`
 - `P1` Config schema/resolver baseline: `DONE (baseline)`
   - session config validation + resolved parameter path are live
   - invalid ranges/types fail fast with stable error reasons

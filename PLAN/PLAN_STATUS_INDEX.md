@@ -54,15 +54,15 @@ Practical implications:
     - Phase 2: baseline complete
     - Phase 3: baseline complete
     - Phase 4: baseline complete for human-play runtime
-    - Phase 5: not complete; still the main forward UI track
+    - Phase 5: complete (v1 + commercial UX slice)
   - current document-maintenance gap is now mostly:
-    - Phase 5 progress tracking
     - validator parity follow-up as contract fields evolve
+    - parameter/manifest guardrail evidence sync on each closure pass
   - shared-contract sync update (`2026-03-29`):
     - canonical movement/mark/end payload fields and alias policy were re-aligned in code + contract doc
   - current explicit work split is:
-    - GPT: upper runtime, prompt flow, replay/live renderer polish, Phase 5 user-facing UI growth
-    - CLAUDE: lower substrate verification, canonical contract stability, validator maintenance, and related lower-layer bug fixes
+    - GPT: upper runtime, prompt flow, replay/live renderer maintenance, and optional UX growth
+    - CLAUDE: lower substrate verification, canonical contract stability, validator maintenance, and lower-layer bug fixes
   - current Phase 5 execution proposal:
     - `PLAN/[PROPOSAL]_GPT_PHASE5_COMMERCIAL_UI_UX_OVERHAUL.md`
     - use it as the active user-facing UX follow-up for the live/replay viewer
@@ -477,6 +477,12 @@ Cross-plan guardrail:
 - Playwright browser E2E baseline is now active in CI (`apps/web/playwright.config.ts`, `apps/web/e2e/parity.spec.ts`, workflow `npm run e2e` step).
 - Runtime hardening regression sweep (`2026-03-31`) is recorded in the detailed execution docs (`21 passed, 9 skipped` across error/prompt/runtime stream suites).
 - Release-gate rerun (`2026-03-31`) confirmed all checks green: `legacy_path_audit --strict`, `parameter_manifest_gate --check`, `encoding_gate`, web vitest full (`50 passed`), web build, and Playwright E2E (`3 passed`).
+- P0 consistency rerun (`2026-03-31`) confirmed parameter-decoupling guardrails are still green:
+  - `parameter_manifest_gate --check`: pass
+  - `encoding_gate`: pass
+  - `legacy_path_audit --strict`: pass (`GPT/`, `CLAUDE/`, `frontend/` all zero in active roots)
+  - backend parameter-path regression: `11 passed, 8 skipped`
+  - web manifest/selector regression: `15 passed`
 - Theater continuity baseline now includes non-event prompt/ack flow in the same lane (`selectTheaterFeed`), and alert parity includes runtime critical/warning error channels (`selectCriticalAlerts`).
 - P1 closure update (`2026-03-31`): runtime hardening baseline is now closed (`B4+`) with normalized fallback error codes and stable structured-log correlation fields.
 - P2 closure update (`2026-03-31`): rule-id vs label separation is now closed in active paths (`eventToneCatalog`, `choice_id`-first prompt contract tests).
