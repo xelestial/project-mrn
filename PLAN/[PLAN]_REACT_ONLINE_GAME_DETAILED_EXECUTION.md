@@ -304,6 +304,7 @@ Implementation:
    - env-gated activation (`MRN_SESSION_STORE_PATH`, `MRN_STREAM_STORE_PATH`)
    - retention caps (`MRN_SESSION_STORE_MAX_SESSIONS`, `MRN_STREAM_STORE_MAX_SESSIONS`)
    - restart recovery policy (`MRN_RESTART_RECOVERY_POLICY`, default `abort_in_progress`)
+   - runtime-status recovery semantics (`recovery_required` if `in_progress` session has no active runtime task after restart)
 
 Definition of done:
 - Recoverable faults are surfaced with stable error codes.

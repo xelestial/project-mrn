@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from apps.server.src.services.persistence import JsonFileSessionStore, JsonFileStreamStore
+from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
 
@@ -54,6 +55,10 @@ class RestartPersistenceTests(unittest.TestCase):
             )
             restored = second.get_session(created.session_id)
             self.assertEqual(restored.status.value, "in_progress")
+            runtime = RuntimeService(session_service=second, stream_service=StreamService())
+            runtime_status = runtime.runtime_status(created.session_id)
+            self.assertEqual(runtime_status.get("status"), "recovery_required")
+            self.assertEqual(runtime_status.get("reason"), "runtime_task_missing_after_restart")
 
     def test_stream_buffer_persists_across_service_restart(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

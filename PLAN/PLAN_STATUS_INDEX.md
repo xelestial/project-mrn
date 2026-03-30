@@ -513,11 +513,11 @@ Cross-plan guardrail:
   - shared contract (`PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`) vs strict validator fields reviewed
   - `round_start` / `trick_used` strict payload requirements are aligned and tests pass
   - no canonical contract drift detected in this loop pass
-- OI5 start update (`2026-03-31`):
+- OI5 closure update (`2026-03-31`):
   - file-backed restart persistence baseline is now implemented for sessions/stream buffers
   - retention baseline is now implemented (session/stream persisted-session caps)
   - restart recovery baseline is now implemented (default: in-progress -> aborted on restart)
-  - v2 follow-up remains for runtime-task recovery semantics
+  - runtime-task recovery semantics are now explicit in runtime status (`recovery_required` when an `in_progress` session has no active runtime task after restart)
 - Encoding cleanup sweep (`2026-03-31`) is complete:
   - `PLAN/` + `docs/` markdown files scanned for mojibake/replacement-character patterns
   - no remaining UTF-8 corruption lines detected under current scan rules

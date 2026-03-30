@@ -175,11 +175,11 @@ Current policy:
   - release gate rerun on each contract-impacting change (`C1`) or release candidate cycle
   - validator/contract parity follow-up (`SHARED_VISUAL_RUNTIME_CONTRACT` vs `validate_vis_stream` strict payloads)
   - docs sync pass (`docs/*` canonical specs + `PLAN/PLAN_STATUS_INDEX.md` evidence update in same PR)
-  - OI5 persistence track (started):
+  - OI5 persistence track (closed baseline):
     - file-backed restart persistence baseline for session/stream state is implemented
     - retention policy baseline is implemented (`MRN_SESSION_STORE_MAX_SESSIONS`, `MRN_STREAM_STORE_MAX_SESSIONS`)
     - restart recovery policy baseline is implemented (`MRN_RESTART_RECOVERY_POLICY`, default `abort_in_progress`)
-    - remaining follow-up: runtime-task recovery semantics for resumed in-progress gameplay (v2 hardening)
+    - runtime-status recovery semantics are implemented (`recovery_required` when `in_progress` session has no active runtime task after restart)
   - completed matrix closure (`2026-03-31`):
     - backend matrix tests (`apps/server/tests/test_parameter_service.py`, `apps/server/tests/test_sessions_api.py`)
     - browser matrix parity fixture (`apps/web/e2e/parity.spec.ts`, `apps/web/e2e/fixtures/parameter_matrix_economy_dice_2seat.json`)
@@ -205,12 +205,13 @@ Current policy:
   - CLAUDE-track substrate validator cleanup (`2026-03-31`) passed:
     - `python -m pytest GPT/test_visual_runtime_substrate.py` (`2 passed`)
     - `python GPT/test_replay_viewer.py` (`Phase 2: ALL TESTS PASSED`)
-  - OI5 baseline start (`2026-03-31`):
+  - OI5 closure update (`2026-03-31`):
     - file-backed restart persistence adapters added for sessions/stream buffers
     - env flags added: `MRN_SESSION_STORE_PATH`, `MRN_STREAM_STORE_PATH`
     - retention flags added: `MRN_SESSION_STORE_MAX_SESSIONS`, `MRN_STREAM_STORE_MAX_SESSIONS`
     - restart policy flag added: `MRN_RESTART_RECOVERY_POLICY`
     - restart persistence regression tests added (`apps/server/tests/test_restart_persistence.py`)
+    - runtime recovery semantics added (`runtime_status=recovery_required` for `in_progress` sessions with no active runtime task after restart)
   - contract/validator maintenance-loop check (`2026-03-31`) passed:
     - shared contract payload rows vs strict validator required-field sets were rechecked
     - no canonical drift found for `round_start` / `trick_used`
@@ -719,7 +720,7 @@ Merge rule:
 | OI2 | Extract board tile layout constants from legacy renderer | GPT | Closed (2026-03-31): board projection constants/modules are extracted (`boardProjection` + `boardGridForTileCount`), ring/line grid sizing is parameterized, React board no longer depends on fixed `11x11` template literals, and projection tests pass (`boardProjection.spec.ts`) |
 | OI3 | Full prompt type coverage audit in human policy and React UI | GPT | Complete: helper/label catalog + coverage tests enforce full human-policy request-type matrix |
 | OI4 | Final UI stack decision (plain CSS modules vs utility stack) | GPT | Complete: plain-CSS-first strategy fixed for v1 (`PLAN/[DECISION]_REACT_UI_STACK_STRATEGY.md`) |
-| OI5 | Session persistence after restart | Shared | In progress (`2026-03-31`): file-backed persistence + retention + restart-abort recovery baseline are in place; runtime-task recovery semantics remain for v2 closure |
+| OI5 | Session persistence after restart | Shared | Closed (`2026-03-31`): file-backed persistence + retention + restart-abort recovery baseline are in place, and runtime-status now surfaces `recovery_required` for restart-resumed `in_progress` sessions without active runtime task |
 | OI6 | Migrate detailed specs from `PLAN/` to `docs/*` after scaffold | Shared | Closed (2026-03-31): canonical detailed specs now live under `docs/*`; `PLAN/` mirrors retain redirect notes |
 | OI7 | WS and prompt schema freeze with examples | Shared | Complete: frozen schemas/examples under `packages/runtime-contracts/ws/*` + validation test `apps/server/tests/test_runtime_contract_examples.py` |
 | OI8 | State store final decision (`zustand` only vs hybrid) | GPT | Complete: reducer+selector-first baseline fixed for v1 (`useReducer` stream store, no zustand dependency in current phase) |

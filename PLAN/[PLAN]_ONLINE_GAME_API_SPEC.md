@@ -220,6 +220,7 @@ Possible runtime status:
 - `finished`
 - `failed`
 - `stop_requested`
+- `recovery_required` (session is `in_progress` but runtime task is missing after restart; recovery/abort handling is required)
 
 ## 8) Debug Prompt Injection (Dev Only)
 

@@ -87,6 +87,25 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertEqual(calls, [(session.session_id, 99, "balanced_v2")])
 
+    def test_runtime_status_marks_recovery_required_for_in_progress_without_task(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.start_session(session.session_id, session.host_token)
+
+        restarted_runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+        )
+        status = restarted_runtime.runtime_status(session.session_id)
+        self.assertEqual(status.get("status"), "recovery_required")
+        self.assertEqual(status.get("reason"), "runtime_task_missing_after_restart")
+
 
 if __name__ == "__main__":
     unittest.main()

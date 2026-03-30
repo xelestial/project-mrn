@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from apps.server.src.core.error_payload import build_error_payload
+from apps.server.src.domain.session_models import SessionStatus
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
 
@@ -29,6 +30,7 @@ class RuntimeService:
         self._last_activity_ms: dict[str, int] = {}
         self._fallback_history: dict[str, list[dict]] = {}
         self._watchdog_timeout_ms = int(watchdog_timeout_ms)
+        self._initialize_recovery_state()
 
     async def start_runtime(self, session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
         existing = self._runtime_tasks.get(session_id)
@@ -63,6 +65,13 @@ class RuntimeService:
             base["recent_fallbacks"] = list(self._fallback_history.get(session_id, []))[-10:]
             return base
         base = dict(self._status.get(session_id, {"status": "idle"}))
+        try:
+            session = self._session_service.get_session(session_id)
+        except Exception:
+            session = None
+        if session is not None and session.status == SessionStatus.IN_PROGRESS:
+            base["status"] = "recovery_required"
+            base.setdefault("reason", "runtime_task_missing_after_restart")
         base["recent_fallbacks"] = list(self._fallback_history.get(session_id, []))[-10:]
         return base
 
@@ -229,6 +238,22 @@ class RuntimeService:
         gpt_text = str(gpt_dir)
         if gpt_text not in sys.path:
             sys.path.insert(0, gpt_text)
+
+    def _initialize_recovery_state(self) -> None:
+        try:
+            sessions = self._session_service.list_sessions()
+        except Exception:
+            return
+        for session in sessions:
+            if session.status != SessionStatus.IN_PROGRESS:
+                continue
+            self._status.setdefault(
+                session.session_id,
+                {
+                    "status": "recovery_required",
+                    "reason": "runtime_task_missing_after_restart",
+                },
+            )
 
 
 class _FanoutVisEventStream:
