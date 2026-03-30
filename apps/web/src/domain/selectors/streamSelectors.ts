@@ -1,8 +1,25 @@
 import type { InboundMessage } from "../../core/contracts/stream";
+import { eventLabelForCode, nonEventLabelForMessageType } from "../labels/eventLabelCatalog";
 
 export type TimelineItem = {
   seq: number;
   label: string;
+  detail: string;
+};
+
+export type TheaterItem = {
+  seq: number;
+  label: string;
+  detail: string;
+  tone: "move" | "economy" | "system" | "critical";
+  actor: string;
+  eventCode: string;
+};
+
+export type AlertItem = {
+  seq: number;
+  severity: "warning" | "critical";
+  title: string;
   detail: string;
 };
 
@@ -51,25 +68,20 @@ export type SnapshotViewModel = {
   tiles: TileViewModel[];
 };
 
-const EVENT_LABELS: Record<string, string> = {
-  session_start: "세션 시작",
-  round_start: "라운드 시작",
-  weather_reveal: "날씨 공개",
-  draft_pick: "드래프트 선택",
-  final_character_choice: "최종 캐릭터 선택",
-  turn_start: "턴 시작",
-  dice_roll: "이동값 결정",
-  player_move: "말 이동",
-  landing_resolved: "도착 칸 처리",
-  tile_purchased: "토지 구매",
-  marker_transferred: "징표 이동",
-  lap_reward_chosen: "랩 보상 선택",
-  fortune_drawn: "운수 공개",
-  fortune_resolved: "운수 처리",
-  turn_end_snapshot: "턴 종료 스냅샷",
-  decision_timeout_fallback: "시간 초과 자동 처리",
-  bankruptcy: "파산",
-  game_end: "게임 종료",
+export type ParameterManifestViewModel = {
+  manifestHash: string;
+  manifestVersion: number;
+  version: string;
+  sourceFingerprints: Record<string, string>;
+  boardTopology: string;
+  boardTiles: TileViewModel[];
+  seatAllowed: number[];
+  labels: Record<string, unknown>;
+  dice: {
+    values?: number[];
+    maxCardsPerTurn?: number;
+    useOneCardPlusOneDie?: boolean;
+  };
 };
 
 function asString(value: unknown): string {
@@ -84,27 +96,44 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function pickEventLabel(message: InboundMessage): string {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
+function messageKindFromPayload(payload: Record<string, unknown>): string {
+  const eventType = payload["event_type"];
+  return typeof eventType === "string" && eventType.trim() ? eventType : "";
+}
+
+function actorFromPayload(payload: Record<string, unknown>): string {
+  const actor = payload["actor"];
+  if (typeof actor === "string" && actor.trim()) {
+    return actor;
+  }
+  const acting = payload["acting_player_id"] ?? payload["player_id"];
+  return typeof acting === "number" ? `P${acting}` : "-";
+}
+
+function actorFromMessage(message: InboundMessage): string {
+  if (message.type === "event") {
+    return actorFromPayload(message.payload);
+  }
+  const pid = message.payload["player_id"];
+  if (typeof pid === "number") {
+    return `P${pid}`;
+  }
+  return "-";
+}
+
+function pickMessageLabel(message: InboundMessage): string {
   if (message.type !== "event") {
-    if (message.type === "prompt") {
-      return "선택 요청";
-    }
-    if (message.type === "decision_ack") {
-      return "선택 응답";
-    }
-    if (message.type === "heartbeat") {
-      return "연결 상태";
-    }
-    if (message.type === "error") {
-      return "오류";
-    }
-    return "알 수 없음";
+    return nonEventLabelForMessageType(message.type);
   }
-  const eventType = message.payload["event_type"];
-  if (typeof eventType === "string" && eventType.trim()) {
-    return EVENT_LABELS[eventType] ?? eventType;
+  const code = messageKindFromPayload(message.payload);
+  if (!code) {
+    return "Unknown Event";
   }
-  return "이벤트";
+  return eventLabelForCode(code);
 }
 
 function summarizePlayerMove(payload: Record<string, unknown>): string {
@@ -114,7 +143,7 @@ function summarizePlayerMove(payload: Record<string, unknown>): string {
   const toDisplay = to === null ? "?" : String(to + 1);
   const path = Array.isArray(payload["path"]) ? payload["path"] : [];
   if (path.length > 0) {
-    return `${fromDisplay} -> ${toDisplay} (${path.length}칸)`;
+    return `${fromDisplay} -> ${toDisplay} (steps ${path.length})`;
   }
   return `${fromDisplay} -> ${toDisplay}`;
 }
@@ -127,22 +156,23 @@ function summarizeDiceRoll(payload: Record<string, unknown>): string {
       : Array.isArray(payload["card_values"])
         ? payload["card_values"]
         : [];
-  const dice = Array.isArray(payload["dice_values"])
-    ? payload["dice_values"]
-    : Array.isArray(payload["dice"])
-      ? payload["dice"]
-      : [];
+  const dice = Array.isArray(payload["dice_values"]) ? payload["dice_values"] : Array.isArray(payload["dice"]) ? payload["dice"] : [];
   const total = payload["total_move"] ?? payload["total"] ?? payload["move"] ?? "?";
-  if (cards.length > 0) {
-    return `주사위 카드 ${cards.join(", ")} 사용 -> ${total}`;
+  const cardText = cards.length > 0 ? `cards ${cards.join("+")}` : "";
+  const diceText = dice.length > 0 ? `dice ${dice.join("+")}` : "";
+  if (cardText && diceText) {
+    return `${cardText} + ${diceText} = ${total}`;
   }
-  if (dice.length > 0) {
-    return `${dice.join(" + ")} = ${total}`;
+  if (cardText) {
+    return `${cardText} = ${total}`;
+  }
+  if (diceText) {
+    return `${diceText} = ${total}`;
   }
   return String(total);
 }
 
-function pickEventDetail(message: InboundMessage): string {
+function pickMessageDetail(message: InboundMessage): string {
   if (message.type === "heartbeat") {
     const interval = message.payload["interval_ms"];
     const backpressure = message.payload["backpressure"];
@@ -152,17 +182,25 @@ function pickEventDetail(message: InboundMessage): string {
     }
     return `heartbeat ${typeof interval === "number" ? `${interval}ms` : ""}`.trim();
   }
+  if (message.type === "prompt") {
+    const requestType = asString(message.payload["request_type"]);
+    const pid = message.payload["player_id"];
+    const actor = typeof pid === "number" ? `P${pid}` : "-";
+    return `${actor} / ${requestType}`;
+  }
   if (message.type === "decision_ack") {
     const status = asString(message.payload["status"]);
     const reason = asString(message.payload["reason"]);
     return reason !== "-" ? `${status} (${reason})` : status;
   }
   if (message.type === "error") {
-    return asString(message.payload["message"]);
+    const code = asString(message.payload["code"]);
+    const text = asString(message.payload["message"]);
+    return code !== "-" ? `${code}: ${text}` : text;
   }
 
   const payload = message.payload;
-  const eventType = payload["event_type"];
+  const eventType = messageKindFromPayload(payload);
   if (eventType === "player_move") {
     return summarizePlayerMove(payload);
   }
@@ -171,26 +209,46 @@ function pickEventDetail(message: InboundMessage): string {
   }
   if (eventType === "tile_purchased") {
     const tile = numberOrNull(payload["tile_index"]);
-    const cost = payload["cost"] ?? "?";
-    return `${tile === null ? "?" : tile + 1}번 칸 구매 / ${cost}냥`;
+    const cost = payload["cost"] ?? payload["purchase_cost"] ?? "?";
+    return `tile ${tile === null ? "?" : tile + 1} purchase / cost ${cost}`;
   }
   if (eventType === "marker_transferred") {
     const from = payload["from_player_id"] ?? payload["from_owner"] ?? "?";
     const to = payload["to_player_id"] ?? payload["to_owner"] ?? "?";
-    return `[징표] P${from} -> P${to}`;
+    return `[Marker] P${from} -> P${to}`;
   }
   if (eventType === "weather_reveal") {
     return asString(payload["weather_name"] ?? payload["weather"] ?? payload["card"]);
   }
   if (eventType === "landing_resolved") {
-    return asString(payload["result_type"] ?? payload["result_code"] ?? payload["result"] ?? "도착 칸 처리");
+    return asString(payload["result_type"] ?? payload["result_code"] ?? payload["result"] ?? "landing resolved");
   }
   if (eventType === "bankruptcy") {
     const pid = payload["player_id"] ?? payload["target_player_id"] ?? "?";
-    return `P${pid} 파산`;
+    return `P${pid} bankrupt`;
+  }
+  if (eventType === "game_end") {
+    const winner = payload["winner_player_id"];
+    if (typeof winner === "number") {
+      return `winner P${winner}`;
+    }
+    return asString(payload["summary"] ?? "game ended");
   }
   if (eventType === "lap_reward_chosen") {
-    return asString(payload["choice"] ?? payload["reward"] ?? payload["summary"]);
+    const choice = asString(payload["choice"] ?? payload["reward"] ?? payload["summary"]);
+    const amount = payload["amount"] ?? payload["cash_amount"] ?? payload["value"];
+    if (typeof amount === "number") {
+      return `${choice} (${amount})`;
+    }
+    return choice;
+  }
+  if (eventType === "parameter_manifest") {
+    const manifest = manifestRecordFromPayload(payload);
+    const hash = manifest ? manifest["manifest_hash"] : null;
+    if (typeof hash === "string" && hash.length >= 8) {
+      return `manifest ${hash.slice(0, 8)}`;
+    }
+    return "manifest update";
   }
 
   const summary = payload["summary"];
@@ -205,10 +263,112 @@ export function selectTimeline(messages: InboundMessage[], limit = 12): Timeline
     .slice(-limit)
     .map((message) => ({
       seq: message.seq,
-      label: pickEventLabel(message),
-      detail: pickEventDetail(message),
+      label: pickMessageLabel(message),
+      detail: pickMessageDetail(message),
     }))
     .reverse();
+}
+
+function toneFromMessage(message: InboundMessage): TheaterItem["tone"] {
+  if (message.type === "error") {
+    return "critical";
+  }
+  if (message.type === "prompt" || message.type === "decision_ack") {
+    return "system";
+  }
+  if (message.type !== "event") {
+    return "system";
+  }
+  const eventCode = messageKindFromPayload(message.payload);
+  if (eventCode === "bankruptcy" || eventCode === "game_end") {
+    return "critical";
+  }
+  if (eventCode === "player_move" || eventCode === "dice_roll") {
+    return "move";
+  }
+  if (
+    eventCode === "tile_purchased" ||
+    eventCode === "landing_resolved" ||
+    eventCode === "marker_transferred" ||
+    eventCode === "lap_reward_chosen"
+  ) {
+    return "economy";
+  }
+  return "system";
+}
+
+function theaterCode(message: InboundMessage): string {
+  if (message.type === "event") {
+    return messageKindFromPayload(message.payload) || "event";
+  }
+  return message.type;
+}
+
+export function selectTheaterFeed(messages: InboundMessage[], limit = 20): TheaterItem[] {
+  const feed: TheaterItem[] = [];
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.type === "heartbeat") {
+      continue;
+    }
+    const eventCode = theaterCode(message);
+    feed.push({
+      seq: message.seq,
+      label: pickMessageLabel(message),
+      detail: pickMessageDetail(message),
+      tone: toneFromMessage(message),
+      actor: actorFromMessage(message),
+      eventCode,
+    });
+    if (feed.length >= limit) {
+      break;
+    }
+  }
+  return feed;
+}
+
+function alertFromEvent(message: InboundMessage): AlertItem | null {
+  if (message.type === "error") {
+    const code = asString(message.payload["code"]);
+    if (code === "RUNTIME_EXECUTION_FAILED" || code === "RUNTIME_STALLED_WARN") {
+      return {
+        seq: message.seq,
+        severity: code === "RUNTIME_EXECUTION_FAILED" ? "critical" : "warning",
+        title: code,
+        detail: pickMessageDetail(message),
+      };
+    }
+    return null;
+  }
+  if (message.type !== "event") {
+    return null;
+  }
+  const eventCode = messageKindFromPayload(message.payload);
+  if (eventCode !== "bankruptcy" && eventCode !== "game_end" && eventCode !== "decision_timeout_fallback") {
+    return null;
+  }
+  const severity: AlertItem["severity"] = eventCode === "decision_timeout_fallback" ? "warning" : "critical";
+  return {
+    seq: message.seq,
+    severity,
+    title: eventLabelForCode(eventCode),
+    detail: pickMessageDetail(message) || "-",
+  };
+}
+
+export function selectCriticalAlerts(messages: InboundMessage[], limit = 4): AlertItem[] {
+  const alerts: AlertItem[] = [];
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const alert = alertFromEvent(messages[i]);
+    if (!alert) {
+      continue;
+    }
+    alerts.push(alert);
+    if (alerts.length >= limit) {
+      break;
+    }
+  }
+  return alerts;
 }
 
 export function selectSituation(messages: InboundMessage[]): SituationViewModel {
@@ -216,14 +376,13 @@ export function selectSituation(messages: InboundMessage[]): SituationViewModel 
   if (!last) {
     return { actor: "-", round: "-", turn: "-", eventType: "-", weather: "-" };
   }
+  const actorNum = last.payload["acting_player_id"] ?? last.payload["player_id"];
+  const actor = asString(last.payload["actor"]);
   return {
-    actor:
-      asString(last.payload["actor"]) !== "-"
-        ? asString(last.payload["actor"])
-        : asNumberText(last.payload["acting_player_id"] ?? last.payload["player_id"]),
+    actor: actor !== "-" ? actor : typeof actorNum === "number" ? `P${actorNum}` : "-",
     round: asNumberText(last.payload["round_index"]),
     turn: asNumberText(last.payload["turn_index"]),
-    eventType: pickEventLabel(last),
+    eventType: pickMessageLabel(last),
     weather: asString(last.payload["weather_name"] ?? last.payload["weather"] ?? last.payload["card"]),
   };
 }
@@ -231,7 +390,7 @@ export function selectSituation(messages: InboundMessage[]): SituationViewModel 
 export function selectLastMove(messages: InboundMessage[]): LastMoveViewModel | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
-    if (message.type !== "event" || message.payload["event_type"] !== "player_move") {
+    if (message.type !== "event" || messageKindFromPayload(message.payload) !== "player_move") {
       continue;
     }
     return {
@@ -241,10 +400,6 @@ export function selectLastMove(messages: InboundMessage[]): LastMoveViewModel | 
     };
   }
   return null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object";
 }
 
 function toPlayerViewModel(raw: unknown): PlayerViewModel | null {
@@ -268,17 +423,18 @@ function toPlayerViewModel(raw: unknown): PlayerViewModel | null {
   };
 }
 
-function toTileViewModel(raw: unknown): TileViewModel | null {
+function toTileViewModel(raw: unknown, fallbackTileIndex: number | null = null): TileViewModel | null {
   if (!isRecord(raw)) {
     return null;
   }
-  const tileIndex = raw["tile_index"];
-  if (typeof tileIndex !== "number") {
+  const rawTileIndex = raw["tile_index"];
+  const tileIndex = typeof rawTileIndex === "number" ? rawTileIndex : fallbackTileIndex;
+  if (tileIndex === null) {
     return null;
   }
   return {
     tileIndex,
-    tileKind: typeof raw["tile_kind"] === "string" ? raw["tile_kind"] : "?",
+    tileKind: typeof raw["tile_kind"] === "string" ? raw["tile_kind"] : "UNKNOWN",
     zoneColor: typeof raw["zone_color"] === "string" ? raw["zone_color"] : "",
     purchaseCost: typeof raw["purchase_cost"] === "number" ? raw["purchase_cost"] : null,
     rentCost: typeof raw["rent_cost"] === "number" ? raw["rent_cost"] : null,
@@ -296,17 +452,12 @@ function snapshotFromMessage(message: InboundMessage): SnapshotViewModel | null 
 
   const round = typeof message.payload["round_index"] === "number" ? message.payload["round_index"] : 0;
   const turn = typeof message.payload["turn_index"] === "number" ? message.payload["turn_index"] : 0;
-
   const explicitSnapshot = isRecord(message.payload["snapshot"]) ? message.payload["snapshot"] : null;
   const snapshotPlayers = explicitSnapshot?.["players"];
   const snapshotBoard = isRecord(explicitSnapshot?.["board"]) ? explicitSnapshot["board"] : null;
 
   const rootPlayers = message.payload["players"];
-  const playersSource = Array.isArray(snapshotPlayers)
-    ? snapshotPlayers
-    : Array.isArray(rootPlayers)
-      ? rootPlayers
-      : null;
+  const playersSource = Array.isArray(snapshotPlayers) ? snapshotPlayers : Array.isArray(rootPlayers) ? rootPlayers : null;
   if (!playersSource) {
     return null;
   }
@@ -314,7 +465,7 @@ function snapshotFromMessage(message: InboundMessage): SnapshotViewModel | null 
   const boardTiles = snapshotBoard?.["tiles"];
   const tilesSource = Array.isArray(boardTiles) ? boardTiles : [];
   const players = playersSource.map(toPlayerViewModel).filter((item): item is PlayerViewModel => item !== null);
-  const tiles = tilesSource.map(toTileViewModel).filter((item): item is TileViewModel => item !== null);
+  const tiles = tilesSource.map((tile, index) => toTileViewModel(tile, index)).filter((item): item is TileViewModel => item !== null);
 
   const markerOwner = snapshotBoard?.["marker_owner_player_id"];
   const fValue = snapshotBoard?.["f_value"];
@@ -333,6 +484,143 @@ export function selectLatestSnapshot(messages: InboundMessage[]): SnapshotViewMo
     const snapshot = snapshotFromMessage(messages[i]);
     if (snapshot) {
       return snapshot;
+    }
+  }
+  return null;
+}
+
+function manifestRecordFromPayload(payload: Record<string, unknown>): Record<string, unknown> | null {
+  if (isRecord(payload["parameter_manifest"])) {
+    return payload["parameter_manifest"];
+  }
+  if (messageKindFromPayload(payload) === "parameter_manifest" && typeof payload["manifest_hash"] === "string") {
+    return payload;
+  }
+  return null;
+}
+
+function normalizeSeatAllowed(manifestRaw: Record<string, unknown>): number[] {
+  const seatsRaw = isRecord(manifestRaw["seats"]) ? manifestRaw["seats"] : null;
+  const allowedRaw = Array.isArray(seatsRaw?.["allowed"]) ? seatsRaw["allowed"] : [];
+  const allowed = allowedRaw
+    .filter((v): v is number => typeof v === "number" && Number.isFinite(v) && v >= 1)
+    .map((v) => Math.trunc(v));
+  if (allowed.length > 0) {
+    return Array.from(new Set(allowed)).sort((a, b) => a - b);
+  }
+  const maxSeat = seatsRaw && typeof seatsRaw["max"] === "number" ? Math.trunc(seatsRaw["max"] as number) : 0;
+  if (maxSeat >= 1) {
+    return Array.from({ length: maxSeat }, (_, index) => index + 1);
+  }
+  return [];
+}
+
+function normalizeManifestTiles(manifestRaw: Record<string, unknown>): TileViewModel[] {
+  const boardRaw = isRecord(manifestRaw["board"]) ? manifestRaw["board"] : null;
+  const tilesRaw = Array.isArray(boardRaw?.["tiles"]) ? boardRaw["tiles"] : [];
+  const seen = new Set<number>();
+  const parsed: TileViewModel[] = [];
+  for (let i = 0; i < tilesRaw.length; i += 1) {
+    const tile = toTileViewModel(tilesRaw[i], i);
+    if (!tile || seen.has(tile.tileIndex)) {
+      continue;
+    }
+    seen.add(tile.tileIndex);
+    parsed.push({ ...tile, ownerPlayerId: null, pawnPlayerIds: [] });
+  }
+  if (parsed.length > 0) {
+    parsed.sort((a, b) => a.tileIndex - b.tileIndex);
+    return parsed;
+  }
+  const tileCount = boardRaw && typeof boardRaw["tile_count"] === "number" ? Math.max(0, Math.trunc(boardRaw["tile_count"] as number)) : 0;
+  if (tileCount === 0) {
+    return [];
+  }
+  return Array.from({ length: tileCount }, (_, index) => ({
+    tileIndex: index,
+    tileKind: "UNKNOWN",
+    zoneColor: "",
+    purchaseCost: null,
+    rentCost: null,
+    ownerPlayerId: null,
+    pawnPlayerIds: [],
+  }));
+}
+
+function normalizeBoardTopology(manifestRaw: Record<string, unknown>): string {
+  const boardRaw = isRecord(manifestRaw["board"]) ? manifestRaw["board"] : null;
+  const topology = boardRaw?.["topology"];
+  if (typeof topology === "string" && topology.trim()) {
+    return topology;
+  }
+  return "ring";
+}
+
+function normalizeManifestLabels(manifestRaw: Record<string, unknown>): Record<string, unknown> {
+  const labels = manifestRaw["labels"];
+  if (!isRecord(labels)) {
+    return {};
+  }
+  return { ...labels };
+}
+
+function normalizeFingerprints(manifestRaw: Record<string, unknown>): Record<string, string> {
+  const raw = manifestRaw["source_fingerprints"];
+  if (!isRecord(raw)) {
+    return {};
+  }
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "string" && value.trim()) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+function normalizeDice(manifestRaw: Record<string, unknown>): ParameterManifestViewModel["dice"] {
+  const raw = isRecord(manifestRaw["dice"]) ? manifestRaw["dice"] : null;
+  if (!raw) {
+    return {};
+  }
+  return {
+    values: Array.isArray(raw["values"]) ? raw["values"].filter((v): v is number => typeof v === "number") : undefined,
+    maxCardsPerTurn: typeof raw["max_cards_per_turn"] === "number" ? raw["max_cards_per_turn"] : undefined,
+    useOneCardPlusOneDie: typeof raw["use_one_card_plus_one_die"] === "boolean" ? raw["use_one_card_plus_one_die"] : undefined,
+  };
+}
+
+function manifestFromPayload(payload: Record<string, unknown>): ParameterManifestViewModel | null {
+  const manifestRaw = manifestRecordFromPayload(payload);
+  if (!manifestRaw) {
+    return null;
+  }
+  const manifestHash = manifestRaw["manifest_hash"];
+  if (typeof manifestHash !== "string" || !manifestHash.trim()) {
+    return null;
+  }
+  return {
+    manifestHash,
+    manifestVersion: typeof manifestRaw["manifest_version"] === "number" ? manifestRaw["manifest_version"] : 1,
+    version: typeof manifestRaw["version"] === "string" && manifestRaw["version"].trim() ? manifestRaw["version"] : "v1",
+    sourceFingerprints: normalizeFingerprints(manifestRaw),
+    boardTopology: normalizeBoardTopology(manifestRaw),
+    boardTiles: normalizeManifestTiles(manifestRaw),
+    seatAllowed: normalizeSeatAllowed(manifestRaw),
+    labels: normalizeManifestLabels(manifestRaw),
+    dice: normalizeDice(manifestRaw),
+  };
+}
+
+export function selectLatestManifest(messages: InboundMessage[]): ParameterManifestViewModel | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.type !== "event") {
+      continue;
+    }
+    const manifest = manifestFromPayload(message.payload);
+    if (manifest) {
+      return manifest;
     }
   }
   return null;

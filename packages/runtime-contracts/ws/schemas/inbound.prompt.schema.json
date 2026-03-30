@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "runtime-contracts/ws/inbound.prompt.schema.json",
+  "title": "InboundPromptMessage",
+  "type": "object",
+  "required": [
+    "type",
+    "seq",
+    "session_id",
+    "payload"
+  ],
+  "properties": {
+    "type": {
+      "const": "prompt"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "server_time_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "request_id",
+        "request_type",
+        "player_id",
+        "timeout_ms",
+        "choices",
+        "public_context"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "request_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "player_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "fallback_policy": {
+          "type": "string"
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "choice_id"
+            ],
+            "properties": {
+              "choice_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "public_context": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
+

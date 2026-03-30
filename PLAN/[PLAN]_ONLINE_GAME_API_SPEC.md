@@ -1,8 +1,11 @@
 # [PLAN] Online Game API Spec (REST + WebSocket)
 
+> Canonical location (migrated on 2026-03-31): `docs/api/online-game-api-spec.md`  
+> This `PLAN/` file remains as a compatibility mirror for existing links.
+
 Status: `ACTIVE`  
 Owner: `Shared`  
-Updated: `2026-03-30`  
+Updated: `2026-03-31`  
 Parents:
 - `PLAN/REACT_ONLINE_GAME_IMPL_PLAN.md`
 - `PLAN/[PLAN]_ONLINE_GAME_INTERFACE_SPEC.md`
@@ -37,6 +40,7 @@ Error envelope:
   "data": null,
   "error": {
     "code": "INVALID_STATE_TRANSITION",
+    "category": "state",
     "message": "Session cannot be started from current state.",
     "retryable": false
   }
@@ -59,10 +63,22 @@ Request:
   ],
   "config": {
     "seed": 42,
-    "turn_delay_sec": 0.15
+    "seat_limits": { "min": 1, "max": 4, "allowed": [1, 2, 3, 4] },
+    "board_topology": "ring"
   }
 }
 ```
+
+Current v1 supported session `config` keys (baseline):
+
+- `seed`
+- `seat_limits` (`min`, `max`, `allowed`)
+- `board_topology` (`ring` | `line`)
+- `starting_cash`
+- `starting_shards`
+- `dice_values`
+- `dice_max_cards_per_turn`
+- `labels`
 
 Response `data`:
 
@@ -271,6 +287,32 @@ Common envelope:
 - `error`
 - `heartbeat`
 
+## WS Contract Freeze Artifacts (`v1`)
+
+Canonical frozen schemas:
+
+- `packages/runtime-contracts/ws/schemas/inbound.event.schema.json`
+- `packages/runtime-contracts/ws/schemas/inbound.prompt.schema.json`
+- `packages/runtime-contracts/ws/schemas/inbound.decision_ack.schema.json`
+- `packages/runtime-contracts/ws/schemas/inbound.error.schema.json`
+- `packages/runtime-contracts/ws/schemas/inbound.heartbeat.schema.json`
+- `packages/runtime-contracts/ws/schemas/outbound.resume.schema.json`
+- `packages/runtime-contracts/ws/schemas/outbound.decision.schema.json`
+
+Canonical examples:
+
+- `packages/runtime-contracts/ws/examples/inbound.event.parameter_manifest.json`
+- `packages/runtime-contracts/ws/examples/inbound.prompt.movement.json`
+- `packages/runtime-contracts/ws/examples/inbound.decision_ack.accepted.json`
+- `packages/runtime-contracts/ws/examples/inbound.error.resume_gap_too_old.json`
+- `packages/runtime-contracts/ws/examples/inbound.heartbeat.backpressure.json`
+- `packages/runtime-contracts/ws/examples/outbound.resume.json`
+- `packages/runtime-contracts/ws/examples/outbound.decision.movement_roll.json`
+
+Validation baseline:
+
+- `apps/server/tests/test_runtime_contract_examples.py`
+
 ## `event`
 
 Payload:
@@ -300,6 +342,24 @@ Payload:
 }
 ```
 
+Canonical `request_type` set (v1 human policy):
+
+- `movement`
+- `runaway_step_choice`
+- `lap_reward`
+- `draft_card`
+- `final_character` (compat alias accepted in UI: `final_character_choice`)
+- `trick_to_use`
+- `purchase_tile`
+- `hidden_trick_card`
+- `mark_target`
+- `coin_placement`
+- `geo_bonus`
+- `doctrine_relief`
+- `active_flip`
+- `specific_trick_reward`
+- `burden_exchange`
+
 ## `decision_ack`
 
 Payload:
@@ -325,6 +385,7 @@ Payload:
 ```json
 {
   "code": "STALE_REQUEST_ID",
+  "category": "prompt",
   "message": "Decision request is stale.",
   "retryable": false,
   "request_id": "req_turn7_move"
@@ -390,6 +451,8 @@ Server-side validation:
 - Recommended fallback trace event payload:
   - `event_type=decision_timeout_fallback`
   - `request_id`, `player_id`, `fallback_policy`, `round_index`, `turn_index`
+  - `fallback_execution` (`executed`)
+  - `fallback_choice_id`
 
 ## Resume Rules
 
@@ -429,3 +492,43 @@ For every API change:
 3. Update shared runtime contract if event/prompt payload changed.
 4. Add parser/integration tests for new fields.
 5. Add migration note when changing existing field names.
+
+## Parameter Manifest Extension (`Baseline Implemented`)
+
+To reduce hardcoded frontend/backend coupling for game-rule changes, v1 now includes a baseline session-scoped parameter manifest.
+
+Implemented baseline fields:
+
+- `parameter_manifest.manifest_version`
+- `parameter_manifest.manifest_hash`
+- `parameter_manifest.source_fingerprints`
+- `parameter_manifest.version`
+- `parameter_manifest.board` (tile topology + tile metadata)
+- `parameter_manifest.seats` (seat limits/model)
+- `parameter_manifest.dice` (values, per-turn limits)
+- `parameter_manifest.labels` (event/tile/prompt display labels)
+
+Implemented delivery points:
+
+- `POST /sessions` response (`data.parameter_manifest`)
+- `GET /sessions/{id}` response (`data.parameter_manifest`)
+- `POST /sessions/{id}/start` response (`data.parameter_manifest`)
+- stream event `event_type=parameter_manifest` emitted on session start
+
+Remaining hardening:
+
+- broaden manifest contract coverage beyond current reconnect + baseline Playwright E2E fixtures
+- expand manifest variation matrix (seat/topology/economy/dice) in browser E2E
+
+Client runtime rule:
+
+- if server emits a different `manifest_hash` than currently hydrated client state,
+  client must discard topology/label projection caches and rehydrate from the new manifest.
+
+Reference plan:
+
+- `PLAN/[PLAN]_PARAMETER_DRIVEN_RUNTIME_DECOUPLING.md`
+
+Verification reference:
+
+- `PLAN/[REVIEW]_PIPELINE_CONSISTENCY_AND_COUPLING_AUDIT.md`

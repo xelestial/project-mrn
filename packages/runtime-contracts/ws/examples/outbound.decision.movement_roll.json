@@ -1,0 +1,11 @@
+{
+  "type": "decision",
+  "request_id": "req_turn7_move",
+  "player_id": 1,
+  "choice_id": "roll",
+  "choice_payload": {
+    "mode": "roll"
+  },
+  "client_seq": 1045
+}
+

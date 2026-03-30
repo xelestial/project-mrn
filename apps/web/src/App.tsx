@@ -2,20 +2,27 @@ import { FormEvent, useEffect, useState } from "react";
 import { useGameStream } from "./hooks/useGameStream";
 import {
   createSession,
+  getSession,
   getRuntimeStatus,
   joinSession,
   listSessions,
+  type ParameterManifest,
   type PublicSessionResult,
   type RuntimeStatusResult,
   startSession,
 } from "./infra/http/sessionApi";
 import {
+  selectCriticalAlerts,
   selectLastMove,
+  selectLatestManifest,
   selectLatestSnapshot,
   selectSituation,
+  selectTheaterFeed,
   selectTimeline,
 } from "./domain/selectors/streamSelectors";
 import { selectActivePrompt, selectLatestDecisionAck } from "./domain/selectors/promptSelectors";
+import { tileKindLabelsFromManifestLabels } from "./domain/labels/manifestLabelCatalog";
+import { mergeSessionManifest } from "./domain/manifest/manifestRehydrate";
 import { ConnectionPanel } from "./features/status/ConnectionPanel";
 import { SituationPanel } from "./features/status/SituationPanel";
 import { TimelinePanel } from "./features/timeline/TimelinePanel";
@@ -73,6 +80,7 @@ export function App() {
   const [error, setError] = useState("");
 
   const [seatTypes, setSeatTypes] = useState<LobbySeatType[]>(["human", "ai", "ai", "ai"]);
+  const [seatCountInput, setSeatCountInput] = useState("4");
   const [aiProfile, setAiProfile] = useState("balanced");
   const [seedInput, setSeedInput] = useState("42");
   const [hostTokenInput, setHostTokenInput] = useState("");
@@ -81,6 +89,7 @@ export function App() {
   const [joinTokenInput, setJoinTokenInput] = useState("");
   const [displayNameInput, setDisplayNameInput] = useState("Player");
   const [sessions, setSessions] = useState<PublicSessionResult[]>([]);
+  const [sessionManifest, setSessionManifest] = useState<ParameterManifest | null>(null);
 
   const [promptCollapsed, setPromptCollapsed] = useState(false);
   const [promptBusy, setPromptBusy] = useState(false);
@@ -91,11 +100,29 @@ export function App() {
 
   const stream = useGameStream({ sessionId, token });
   const timeline = selectTimeline(stream.messages);
+  const theaterFeed = selectTheaterFeed(stream.messages, 16);
+  const alerts = selectCriticalAlerts(stream.messages, 4);
   const situation = selectSituation(stream.messages);
   const snapshot = selectLatestSnapshot(stream.messages);
   const lastMove = selectLastMove(stream.messages);
+  const latestManifest = selectLatestManifest(stream.messages);
   const activePrompt = selectActivePrompt(stream.messages);
   const latestPromptAck = selectLatestDecisionAck(stream.messages, activePrompt?.requestId ?? promptRequestId);
+  const joinSeatOptions = (sessionManifest?.seats?.allowed ?? [])
+    .slice()
+    .sort((a, b) => a - b)
+    .map((seat) => String(seat));
+  const manifestTiles = (sessionManifest?.board?.tiles ?? []).map((tile) => ({
+    tileIndex: tile.tile_index,
+    tileKind: tile.tile_kind,
+    zoneColor: tile.zone_color ?? "",
+    purchaseCost: tile.purchase_cost ?? null,
+    rentCost: tile.rent_cost ?? null,
+    ownerPlayerId: null,
+    pawnPlayerIds: [],
+  }));
+  const boardTopology = sessionManifest?.board?.topology ?? "ring";
+  const tileKindLabels = tileKindLabelsFromManifestLabels(sessionManifest?.labels);
 
   useEffect(() => {
     const onHashChange = () => {
@@ -140,6 +167,32 @@ export function App() {
   }, [joinSeatInput, lastJoinTokens]);
 
   useEffect(() => {
+    if (joinSeatOptions.length === 0) {
+      return;
+    }
+    if (!joinSeatOptions.includes(joinSeatInput)) {
+      setJoinSeatInput(joinSeatOptions[0]);
+    }
+  }, [joinSeatInput, joinSeatOptions]);
+
+  useEffect(() => {
+    const parsed = Number(seatCountInput);
+    if (!Number.isFinite(parsed)) {
+      return;
+    }
+    const seatCount = Math.max(1, Math.min(4, Math.trunc(parsed)));
+    setSeatTypes((prev) => {
+      if (prev.length === seatCount) {
+        return prev;
+      }
+      if (prev.length > seatCount) {
+        return prev.slice(0, seatCount);
+      }
+      return [...prev, ...Array.from({ length: seatCount - prev.length }, () => "ai" as const)];
+    });
+  }, [seatCountInput]);
+
+  useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
@@ -166,6 +219,34 @@ export function App() {
       window.clearInterval(id);
     };
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId.trim()) {
+      setSessionManifest(null);
+      return;
+    }
+    let active = true;
+    void getSession({ sessionId: sessionId.trim() })
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setSessionManifest(data.parameter_manifest ?? null);
+      })
+      .catch(() => {
+        // Keep last known manifest when metadata fetch fails.
+      });
+    return () => {
+      active = false;
+    };
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!latestManifest) {
+      return;
+    }
+    setSessionManifest((prev) => mergeSessionManifest(prev, latestManifest));
+  }, [latestManifest]);
 
   useEffect(() => {
     if (!activePrompt) {
@@ -264,8 +345,16 @@ export function App() {
       }));
       const created = await createSession({
         seats,
-        config: { seed: Number(seedInput) || 42 },
+        config: {
+          seed: Number(seedInput) || 42,
+          seat_limits: {
+            min: 1,
+            max: seats.length,
+            allowed: Array.from({ length: seats.length }, (_, idx) => idx + 1),
+          },
+        },
       });
+      setSessionManifest(created.parameter_manifest ?? null);
       setSessionInput(created.session_id);
       setHostTokenInput(created.host_token);
       setLastJoinTokens(created.join_tokens);
@@ -291,14 +380,21 @@ export function App() {
     setNotice("");
     try {
       const created = await createSession({
-        seats: [
-          { seat: 1, seat_type: "ai", ai_profile: "gpt" },
-          { seat: 2, seat_type: "ai", ai_profile: "claude" },
-          { seat: 3, seat_type: "ai", ai_profile: "gpt" },
-          { seat: 4, seat_type: "ai", ai_profile: "claude" },
-        ],
-        config: { seed: Number(seedInput) || 42 },
+        seats: Array.from({ length: seatTypes.length }, (_, idx) => ({
+          seat: idx + 1,
+          seat_type: "ai" as const,
+          ai_profile: idx % 2 === 0 ? "gpt" : "claude",
+        })),
+        config: {
+          seed: Number(seedInput) || 42,
+          seat_limits: {
+            min: 1,
+            max: seatTypes.length,
+            allowed: Array.from({ length: seatTypes.length }, (_, idx) => idx + 1),
+          },
+        },
       });
+      setSessionManifest(created.parameter_manifest ?? null);
       await startSession({ sessionId: created.session_id, hostToken: created.host_token });
       const runtimeState = await getRuntimeStatus(created.session_id);
       setRuntime(runtimeState.runtime);
@@ -329,7 +425,8 @@ export function App() {
     setBusy(true);
     setError("");
     try {
-      await startSession({ sessionId: current, hostToken: hostTokenInput.trim() });
+      const started = await startSession({ sessionId: current, hostToken: hostTokenInput.trim() });
+      setSessionManifest(started.parameter_manifest ?? null);
       setSessionId(current);
       setNotice(`Session started by host: ${current}`);
       await refreshSessions();
@@ -373,6 +470,8 @@ export function App() {
   const onUseSession = (id: string) => {
     setSessionInput(id);
     setSessionId(id);
+    const selected = sessions.find((session) => session.session_id === id);
+    setSessionManifest(selected?.parameter_manifest ?? null);
     setNotice(`Session selected: ${id}`);
     if (route === "match") {
       window.location.hash = buildMatchHash(id, tokenInput.trim() || undefined);
@@ -430,12 +529,14 @@ export function App() {
         <LobbyView
           busy={busy}
           seedInput={seedInput}
+          seatCountInput={seatCountInput}
           aiProfile={aiProfile}
           seatTypes={seatTypes}
           sessionInput={sessionInput}
-          hostTokenInput={hostTokenInput}
-          joinSeatInput={joinSeatInput}
-          joinTokenInput={joinTokenInput}
+            hostTokenInput={hostTokenInput}
+            joinSeatInput={joinSeatInput}
+            joinSeatOptions={joinSeatOptions.length > 0 ? joinSeatOptions : ["1", "2", "3", "4"]}
+            joinTokenInput={joinTokenInput}
           displayNameInput={displayNameInput}
           tokenInput={tokenInput}
           notice={notice}
@@ -443,6 +544,7 @@ export function App() {
           lastJoinTokens={lastJoinTokens}
           sessions={sessions}
           onSeedInput={setSeedInput}
+          onSeatCountInput={setSeatCountInput}
           onAiProfile={setAiProfile}
           onSeatTypeChange={onSeatTypeChange}
           onCreateCustomSession={onCreateCustomSession}
@@ -466,9 +568,15 @@ export function App() {
       ) : (
         <>
           <ConnectionPanel status={stream.status} lastSeq={stream.lastSeq} runtime={runtime} />
-          <SituationPanel model={situation} />
-          <BoardPanel snapshot={snapshot} lastMove={lastMove} />
-          <IncidentCardStack items={timeline} />
+          <SituationPanel model={situation} alerts={alerts} />
+          <BoardPanel
+            snapshot={snapshot}
+            manifestTiles={manifestTiles}
+            boardTopology={boardTopology}
+            tileKindLabels={tileKindLabels}
+            lastMove={lastMove}
+          />
+          <IncidentCardStack items={theaterFeed} />
           <PlayersPanel snapshot={snapshot} />
           <TimelinePanel items={timeline} />
 

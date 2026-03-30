@@ -1,0 +1,15 @@
+{
+  "type": "error",
+  "seq": 14,
+  "session_id": "sess_example_1",
+  "server_time_ms": 1743210003123,
+  "payload": {
+    "code": "RESUME_GAP_TOO_OLD",
+    "category": "transport",
+    "message": "Resume gap too old; sending latest buffered stream.",
+    "retryable": true,
+    "last_seq": 4,
+    "oldest_seq": 17,
+    "latest_seq": 26
+  }
+}

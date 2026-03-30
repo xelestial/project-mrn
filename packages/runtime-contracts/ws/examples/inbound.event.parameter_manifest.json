@@ -1,0 +1,16 @@
+{
+  "type": "event",
+  "seq": 11,
+  "session_id": "sess_example_1",
+  "server_time_ms": 1743210000123,
+  "payload": {
+    "event_type": "parameter_manifest",
+    "parameter_manifest": {
+      "manifest_hash": "hash_abc",
+      "board": {
+        "tile_count": 40
+      }
+    }
+  }
+}
+

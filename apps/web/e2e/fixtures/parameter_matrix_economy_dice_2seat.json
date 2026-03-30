@@ -1,0 +1,14 @@
+{
+  "id": "parameter_matrix_economy_dice_2seat",
+  "title": "Parameter matrix: 2 seats + economy/dice overrides",
+  "goal": "Verify client rehydrates session assumptions from manifest when seat/economy/dice values are changed together.",
+  "preconditions": [
+    "Backend and web app are running or mock runtime is injected by Playwright.",
+    "Session manifest includes seat/economy/dice custom values."
+  ],
+  "assertions": [
+    "Lobby join-seat options show only seat 1 and seat 2.",
+    "Match board projection rehydrates to configured tile count.",
+    "Recent message payload displays economy and dice overrides from parameter_manifest."
+  ]
+}

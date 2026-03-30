@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "runtime-contracts/ws/outbound.resume.schema.json",
+  "title": "OutboundResumeMessage",
+  "type": "object",
+  "required": [
+    "type",
+    "last_seq"
+  ],
+  "properties": {
+    "type": {
+      "const": "resume"
+    },
+    "last_seq": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": true
+}
+

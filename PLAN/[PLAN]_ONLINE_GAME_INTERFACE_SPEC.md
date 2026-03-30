@@ -1,8 +1,11 @@
 # [PLAN] Online Game Interface Spec
 
+> Canonical location (migrated on 2026-03-31): `docs/backend/online-game-interface-spec.md`  
+> This `PLAN/` file remains as a compatibility mirror for existing links.
+
 Status: `ACTIVE`  
 Owner: `Shared`  
-Updated: `2026-03-30`  
+Updated: `2026-03-31`  
 Parents:
 - `PLAN/REACT_ONLINE_GAME_IMPL_PLAN.md`
 - `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`
@@ -23,6 +26,8 @@ This document stabilizes seams for:
 - Interfaces expose public data only.
 - Frontend never imports backend internals.
 - Backend route handlers depend on service interfaces, not concrete runtime classes.
+- Default profile literals (seat count/tile count/dice range) must not appear as interface invariants.
+- Runtime policy profile IDs must be injected/configured, not hardcoded in interface defaults.
 
 ## Backend Service Interfaces
 
@@ -56,9 +61,23 @@ Responsibilities:
 
 ```py
 class RuntimeService(Protocol):
-    async def start_runtime(self, session_id: str, seed: int = 42, policy_mode: str = "heuristic_v3_gpt") -> None: ...
+    async def start_runtime(
+        self,
+        session_id: str,
+        seed: int = 42,
+        policy_mode: str | None = None
+    ) -> None: ...
     def stop_runtime(self, session_id: str, reason: str) -> None: ...
     def runtime_status(self, session_id: str) -> RuntimeStatus: ...
+    async def execute_prompt_fallback(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        player_id: int,
+        fallback_policy: str,
+        prompt_payload: dict
+    ) -> dict: ...
 ```
 
 ## PromptService
@@ -223,7 +242,7 @@ Optional:
 | request_type | choice_payload schema |
 |---|---|
 | `draft_card` | `{ card_id: string }` |
-| `final_character_choice` | `{ character_id: string }` |
+| `final_character` (`final_character_choice` compat alias) | `{ character_id: string }` |
 | `trick_to_use` | `{ trick_id: string \| "skip" }` |
 | `movement` | `{ mode: "roll" \| "dice_card", dice_cards?: number[] }` |
 | `purchase_tile` | `{ buy: boolean }` |
@@ -252,6 +271,7 @@ Frontend composition root:
 `ApiErrorPayload` fields:
 
 - `code`
+- `category`
 - `message`
 - `retryable`
 - `request_id?`
@@ -275,6 +295,26 @@ Canonical codes:
   1. migration window with aliases
   2. parser tests updated for both forms
   3. explicit note in `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`.
+- Rule IDs and display labels evolve independently:
+- IDs are compatibility-critical
+- labels are replaceable catalogs (locale/theme/client mode)
+
+## Contract Freeze Artifacts (`v1`)
+
+Frozen transport schema/example source:
+
+- `packages/runtime-contracts/ws/schemas/*`
+- `packages/runtime-contracts/ws/examples/*`
+
+Minimum validation gate:
+
+- `apps/server/tests/test_runtime_contract_examples.py`
+
+Change policy for this artifact set:
+
+1. Update schema and matching example in same PR.
+2. Update API and interface spec references in same PR.
+3. Keep backward compatibility unless explicit migration window is documented.
 
 ## Verification Checklist
 
@@ -285,3 +325,73 @@ For each interface change:
 3. Unit tests updated.
 4. Integration test covers success and failure path.
 5. API spec and execution plan updated.
+
+## Parameter Interfaces (`Partial Baseline Implemented`)
+
+To decouple frontend from fixed board/seat/message assumptions, manifest-facing interfaces are being introduced.
+Current state:
+
+- backend baseline classes exist for:
+  - `GameParameterResolver`
+  - `PublicManifestBuilder`
+  - `RootSourceRegistry`
+- runtime boot path now consumes resolved parameters through config factory seam
+- frontend manifest lifecycle baseline is implemented:
+  - store-level hash rehydrate path in reducer
+  - flat/nested manifest-event hash parsing support
+  - tolerant fallback parsing for partial/unknown manifest fields in selector layer
+- resolver baseline now supports session-level board topology override (`ring`/`line`)
+
+Backend protocol additions:
+
+```py
+class GameParameterResolver(Protocol):
+    def resolve(self, session_config: dict) -> ResolvedGameParameters: ...
+
+class PublicManifestBuilder(Protocol):
+    def build_public_manifest(self, params: ResolvedGameParameters) -> dict: ...
+
+class RootSourceRegistry(Protocol):
+    def list_sources(self) -> list[RootSourceDescriptor]: ...
+    def compute_fingerprints(self) -> dict[str, str]: ...
+```
+
+Frontend port additions:
+
+```ts
+export interface ParameterManifestStorePort {
+  setManifest(manifest: ParameterManifest): void;
+  getManifest(): ParameterManifest | null;
+}
+
+export interface LabelCatalogPort {
+  eventLabel(eventType: string): string;
+  tileLabel(tileKind: string): string;
+  promptHelper(requestType: string): string;
+}
+
+export interface BoardProjectionPort {
+  projectTile(tileIndex: number, topology: BoardTopology): { row: number; col: number };
+}
+
+export interface ManifestLifecyclePort {
+  currentHash(): string | null;
+  applyManifest(manifest: ParameterManifest): void;
+  shouldRehydrate(nextHash: string): boolean;
+}
+```
+
+Reference plan:
+
+- `PLAN/[PLAN]_PARAMETER_DRIVEN_RUNTIME_DECOUPLING.md`
+- `PLAN/[REVIEW]_PIPELINE_CONSISTENCY_AND_COUPLING_AUDIT.md`
+
+## Coupling Reduction Checklist (For Any New Interface)
+
+1. Does this interface encode a default as invariant? If yes, split into:
+   - `default_profile` example
+   - parameterized field
+2. Can Unity/React consume the same payload without UI-specific translation logic in backend?
+3. Are rule-routing fields stable IDs rather than localized names?
+4. Are unknown enum/event variants handled by tolerant fallback in port implementations?
+5. Does manifest hash change trigger deterministic cache reset and rehydrate?

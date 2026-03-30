@@ -1,8 +1,11 @@
 # [PLAN] React Online Game Detailed Execution
 
+> Canonical location (migrated on 2026-03-31): `docs/architecture/react-online-game-detailed-execution.md`  
+> This `PLAN/` file remains as a compatibility mirror for existing links.
+
 Status: `ACTIVE`  
 Owner: `Shared (Backend: CLAUDE, Frontend: GPT)`  
-Updated: `2026-03-30`  
+Updated: `2026-03-31`  
 Parent: `PLAN/REACT_ONLINE_GAME_IMPL_PLAN.md`
 
 ## Purpose
@@ -16,7 +19,10 @@ It is intentionally execution-focused:
 - test and verification gates
 - risk controls and fallback policy
 
-## Current Progress Snapshot (`2026-03-30`)
+Audit companion:
+- `PLAN/[REVIEW]_PIPELINE_CONSISTENCY_AND_COUPLING_AUDIT.md`
+
+## Current Progress Snapshot (`2026-03-31`)
 
 - `D1` scaffold: in progress
   - created baseline roots: `apps/`, `packages/`, `docs/`, `tests/`, `tools/`
@@ -38,7 +44,8 @@ It is intentionally execution-focused:
   - stream message envelope now includes `server_time_ms` on buffered stream path
   - added API-level resume-gap regression test (`apps/server/tests/test_stream_api.py`, fastapi-gated)
   - heartbeat now includes backpressure stats (`subscriber_count`, `drop_count`, `queue_size`)
-  - remaining: reconnect soak test and production threshold tuning
+  - reconnect soak regression is now covered (`apps/server/tests/test_stream_api.py`)
+  - production threshold tuning baseline is now env-driven (`apps/server/src/config/runtime_settings.py`)
 - `B3` baseline: in progress
   - added in-memory prompt lifecycle service (`pending`, `submit_decision`, `timeout_pending`)
   - added debug prompt route for end-to-end prompt envelope smoke path
@@ -46,14 +53,20 @@ It is intentionally execution-focused:
   - timeout path now emits public fallback trace event (`decision_timeout_fallback`)
   - added spectator decision block and authenticated player mismatch block
   - added API-level decision auth regression tests (`UNAUTHORIZED_SEAT`, `PLAYER_MISMATCH`)
-  - remaining: engine fallback execution wiring and stale-request hardening
+  - stale-request hardening is now closed (`already_resolved`, duplicate replay guard, missing choice guard)
+  - engine fallback execution seam wired (`RuntimeService.execute_prompt_fallback`)
+  - timeout fallback event payload now includes execution result fields (`fallback_execution`, `fallback_choice_id`)
 - runtime fan-out baseline: in progress
   - all-AI session start now triggers background engine execution
   - emitted vis events are published into websocket stream buffer in order
   - incremental live fan-out is now active (event append -> immediate WS publish bridge)
   - runtime watchdog baseline added (inactivity warning + `last_activity_ms`)
   - frontend connection panel now surfaces watchdog/runtime activity fields
-  - remaining: watchdog timeout policy tuning per environment
+  - watchdog timeout is now configurable per environment (`MRN_RUNTIME_WATCHDOG_TIMEOUT_MS`)
+  - structured log retention baseline added:
+    - env-driven log rotation settings (`MRN_LOG_FILE_PATH`, `MRN_LOG_FILE_MAX_BYTES`, `MRN_LOG_FILE_BACKUP_COUNT`)
+    - rotating file handler bootstrap in server state
+    - runtime setting + structured log unit tests
 - `F1` baseline: in progress
   - created React+TS scaffold files under `apps/web`
   - added baseline stream contract types and websocket client
@@ -66,6 +79,8 @@ It is intentionally execution-focused:
   - added runtime status auto-refresh baseline in app shell
   - added websocket auto-reconnect baseline with incremental backoff
   - upgraded reconnect strategy to exponential backoff + jitter
+  - added stream-client reconnect/resume integration tests (`infra/ws/StreamClient.spec.ts`)
+  - state-store direction frozen for v1: reducer+selector-first (`useReducer`, no `zustand` dependency)
   - added reducer out-of-order buffering (`pendingBySeq`) with contiguous flush
   - added gap-triggered `resume(last_seq)` request path in stream hook
   - dependency install/build pipeline now green on local environment
@@ -75,7 +90,8 @@ It is intentionally execution-focused:
   - split baseline UI into feature components (`status`, `timeline`, `board` placeholder)
   - added stream selector layer (`domain/selectors/streamSelectors.ts`)
   - added snapshot-driven public board/player baseline rendering
-  - added 40-tile ring board layout mapping (`tile_index` -> ring coordinates)
+  - added topology-aware board projection baseline (`ring`/`line`; default profile uses 40-tile ring)
+  - added manifest-driven tile-kind label override path (`labels.tile_kind_labels`) in board renderer
   - added board-near recent incident card stack baseline (`IncidentCardStack`)
   - added last-move board summary and from/to tile highlight baseline
   - added pawn-arrive pulse animation baseline
@@ -92,7 +108,9 @@ It is intentionally execution-focused:
   - added stale/rejected inline feedback messaging in prompt overlay
   - added timeout fallback waiting copy in prompt overlay
   - added prompt-type-specific helper copy baseline
-  - remaining: optional helper-copy refinement by game mode
+  - added prompt helper catalog split baseline (`request_type` helper map module)
+  - expanded helper+label coverage for full human-policy request matrix (`movement`, `runaway_step_choice`, `lap_reward`, `draft_card`, `final_character`, `trick_to_use`, `purchase_tile`, `hidden_trick_card`, `mark_target`, `coin_placement`, `geo_bonus`, `doctrine_relief`, `active_flip`, `specific_trick_reward`, `burden_exchange`)
+  - added coverage tests so future prompt-type additions fail fast when helper/label copy is missing
 - `F4` baseline: started
   - added lobby control panel for custom seat composition and seed/profile inputs
   - added host-start path with explicit host token input
@@ -106,6 +124,75 @@ It is intentionally execution-focused:
   - added route deep-link baseline (`#/match?session=...&token=...`)
   - added connected-state URL cleanup baseline (token stripped from hash)
   - remaining: optional URL short-state policy
+- parameter-driven decoupling track: started
+  - hardcoded sensitivity audit completed (server/runtime/engine/web hotspots)
+  - execution source: `PLAN/[PLAN]_PARAMETER_DRIVEN_RUNTIME_DECOUPLING.md`
+  - implemented baseline:
+    - backend resolved-parameter schema/resolver path
+    - runtime config factory path (direct `DEFAULT_CONFIG` boot replaced)
+    - session API `parameter_manifest` payload on create/get/start
+    - stream `parameter_manifest` event baseline on session start
+    - resolver now supports `board_topology` override (`ring`/`line`) for session-scoped projection contracts
+    - frontend manifest bootstrap consumption baseline (board/join-seat path)
+    - frontend stream reducer manifest-hash rehydrate baseline
+    - stream-manifest merge now rehydrates topology + labels in app state (not tiles-only)
+    - manifest merge logic extracted to pure helper + unit tests (`domain/manifest/manifestRehydrate.spec.ts`)
+    - frontend selector label-catalog split baseline (event code -> display label separation)
+    - frontend selector fallback hardening baseline:
+      - tolerate malformed latest manifest by scanning previous valid manifest
+      - tolerate flat `parameter_manifest` event payload shape
+      - synthesize fallback board tiles from `tile_count` when tile list is absent
+      - synthesize fallback seat options from `seats.max` when `seats.allowed` is absent
+    - frontend fallback regression tests expanded:
+      - unknown event code timeline fallback
+      - partial/flat manifest parsing fixtures
+    - server integration fixtures expanded:
+      - non-default profile manifest path (`3-seat + line`) on session create/start stream
+      - reconnect replay fixture validates latest manifest variant payload visibility
+      - backend transport E2E fixture validates reconnect replay after manifest-hash change
+    - web integration fixture expanded:
+      - reducer -> selector -> manifest merge chain validated on hash-change reconnect replay (`manifestReconnectFlow.spec.ts`)
+    - stream API replay regression coverage expanded for flat manifest payload shape
+    - stale-artifact gate helper baseline (`tools/parameter_manifest_gate.py --check`)
+    - stale snapshot regression test baseline (`apps/server/tests/test_parameter_manifest_snapshot.py`)
+    - CI workflow baseline wired:
+      - backend tests
+      - manifest snapshot gate check
+      - web tests/build
+      - file: `.github/workflows/ci.yml`
+  - closure update:
+    - manifest-hash triggered projection reset baseline is active in reducer path (`gameStreamReducer`)
+    - browser reconnect/non-default topology fixture playbooks are versioned under `apps/web/e2e/fixtures/*`
+    - fixture integrity is test-gated (`browserFixtureCatalog.spec.ts`)
+  - closure update:
+    - automated browser-run e2e baseline is now active:
+      - `apps/web/playwright.config.ts`
+      - `apps/web/e2e/parity.spec.ts`
+      - CI step wiring (`npx playwright install --with-deps chromium`, `npm run e2e`)
+  - closure update (`2026-03-31`):
+    - broader parameter-pack matrix coverage is complete for current scope:
+      - backend matrix tests for seat/economy/dice overrides
+      - session start matrix-manifest verification
+      - Playwright matrix parity scenario (`parameter_matrix_economy_dice_2seat`)
+- contract freeze artifacts (`OI7`): complete baseline
+  - added frozen WS schema set under `packages/runtime-contracts/ws/schemas`
+  - added canonical WS examples under `packages/runtime-contracts/ws/examples`
+  - added schema/example validation test (`apps/server/tests/test_runtime_contract_examples.py`)
+- parity checklist artifact (`OI10`): acceptance closed (`2026-03-31`)
+  - `PLAN/[CHECKLIST]_LEGACY_VS_REACT_PARITY.md`
+  - evidence logs:
+    - `result/acceptance/2026-03-31_replay_parity.log`
+    - `result/acceptance/2026-03-31_live_human_play.log`
+- docs migration (`OI6`): closed (`2026-03-31`)
+  - canonical detailed specs now under `docs/api`, `docs/backend`, `docs/frontend`, `docs/architecture`
+  - `PLAN/[PLAN]_...` mirrors retain redirect notes for compatibility links
+- UI stack decision (`OI4`): complete baseline
+  - plain-CSS-first strategy fixed for v1 (`PLAN/[DECISION]_REACT_UI_STACK_STRATEGY.md`)
+- legacy-path cleanup (`OI11`): in progress baseline
+  - added reference audit script: `tools/legacy_path_audit.py`
+  - baseline scan counts (`2026-03-30`): `GPT/`=156, `CLAUDE/`=50, `frontend/`=8
+  - active code roots are now clean (`apps/packages/tools`: 0 matches under strict audit)
+  - CI strict gate is enabled for active code roots (`.github/workflows/ci.yml`)
 - `B4+`: not started in code
 
 ## Execution Policy
@@ -147,7 +234,7 @@ Implementation:
    - `ok`, `data`, `error`.
 
 Definition of done:
-- 4-seat mixed config can be created and started.
+- Parameterized seat config can be created and started (default profile includes 4-seat mixed config).
 - Host and seat token validation works for join/start.
 - Unit tests cover invalid transition attempts.
 
@@ -207,6 +294,23 @@ Implementation:
 Definition of done:
 - Recoverable faults are surfaced with stable error codes.
 - Crash logs contain `session_id`, `request_id`, `player_id`, `seq`.
+
+## B5. Parameter-Driven Config Decoupling
+
+Goal:
+- Remove backend/runtime hardcoding sensitivity when gameplay parameters change.
+
+Implementation:
+1. Add typed session config validation and `ResolvedGameParameters`.
+2. Replace runtime `DEFAULT_CONFIG` boot path with injected config factory.
+3. Emit public `parameter_manifest` in stream/session bootstrap.
+4. Add compatibility tests for variant parameter packs.
+5. Add root-source fingerprint + `manifest_hash` generation and CI stale-artifact gate.
+
+Definition of done:
+- Runtime starts from resolved session config without direct global default dependency.
+- Stream contract provides enough parameter metadata for dynamic frontend rendering.
+- Root-source modification automatically changes emitted manifest hash in runtime bootstrap.
 
 ## F1. React Bootstrap and Contracts
 
@@ -270,7 +374,7 @@ Implementation:
 4. Basic reconnection UX.
 
 Definition of done:
-- 1-4 humans + AI mixed session can start from UI.
+- Session can start from UI using server seat model (default profile supports 1-4 humans + AI mixed).
 
 ## F5. Theater and Incident UX
 
@@ -309,6 +413,21 @@ Definition of done:
 - Live human-play parity: pass.
 - Known P0 bug checklist: pass.
 
+## F7. Parameter-Aware Frontend Rendering
+
+Goal:
+- Render board/seats/labels from manifest, not fixed literals.
+
+Implementation:
+1. Replace fixed 40-tile projection with topology-driven board projection.
+2. Replace fixed 4-seat lobby assumptions with server-provided seat model.
+3. Move event/tile/prompt labels to manifest-fed label catalog + fallback.
+4. Add manifest-hash watcher to force projection cache reset/rehydration on config change.
+
+Definition of done:
+- Layout/value/seat parameter changes do not require frontend code edits.
+- Manifest hash change is reflected in UI state without manual refresh or code patch.
+
 ## Quality Gates (`Q`)
 
 Required for release candidate:
@@ -323,7 +442,8 @@ Required for release candidate:
 3. E2E tests:
    - one full human seat game
    - one spectator-only game
-   - one mixed 4-seat game.
+   - one mixed game in default 4-seat profile
+   - one non-default seat-count variant game (parameterized seat model regression)
 4. Observability checks:
    - log fields complete
    - error codes normalized.

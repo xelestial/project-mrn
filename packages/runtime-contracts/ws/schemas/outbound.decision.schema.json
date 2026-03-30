@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "runtime-contracts/ws/outbound.decision.schema.json",
+  "title": "OutboundDecisionMessage",
+  "type": "object",
+  "required": [
+    "type",
+    "request_id",
+    "player_id",
+    "choice_id",
+    "client_seq"
+  ],
+  "properties": {
+    "type": {
+      "const": "decision"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "player_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "choice_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "choice_payload": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
+

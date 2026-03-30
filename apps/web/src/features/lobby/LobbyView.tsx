@@ -6,11 +6,13 @@ export type LobbySeatType = "human" | "ai";
 type LobbyViewProps = {
   busy: boolean;
   seedInput: string;
+  seatCountInput: string;
   aiProfile: string;
   seatTypes: LobbySeatType[];
   sessionInput: string;
   hostTokenInput: string;
   joinSeatInput: string;
+  joinSeatOptions: string[];
   joinTokenInput: string;
   displayNameInput: string;
   tokenInput: string;
@@ -19,6 +21,7 @@ type LobbyViewProps = {
   lastJoinTokens: Record<string, string>;
   sessions: PublicSessionResult[];
   onSeedInput: (value: string) => void;
+  onSeatCountInput: (value: string) => void;
   onAiProfile: (value: string) => void;
   onSeatTypeChange: (index: number, value: LobbySeatType) => void;
   onCreateCustomSession: () => void;
@@ -40,11 +43,13 @@ type LobbyViewProps = {
 export function LobbyView({
   busy,
   seedInput,
+  seatCountInput,
   aiProfile,
   seatTypes,
   sessionInput,
   hostTokenInput,
   joinSeatInput,
+  joinSeatOptions,
   joinTokenInput,
   displayNameInput,
   tokenInput,
@@ -53,6 +58,7 @@ export function LobbyView({
   lastJoinTokens,
   sessions,
   onSeedInput,
+  onSeatCountInput,
   onAiProfile,
   onSeatTypeChange,
   onCreateCustomSession,
@@ -80,6 +86,10 @@ export function LobbyView({
             <label>
               Seed
               <input value={seedInput} onChange={(e) => onSeedInput(e.target.value)} />
+            </label>
+            <label>
+              Seat Count (1-4)
+              <input value={seatCountInput} onChange={(e) => onSeatCountInput(e.target.value)} />
             </label>
             <label>
               AI Profile
@@ -127,10 +137,11 @@ export function LobbyView({
             <label>
               Join Seat
               <select value={joinSeatInput} onChange={(e) => onJoinSeatInput(e.target.value)}>
-                <option value="1">Seat 1</option>
-                <option value="2">Seat 2</option>
-                <option value="3">Seat 3</option>
-                <option value="4">Seat 4</option>
+                {joinSeatOptions.map((seat) => (
+                  <option key={`seat-option-${seat}`} value={seat}>
+                    Seat {seat}
+                  </option>
+                ))}
               </select>
             </label>
             <label>

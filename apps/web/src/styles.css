@@ -337,6 +337,8 @@ body {
 .incident-stack {
   display: grid;
   gap: 8px;
+  max-height: 360px;
+  overflow: auto;
 }
 
 .incident-card {
@@ -388,6 +390,11 @@ body {
   border-color: #47618e;
 }
 
+.incident-critical {
+  border-color: #b24f5d;
+  background: linear-gradient(180deg, #4a2230 0%, #2d1721 100%);
+}
+
 .prompt-overlay {
   border-color: #c99e2f;
 }
@@ -433,6 +440,31 @@ body {
 .prompt-choice-card:disabled {
   opacity: 0.55;
   cursor: wait;
+}
+
+.alert-stack {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.alert-item {
+  display: grid;
+  gap: 3px;
+  border-radius: 8px;
+  padding: 8px;
+  border: 1px solid #32578f;
+  background: #0e1f3a;
+}
+
+.alert-warning {
+  border-color: #8a7336;
+  background: #2e2816;
+}
+
+.alert-critical {
+  border-color: #b24f5d;
+  background: #3a1a23;
 }
 
 @media (max-width: 920px) {

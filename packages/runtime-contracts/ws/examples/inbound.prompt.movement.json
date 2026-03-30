@@ -1,0 +1,31 @@
+{
+  "type": "prompt",
+  "seq": 12,
+  "session_id": "sess_example_1",
+  "server_time_ms": 1743210001123,
+  "payload": {
+    "request_id": "req_turn7_move",
+    "request_type": "movement",
+    "player_id": 1,
+    "timeout_ms": 30000,
+    "fallback_policy": "auto_roll_dice",
+    "choices": [
+      {
+        "choice_id": "roll",
+        "title": "Roll dice",
+        "description": "Normal move."
+      },
+      {
+        "choice_id": "dice_1_4",
+        "title": "Use dice cards 1,4",
+        "description": "Fixed move 5."
+      }
+    ],
+    "public_context": {
+      "round_index": 2,
+      "turn_index": 7,
+      "weather_name": "Emergency Shelter"
+    }
+  }
+}
+

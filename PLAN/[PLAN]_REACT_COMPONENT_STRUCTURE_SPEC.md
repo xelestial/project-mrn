@@ -1,8 +1,11 @@
 # [PLAN] React Component Structure Spec
 
+> Canonical location (migrated on 2026-03-31): `docs/frontend/react-component-structure-spec.md`  
+> This `PLAN/` file remains as a compatibility mirror for existing links.
+
 Status: `ACTIVE`  
 Owner: `GPT`  
-Updated: `2026-03-29`  
+Updated: `2026-03-31`  
 Parent: `PLAN/REACT_ONLINE_GAME_IMPL_PLAN.md`
 
 ## Purpose
@@ -120,7 +123,9 @@ Primary components:
 
 Responsibilities:
 
-- render 40-tile ring map
+- render topology from `parameter_manifest.board`
+  - default profile may be 40-tile ring
+  - contract must not assume fixed tile count
 - render ownership and tile economy metadata
 - render pawn positions and move path
 - show board-near incident cards
@@ -143,6 +148,8 @@ Responsibilities:
   - burdens summary
   - eliminated status and current tile
   - remaining dice cards
+- seat/player list must be data-driven from manifest/session snapshot
+  - no fixed 4-card layout assumption in component contracts
 
 ## 4. Timeline and Theater
 
@@ -250,6 +257,9 @@ Rules:
 - selectors compute derived display models
 - no reducer logic in components
 - no direct event parsing in components
+- no fixed-size assumptions in selectors (tile count, seat count, dice value range)
+- selectors should consume stable IDs and resolve display labels via catalog/fallback layer
+- selectors/components should observe manifest lifecycle (`manifest_hash`) and rehydrate derived caches on change
 
 ## Accessibility and Interaction Rules
 
@@ -283,6 +293,8 @@ Integration tests:
 - prompt lifecycle (`open -> submit -> ack -> close`)
 - theater feed updates while prompt collapsed
 - reconnect and state continuity
+- variant topology render continuity (non-default tile count fixture)
+- variant seat-count render continuity (non-default seat fixture)
 
 E2E tests:
 
@@ -297,3 +309,4 @@ When adding/changing a component:
 1. Update this spec section and component list.
 2. Add or update the test matrix row.
 3. Update related interface/API docs if data shape changed.
+4. If any fixed-size literal is introduced (e.g., seat/tile count), annotate it as `default-profile` and document fallback path.

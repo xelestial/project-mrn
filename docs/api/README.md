@@ -2,5 +2,10 @@
 
 REST and WebSocket API specifications.
 
-During migration, canonical sources may still live in `PLAN/`.
+Canonical active spec:
 
+- `docs/api/online-game-api-spec.md`
+
+Legacy compatibility mirror:
+
+- `PLAN/[PLAN]_ONLINE_GAME_API_SPEC.md`

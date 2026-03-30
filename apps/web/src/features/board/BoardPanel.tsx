@@ -1,24 +1,27 @@
 import type { LastMoveViewModel, SnapshotViewModel } from "../../domain/selectors/streamSelectors";
+import { boardSizeForTileCount, projectTilePosition } from "./boardProjection";
 
 type BoardPanelProps = {
   snapshot: SnapshotViewModel | null;
+  manifestTiles?: Array<{
+    tileIndex: number;
+    tileKind: string;
+    zoneColor: string;
+    purchaseCost: number | null;
+    rentCost: number | null;
+    ownerPlayerId: number | null;
+    pawnPlayerIds: number[];
+  }>;
+  boardTopology?: string;
+  tileKindLabels?: Record<string, string>;
   lastMove: LastMoveViewModel | null;
 };
 
-function ringPosition(tileIndex: number): { row: number; col: number } {
-  if (tileIndex <= 10) {
-    return { row: 1, col: tileIndex + 1 };
+function tileKindLabel(kind: string, labels?: Record<string, string>): string {
+  const override = labels?.[kind];
+  if (override && override.trim()) {
+    return override;
   }
-  if (tileIndex <= 19) {
-    return { row: tileIndex - 9, col: 11 };
-  }
-  if (tileIndex <= 30) {
-    return { row: 11, col: 31 - tileIndex };
-  }
-  return { row: 41 - tileIndex, col: 1 };
-}
-
-function tileKindLabel(kind: string): string {
   switch (kind) {
     case "S":
       return "Fortune";
@@ -35,12 +38,17 @@ function tileKindLabel(kind: string): string {
   }
 }
 
-export function BoardPanel({ snapshot, lastMove }: BoardPanelProps) {
-  if (!snapshot || snapshot.tiles.length === 0) {
+export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLabels, lastMove }: BoardPanelProps) {
+  const tiles = (snapshot?.tiles && snapshot.tiles.length > 0 ? snapshot.tiles : manifestTiles ?? []).slice();
+  tiles.sort((a, b) => a.tileIndex - b.tileIndex);
+  const normalizedTopology = boardTopology === "line" ? "line" : "ring";
+  const boardSize = boardSizeForTileCount(tiles.length, normalizedTopology);
+  const endTimeRemaining = snapshot ? Math.max(0, 15 - snapshot.fValue) : null;
+  if (tiles.length === 0) {
     return (
       <section className="panel">
         <h2>Board</h2>
-        <p>No board snapshot yet. Waiting for `turn_end_snapshot` event.</p>
+        <p>No board snapshot yet. Waiting for stream snapshot or manifest bootstrap.</p>
       </section>
     );
   }
@@ -48,10 +56,14 @@ export function BoardPanel({ snapshot, lastMove }: BoardPanelProps) {
   return (
     <section className="panel">
       <h2>Board</h2>
-      <p>
-        Round {snapshot.round} / Turn {snapshot.turn} / Marker P{snapshot.markerOwnerPlayerId ?? "-"} / End Meter{" "}
-        {snapshot.fValue.toFixed(2)}
-      </p>
+      {snapshot ? (
+        <p>
+          Round {snapshot.round} / Turn {snapshot.turn} / Marker P{snapshot.markerOwnerPlayerId ?? "-"} / End Time{" "}
+          {endTimeRemaining?.toFixed(2)}
+        </p>
+      ) : (
+        <p>Board initialized from parameter manifest.</p>
+      )}
       {lastMove ? (
         <p className="board-move-summary">
           Last move: P{lastMove.playerId ?? "?"} {lastMove.fromTileIndex === null ? "?" : lastMove.fromTileIndex + 1}
@@ -59,22 +71,29 @@ export function BoardPanel({ snapshot, lastMove }: BoardPanelProps) {
           {lastMove.toTileIndex === null ? "?" : lastMove.toTileIndex + 1}
         </p>
       ) : null}
-      <div className="board-ring">
-        {snapshot.tiles.map((tile) => {
+      <div
+        className="board-ring"
+        style={{
+          gridTemplateColumns: `repeat(${boardSize}, minmax(0, 1fr))`,
+          gridTemplateRows: `repeat(${boardSize}, minmax(0, 1fr))`,
+        }}
+      >
+        {tiles.map((tile) => {
           const isMoveFrom = lastMove?.fromTileIndex === tile.tileIndex;
           const isMoveTo = lastMove?.toTileIndex === tile.tileIndex;
+          const position = projectTilePosition(tile.tileIndex, tiles.length, normalizedTopology);
           return (
             <article
               key={tile.tileIndex}
               className={`tile-card ${isMoveFrom ? "tile-move-from" : ""} ${isMoveTo ? "tile-move-to" : ""}`}
               style={{
-                gridRow: ringPosition(tile.tileIndex).row,
-                gridColumn: ringPosition(tile.tileIndex).col,
+                gridRow: position.row,
+                gridColumn: position.col,
               }}
             >
               <div className="tile-head">
                 <strong>{tile.tileIndex + 1}</strong>
-                <span>{tileKindLabel(tile.tileKind)}</span>
+                <span>{tileKindLabel(tile.tileKind, tileKindLabels)}</span>
               </div>
               <div className="tile-body">
                 <small>{tile.zoneColor || "-"}</small>

@@ -3,105 +3,178 @@ from __future__ import annotations
 import asyncio
 import random
 import sys
-import threading
 from pathlib import Path
+
+from apps.server.src.core.error_payload import build_error_payload
+from apps.server.src.infra.structured_log import log_event
+from apps.server.src.services.engine_config_factory import EngineConfigFactory
+
 
 class RuntimeService:
     """Background runtime orchestration for all-AI baseline sessions."""
 
-    def __init__(self, session_service, stream_service) -> None:
+    def __init__(
+        self,
+        session_service,
+        stream_service,
+        config_factory: EngineConfigFactory | None = None,
+        watchdog_timeout_ms: int = 45000,
+    ) -> None:
         self._session_service = session_service
         self._stream_service = stream_service
-        self._threads: dict[str, threading.Thread] = {}
-        self._watchdogs: dict[str, threading.Thread] = {}
+        self._config_factory = config_factory or EngineConfigFactory()
+        self._runtime_tasks: dict[str, asyncio.Task] = {}
+        self._watchdogs: dict[str, asyncio.Task] = {}
         self._status: dict[str, dict] = {}
         self._last_activity_ms: dict[str, int] = {}
-        self._watchdog_timeout_ms = 45000
+        self._fallback_history: dict[str, list[dict]] = {}
+        self._watchdog_timeout_ms = int(watchdog_timeout_ms)
 
-    async def start_runtime(self, session_id: str, seed: int = 42, policy_mode: str = "heuristic_v3_gpt") -> None:
-        if session_id in self._threads and self._threads[session_id].is_alive():
+    async def start_runtime(self, session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+        existing = self._runtime_tasks.get(session_id)
+        if existing is not None and not existing.done():
             return
-        loop = asyncio.get_running_loop()
         now_ms = self._now_ms()
         self._last_activity_ms[session_id] = now_ms
-        thread = threading.Thread(
-            target=self._run_engine_thread,
-            args=(loop, session_id, seed, policy_mode),
-            daemon=True,
-        )
         self._status[session_id] = {"status": "running", "watchdog_state": "ok", "started_at_ms": now_ms}
-        self._threads[session_id] = thread
-        thread.start()
-        if session_id not in self._watchdogs or not self._watchdogs[session_id].is_alive():
-            watchdog = threading.Thread(
-                target=self._watchdog_thread,
-                args=(loop, session_id),
-                daemon=True,
+        self._runtime_tasks[session_id] = asyncio.create_task(
+            self._run_engine_async(session_id=session_id, seed=seed, policy_mode=policy_mode),
+            name=f"runtime:{session_id}",
+        )
+        log_event("runtime_started", session_id=session_id, seed=seed, policy_mode=policy_mode or "default")
+        existing_watchdog = self._watchdogs.get(session_id)
+        if existing_watchdog is None or existing_watchdog.done():
+            self._watchdogs[session_id] = asyncio.create_task(
+                self._watchdog_loop(session_id=session_id),
+                name=f"runtime_watchdog:{session_id}",
             )
-            self._watchdogs[session_id] = watchdog
-            watchdog.start()
 
     def stop_runtime(self, session_id: str, reason: str) -> None:
         self._status[session_id] = {"status": "stop_requested", "reason": reason}
+        log_event("runtime_stop_requested", session_id=session_id, reason=reason)
 
     def runtime_status(self, session_id: str) -> dict:
         self._refresh_status(session_id)
-        if session_id in self._threads and self._threads[session_id].is_alive():
+        task = self._runtime_tasks.get(session_id)
+        if task is not None and not task.done():
             base = dict(self._status.get(session_id, {"status": "running"}))
             base.setdefault("status", "running")
             base["last_activity_ms"] = self._last_activity_ms.get(session_id)
+            base["recent_fallbacks"] = list(self._fallback_history.get(session_id, []))[-10:]
             return base
-        return self._status.get(session_id, {"status": "idle"})
+        base = dict(self._status.get(session_id, {"status": "idle"}))
+        base["recent_fallbacks"] = list(self._fallback_history.get(session_id, []))[-10:]
+        return base
 
-    def _run_engine_thread(self, loop: asyncio.AbstractEventLoop, session_id: str, seed: int, policy_mode: str) -> None:
+    async def execute_prompt_fallback(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        player_id: int,
+        fallback_policy: str,
+        prompt_payload: dict,
+    ) -> dict:
+        """Execute timeout fallback seam for future engine-dispatch integration.
+
+        Current baseline records deterministic fallback resolution and keeps runtime activity warm.
+        """
+
+        choice_id = str(
+            prompt_payload.get("fallback_choice_id")
+            or prompt_payload.get("default_choice_id")
+            or "timeout_fallback"
+        )
+        record = {
+            "request_id": request_id,
+            "player_id": player_id,
+            "fallback_policy": fallback_policy,
+            "choice_id": choice_id,
+            "executed_at_ms": self._now_ms(),
+        }
+        self._fallback_history.setdefault(session_id, []).append(record)
+        self._touch_activity(session_id)
+        log_event(
+            "runtime_fallback_executed",
+            session_id=session_id,
+            request_id=request_id,
+            player_id=player_id,
+            fallback_policy=fallback_policy,
+            choice_id=choice_id,
+        )
+        return {"status": "executed", "choice_id": choice_id}
+
+    async def _run_engine_async(
+        self,
+        session_id: str,
+        seed: int,
+        policy_mode: str | None,
+    ) -> None:
+        loop = asyncio.get_running_loop()
         try:
-            self._ensure_gpt_import_path()
-            from config import DEFAULT_CONFIG
-            from engine import GameEngine
-            from policy.factory import PolicyFactory
-
-            policy = PolicyFactory.create_runtime_policy(
-                policy_mode=policy_mode,
-                lap_policy_mode=policy_mode,
+            await asyncio.to_thread(
+                self._run_engine_sync,
+                loop,
+                session_id,
+                seed,
+                policy_mode,
             )
-            vis_stream = _FanoutVisEventStream(loop, self._stream_service, session_id, self._touch_activity)
-            engine = GameEngine(
-                config=DEFAULT_CONFIG,
-                policy=policy,
-                rng=random.Random(seed),
-                event_stream=vis_stream,
-            )
-            engine.run()
             self._session_service.finish_session(session_id)
             self._status[session_id] = {"status": "finished"}
             self._touch_activity(session_id)
+            log_event("runtime_finished", session_id=session_id)
         except Exception as exc:
             self._status[session_id] = {"status": "failed", "error": str(exc)}
             self._touch_activity(session_id)
-            fut = asyncio.run_coroutine_threadsafe(
-                self._stream_service.publish(
-                    session_id,
-                    "error",
-                    {
-                        "code": "RUNTIME_EXECUTION_FAILED",
-                        "message": str(exc),
-                        "retryable": False,
-                    },
+            log_event("runtime_failed", session_id=session_id, error=str(exc))
+            await self._stream_service.publish(
+                session_id,
+                "error",
+                build_error_payload(
+                    code="RUNTIME_EXECUTION_FAILED",
+                    message=str(exc),
+                    retryable=False,
                 ),
-                loop,
             )
-            fut.result()
 
-    def _watchdog_thread(self, loop: asyncio.AbstractEventLoop, session_id: str) -> None:
+    def _run_engine_sync(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        session_id: str,
+        seed: int,
+        policy_mode: str | None,
+    ) -> None:
+        self._ensure_gpt_import_path()
+        from engine import GameEngine
+        from policy.factory import PolicyFactory
+
+        session = self._session_service.get_session(session_id)
+        resolved = dict(session.resolved_parameters or {})
+        runtime = dict(resolved.get("runtime", {}))
+        selected_policy_mode = policy_mode or runtime.get("policy_mode") or "heuristic_v3_gpt"
+        policy = PolicyFactory.create_runtime_policy(
+            policy_mode=selected_policy_mode,
+            lap_policy_mode=selected_policy_mode,
+        )
+        vis_stream = _FanoutVisEventStream(loop, self._stream_service, session_id, self._touch_activity)
+        engine = GameEngine(
+            config=self._config_factory.create(resolved),
+            policy=policy,
+            rng=random.Random(seed),
+            event_stream=vis_stream,
+        )
+        engine.run()
+
+    async def _watchdog_loop(self, session_id: str) -> None:
         warned = False
         while True:
-            thread = self._threads.get(session_id)
+            task = self._runtime_tasks.get(session_id)
             status = self._status.get(session_id, {}).get("status")
-            if thread is None:
+            if task is None:
                 return
             if status in {"finished", "failed", "idle"}:
                 return
-            if not thread.is_alive():
+            if task.done():
                 self._refresh_status(session_id)
                 return
             last = self._last_activity_ms.get(session_id, self._now_ms())
@@ -112,22 +185,16 @@ class RuntimeService:
                 current["watchdog_state"] = "stalled_warning"
                 current["last_activity_ms"] = last
                 self._status[session_id] = current
-                fut = asyncio.run_coroutine_threadsafe(
-                    self._stream_service.publish(
-                        session_id,
-                        "error",
-                        {
-                            "code": "RUNTIME_STALLED_WARN",
-                            "message": f"Runtime inactivity detected for {idle_ms}ms.",
-                            "retryable": True,
-                        },
+                log_event("runtime_watchdog_warn", session_id=session_id, idle_ms=idle_ms)
+                await self._stream_service.publish(
+                    session_id,
+                    "error",
+                    build_error_payload(
+                        code="RUNTIME_STALLED_WARN",
+                        message=f"Runtime inactivity detected for {idle_ms}ms.",
+                        retryable=True,
                     ),
-                    loop,
                 )
-                try:
-                    fut.result()
-                except Exception:
-                    pass
             if idle_ms <= self._watchdog_timeout_ms:
                 warned = False
                 current = dict(self._status.get(session_id, {"status": "running"}))
@@ -135,18 +202,18 @@ class RuntimeService:
                     current["watchdog_state"] = "ok"
                     current["last_activity_ms"] = last
                     self._status[session_id] = current
-            threading.Event().wait(2.0)
+            await asyncio.sleep(2.0)
 
     def _touch_activity(self, session_id: str) -> None:
         self._last_activity_ms[session_id] = self._now_ms()
 
     def _refresh_status(self, session_id: str) -> None:
-        thread = self._threads.get(session_id)
-        if not thread:
+        task = self._runtime_tasks.get(session_id)
+        if not task:
             return
         current = self._status.get(session_id, {})
         status = current.get("status")
-        if status == "running" and not thread.is_alive():
+        if status == "running" and task.done():
             self._status[session_id] = {"status": "finished"}
 
     @staticmethod

@@ -3,6 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from apps.server.src.core.error_payload import build_error_payload
+from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.session_service import SessionNotFoundError, SessionService, SessionStateError
 from apps.server.src.services.stream_service import StreamService
 from apps.server.src.services.runtime_service import RuntimeService
@@ -11,7 +13,7 @@ router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 
 
 class SeatInput(BaseModel):
-    seat: int = Field(..., ge=1, le=4)
+    seat: int = Field(..., ge=1)
     seat_type: str
     ai_profile: str | None = None
 
@@ -22,7 +24,7 @@ class CreateSessionRequest(BaseModel):
 
 
 class JoinSessionRequest(BaseModel):
-    seat: int = Field(..., ge=1, le=4)
+    seat: int = Field(..., ge=1)
     join_token: str
     display_name: str | None = None
 
@@ -64,7 +66,7 @@ def _error(code: str, message: str, http_status: int = status.HTTP_400_BAD_REQUE
         detail={
             "ok": False,
             "data": None,
-            "error": {"code": code, "message": message, "retryable": False},
+            "error": build_error_payload(code=code, message=message, retryable=False),
         },
     )
 
@@ -75,6 +77,7 @@ async def create_session(
     service: SessionService = Depends(_service),
     stream: StreamService = Depends(_stream),
 ) -> dict:
+    log_event("session_create_requested", seat_count=len(payload.seats))
     try:
         session = service.create_session(
             seats=[seat.model_dump() for seat in payload.seats],
@@ -85,7 +88,16 @@ async def create_session(
     await stream.publish(
         session.session_id,
         "event",
-        {"event_type": "session_created", "status": session.status.value},
+        {
+            "event_type": "session_created",
+            "status": session.status.value,
+            "manifest_hash": session.parameter_manifest.get("manifest_hash"),
+        },
+    )
+    log_event(
+        "session_created",
+        session_id=session.session_id,
+        manifest_hash=session.parameter_manifest.get("manifest_hash"),
     )
     return _ok(service.to_create_result(session))
 
@@ -112,6 +124,7 @@ async def join_session(
     service: SessionService = Depends(_service),
     stream: StreamService = Depends(_stream),
 ) -> dict:
+    log_event("session_join_requested", session_id=session_id, seat=payload.seat)
     try:
         result = service.join_session(
             session_id=session_id,
@@ -132,6 +145,12 @@ async def join_session(
             "player_id": result.get("player_id"),
         },
     )
+    log_event(
+        "session_joined",
+        session_id=session_id,
+        seat=payload.seat,
+        player_id=result.get("player_id"),
+    )
     return _ok(result)
 
 
@@ -143,6 +162,7 @@ async def start_session(
     stream: StreamService = Depends(_stream),
     runtime: RuntimeService = Depends(_runtime),
 ) -> dict:
+    log_event("session_start_requested", session_id=session_id)
     try:
         session = service.start_session(session_id=session_id, host_token=payload.host_token)
     except SessionNotFoundError:
@@ -152,10 +172,54 @@ async def start_session(
     await stream.publish(
         session_id,
         "event",
-        {"event_type": "session_started", "status": session.status.value},
+        {
+            "event_type": "session_start",
+            "status": session.status.value,
+            "round_index": session.round_index,
+            "turn_index": session.turn_index,
+            "player_count": len(session.seats),
+            "players": [
+                {
+                    "seat": seat.seat,
+                    "player_id": seat.player_id,
+                    "seat_type": seat.seat_type.value,
+                    "ai_profile": seat.ai_profile,
+                }
+                for seat in session.seats
+            ],
+            "manifest_hash": session.parameter_manifest.get("manifest_hash"),
+        },
+    )
+    await stream.publish(
+        session_id,
+        "event",
+        {
+            "event_type": "session_started",
+            "status": session.status.value,
+            "manifest_hash": session.parameter_manifest.get("manifest_hash"),
+        },
+    )
+    await stream.publish(
+        session_id,
+        "event",
+        {
+            "event_type": "parameter_manifest",
+            "parameter_manifest": session.parameter_manifest,
+        },
+    )
+    log_event(
+        "session_started",
+        session_id=session_id,
+        manifest_hash=session.parameter_manifest.get("manifest_hash"),
+        player_count=len(session.seats),
     )
     if service.is_all_ai(session_id):
-        await runtime.start_runtime(session_id=session_id, seed=int(session.config.get("seed", 42)))
+        runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
+        await runtime.start_runtime(
+            session_id=session_id,
+            seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
+            policy_mode=runtime_cfg.get("policy_mode"),
+        )
     return _ok(service.to_public(session))
 
 

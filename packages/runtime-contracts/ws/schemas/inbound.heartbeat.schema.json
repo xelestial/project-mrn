@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "runtime-contracts/ws/inbound.heartbeat.schema.json",
+  "title": "InboundHeartbeatMessage",
+  "type": "object",
+  "required": [
+    "type",
+    "seq",
+    "session_id",
+    "payload"
+  ],
+  "properties": {
+    "type": {
+      "const": "heartbeat"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "server_time_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "interval_ms"
+      ],
+      "properties": {
+        "interval_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "backpressure": {
+          "type": "object",
+          "properties": {
+            "subscriber_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "drop_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "queue_size": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
+

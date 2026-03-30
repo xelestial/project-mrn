@@ -1,0 +1,15 @@
+{
+  "type": "heartbeat",
+  "seq": 15,
+  "session_id": "sess_example_1",
+  "server_time_ms": 1743210004123,
+  "payload": {
+    "interval_ms": 5000,
+    "backpressure": {
+      "subscriber_count": 2,
+      "drop_count": 4,
+      "queue_size": 256
+    }
+  }
+}
+

@@ -2,7 +2,7 @@
 
 Status: `ACTIVE`  
 Owner: `Shared (Backend: CLAUDE, Frontend: GPT)`  
-Updated: `2026-03-30`  
+Updated: `2026-03-31`  
 Depends on: `PLAN/ONLINE_GAME_ARCHITECTURE_PLAN.md`, `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`
 
 ## Purpose
@@ -12,7 +12,7 @@ This document is the execution plan to move from the current Python-rendered HTM
 Primary goals:
 
 - Replace polling viewer with a session-based, WebSocket-first architecture
-- Support real human play (up to 4 seats) with AI/human mixed sessions
+- Support real human play with parameterized seat model (default profile: up to 4 seats) and AI/human mixed sessions
 - Keep engine rules as source of truth and preserve DI boundaries
 - Guarantee replay, observability, and maintainability
 
@@ -28,7 +28,7 @@ Primary goals:
 | Decision submission | `POST /decision` | WebSocket decision message |
 | Frontend | Server-generated HTML/JS | React + Vite + TypeScript |
 | Session model | Single runtime style | Explicit session create/join/start |
-| Seat support | Partial | Full 1-4 human seats + AI mix |
+| Seat support | Partial | Parameterized seat model (default profile supports 1-4 human seats + AI mix) |
 
 ---
 
@@ -68,6 +68,8 @@ Detailed implementation specifications are maintained in:
 - `PLAN/[PLAN]_ONLINE_GAME_INTERFACE_SPEC.md`
 - `PLAN/[PLAN]_ONLINE_GAME_API_SPEC.md`
 - `PLAN/[PLAN]_REPOSITORY_DIRECTORY_SPEC.md`
+- `PLAN/[PLAN]_PARAMETER_DRIVEN_RUNTIME_DECOUPLING.md`
+- `PLAN/[REVIEW]_PIPELINE_CONSISTENCY_AND_COUPLING_AUDIT.md`
 
 Current policy:
 
@@ -77,7 +79,7 @@ Current policy:
 
 ---
 
-## Implementation Status Snapshot (`2026-03-30`)
+## Implementation Status Snapshot (`2026-03-31`)
 
 - D1 scaffold and B1 baseline code have started in repository:
   - server skeleton: `apps/server/src/*`
@@ -92,6 +94,8 @@ Current policy:
   - prompt pending/timeout/decision-ack service skeleton wired
   - debug prompt route and websocket decision ack flow added
   - prompt timeout fallback trace event baseline added (`decision_timeout_fallback`)
+  - engine fallback execution seam wired (`RuntimeService.execute_prompt_fallback`)
+  - timeout fallback event now includes execution fields (`fallback_execution`, `fallback_choice_id`)
 - B2/B3 hardening has started:
   - websocket token auth for seat vs spectator path
   - unauthorized/mismatched decision rejection paths
@@ -99,6 +103,14 @@ Current policy:
   - subscriber fan-out queue path with slow-consumer drop-oldest backpressure baseline
   - slow-consumer drop-oldest regression test baseline added (`apps/server/tests/test_stream_service.py`)
   - runtime watchdog baseline added (inactivity warning + `last_activity_ms` in runtime status)
+  - structured logging retention baseline added:
+    - env-driven log rotation settings (`MRN_LOG_FILE_PATH`, `MRN_LOG_FILE_MAX_BYTES`, `MRN_LOG_FILE_BACKUP_COUNT`)
+    - rotating file handler initialization in server state bootstrap
+    - runtime settings + structured log unit tests
+  - runtime async bridge baseline added:
+    - runtime execution now uses `asyncio.to_thread` task bridge
+    - watchdog loop now runs as async task (no dedicated watchdog thread)
+    - runtime async bridge regression test added (`apps/server/tests/test_runtime_service.py`)
 - runtime fan-out baseline has started:
   - all-AI sessions trigger background engine run and stream publish
   - engine append events are now forwarded to websocket stream immediately
@@ -113,11 +125,12 @@ Current policy:
   - runtime status auto-refresh baseline added
   - websocket auto-reconnect baseline added (incremental backoff)
   - websocket reconnect polish added (exponential backoff + jitter)
+  - stream client reconnect/resume integration tests added (`apps/web/src/infra/ws/StreamClient.spec.ts`)
   - out-of-order stream buffer baseline added in reducer (`pendingBySeq`, contiguous flush)
   - seq-gap triggered resume-request baseline added in stream hook
   - F2 pre-structure started (connection/situation/timeline/board placeholder components)
   - F2 snapshot baseline added (public board tiles + player panels from stream snapshot)
-  - F2 ring-board baseline added (40-tile coordinate mapping)
+  - F2 ring-board baseline added (default profile: 40-tile coordinate mapping)
   - F2 board-near incident stack baseline added
   - F2 board movement readability baseline added (recent move summary + tile highlight + pawn arrive pulse)
   - F2 localized selector labels baseline added (Korean event labels and detail summaries)
@@ -128,16 +141,46 @@ Current policy:
   - F3 keyboard/focus baseline added (first choice focus, Escape collapse)
   - F3 stale/rejected inline feedback baseline added in prompt overlay
   - F3 request-type helper copy baseline added in prompt overlay
+  - F3 helper catalog split baseline added (`request_type` -> helper text module)
+  - F3 helper coverage expanded for full request-type matrix (`burden_exchange`, `runaway_step_choice` 포함)
   - F5 incident theater depth baseline added (tone badge + seq meta)
   - F4 lobby baseline started (custom create/join/start/session-list in app shell)
   - F4 lobby/match route split baseline added (hash-based route tabs)
   - F4 join-token UX polish baseline added (seat dropdown + one-click token apply)
   - F4 dedicated lobby view extraction baseline added (`features/lobby/LobbyView.tsx`)
   - F4 URL cleanup baseline added (connected match hash token removal)
+  - B5 decoupling baseline started:
+    - session config resolves through parameter resolver
+    - session API now returns `parameter_manifest` on create/get/start
+    - stream emits `parameter_manifest` event on session start
+    - session parameter resolver now supports `board_topology` override (`ring`/`line`)
+    - runtime boot uses injected engine config factory (direct `DEFAULT_CONFIG` path removed)
+    - root-source fingerprints + `manifest_hash` baseline is live in session manifest
+    - selector label handling now uses catalog split from event codes (display/routing decoupling baseline)
+    - selector fallback tolerance expanded for partial/flat manifest payload variants
+    - frontend fallback tests expanded for unknown event kinds and partial manifest fixtures
+    - stream manifest rehydrate path now updates board topology/label payloads (not tiles-only)
+    - manifest rehydrate merge logic extracted to pure helper with unit tests (`apps/web/src/domain/manifest/manifestRehydrate.spec.ts`)
+    - server integration tests now cover non-default manifest profile replay (`3-seat + line`)
+    - web reconnect-flow fixture now covers hash-change replay chain (`manifestReconnectFlow.spec.ts`)
+    - backend transport E2E fixture now covers reconnect replay after manifest-hash change
+  - CI baseline added:
+    - GitHub Actions workflow wiring for backend tests, manifest gate, web tests/build
+    - active-code legacy path gate added (`python tools/legacy_path_audit.py --roots apps packages tools --strict`)
+    - file: `.github/workflows/ci.yml`
 - next implementation target:
-  - B2/B3 hardening (reconnect stress, backpressure, fallback wiring)
-  - runtime watchdog/ops hardening and prompt fallback integration
-  - F1 hardening (install/build pipeline, reducer/store baseline)
+  - B2/B3 hardening (reconnect stress, backpressure, fallback reliability)
+  - B5 hardening (manifest contract coverage in reconnect/integration/E2E paths)
+  - F7 closure (manifest-hash rehydrate + non-default seat/topology regression)
+  - completed matrix closure (`2026-03-31`):
+    - backend matrix tests (`apps/server/tests/test_parameter_service.py`, `apps/server/tests/test_sessions_api.py`)
+    - browser matrix parity fixture (`apps/web/e2e/parity.spec.ts`, `apps/web/e2e/fixtures/parameter_matrix_economy_dice_2seat.json`)
+  - root-source propagation closure (`2026-03-31`):
+    - root-source file change -> `source_fingerprints` and `manifest_hash` delta tests
+    - session bootstrap manifest reflects source changes (`apps/server/tests/test_parameter_propagation.py`)
+  - docs migration closure (`2026-03-31`):
+    - detailed active specs are mirrored under `docs/api`, `docs/backend`, `docs/frontend`, `docs/architecture`
+    - compatibility mirror notes added to matching `PLAN/[PLAN]_...` files
 
 ---
 
@@ -339,7 +382,7 @@ Core hook:
 Feature components:
 
 - Board: tiles, ownership, pawn positions, map overlays
-- Players: 4 player status panels
+- Players: data-driven player status panels (count from manifest/session snapshot)
 - Prompt: modal/panel decision UI
 - Theater: non-human turn narration and action cards
 - Timeline/event log: compact trace and filtering
@@ -571,18 +614,76 @@ Frontend done when:
 
 ---
 
+## Unified Priority Order (Single-Owner Mode)
+
+Temporary execution policy:
+
+- GPT executes both prior GPT-owned and CLAUDE-owned tracks until further notice.
+- Priority is set to minimize cross-plan regressions and contract churn.
+
+Priority stack:
+
+1. `P0` Contract/parameter stability first
+- `parameter_manifest`, `manifest_hash`, `source_fingerprints`
+- interface/API consistency freeze before feature expansion
+- reason: prevents rework across backend/frontend/replay
+
+2. `P1` Runtime reliability and prompt determinism
+- B2/B3/B4 hardening (resume, timeout fallback, auth mismatch, watchdog)
+- reason: unstable runtime invalidates all UX and parity testing
+
+3. `P2` Parameter-aware rendering closure
+- F7 + decoupling track completion
+- topology/seat/label dynamic rendering and rehydrate guards
+- reason: blocks hardcoding regressions when rules/config change
+
+4. `P3` Human-play UX closure (Phase 5 quality)
+- prompt clarity, theater continuity, board incident visibility, non-human turn readability
+- reason: user-facing playability after technical stability is secured
+
+5. `P4` Migration polish and documentation relocation
+- PLAN -> DOCS relocation, legacy reference cleanup, release playbook
+- reason: lowest immediate risk to runtime correctness
+
+## Cross-Plan Change Impact Control
+
+Any task must classify and gate its impact before merge.
+
+Impact classes:
+
+- `C1 Contract`: API/WS/interface/manifest shape
+- `C2 Runtime`: session/prompt/stream execution behavior
+- `C3 Projection`: selector/layout/label/topology rendering
+- `C4 UX Only`: wording/style/interaction that does not change rule/state semantics
+
+Required gates by class:
+
+- `C1`: contract tests + spec updates + replay compatibility note
+- `C2`: integration tests (resume/timeout/stale/auth) + watchdog check
+- `C3`: manifest variant tests (seat/topology/unknown kinds) + rehydrate test
+- `C4`: component tests + no-contract-diff proof
+
+Merge rule:
+
+- never merge `C2/C3/C4` changes that depend on an unmerged `C1` delta
+- if multiple plans are touched, the PR must list a single source-of-truth document and reference all affected plans/specs
+
+---
+
 ## Open Items
 
 | # | Item | Owner | Notes |
 |---|---|---|---|
-| OI1 | Engine sync runtime bridge to async FastAPI | CLAUDE | `asyncio.to_thread`/executor policy |
-| OI2 | Extract board tile layout constants from legacy renderer | GPT | Move to shared board schema |
-| OI3 | Full prompt type coverage audit in human policy and React UI | GPT | In progress: helper copy + selector fixture expansion complete, full prompt matrix pending |
-| OI4 | Final UI stack decision (plain CSS modules vs utility stack) | GPT | Keep complexity bounded |
+| OI1 | Engine sync runtime bridge to async FastAPI | Shared | Closed (2026-03-31): runtime now bridges blocking engine execution via `asyncio.to_thread` with async watchdog task path |
+| OI2 | Extract board tile layout constants from legacy renderer | GPT | In progress: `boardProjection` module extracted, topology-aware projection baseline added (`ring`/`line`), board label path manifest-aware (`tile_kind_labels`) |
+| OI3 | Full prompt type coverage audit in human policy and React UI | GPT | Complete: helper/label catalog + coverage tests enforce full human-policy request-type matrix |
+| OI4 | Final UI stack decision (plain CSS modules vs utility stack) | GPT | Complete: plain-CSS-first strategy fixed for v1 (`PLAN/[DECISION]_REACT_UI_STACK_STRATEGY.md`) |
 | OI5 | Session persistence after restart | CLAUDE | Out of scope for v1 |
-| OI6 | Migrate detailed specs from `PLAN/` to `DOCS/*` after scaffold | Shared | Keep links stable with redirect note |
-| OI7 | WS and prompt schema freeze with examples | Shared | Required before F3 |
-| OI8 | State store final decision (`zustand` only vs hybrid) | GPT | Decide before F2 close |
-| OI9 | Structured log retention and rotation policy | CLAUDE | Needed for ops |
-| OI10 | Legacy vs React parity checklist artifact | Shared | Required before cutover |
-| OI11 | Legacy path (`GPT/`, `CLAUDE/`, `frontend/`) reference cleanup | Shared | align docs/scripts to `apps/*` + `packages/*` |
+| OI6 | Migrate detailed specs from `PLAN/` to `DOCS/*` after scaffold | Shared | Closed (2026-03-31): canonical detailed specs now live under `docs/*`; `PLAN/` mirrors retain redirect notes |
+| OI7 | WS and prompt schema freeze with examples | Shared | Complete: frozen schemas/examples under `packages/runtime-contracts/ws/*` + validation test `apps/server/tests/test_runtime_contract_examples.py` |
+| OI8 | State store final decision (`zustand` only vs hybrid) | GPT | Complete: reducer+selector-first baseline fixed for v1 (`useReducer` stream store, no zustand dependency in current phase) |
+| OI9 | Structured log retention and rotation policy | Shared | Closed (2026-03-31): env-driven rotation settings + bootstrap + test coverage + backend runbook (`docs/backend/runtime-logging-policy.md`) |
+| OI10 | Legacy vs React parity checklist artifact | Shared | Closed (2026-03-31): replay parity and live human-play acceptance passes are both complete with logged evidence under `result/acceptance/*` |
+| OI11 | Legacy path (`GPT/`, `CLAUDE/`, `frontend/`) reference cleanup | Shared | Closed (2026-03-31): strict active-root gate is clean (`apps/packages/tools`: 0 refs), CI gate active, and cleanup policy documented (`docs/architecture/legacy-reference-cleanup-policy.md`) |
+| OI12 | Parameter-manifest and config-resolver decoupling track | Shared | Closed (2026-03-31): resolver/config-factory/manifest stream baseline + Playwright/browser/backend matrix coverage completed (seat/topology/economy/dice variants) |
+| OI13 | Root-source change auto-propagation guardrail (fingerprint/hash/CI) | Shared | Closed (2026-03-31): fingerprint/hash CI gate + source-change propagation tests (manifest + session bootstrap) are in place |

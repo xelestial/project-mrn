@@ -1,4 +1,4 @@
-﻿"""Phase 2 HTML replay renderer with event-first playback."""
+"""Phase 2 HTML replay renderer with event-first playback."""
 from __future__ import annotations
 
 from copy import deepcopy

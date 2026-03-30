@@ -94,6 +94,19 @@ class StreamServiceTests(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_replay_window_remains_monotonic_under_large_publish_volume(self) -> None:
+        service = StreamService(max_buffer=50)
+
+        async def _run() -> None:
+            for n in range(1, 301):
+                await service.publish("s1", "event", {"n": n})
+            oldest, latest = await service.replay_window("s1")
+            self.assertEqual((oldest, latest), (251, 300))
+            replay = await service.replay_from("s1", 295)
+            self.assertEqual([m.seq for m in replay], [296, 297, 298, 299, 300])
+
+        asyncio.run(_run())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "runtime-contracts/ws/inbound.decision_ack.schema.json",
+  "title": "InboundDecisionAckMessage",
+  "type": "object",
+  "required": [
+    "type",
+    "seq",
+    "session_id",
+    "payload"
+  ],
+  "properties": {
+    "type": {
+      "const": "decision_ack"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "server_time_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "request_id",
+        "status",
+        "player_id"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "accepted",
+            "rejected",
+            "stale"
+          ]
+        },
+        "player_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
+

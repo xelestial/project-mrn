@@ -9,7 +9,38 @@ export type SeatInput = {
 type ApiEnvelope<T> = {
   ok: boolean;
   data: T | null;
-  error: { code: string; message: string; retryable: boolean } | null;
+  error: { code: string; category?: string; message: string; retryable: boolean } | null;
+};
+
+export type ParameterManifest = {
+  manifest_version: number;
+  manifest_hash: string;
+  source_fingerprints: Record<string, string>;
+  version: string;
+  board?: {
+    topology?: string;
+    tile_count?: number;
+    tiles?: Array<{
+      tile_index: number;
+      tile_kind: string;
+      block_id?: number;
+      zone_color?: string | null;
+      purchase_cost?: number | null;
+      rent_cost?: number | null;
+    }>;
+  };
+  seats?: {
+    min?: number;
+    max?: number;
+    allowed?: number[];
+    default_profile_max?: number;
+  };
+  dice?: {
+    values?: number[];
+    max_cards_per_turn?: number;
+    use_one_card_plus_one_die?: boolean;
+  };
+  labels?: Record<string, unknown>;
 };
 
 export type SeatPublic = {
@@ -26,6 +57,7 @@ export type CreateSessionResult = {
   host_token: string;
   join_tokens: Record<string, string>;
   seats?: SeatPublic[];
+  parameter_manifest?: ParameterManifest;
 };
 
 export type PublicSessionResult = {
@@ -36,6 +68,7 @@ export type PublicSessionResult = {
   created_at?: string;
   started_at?: string | null;
   seats?: SeatPublic[];
+  parameter_manifest?: ParameterManifest;
 };
 
 export type JoinSessionResult = {

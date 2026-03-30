@@ -1,48 +1,40 @@
-import type { TimelineItem } from "../../domain/selectors/streamSelectors";
+import type { TheaterItem } from "../../domain/selectors/streamSelectors";
 
 type IncidentCardStackProps = {
-  items: TimelineItem[];
+  items: TheaterItem[];
 };
 
-function toneOf(item: TimelineItem): "move" | "economy" | "system" {
-  if (item.label.includes("이동") || item.label.includes("턴")) {
-    return "move";
-  }
-  if (item.label.includes("구매") || item.label.includes("징표") || item.label.includes("보상")) {
-    return "economy";
-  }
-  return "system";
-}
-
-function toneBadge(tone: "move" | "economy" | "system"): string {
+function toneBadge(tone: TheaterItem["tone"]): string {
   if (tone === "move") {
-    return "이동";
+    return "MOVE";
   }
   if (tone === "economy") {
-    return "정산";
+    return "ECO";
   }
-  return "시스템";
+  if (tone === "critical") {
+    return "ALERT";
+  }
+  return "SYS";
 }
 
 export function IncidentCardStack({ items }: IncidentCardStackProps) {
-  const top = items.slice(0, 5);
+  const top = items.slice(0, 10);
   return (
     <section className="panel">
-      <h2>최근 사건 카드</h2>
+      <h2>Turn Theater</h2>
       <div className="incident-stack">
-        {top.map((item) => {
-          const tone = toneOf(item);
-          return (
-            <article key={`incident-${item.seq}`} className={`incident-card incident-${tone}`}>
-              <div className="incident-meta">
-                <span className="incident-badge">{toneBadge(tone)}</span>
-                <span className="incident-seq">#{item.seq}</span>
-              </div>
-              <strong>{item.label}</strong>
-              <small>{item.detail || "-"}</small>
-            </article>
-          );
-        })}
+        {top.map((item) => (
+          <article key={`incident-${item.seq}`} className={`incident-card incident-${item.tone}`}>
+            <div className="incident-meta">
+              <span className="incident-badge">{toneBadge(item.tone)}</span>
+              <span className="incident-seq">#{item.seq}</span>
+            </div>
+            <strong>
+              {item.actor} - {item.label}
+            </strong>
+            <small>{item.detail || "-"}</small>
+          </article>
+        ))}
       </div>
     </section>
   );

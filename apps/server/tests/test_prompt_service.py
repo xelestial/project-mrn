@@ -36,6 +36,20 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(result["status"], "rejected")
         self.assertEqual(result["reason"], "player_mismatch")
 
+    def test_rejects_missing_choice_id(self) -> None:
+        self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "r2b",
+                "request_type": "movement",
+                "player_id": 2,
+                "timeout_ms": 30000,
+            },
+        )
+        result = self.service.submit_decision({"request_id": "r2b", "player_id": 2})
+        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(result["reason"], "missing_choice_id")
+
     def test_timeout_pending_by_session(self) -> None:
         self.service.create_prompt(
             "s1",
@@ -60,6 +74,42 @@ class PromptServiceTests(unittest.TestCase):
         self.service.create_prompt("s1", payload)
         with self.assertRaises(ValueError):
             self.service.create_prompt("s1", payload)
+
+    def test_already_resolved_request_returns_stale(self) -> None:
+        self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "r4",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 30000,
+            },
+        )
+        accepted = self.service.submit_decision(
+            {"request_id": "r4", "player_id": 1, "choice_id": "roll"}
+        )
+        self.assertEqual(accepted["status"], "accepted")
+
+        stale = self.service.submit_decision(
+            {"request_id": "r4", "player_id": 1, "choice_id": "roll"}
+        )
+        self.assertEqual(stale["status"], "stale")
+        self.assertEqual(stale["reason"], "already_resolved")
+
+    def test_timeout_pending_is_idempotent_per_request(self) -> None:
+        self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "r5",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 1,
+            },
+        )
+        first = self.service.timeout_pending(now_ms=10**15, session_id="s1")
+        second = self.service.timeout_pending(now_ms=10**15 + 1, session_id="s1")
+        self.assertEqual(len(first), 1)
+        self.assertEqual(len(second), 0)
 
 
 if __name__ == "__main__":

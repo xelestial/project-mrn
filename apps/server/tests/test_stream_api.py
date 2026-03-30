@@ -13,14 +13,20 @@ except ModuleNotFoundError:
     FASTAPI_AVAILABLE = False
 
 from apps.server.src.services.prompt_service import PromptService
+from apps.server.src.config.runtime_settings import RuntimeSettings
 from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
 
 
-def _reset_state(max_buffer: int = 2000) -> None:
+def _reset_state(max_buffer: int = 2000, heartbeat_interval_ms: int = 5000) -> None:
     from apps.server.src import state
 
+    state.runtime_settings = RuntimeSettings(
+        stream_heartbeat_interval_ms=heartbeat_interval_ms,
+        stream_sender_poll_timeout_ms=100,
+        runtime_watchdog_timeout_ms=45000,
+    )
     state.session_service = SessionService()
     state.stream_service = StreamService(max_buffer=max_buffer)
     state.prompt_service = PromptService()
@@ -45,10 +51,25 @@ def _seat1_human_others_ai() -> list[dict]:
     ]
 
 
+def _three_ai_line_payload() -> dict:
+    return {
+        "seats": [
+            {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+            {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+        ],
+        "config": {
+            "seed": 202,
+            "board_topology": "line",
+            "seat_limits": {"min": 1, "max": 3, "allowed": [1, 2, 3]},
+        },
+    }
+
+
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi is not installed in this environment")
 class StreamApiTests(unittest.TestCase):
     def setUp(self) -> None:
-        _reset_state(max_buffer=2)
+        _reset_state(max_buffer=2, heartbeat_interval_ms=250)
         self.client = TestClient(app)
 
     def test_resume_gap_too_old_emits_error_and_replays_latest_buffer(self) -> None:
@@ -87,6 +108,7 @@ class StreamApiTests(unittest.TestCase):
         self.assertGreaterEqual(len(gap_errors), 1)
         self.assertEqual(replayed_seqs, [2, 3])
         self.assertIn("server_time_ms", gap_errors[0])
+        self.assertEqual(gap_errors[0].get("payload", {}).get("category"), "transport")
 
     def test_spectator_decision_is_rejected_with_unauthorized_seat(self) -> None:
         from apps.server.src import state
@@ -114,6 +136,7 @@ class StreamApiTests(unittest.TestCase):
         errors = [m for m in messages if m.get("type") == "error"]
         self.assertGreaterEqual(len(errors), 1)
         self.assertEqual(errors[-1].get("payload", {}).get("code"), "UNAUTHORIZED_SEAT")
+        self.assertEqual(errors[-1].get("payload", {}).get("category"), "auth")
 
     def test_seat_decision_with_player_mismatch_is_rejected(self) -> None:
         from apps.server.src import state
@@ -145,6 +168,274 @@ class StreamApiTests(unittest.TestCase):
         errors = [m for m in messages if m.get("type") == "error"]
         self.assertGreaterEqual(len(errors), 1)
         self.assertEqual(errors[-1].get("payload", {}).get("code"), "PLAYER_MISMATCH")
+        self.assertEqual(errors[-1].get("payload", {}).get("category"), "auth")
+
+    def test_prompt_timeout_emits_fallback_execution_and_runtime_tracks_history(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 13})
+        state.prompt_service.create_prompt(
+            session.session_id,
+            {
+                "request_id": "r_timeout_1",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 1,
+                "fallback_policy": "timeout_fallback",
+                "fallback_choice_id": "choice_timeout_default",
+            },
+        )
+
+        path = f"/api/v1/sessions/{session.session_id}/stream"
+        timeout_events: list[dict] = []
+        with self.client.websocket_connect(path) as ws:
+            for _ in range(40):
+                msg = ws.receive_json()
+                if msg.get("type") != "event":
+                    continue
+                payload = msg.get("payload", {})
+                if payload.get("event_type") == "decision_timeout_fallback":
+                    timeout_events.append(payload)
+                    break
+
+        self.assertEqual(len(timeout_events), 1)
+        self.assertEqual(timeout_events[0].get("fallback_execution"), "executed")
+        self.assertEqual(timeout_events[0].get("fallback_choice_id"), "choice_timeout_default")
+        runtime_status = state.runtime_service.runtime_status(session.session_id)
+        recent = runtime_status.get("recent_fallbacks", [])
+        self.assertGreaterEqual(len(recent), 1)
+        self.assertEqual(recent[-1].get("request_id"), "r_timeout_1")
+
+    def test_resume_replays_latest_parameter_manifest_change(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 99})
+
+        async def _seed() -> None:
+            await state.stream_service.publish(
+                session.session_id,
+                "event",
+                {
+                    "event_type": "parameter_manifest",
+                    "parameter_manifest": {"manifest_hash": "hash_old"},
+                },
+            )
+            await state.stream_service.publish(session.session_id, "event", {"event_type": "round_start", "round_index": 1})
+            await state.stream_service.publish(
+                session.session_id,
+                "event",
+                {
+                    "event_type": "parameter_manifest",
+                    "parameter_manifest": {"manifest_hash": "hash_new"},
+                },
+            )
+
+        asyncio.run(_seed())
+
+        path = f"/api/v1/sessions/{session.session_id}/stream"
+        with self.client.websocket_connect(path) as ws:
+            ws.send_json({"type": "resume", "last_seq": 1})
+            replayed = []
+            for _ in range(4):
+                msg = ws.receive_json()
+                if msg.get("type") == "event":
+                    replayed.append(msg)
+                if len(replayed) >= 2:
+                    break
+
+        self.assertEqual([m.get("seq") for m in replayed], [2, 3])
+        self.assertEqual(replayed[0].get("payload", {}).get("event_type"), "round_start")
+        self.assertEqual(replayed[1].get("payload", {}).get("event_type"), "parameter_manifest")
+        self.assertEqual(
+            replayed[1].get("payload", {}).get("parameter_manifest", {}).get("manifest_hash"),
+            "hash_new",
+        )
+
+    def test_resume_replays_flat_parameter_manifest_shape_without_mutation(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 100})
+
+        async def _seed() -> None:
+            await state.stream_service.publish(session.session_id, "event", {"event_type": "round_start", "round_index": 1})
+            await state.stream_service.publish(
+                session.session_id,
+                "event",
+                {
+                    "event_type": "parameter_manifest",
+                    "manifest_hash": "flat_hash_new",
+                    "board": {"tile_count": 40},
+                },
+            )
+            await state.stream_service.publish(session.session_id, "event", {"event_type": "turn_start", "turn_index": 1})
+
+        asyncio.run(_seed())
+
+        path = f"/api/v1/sessions/{session.session_id}/stream"
+        with self.client.websocket_connect(path) as ws:
+            ws.send_json({"type": "resume", "last_seq": 1})
+            replayed = []
+            for _ in range(4):
+                msg = ws.receive_json()
+                if msg.get("type") == "event":
+                    replayed.append(msg)
+                if len(replayed) >= 2:
+                    break
+
+        self.assertEqual([m.get("seq") for m in replayed], [2, 3])
+        self.assertEqual(replayed[0].get("payload", {}).get("event_type"), "parameter_manifest")
+        self.assertEqual(replayed[0].get("payload", {}).get("manifest_hash"), "flat_hash_new")
+        self.assertEqual(replayed[0].get("payload", {}).get("board", {}).get("tile_count"), 40)
+        self.assertEqual(replayed[1].get("payload", {}).get("event_type"), "turn_start")
+
+    def test_resume_replays_manifest_with_non_default_topology_and_seat_profile(self) -> None:
+        created = self.client.post("/api/v1/sessions", json=_three_ai_line_payload())
+        self.assertEqual(created.status_code, 200)
+        created_data = created.json()["data"]
+        session_id = created_data["session_id"]
+        host_token = created_data["host_token"]
+
+        started = self.client.post(
+            f"/api/v1/sessions/{session_id}/start",
+            json={"host_token": host_token},
+        )
+        self.assertEqual(started.status_code, 200)
+        expected_hash = started.json()["data"]["parameter_manifest"]["manifest_hash"]
+
+        path = f"/api/v1/sessions/{session_id}/stream"
+        with self.client.websocket_connect(path) as ws:
+            ws.send_json({"type": "resume", "last_seq": 0})
+            messages: list[dict] = []
+            for _ in range(80):
+                msg = ws.receive_json()
+                messages.append(msg)
+                manifest_events = [
+                    m for m in messages if m.get("type") == "event" and m.get("payload", {}).get("event_type") == "parameter_manifest"
+                ]
+                if manifest_events:
+                    break
+
+        manifest_event = next(
+            m
+            for m in messages
+            if m.get("type") == "event" and m.get("payload", {}).get("event_type") == "parameter_manifest"
+        )
+        manifest = manifest_event.get("payload", {}).get("parameter_manifest", {})
+        self.assertEqual(manifest.get("manifest_hash"), expected_hash)
+        self.assertEqual(manifest.get("board", {}).get("topology"), "line")
+        self.assertEqual(manifest.get("seats", {}).get("allowed"), [1, 2, 3])
+
+    def test_reconnect_replays_latest_manifest_after_hash_change_end_to_end(self) -> None:
+        from apps.server.src import state
+
+        created = self.client.post("/api/v1/sessions", json=_three_ai_line_payload())
+        self.assertEqual(created.status_code, 200)
+        created_data = created.json()["data"]
+        session_id = created_data["session_id"]
+        host_token = created_data["host_token"]
+
+        started = self.client.post(
+            f"/api/v1/sessions/{session_id}/start",
+            json={"host_token": host_token},
+        )
+        self.assertEqual(started.status_code, 200)
+
+        first_manifest_seq = 0
+        ws_path = f"/api/v1/sessions/{session_id}/stream"
+        with self.client.websocket_connect(ws_path) as ws:
+            ws.send_json({"type": "resume", "last_seq": 0})
+            for _ in range(120):
+                msg = ws.receive_json()
+                if msg.get("type") != "event":
+                    continue
+                payload = msg.get("payload", {})
+                if payload.get("event_type") == "parameter_manifest":
+                    first_manifest_seq = int(msg.get("seq", 0))
+                    break
+
+        self.assertGreater(first_manifest_seq, 0)
+
+        async def _publish_manifest_change() -> None:
+            await state.stream_service.publish(
+                session_id,
+                "event",
+                {
+                    "event_type": "parameter_manifest",
+                    "parameter_manifest": {
+                        "manifest_hash": "hash_e2e_changed",
+                        "board": {"topology": "line", "tile_count": 40},
+                        "seats": {"allowed": [1, 2, 3]},
+                    },
+                },
+            )
+
+        asyncio.run(_publish_manifest_change())
+
+        with self.client.websocket_connect(ws_path) as ws:
+            ws.send_json({"type": "resume", "last_seq": first_manifest_seq})
+            replayed: list[dict] = []
+            for _ in range(80):
+                msg = ws.receive_json()
+                if msg.get("type") != "event":
+                    continue
+                replayed.append(msg)
+                payload = msg.get("payload", {})
+                if payload.get("event_type") == "parameter_manifest" and payload.get("parameter_manifest", {}).get("manifest_hash") == "hash_e2e_changed":
+                    break
+
+        changed_manifest_event = next(
+            m
+            for m in replayed
+            if m.get("payload", {}).get("event_type") == "parameter_manifest"
+            and m.get("payload", {}).get("parameter_manifest", {}).get("manifest_hash") == "hash_e2e_changed"
+        )
+        changed_manifest = changed_manifest_event.get("payload", {}).get("parameter_manifest", {})
+        self.assertEqual(changed_manifest.get("board", {}).get("topology"), "line")
+        self.assertEqual(changed_manifest.get("seats", {}).get("allowed"), [1, 2, 3])
+
+    def test_reconnect_soak_preserves_seq_continuity_across_multiple_resumes(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 303})
+
+        async def _seed(start: int, end: int) -> None:
+            for n in range(start, end + 1):
+                await state.stream_service.publish(
+                    session.session_id,
+                    "event",
+                    {"event_type": "round_start", "round_index": n},
+                )
+
+        asyncio.run(_seed(1, 12))
+
+        path = f"/api/v1/sessions/{session.session_id}/stream"
+
+        def _collect_after(last_seq: int, target_latest_seq: int) -> list[int]:
+            with self.client.websocket_connect(path) as ws:
+                ws.send_json({"type": "resume", "last_seq": last_seq})
+                seen: list[int] = []
+                for _ in range(200):
+                    msg = ws.receive_json()
+                    if msg.get("type") != "event":
+                        continue
+                    seq = int(msg.get("seq", 0))
+                    if seq <= 0:
+                        continue
+                    seen.append(seq)
+                    if seq >= target_latest_seq:
+                        break
+            return seen
+
+        first_seen = _collect_after(last_seq=0, target_latest_seq=12)
+        self.assertEqual(first_seen, list(range(1, 13)))
+
+        asyncio.run(_seed(13, 18))
+        second_seen = _collect_after(last_seq=12, target_latest_seq=18)
+        self.assertEqual(second_seen, list(range(13, 19)))
+
+        asyncio.run(_seed(19, 23))
+        third_seen = _collect_after(last_seq=18, target_latest_seq=23)
+        self.assertEqual(third_seen, list(range(19, 24)))
 
 
 if __name__ == "__main__":

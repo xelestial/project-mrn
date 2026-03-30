@@ -1,0 +1,12 @@
+{
+  "type": "decision_ack",
+  "seq": 13,
+  "session_id": "sess_example_1",
+  "server_time_ms": 1743210002123,
+  "payload": {
+    "request_id": "req_turn7_move",
+    "status": "accepted",
+    "player_id": 1
+  }
+}
+

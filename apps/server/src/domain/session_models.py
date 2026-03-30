@@ -43,3 +43,5 @@ class Session:
     host_token: str = ""
     join_tokens: dict[int, str] = field(default_factory=dict)
     session_tokens: dict[int, str] = field(default_factory=dict)
+    resolved_parameters: dict = field(default_factory=dict)
+    parameter_manifest: dict = field(default_factory=dict)

@@ -1,0 +1,33 @@
+{
+  "board_tile_count": 40,
+  "dice_values": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "manifest_hash": "aeddcdbf424a86a0194039bb4664595aa7b79c2f04db2371c80f3c377dd8f728",
+  "manifest_version": 1,
+  "seat_limits": {
+    "allowed": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "default_profile_max": 4,
+    "max": 4,
+    "min": 2
+  },
+  "source_fingerprints": {
+    "board_layout": "70ad4fe71087f56bc53e0419e24ddbf5c1075287c41843945dff32fad4d71a6b",
+    "characters": "b73bbf2f667f31e33c58569775c7f486f5b45606e26d47e294fc6ad3f9bd2d4f",
+    "config": "c945aae1cf5b36633098dd35db34b28354a33845bc526dcc4447798e94b5b4ce",
+    "fortune_cards": "e253bdea6573ff9a1968318b21846e184a9419e461cc32d58087cd238d4645d9",
+    "ruleset": "2ff62a10814d538c5d5fe3a1f3f558834e210badff9bcd5a673651344507acc3",
+    "trick_cards": "54d610005ce3494040b4eaec024d7a147b06ccbda0ed5e5667b3662ea2861fee",
+    "weather_cards": "179bbc8e49a6d260b56296354b726b4ac4bd2c9e6af5f9200fa297e8c186b1ed"
+  }
+}

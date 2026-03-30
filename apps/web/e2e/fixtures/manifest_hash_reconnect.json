@@ -1,0 +1,27 @@
+{
+  "id": "manifest_hash_reconnect",
+  "title": "Manifest hash change reconnect rehydrate",
+  "goal": "Verify client projection rehydrates when a newer manifest hash arrives during resume replay.",
+  "preconditions": [
+    "Backend and web app are running.",
+    "At least one session can be started from lobby."
+  ],
+  "setup": [
+    "Start session A with default profile and connect to stream.",
+    "Capture current manifest hash from Recent Messages or session API."
+  ],
+  "injectScenario": [
+    "Start session B with changed config (line topology or changed seat limits).",
+    "Reconnect client to session B using Match route session parameter.",
+    "Ensure stream resume includes newer parameter_manifest event."
+  ],
+  "assertions": [
+    "Client shows board/seat assumptions from new manifest only.",
+    "No stale previous-session projection artifacts remain.",
+    "Latest manifest hash in state differs from the old one."
+  ],
+  "expectedSignals": [
+    "timeline includes Parameter Manifest event with new hash snippet",
+    "board topology and labels update after reconnect without page hard refresh"
+  ]
+}

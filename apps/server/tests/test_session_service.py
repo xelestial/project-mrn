@@ -33,6 +33,8 @@ class SessionServiceTests(unittest.TestCase):
         self.assertIn(1, session.join_tokens)
         self.assertIn(4, session.join_tokens)
         self.assertNotIn(2, session.join_tokens)
+        self.assertIn("manifest_hash", session.parameter_manifest)
+        self.assertIn("source_fingerprints", session.parameter_manifest)
 
     def test_join_and_start_session(self) -> None:
         session = self.service.create_session(_default_seats())
@@ -68,6 +70,29 @@ class SessionServiceTests(unittest.TestCase):
     def test_reject_invalid_seat_count(self) -> None:
         with self.assertRaises(SessionStateError):
             self.service.create_session([{"seat": 1, "seat_type": "human"}])
+
+    def test_reject_seat_outside_configured_range(self) -> None:
+        with self.assertRaises(SessionStateError):
+            self.service.create_session(
+                _default_seats(),
+                config={"seat_limits": {"min": 2, "max": 3, "allowed": [1, 2, 3]}},
+            )
+
+    def test_manifest_hash_changes_on_parameter_override(self) -> None:
+        base = self.service.create_session(_all_ai_seats(), config={"seed": 1})
+        changed = self.service.create_session(_all_ai_seats(), config={"seed": 1, "starting_cash": 30})
+        self.assertNotEqual(
+            base.parameter_manifest.get("manifest_hash"),
+            changed.parameter_manifest.get("manifest_hash"),
+        )
+
+    def test_manifest_hash_changes_on_board_topology_override(self) -> None:
+        base = self.service.create_session(_all_ai_seats(), config={"seed": 1, "board_topology": "ring"})
+        changed = self.service.create_session(_all_ai_seats(), config={"seed": 1, "board_topology": "line"})
+        self.assertNotEqual(
+            base.parameter_manifest.get("manifest_hash"),
+            changed.parameter_manifest.get("manifest_hash"),
+        )
 
     def test_is_all_ai(self) -> None:
         human_mix = self.service.create_session(_default_seats())

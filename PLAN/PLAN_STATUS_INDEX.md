@@ -9,7 +9,7 @@ Use it to answer:
 - which plans are reference-only
 - which plans are superseded and should no longer drive implementation
 
-This index was reviewed on `2026-03-30` against:
+This index was reviewed on `2026-03-31` against:
 - current branch `main`
 - `main`
 - `CLAUDE-MAIN`
@@ -89,6 +89,7 @@ Practical implications:
   - F1 test baseline added (Vitest + reducer unit tests)
   - F1 selector/contract parser tests added (`snapshot/timeline/situation`)
   - F1 websocket auto-reconnect baseline added (incremental backoff)
+  - F1 reconnect/resume integration test baseline added (`apps/web/src/infra/ws/StreamClient.spec.ts`)
   - F1 stream ordering resilience baseline added (out-of-order buffer + gap-triggered resume request)
   - F2 pre-structure has started (feature component split + selector layer + board placeholder)
   - F2 snapshot baseline added (stream snapshot -> public board/player render)
@@ -103,6 +104,8 @@ Practical implications:
   - F3 keyboard/focus baseline added (focus restore + Escape collapse)
   - F3 stale/rejected feedback messaging baseline added (prompt overlay inline guidance)
   - F3 prompt-type helper copy baseline added
+  - F3 helper catalog split baseline added (`request_type` -> helper map)
+  - F3 helper coverage expanded for full request matrix (`burden_exchange`, `runaway_step_choice` 포함)
   - F4 lobby baseline started (custom session create/join/start/session list)
   - F4 join-token state baseline added (seat-based auto-fill from created session)
   - F4 join-token UX polish baseline added (seat select + one-click token apply chips)
@@ -116,12 +119,34 @@ Practical implications:
   - B2 client reconnect polish added (exponential backoff + jitter)
   - B4 runtime watchdog baseline added (inactivity warning + runtime status activity fields)
   - B4 runtime visibility baseline added in web connection panel (watchdog/last-activity)
+  - B4 structured-log retention baseline added (env-driven rotating file handler + tests)
+  - runtime async bridge closure (`2026-03-31`):
+    - runtime execution now uses `asyncio.to_thread` task bridge
+    - watchdog now runs as async task path
+  - root-source propagation closure (`2026-03-31`):
+    - source file delta -> manifest fingerprint/hash delta test is covered
+    - session bootstrap manifest source-change propagation is covered
+  - detailed spec docs migration closure (`2026-03-31`):
+    - canonical detailed specs are now in `docs/*`
+    - `PLAN/[PLAN]_...` spec files are compatibility mirrors with redirect notes
+  - B5/F7 fallback hardening added:
+    - selector label-catalog split (`event_code` -> display label separation)
+    - partial/flat manifest parsing tolerance and fallback regression tests
+    - stream-manifest rehydrate now updates topology/labels with tested merge helper path
+    - server integration fixtures now include non-default manifest profile replay (`3-seat + line`)
+    - web reconnect-flow fixture now validates reducer/selector/rehydrate chain on hash change
+    - backend transport E2E fixture now validates reconnect replay after manifest-hash change
+  - OI11 active-root cleanup baseline added:
+    - strict legacy-path audit for `apps/packages/tools` is now 0-match
+    - CI gate added (`python tools/legacy_path_audit.py --roots apps packages tools --strict`)
+    - cleanup policy doc added (`docs/architecture/legacy-reference-cleanup-policy.md`)
 
 ### 1B. React Detailed Execution Backlog
 - File: `PLAN/[PLAN]_REACT_ONLINE_GAME_DETAILED_EXECUTION.md`
 - Status: `ACTIVE`
 - Role: phase-by-phase detailed implementation backlog and DoD gates
 - Notes:
+  - canonical doc path: `docs/architecture/react-online-game-detailed-execution.md`
   - source of truth for B1-B4, F1-F6 granular delivery checks
   - includes quality gates, risk register, and PR update rules
 
@@ -130,6 +155,7 @@ Practical implications:
 - Status: `ACTIVE`
 - Role: detailed component architecture and UI responsibility boundaries
 - Notes:
+  - canonical doc path: `docs/frontend/react-component-structure-spec.md`
   - defines component tree, feature ownership, selector boundaries, test matrix
   - canonical frontend reference for prompt/board/theater/player-panel composition
 
@@ -138,6 +164,7 @@ Practical implications:
 - Status: `ACTIVE`
 - Role: DI-facing backend/frontend interface boundary spec
 - Notes:
+  - canonical doc path: `docs/backend/online-game-interface-spec.md`
   - defines service protocols, frontend ports, prompt/decision interface mapping
   - canonical boundary reference for adapter-oriented implementation
 
@@ -146,6 +173,7 @@ Practical implications:
 - Status: `ACTIVE`
 - Role: concrete REST + WebSocket API contract
 - Notes:
+  - canonical doc path: `docs/api/online-game-api-spec.md`
   - defines envelope format, endpoint payloads, ws message types, error catalog
   - implementation and test updates should follow this spec for transport-level changes
 
@@ -163,9 +191,81 @@ Practical implications:
 - Status: `ACTIVE`
 - Role: mandatory document reading/usage order to prevent mixing legacy and active plans
 - Notes:
+  - docs-first reading order is now active for detailed specs (`docs/*`)
   - defines authoritative reading order before coding
   - defines conflict resolution and do-not-drive reference docs
   - should be checked before implementation starts
+
+### 1H. Parameter-Driven Runtime Decoupling
+- File: `PLAN/[PLAN]_PARAMETER_DRIVEN_RUNTIME_DECOUPLING.md`
+- Status: `ACTIVE`
+- Role: remove backend/frontend hardcoding sensitivity when gameplay parameters change
+- Notes:
+  - tracks hardcoded hotspots across server/runtime/engine/web
+  - defines `ResolvedGameParameters` + public `parameter_manifest` transition
+  - formalizes DI seams for config resolver, config factory, and label/topology adapters
+  - now includes root-source auto-propagation guardrails (`source_fingerprints`, `manifest_hash`, CI stale-artifact gate)
+  - implementation baseline has started in code:
+    - backend resolver/manifest services
+    - session API + stream manifest payload
+    - runtime config-factory boot path
+    - frontend manifest-hash rehydrate baseline
+    - frontend stream-manifest topology/labels rehydrate merge baseline (pure helper + tests)
+    - frontend selector fallback hardening for partial/flat manifest variants
+    - frontend label-catalog split baseline for event display mapping
+    - stale-artifact gate helper script (`tools/parameter_manifest_gate.py`)
+    - stale snapshot sync test (`apps/server/tests/test_parameter_manifest_snapshot.py`)
+    - CI workflow baseline wiring (`.github/workflows/ci.yml`)
+  - matrix coverage closure (`2026-03-31`):
+    - backend and API tests cover seat/economy/dice variant manifests
+    - Playwright parity fixture includes `parameter_matrix_economy_dice_2seat`
+  - should be used when changing:
+    - tile layout/value
+    - character/trick definitions
+    - initial resources
+    - dice composition
+    - UI label/message policy
+
+### 1I. Pipeline Consistency and Coupling Audit
+- File: `PLAN/[REVIEW]_PIPELINE_CONSISTENCY_AND_COUPLING_AUDIT.md`
+- Status: `ACTIVE REVIEW`
+- Role: canonical audit baseline for setting/function/check/verification pipeline consistency
+- Notes:
+  - consolidates canonical pipeline definitions across active plans/specs
+  - tracks coupling hotspots, inconsistent wording, missing tests, and hardcoding risks
+  - fallback resiliency finding `F-05` is now closed with matrix fixture/test coverage (`2026-03-31`)
+  - should be referenced when updating:
+    - parameter manifest/resolver path
+    - DI interface contracts
+    - quality-gate and test matrix definitions
+
+### 1J. React Store Strategy Decision
+- File: `PLAN/[DECISION]_REACT_STATE_STORE_STRATEGY.md`
+- Status: `ACTIVE DECISION`
+- Role: freeze v1 frontend state-store direction
+- Notes:
+  - confirms reducer+selector-first baseline for v1
+  - defers `zustand` introduction until post-parity v2 trigger
+  - should be referenced before changing frontend state architecture
+
+### 1K. Legacy vs React Parity Checklist
+- File: `PLAN/[CHECKLIST]_LEGACY_VS_REACT_PARITY.md`
+- Status: `ACTIVE CHECKLIST`
+- Role: release/cutover readiness artifact
+- Notes:
+  - canonical doc path: `docs/architecture/legacy-vs-react-parity-checklist.md`
+  - tracks transport/prompt/board/decoupling/UX parity state
+  - should be updated whenever parity-impacting runtime behavior changes
+  - replay parity and live human-play acceptance gates were both closed on `2026-03-31` with evidence logs under `result/acceptance/*`
+  - closure review document: `PLAN/[REVIEW]_2026-03-31_REACT_PARITY_ACCEPTANCE.md`
+
+### 1L. React UI Stack Strategy Decision
+- File: `PLAN/[DECISION]_REACT_UI_STACK_STRATEGY.md`
+- Status: `ACTIVE DECISION`
+- Role: freeze v1 UI styling stack choice
+- Notes:
+  - plain-CSS-first strategy for current phase
+  - utility/framework adoption deferred to v2 trigger conditions
 
 ### 2. Turn Advantage Analysis
 - File: `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md`
@@ -324,6 +424,7 @@ When deciding what to follow next:
    - `PLAN/[PLAN]_ONLINE_GAME_INTERFACE_SPEC.md`
    - `PLAN/[PLAN]_ONLINE_GAME_API_SPEC.md`
    - `PLAN/[PLAN]_REPOSITORY_DIRECTORY_SPEC.md`
+   - `PLAN/[PLAN]_PARAMETER_DRIVEN_RUNTIME_DECOUPLING.md`
 4. Use `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md` as the shared boundary baseline before parallel implementation.
 5. Treat current GPT-owned follow-up as:
    - plan/status/contract document maintenance
@@ -341,6 +442,36 @@ When deciding what to follow next:
 10. Use `PLAN/[PROPOSAL]_CLAUDE_VISUALIZATION_OPINION.md` as a technical-choice proposal, not as the active product plan.
 11. Use Claude documents as reference for shared contracts, not as the active GPT task list.
 
+## Temporary Execution Mode (`2026-03-30`)
+
+Until explicitly changed, execution ownership is unified:
+
+- GPT executes both GPT-owned and CLAUDE-owned workstreams.
+- CLAUDE plans remain valid reference inputs, but implementation queue is single-owner.
+
+Unified priority:
+
+1. contract/parameter stability (`manifest`, hash/fingerprint, interface/API consistency)
+2. runtime reliability (resume/timeout/auth/watchdog)
+3. parameter-aware frontend rendering (seat/topology/label dynamic path)
+4. phase-5 UX closure (human-play readability/continuity)
+5. migration and doc relocation polish
+
+Cross-plan guardrail:
+
+- Any task affecting multiple plans must declare primary source-of-truth doc and list impacted specs in the same PR.
+  - Latest closure (`2026-03-30`):
+  - OI3 prompt-type coverage audit is complete in React track (helper/label catalogs + coverage tests across full human-policy request-type matrix).
+  - OI7 WS/prompt schema freeze baseline is complete (`packages/runtime-contracts/ws/schemas`, `packages/runtime-contracts/ws/examples`, and `apps/server/tests/test_runtime_contract_examples.py`).
+  - OI8 state-store direction is fixed for v1 (reducer+selector-first; see `PLAN/[DECISION]_REACT_STATE_STORE_STRATEGY.md`).
+  - OI4 UI stack direction is fixed for v1 (plain-CSS-first; see `PLAN/[DECISION]_REACT_UI_STACK_STRATEGY.md`).
+  - OI11 legacy-path cleanup has an auditable baseline (`tools/legacy_path_audit.py`) with initial counts recorded.
+  - OI11 active-code strict gate is now enabled with zero-match baseline (`apps/packages/tools`).
+  - Text encoding policy is now hard-gated: tracked text files must be UTF-8 without BOM (`tools/encoding_gate.py`, CI step active).
+  - Browser parity fixture baselines are now versioned (`apps/web/e2e/fixtures/non_default_topology_line_3seat.json`, `apps/web/e2e/fixtures/manifest_hash_reconnect.json`) and fixture integrity is test-covered.
+  - Playwright browser E2E baseline is now active in CI (`apps/web/playwright.config.ts`, `apps/web/e2e/parity.spec.ts`, workflow `npm run e2e` step).
+  - Theater continuity baseline now includes non-event prompt/ack flow in the same lane (`selectTheaterFeed`), and alert parity includes runtime critical/warning error channels (`selectCriticalAlerts`).
+
 ## Implementation Reading Rule (Mandatory)
 
 Before implementation work, read documents in this order:
@@ -354,6 +485,7 @@ Before implementation work, read documents in this order:
    - `PLAN/[PLAN]_ONLINE_GAME_INTERFACE_SPEC.md`
    - `PLAN/[PLAN]_ONLINE_GAME_API_SPEC.md`
    - `PLAN/[PLAN]_REPOSITORY_DIRECTORY_SPEC.md`
+   - `PLAN/[PLAN]_PARAMETER_DRIVEN_RUNTIME_DECOUPLING.md`
 6. `PLAN/[PLAN]_IMPLEMENTATION_DOCUMENT_USAGE_GUIDE.md` for conflict and reference policy
 
 ## Current Claude Direction

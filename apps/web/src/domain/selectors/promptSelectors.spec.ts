@@ -13,7 +13,7 @@ describe("promptSelectors", () => {
         request_type: "movement",
         player_id: 1,
         timeout_ms: 30000,
-        choices: [{ choice_id: "roll", title: "굴리기", description: "일반 이동" }],
+        choices: [{ choice_id: "roll", title: "Roll Dice", description: "Normal movement" }],
       },
     };
     const model = selectActivePrompt([promptMessage]);
@@ -32,7 +32,7 @@ describe("promptSelectors", () => {
           request_type: "movement",
           player_id: 1,
           timeout_ms: 30000,
-          choices: [{ choice_id: "roll", title: "굴리기", description: "일반 이동" }],
+          choices: [{ choice_id: "roll", title: "Roll Dice", description: "Normal movement" }],
         },
       },
       {

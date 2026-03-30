@@ -5,6 +5,11 @@ import uuid
 from dataclasses import asdict
 
 from apps.server.src.domain.session_models import SeatConfig, SeatType, Session, SessionStatus, utc_now_iso
+from apps.server.src.services.parameter_service import (
+    GameParameterResolver,
+    ParameterValidationError,
+    PublicManifestBuilder,
+)
 
 
 class SessionStateError(ValueError):
@@ -18,15 +23,26 @@ class SessionNotFoundError(KeyError):
 class SessionService:
     """In-memory session lifecycle service for B1 baseline."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        parameter_resolver: GameParameterResolver | None = None,
+        manifest_builder: PublicManifestBuilder | None = None,
+    ) -> None:
         self._sessions: dict[str, Session] = {}
+        self._parameter_resolver = parameter_resolver or GameParameterResolver()
+        self._manifest_builder = manifest_builder or PublicManifestBuilder()
 
     def create_session(
         self,
         seats: list[dict],
         config: dict | None = None,
     ) -> Session:
-        normalized = self._normalize_seats(seats)
+        raw_config = dict(config or {})
+        try:
+            resolved_parameters = self._parameter_resolver.resolve(raw_config)
+        except ParameterValidationError as exc:
+            raise SessionStateError(str(exc)) from exc
+        normalized = self._normalize_seats(seats, resolved_parameters["seats"])
         session_id = f"sess_{uuid.uuid4().hex[:12]}"
         host_token = self._new_token("host")
         join_tokens: dict[int, str] = {}
@@ -39,9 +55,11 @@ class SessionService:
             session_id=session_id,
             status=SessionStatus.WAITING,
             seats=normalized,
-            config=dict(config or {}),
+            config=raw_config,
             host_token=host_token,
             join_tokens=join_tokens,
+            resolved_parameters=resolved_parameters,
+            parameter_manifest=self._manifest_builder.build_public_manifest(resolved_parameters),
         )
         self._sessions[session_id] = session
         return session
@@ -104,6 +122,7 @@ class SessionService:
             "created_at": session.created_at,
             "started_at": session.started_at,
             "seats": [self._seat_public(s) for s in session.seats],
+            "parameter_manifest": dict(session.parameter_manifest),
         }
 
     def verify_session_token(self, session_id: str, token: str | None) -> dict:
@@ -147,14 +166,19 @@ class SessionService:
         return f"{prefix}_{secrets.token_urlsafe(16)}"
 
     @staticmethod
-    def _normalize_seats(seats: list[dict]) -> list[SeatConfig]:
-        if len(seats) != 4:
-            raise SessionStateError("seat_count_must_be_4")
+    def _normalize_seats(seats: list[dict], seat_limits: dict) -> list[SeatConfig]:
+        min_seat_count = int(seat_limits.get("min", 1))
+        max_seat_count = int(seat_limits.get("max", 4))
+        allowed_seats = {int(v) for v in seat_limits.get("allowed", list(range(1, max_seat_count + 1)))}
+        if len(seats) < min_seat_count:
+            raise SessionStateError("seat_count_below_min")
+        if len(seats) > max_seat_count:
+            raise SessionStateError("seat_count_above_max")
         seen: set[int] = set()
         result: list[SeatConfig] = []
         for raw in seats:
             seat = int(raw.get("seat", -1))
-            if seat < 1 or seat > 4:
+            if seat not in allowed_seats:
                 raise SessionStateError("seat_out_of_range")
             if seat in seen:
                 raise SessionStateError("seat_duplicate")
