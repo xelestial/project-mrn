@@ -64,8 +64,8 @@ Practical implications:
   - shared-contract sync update (`2026-03-29`):
     - canonical movement/mark/end payload fields and alias policy were re-aligned in code + contract doc
   - current explicit work split is:
-    - GPT: upper runtime, prompt flow, replay/live renderer maintenance, and optional UX growth
-    - CLAUDE: lower substrate verification, canonical contract stability, validator maintenance, and lower-layer bug fixes
+    - GPT: upper runtime, prompt flow, replay/live renderer maintenance, optional UX growth, and substrate verification/validator maintenance
+    - CLAUDE documents: reference inputs only (no active implementation ownership on React tracks)
   - current Phase 5 execution proposal:
     - `PLAN/[PROPOSAL]_GPT_PHASE5_COMMERCIAL_UI_UX_OVERHAUL.md`
     - closure record/reference for the completed Phase 5 UX slice
@@ -438,7 +438,7 @@ When deciding what to follow next:
    - plan/status/contract document maintenance
    - replay/live UI polish for Phase 5
    - human-readable replay/live wording/layout refinement
-6. Treat current CLAUDE-owned follow-up as:
+6. Treat substrate follow-up (executed by GPT) as:
    - canonical public-state/event naming convergence
    - validator refresh toward the shared contract
    - substrate completeness review for Phase 5
@@ -535,20 +535,20 @@ Before implementation work, read documents in this order:
    - `PLAN/[PLAN]_PARAMETER_DRIVEN_RUNTIME_DECOUPLING.md`
 6. `PLAN/[PLAN]_IMPLEMENTATION_DOCUMENT_USAGE_GUIDE.md` for conflict and reference policy
 
-## Current Claude Direction
+## Current Substrate Direction (Executed By GPT)
 
-When reading `PLAN/` from `main`, treat CLAUDE work as:
+When reading `PLAN/` from `main`, treat substrate work as:
 - lower-layer visualization substrate work
-- not upper-layer viewer product work
+- not upper-layer viewer product work, and executed in GPT queue
 
-More concretely, the current intended CLAUDE direction is:
+More concretely, the current intended direction is:
 - verify replay/live/public-state payload completeness for Phase 5 consumers
 - keep canonical contract names stable and validated
 - fix lower-layer substrate bugs revealed by that verification
 - avoid reintroducing broad alias-expansion as the default strategy
 - avoid absorbing GPT-owned runtime/view responsibilities into substrate documents
 
-If a new Claude-side task is proposed, it should usually fit one of these buckets:
+If a new substrate-side task is proposed, it should usually fit one of these buckets:
 - event/state contract verification
 - validator update
 - public-state completeness audit

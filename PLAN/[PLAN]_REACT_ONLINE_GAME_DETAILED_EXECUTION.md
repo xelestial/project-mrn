@@ -4,7 +4,7 @@
 > This `PLAN/` file remains as a compatibility mirror for existing links.
 
 Status: `ACTIVE`  
-Owner: `Shared (Backend: CLAUDE, Frontend: GPT)`  
+Owner: `Shared (Execution: GPT for backend/frontend tracks)`  
 Updated: `2026-03-31`  
 Parent: `PLAN/REACT_ONLINE_GAME_IMPL_PLAN.md`
 
@@ -219,7 +219,7 @@ Audit companion:
 
 | Stream | Scope | Primary Owner | Dependency |
 |---|---|---|---|
-| `B` Backend runtime and API | FastAPI, session lifecycle, WS stream, prompt dispatch | CLAUDE | Shared contract freeze |
+| `B` Backend runtime and API | FastAPI, session lifecycle, WS stream, prompt dispatch | GPT | Shared contract freeze |
 | `F` Frontend runtime and UX | React client, state, prompt UX, theater UX | GPT | B stream APIs |
 | `Q` Quality and release gates | parity checks, E2E, replay/live regression | Shared | B/F completion |
 

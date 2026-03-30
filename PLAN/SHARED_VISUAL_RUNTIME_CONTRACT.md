@@ -12,7 +12,7 @@ This document defines the shared contract that must be agreed before parallel im
 This contract is intentionally above implementation detail and below product planning.
 
 It exists so:
-- Claude can implement the lower event/state substrate
+- GPT can execute lower event/state substrate maintenance
 - GPT can implement session/projection/renderer/input runtime
 - both sides stay compatible
 
@@ -27,8 +27,12 @@ So this document is the first implementation blocker for visualization work.
 
 ## Ownership Split
 
-### Claude-owned implementation side
-Claude should implement the lower substrate that produces authoritative public runtime data:
+Execution mode note (`2026-03-31`):
+- implementation ownership is unified under GPT for React/runtime tracks
+- historical `Claude` labels below are preserved as reference provenance only
+
+### Substrate implementation side (executed by GPT)
+The lower substrate produces authoritative public runtime data:
 - structured replay/live event stream
 - `PlayerPublicState`
 - `BoardPublicState`
@@ -36,8 +40,8 @@ Claude should implement the lower substrate that produces authoritative public r
 - `MovementTrace`
 - `TurnEndSnapshot`
 
-### GPT-owned implementation side
-GPT should implement the upper visual runtime that consumes the shared contract:
+### Upper visual-runtime side (executed by GPT)
+The upper visual runtime consumes the shared contract:
 - `RuntimeSession`
 - `ReplayController`
 - `GameSessionController`
@@ -702,12 +706,13 @@ Reason:
 ## Responsibility Matrix
 
 This matrix is the recommended ownership split for the first implementation wave.
+Current React/runtime execution owner is GPT.
 
 | Area | Primary Owner | Notes |
 |------|---------------|------|
-| structured event emission | Claude | lower substrate |
-| public board/player snapshot emission | Claude | lower substrate |
-| movement trace emission | Claude | required for animation |
+| structured event emission | GPT | lower substrate (execution unified) |
+| public board/player snapshot emission | GPT | lower substrate (execution unified) |
+| movement trace emission | GPT | required for animation |
 | replay event schema package | Shared | agreed names and fields |
 | prompt/request schema package | Shared | agreed names and fields |
 | replay session/controller | GPT | upper runtime |

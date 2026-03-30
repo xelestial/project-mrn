@@ -31,20 +31,20 @@ Current GPT-owned follow-up:
 - preserve replay/live wording/layout parity as new event types are added
 - maintain long-session UX quality baseline (density, prompt compact mode, theater continuity)
 
-Current CLAUDE-owned follow-up:
+Current substrate follow-up (executed by GPT):
 - converge validators and substrate naming on canonical shared-contract fields
 - maintain validator coverage and lower-layer bug fixes as contract fields evolve
-- keep Claude work scoped to substrate verification (no viewer/runtime ownership drift)
+- keep substrate work scoped to substrate verification (no viewer/runtime ownership drift)
 - latest closure (`2026-03-31`):
   - strict vis-stream validator payload coverage was tightened for `round_start` and `trick_used`
   - substrate regression checks passed (`GPT/test_visual_runtime_substrate.py`, `GPT/test_replay_viewer.py`)
   - maintenance loop doc is now explicit: `docs/architecture/claude-substrate-maintenance-loop.md`
 
-Current CLAUDE direction in practice:
+Current substrate direction in practice (executed by GPT):
 - do not reopen broad alias-expansion work
 - do not redesign the GPT-owned session/runtime/view layer
 - stay focused on lower-layer substrate verification and contract fidelity
-- treat remaining CLAUDE work as:
+- treat remaining substrate work as:
   - renderer-facing payload completeness review
   - validator maintenance against canonical contract names
   - lower-layer bug fixes when verification reveals missing or wrong substrate payloads
@@ -99,7 +99,7 @@ Responsibility split:
   - projection
   - replay/live renderer behavior
   - browser human-play flow
-- CLAUDE owns lower visualization substrate behavior:
+- GPT executes lower visualization substrate maintenance behavior in this phase:
   - event emission fidelity
   - public-state shape stability
   - validator convergence
@@ -119,24 +119,24 @@ The new requirement is bigger:
 
 So this plan treats replay as Phase 1 of the playable visual runtime, not as an isolated tool.
 
-## Current CLAUDE Work Direction
+## Current Substrate Work Direction (Executed By GPT)
 
-This section is intentionally explicit so branch-local Claude work does not drift into GPT-owned areas.
+This section is intentionally explicit so substrate work does not drift into unrelated ownership areas.
 
-### What CLAUDE should actively do now
+### What should be actively done now
 - verify that the substrate still provides the public fields Phase 5 renderers depend on
 - verify that canonical field names stay stable across replay/live/snapshot paths
 - keep validator coverage aligned with the shared contract
 - raise missing payload gaps before GPT viewer work starts depending on them
 - fix lower-layer event/public-state bugs when the completeness review finds them
 
-### What CLAUDE should not reopen
+### What should not be reopened
 - broad alias-preservation as a long-term strategy
 - viewer wording/layout polish
 - upper runtime/session architecture that already lives in GPT-owned code
 - ad-hoc renderer-specific transport fields that bypass the shared contract
 
-### Current expected output from CLAUDE
+### Current expected output
 - confirmation that substrate fields remain sufficient for Phase 5 UI growth
 - targeted contract-gap reports when a renderer-facing field is missing
 - targeted substrate bug fixes when renderer-facing payloads are wrong or incomplete

@@ -4,7 +4,7 @@
 > This `PLAN/` file remains as a compatibility mirror for existing links.
 
 Status: `ACTIVE`  
-Owner: `Shared (Backend: CLAUDE, Frontend: GPT)`  
+Owner: `Shared (Execution: GPT for backend/frontend tracks)`  
 Updated: `2026-03-31`  
 Parents:
 - `PLAN/REACT_ONLINE_GAME_IMPL_PLAN.md`

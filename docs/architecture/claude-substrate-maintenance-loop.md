@@ -6,13 +6,13 @@ Scope: contract fidelity, validator health, lower-layer payload completeness
 
 ## Purpose
 
-Operationalize the CLAUDE-side scope as a lightweight recurring loop:
+Operationalize substrate maintenance as a lightweight recurring loop:
 
 - no viewer/runtime ownership drift
 - no broad alias re-expansion
 - contract/payload validator maintenance only
 
-This is the canonical "Claude track" execution guide while ownership is unified under GPT.
+This is the canonical substrate-loop execution guide while ownership is unified under GPT.
 
 ## In-Scope Tasks
 
