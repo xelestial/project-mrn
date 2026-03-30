@@ -190,6 +190,16 @@ Current policy:
     - `python tools/legacy_path_audit.py --roots apps packages tools --strict`
     - backend parameter path suite: `11 passed, 8 skipped`
     - web manifest/selector suite: `15 passed`
+  - P1/P2 revalidation rerun (`2026-03-31`) passed:
+    - backend reliability batch:
+      - `python -m pytest apps/server/tests/test_runtime_contract_examples.py apps/server/tests/test_stream_api.py apps/server/tests/test_runtime_service.py apps/server/tests/test_prompt_service.py apps/server/tests/test_error_payload.py apps/server/tests/test_structured_log.py`
+      - result: `14 passed, 9 skipped`
+    - frontend reconnect/manifest/projection batch:
+      - `cmd /c npm run test -- --run src/infra/ws/StreamClient.spec.ts src/domain/manifest/manifestRehydrate.spec.ts src/domain/manifest/manifestReconnectFlow.spec.ts src/domain/selectors/streamSelectors.spec.ts src/features/board/boardProjection.spec.ts`
+      - result: `23 passed`
+  - CLAUDE-track substrate validator cleanup (`2026-03-31`) passed:
+    - `python -m pytest GPT/test_visual_runtime_substrate.py` (`2 passed`)
+    - `python GPT/test_replay_viewer.py` (`Phase 2: ALL TESTS PASSED`)
   - docs migration closure (`2026-03-31`):
     - detailed active specs are mirrored under `docs/api`, `docs/backend`, `docs/frontend`, `docs/architecture`
     - compatibility mirror notes added to matching `PLAN/[PLAN]_...` files

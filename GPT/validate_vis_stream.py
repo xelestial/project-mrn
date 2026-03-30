@@ -32,8 +32,9 @@ KNOWN_EVENT_TYPES = {
 
 REQUIRED_PAYLOAD_FIELDS: dict[str, set[str]] = {
     "session_start": {"player_count", "players"},
-    "round_start": {"marker_owner_player_id"},
+    "round_start": {"initial", "alive_player_ids", "marker_owner_player_id"},
     "weather_reveal": {"weather_name", "effects"},
+    "trick_used": {"phase", "card_name", "card_description", "resolution"},
     "dice_roll": {"player_id", "dice_values", "cards_used", "total_move"},
     "player_move": {"player_id", "from_tile_index", "to_tile_index", "path", "movement_source"},
     "rent_paid": {"payer_player_id", "owner_player_id", "tile_index", "base_amount", "final_amount"},

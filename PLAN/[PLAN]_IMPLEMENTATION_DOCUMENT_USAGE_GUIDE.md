@@ -114,3 +114,20 @@ For each implementation PR:
 3. If status changes, update `PLAN/PLAN_STATUS_INDEX.md`.
 4. Avoid introducing new behavior based only on proposal/reference docs.
 5. Keep text files UTF-8(no BOM); pass `tools/encoding_gate.py`.
+
+## Validation Command Map (No-Ambiguity)
+
+Use the following command families as canonical validation entrypoints:
+
+- Contract/substrate validator path:
+  - `python -m pytest GPT/test_visual_runtime_substrate.py`
+- Replay renderer parity path (script-style runner, not pytest fixture mode):
+  - `python GPT/test_replay_viewer.py`
+- Backend runtime reliability batch:
+  - `python -m pytest apps/server/tests/test_runtime_contract_examples.py apps/server/tests/test_stream_api.py apps/server/tests/test_runtime_service.py apps/server/tests/test_prompt_service.py apps/server/tests/test_error_payload.py apps/server/tests/test_structured_log.py`
+- Frontend P2 reconnect/manifest/projection batch:
+  - `cmd /c npm run test -- --run src/infra/ws/StreamClient.spec.ts src/domain/manifest/manifestRehydrate.spec.ts src/domain/manifest/manifestReconnectFlow.spec.ts src/domain/selectors/streamSelectors.spec.ts src/features/board/boardProjection.spec.ts`
+- Guardrails:
+  - `python tools/parameter_manifest_gate.py --check`
+  - `python tools/encoding_gate.py`
+  - `python tools/legacy_path_audit.py --roots apps packages tools --strict`

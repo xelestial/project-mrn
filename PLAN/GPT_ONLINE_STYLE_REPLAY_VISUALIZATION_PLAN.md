@@ -35,6 +35,9 @@ Current CLAUDE-owned follow-up:
 - converge validators and substrate naming on canonical shared-contract fields
 - maintain validator coverage and lower-layer bug fixes as contract fields evolve
 - keep Claude work scoped to substrate verification (no viewer/runtime ownership drift)
+- latest closure (`2026-03-31`):
+  - strict vis-stream validator payload coverage was tightened for `round_start` and `trick_used`
+  - substrate regression checks passed (`GPT/test_visual_runtime_substrate.py`, `GPT/test_replay_viewer.py`)
 
 Current CLAUDE direction in practice:
 - do not reopen broad alias-expansion work

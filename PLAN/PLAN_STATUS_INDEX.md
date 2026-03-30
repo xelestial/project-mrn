@@ -483,6 +483,17 @@ Cross-plan guardrail:
   - `legacy_path_audit --strict`: pass (`GPT/`, `CLAUDE/`, `frontend/` all zero in active roots)
   - backend parameter-path regression: `11 passed, 8 skipped`
   - web manifest/selector regression: `15 passed`
+- CLAUDE-track contract cleanup rerun (`2026-03-31`) is complete:
+  - vis-stream strict validator payload coverage was tightened:
+    - `round_start`: `initial`, `alive_player_ids`, `marker_owner_player_id`
+    - `trick_used`: `phase`, `card_name`, `card_description`, `resolution`
+  - substrate validator regression test now avoids false failure on optional `trick_used` occurrence
+  - verification:
+    - `python -m pytest GPT/test_visual_runtime_substrate.py` (`2 passed`)
+    - `python GPT/test_replay_viewer.py` (`Phase 2: ALL TESTS PASSED`)
+- P1/P2 rerun (`2026-03-31`) is complete:
+  - backend runtime reliability batch: `14 passed, 9 skipped`
+  - web reconnect/manifest/projection batch: `23 passed`
 - Theater continuity baseline now includes non-event prompt/ack flow in the same lane (`selectTheaterFeed`), and alert parity includes runtime critical/warning error channels (`selectCriticalAlerts`).
 - P1 closure update (`2026-03-31`): runtime hardening baseline is now closed (`B4+`) with normalized fallback error codes and stable structured-log correlation fields.
 - P2 closure update (`2026-03-31`): rule-id vs label separation is now closed in active paths (`eventToneCatalog`, `choice_id`-first prompt contract tests).
