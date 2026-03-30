@@ -34,9 +34,11 @@ class StreamService:
         max_buffer: int = 2000,
         queue_size: int = 256,
         stream_store: StreamStore | None = None,
+        max_persisted_sessions: int = 200,
     ) -> None:
         self._max_buffer = max_buffer
         self._queue_size = queue_size
+        self._max_persisted_sessions = max(1, int(max_persisted_sessions))
         self._seq: dict[str, int] = defaultdict(int)
         self._buffers: dict[str, list[StreamMessage]] = defaultdict(list)
         self._subscribers: dict[str, dict[str, asyncio.Queue[dict]]] = defaultdict(dict)
@@ -128,13 +130,23 @@ class StreamService:
     def _persist_stream_state(self) -> None:
         if self._stream_store is None:
             return
+        keep_sessions = self._session_ids_for_persistence()
         state = {
-            "seq": {session_id: int(seq) for session_id, seq in self._seq.items()},
+            "seq": {
+                session_id: int(seq)
+                for session_id, seq in self._seq.items()
+                if session_id in keep_sessions
+            },
             "buffers": {
                 session_id: [message.to_dict() for message in buffer]
                 for session_id, buffer in self._buffers.items()
+                if session_id in keep_sessions
             },
-            "drop_counts": {session_id: int(v) for session_id, v in self._drop_counts.items()},
+            "drop_counts": {
+                session_id: int(v)
+                for session_id, v in self._drop_counts.items()
+                if session_id in keep_sessions
+            },
         }
         self._stream_store.save_stream_state(state)
 
@@ -179,3 +191,18 @@ class StreamService:
                         continue
                 restored.sort(key=lambda msg: msg.seq)
                 self._buffers[str(session_id)] = restored[-self._max_buffer :]
+
+    def _session_ids_for_persistence(self) -> set[str]:
+        sessions = set(self._buffers.keys()) | set(self._seq.keys())
+        if len(sessions) <= self._max_persisted_sessions:
+            return sessions
+        ordered = sorted(
+            sessions,
+            key=lambda sid: (
+                self._buffers[sid][-1].server_time_ms if self._buffers.get(sid) else 0,
+                self._seq.get(sid, 0),
+                sid,
+            ),
+            reverse=True,
+        )
+        return set(ordered[: self._max_persisted_sessions])

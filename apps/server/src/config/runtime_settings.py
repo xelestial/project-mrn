@@ -31,6 +31,9 @@ class RuntimeSettings:
     log_file_backup_count: int = 5
     session_store_path: str = ""
     stream_store_path: str = ""
+    session_store_max_sessions: int = 200
+    stream_store_max_sessions: int = 200
+    restart_recovery_policy: str = "abort_in_progress"
 
 
 def load_runtime_settings() -> RuntimeSettings:
@@ -44,4 +47,7 @@ def load_runtime_settings() -> RuntimeSettings:
         log_file_backup_count=_env_int("MRN_LOG_FILE_BACKUP_COUNT", 5, 1),
         session_store_path=_env_str("MRN_SESSION_STORE_PATH", ""),
         stream_store_path=_env_str("MRN_STREAM_STORE_PATH", ""),
+        session_store_max_sessions=_env_int("MRN_SESSION_STORE_MAX_SESSIONS", 200, 1),
+        stream_store_max_sessions=_env_int("MRN_STREAM_STORE_MAX_SESSIONS", 200, 1),
+        restart_recovery_policy=_env_str("MRN_RESTART_RECOVERY_POLICY", "abort_in_progress"),
     )

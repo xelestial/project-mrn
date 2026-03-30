@@ -177,7 +177,9 @@ Current policy:
   - docs sync pass (`docs/*` canonical specs + `PLAN/PLAN_STATUS_INDEX.md` evidence update in same PR)
   - OI5 persistence track (started):
     - file-backed restart persistence baseline for session/stream state is implemented
-    - remaining follow-up: retention policy, restart-time runtime-task recovery policy, and failure-mode hardening
+    - retention policy baseline is implemented (`MRN_SESSION_STORE_MAX_SESSIONS`, `MRN_STREAM_STORE_MAX_SESSIONS`)
+    - restart recovery policy baseline is implemented (`MRN_RESTART_RECOVERY_POLICY`, default `abort_in_progress`)
+    - remaining follow-up: runtime-task recovery semantics for resumed in-progress gameplay (v2 hardening)
   - completed matrix closure (`2026-03-31`):
     - backend matrix tests (`apps/server/tests/test_parameter_service.py`, `apps/server/tests/test_sessions_api.py`)
     - browser matrix parity fixture (`apps/web/e2e/parity.spec.ts`, `apps/web/e2e/fixtures/parameter_matrix_economy_dice_2seat.json`)
@@ -206,6 +208,8 @@ Current policy:
   - OI5 baseline start (`2026-03-31`):
     - file-backed restart persistence adapters added for sessions/stream buffers
     - env flags added: `MRN_SESSION_STORE_PATH`, `MRN_STREAM_STORE_PATH`
+    - retention flags added: `MRN_SESSION_STORE_MAX_SESSIONS`, `MRN_STREAM_STORE_MAX_SESSIONS`
+    - restart policy flag added: `MRN_RESTART_RECOVERY_POLICY`
     - restart persistence regression tests added (`apps/server/tests/test_restart_persistence.py`)
   - contract/validator maintenance-loop check (`2026-03-31`) passed:
     - shared contract payload rows vs strict validator required-field sets were rechecked
@@ -715,7 +719,7 @@ Merge rule:
 | OI2 | Extract board tile layout constants from legacy renderer | GPT | Closed (2026-03-31): board projection constants/modules are extracted (`boardProjection` + `boardGridForTileCount`), ring/line grid sizing is parameterized, React board no longer depends on fixed `11x11` template literals, and projection tests pass (`boardProjection.spec.ts`) |
 | OI3 | Full prompt type coverage audit in human policy and React UI | GPT | Complete: helper/label catalog + coverage tests enforce full human-policy request-type matrix |
 | OI4 | Final UI stack decision (plain CSS modules vs utility stack) | GPT | Complete: plain-CSS-first strategy fixed for v1 (`PLAN/[DECISION]_REACT_UI_STACK_STRATEGY.md`) |
-| OI5 | Session persistence after restart | Shared | Started (`2026-03-31`): file-backed restart persistence baseline is in place; follow-up hardening remains for v2 closure |
+| OI5 | Session persistence after restart | Shared | In progress (`2026-03-31`): file-backed persistence + retention + restart-abort recovery baseline are in place; runtime-task recovery semantics remain for v2 closure |
 | OI6 | Migrate detailed specs from `PLAN/` to `docs/*` after scaffold | Shared | Closed (2026-03-31): canonical detailed specs now live under `docs/*`; `PLAN/` mirrors retain redirect notes |
 | OI7 | WS and prompt schema freeze with examples | Shared | Complete: frozen schemas/examples under `packages/runtime-contracts/ws/*` + validation test `apps/server/tests/test_runtime_contract_examples.py` |
 | OI8 | State store final decision (`zustand` only vs hybrid) | GPT | Complete: reducer+selector-first baseline fixed for v1 (`useReducer` stream store, no zustand dependency in current phase) |

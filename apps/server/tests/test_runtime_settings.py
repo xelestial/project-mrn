@@ -19,6 +19,9 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.log_file_backup_count, 5)
         self.assertEqual(settings.session_store_path, "")
         self.assertEqual(settings.stream_store_path, "")
+        self.assertEqual(settings.session_store_max_sessions, 200)
+        self.assertEqual(settings.stream_store_max_sessions, 200)
+        self.assertEqual(settings.restart_recovery_policy, "abort_in_progress")
 
     def test_env_overrides_with_minimum_clamp(self) -> None:
         with _temporary_env(
@@ -32,6 +35,9 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "MRN_LOG_FILE_BACKUP_COUNT": "8",
                 "MRN_SESSION_STORE_PATH": "result/server/session-store.json",
                 "MRN_STREAM_STORE_PATH": "result/server/stream-store.json",
+                "MRN_SESSION_STORE_MAX_SESSIONS": "321",
+                "MRN_STREAM_STORE_MAX_SESSIONS": "654",
+                "MRN_RESTART_RECOVERY_POLICY": "keep",
             }
         ):
             settings = load_runtime_settings()
@@ -44,6 +50,9 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.log_file_backup_count, 8)
         self.assertEqual(settings.session_store_path, "result/server/session-store.json")
         self.assertEqual(settings.stream_store_path, "result/server/stream-store.json")
+        self.assertEqual(settings.session_store_max_sessions, 321)
+        self.assertEqual(settings.stream_store_max_sessions, 654)
+        self.assertEqual(settings.restart_recovery_policy, "keep")
 
     def test_invalid_env_values_fallback_to_defaults(self) -> None:
         with _temporary_env(
@@ -57,6 +66,9 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "MRN_LOG_FILE_BACKUP_COUNT": "0",
                 "MRN_SESSION_STORE_PATH": "",
                 "MRN_STREAM_STORE_PATH": "",
+                "MRN_SESSION_STORE_MAX_SESSIONS": "0",
+                "MRN_STREAM_STORE_MAX_SESSIONS": "-1",
+                "MRN_RESTART_RECOVERY_POLICY": "",
             }
         ):
             settings = load_runtime_settings()
@@ -69,6 +81,9 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.log_file_backup_count, 5)
         self.assertEqual(settings.session_store_path, "")
         self.assertEqual(settings.stream_store_path, "")
+        self.assertEqual(settings.session_store_max_sessions, 200)
+        self.assertEqual(settings.stream_store_max_sessions, 200)
+        self.assertEqual(settings.restart_recovery_policy, "abort_in_progress")
 
 
 class _temporary_env:
@@ -85,6 +100,9 @@ class _temporary_env:
             "MRN_LOG_FILE_BACKUP_COUNT",
             "MRN_SESSION_STORE_PATH",
             "MRN_STREAM_STORE_PATH",
+            "MRN_SESSION_STORE_MAX_SESSIONS",
+            "MRN_STREAM_STORE_MAX_SESSIONS",
+            "MRN_RESTART_RECOVERY_POLICY",
         ]
 
     def __enter__(self) -> None:

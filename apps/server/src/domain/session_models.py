@@ -38,6 +38,7 @@ class Session:
     config: dict = field(default_factory=dict)
     created_at: str = field(default_factory=utc_now_iso)
     started_at: str | None = None
+    abort_reason: str | None = None
     round_index: int = 0
     turn_index: int = 0
     host_token: str = ""

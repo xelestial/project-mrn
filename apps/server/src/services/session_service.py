@@ -29,12 +29,17 @@ class SessionService:
         parameter_resolver: GameParameterResolver | None = None,
         manifest_builder: PublicManifestBuilder | None = None,
         session_store: SessionStore | None = None,
+        max_persisted_sessions: int = 200,
+        restart_recovery_policy: str = "abort_in_progress",
     ) -> None:
         self._sessions: dict[str, Session] = {}
         self._parameter_resolver = parameter_resolver or GameParameterResolver()
         self._manifest_builder = manifest_builder or PublicManifestBuilder()
         self._session_store = session_store
+        self._max_persisted_sessions = max(1, int(max_persisted_sessions))
+        self._restart_recovery_policy = str(restart_recovery_policy or "abort_in_progress").strip().lower()
         self._load_from_store()
+        self._apply_restart_recovery_policy()
 
     def create_session(
         self,
@@ -117,6 +122,7 @@ class SessionService:
             raise SessionStateError("human_seats_not_ready")
         session.status = SessionStatus.IN_PROGRESS
         session.started_at = utc_now_iso()
+        session.abort_reason = None
         self._persist_sessions()
         return session
 
@@ -128,6 +134,7 @@ class SessionService:
             "turn_index": session.turn_index,
             "created_at": session.created_at,
             "started_at": session.started_at,
+            "abort_reason": session.abort_reason,
             "seats": [self._seat_public(s) for s in session.seats],
             "parameter_manifest": dict(session.parameter_manifest),
         }
@@ -225,7 +232,7 @@ class SessionService:
     def _persist_sessions(self) -> None:
         if self._session_store is None:
             return
-        payload = [self._session_to_payload(session) for session in self._sessions.values()]
+        payload = [self._session_to_payload(session) for session in self._sessions_for_persistence()]
         self._session_store.save_sessions(payload)
 
     def _load_from_store(self) -> None:
@@ -258,6 +265,7 @@ class SessionService:
             "config": dict(session.config),
             "created_at": session.created_at,
             "started_at": session.started_at,
+            "abort_reason": session.abort_reason,
             "round_index": session.round_index,
             "turn_index": session.turn_index,
             "host_token": session.host_token,
@@ -291,6 +299,7 @@ class SessionService:
             config=dict(payload.get("config", {})),
             created_at=str(payload.get("created_at", utc_now_iso())),
             started_at=payload.get("started_at"),
+            abort_reason=payload.get("abort_reason"),
             round_index=int(payload.get("round_index", 0)),
             turn_index=int(payload.get("turn_index", 0)),
             host_token=str(payload.get("host_token", "")),
@@ -299,3 +308,31 @@ class SessionService:
             resolved_parameters=dict(payload.get("resolved_parameters", {})),
             parameter_manifest=dict(payload.get("parameter_manifest", {})),
         )
+
+    def _sessions_for_persistence(self) -> list[Session]:
+        ordered = sorted(self._sessions.values(), key=lambda s: (s.created_at, s.session_id))
+        if len(ordered) <= self._max_persisted_sessions:
+            return ordered
+        removable_status = {SessionStatus.FINISHED, SessionStatus.ABORTED}
+        removable = [s for s in ordered if s.status in removable_status]
+        keep = list(ordered)
+        overflow = len(keep) - self._max_persisted_sessions
+        if overflow > 0 and removable:
+            removable_ids = {s.session_id for s in removable[:overflow]}
+            keep = [s for s in keep if s.session_id not in removable_ids]
+            overflow = len(keep) - self._max_persisted_sessions
+        if overflow > 0:
+            keep = keep[overflow:]
+        return keep
+
+    def _apply_restart_recovery_policy(self) -> None:
+        if self._restart_recovery_policy == "keep":
+            return
+        updated = False
+        for session in self._sessions.values():
+            if session.status == SessionStatus.IN_PROGRESS:
+                session.status = SessionStatus.ABORTED
+                session.abort_reason = "server_restart_recovery"
+                updated = True
+        if updated:
+            self._persist_sessions()

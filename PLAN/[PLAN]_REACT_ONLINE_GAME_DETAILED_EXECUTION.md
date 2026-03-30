@@ -302,6 +302,8 @@ Implementation:
 4. Restart persistence adapter seam (started baseline):
    - file-backed session/stream state restore path
    - env-gated activation (`MRN_SESSION_STORE_PATH`, `MRN_STREAM_STORE_PATH`)
+   - retention caps (`MRN_SESSION_STORE_MAX_SESSIONS`, `MRN_STREAM_STORE_MAX_SESSIONS`)
+   - restart recovery policy (`MRN_RESTART_RECOVERY_POLICY`, default `abort_in_progress`)
 
 Definition of done:
 - Recoverable faults are surfaced with stable error codes.

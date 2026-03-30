@@ -25,8 +25,15 @@ stream_store = (
     if runtime_settings.stream_store_path
     else None
 )
-session_service = SessionService(session_store=session_store)
-stream_service = StreamService(stream_store=stream_store)
+session_service = SessionService(
+    session_store=session_store,
+    max_persisted_sessions=runtime_settings.session_store_max_sessions,
+    restart_recovery_policy=runtime_settings.restart_recovery_policy,
+)
+stream_service = StreamService(
+    stream_store=stream_store,
+    max_persisted_sessions=runtime_settings.stream_store_max_sessions,
+)
 prompt_service = PromptService()
 runtime_service = RuntimeService(
     session_service=session_service,
