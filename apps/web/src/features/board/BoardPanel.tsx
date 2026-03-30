@@ -25,15 +25,15 @@ function tileKindLabel(kind: string, labels?: Record<string, string>): string {
   }
   switch (kind) {
     case "S":
-      return "Fortune";
+      return "운수";
     case "F1":
-      return "End - 1";
+      return "종료 - 1";
     case "F2":
-      return "End - 2";
+      return "종료 - 2";
     case "T2":
-      return "Land";
+      return "토지";
     case "T3":
-      return "Land+";
+      return "고급 토지";
     default:
       return kind;
   }
@@ -53,26 +53,26 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
   if (tiles.length === 0) {
     return (
       <section className="panel">
-        <h2>Board</h2>
-        <p>No board snapshot yet. Waiting for stream snapshot or manifest bootstrap.</p>
+        <h2>보드</h2>
+        <p>보드 스냅샷을 기다리는 중입니다.</p>
       </section>
     );
   }
 
   return (
     <section className="panel">
-      <h2>Board</h2>
+      <h2>보드</h2>
       {snapshot ? (
         <p>
-          Round {snapshot.round} / Turn {snapshot.turn} / Marker P{snapshot.markerOwnerPlayerId ?? "-"} / End Time{" "}
+          {snapshot.round}라운드 / {snapshot.turn}턴 / 징표 소유자 P{snapshot.markerOwnerPlayerId ?? "-"} / 종료 시간{" "}
           {endTimeRemaining?.toFixed(2)}
         </p>
       ) : (
-        <p>Board initialized from parameter manifest.</p>
+        <p>설정 정보(parameter manifest)로 초기화된 보드입니다.</p>
       )}
       {lastMove ? (
         <p className="board-move-summary">
-          Last move: P{lastMove.playerId ?? "?"} {lastMove.fromTileIndex === null ? "?" : lastMove.fromTileIndex + 1}
+          최근 이동: P{lastMove.playerId ?? "?"} {lastMove.fromTileIndex === null ? "?" : lastMove.fromTileIndex + 1}
           {" -> "}
           {lastMove.toTileIndex === null ? "?" : lastMove.toTileIndex + 1}
         </p>
@@ -99,12 +99,12 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
                 <span>{tileKindLabel(tile.tileKind, tileKindLabels)}</span>
               </div>
               <div className="tile-body">
-                <small>{tile.zoneColor || "-"}</small>
-                <small>Buy {tile.purchaseCost ?? "-"}</small>
-                <small>Rent {tile.rentCost ?? "-"}</small>
+                <small>{tile.zoneColor ? `구역 ${tile.zoneColor}` : "구역 -"}</small>
+                <small>구매가 {tile.purchaseCost ?? "-"}</small>
+                <small>통행료 {tile.rentCost ?? "-"}</small>
               </div>
               <div className="tile-foot">
-                <small>Owner P{tile.ownerPlayerId ?? "-"}</small>
+                <small>소유자 P{tile.ownerPlayerId ?? "-"}</small>
                 <div className="pawn-chips">
                   {tile.pawnPlayerIds.length > 0 ? (
                     tile.pawnPlayerIds.map((id) => (
@@ -113,7 +113,7 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
                       </span>
                     ))
                   ) : (
-                    <small>-</small>
+                    <small>말 없음</small>
                   )}
                 </div>
               </div>

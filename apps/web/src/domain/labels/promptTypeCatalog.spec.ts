@@ -23,14 +23,14 @@ describe("promptTypeCatalog", () => {
   });
 
   it("returns readable labels for known request types", () => {
-    expect(promptLabelForType("movement")).toBe("Move Decision");
-    expect(promptLabelForType("trick_to_use")).toBe("Trick Usage");
-    expect(promptLabelForType("final_character")).toBe("Final Character Choice");
+    expect(promptLabelForType("movement")).toBe("이동값 결정");
+    expect(promptLabelForType("trick_to_use")).toBe("잔꾀 사용");
+    expect(promptLabelForType("final_character")).toBe("최종 캐릭터 선택");
   });
 
   it("supports compatibility alias and unknown fallback", () => {
-    expect(promptLabelForType("final_character_choice")).toBe("Final Character Choice");
+    expect(promptLabelForType("final_character_choice")).toBe("최종 캐릭터 선택");
     expect(promptLabelForType("future_type")).toBe("future_type");
-    expect(promptLabelForType("")).toBe("Prompt");
+    expect(promptLabelForType("")).toBe("선택 요청");
   });
 });

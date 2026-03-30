@@ -287,6 +287,20 @@ export function App() {
     }
   }, [latestPromptAck, promptBusy]);
 
+  useEffect(() => {
+    if (!promptBusy || !latestPromptAck) {
+      return;
+    }
+    if (latestPromptAck.status === "rejected") {
+      setPromptFeedback(latestPromptAck.reason ? `선택이 거절되었습니다: ${latestPromptAck.reason}` : "선택이 거절되었습니다.");
+    }
+    if (latestPromptAck.status === "stale") {
+      setPromptFeedback(
+        latestPromptAck.reason ? `이미 만료된 선택입니다: ${latestPromptAck.reason}` : "이미 만료된 선택입니다."
+      );
+    }
+  }, [latestPromptAck, promptBusy]);
+
   const promptSecondsLeft =
     promptExpiresAtMs === null ? null : Math.max(0, Math.ceil((promptExpiresAtMs - nowMs) / 1000));
 
@@ -296,6 +310,15 @@ export function App() {
     }
     if (promptSecondsLeft === 0) {
       setPromptFeedback("시간이 만료되었습니다. 엔진의 자동 처리 결과를 기다리는 중입니다.");
+    }
+  }, [activePrompt, promptBusy, promptSecondsLeft]);
+
+  useEffect(() => {
+    if (!activePrompt || promptBusy) {
+      return;
+    }
+    if (promptSecondsLeft === 0) {
+      setPromptFeedback("시간이 만료되었습니다. 엔진의 자동 진행 결과를 기다리는 중입니다.");
     }
   }, [activePrompt, promptBusy, promptSecondsLeft]);
 
@@ -506,7 +529,7 @@ export function App() {
     <main className="page">
       <header className="header">
         <h1>MRN Online Viewer (React/FastAPI)</h1>
-        <p>Custom lobby controls are enabled: create, join, start, connect, and live stream observe.</p>
+        <p>세션 생성, 참가, 시작, 실시간 스트림 관찰을 한 화면에서 진행할 수 있습니다.</p>
         <div className="route-tabs">
           <button
             type="button"
@@ -535,7 +558,9 @@ export function App() {
           sessionInput={sessionInput}
             hostTokenInput={hostTokenInput}
             joinSeatInput={joinSeatInput}
-            joinSeatOptions={joinSeatOptions.length > 0 ? joinSeatOptions : ["1", "2", "3", "4"]}
+            joinSeatOptions={
+              joinSeatOptions.length > 0 ? joinSeatOptions : seatTypes.map((_, index) => String(index + 1))
+            }
             joinTokenInput={joinTokenInput}
           displayNameInput={displayNameInput}
           tokenInput={tokenInput}

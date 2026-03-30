@@ -10,12 +10,12 @@ type ConnectionPanelProps = {
 export function ConnectionPanel({ status, lastSeq, runtime }: ConnectionPanelProps) {
   return (
     <section className="panel">
-      <h2>Connection</h2>
-      <p>Status: {status}</p>
-      <p>Last Seq: {lastSeq}</p>
-      <p>Runtime: {runtime.status}</p>
+      <h2>연결 상태</h2>
+      <p>연결: {status}</p>
+      <p>마지막 시퀀스: {lastSeq}</p>
+      <p>런타임: {runtime.status}</p>
       <p>Watchdog: {runtime.watchdog_state ?? "-"}</p>
-      <p>Last Activity: {runtime.last_activity_ms ?? "-"}</p>
+      <p>마지막 활동(ms): {runtime.last_activity_ms ?? "-"}</p>
     </section>
   );
 }

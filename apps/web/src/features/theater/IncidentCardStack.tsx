@@ -6,22 +6,22 @@ type IncidentCardStackProps = {
 
 function toneBadge(tone: TheaterItem["tone"]): string {
   if (tone === "move") {
-    return "MOVE";
+    return "이동";
   }
   if (tone === "economy") {
-    return "ECO";
+    return "경제";
   }
   if (tone === "critical") {
-    return "ALERT";
+    return "경고";
   }
-  return "SYS";
+  return "진행";
 }
 
 export function IncidentCardStack({ items }: IncidentCardStackProps) {
   const top = items.slice(0, 10);
   return (
     <section className="panel">
-      <h2>Turn Theater</h2>
+      <h2>턴 극장</h2>
       <div className="incident-stack">
         {top.map((item) => (
           <article key={`incident-${item.seq}`} className={`incident-card incident-${item.tone}`}>

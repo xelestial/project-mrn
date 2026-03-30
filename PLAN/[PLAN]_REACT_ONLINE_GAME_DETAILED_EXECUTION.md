@@ -188,12 +188,14 @@ Audit companion:
   - `PLAN/[PLAN]_...` mirrors retain redirect notes for compatibility links
 - UI stack decision (`OI4`): complete baseline
   - plain-CSS-first strategy fixed for v1 (`PLAN/[DECISION]_REACT_UI_STACK_STRATEGY.md`)
-- legacy-path cleanup (`OI11`): in progress baseline
+- legacy-path cleanup (`OI11`): closed (`2026-03-31`)
   - added reference audit script: `tools/legacy_path_audit.py`
   - baseline scan counts (`2026-03-30`): `GPT/`=156, `CLAUDE/`=50, `frontend/`=8
   - active code roots are now clean (`apps/packages/tools`: 0 matches under strict audit)
   - CI strict gate is enabled for active code roots (`.github/workflows/ci.yml`)
-- `B4+`: not started in code
+- `B4+`: in progress baseline
+  - runtime watchdog and structured logging retention policy are active in code
+  - prompt/runtime regression sweep (`2026-03-31`): `17 passed, 9 skipped` (`test_stream_api`, `test_stream_service`, `test_runtime_service`, `test_prompt_service`, `test_runtime_contract_examples`)
 
 ## Execution Policy
 

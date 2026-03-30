@@ -475,6 +475,7 @@ Cross-plan guardrail:
   - Text encoding policy is now hard-gated: tracked text files must be UTF-8 without BOM (`tools/encoding_gate.py`, CI step active).
   - Browser parity fixture baselines are now versioned (`apps/web/e2e/fixtures/non_default_topology_line_3seat.json`, `apps/web/e2e/fixtures/manifest_hash_reconnect.json`) and fixture integrity is test-covered.
   - Playwright browser E2E baseline is now active in CI (`apps/web/playwright.config.ts`, `apps/web/e2e/parity.spec.ts`, workflow `npm run e2e` step).
+  - Runtime hardening regression sweep (`2026-03-31`) is recorded in the detailed execution docs (`17 passed, 9 skipped` across prompt/runtime stream suites).
   - Theater continuity baseline now includes non-event prompt/ack flow in the same lane (`selectTheaterFeed`), and alert parity includes runtime critical/warning error channels (`selectCriticalAlerts`).
 
 ## Implementation Reading Rule (Mandatory)

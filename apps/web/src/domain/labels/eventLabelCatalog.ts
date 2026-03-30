@@ -1,42 +1,45 @@
 const EVENT_LABELS: Record<string, string> = {
-  session_created: "Session Created",
-  session_start: "Session Start",
-  session_started: "Session Started",
-  parameter_manifest: "Parameter Manifest",
-  seat_joined: "Seat Joined",
-  round_start: "Round Start",
-  weather_reveal: "Weather Reveal",
-  draft_pick: "Draft Pick",
-  final_character_choice: "Final Character Choice",
-  turn_start: "Turn Start",
-  dice_roll: "Move Decision",
-  player_move: "Player Move",
-  landing_resolved: "Landing Resolved",
-  tile_purchased: "Tile Purchased",
-  marker_transferred: "Marker Transferred",
-  lap_reward_chosen: "Lap Reward Chosen",
-  fortune_drawn: "Fortune Drawn",
-  fortune_resolved: "Fortune Resolved",
-  turn_end_snapshot: "Turn End",
-  decision_timeout_fallback: "Decision Timeout Fallback",
-  bankruptcy: "Bankruptcy",
-  game_end: "Game End",
+  session_created: "세션 생성",
+  session_start: "세션 시작",
+  session_started: "세션 시작됨",
+  parameter_manifest: "설정 정보 동기화",
+  seat_joined: "좌석 참가",
+  round_start: "라운드 시작",
+  weather_reveal: "날씨 공개",
+  draft_pick: "드래프트 선택",
+  final_character_choice: "최종 캐릭터 선택",
+  turn_start: "턴 시작",
+  dice_roll: "이동값 결정",
+  trick_used: "잔꾀 사용",
+  player_move: "말 이동",
+  landing_resolved: "도착 칸 처리",
+  rent_paid: "통행료 지불",
+  tile_purchased: "토지 구매",
+  marker_transferred: "징표 이동",
+  marker_flip: "카드 뒤집기",
+  lap_reward_chosen: "랩 보상 선택",
+  fortune_drawn: "운수 카드 공개",
+  fortune_resolved: "운수 처리",
+  turn_end_snapshot: "턴 종료",
+  decision_timeout_fallback: "시간 초과 자동 진행",
+  bankruptcy: "파산",
+  game_end: "게임 종료",
 };
 
 const NON_EVENT_LABELS: Record<string, string> = {
-  prompt: "Prompt",
-  decision_ack: "Decision Ack",
-  heartbeat: "Heartbeat",
-  error: "Error",
+  prompt: "선택 요청",
+  decision_ack: "선택 결과",
+  heartbeat: "연결 상태",
+  error: "오류",
 };
 
 export function eventLabelForCode(eventCode: string): string {
   if (!eventCode.trim()) {
-    return "Unknown Event";
+    return "알 수 없는 이벤트";
   }
   return EVENT_LABELS[eventCode] ?? eventCode;
 }
 
 export function nonEventLabelForMessageType(messageType: string): string {
-  return NON_EVENT_LABELS[messageType] ?? "Message";
+  return NON_EVENT_LABELS[messageType] ?? "메시지";
 }

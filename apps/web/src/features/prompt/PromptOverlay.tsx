@@ -55,18 +55,28 @@ export function PromptOverlay({
   };
 
   return (
-    <section ref={rootRef} className="panel prompt-overlay" aria-busy={busy} onKeyDown={onKeyDown} tabIndex={-1}>
+    <section
+      ref={rootRef}
+      className={`panel prompt-overlay ${collapsed ? "prompt-collapsed" : ""}`}
+      aria-busy={busy}
+      onKeyDown={onKeyDown}
+      tabIndex={-1}
+    >
       <div className="prompt-head">
-        <h2>Prompt: {promptLabelForType(prompt.requestType)}</h2>
+        <h2>선택 요청: {promptLabelForType(prompt.requestType)}</h2>
         <button type="button" onClick={onToggleCollapse}>
-          {collapsed ? "Expand" : "Collapse"}
+          {collapsed ? "열기" : "접기"}
         </button>
       </div>
-      <p className="prompt-helper">{promptHelperForType(prompt.requestType)}</p>
-      <p>
-        Request {prompt.requestId} / Actor P{prompt.playerId} / Timeout {Math.ceil(prompt.timeoutMs / 1000)}s / Left{" "}
-        {secondsLeft ?? "-"}s
-      </p>
+      {!collapsed ? <p className="prompt-helper">{promptHelperForType(prompt.requestType)}</p> : null}
+      {!collapsed ? (
+        <p>
+          요청 ID {prompt.requestId} / 행동자 P{prompt.playerId} / 제한 시간 {Math.ceil(prompt.timeoutMs / 1000)}초 / 남은 시간{" "}
+          {secondsLeft ?? "-"}초
+        </p>
+      ) : (
+        <p className="prompt-collapsed-note">선택창이 접혀 있습니다. 열기 버튼으로 다시 확인하세요.</p>
+      )}
       {!collapsed ? (
         <div className="prompt-choices">
           {prompt.choices.map((choice) => (
@@ -81,11 +91,11 @@ export function PromptOverlay({
               <small>{choice.description || choice.choiceId}</small>
             </button>
           ))}
-          {prompt.choices.length === 0 ? <p>No selectable choices were provided.</p> : null}
+          {prompt.choices.length === 0 ? <p>선택 가능한 항목이 없습니다.</p> : null}
         </div>
       ) : null}
       {feedbackMessage ? <p className="notice err">{feedbackMessage}</p> : null}
-      {busy ? <p className="notice ok">Processing decision. Waiting for engine acknowledgment.</p> : null}
+      {busy ? <p className="notice ok">처리 중... 엔진 응답을 기다리는 중</p> : null}
     </section>
   );
 }

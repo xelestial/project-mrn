@@ -1,5 +1,6 @@
 import type { InboundMessage } from "../../core/contracts/stream";
 import { eventLabelForCode, nonEventLabelForMessageType } from "../labels/eventLabelCatalog";
+import { promptLabelForType } from "../labels/promptTypeCatalog";
 
 export type TimelineItem = {
   seq: number;
@@ -131,7 +132,7 @@ function pickMessageLabel(message: InboundMessage): string {
   }
   const code = messageKindFromPayload(message.payload);
   if (!code) {
-    return "Unknown Event";
+    return "알 수 없는 이벤트";
   }
   return eventLabelForCode(code);
 }
@@ -143,7 +144,7 @@ function summarizePlayerMove(payload: Record<string, unknown>): string {
   const toDisplay = to === null ? "?" : String(to + 1);
   const path = Array.isArray(payload["path"]) ? payload["path"] : [];
   if (path.length > 0) {
-    return `${fromDisplay} -> ${toDisplay} (steps ${path.length})`;
+    return `${fromDisplay} -> ${toDisplay} (이동 ${path.length}칸)`;
   }
   return `${fromDisplay} -> ${toDisplay}`;
 }
@@ -158,8 +159,8 @@ function summarizeDiceRoll(payload: Record<string, unknown>): string {
         : [];
   const dice = Array.isArray(payload["dice_values"]) ? payload["dice_values"] : Array.isArray(payload["dice"]) ? payload["dice"] : [];
   const total = payload["total_move"] ?? payload["total"] ?? payload["move"] ?? "?";
-  const cardText = cards.length > 0 ? `cards ${cards.join("+")}` : "";
-  const diceText = dice.length > 0 ? `dice ${dice.join("+")}` : "";
+  const cardText = cards.length > 0 ? `카드 ${cards.join("+")}` : "";
+  const diceText = dice.length > 0 ? `주사위 ${dice.join("+")}` : "";
   if (cardText && diceText) {
     return `${cardText} + ${diceText} = ${total}`;
   }
@@ -178,15 +179,15 @@ function pickMessageDetail(message: InboundMessage): string {
     const backpressure = message.payload["backpressure"];
     if (typeof interval === "number" && backpressure && typeof backpressure === "object") {
       const drop = (backpressure as Record<string, unknown>)["drop_count"];
-      return `heartbeat ${interval}ms / drop ${typeof drop === "number" ? drop : 0}`;
+      return `연결 점검 ${interval}ms / 누락 ${typeof drop === "number" ? drop : 0}`;
     }
-    return `heartbeat ${typeof interval === "number" ? `${interval}ms` : ""}`.trim();
+    return `연결 점검 ${typeof interval === "number" ? `${interval}ms` : ""}`.trim();
   }
   if (message.type === "prompt") {
     const requestType = asString(message.payload["request_type"]);
     const pid = message.payload["player_id"];
     const actor = typeof pid === "number" ? `P${pid}` : "-";
-    return `${actor} / ${requestType}`;
+    return `${actor} / ${promptLabelForType(requestType === "-" ? "" : requestType)}`;
   }
   if (message.type === "decision_ack") {
     const status = asString(message.payload["status"]);
@@ -210,31 +211,63 @@ function pickMessageDetail(message: InboundMessage): string {
   if (eventType === "tile_purchased") {
     const tile = numberOrNull(payload["tile_index"]);
     const cost = payload["cost"] ?? payload["purchase_cost"] ?? "?";
-    return `tile ${tile === null ? "?" : tile + 1} purchase / cost ${cost}`;
+    return `${tile === null ? "?" : tile + 1}번 칸 구매 / 비용 ${cost}`;
   }
   if (eventType === "marker_transferred") {
     const from = payload["from_player_id"] ?? payload["from_owner"] ?? "?";
     const to = payload["to_player_id"] ?? payload["to_owner"] ?? "?";
-    return `[Marker] P${from} -> P${to}`;
+    return `[징표]가 P${from}에서 P${to}로 이동`;
   }
   if (eventType === "weather_reveal") {
     return asString(payload["weather_name"] ?? payload["weather"] ?? payload["card"]);
   }
   if (eventType === "landing_resolved") {
-    return asString(payload["result_type"] ?? payload["result_code"] ?? payload["result"] ?? "landing resolved");
+    const raw = asString(payload["result_type"] ?? payload["result_code"] ?? payload["result"] ?? "도착 처리");
+    if (raw === "PURCHASE_SKIP_POLICY") {
+      return "구매 없이 턴 종료";
+    }
+    if (raw === "PURCHASE") {
+      return "토지 구매";
+    }
+    if (raw === "RENT_PAID" || raw === "RENT") {
+      return "통행료 지불";
+    }
+    if (raw === "MARK_RESOLVED") {
+      return "지목 처리";
+    }
+    return raw;
   }
   if (eventType === "bankruptcy") {
     const pid = payload["player_id"] ?? payload["target_player_id"] ?? "?";
-    return `P${pid} bankrupt`;
+    return `P${pid} 파산`;
   }
   if (eventType === "game_end") {
     const winner = payload["winner_player_id"];
     if (typeof winner === "number") {
-      return `winner P${winner}`;
+      return `승자 P${winner}`;
     }
-    return asString(payload["summary"] ?? "game ended");
+    return asString(payload["summary"] ?? "게임 종료");
   }
   if (eventType === "lap_reward_chosen") {
+    const amountRaw = payload["amount"];
+    if (isRecord(amountRaw)) {
+      const cash = typeof amountRaw["cash"] === "number" ? amountRaw["cash"] : 0;
+      const shards = typeof amountRaw["shards"] === "number" ? amountRaw["shards"] : 0;
+      const coins = typeof amountRaw["coins"] === "number" ? amountRaw["coins"] : 0;
+      const parts: string[] = [];
+      if (cash > 0) {
+        parts.push(`현금 +${cash}`);
+      }
+      if (shards > 0) {
+        parts.push(`조각 +${shards}`);
+      }
+      if (coins > 0) {
+        parts.push(`승점 +${coins}`);
+      }
+      if (parts.length > 0) {
+        return parts.join(" / ");
+      }
+    }
     const choice = asString(payload["choice"] ?? payload["reward"] ?? payload["summary"]);
     const amount = payload["amount"] ?? payload["cash_amount"] ?? payload["value"];
     if (typeof amount === "number") {
@@ -246,9 +279,9 @@ function pickMessageDetail(message: InboundMessage): string {
     const manifest = manifestRecordFromPayload(payload);
     const hash = manifest ? manifest["manifest_hash"] : null;
     if (typeof hash === "string" && hash.length >= 8) {
-      return `manifest ${hash.slice(0, 8)}`;
+      return `설정 동기화 ${hash.slice(0, 8)}`;
     }
-    return "manifest update";
+    return "설정 정보 갱신";
   }
 
   const summary = payload["summary"];

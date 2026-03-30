@@ -74,7 +74,7 @@ describe("streamSelectors", () => {
       },
     ]);
     expect(timeline[0].seq).toBe(10);
-    expect(timeline[0].label).toBe("Decision Ack");
+    expect(timeline[0].label).toBe("선택 결과");
   });
 
   it("extracts basic situation from latest message", () => {
@@ -145,9 +145,9 @@ describe("streamSelectors", () => {
       ],
       3
     );
-    expect(timeline[0].detail).toContain("drop 7");
-    expect(timeline[1].detail).toContain("P2 -> P1");
-    expect(timeline[2].detail).toContain("cards 1+4");
+    expect(timeline[0].detail).toContain("누락 7");
+    expect(timeline[1].detail).toContain("[징표]가 P2에서 P1로 이동");
+    expect(timeline[2].detail).toContain("카드 1+4");
   });
 
   it("extracts latest manifest from stream events", () => {

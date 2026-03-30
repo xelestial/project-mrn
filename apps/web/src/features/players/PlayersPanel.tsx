@@ -9,7 +9,7 @@ export function PlayersPanel({ snapshot }: PlayersPanelProps) {
   return (
     <section className="panel">
       <h2>플레이어</h2>
-      {players.length === 0 ? <p>아직 플레이어 공개 스냅샷이 없습니다.</p> : null}
+      {players.length === 0 ? <p>플레이어 정보를 기다리는 중입니다.</p> : null}
       <div className="players-grid">
         {players.map((player) => (
           <article key={player.playerId} className={`player-card ${player.alive ? "" : "out"}`}>

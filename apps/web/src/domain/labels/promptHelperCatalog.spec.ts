@@ -10,7 +10,7 @@ describe("promptHelperCatalog", () => {
   });
 
   it("supports compatibility alias for final_character_choice", () => {
-    expect(promptHelperForType("final_character_choice")).toContain("final character");
+    expect(promptHelperForType("final_character_choice")).toContain("최종 캐릭터");
   });
 
   it("falls back for unknown request type", () => {

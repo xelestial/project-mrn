@@ -422,6 +422,16 @@ body {
   font-size: 13px;
 }
 
+.prompt-collapsed {
+  border-color: #486998;
+}
+
+.prompt-collapsed-note {
+  margin: 6px 0 0;
+  color: #afc2e8;
+  font-size: 13px;
+}
+
 .prompt-choices {
   display: grid;
   gap: 8px;

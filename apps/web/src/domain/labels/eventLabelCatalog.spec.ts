@@ -3,8 +3,8 @@ import { eventLabelForCode, nonEventLabelForMessageType } from "./eventLabelCata
 
 describe("eventLabelCatalog", () => {
   it("maps known event codes to readable labels", () => {
-    expect(eventLabelForCode("round_start")).toBe("Round Start");
-    expect(eventLabelForCode("dice_roll")).toBe("Move Decision");
+    expect(eventLabelForCode("round_start")).toBe("라운드 시작");
+    expect(eventLabelForCode("dice_roll")).toBe("이동값 결정");
   });
 
   it("falls back to raw event code when unknown", () => {
@@ -12,7 +12,7 @@ describe("eventLabelCatalog", () => {
   });
 
   it("maps non-event message types with safe fallback", () => {
-    expect(nonEventLabelForMessageType("prompt")).toBe("Prompt");
-    expect(nonEventLabelForMessageType("unknown_type")).toBe("Message");
+    expect(nonEventLabelForMessageType("prompt")).toBe("선택 요청");
+    expect(nonEventLabelForMessageType("unknown_type")).toBe("메시지");
   });
 });

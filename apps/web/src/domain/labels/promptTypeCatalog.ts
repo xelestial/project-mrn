@@ -17,27 +17,27 @@ export const KNOWN_PROMPT_TYPES = [
 ] as const;
 
 const PROMPT_TYPE_LABELS: Record<string, string> = {
-  movement: "Move Decision",
-  runaway_step_choice: "Runaway Move Choice",
-  lap_reward: "Lap Reward Choice",
-  draft_card: "Draft Selection",
-  final_character: "Final Character Choice",
-  final_character_choice: "Final Character Choice",
-  trick_to_use: "Trick Usage",
-  purchase_tile: "Tile Purchase",
-  hidden_trick_card: "Hidden Trick Choice",
-  mark_target: "Mark Target",
-  coin_placement: "Token Placement",
-  geo_bonus: "Geo Bonus Choice",
-  doctrine_relief: "Doctrine Relief Choice",
-  active_flip: "Active Card Flip",
-  specific_trick_reward: "Specific Trick Reward",
-  burden_exchange: "Burden Exchange",
+  movement: "이동값 결정",
+  runaway_step_choice: "탈출 노비 추가 이동 선택",
+  lap_reward: "랩 보상 선택",
+  draft_card: "드래프트 선택",
+  final_character: "최종 캐릭터 선택",
+  final_character_choice: "최종 캐릭터 선택",
+  trick_to_use: "잔꾀 사용",
+  purchase_tile: "토지 구매",
+  hidden_trick_card: "히든 잔꾀 지정",
+  mark_target: "지목 대상 선택",
+  coin_placement: "승점 토큰 배치",
+  geo_bonus: "객주 보너스 선택",
+  doctrine_relief: "교리 해제 대상 선택",
+  active_flip: "액티브 카드 뒤집기",
+  specific_trick_reward: "잔꾀 보상 선택",
+  burden_exchange: "짐 카드 교환",
 };
 
 export function promptLabelForType(requestType: string): string {
   if (!requestType.trim()) {
-    return "Prompt";
+    return "선택 요청";
   }
   return PROMPT_TYPE_LABELS[requestType] ?? requestType;
 }
