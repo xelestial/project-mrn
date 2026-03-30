@@ -17,6 +17,15 @@ body {
   gap: 16px;
 }
 
+.page.page-compact {
+  gap: 12px;
+  padding: 12px;
+}
+
+.page.page-compact .panel {
+  padding: 10px;
+}
+
 .header h1 {
   margin: 0;
   font-size: 24px;
@@ -30,6 +39,13 @@ body {
 .route-tabs {
   margin-top: 12px;
   display: flex;
+  gap: 8px;
+}
+
+.view-controls {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -193,6 +209,8 @@ body {
 .timeline {
   display: grid;
   gap: 8px;
+  max-height: 420px;
+  overflow: auto;
 }
 
 .timeline-item {
@@ -420,6 +438,18 @@ body {
   color: #f4f8ff;
 }
 
+.prompt-choice-toolbar {
+  margin: 6px 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.prompt-choice-toolbar small {
+  color: #afc2e8;
+}
+
 .prompt-helper {
   margin: 6px 0;
   color: #ffd788;
@@ -441,6 +471,10 @@ body {
   gap: 8px;
 }
 
+.prompt-choices-compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .prompt-choice-card {
   display: grid;
   gap: 4px;
@@ -453,9 +487,39 @@ body {
   cursor: pointer;
 }
 
+.prompt-choice-card-compact {
+  gap: 2px;
+  padding: 8px;
+}
+
+.prompt-choice-card-compact small {
+  font-size: 11px;
+  color: #b6c5e7;
+}
+
 .prompt-choice-card:disabled {
   opacity: 0.55;
   cursor: wait;
+}
+
+.match-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.match-board-column,
+.match-side-column {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.debug-panel .debug-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
 }
 
 .alert-stack {
@@ -484,6 +548,10 @@ body {
 }
 
 @media (max-width: 920px) {
+  .match-layout {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+
   .lobby-grid {
     grid-template-columns: repeat(1, minmax(0, 1fr));
   }
@@ -495,5 +563,21 @@ body {
 
   .players-grid {
     grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+
+  .prompt-choices-compact {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+}
+
+@media (max-height: 1080px) {
+  .panel {
+    padding: 10px;
+  }
+
+  .timeline,
+  .incident-stack,
+  .messages {
+    max-height: 300px;
   }
 }

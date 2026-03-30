@@ -481,6 +481,7 @@ Cross-plan guardrail:
 - P1 closure update (`2026-03-31`): runtime hardening baseline is now closed (`B4+`) with normalized fallback error codes and stable structured-log correlation fields.
 - P2 closure update (`2026-03-31`): rule-id vs label separation is now closed in active paths (`eventToneCatalog`, `choice_id`-first prompt contract tests).
 - P3 closure update (`2026-03-31`): human-play prompt UX now distinguishes actionable prompts vs observer prompts, so non-local turns no longer force blocking input overlays.
+- Phase 5 closure update (`2026-03-31`): commercial UX next-slice is closed (match-layout density tuning, large-prompt compact mode, and wording parity hardening for additional event families).
 
 ## Implementation Reading Rule (Mandatory)
 

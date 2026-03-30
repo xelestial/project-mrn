@@ -374,11 +374,11 @@ The original first slice is now complete:
 - persistent action lane + transient bottom overlay
 - motion-ready layout for richer event cards
 
-Current next slice should focus on:
+Current next slice is now closed (`2026-03-31`):
 
-- long-session UX tuning (density/spacing at 1080p and below)
-- optional prompt-card simplification per request type (reduce cognitive load for very long choice lists)
-- final pass for replay/live wording parity whenever new event types are added
+- [DONE] long-session UX tuning (density/spacing at 1080p and below)
+- [DONE] prompt-card simplification for large choice sets (compact-mode default with detail toggle)
+- [DONE] replay/live wording parity hardening for additional event families (`trick_window_open/closed`, `mark_resolved`, `marker_flip`, `f_value_change`)
 
 ## Rule Clarification To Preserve During UX Work
 

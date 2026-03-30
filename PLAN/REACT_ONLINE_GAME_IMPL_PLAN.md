@@ -646,6 +646,7 @@ Priority stack:
 4. `P3` Human-play UX closure (Phase 5 quality)
 - prompt clarity, theater continuity, board incident visibility, non-human turn readability
 - reason: user-facing playability after technical stability is secured
+- status update (`2026-03-31`): closed for current v1 scope (long-session density tuning + prompt compact mode + event wording parity hardening)
 
 5. `P4` Migration polish and documentation relocation
 - PLAN -> DOCS relocation, legacy reference cleanup, release playbook

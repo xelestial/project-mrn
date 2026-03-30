@@ -1,16 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
-import { useGameStream } from "./hooks/useGameStream";
-import {
-  createSession,
-  getSession,
-  getRuntimeStatus,
-  joinSession,
-  listSessions,
-  type ParameterManifest,
-  type PublicSessionResult,
-  type RuntimeStatusResult,
-  startSession,
-} from "./infra/http/sessionApi";
+import { mergeSessionManifest } from "./domain/manifest/manifestRehydrate";
+import { tileKindLabelsFromManifestLabels } from "./domain/labels/manifestLabelCatalog";
+import { promptLabelForType } from "./domain/labels/promptTypeCatalog";
+import { selectActivePrompt, selectLatestDecisionAck } from "./domain/selectors/promptSelectors";
 import {
   selectCriticalAlerts,
   selectLastMove,
@@ -20,18 +12,26 @@ import {
   selectTheaterFeed,
   selectTimeline,
 } from "./domain/selectors/streamSelectors";
-import { selectActivePrompt, selectLatestDecisionAck } from "./domain/selectors/promptSelectors";
-import { tileKindLabelsFromManifestLabels } from "./domain/labels/manifestLabelCatalog";
-import { promptLabelForType } from "./domain/labels/promptTypeCatalog";
-import { mergeSessionManifest } from "./domain/manifest/manifestRehydrate";
+import { BoardPanel } from "./features/board/BoardPanel";
+import { LobbyView, type LobbySeatType } from "./features/lobby/LobbyView";
+import { PlayersPanel } from "./features/players/PlayersPanel";
+import { PromptOverlay } from "./features/prompt/PromptOverlay";
 import { ConnectionPanel } from "./features/status/ConnectionPanel";
 import { SituationPanel } from "./features/status/SituationPanel";
-import { TimelinePanel } from "./features/timeline/TimelinePanel";
-import { BoardPanel } from "./features/board/BoardPanel";
-import { PlayersPanel } from "./features/players/PlayersPanel";
 import { IncidentCardStack } from "./features/theater/IncidentCardStack";
-import { PromptOverlay } from "./features/prompt/PromptOverlay";
-import { LobbyView, type LobbySeatType } from "./features/lobby/LobbyView";
+import { TimelinePanel } from "./features/timeline/TimelinePanel";
+import { useGameStream } from "./hooks/useGameStream";
+import {
+  createSession,
+  getRuntimeStatus,
+  getSession,
+  joinSession,
+  listSessions,
+  startSession,
+  type ParameterManifest,
+  type PublicSessionResult,
+  type RuntimeStatusResult,
+} from "./infra/http/sessionApi";
 
 type ViewRoute = "lobby" | "match";
 
@@ -93,6 +93,11 @@ export function App() {
   const [sessionManifest, setSessionManifest] = useState<ParameterManifest | null>(null);
   const [localPlayerId, setLocalPlayerId] = useState<number | null>(null);
 
+  const [compactDensity, setCompactDensity] = useState(
+    () => window.innerHeight <= 1080 || window.innerWidth <= 1400
+  );
+  const [showRawMessages, setShowRawMessages] = useState(true);
+
   const [promptCollapsed, setPromptCollapsed] = useState(false);
   const [promptBusy, setPromptBusy] = useState(false);
   const [promptRequestId, setPromptRequestId] = useState("");
@@ -101,22 +106,27 @@ export function App() {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   const stream = useGameStream({ sessionId, token });
-  const timeline = selectTimeline(stream.messages);
-  const theaterFeed = selectTheaterFeed(stream.messages, 16);
-  const alerts = selectCriticalAlerts(stream.messages, 4);
+  const timeline = selectTimeline(stream.messages, compactDensity ? 24 : 40);
+  const theaterFeed = selectTheaterFeed(stream.messages, compactDensity ? 12 : 20);
+  const alerts = selectCriticalAlerts(stream.messages, 6);
   const situation = selectSituation(stream.messages);
   const snapshot = selectLatestSnapshot(stream.messages);
   const lastMove = selectLastMove(stream.messages);
   const latestManifest = selectLatestManifest(stream.messages);
+
   const activePrompt = selectActivePrompt(stream.messages);
   const canActOnPrompt = Boolean(
-    activePrompt &&
-      token &&
-      (localPlayerId === null || activePrompt.playerId === localPlayerId),
+    activePrompt && token && (localPlayerId === null || activePrompt.playerId === localPlayerId)
   );
   const actionablePrompt = canActOnPrompt ? activePrompt : null;
   const passivePrompt = activePrompt && !canActOnPrompt ? activePrompt : null;
-  const latestPromptAck = selectLatestDecisionAck(stream.messages, actionablePrompt?.requestId ?? promptRequestId);
+  const latestPromptAck = selectLatestDecisionAck(
+    stream.messages,
+    actionablePrompt?.requestId ?? promptRequestId
+  );
+  const promptSecondsLeft =
+    promptExpiresAtMs === null ? null : Math.max(0, Math.ceil((promptExpiresAtMs - nowMs) / 1000));
+
   const joinSeatOptions = (sessionManifest?.seats?.allowed ?? [])
     .slice()
     .sort((a, b) => a - b)
@@ -153,19 +163,8 @@ export function App() {
     } else {
       onHashChange();
     }
-    return () => {
-      window.removeEventListener("hashchange", onHashChange);
-    };
+    return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
-
-  const navigateRoute = (next: ViewRoute) => {
-    if (next === "match") {
-      window.location.hash = buildMatchHash(sessionInput || sessionId, tokenInput || token);
-    } else {
-      window.location.hash = LOBBY_HASH;
-    }
-    setRoute(next);
-  };
 
   useEffect(() => {
     const seat = Number(joinSeatInput) || 1;
@@ -218,7 +217,7 @@ export function App() {
           setRuntime(runtimeState.runtime);
         }
       } catch {
-        // Keep current runtime view on polling error.
+        // keep current runtime state when polling fails
       }
     };
     void tick();
@@ -237,13 +236,12 @@ export function App() {
     let active = true;
     void getSession({ sessionId: sessionId.trim() })
       .then((data) => {
-        if (!active) {
-          return;
+        if (active) {
+          setSessionManifest(data.parameter_manifest ?? null);
         }
-        setSessionManifest(data.parameter_manifest ?? null);
       })
       .catch(() => {
-        // Keep last known manifest when metadata fetch fails.
+        // keep last known manifest
       });
     return () => {
       active = false;
@@ -278,57 +276,30 @@ export function App() {
     if (!promptBusy || !latestPromptAck) {
       return;
     }
+    if (latestPromptAck.status !== "rejected" && latestPromptAck.status !== "stale") {
+      return;
+    }
+    setPromptBusy(false);
     if (latestPromptAck.status === "rejected") {
-      setPromptBusy(false);
       setPromptFeedback(
         latestPromptAck.reason
           ? `선택이 거절되었습니다: ${latestPromptAck.reason}`
-          : "선택이 거절되었습니다. 다른 선택지를 시도해주세요."
+          : "선택이 거절되었습니다. 다른 선택지를 시도해 주세요."
       );
+      return;
     }
-    if (latestPromptAck.status === "stale") {
-      setPromptBusy(false);
-      setPromptFeedback(
-        latestPromptAck.reason
-          ? `선택이 만료되었습니다: ${latestPromptAck.reason}`
-          : "선택 요청이 만료되었습니다. 현재 요청을 다시 확인해주세요."
-      );
-    }
+    setPromptFeedback(
+      latestPromptAck.reason
+        ? `선택이 만료되었습니다: ${latestPromptAck.reason}`
+        : "선택 요청이 만료되었습니다. 현재 요청을 다시 확인해 주세요."
+    );
   }, [latestPromptAck, promptBusy]);
 
   useEffect(() => {
-    if (!promptBusy || !latestPromptAck) {
+    if (!actionablePrompt || promptBusy || promptSecondsLeft !== 0) {
       return;
     }
-    if (latestPromptAck.status === "rejected") {
-      setPromptFeedback(latestPromptAck.reason ? `선택이 거절되었습니다: ${latestPromptAck.reason}` : "선택이 거절되었습니다.");
-    }
-    if (latestPromptAck.status === "stale") {
-      setPromptFeedback(
-        latestPromptAck.reason ? `이미 만료된 선택입니다: ${latestPromptAck.reason}` : "이미 만료된 선택입니다."
-      );
-    }
-  }, [latestPromptAck, promptBusy]);
-
-  const promptSecondsLeft =
-    promptExpiresAtMs === null ? null : Math.max(0, Math.ceil((promptExpiresAtMs - nowMs) / 1000));
-
-  useEffect(() => {
-    if (!actionablePrompt || promptBusy) {
-      return;
-    }
-    if (promptSecondsLeft === 0) {
-      setPromptFeedback("시간이 만료되었습니다. 엔진의 자동 처리 결과를 기다리는 중입니다.");
-    }
-  }, [actionablePrompt, promptBusy, promptSecondsLeft]);
-
-  useEffect(() => {
-    if (!actionablePrompt || promptBusy) {
-      return;
-    }
-    if (promptSecondsLeft === 0) {
-      setPromptFeedback("시간이 만료되었습니다. 엔진의 자동 진행 결과를 기다리는 중입니다.");
-    }
+    setPromptFeedback("시간이 만료되었습니다. 엔진의 자동 진행 결과를 기다리는 중입니다.");
   }, [actionablePrompt, promptBusy, promptSecondsLeft]);
 
   useEffect(() => {
@@ -342,6 +313,15 @@ export function App() {
     const safeHash = buildMatchHash(sessionId.trim());
     window.history.replaceState(null, "", safeHash);
   }, [route, sessionId, stream.status]);
+
+  const navigateRoute = (next: ViewRoute) => {
+    if (next === "match") {
+      window.location.hash = buildMatchHash(sessionInput || sessionId, tokenInput || token);
+    } else {
+      window.location.hash = LOBBY_HASH;
+    }
+    setRoute(next);
+  };
 
   const refreshSessions = async () => {
     try {
@@ -397,7 +377,9 @@ export function App() {
         setJoinTokenInput(autoToken);
       }
       setNotice(
-        `Session created: ${created.session_id} host_token=${created.host_token} join_tokens=${JSON.stringify(created.join_tokens)}`
+        `Session created: ${created.session_id} host_token=${created.host_token} join_tokens=${JSON.stringify(
+          created.join_tokens
+        )}`
       );
       await refreshSessions();
     } catch (e) {
@@ -439,7 +421,9 @@ export function App() {
       setHostTokenInput(created.host_token);
       setLastJoinTokens(created.join_tokens);
       setNotice(
-        `AI session started: ${created.session_id} host_token=${created.host_token} join_tokens=${JSON.stringify(created.join_tokens)}`
+        `AI session started: ${created.session_id} host_token=${created.host_token} join_tokens=${JSON.stringify(
+          created.join_tokens
+        )}`
       );
       navigateRoute("match");
       await refreshSessions();
@@ -539,7 +523,7 @@ export function App() {
   };
 
   return (
-    <main className="page">
+    <main className={`page ${compactDensity ? "page-compact" : ""}`}>
       <header className="header">
         <h1>MRN Online Viewer (React/FastAPI)</h1>
         <p>세션 생성, 참가, 시작, 실시간 스트림 관찰을 한 화면에서 진행할 수 있습니다.</p>
@@ -559,6 +543,16 @@ export function App() {
             Match
           </button>
         </div>
+        {route === "match" ? (
+          <div className="view-controls">
+            <button type="button" className="route-tab" onClick={() => setCompactDensity((prev) => !prev)}>
+              {compactDensity ? "표준 밀도" : "컴팩트 밀도"}
+            </button>
+            <button type="button" className="route-tab" onClick={() => setShowRawMessages((prev) => !prev)}>
+              {showRawMessages ? "Raw 숨기기" : "Raw 보기"}
+            </button>
+          </div>
+        ) : null}
       </header>
 
       {route === "lobby" ? (
@@ -569,12 +563,10 @@ export function App() {
           aiProfile={aiProfile}
           seatTypes={seatTypes}
           sessionInput={sessionInput}
-            hostTokenInput={hostTokenInput}
-            joinSeatInput={joinSeatInput}
-            joinSeatOptions={
-              joinSeatOptions.length > 0 ? joinSeatOptions : seatTypes.map((_, index) => String(index + 1))
-            }
-            joinTokenInput={joinTokenInput}
+          hostTokenInput={hostTokenInput}
+          joinSeatInput={joinSeatInput}
+          joinSeatOptions={joinSeatOptions.length > 0 ? joinSeatOptions : seatTypes.map((_, index) => String(index + 1))}
+          joinTokenInput={joinTokenInput}
           displayNameInput={displayNameInput}
           tokenInput={tokenInput}
           notice={notice}
@@ -606,51 +598,64 @@ export function App() {
       ) : (
         <>
           <ConnectionPanel status={stream.status} lastSeq={stream.lastSeq} runtime={runtime} />
-          <SituationPanel model={situation} alerts={alerts} />
-          <BoardPanel
-            snapshot={snapshot}
-            manifestTiles={manifestTiles}
-            boardTopology={boardTopology}
-            tileKindLabels={tileKindLabels}
-            lastMove={lastMove}
-          />
-          <IncidentCardStack items={theaterFeed} />
-          <PlayersPanel snapshot={snapshot} />
-          <TimelinePanel items={timeline} />
-
-          {passivePrompt ? (
-            <section className="panel passive-prompt-card">
-              <h2>다른 플레이어 선택 진행 중</h2>
-              <p>
-                P{passivePrompt.playerId} / {promptLabelForType(passivePrompt.requestType)} / 남은 시간{" "}
-                {promptSecondsLeft ?? "-"}초
-              </p>
-              <p className="prompt-collapsed-note">
-                관전 중에는 입력창 대신 진행 상황만 표시됩니다. 선택이 끝나면 다음 공개 이벤트가 이어집니다.
-              </p>
-            </section>
-          ) : null}
-
-          <PromptOverlay
-            prompt={actionablePrompt}
-            collapsed={promptCollapsed}
-            busy={promptBusy}
-            secondsLeft={promptSecondsLeft}
-            feedbackMessage={promptFeedback}
-            onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
-            onSelectChoice={onSelectPromptChoice}
-          />
-
-          <section className="panel">
-            <h2>Recent Messages ({stream.messages.length})</h2>
-            <div className="messages">
-              {stream.messages
-                .slice()
-                .reverse()
-                .map((message, idx) => (
-                  <pre key={`${message.seq}-${idx}`}>{JSON.stringify(message, null, 2)}</pre>
-                ))}
+          <div className="match-layout">
+            <div className="match-board-column">
+              <BoardPanel
+                snapshot={snapshot}
+                manifestTiles={manifestTiles}
+                boardTopology={boardTopology}
+                tileKindLabels={tileKindLabels}
+                lastMove={lastMove}
+              />
+              <IncidentCardStack items={theaterFeed} />
+              {passivePrompt ? (
+                <section className="panel passive-prompt-card">
+                  <h2>다른 플레이어 선택 진행 중</h2>
+                  <p>
+                    P{passivePrompt.playerId} / {promptLabelForType(passivePrompt.requestType)} / 남은 시간{" "}
+                    {promptSecondsLeft ?? "-"}초
+                  </p>
+                  <p className="prompt-collapsed-note">
+                    관전 중에는 입력창 대신 진행 상황만 표시됩니다. 선택이 끝나면 다음 공개 이벤트가 이어집니다.
+                  </p>
+                </section>
+              ) : null}
+              <PromptOverlay
+                prompt={actionablePrompt}
+                collapsed={promptCollapsed}
+                busy={promptBusy}
+                secondsLeft={promptSecondsLeft}
+                feedbackMessage={promptFeedback}
+                compactChoices={compactDensity}
+                onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
+                onSelectChoice={onSelectPromptChoice}
+              />
             </div>
+            <div className="match-side-column">
+              <SituationPanel model={situation} alerts={alerts} />
+              <PlayersPanel snapshot={snapshot} />
+              <TimelinePanel items={timeline} />
+            </div>
+          </div>
+          <section className="panel debug-panel">
+            <div className="debug-head">
+              <h2>Recent Messages ({stream.messages.length})</h2>
+              <button type="button" className="route-tab" onClick={() => setShowRawMessages((prev) => !prev)}>
+                {showRawMessages ? "숨기기" : "보기"}
+              </button>
+            </div>
+            {showRawMessages ? (
+              <div className="messages">
+                {stream.messages
+                  .slice()
+                  .reverse()
+                  .map((message, idx) => (
+                    <pre key={`${message.seq}-${idx}`}>{JSON.stringify(message, null, 2)}</pre>
+                  ))}
+              </div>
+            ) : (
+              <p className="prompt-collapsed-note">장시간 플레이에서는 기본적으로 Raw 로그를 숨깁니다.</p>
+            )}
           </section>
         </>
       )}

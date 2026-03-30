@@ -176,6 +176,10 @@ Audit companion:
       - backend matrix tests for seat/economy/dice overrides
       - session start matrix-manifest verification
       - Playwright matrix parity scenario (`parameter_matrix_economy_dice_2seat`)
+  - Phase 5 UX closure update (`2026-03-31`):
+    - match view now supports compact-density layout for long sessions
+    - large prompt choice sets now default to compact mode with detail toggle
+    - additional event-family wording parity is normalized in selector detail summaries
 - contract freeze artifacts (`OI7`): complete baseline
   - added frozen WS schema set under `packages/runtime-contracts/ws/schemas`
   - added canonical WS examples under `packages/runtime-contracts/ws/examples`

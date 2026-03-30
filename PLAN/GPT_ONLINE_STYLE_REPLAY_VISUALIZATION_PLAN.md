@@ -24,15 +24,12 @@ Current status on `main`:
 - Phase 2 offline replay viewer: baseline complete
 - Phase 3 live spectator: baseline complete
 - Phase 4 human-play baseline: baseline complete
-- Phase 5 full match UI: baseline complete (v1), optional polish remains
+- Phase 5 full match UI: complete (v1 + commercial UX slice)
 
 Current GPT-owned follow-up:
 - keep plan/status documents synchronized with actual `main`
-- continue replay/live UI polish for Phase 5
-- keep replay wording/layout human-friendly as the viewer matures
-- execute the commercial-grade Phase 5 UX overhaul proposal:
-  - `PLAN/[PROPOSAL]_GPT_PHASE5_COMMERCIAL_UI_UX_OVERHAUL.md`
-  - prioritize turn theater, contextual prompts, public action continuity, and board-first readability
+- preserve replay/live wording/layout parity as new event types are added
+- maintain long-session UX quality baseline (density, prompt compact mode, theater continuity)
 
 Current CLAUDE-owned follow-up:
 - converge validators and substrate naming on canonical shared-contract fields

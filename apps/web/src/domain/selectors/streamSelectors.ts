@@ -222,6 +222,12 @@ function pickMessageDetail(message: InboundMessage): string {
   if (eventType === "weather_reveal") {
     return asString(payload["weather_name"] ?? payload["weather"] ?? payload["card"]);
   }
+  if (eventType === "trick_window_open") {
+    return "잔꾀 사용 창 열림";
+  }
+  if (eventType === "trick_window_closed") {
+    return "잔꾀 사용 창 닫힘";
+  }
   if (eventType === "landing_resolved") {
     const raw = asString(payload["result_type"] ?? payload["result_code"] ?? payload["result"] ?? "도착 처리");
     if (raw === "PURCHASE_SKIP_POLICY") {
@@ -283,6 +289,31 @@ function pickMessageDetail(message: InboundMessage): string {
       return `설정 동기화 ${hash.slice(0, 8)}`;
     }
     return "설정 정보 갱신";
+  }
+  if (eventType === "mark_resolved") {
+    const source = payload["source_player_id"];
+    const target = payload["target_player_id"];
+    if (typeof source === "number" && typeof target === "number") {
+      return `[지목] P${source} -> P${target}`;
+    }
+    return "지목 처리";
+  }
+  if (eventType === "marker_flip") {
+    const from = asString(payload["from_character"] ?? payload["from"]);
+    const to = asString(payload["to_character"] ?? payload["to"]);
+    if (from !== "-" && to !== "-") {
+      return `${from} -> ${to}`;
+    }
+    return "카드 뒤집기";
+  }
+  if (eventType === "f_value_change") {
+    const before = payload["before"];
+    const delta = payload["delta"];
+    const after = payload["after"];
+    if (typeof before === "number" && typeof delta === "number" && typeof after === "number") {
+      return `종료 시간 ${before} + (${delta}) = ${after}`;
+    }
+    return "종료 시간 변경";
   }
 
   const summary = payload["summary"];
