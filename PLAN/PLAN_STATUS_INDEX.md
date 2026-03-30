@@ -503,6 +503,11 @@ Cross-plan guardrail:
 - P3 closure update (`2026-03-31`): human-play prompt UX now distinguishes actionable prompts vs observer prompts, so non-local turns no longer force blocking input overlays.
 - Phase 5 closure update (`2026-03-31`): commercial UX next-slice is closed (match-layout density tuning, large-prompt compact mode, and wording parity hardening for additional event families).
 - P4 operations closure update (`2026-03-31`): release playbook and Claude substrate maintenance loop docs were added under `docs/architecture` and linked into the implementation usage guide.
+- Release playbook execution rerun (`2026-03-31`) is complete:
+  - guardrails: `parameter_manifest_gate --check`, `encoding_gate`, `legacy_path_audit --strict` all pass
+  - backend reliability batch: `14 passed, 9 skipped`
+  - frontend reconnect/manifest/projection batch: `23 passed`
+  - substrate/replay batch: `GPT/test_visual_runtime_substrate.py` (`2 passed`), `GPT/test_replay_viewer.py` (`ALL TESTS PASSED`)
 
 ## Implementation Reading Rule (Mandatory)
 
