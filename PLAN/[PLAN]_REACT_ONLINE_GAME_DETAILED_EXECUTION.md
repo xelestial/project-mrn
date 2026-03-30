@@ -299,7 +299,9 @@ Implementation:
 1. Runtime watchdog for stuck prompt/session.
 2. Structured JSON logs with correlation fields.
 3. Error code normalization and user-facing categories.
-4. Optional persistence adapter seam (no persistence required in v1).
+4. Restart persistence adapter seam (started baseline):
+   - file-backed session/stream state restore path
+   - env-gated activation (`MRN_SESSION_STORE_PATH`, `MRN_STREAM_STORE_PATH`)
 
 Definition of done:
 - Recoverable faults are surfaced with stable error codes.

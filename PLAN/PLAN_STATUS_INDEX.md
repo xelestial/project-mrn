@@ -58,6 +58,7 @@ Practical implications:
   - current document-maintenance gap is now mostly:
     - periodic validator parity follow-up as contract fields evolve
     - periodic parameter/manifest guardrail evidence sync on each closure pass
+    - OI5 restart-persistence hardening follow-up (retention/recovery policy)
   - maintenance loop docs are now explicit (`2026-03-31`):
     - release operations: `docs/architecture/react-fastapi-release-playbook.md`
     - Claude substrate loop: `docs/architecture/claude-substrate-maintenance-loop.md`
@@ -512,9 +513,9 @@ Cross-plan guardrail:
   - shared contract (`PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`) vs strict validator fields reviewed
   - `round_start` / `trick_used` strict payload requirements are aligned and tests pass
   - no canonical contract drift detected in this loop pass
-- OI5 decision update (`2026-03-31`):
-  - session persistence after restart remains deferred to v2 backlog
-  - v1 scope remains unchanged (no persistence migration in active queue)
+- OI5 start update (`2026-03-31`):
+  - file-backed restart persistence baseline is now implemented for sessions/stream buffers
+  - v2 follow-up remains for retention and runtime-task recovery hardening
 - Encoding cleanup sweep (`2026-03-31`) is complete:
   - `PLAN/` + `docs/` markdown files scanned for mojibake/replacement-character patterns
   - no remaining UTF-8 corruption lines detected under current scan rules

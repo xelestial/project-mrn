@@ -10,6 +10,7 @@ from apps.server.src.services.parameter_service import (
     ParameterValidationError,
     PublicManifestBuilder,
 )
+from apps.server.src.services.persistence import SessionStore
 
 
 class SessionStateError(ValueError):
@@ -27,10 +28,13 @@ class SessionService:
         self,
         parameter_resolver: GameParameterResolver | None = None,
         manifest_builder: PublicManifestBuilder | None = None,
+        session_store: SessionStore | None = None,
     ) -> None:
         self._sessions: dict[str, Session] = {}
         self._parameter_resolver = parameter_resolver or GameParameterResolver()
         self._manifest_builder = manifest_builder or PublicManifestBuilder()
+        self._session_store = session_store
+        self._load_from_store()
 
     def create_session(
         self,
@@ -62,6 +66,7 @@ class SessionService:
             parameter_manifest=self._manifest_builder.build_public_manifest(resolved_parameters),
         )
         self._sessions[session_id] = session
+        self._persist_sessions()
         return session
 
     def list_sessions(self) -> list[Session]:
@@ -93,6 +98,7 @@ class SessionService:
         seat_cfg.connected = True
         session_token = self._new_token(f"session_p{seat}")
         session.session_tokens[seat] = session_token
+        self._persist_sessions()
         return {
             "session_id": session.session_id,
             "seat": seat,
@@ -111,6 +117,7 @@ class SessionService:
             raise SessionStateError("human_seats_not_ready")
         session.status = SessionStatus.IN_PROGRESS
         session.started_at = utc_now_iso()
+        self._persist_sessions()
         return session
 
     def to_public(self, session: Session) -> dict:
@@ -139,6 +146,7 @@ class SessionService:
         session = self.get_session(session_id)
         seat_cfg = self._find_seat(session, seat)
         seat_cfg.connected = connected
+        self._persist_sessions()
 
     def is_all_ai(self, session_id: str) -> bool:
         session = self.get_session(session_id)
@@ -148,6 +156,7 @@ class SessionService:
         session = self.get_session(session_id)
         if session.status == SessionStatus.IN_PROGRESS:
             session.status = SessionStatus.FINISHED
+            self._persist_sessions()
 
     def to_create_result(self, session: Session) -> dict:
         data = self.to_public(session)
@@ -212,3 +221,81 @@ class SessionService:
             if seat.seat_type == SeatType.HUMAN and seat.player_id is None:
                 return False
         return True
+
+    def _persist_sessions(self) -> None:
+        if self._session_store is None:
+            return
+        payload = [self._session_to_payload(session) for session in self._sessions.values()]
+        self._session_store.save_sessions(payload)
+
+    def _load_from_store(self) -> None:
+        if self._session_store is None:
+            return
+        for raw in self._session_store.load_sessions():
+            try:
+                session = self._session_from_payload(raw)
+            except Exception:
+                continue
+            if not session.session_id:
+                continue
+            self._sessions[session.session_id] = session
+
+    @staticmethod
+    def _session_to_payload(session: Session) -> dict:
+        return {
+            "session_id": session.session_id,
+            "status": session.status.value,
+            "seats": [
+                {
+                    "seat": seat.seat,
+                    "seat_type": seat.seat_type.value,
+                    "ai_profile": seat.ai_profile,
+                    "player_id": seat.player_id,
+                    "connected": seat.connected,
+                }
+                for seat in session.seats
+            ],
+            "config": dict(session.config),
+            "created_at": session.created_at,
+            "started_at": session.started_at,
+            "round_index": session.round_index,
+            "turn_index": session.turn_index,
+            "host_token": session.host_token,
+            "join_tokens": {str(k): v for k, v in session.join_tokens.items()},
+            "session_tokens": {str(k): v for k, v in session.session_tokens.items()},
+            "resolved_parameters": dict(session.resolved_parameters),
+            "parameter_manifest": dict(session.parameter_manifest),
+        }
+
+    @staticmethod
+    def _session_from_payload(payload: dict) -> Session:
+        seats_raw = payload.get("seats", [])
+        seats: list[SeatConfig] = []
+        for item in seats_raw:
+            if not isinstance(item, dict):
+                continue
+            seat_type = SeatType(str(item.get("seat_type", SeatType.AI.value)))
+            seats.append(
+                SeatConfig(
+                    seat=int(item.get("seat", 0)),
+                    seat_type=seat_type,
+                    ai_profile=item.get("ai_profile"),
+                    player_id=int(item["player_id"]) if item.get("player_id") is not None else None,
+                    connected=bool(item.get("connected", False)),
+                )
+            )
+        return Session(
+            session_id=str(payload.get("session_id", "")),
+            status=SessionStatus(str(payload.get("status", SessionStatus.WAITING.value))),
+            seats=sorted(seats, key=lambda s: s.seat),
+            config=dict(payload.get("config", {})),
+            created_at=str(payload.get("created_at", utc_now_iso())),
+            started_at=payload.get("started_at"),
+            round_index=int(payload.get("round_index", 0)),
+            turn_index=int(payload.get("turn_index", 0)),
+            host_token=str(payload.get("host_token", "")),
+            join_tokens={int(k): str(v) for k, v in dict(payload.get("join_tokens", {})).items()},
+            session_tokens={int(k): str(v) for k, v in dict(payload.get("session_tokens", {})).items()},
+            resolved_parameters=dict(payload.get("resolved_parameters", {})),
+            parameter_manifest=dict(payload.get("parameter_manifest", {})),
+        )

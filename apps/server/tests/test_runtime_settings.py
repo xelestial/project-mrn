@@ -17,6 +17,8 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.log_file_path, "")
         self.assertEqual(settings.log_file_max_bytes, 5 * 1024 * 1024)
         self.assertEqual(settings.log_file_backup_count, 5)
+        self.assertEqual(settings.session_store_path, "")
+        self.assertEqual(settings.stream_store_path, "")
 
     def test_env_overrides_with_minimum_clamp(self) -> None:
         with _temporary_env(
@@ -28,6 +30,8 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "MRN_LOG_FILE_PATH": "result/server/server.log",
                 "MRN_LOG_FILE_MAX_BYTES": "1048576",
                 "MRN_LOG_FILE_BACKUP_COUNT": "8",
+                "MRN_SESSION_STORE_PATH": "result/server/session-store.json",
+                "MRN_STREAM_STORE_PATH": "result/server/stream-store.json",
             }
         ):
             settings = load_runtime_settings()
@@ -38,6 +42,8 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.log_file_path, "result/server/server.log")
         self.assertEqual(settings.log_file_max_bytes, 1048576)
         self.assertEqual(settings.log_file_backup_count, 8)
+        self.assertEqual(settings.session_store_path, "result/server/session-store.json")
+        self.assertEqual(settings.stream_store_path, "result/server/stream-store.json")
 
     def test_invalid_env_values_fallback_to_defaults(self) -> None:
         with _temporary_env(
@@ -49,6 +55,8 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "MRN_LOG_FILE_PATH": "",
                 "MRN_LOG_FILE_MAX_BYTES": "1",
                 "MRN_LOG_FILE_BACKUP_COUNT": "0",
+                "MRN_SESSION_STORE_PATH": "",
+                "MRN_STREAM_STORE_PATH": "",
             }
         ):
             settings = load_runtime_settings()
@@ -59,6 +67,8 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.log_file_path, "")
         self.assertEqual(settings.log_file_max_bytes, 5 * 1024 * 1024)
         self.assertEqual(settings.log_file_backup_count, 5)
+        self.assertEqual(settings.session_store_path, "")
+        self.assertEqual(settings.stream_store_path, "")
 
 
 class _temporary_env:
@@ -73,6 +83,8 @@ class _temporary_env:
             "MRN_LOG_FILE_PATH",
             "MRN_LOG_FILE_MAX_BYTES",
             "MRN_LOG_FILE_BACKUP_COUNT",
+            "MRN_SESSION_STORE_PATH",
+            "MRN_STREAM_STORE_PATH",
         ]
 
     def __enter__(self) -> None:

@@ -29,6 +29,8 @@ class RuntimeSettings:
     log_file_path: str = ""
     log_file_max_bytes: int = 5 * 1024 * 1024
     log_file_backup_count: int = 5
+    session_store_path: str = ""
+    stream_store_path: str = ""
 
 
 def load_runtime_settings() -> RuntimeSettings:
@@ -40,4 +42,6 @@ def load_runtime_settings() -> RuntimeSettings:
         log_file_path=_env_str("MRN_LOG_FILE_PATH", ""),
         log_file_max_bytes=_env_int("MRN_LOG_FILE_MAX_BYTES", 5 * 1024 * 1024, 1024),
         log_file_backup_count=_env_int("MRN_LOG_FILE_BACKUP_COUNT", 5, 1),
+        session_store_path=_env_str("MRN_SESSION_STORE_PATH", ""),
+        stream_store_path=_env_str("MRN_STREAM_STORE_PATH", ""),
     )
