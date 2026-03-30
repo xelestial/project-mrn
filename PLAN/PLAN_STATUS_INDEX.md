@@ -94,6 +94,11 @@ Practical implications:
   - F2 pre-structure has started (feature component split + selector layer + board placeholder)
   - F2 snapshot baseline added (stream snapshot -> public board/player render)
   - F2 ring-board baseline added (`tile_index` coordinate mapping)
+  - OI2 board-layout constant extraction is closed (`2026-03-31`):
+    - board projection constants are centralized (`boardProjection`)
+    - ring/line grid dimensions are computed via `boardGridForTileCount`
+    - React board grid templates no longer rely on fixed `11x11` literals
+    - projection regression tests pass (`apps/web/src/features/board/boardProjection.spec.ts`)
   - F2 board-near incident stack baseline added
   - F2 board movement UX baseline added (last-move summary + from/to tile highlight + pawn arrive pulse)
   - F2 selector localization baseline added (Korean event labels + richer timeline detail summaries)
@@ -278,11 +283,11 @@ Practical implications:
 
 ### 3. GPT Decision Pipeline Node Plan
 - File: `PLAN/GPT_DECISION_PIPELINE_NODE_PLAN.md`
-- Status: `ACTIVE`
-- Role: active plan for converting GPT AI decisions into node/pipeline form
+- Status: `COMPLETE`
+- Role: completed implementation record for GPT AI node/pipeline conversion
 - Notes:
-  - intended to make AI decisions explainable and reusable
-  - first implementation explicitly excludes trick pipelines until manual audit
+  - runtime scope is closed in the current committed branch
+  - keep as reference for architecture rationale and trace schema behavior
 
 ## Completed Milestone Records
 

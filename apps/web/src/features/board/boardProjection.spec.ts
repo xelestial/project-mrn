@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boardSizeForTileCount, projectTilePosition, ringPosition } from "./boardProjection";
+import { boardGridForTileCount, boardSizeForTileCount, projectTilePosition, ringPosition } from "./boardProjection";
 
 function uniqueKey(row: number, col: number): string {
   return `${row}:${col}`;
@@ -10,7 +10,18 @@ describe("boardProjection", () => {
     expect(boardSizeForTileCount(40)).toBeGreaterThanOrEqual(11);
     expect(boardSizeForTileCount(20)).toBeGreaterThanOrEqual(6);
     expect(boardSizeForTileCount(8)).toBeGreaterThanOrEqual(5);
+    expect(boardSizeForTileCount(0)).toBe(11);
     expect(boardSizeForTileCount(8, "line")).toBe(8);
+  });
+
+  it("returns separate rows/cols for line topology grid", () => {
+    const line = boardGridForTileCount(6, "line");
+    expect(line.cols).toBe(6);
+    expect(line.rows).toBe(1);
+
+    const ring = boardGridForTileCount(24, "ring");
+    expect(ring.cols).toBe(ring.rows);
+    expect(ring.cols).toBeGreaterThanOrEqual(7);
   });
 
   it("projects non-default tile count into valid ring coordinates", () => {

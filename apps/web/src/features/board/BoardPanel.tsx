@@ -1,5 +1,6 @@
+import type { CSSProperties } from "react";
 import type { LastMoveViewModel, SnapshotViewModel } from "../../domain/selectors/streamSelectors";
-import { boardSizeForTileCount, projectTilePosition } from "./boardProjection";
+import { boardGridForTileCount, projectTilePosition, DEFAULT_RING_TILE_COUNT } from "./boardProjection";
 
 type BoardPanelProps = {
   snapshot: SnapshotViewModel | null;
@@ -42,8 +43,13 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
   const tiles = (snapshot?.tiles && snapshot.tiles.length > 0 ? snapshot.tiles : manifestTiles ?? []).slice();
   tiles.sort((a, b) => a.tileIndex - b.tileIndex);
   const normalizedTopology = boardTopology === "line" ? "line" : "ring";
-  const boardSize = boardSizeForTileCount(tiles.length, normalizedTopology);
+  const effectiveTileCount = tiles.length > 0 ? tiles.length : DEFAULT_RING_TILE_COUNT;
+  const grid = boardGridForTileCount(effectiveTileCount, normalizedTopology);
   const endTimeRemaining = snapshot ? Math.max(0, 15 - snapshot.fValue) : null;
+  const boardStyle = {
+    "--board-grid-cols": String(grid.cols),
+    "--board-grid-rows": String(grid.rows),
+  } as CSSProperties;
   if (tiles.length === 0) {
     return (
       <section className="panel">
@@ -73,10 +79,7 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
       ) : null}
       <div
         className="board-ring"
-        style={{
-          gridTemplateColumns: `repeat(${boardSize}, minmax(0, 1fr))`,
-          gridTemplateRows: `repeat(${boardSize}, minmax(0, 1fr))`,
-        }}
+        style={boardStyle}
       >
         {tiles.map((tile) => {
           const isMoveFrom = lastMove?.fromTileIndex === tile.tileIndex;

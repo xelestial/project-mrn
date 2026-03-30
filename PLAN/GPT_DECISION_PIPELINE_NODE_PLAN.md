@@ -38,9 +38,6 @@ Role: `canonical plan for rewriting GPT AI decisions into reusable node/pipeline
 - movement traces now emit richer no-card / tempo detectors (`hold_cards_default`, `single_card_tempo_pick`) so the pipeline explains both aggressive and conservative movement lines
 - purchase traces now emit `safe_growth_beats_token_wait` when `v3_gpt` deliberately buys a safe growth tile instead of over-waiting for a modest score-coin window
 
-### Still Pending
-- none in the currently committed scope
-
 ### Completion Note
 - the original first-pass non-trick scope is complete
 - the follow-through trick-family scope is now also traced through the same substrate

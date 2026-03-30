@@ -675,7 +675,7 @@ Merge rule:
 | # | Item | Owner | Notes |
 |---|---|---|---|
 | OI1 | Engine sync runtime bridge to async FastAPI | Shared | Closed (2026-03-31): runtime now bridges blocking engine execution via `asyncio.to_thread` with async watchdog task path |
-| OI2 | Extract board tile layout constants from legacy renderer | GPT | In progress: `boardProjection` module extracted, topology-aware projection baseline added (`ring`/`line`), board label path manifest-aware (`tile_kind_labels`) |
+| OI2 | Extract board tile layout constants from legacy renderer | GPT | Closed (2026-03-31): board projection constants/modules are extracted (`boardProjection` + `boardGridForTileCount`), ring/line grid sizing is parameterized, React board no longer depends on fixed `11x11` template literals, and projection tests pass (`boardProjection.spec.ts`) |
 | OI3 | Full prompt type coverage audit in human policy and React UI | GPT | Complete: helper/label catalog + coverage tests enforce full human-policy request-type matrix |
 | OI4 | Final UI stack decision (plain CSS modules vs utility stack) | GPT | Complete: plain-CSS-first strategy fixed for v1 (`PLAN/[DECISION]_REACT_UI_STACK_STRATEGY.md`) |
 | OI5 | Session persistence after restart | CLAUDE | Out of scope for v1 |

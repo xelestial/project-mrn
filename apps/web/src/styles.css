@@ -223,11 +223,13 @@ body {
 }
 
 .board-ring {
+  --board-grid-cols: 11;
+  --board-grid-rows: 11;
   display: grid;
-  grid-template-columns: repeat(11, minmax(0, 1fr));
-  grid-template-rows: repeat(11, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--board-grid-cols), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--board-grid-rows), minmax(0, 1fr));
   gap: 8px;
-  min-height: 620px;
+  min-height: clamp(240px, calc(var(--board-grid-rows) * 44px), 720px);
 }
 
 .board-move-summary {

@@ -1,15 +1,33 @@
 export type RingPosition = { row: number; col: number; boardSize: number };
 export type BoardTopology = "ring" | "line";
+export type BoardGrid = { cols: number; rows: number; boardSize: number; topology: BoardTopology };
+
+export const DEFAULT_RING_TILE_COUNT = 40;
+export const DEFAULT_RING_GRID_SIZE = 11;
+const MIN_RING_GRID_SIZE = 5;
+const MIN_RING_SIDE = 3;
 
 export function boardSizeForTileCount(tileCount: number, topology: BoardTopology = "ring"): number {
   if (topology === "line") {
     return Math.max(1, tileCount);
   }
-  return Math.max(5, Math.ceil(tileCount / 4) + 1);
+  if (tileCount <= 0) {
+    return DEFAULT_RING_GRID_SIZE;
+  }
+  return Math.max(MIN_RING_GRID_SIZE, Math.ceil(tileCount / 4) + 1);
+}
+
+export function boardGridForTileCount(tileCount: number, topology: BoardTopology = "ring"): BoardGrid {
+  if (topology === "line") {
+    const cols = Math.max(1, tileCount);
+    return { cols, rows: 1, boardSize: cols, topology };
+  }
+  const boardSize = boardSizeForTileCount(tileCount, topology);
+  return { cols: boardSize, rows: boardSize, boardSize, topology };
 }
 
 export function ringPosition(tileIndex: number, boardSize: number): RingPosition {
-  const side = Math.max(3, boardSize);
+  const side = Math.max(MIN_RING_SIDE, boardSize);
   const topCount = side;
   const rightCount = side - 2;
   const bottomCount = side;
