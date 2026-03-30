@@ -22,6 +22,7 @@ import {
 } from "./domain/selectors/streamSelectors";
 import { selectActivePrompt, selectLatestDecisionAck } from "./domain/selectors/promptSelectors";
 import { tileKindLabelsFromManifestLabels } from "./domain/labels/manifestLabelCatalog";
+import { promptLabelForType } from "./domain/labels/promptTypeCatalog";
 import { mergeSessionManifest } from "./domain/manifest/manifestRehydrate";
 import { ConnectionPanel } from "./features/status/ConnectionPanel";
 import { SituationPanel } from "./features/status/SituationPanel";
@@ -90,6 +91,7 @@ export function App() {
   const [displayNameInput, setDisplayNameInput] = useState("Player");
   const [sessions, setSessions] = useState<PublicSessionResult[]>([]);
   const [sessionManifest, setSessionManifest] = useState<ParameterManifest | null>(null);
+  const [localPlayerId, setLocalPlayerId] = useState<number | null>(null);
 
   const [promptCollapsed, setPromptCollapsed] = useState(false);
   const [promptBusy, setPromptBusy] = useState(false);
@@ -107,7 +109,14 @@ export function App() {
   const lastMove = selectLastMove(stream.messages);
   const latestManifest = selectLatestManifest(stream.messages);
   const activePrompt = selectActivePrompt(stream.messages);
-  const latestPromptAck = selectLatestDecisionAck(stream.messages, activePrompt?.requestId ?? promptRequestId);
+  const canActOnPrompt = Boolean(
+    activePrompt &&
+      token &&
+      (localPlayerId === null || activePrompt.playerId === localPlayerId),
+  );
+  const actionablePrompt = canActOnPrompt ? activePrompt : null;
+  const passivePrompt = activePrompt && !canActOnPrompt ? activePrompt : null;
+  const latestPromptAck = selectLatestDecisionAck(stream.messages, actionablePrompt?.requestId ?? promptRequestId);
   const joinSeatOptions = (sessionManifest?.seats?.allowed ?? [])
     .slice()
     .sort((a, b) => a - b)
@@ -249,21 +258,21 @@ export function App() {
   }, [latestManifest]);
 
   useEffect(() => {
-    if (!activePrompt) {
+    if (!actionablePrompt) {
       setPromptBusy(false);
       setPromptRequestId("");
       setPromptExpiresAtMs(null);
       setPromptFeedback("");
       return;
     }
-    if (activePrompt.requestId !== promptRequestId) {
+    if (actionablePrompt.requestId !== promptRequestId) {
       setPromptBusy(false);
       setPromptCollapsed(false);
-      setPromptRequestId(activePrompt.requestId);
-      setPromptExpiresAtMs(Date.now() + activePrompt.timeoutMs);
+      setPromptRequestId(actionablePrompt.requestId);
+      setPromptExpiresAtMs(Date.now() + actionablePrompt.timeoutMs);
       setPromptFeedback("");
     }
-  }, [activePrompt, promptRequestId]);
+  }, [actionablePrompt, promptRequestId]);
 
   useEffect(() => {
     if (!promptBusy || !latestPromptAck) {
@@ -305,22 +314,22 @@ export function App() {
     promptExpiresAtMs === null ? null : Math.max(0, Math.ceil((promptExpiresAtMs - nowMs) / 1000));
 
   useEffect(() => {
-    if (!activePrompt || promptBusy) {
+    if (!actionablePrompt || promptBusy) {
       return;
     }
     if (promptSecondsLeft === 0) {
       setPromptFeedback("시간이 만료되었습니다. 엔진의 자동 처리 결과를 기다리는 중입니다.");
     }
-  }, [activePrompt, promptBusy, promptSecondsLeft]);
+  }, [actionablePrompt, promptBusy, promptSecondsLeft]);
 
   useEffect(() => {
-    if (!activePrompt || promptBusy) {
+    if (!actionablePrompt || promptBusy) {
       return;
     }
     if (promptSecondsLeft === 0) {
       setPromptFeedback("시간이 만료되었습니다. 엔진의 자동 진행 결과를 기다리는 중입니다.");
     }
-  }, [activePrompt, promptBusy, promptSecondsLeft]);
+  }, [actionablePrompt, promptBusy, promptSecondsLeft]);
 
   useEffect(() => {
     if (route !== "match" || stream.status !== "connected") {
@@ -347,6 +356,7 @@ export function App() {
     event.preventDefault();
     setError("");
     setNotice("");
+    setLocalPlayerId(null);
     const normalized = sessionInput.trim();
     setSessionId(normalized);
     setToken(tokenInput.trim() || undefined);
@@ -425,6 +435,7 @@ export function App() {
       setSessionId(created.session_id);
       setTokenInput("");
       setToken(undefined);
+      setLocalPlayerId(null);
       setHostTokenInput(created.host_token);
       setLastJoinTokens(created.join_tokens);
       setNotice(
@@ -480,6 +491,7 @@ export function App() {
       setSessionId(current);
       setTokenInput(joined.session_token);
       setToken(joined.session_token);
+      setLocalPlayerId(joined.player_id);
       setNotice(`Joined seat P${joined.player_id}. Connected with session token.`);
       navigateRoute("match");
       await refreshSessions();
@@ -493,6 +505,7 @@ export function App() {
   const onUseSession = (id: string) => {
     setSessionInput(id);
     setSessionId(id);
+    setLocalPlayerId(null);
     const selected = sessions.find((session) => session.session_id === id);
     setSessionManifest(selected?.parameter_manifest ?? null);
     setNotice(`Session selected: ${id}`);
@@ -508,18 +521,18 @@ export function App() {
   };
 
   const onSelectPromptChoice = (choiceId: string) => {
-    if (!activePrompt || promptBusy) {
+    if (!actionablePrompt || promptBusy) {
       return;
     }
-    if (!activePrompt.playerId) {
+    if (!actionablePrompt.playerId) {
       setError("Prompt player_id is invalid.");
       return;
     }
     setPromptBusy(true);
     setPromptFeedback("");
     stream.sendDecision({
-      requestId: activePrompt.requestId,
-      playerId: activePrompt.playerId,
+      requestId: actionablePrompt.requestId,
+      playerId: actionablePrompt.playerId,
       choiceId,
       choicePayload: {},
     });
@@ -605,8 +618,21 @@ export function App() {
           <PlayersPanel snapshot={snapshot} />
           <TimelinePanel items={timeline} />
 
+          {passivePrompt ? (
+            <section className="panel passive-prompt-card">
+              <h2>다른 플레이어 선택 진행 중</h2>
+              <p>
+                P{passivePrompt.playerId} / {promptLabelForType(passivePrompt.requestType)} / 남은 시간{" "}
+                {promptSecondsLeft ?? "-"}초
+              </p>
+              <p className="prompt-collapsed-note">
+                관전 중에는 입력창 대신 진행 상황만 표시됩니다. 선택이 끝나면 다음 공개 이벤트가 이어집니다.
+              </p>
+            </section>
+          ) : null}
+
           <PromptOverlay
-            prompt={activePrompt}
+            prompt={actionablePrompt}
             collapsed={promptCollapsed}
             busy={promptBusy}
             secondsLeft={promptSecondsLeft}

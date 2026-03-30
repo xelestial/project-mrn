@@ -196,4 +196,4 @@ Scope:
 | F-03 (pipeline traceability) | `DONE` | 본 문서의 canonical pipeline + status/usage guide 연결 반영 |
 | F-04 (manifest hash rehydrate test) | `DONE` | web reducer hash-change rehydrate + 단위테스트 추가 |
 | F-05 (partial/unknown fallback tests) | `DONE` | selector/manifest 파서 회귀 + Playwright matrix fixture(`parameter_matrix_economy_dice_2seat`) + backend matrix 테스트까지 완료 |
-| F-06 (rule-id vs label separation) | `PARTIAL` | decoupling 설계 원칙 반영, 엔진 전체 라우팅 ID 전환은 후속 |
+| F-06 (rule-id vs label separation) | `DONE` | frontend event-tone routing is now code-catalog based (`eventToneCatalog`), and prompt decision identity is test-covered by `choice_id`-first contract tests (`GPT/test_prompt_contract.py`) |

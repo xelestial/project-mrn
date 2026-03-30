@@ -10,6 +10,7 @@ from typing import Any
 
 LOGGER_NAME = "mrn.server"
 _CONFIGURED = False
+_CORRELATION_FIELDS: tuple[str, ...] = ("session_id", "request_id", "player_id", "seq")
 
 
 def _logger() -> logging.Logger:
@@ -24,6 +25,9 @@ def build_log_payload(event: str, **fields: Any) -> dict[str, Any]:
         "event": event,
         "ts_ms": int(time.time() * 1000),
     }
+    # Keep correlation keys stable in every record so runtime incidents are queryable.
+    for key in _CORRELATION_FIELDS:
+        payload[key] = fields.pop(key, None)
     for key, value in fields.items():
         if value is None:
             continue

@@ -182,8 +182,8 @@ Current policy:
     - root-source file change -> `source_fingerprints` and `manifest_hash` delta tests
     - session bootstrap manifest reflects source changes (`apps/server/tests/test_parameter_propagation.py`)
   - runtime hardening regression sweep (`2026-03-31`):
-    - `python -m pytest apps/server/tests/test_stream_api.py apps/server/tests/test_stream_service.py apps/server/tests/test_runtime_service.py apps/server/tests/test_prompt_service.py apps/server/tests/test_runtime_contract_examples.py`
-    - result: `17 passed, 9 skipped` (fastapi-gated stream API tests skipped in this environment)
+    - `python -m pytest apps/server/tests/test_error_payload.py apps/server/tests/test_structured_log.py apps/server/tests/test_stream_api.py apps/server/tests/test_stream_service.py apps/server/tests/test_runtime_service.py apps/server/tests/test_prompt_service.py apps/server/tests/test_runtime_contract_examples.py`
+    - result: `21 passed, 9 skipped` (fastapi-gated stream API tests skipped in this environment)
   - docs migration closure (`2026-03-31`):
     - detailed active specs are mirrored under `docs/api`, `docs/backend`, `docs/frontend`, `docs/architecture`
     - compatibility mirror notes added to matching `PLAN/[PLAN]_...` files

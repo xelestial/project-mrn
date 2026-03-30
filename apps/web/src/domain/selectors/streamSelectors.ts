@@ -1,5 +1,6 @@
 import type { InboundMessage } from "../../core/contracts/stream";
 import { eventLabelForCode, nonEventLabelForMessageType } from "../labels/eventLabelCatalog";
+import { toneForEventCode } from "../labels/eventToneCatalog";
 import { promptLabelForType } from "../labels/promptTypeCatalog";
 
 export type TimelineItem = {
@@ -312,22 +313,8 @@ function toneFromMessage(message: InboundMessage): TheaterItem["tone"] {
   if (message.type !== "event") {
     return "system";
   }
-  const eventCode = messageKindFromPayload(message.payload);
-  if (eventCode === "bankruptcy" || eventCode === "game_end") {
-    return "critical";
-  }
-  if (eventCode === "player_move" || eventCode === "dice_roll") {
-    return "move";
-  }
-  if (
-    eventCode === "tile_purchased" ||
-    eventCode === "landing_resolved" ||
-    eventCode === "marker_transferred" ||
-    eventCode === "lap_reward_chosen"
-  ) {
-    return "economy";
-  }
-  return "system";
+  const eventCode = messageKindFromPayload(message.payload) || "event";
+  return toneForEventCode(eventCode);
 }
 
 function theaterCode(message: InboundMessage): string {

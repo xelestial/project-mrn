@@ -24,7 +24,7 @@ Current status on `main`:
 - Phase 2 offline replay viewer: baseline complete
 - Phase 3 live spectator: baseline complete
 - Phase 4 human-play baseline: baseline complete
-- Phase 5 full match UI: not complete
+- Phase 5 full match UI: baseline complete (v1), optional polish remains
 
 Current GPT-owned follow-up:
 - keep plan/status documents synchronized with actual `main`
@@ -655,13 +655,13 @@ What is already true on `main`:
 Remaining gaps:
 - shared-contract document/code drift was reduced on `2026-03-29` (canonical payload + alias policy sync)
 - CLAUDE/GPT validator parity still needs periodic follow-up as Phase 5 expands
-- Phase 5 polish is still incomplete
+- Phase 5 v1 closure is complete; only optional presentation polish remains
 - anytime-trick/live timing fidelity still needs final contract-hardening if expanded further
 
 Conclusion:
 - replay-first is still the right order
 - replay has in fact already been built into a live-play-capable baseline
-- the remaining work is contract synchronization and Phase 5 completion, not baseline viability
+- the remaining work is contract synchronization and optional polish, not baseline viability
 
 ## Recommended Starting Point
 Original start order has largely been completed on `main`.

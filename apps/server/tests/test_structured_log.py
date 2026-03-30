@@ -30,6 +30,12 @@ class StructuredLogTests(unittest.TestCase):
         payload = structured_log.build_log_payload("test_event", session_id="sess_1", empty=None)
         self.assertEqual(payload["event"], "test_event")
         self.assertEqual(payload["session_id"], "sess_1")
+        self.assertIn("request_id", payload)
+        self.assertIsNone(payload["request_id"])
+        self.assertIn("player_id", payload)
+        self.assertIsNone(payload["player_id"])
+        self.assertIn("seq", payload)
+        self.assertIsNone(payload["seq"])
         self.assertNotIn("empty", payload)
         self.assertIn("ts_ms", payload)
 
@@ -51,6 +57,9 @@ class StructuredLogTests(unittest.TestCase):
             parsed = json.loads(content.splitlines()[-1])
             self.assertEqual(parsed["event"], "runtime_started")
             self.assertEqual(parsed["session_id"], "sess_2")
+            self.assertIn("request_id", parsed)
+            self.assertIn("player_id", parsed)
+            self.assertIn("seq", parsed)
             self.assertEqual(parsed["seed"], 42)
             for handler in list(logger.handlers):
                 handler.close()

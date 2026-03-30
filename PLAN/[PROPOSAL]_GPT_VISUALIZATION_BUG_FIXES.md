@@ -48,7 +48,7 @@ Opinion:
 
 ### M-2. Replay renderer / projection compatibility cleanup
 Priority: `P1`
-Status: `PARTIAL`
+Status: `DONE`
 
 Current state:
 - replay projection and replay renderers are already baseline-functional
@@ -59,9 +59,10 @@ Current state:
 - replay markdown/html now prefers canonical payload keys (`cards_used`, `from_tile_index`, `to_player_id`) while keeping alias fallback
 - replay/live now share canonical event/landing Korean labels through `GPT/viewer/renderers/phrase_dict.py`
 
-Remaining issue:
-- long-tail wording/label parity drift can still reappear if new event payload fields are added but not mapped in `phrase_dict.py`
-- replay polish still needs periodic alignment with current event wording and ordering
+Closure update (`2026-03-31`):
+- replay compatibility remains regression-gated via `GPT/test_replay_viewer.py` (multi-seed suite)
+- prompt identity/routing separation is now additionally test-covered via `GPT/test_prompt_contract.py`
+- remaining items are optional polish, not a blocking compatibility gap
 
 Target areas:
 - `GPT/viewer/replay.py`

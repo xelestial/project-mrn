@@ -111,6 +111,8 @@ Audit companion:
   - added prompt helper catalog split baseline (`request_type` helper map module)
   - expanded helper+label coverage for full human-policy request matrix (`movement`, `runaway_step_choice`, `lap_reward`, `draft_card`, `final_character`, `trick_to_use`, `purchase_tile`, `hidden_trick_card`, `mark_target`, `coin_placement`, `geo_bonus`, `doctrine_relief`, `active_flip`, `specific_trick_reward`, `burden_exchange`)
   - added coverage tests so future prompt-type additions fail fast when helper/label copy is missing
+  - prompt overlay is now actionable-seat scoped (local player prompt only)
+  - non-local prompts are now shown as non-blocking observer cards to preserve turn-theater readability
 - `F4` baseline: started
   - added lobby control panel for custom seat composition and seed/profile inputs
   - added host-start path with explicit host token input
@@ -193,9 +195,11 @@ Audit companion:
   - baseline scan counts (`2026-03-30`): `GPT/`=156, `CLAUDE/`=50, `frontend/`=8
   - active code roots are now clean (`apps/packages/tools`: 0 matches under strict audit)
   - CI strict gate is enabled for active code roots (`.github/workflows/ci.yml`)
-- `B4+`: in progress baseline
+- `B4+`: closed baseline (`2026-03-31`)
   - runtime watchdog and structured logging retention policy are active in code
-  - prompt/runtime regression sweep (`2026-03-31`): `17 passed, 9 skipped` (`test_stream_api`, `test_stream_service`, `test_runtime_service`, `test_prompt_service`, `test_runtime_contract_examples`)
+  - structured logs now keep stable correlation fields (`session_id`, `request_id`, `player_id`, `seq`) on every record
+  - error payload normalization now includes transport/runtime fallback codes (`HTTP_EXCEPTION`, `INTERNAL_SERVER_ERROR`)
+  - prompt/runtime regression sweep (`2026-03-31`): `21 passed, 9 skipped` (`test_error_payload`, `test_structured_log`, `test_stream_api`, `test_stream_service`, `test_runtime_service`, `test_prompt_service`, `test_runtime_contract_examples`)
 
 ## Execution Policy
 

@@ -95,7 +95,7 @@ export function PromptOverlay({
         </div>
       ) : null}
       {feedbackMessage ? <p className="notice err">{feedbackMessage}</p> : null}
-      {busy ? <p className="notice ok">처리 중... 엔진 응답을 기다리는 중</p> : null}
+      {busy ? <p className="notice ok">처리 중입니다. 서버 응답을 기다리는 중입니다.</p> : null}
     </section>
   );
 }

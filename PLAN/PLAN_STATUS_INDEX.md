@@ -465,18 +465,22 @@ Unified priority:
 Cross-plan guardrail:
 
 - Any task affecting multiple plans must declare primary source-of-truth doc and list impacted specs in the same PR.
-  - Latest closure (`2026-03-30`):
-  - OI3 prompt-type coverage audit is complete in React track (helper/label catalogs + coverage tests across full human-policy request-type matrix).
-  - OI7 WS/prompt schema freeze baseline is complete (`packages/runtime-contracts/ws/schemas`, `packages/runtime-contracts/ws/examples`, and `apps/server/tests/test_runtime_contract_examples.py`).
-  - OI8 state-store direction is fixed for v1 (reducer+selector-first; see `PLAN/[DECISION]_REACT_STATE_STORE_STRATEGY.md`).
-  - OI4 UI stack direction is fixed for v1 (plain-CSS-first; see `PLAN/[DECISION]_REACT_UI_STACK_STRATEGY.md`).
-  - OI11 legacy-path cleanup has an auditable baseline (`tools/legacy_path_audit.py`) with initial counts recorded.
-  - OI11 active-code strict gate is now enabled with zero-match baseline (`apps/packages/tools`).
-  - Text encoding policy is now hard-gated: tracked text files must be UTF-8 without BOM (`tools/encoding_gate.py`, CI step active).
-  - Browser parity fixture baselines are now versioned (`apps/web/e2e/fixtures/non_default_topology_line_3seat.json`, `apps/web/e2e/fixtures/manifest_hash_reconnect.json`) and fixture integrity is test-covered.
-  - Playwright browser E2E baseline is now active in CI (`apps/web/playwright.config.ts`, `apps/web/e2e/parity.spec.ts`, workflow `npm run e2e` step).
-  - Runtime hardening regression sweep (`2026-03-31`) is recorded in the detailed execution docs (`17 passed, 9 skipped` across prompt/runtime stream suites).
-  - Theater continuity baseline now includes non-event prompt/ack flow in the same lane (`selectTheaterFeed`), and alert parity includes runtime critical/warning error channels (`selectCriticalAlerts`).
+- Latest closure (`2026-03-30`):
+- OI3 prompt-type coverage audit is complete in React track (helper/label catalogs + coverage tests across full human-policy request-type matrix).
+- OI7 WS/prompt schema freeze baseline is complete (`packages/runtime-contracts/ws/schemas`, `packages/runtime-contracts/ws/examples`, and `apps/server/tests/test_runtime_contract_examples.py`).
+- OI8 state-store direction is fixed for v1 (reducer+selector-first; see `PLAN/[DECISION]_REACT_STATE_STORE_STRATEGY.md`).
+- OI4 UI stack direction is fixed for v1 (plain-CSS-first; see `PLAN/[DECISION]_REACT_UI_STACK_STRATEGY.md`).
+- OI11 legacy-path cleanup has an auditable baseline (`tools/legacy_path_audit.py`) with initial counts recorded.
+- OI11 active-code strict gate is now enabled with zero-match baseline (`apps/packages/tools`).
+- Text encoding policy is now hard-gated: tracked text files must be UTF-8 without BOM (`tools/encoding_gate.py`, CI step active).
+- Browser parity fixture baselines are now versioned (`apps/web/e2e/fixtures/non_default_topology_line_3seat.json`, `apps/web/e2e/fixtures/manifest_hash_reconnect.json`) and fixture integrity is test-covered.
+- Playwright browser E2E baseline is now active in CI (`apps/web/playwright.config.ts`, `apps/web/e2e/parity.spec.ts`, workflow `npm run e2e` step).
+- Runtime hardening regression sweep (`2026-03-31`) is recorded in the detailed execution docs (`21 passed, 9 skipped` across error/prompt/runtime stream suites).
+- Release-gate rerun (`2026-03-31`) confirmed all checks green: `legacy_path_audit --strict`, `parameter_manifest_gate --check`, `encoding_gate`, web vitest full (`50 passed`), web build, and Playwright E2E (`3 passed`).
+- Theater continuity baseline now includes non-event prompt/ack flow in the same lane (`selectTheaterFeed`), and alert parity includes runtime critical/warning error channels (`selectCriticalAlerts`).
+- P1 closure update (`2026-03-31`): runtime hardening baseline is now closed (`B4+`) with normalized fallback error codes and stable structured-log correlation fields.
+- P2 closure update (`2026-03-31`): rule-id vs label separation is now closed in active paths (`eventToneCatalog`, `choice_id`-first prompt contract tests).
+- P3 closure update (`2026-03-31`): human-play prompt UX now distinguishes actionable prompts vs observer prompts, so non-local turns no longer force blocking input overlays.
 
 ## Implementation Reading Rule (Mandatory)
 

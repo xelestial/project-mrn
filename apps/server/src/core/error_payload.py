@@ -23,6 +23,8 @@ _ERROR_CATEGORY_MAP: dict[str, str] = {
     "PROMPT_REJECTED": "prompt",
     "RUNTIME_EXECUTION_FAILED": "runtime",
     "RUNTIME_STALLED_WARN": "runtime",
+    "HTTP_EXCEPTION": "transport",
+    "INTERNAL_SERVER_ERROR": "runtime",
 }
 
 

@@ -401,6 +401,10 @@ body {
   border-color: #c99e2f;
 }
 
+.passive-prompt-card {
+  border-color: #486998;
+}
+
 .prompt-head {
   display: flex;
   justify-content: space-between;
