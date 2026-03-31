@@ -276,6 +276,32 @@ Practical implications:
   - plain-CSS-first strategy for current phase
   - utility/framework adoption deferred to v2 trigger conditions
 
+### 1M. Human Runtime And Board Readability Stabilization
+- File: `PLAN/[PLAN]_HUMAN_RUNTIME_AND_BOARD_READABILITY_STABILIZATION.md`
+- Status: `ACTIVE`
+- Role: fix mixed-seat human runtime correctness and board readability regression in React/FastAPI path
+- Notes:
+  - addresses root-cause gap where `human` seat config was not bridged into engine decision ownership
+  - defines runtime P0 stabilization (`seat-aware prompt blocking`, timeout/fallback consistency, mixed-seat flow tests)
+  - defines board readability P0 stabilization (tile aspect/size/visual hierarchy)
+  - defines startup/recovery UX guard follow-up for `waiting/in_progress/finished/recovery_required`
+
+### 1N. Human Play UX Recovery V2
+- File: `PLAN/[PLAN]_HUMAN_PLAY_UX_RECOVERY_V2.md`
+- Status: `ACTIVE`
+- Role: recover gameplay-grade human UX from current debug-like React match surface
+- Notes:
+  - canonical frontend behavior spec:
+    - `docs/frontend/human-play-ui-behavior-spec.md`
+  - canonical anti-regression ledger:
+    - `docs/architecture/human-play-regression-guard.md`
+  - primary closure targets:
+    - full viewport layout and collapsible top controls
+    - modal-first prompt UX (hidden trick, trick, dice, mark, lap reward)
+    - non-local turn theater continuity and movement visibility
+    - weather persistence per round context
+    - no raw JSON in default user-facing recent-events area
+
 ### 2. Turn Advantage Analysis
 - File: `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md`
 - Status: `ACTIVE`

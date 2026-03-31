@@ -13,12 +13,41 @@ describe("promptSelectors", () => {
         request_type: "movement",
         player_id: 1,
         timeout_ms: 30000,
-        choices: [{ choice_id: "roll", title: "Roll Dice", description: "Normal movement" }],
+        choices: [{ choice_id: "roll", title: "주사위 굴리기", description: "일반 이동" }],
+        public_context: { player_position: 0 },
       },
     };
     const model = selectActivePrompt([promptMessage]);
     expect(model?.requestId).toBe("req_1");
     expect(model?.choices[0].choiceId).toBe("roll");
+    expect(model?.publicContext.player_position).toBe(0);
+  });
+
+  it("parses legal_choices fallback shape from server runtime prompts", () => {
+    const promptMessage: InboundMessage = {
+      type: "prompt",
+      seq: 6,
+      session_id: "s1",
+      payload: {
+        request_id: "req_legal_1",
+        request_type: "trick_to_use",
+        player_id: 1,
+        timeout_ms: 300000,
+        legal_choices: [
+          {
+            choice_id: "deck_12",
+            label: "건강 검진",
+            value: { card_description: "모든 참가자의 통행료를 절반으로 감소합니다." },
+          },
+        ],
+      },
+    };
+    const model = selectActivePrompt([promptMessage]);
+    expect(model?.requestId).toBe("req_legal_1");
+    expect(model?.choices).toHaveLength(1);
+    expect(model?.choices[0].choiceId).toBe("deck_12");
+    expect(model?.choices[0].title).toBe("건강 검진");
+    expect(model?.choices[0].description).toContain("통행료");
   });
 
   it("returns null when accepted ack exists for same request", () => {
@@ -32,7 +61,7 @@ describe("promptSelectors", () => {
           request_type: "movement",
           player_id: 1,
           timeout_ms: 30000,
-          choices: [{ choice_id: "roll", title: "Roll Dice", description: "Normal movement" }],
+          choices: [{ choice_id: "roll", title: "주사위 굴리기", description: "일반 이동" }],
         },
       },
       {

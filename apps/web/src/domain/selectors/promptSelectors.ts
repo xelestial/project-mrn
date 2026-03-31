@@ -4,6 +4,7 @@ export type PromptChoiceViewModel = {
   choiceId: string;
   title: string;
   description: string;
+  value: Record<string, unknown> | null;
 };
 
 export type PromptViewModel = {
@@ -12,6 +13,7 @@ export type PromptViewModel = {
   playerId: number;
   timeoutMs: number;
   choices: PromptChoiceViewModel[];
+  publicContext: Record<string, unknown>;
 };
 
 export type DecisionAckViewModel = {
@@ -36,10 +38,15 @@ function parseChoices(raw: unknown): PromptChoiceViewModel[] {
       if (typeof choiceId !== "string" || !choiceId.trim()) {
         return null;
       }
+      const value = isRecord(item["value"]) ? { ...item["value"] } : null;
+      const valueDescription = value && typeof value["card_description"] === "string" ? String(value["card_description"]) : "";
+      const titleRaw = item["title"] ?? item["label"];
       return {
         choiceId,
-        title: typeof item["title"] === "string" ? item["title"] : choiceId,
-        description: typeof item["description"] === "string" ? item["description"] : "",
+        title: typeof titleRaw === "string" && titleRaw.trim() ? String(titleRaw) : choiceId,
+        description:
+          typeof item["description"] === "string" && item["description"].trim() ? String(item["description"]) : valueDescription,
+        value,
       };
     })
     .filter((item): item is PromptChoiceViewModel => item !== null);
@@ -84,7 +91,8 @@ export function selectActivePrompt(messages: InboundMessage[]): PromptViewModel 
       typeof promptMessage.payload["request_type"] === "string" ? String(promptMessage.payload["request_type"]) : "-",
     playerId: typeof playerId === "number" ? playerId : 0,
     timeoutMs: typeof promptMessage.payload["timeout_ms"] === "number" ? promptMessage.payload["timeout_ms"] : 30000,
-    choices: parseChoices(promptMessage.payload["choices"]),
+    choices: parseChoices(promptMessage.payload["choices"] ?? promptMessage.payload["legal_choices"]),
+    publicContext: isRecord(promptMessage.payload["public_context"]) ? { ...promptMessage.payload["public_context"] } : {},
   };
 }
 

@@ -31,6 +31,26 @@ export type SituationViewModel = {
   turn: string;
   eventType: string;
   weather: string;
+  weatherEffect: string;
+};
+
+export type TurnStageViewModel = {
+  turnStartSeq: number | null;
+  actorPlayerId: number | null;
+  actor: string;
+  round: number | null;
+  turn: number | null;
+  character: string;
+  weatherName: string;
+  weatherEffect: string;
+  diceSummary: string;
+  moveSummary: string;
+  trickSummary: string;
+  landingSummary: string;
+  purchaseSummary: string;
+  rentSummary: string;
+  fortuneSummary: string;
+  promptSummary: string;
 };
 
 export type LastMoveViewModel = {
@@ -133,7 +153,7 @@ function pickMessageLabel(message: InboundMessage): string {
   }
   const code = messageKindFromPayload(message.payload);
   if (!code) {
-    return "알 수 없는 이벤트";
+    return "이벤트";
   }
   return eventLabelForCode(code);
 }
@@ -145,7 +165,7 @@ function summarizePlayerMove(payload: Record<string, unknown>): string {
   const toDisplay = to === null ? "?" : String(to + 1);
   const path = Array.isArray(payload["path"]) ? payload["path"] : [];
   if (path.length > 0) {
-    return `${fromDisplay} -> ${toDisplay} (이동 ${path.length}칸)`;
+    return `${fromDisplay} -> ${toDisplay} (경유 ${path.length}칸)`;
   }
   return `${fromDisplay} -> ${toDisplay}`;
 }
@@ -174,15 +194,31 @@ function summarizeDiceRoll(payload: Record<string, unknown>): string {
   return String(total);
 }
 
+function summarizeLandingResult(raw: string): string {
+  if (raw === "PURCHASE_SKIP_POLICY") {
+    return "구매 없이 턴 종료";
+  }
+  if (raw === "PURCHASE") {
+    return "토지 구매";
+  }
+  if (raw === "RENT_PAID" || raw === "RENT") {
+    return "렌트 지불";
+  }
+  if (raw === "MARK_RESOLVED") {
+    return "지목 처리";
+  }
+  return raw;
+}
+
 function pickMessageDetail(message: InboundMessage): string {
   if (message.type === "heartbeat") {
     const interval = message.payload["interval_ms"];
     const backpressure = message.payload["backpressure"];
     if (typeof interval === "number" && backpressure && typeof backpressure === "object") {
       const drop = (backpressure as Record<string, unknown>)["drop_count"];
-      return `연결 점검 ${interval}ms / 누락 ${typeof drop === "number" ? drop : 0}`;
+      return `주기 ${interval}ms / 누락 ${typeof drop === "number" ? drop : 0}`;
     }
-    return `연결 점검 ${typeof interval === "number" ? `${interval}ms` : ""}`.trim();
+    return `주기 ${typeof interval === "number" ? `${interval}ms` : "-"}`;
   }
   if (message.type === "prompt") {
     const requestType = asString(message.payload["request_type"]);
@@ -217,32 +253,20 @@ function pickMessageDetail(message: InboundMessage): string {
   if (eventType === "marker_transferred") {
     const from = payload["from_player_id"] ?? payload["from_owner"] ?? "?";
     const to = payload["to_player_id"] ?? payload["to_owner"] ?? "?";
-    return `[징표]가 P${from}에서 P${to}로 이동`;
+    const flipped = payload["flip_player_id"];
+    if (typeof flipped === "number") {
+      return `[징표] P${from} -> P${to} (플립 P${flipped})`;
+    }
+    return `[징표] P${from} -> P${to}`;
   }
   if (eventType === "weather_reveal") {
-    return asString(payload["weather_name"] ?? payload["weather"] ?? payload["card"]);
-  }
-  if (eventType === "trick_window_open") {
-    return "잔꾀 사용 창 열림";
-  }
-  if (eventType === "trick_window_closed") {
-    return "잔꾀 사용 창 닫힘";
+    const weather = asString(payload["weather_name"] ?? payload["weather"] ?? payload["card"]);
+    const effect = asString(payload["weather_effect"] ?? payload["effect"] ?? payload["description"]);
+    return effect !== "-" ? `${weather} / ${effect}` : weather;
   }
   if (eventType === "landing_resolved") {
-    const raw = asString(payload["result_type"] ?? payload["result_code"] ?? payload["result"] ?? "도착 처리");
-    if (raw === "PURCHASE_SKIP_POLICY") {
-      return "구매 없이 턴 종료";
-    }
-    if (raw === "PURCHASE") {
-      return "토지 구매";
-    }
-    if (raw === "RENT_PAID" || raw === "RENT") {
-      return "통행료 지불";
-    }
-    if (raw === "MARK_RESOLVED") {
-      return "지목 처리";
-    }
-    return raw;
+    const raw = asString(payload["result_type"] ?? payload["result_code"] ?? payload["result"] ?? "도착 칸 처리");
+    return summarizeLandingResult(raw);
   }
   if (eventType === "bankruptcy") {
     const pid = payload["player_id"] ?? payload["target_player_id"] ?? "?";
@@ -288,7 +312,7 @@ function pickMessageDetail(message: InboundMessage): string {
     if (typeof hash === "string" && hash.length >= 8) {
       return `설정 동기화 ${hash.slice(0, 8)}`;
     }
-    return "설정 정보 갱신";
+    return "설정 동기화";
   }
   if (eventType === "mark_resolved") {
     const source = payload["source_player_id"];
@@ -381,11 +405,11 @@ export function selectTheaterFeed(messages: InboundMessage[], limit = 20): Theat
 function alertFromEvent(message: InboundMessage): AlertItem | null {
   if (message.type === "error") {
     const code = asString(message.payload["code"]);
-    if (code === "RUNTIME_EXECUTION_FAILED" || code === "RUNTIME_STALLED_WARN") {
+    if (code === "RUNTIME_EXECUTION_FAILED") {
       return {
         seq: message.seq,
-        severity: code === "RUNTIME_EXECUTION_FAILED" ? "critical" : "warning",
-        title: code,
+        severity: "critical",
+        title: "런타임 오류",
         detail: pickMessageDetail(message),
       };
     }
@@ -422,20 +446,209 @@ export function selectCriticalAlerts(messages: InboundMessage[], limit = 4): Ale
   return alerts;
 }
 
+function findLatestField(messages: InboundMessage[], keys: string[]): unknown {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const payload = messages[i].payload;
+    for (const key of keys) {
+      if (payload[key] !== undefined && payload[key] !== null) {
+        return payload[key];
+      }
+    }
+  }
+  return undefined;
+}
+
+function findPersistedWeather(messages: InboundMessage[]): { name: string; effect: string } {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.type !== "event") {
+      continue;
+    }
+    const payload = message.payload;
+    const eventType = messageKindFromPayload(payload);
+    if (eventType !== "weather_reveal" && eventType !== "turn_start" && eventType !== "round_start") {
+      continue;
+    }
+    const weather = payload["weather_name"] ?? payload["weather"] ?? payload["card"];
+    const effects = payload["effects"];
+    const weatherEffect =
+      Array.isArray(effects) && effects.length > 0 && typeof effects[0] === "string" && effects[0].trim()
+        ? effects[0]
+        : typeof payload["weather_effect"] === "string"
+          ? payload["weather_effect"]
+          : typeof payload["effect"] === "string"
+            ? payload["effect"]
+            : typeof payload["description"] === "string"
+              ? payload["description"]
+              : "-";
+    if (typeof weather === "string" && weather.trim()) {
+      return { name: weather, effect: weatherEffect };
+    }
+  }
+  return { name: "-", effect: "-" };
+}
+
 export function selectSituation(messages: InboundMessage[]): SituationViewModel {
   const last = messages.length > 0 ? messages[messages.length - 1] : null;
   if (!last) {
-    return { actor: "-", round: "-", turn: "-", eventType: "-", weather: "-" };
+    return { actor: "-", round: "-", turn: "-", eventType: "-", weather: "-", weatherEffect: "-" };
   }
-  const actorNum = last.payload["acting_player_id"] ?? last.payload["player_id"];
-  const actor = asString(last.payload["actor"]);
+  const actorNum = findLatestField(messages, ["acting_player_id", "player_id"]);
+  const actorField = findLatestField(messages, ["actor"]);
+  const actor =
+    typeof actorField === "string" && actorField.trim()
+      ? actorField
+      : typeof actorNum === "number"
+        ? `P${actorNum}`
+        : "-";
+  const round = asNumberText(findLatestField(messages, ["round_index"]));
+  const turn = asNumberText(findLatestField(messages, ["turn_index"]));
+  const weather = findPersistedWeather(messages);
   return {
-    actor: actor !== "-" ? actor : typeof actorNum === "number" ? `P${actorNum}` : "-",
-    round: asNumberText(last.payload["round_index"]),
-    turn: asNumberText(last.payload["turn_index"]),
+    actor,
+    round,
+    turn,
     eventType: pickMessageLabel(last),
-    weather: asString(last.payload["weather_name"] ?? last.payload["weather"] ?? last.payload["card"]),
+    weather: weather.name,
+    weatherEffect: weather.effect,
   };
+}
+
+function roundTurnOfPayload(payload: Record<string, unknown>): { round: number | null; turn: number | null } {
+  return {
+    round: numberOrNull(payload["round_index"]),
+    turn: numberOrNull(payload["turn_index"]),
+  };
+}
+
+function sameRoundTurn(
+  payload: Record<string, unknown>,
+  targetRound: number | null,
+  targetTurn: number | null
+): boolean {
+  if (targetRound === null || targetTurn === null) {
+    return false;
+  }
+  const current = roundTurnOfPayload(payload);
+  return current.round === targetRound && current.turn === targetTurn;
+}
+
+function detailFromEventCode(payload: Record<string, unknown>, eventCode: string): string {
+  const stub: InboundMessage = {
+    type: "event",
+    seq: 0,
+    session_id: "",
+    payload: {
+      ...payload,
+      event_type: eventCode,
+    },
+  };
+  return pickMessageDetail(stub);
+}
+
+export function selectTurnStage(messages: InboundMessage[]): TurnStageViewModel {
+  const weather = findPersistedWeather(messages);
+  const fallback: TurnStageViewModel = {
+    turnStartSeq: null,
+    actorPlayerId: null,
+    actor: "-",
+    round: null,
+    turn: null,
+    character: "-",
+    weatherName: weather.name,
+    weatherEffect: weather.effect,
+    diceSummary: "-",
+    moveSummary: "-",
+    trickSummary: "-",
+    landingSummary: "-",
+    purchaseSummary: "-",
+    rentSummary: "-",
+    fortuneSummary: "-",
+    promptSummary: "-",
+  };
+
+  let turnStartIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.type !== "event") {
+      continue;
+    }
+    if (messageKindFromPayload(message.payload) === "turn_start") {
+      turnStartIndex = i;
+      break;
+    }
+  }
+  if (turnStartIndex < 0) {
+    return fallback;
+  }
+
+  const startMessage = messages[turnStartIndex];
+  if (startMessage.type !== "event") {
+    return fallback;
+  }
+  const actorPlayerId = numberOrNull(startMessage.payload["acting_player_id"] ?? startMessage.payload["player_id"]);
+  const roundTurn = roundTurnOfPayload(startMessage.payload);
+  const model: TurnStageViewModel = {
+    ...fallback,
+    turnStartSeq: startMessage.seq,
+    actorPlayerId,
+    actor: actorPlayerId === null ? "-" : `P${actorPlayerId}`,
+    round: roundTurn.round,
+    turn: roundTurn.turn,
+    character: asString(startMessage.payload["character"] ?? startMessage.payload["actor_name"]),
+  };
+
+  for (let i = turnStartIndex + 1; i < messages.length; i += 1) {
+    const message = messages[i];
+    if (message.type === "prompt") {
+      const requestType = asString(message.payload["request_type"]);
+      const promptActor = numberOrNull(message.payload["player_id"]);
+      if (requestType !== "-" && (model.actorPlayerId === null || model.actorPlayerId === promptActor)) {
+        model.promptSummary = `${promptLabelForType(requestType)} 대기`;
+      }
+      continue;
+    }
+    if (message.type !== "event") {
+      continue;
+    }
+    if (!sameRoundTurn(message.payload, model.round, model.turn)) {
+      continue;
+    }
+    const eventCode = messageKindFromPayload(message.payload);
+    if (eventCode === "turn_start") {
+      continue;
+    }
+    if (eventCode === "trick_used") {
+      model.trickSummary = detailFromEventCode(message.payload, eventCode);
+      continue;
+    }
+    if (eventCode === "dice_roll") {
+      model.diceSummary = detailFromEventCode(message.payload, eventCode);
+      continue;
+    }
+    if (eventCode === "player_move") {
+      model.moveSummary = detailFromEventCode(message.payload, eventCode);
+      continue;
+    }
+    if (eventCode === "landing_resolved") {
+      model.landingSummary = detailFromEventCode(message.payload, eventCode);
+      continue;
+    }
+    if (eventCode === "tile_purchased") {
+      model.purchaseSummary = detailFromEventCode(message.payload, eventCode);
+      continue;
+    }
+    if (eventCode === "rent_paid") {
+      model.rentSummary = detailFromEventCode(message.payload, eventCode);
+      continue;
+    }
+    if (eventCode === "fortune_drawn" || eventCode === "fortune_resolved") {
+      model.fortuneSummary = detailFromEventCode(message.payload, eventCode);
+      continue;
+    }
+  }
+
+  return model;
 }
 
 export function selectLastMove(messages: InboundMessage[]): LastMoveViewModel | null {
@@ -463,7 +676,7 @@ function toPlayerViewModel(raw: unknown): PlayerViewModel | null {
   }
   return {
     playerId,
-    displayName: typeof raw["display_name"] === "string" ? raw["display_name"] : `P${playerId}`,
+    displayName: typeof raw["display_name"] === "string" ? raw["display_name"] : `Player ${playerId}`,
     character: typeof raw["character"] === "string" ? raw["character"] : "-",
     alive: typeof raw["alive"] === "boolean" ? raw["alive"] : true,
     position: typeof raw["position"] === "number" ? raw["position"] : 0,
@@ -583,7 +796,8 @@ function normalizeManifestTiles(manifestRaw: Record<string, unknown>): TileViewM
     parsed.sort((a, b) => a.tileIndex - b.tileIndex);
     return parsed;
   }
-  const tileCount = boardRaw && typeof boardRaw["tile_count"] === "number" ? Math.max(0, Math.trunc(boardRaw["tile_count"] as number)) : 0;
+  const tileCount =
+    boardRaw && typeof boardRaw["tile_count"] === "number" ? Math.max(0, Math.trunc(boardRaw["tile_count"] as number)) : 0;
   if (tileCount === 0) {
     return [];
   }

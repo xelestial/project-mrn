@@ -11,6 +11,7 @@ Canonical active runtime docs:
 - `docs/architecture/legacy-reference-cleanup-policy.md`
 - `docs/architecture/react-fastapi-release-playbook.md`
 - `docs/architecture/claude-substrate-maintenance-loop.md`
+- `docs/architecture/human-play-regression-guard.md`
 
 Legacy compatibility mirrors:
 

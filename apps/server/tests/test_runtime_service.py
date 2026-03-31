@@ -1,20 +1,26 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
 import unittest
+from unittest.mock import patch
 
 from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
+from apps.server.src.services.prompt_service import PromptService
 
 
 class RuntimeServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.session_service = SessionService()
         self.stream_service = StreamService()
+        self.prompt_service = PromptService()
         self.runtime_service = RuntimeService(
             session_service=self.session_service,
             stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
         )
 
     def test_execute_prompt_fallback_records_recent_history(self) -> None:
@@ -101,10 +107,144 @@ class RuntimeServiceTests(unittest.TestCase):
         restarted_runtime = RuntimeService(
             session_service=self.session_service,
             stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
         )
         status = restarted_runtime.runtime_status(session.session_id)
         self.assertEqual(status.get("status"), "recovery_required")
         self.assertEqual(status.get("reason"), "runtime_task_missing_after_restart")
+
+    def test_run_engine_sync_uses_human_policy_bridge_when_human_seat_exists(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        import engine
+
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        captured: dict[str, object] = {}
+
+        class _FakeGameEngine:
+            def __init__(self, config, policy, rng, event_stream):  # noqa: ANN001
+                del config, rng, event_stream
+                captured["policy"] = policy
+
+            def run(self) -> None:
+                return None
+
+        loop = asyncio.new_event_loop()
+        try:
+            with patch.object(engine, "GameEngine", _FakeGameEngine):
+                self.runtime_service._run_engine_sync(loop, session.session_id, seed=42, policy_mode=None)
+        finally:
+            loop.close()
+
+        policy_obj = captured.get("policy")
+        self.assertIsNotNone(policy_obj)
+        self.assertTrue(hasattr(policy_obj, "_inner"))
+
+    def test_run_engine_sync_uses_ai_policy_when_all_seats_are_ai(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        import engine
+
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        captured: dict[str, object] = {}
+
+        class _FakeGameEngine:
+            def __init__(self, config, policy, rng, event_stream):  # noqa: ANN001
+                del config, rng, event_stream
+                captured["policy"] = policy
+
+            def run(self) -> None:
+                return None
+
+        loop = asyncio.new_event_loop()
+        try:
+            with patch.object(engine, "GameEngine", _FakeGameEngine):
+                self.runtime_service._run_engine_sync(loop, session.session_id, seed=42, policy_mode=None)
+        finally:
+            loop.close()
+
+        policy_obj = captured.get("policy")
+        self.assertIsNotNone(policy_obj)
+        self.assertFalse(hasattr(policy_obj, "_inner"))
+
+    def test_human_bridge_replaces_inner_ask_with_server_prompt_flow(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerHumanPolicyBridge(
+                session_id="sess_bridge_test",
+                human_seats=[0],
+                ai_fallback=object(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+            )
+
+            result: dict[str, str] = {}
+
+            def _run_wait() -> None:
+                result["choice"] = bridge._inner._ask(  # type: ignore[attr-defined]
+                    {
+                        "request_id": "bridge_req_1",
+                        "request_type": "movement",
+                        "player_id": 1,
+                        "timeout_ms": 2000,
+                        "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                        "fallback_policy": "timeout_fallback",
+                        "public_context": {},
+                    },
+                    lambda response: str(response.get("choice_id", "")),
+                    lambda: "fallback",
+                )
+
+            wait_thread = threading.Thread(target=_run_wait, daemon=True)
+            wait_thread.start()
+
+            pending_ready = False
+            for _ in range(100):
+                with self.prompt_service._lock:  # type: ignore[attr-defined]
+                    pending_ready = "bridge_req_1" in self.prompt_service._pending  # type: ignore[attr-defined]
+                if pending_ready:
+                    break
+                time.sleep(0.01)
+            self.assertTrue(pending_ready)
+
+            decision_state = self.prompt_service.submit_decision(
+                {
+                    "request_id": "bridge_req_1",
+                    "player_id": 1,
+                    "choice_id": "roll",
+                }
+            )
+            self.assertEqual(decision_state["status"], "accepted")
+
+            wait_thread.join(timeout=2.0)
+            self.assertEqual(result.get("choice"), "roll")
+
+            published = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot("sess_bridge_test"),
+                loop,
+            ).result(timeout=2.0)
+            self.assertTrue(any(msg.type == "prompt" and msg.payload.get("request_id") == "bridge_req_1" for msg in published))
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
 
 
 if __name__ == "__main__":

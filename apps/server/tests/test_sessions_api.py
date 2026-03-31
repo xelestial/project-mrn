@@ -23,7 +23,11 @@ def _reset_state() -> None:
     state.session_service = SessionService()
     state.stream_service = StreamService()
     state.prompt_service = PromptService()
-    state.runtime_service = RuntimeService(session_service=state.session_service, stream_service=state.stream_service)
+    state.runtime_service = RuntimeService(
+        session_service=state.session_service,
+        stream_service=state.stream_service,
+        prompt_service=state.prompt_service,
+    )
 
 
 def _all_ai_payload() -> dict:
@@ -195,6 +199,8 @@ class SessionsApiTests(unittest.TestCase):
         self.assertIn("parameter_manifest", event_types)
 
     def test_start_response_reflects_extended_parameter_matrix_manifest(self) -> None:
+        from apps.server.src import state
+
         created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
         self.assertEqual(created.status_code, 200)
         created_data = created.json()["data"]
@@ -214,10 +220,19 @@ class SessionsApiTests(unittest.TestCase):
         )
         self.assertEqual(joined.status_code, 200)
 
-        started = self.client.post(
-            f"/api/v1/sessions/{session_id}/start",
-            json={"host_token": host_token},
-        )
+        original = state.runtime_service.start_runtime
+
+        async def _noop_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+            del session_id, seed, policy_mode
+
+        state.runtime_service.start_runtime = _noop_start_runtime  # type: ignore[assignment]
+        try:
+            started = self.client.post(
+                f"/api/v1/sessions/{session_id}/start",
+                json={"host_token": host_token},
+            )
+        finally:
+            state.runtime_service.start_runtime = original  # type: ignore[assignment]
         self.assertEqual(started.status_code, 200)
         started_manifest = started.json()["data"]["parameter_manifest"]
         self.assertEqual(started_manifest["seats"]["allowed"], [1, 2])

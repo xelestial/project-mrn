@@ -1,6 +1,6 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { mergeSessionManifest } from "./domain/manifest/manifestRehydrate";
-import { tileKindLabelsFromManifestLabels } from "./domain/labels/manifestLabelCatalog";
+import { characterAbilityLabelsFromManifestLabels, tileKindLabelsFromManifestLabels } from "./domain/labels/manifestLabelCatalog";
 import { promptLabelForType } from "./domain/labels/promptTypeCatalog";
 import { selectActivePrompt, selectLatestDecisionAck } from "./domain/selectors/promptSelectors";
 import {
@@ -9,6 +9,7 @@ import {
   selectLatestManifest,
   selectLatestSnapshot,
   selectSituation,
+  selectTurnStage,
   selectTheaterFeed,
   selectTimeline,
 } from "./domain/selectors/streamSelectors";
@@ -16,6 +17,7 @@ import { BoardPanel } from "./features/board/BoardPanel";
 import { LobbyView, type LobbySeatType } from "./features/lobby/LobbyView";
 import { PlayersPanel } from "./features/players/PlayersPanel";
 import { PromptOverlay } from "./features/prompt/PromptOverlay";
+import { TurnStagePanel } from "./features/stage/TurnStagePanel";
 import { ConnectionPanel } from "./features/status/ConnectionPanel";
 import { SituationPanel } from "./features/status/SituationPanel";
 import { IncidentCardStack } from "./features/theater/IncidentCardStack";
@@ -37,6 +39,7 @@ type ViewRoute = "lobby" | "match";
 
 const LOBBY_HASH = "#/lobby";
 const MATCH_HASH = "#/match";
+const SESSION_TOKEN_STORAGE_PREFIX = "mrn:sessionToken:";
 
 function parseRouteFromHash(hash: string): ViewRoute {
   if (hash.startsWith(MATCH_HASH)) {
@@ -69,6 +72,54 @@ function buildMatchHash(sessionId: string, token?: string): string {
   return query ? `${MATCH_HASH}?${query}` : MATCH_HASH;
 }
 
+function inferPlayerIdFromSessionToken(token: string | undefined): number | null {
+  if (!token) {
+    return null;
+  }
+  const match = /^session_p(\d+)_/.exec(token.trim());
+  if (!match) {
+    return null;
+  }
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function tokenStorageKey(sessionId: string): string {
+  return `${SESSION_TOKEN_STORAGE_PREFIX}${sessionId.trim()}`;
+}
+
+function loadStoredSessionToken(sessionId: string): string | undefined {
+  const normalized = sessionId.trim();
+  if (!normalized) {
+    return undefined;
+  }
+  const stored = window.sessionStorage.getItem(tokenStorageKey(normalized));
+  return stored && stored.trim() ? stored : undefined;
+}
+
+function saveStoredSessionToken(sessionId: string, token: string | undefined): void {
+  const normalized = sessionId.trim();
+  if (!normalized) {
+    return;
+  }
+  if (token && token.trim()) {
+    window.sessionStorage.setItem(tokenStorageKey(normalized), token.trim());
+    return;
+  }
+  window.sessionStorage.removeItem(tokenStorageKey(normalized));
+}
+
+function findCurrentActorId(messages: Array<{ payload: Record<string, unknown> }>): number | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const payload = messages[i].payload;
+    const acting = payload["acting_player_id"] ?? payload["player_id"];
+    if (typeof acting === "number") {
+      return acting;
+    }
+  }
+  return null;
+}
+
 export function App() {
   const [route, setRoute] = useState<ViewRoute>(() => parseHashState(window.location.hash).route);
   const [sessionInput, setSessionInput] = useState("");
@@ -92,11 +143,12 @@ export function App() {
   const [sessions, setSessions] = useState<PublicSessionResult[]>([]);
   const [sessionManifest, setSessionManifest] = useState<ParameterManifest | null>(null);
   const [localPlayerId, setLocalPlayerId] = useState<number | null>(null);
+  const inferredPlayerId = inferPlayerIdFromSessionToken(token);
+  const effectivePlayerId = localPlayerId ?? inferredPlayerId;
 
-  const [compactDensity, setCompactDensity] = useState(
-    () => window.innerHeight <= 1080 || window.innerWidth <= 1400
-  );
-  const [showRawMessages, setShowRawMessages] = useState(true);
+  const [compactDensity, setCompactDensity] = useState(false);
+  const [showRawMessages, setShowRawMessages] = useState(false);
+  const [matchTopCollapsed, setMatchTopCollapsed] = useState(true);
 
   const [promptCollapsed, setPromptCollapsed] = useState(false);
   const [promptBusy, setPromptBusy] = useState(false);
@@ -104,26 +156,26 @@ export function App() {
   const [promptExpiresAtMs, setPromptExpiresAtMs] = useState<number | null>(null);
   const [promptFeedback, setPromptFeedback] = useState("");
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [turnBanner, setTurnBanner] = useState<{ seq: number; actor: string } | null>(null);
 
   const stream = useGameStream({ sessionId, token });
   const timeline = selectTimeline(stream.messages, compactDensity ? 24 : 40);
-  const theaterFeed = selectTheaterFeed(stream.messages, compactDensity ? 12 : 20);
+  const theaterFeed = selectTheaterFeed(stream.messages, compactDensity ? 16 : 28);
   const alerts = selectCriticalAlerts(stream.messages, 6);
   const situation = selectSituation(stream.messages);
+  const turnStage = selectTurnStage(stream.messages);
   const snapshot = selectLatestSnapshot(stream.messages);
   const lastMove = selectLastMove(stream.messages);
   const latestManifest = selectLatestManifest(stream.messages);
 
+  const currentActorId = findCurrentActorId(stream.messages);
+  const isMyTurn = currentActorId !== null && effectivePlayerId !== null && currentActorId === effectivePlayerId;
+
   const activePrompt = selectActivePrompt(stream.messages);
-  const canActOnPrompt = Boolean(
-    activePrompt && token && (localPlayerId === null || activePrompt.playerId === localPlayerId)
-  );
+  const canActOnPrompt = Boolean(activePrompt && token && effectivePlayerId !== null && activePrompt.playerId === effectivePlayerId);
   const actionablePrompt = canActOnPrompt ? activePrompt : null;
   const passivePrompt = activePrompt && !canActOnPrompt ? activePrompt : null;
-  const latestPromptAck = selectLatestDecisionAck(
-    stream.messages,
-    actionablePrompt?.requestId ?? promptRequestId
-  );
+  const latestPromptAck = selectLatestDecisionAck(stream.messages, actionablePrompt?.requestId ?? promptRequestId);
   const promptSecondsLeft =
     promptExpiresAtMs === null ? null : Math.max(0, Math.ceil((promptExpiresAtMs - nowMs) / 1000));
 
@@ -142,6 +194,9 @@ export function App() {
   }));
   const boardTopology = sessionManifest?.board?.topology ?? "ring";
   const tileKindLabels = tileKindLabelsFromManifestLabels(sessionManifest?.labels);
+  const characterAbilityLabels = characterAbilityLabelsFromManifestLabels(sessionManifest?.labels);
+  const activeCharacterAbility =
+    turnStage.character && turnStage.character !== "-" ? characterAbilityLabels[turnStage.character] ?? "-" : "-";
 
   useEffect(() => {
     const onHashChange = () => {
@@ -152,8 +207,17 @@ export function App() {
         setSessionId(parsed.sessionId);
       }
       if (parsed.token !== undefined) {
-        setTokenInput(parsed.token);
-        setToken(parsed.token || undefined);
+        const restoredToken = parsed.token || loadStoredSessionToken(parsed.sessionId ?? "");
+        setTokenInput(restoredToken ?? "");
+        setToken(restoredToken);
+        setLocalPlayerId(inferPlayerIdFromSessionToken(restoredToken));
+      } else if (parsed.sessionId) {
+        const restoredToken = loadStoredSessionToken(parsed.sessionId);
+        if (restoredToken) {
+          setTokenInput(restoredToken);
+          setToken(restoredToken);
+          setLocalPlayerId(inferPlayerIdFromSessionToken(restoredToken));
+        }
       }
     };
 
@@ -217,7 +281,7 @@ export function App() {
           setRuntime(runtimeState.runtime);
         }
       } catch {
-        // keep current runtime state when polling fails
+        // ignore transient polling errors
       }
     };
     void tick();
@@ -281,25 +345,17 @@ export function App() {
     }
     setPromptBusy(false);
     if (latestPromptAck.status === "rejected") {
-      setPromptFeedback(
-        latestPromptAck.reason
-          ? `선택이 거절되었습니다: ${latestPromptAck.reason}`
-          : "선택이 거절되었습니다. 다른 선택지를 시도해 주세요."
-      );
+      setPromptFeedback(latestPromptAck.reason ? `선택이 거절되었습니다: ${latestPromptAck.reason}` : "선택이 거절되었습니다.");
       return;
     }
-    setPromptFeedback(
-      latestPromptAck.reason
-        ? `선택이 만료되었습니다: ${latestPromptAck.reason}`
-        : "선택 요청이 만료되었습니다. 현재 요청을 다시 확인해 주세요."
-    );
+    setPromptFeedback(latestPromptAck.reason ? `시간 초과로 자동 처리되었습니다: ${latestPromptAck.reason}` : "시간 초과로 자동 처리되었습니다.");
   }, [latestPromptAck, promptBusy]);
 
   useEffect(() => {
     if (!actionablePrompt || promptBusy || promptSecondsLeft !== 0) {
       return;
     }
-    setPromptFeedback("시간이 만료되었습니다. 엔진의 자동 진행 결과를 기다리는 중입니다.");
+    setPromptFeedback("시간이 초과되었습니다. 자동 처리 결과를 기다려주세요.");
   }, [actionablePrompt, promptBusy, promptSecondsLeft]);
 
   useEffect(() => {
@@ -313,6 +369,10 @@ export function App() {
     const safeHash = buildMatchHash(sessionId.trim());
     window.history.replaceState(null, "", safeHash);
   }, [route, sessionId, stream.status]);
+
+  useEffect(() => {
+    saveStoredSessionToken(sessionId, token);
+  }, [sessionId, token]);
 
   const navigateRoute = (next: ViewRoute) => {
     if (next === "match") {
@@ -328,7 +388,7 @@ export function App() {
       const result = await listSessions();
       setSessions(result.sessions);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to list sessions");
+      setError(e instanceof Error ? e.message : "세션 목록 조회에 실패했습니다.");
     }
   };
 
@@ -339,9 +399,11 @@ export function App() {
     setLocalPlayerId(null);
     const normalized = sessionInput.trim();
     setSessionId(normalized);
-    setToken(tokenInput.trim() || undefined);
+    const nextToken = tokenInput.trim() || undefined;
+    setToken(nextToken);
+    setLocalPlayerId(inferPlayerIdFromSessionToken(nextToken));
     if (normalized) {
-      window.location.hash = buildMatchHash(normalized, tokenInput.trim() || undefined);
+      window.location.hash = buildMatchHash(normalized, nextToken);
       navigateRoute("match");
     }
   };
@@ -377,19 +439,15 @@ export function App() {
       setLastJoinTokens(created.join_tokens);
       const seat = Number(joinSeatInput) || 1;
       const autoToken = created.join_tokens[String(seat)] ?? "";
-      if (autoToken) {
-        setJoinTokenInput(autoToken);
-      } else {
-        setJoinTokenInput("");
-      }
+      setJoinTokenInput(autoToken);
       setNotice(
-        `Session created: ${created.session_id} host_token=${created.host_token} join_tokens=${JSON.stringify(
+        `세션 생성 완료: ${created.session_id} / host_token=${created.host_token} / join_tokens=${JSON.stringify(
           created.join_tokens
         )}`
       );
       await refreshSessions();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create session");
+      setError(e instanceof Error ? e.message : "세션 생성에 실패했습니다.");
     } finally {
       setBusy(false);
     }
@@ -428,15 +486,65 @@ export function App() {
       setLastJoinTokens(created.join_tokens);
       setJoinSeatInput("1");
       setJoinTokenInput("");
-      setNotice(
-        `AI session started: ${created.session_id} host_token=${created.host_token} join_tokens=${JSON.stringify(
-          created.join_tokens
-        )}`
-      );
+      setNotice(`AI 세션 시작: ${created.session_id}`);
       navigateRoute("match");
       await refreshSessions();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create/start AI session");
+      setError(e instanceof Error ? e.message : "AI 세션 시작에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onQuickStartHumanVsAi = async () => {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const seatCount = Math.max(2, Math.min(4, Number(seatCountInput) || 4));
+      const seats = Array.from({ length: seatCount }, (_, idx) => ({
+        seat: idx + 1,
+        seat_type: idx === 0 ? ("human" as const) : ("ai" as const),
+        ai_profile: idx === 0 ? undefined : aiProfile,
+      }));
+      const created = await createSession({
+        seats,
+        config: {
+          seed: Number(seedInput) || 42,
+          seat_limits: {
+            min: 1,
+            max: seats.length,
+            allowed: Array.from({ length: seats.length }, (_, idx) => idx + 1),
+          },
+        },
+      });
+      const seat1Token = created.join_tokens["1"];
+      if (!seat1Token) {
+        throw new Error("좌석 1 참가 토큰을 받지 못했습니다.");
+      }
+      const joined = await joinSession({
+        sessionId: created.session_id,
+        seat: 1,
+        joinToken: seat1Token,
+        displayName: displayNameInput.trim() || "Player",
+      });
+      await startSession({ sessionId: created.session_id, hostToken: created.host_token });
+
+      setSessionManifest(created.parameter_manifest ?? null);
+      setSessionInput(created.session_id);
+      setSessionId(created.session_id);
+      setTokenInput(joined.session_token);
+      setToken(joined.session_token);
+      setLocalPlayerId(joined.player_id);
+      setHostTokenInput(created.host_token);
+      setLastJoinTokens(created.join_tokens);
+      setJoinSeatInput("1");
+      setJoinTokenInput(seat1Token);
+      setNotice(`빠른 시작 완료: ${created.session_id} (P${joined.player_id})`);
+      navigateRoute("match");
+      await refreshSessions();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "빠른 시작에 실패했습니다.");
     } finally {
       setBusy(false);
     }
@@ -445,7 +553,7 @@ export function App() {
   const onStartByHostToken = async () => {
     const current = sessionInput.trim() || sessionId.trim();
     if (!current || !hostTokenInput.trim()) {
-      setError("Session ID and host token are required.");
+      setError("세션 ID와 호스트 토큰이 필요합니다.");
       return;
     }
     setBusy(true);
@@ -455,10 +563,10 @@ export function App() {
       const started = await startSession({ sessionId: current, hostToken: hostTokenInput.trim() });
       setSessionManifest(started.parameter_manifest ?? null);
       setSessionId(current);
-      setNotice(`Session started by host: ${current}`);
+      setNotice(`세션 시작됨: ${current}`);
       await refreshSessions();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to start session");
+      setError(e instanceof Error ? e.message : "세션 시작에 실패했습니다.");
     } finally {
       setBusy(false);
     }
@@ -468,23 +576,23 @@ export function App() {
     const current = sessionInput.trim() || sessionId.trim();
     const seat = Number(joinSeatInput);
     if (!current || !seat || !joinTokenInput.trim()) {
-      setError("Session ID, seat, and join token are required.");
+      setError("세션 ID, 좌석, 참가 토큰이 필요합니다.");
       return;
     }
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      const snapshot = await getSession({ sessionId: current });
-      if (snapshot.status !== "waiting") {
-        throw new Error("Session is already started. Join is only allowed while waiting.");
+      const snapshotLocal = await getSession({ sessionId: current });
+      if (snapshotLocal.status !== "waiting") {
+        throw new Error("세션이 이미 시작되었습니다. waiting 상태에서만 참가할 수 있습니다.");
       }
-      const seatView = (snapshot.seats ?? []).find((s) => s.seat === seat);
+      const seatView = (snapshotLocal.seats ?? []).find((s) => s.seat === seat);
       if (!seatView) {
-        throw new Error(`Seat ${seat} does not exist in this session.`);
+        throw new Error(`좌석 ${seat}이 존재하지 않습니다.`);
       }
       if (seatView.seat_type !== "human") {
-        throw new Error(`Seat ${seat} is not a human seat.`);
+        throw new Error(`좌석 ${seat}은 human 좌석이 아닙니다.`);
       }
       const joined = await joinSession({
         sessionId: current,
@@ -497,11 +605,11 @@ export function App() {
       setTokenInput(joined.session_token);
       setToken(joined.session_token);
       setLocalPlayerId(joined.player_id);
-      setNotice(`Joined seat P${joined.player_id}. Connected with session token.`);
+      setNotice(`P${joined.player_id} 좌석 참가 완료`);
       navigateRoute("match");
       await refreshSessions();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to join seat");
+      setError(e instanceof Error ? e.message : "좌석 참가에 실패했습니다.");
     } finally {
       setBusy(false);
     }
@@ -520,7 +628,7 @@ export function App() {
     setLocalPlayerId(null);
     const selected = sessions.find((session) => session.session_id === id);
     setSessionManifest(selected?.parameter_manifest ?? null);
-    setNotice(`Session selected: ${id}`);
+    setNotice(`세션 선택: ${id}`);
     if (route === "match") {
       window.location.hash = buildMatchHash(id, tokenInput.trim() || undefined);
     }
@@ -537,7 +645,7 @@ export function App() {
       return;
     }
     if (!actionablePrompt.playerId) {
-      setError("Prompt player_id is invalid.");
+      setError("잘못된 프롬프트 player_id 입니다.");
       return;
     }
     setPromptBusy(true);
@@ -549,6 +657,13 @@ export function App() {
       choicePayload: {},
     });
   };
+
+  const topCommandSummary = useMemo(() => {
+    if (!sessionId.trim()) {
+      return "세션 없음";
+    }
+    return `세션 ${sessionId} / 런타임 ${runtime.status}`;
+  }, [runtime.status, sessionId]);
 
   return (
     <main className={`page ${compactDensity ? "page-compact" : ""}`}>
@@ -570,17 +685,17 @@ export function App() {
           >
             Match
           </button>
+          {route === "match" ? (
+            <>
+              <button type="button" className="route-tab" onClick={() => setMatchTopCollapsed((prev) => !prev)}>
+                {matchTopCollapsed ? "상단 펼치기" : "상단 접기"}
+              </button>
+              <button type="button" className="route-tab" onClick={() => setCompactDensity((prev) => !prev)}>
+                {compactDensity ? "표준 밀도" : "컴팩트 밀도"}
+              </button>
+            </>
+          ) : null}
         </div>
-        {route === "match" ? (
-          <div className="view-controls">
-            <button type="button" className="route-tab" onClick={() => setCompactDensity((prev) => !prev)}>
-              {compactDensity ? "표준 밀도" : "컴팩트 밀도"}
-            </button>
-            <button type="button" className="route-tab" onClick={() => setShowRawMessages((prev) => !prev)}>
-              {showRawMessages ? "Raw 숨기기" : "Raw 보기"}
-            </button>
-          </div>
-        ) : null}
       </header>
 
       {route === "lobby" ? (
@@ -607,6 +722,7 @@ export function App() {
           onSeatTypeChange={onSeatTypeChange}
           onCreateCustomSession={onCreateCustomSession}
           onCreateAndStartAi={onCreateAndStartAi}
+          onQuickStartHumanVsAi={onQuickStartHumanVsAi}
           onSessionInput={setSessionInput}
           onHostTokenInput={setHostTokenInput}
           onStartByHostToken={onStartByHostToken}
@@ -625,7 +741,18 @@ export function App() {
         />
       ) : (
         <>
-          <ConnectionPanel status={stream.status} lastSeq={stream.lastSeq} runtime={runtime} />
+          <section className="panel match-command-strip">
+            <div className="match-command-row">
+              <strong>{topCommandSummary}</strong>
+              <div className="actions">
+                <button type="button" className="route-tab" onClick={() => setShowRawMessages((prev) => !prev)}>
+                  {showRawMessages ? "Raw 숨기기" : "Raw 보기"}
+                </button>
+              </div>
+            </div>
+            {!matchTopCollapsed ? <ConnectionPanel status={stream.status} lastSeq={stream.lastSeq} runtime={runtime} /> : null}
+          </section>
+
           <div className="match-layout">
             <div className="match-board-column">
               <BoardPanel
@@ -635,19 +762,27 @@ export function App() {
                 tileKindLabels={tileKindLabels}
                 lastMove={lastMove}
               />
+
+              {!isMyTurn && currentActorId !== null ? (
+                <section className="panel waiting-panel">
+                  <strong>지금은 P{currentActorId}의 턴입니다.</strong>
+                  <p>
+                    <span className="spinner" aria-hidden="true" /> 내 턴이 아닙니다. 다른 플레이어 진행을 관찰하세요.
+                  </p>
+                </section>
+              ) : null}
+
               <IncidentCardStack items={theaterFeed} />
+
               {passivePrompt ? (
                 <section className="panel passive-prompt-card">
                   <h2>다른 플레이어 선택 진행 중</h2>
                   <p>
-                    P{passivePrompt.playerId} / {promptLabelForType(passivePrompt.requestType)} / 남은 시간{" "}
-                    {promptSecondsLeft ?? "-"}초
-                  </p>
-                  <p className="prompt-collapsed-note">
-                    관전 중에는 입력창 대신 진행 상황만 표시됩니다. 선택이 끝나면 다음 공개 이벤트가 이어집니다.
+                    P{passivePrompt.playerId} / {promptLabelForType(passivePrompt.requestType)} / 남은 시간 {promptSecondsLeft ?? "-"}초
                   </p>
                 </section>
               ) : null}
+
               <PromptOverlay
                 prompt={actionablePrompt}
                 collapsed={promptCollapsed}
@@ -659,20 +794,22 @@ export function App() {
                 onSelectChoice={onSelectPromptChoice}
               />
             </div>
+
             <div className="match-side-column">
               <SituationPanel model={situation} alerts={alerts} />
               <PlayersPanel snapshot={snapshot} />
               <TimelinePanel items={timeline} />
             </div>
           </div>
-          <section className="panel debug-panel">
-            <div className="debug-head">
-              <h2>Recent Messages ({stream.messages.length})</h2>
-              <button type="button" className="route-tab" onClick={() => setShowRawMessages((prev) => !prev)}>
-                {showRawMessages ? "숨기기" : "보기"}
-              </button>
-            </div>
-            {showRawMessages ? (
+
+          {showRawMessages ? (
+            <section className="panel debug-panel">
+              <div className="debug-head">
+                <h2>Raw Messages ({stream.messages.length})</h2>
+                <button type="button" className="route-tab" onClick={() => setShowRawMessages(false)}>
+                  숨기기
+                </button>
+              </div>
               <div className="messages">
                 {stream.messages
                   .slice()
@@ -681,10 +818,8 @@ export function App() {
                     <pre key={`${message.seq}-${idx}`}>{JSON.stringify(message, null, 2)}</pre>
                   ))}
               </div>
-            ) : (
-              <p className="prompt-collapsed-note">장시간 플레이에서는 기본적으로 Raw 로그를 숨깁니다.</p>
-            )}
-          </section>
+            </section>
+          ) : null}
         </>
       )}
     </main>

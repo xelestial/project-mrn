@@ -12,13 +12,13 @@ function toneBadge(tone: TheaterItem["tone"]): string {
     return "경제";
   }
   if (tone === "critical") {
-    return "경고";
+    return "위험";
   }
   return "진행";
 }
 
 export function IncidentCardStack({ items }: IncidentCardStackProps) {
-  const top = items.slice(0, 10);
+  const top = items.slice(0, 24);
   return (
     <section className="panel">
       <h2>턴 극장</h2>

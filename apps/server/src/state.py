@@ -38,5 +38,6 @@ prompt_service = PromptService()
 runtime_service = RuntimeService(
     session_service=session_service,
     stream_service=stream_service,
+    prompt_service=prompt_service,
     watchdog_timeout_ms=runtime_settings.runtime_watchdog_timeout_ms,
 )

@@ -74,15 +74,27 @@ describe("streamSelectors", () => {
       },
     ]);
     expect(timeline[0].seq).toBe(10);
-    expect(timeline[0].label).toBe("선택 결과");
+    expect(timeline[0].label).toBe("선택 응답");
   });
 
-  it("extracts basic situation from latest message", () => {
-    const situation = selectSituation([snapshotEvent]);
+  it("extracts situation and keeps weather persistence from older weather event", () => {
+    const situation = selectSituation([
+      {
+        type: "event",
+        seq: 7,
+        session_id: "s1",
+        payload: {
+          event_type: "weather_reveal",
+          weather_name: "긴급 피난",
+        },
+      },
+      snapshotEvent,
+    ]);
     expect(situation.round).toBe("2");
     expect(situation.turn).toBe("5");
     expect(situation.actor).toBe("P3");
     expect(situation.eventType.length).toBeGreaterThan(0);
+    expect(situation.weather).toBe("긴급 피난");
   });
 
   it("extracts recent move summary from player_move event", () => {
@@ -146,7 +158,7 @@ describe("streamSelectors", () => {
       3
     );
     expect(timeline[0].detail).toContain("누락 7");
-    expect(timeline[1].detail).toContain("[징표]가 P2에서 P1로 이동");
+    expect(timeline[1].detail).toContain("[징표] P2 -> P1");
     expect(timeline[2].detail).toContain("카드 1+4");
   });
 
@@ -309,7 +321,7 @@ describe("streamSelectors", () => {
     expect(theater[3].actor).toBe("P2");
   });
 
-  it("extracts critical alerts from bankruptcy/game_end/timeout/runtime errors", () => {
+  it("extracts critical alerts from bankruptcy/game_end/timeout/runtime failures", () => {
     const alerts = selectCriticalAlerts([
       {
         type: "event",
@@ -342,9 +354,8 @@ describe("streamSelectors", () => {
         payload: { event_type: "game_end", summary: "finished" },
       },
     ]);
-    expect(alerts.map((a) => a.seq)).toEqual([94, 93, 92, 91]);
+    expect(alerts.map((a) => a.seq)).toEqual([94, 93, 91]);
     expect(alerts[0].severity).toBe("critical");
     expect(alerts[2].severity).toBe("warning");
-    expect(alerts[3].severity).toBe("warning");
   });
 });

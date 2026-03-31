@@ -3,26 +3,29 @@ from __future__ import annotations
 import asyncio
 import random
 import sys
+import uuid
 from pathlib import Path
 
 from apps.server.src.core.error_payload import build_error_payload
-from apps.server.src.domain.session_models import SessionStatus
+from apps.server.src.domain.session_models import SeatType, SessionStatus
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
 
 
 class RuntimeService:
-    """Background runtime orchestration for all-AI baseline sessions."""
+    """Background runtime orchestration for mixed-seat (human + AI) sessions."""
 
     def __init__(
         self,
         session_service,
         stream_service,
+        prompt_service=None,
         config_factory: EngineConfigFactory | None = None,
         watchdog_timeout_ms: int = 45000,
     ) -> None:
         self._session_service = session_service
         self._stream_service = stream_service
+        self._prompt_service = prompt_service
         self._config_factory = config_factory or EngineConfigFactory()
         self._runtime_tasks: dict[str, asyncio.Task] = {}
         self._watchdogs: dict[str, asyncio.Task] = {}
@@ -161,10 +164,27 @@ class RuntimeService:
         resolved = dict(session.resolved_parameters or {})
         runtime = dict(resolved.get("runtime", {}))
         selected_policy_mode = policy_mode or runtime.get("policy_mode") or "heuristic_v3_gpt"
-        policy = PolicyFactory.create_runtime_policy(
+        ai_policy = PolicyFactory.create_runtime_policy(
             policy_mode=selected_policy_mode,
             lap_policy_mode=selected_policy_mode,
         )
+        human_seats = [
+            max(0, int(seat.seat) - 1)
+            for seat in session.seats
+            if seat.seat_type == SeatType.HUMAN
+        ]
+        policy = ai_policy
+        if self._prompt_service is not None and human_seats:
+            policy = _ServerHumanPolicyBridge(
+                session_id=session_id,
+                human_seats=human_seats,
+                ai_fallback=ai_policy,
+                prompt_service=self._prompt_service,
+                stream_service=self._stream_service,
+                loop=loop,
+                touch_activity=self._touch_activity,
+                fallback_executor=self.execute_prompt_fallback,
+            )
         vis_stream = _FanoutVisEventStream(loop, self._stream_service, session_id, self._touch_activity)
         engine = GameEngine(
             config=self._config_factory.create(resolved),
@@ -188,6 +208,21 @@ class RuntimeService:
                 return
             last = self._last_activity_ms.get(session_id, self._now_ms())
             idle_ms = self._now_ms() - last
+            waiting_human_input = False
+            if self._prompt_service is not None:
+                try:
+                    waiting_human_input = bool(self._prompt_service.has_pending_for_session(session_id))
+                except Exception:
+                    waiting_human_input = False
+            if waiting_human_input:
+                warned = False
+                current = dict(self._status.get(session_id, {"status": "running"}))
+                if current.get("status") == "running":
+                    current["watchdog_state"] = "waiting_input"
+                    current["last_activity_ms"] = last
+                    self._status[session_id] = current
+                await asyncio.sleep(2.0)
+                continue
             if idle_ms > self._watchdog_timeout_ms and not warned:
                 warned = True
                 current = dict(self._status.get(session_id, {"status": "running"}))
@@ -254,6 +289,119 @@ class RuntimeService:
                     "reason": "runtime_task_missing_after_restart",
                 },
             )
+
+
+class _ServerHumanPolicyBridge:
+    """Server runtime adapter: forwards human-seat prompts into PromptService + stream."""
+
+    def __init__(
+        self,
+        *,
+        session_id: str,
+        human_seats: list[int],
+        ai_fallback,
+        prompt_service,
+        stream_service,
+        loop: asyncio.AbstractEventLoop,
+        touch_activity,
+        fallback_executor,
+    ) -> None:
+        from viewer.human_policy import HumanHttpPolicy
+
+        self._inner = HumanHttpPolicy(
+            human_seat=human_seats[0],
+            human_seats=human_seats,
+            ai_fallback=ai_fallback,
+        )
+        self._session_id = session_id
+        self._prompt_service = prompt_service
+        self._stream_service = stream_service
+        self._loop = loop
+        self._touch_activity = touch_activity
+        self._fallback_executor = fallback_executor
+        self._request_seq = 0
+        # HumanHttpPolicy methods call self._ask(...). Override that callsite so
+        # engine decisions are bridged to server PromptService/WS instead of
+        # viewer-local in-process queues.
+        self._inner._ask = self._ask  # type: ignore[method-assign]
+
+    def _ask(self, prompt: dict, parser, fallback_fn):
+        self._inner._prompt_seq += 1
+        envelope = dict(prompt)
+        envelope["prompt_instance_id"] = self._inner._prompt_seq
+        request_id = str(envelope.get("request_id") or self._next_request_id())
+        timeout_ms = max(1, int(envelope.get("timeout_ms", 300000)))
+        envelope["request_id"] = request_id
+        envelope["timeout_ms"] = timeout_ms
+
+        try:
+            self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
+        except ValueError:
+            request_id = self._next_request_id()
+            envelope["request_id"] = request_id
+            self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
+
+        self._publish("prompt", envelope)
+        self._touch_activity(self._session_id)
+        response = self._prompt_service.wait_for_decision(request_id=request_id, timeout_ms=timeout_ms)
+
+        if response is None:
+            expired = self._prompt_service.expire_prompt(request_id=request_id, reason="prompt_timeout")
+            if expired is None:
+                return fallback_fn()
+            player_id = int(envelope.get("player_id", 0))
+            fallback_policy = str(envelope.get("fallback_policy", "timeout_fallback"))
+            fallback_result = asyncio.run_coroutine_threadsafe(
+                self._fallback_executor(
+                    session_id=self._session_id,
+                    request_id=request_id,
+                    player_id=player_id,
+                    fallback_policy=fallback_policy,
+                    prompt_payload=envelope,
+                ),
+                self._loop,
+            ).result()
+            self._publish(
+                "decision_ack",
+                {
+                    "request_id": request_id,
+                    "status": "stale",
+                    "player_id": player_id,
+                    "reason": "prompt_timeout",
+                },
+            )
+            self._publish(
+                "event",
+                {
+                    "event_type": "decision_timeout_fallback",
+                    "request_id": request_id,
+                    "player_id": player_id,
+                    "fallback_policy": fallback_policy,
+                    "fallback_execution": fallback_result.get("status"),
+                    "fallback_choice_id": fallback_result.get("choice_id"),
+                    "round_index": (envelope.get("public_context") or {}).get("round_index"),
+                    "turn_index": (envelope.get("public_context") or {}).get("turn_index"),
+                },
+            )
+            return fallback_fn()
+        try:
+            return parser(response)
+        except Exception:
+            return fallback_fn()
+
+    def _next_request_id(self) -> str:
+        self._request_seq += 1
+        return f"{self._session_id}_req_{self._request_seq}_{uuid.uuid4().hex[:6]}"
+
+    def _publish(self, message_type: str, payload: dict) -> None:
+        fut = asyncio.run_coroutine_threadsafe(
+            self._stream_service.publish(self._session_id, message_type, payload),
+            self._loop,
+        )
+        fut.result()
+
+    def __getattr__(self, name: str):
+        return getattr(self._inner, name)
 
 
 class _FanoutVisEventStream:

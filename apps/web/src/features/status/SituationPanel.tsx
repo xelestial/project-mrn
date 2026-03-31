@@ -8,12 +8,13 @@ type SituationPanelProps = {
 export function SituationPanel({ model, alerts = [] }: SituationPanelProps) {
   return (
     <section className="panel">
-      <h2>현재 상황</h2>
-      <p>행동자: {model.actor}</p>
-      <p>라운드: {model.round}</p>
-      <p>턴: {model.turn}</p>
-      <p>이벤트: {model.eventType}</p>
-      <p>날씨: {model.weather}</p>
+      <h2>\uD604\uC7AC \uC0C1\uD669</h2>
+      <p>\uD589\uB3D9\uC790: {model.actor}</p>
+      <p>\uB77C\uC6B4\uB4DC: {model.round}</p>
+      <p>\uD134: {model.turn}</p>
+      <p>\uC774\uBCA4\uD2B8: {model.eventType}</p>
+      <p>\uB0A0\uC528: {model.weather}</p>
+      <p>\uB0A0\uC528 \uD6A8\uACFC: {model.weatherEffect}</p>
       {alerts.length > 0 ? (
         <div className="alert-stack" aria-live="polite">
           {alerts.map((alert) => (

@@ -30,7 +30,11 @@ def _reset_state(max_buffer: int = 2000, heartbeat_interval_ms: int = 5000) -> N
     state.session_service = SessionService()
     state.stream_service = StreamService(max_buffer=max_buffer)
     state.prompt_service = PromptService()
-    state.runtime_service = RuntimeService(session_service=state.session_service, stream_service=state.stream_service)
+    state.runtime_service = RuntimeService(
+        session_service=state.session_service,
+        stream_service=state.stream_service,
+        prompt_service=state.prompt_service,
+    )
 
 
 def _all_ai_seats() -> list[dict]:
@@ -458,10 +462,19 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(joined.status_code, 200)
         session_token = joined.json()["data"]["session_token"]
 
-        started = self.client.post(
-            f"/api/v1/sessions/{session_id}/start",
-            json={"host_token": host_token},
-        )
+        original = state.runtime_service.start_runtime
+
+        async def _noop_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+            del session_id, seed, policy_mode
+
+        state.runtime_service.start_runtime = _noop_start_runtime  # type: ignore[assignment]
+        try:
+            started = self.client.post(
+                f"/api/v1/sessions/{session_id}/start",
+                json={"host_token": host_token},
+            )
+        finally:
+            state.runtime_service.start_runtime = original  # type: ignore[assignment]
         self.assertEqual(started.status_code, 200)
 
         status_before = state.runtime_service.runtime_status(session_id)

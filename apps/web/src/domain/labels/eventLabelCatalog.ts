@@ -13,29 +13,29 @@ const EVENT_LABELS: Record<string, string> = {
   trick_used: "잔꾀 사용",
   player_move: "말 이동",
   landing_resolved: "도착 칸 처리",
-  rent_paid: "통행료 지불",
+  rent_paid: "렌트 지불",
   tile_purchased: "토지 구매",
   marker_transferred: "징표 이동",
   marker_flip: "카드 뒤집기",
   lap_reward_chosen: "랩 보상 선택",
-  fortune_drawn: "운수 카드 공개",
+  fortune_drawn: "운수 공개",
   fortune_resolved: "운수 처리",
   turn_end_snapshot: "턴 종료",
-  decision_timeout_fallback: "시간 초과 자동 진행",
+  decision_timeout_fallback: "시간 초과 자동 처리",
   bankruptcy: "파산",
   game_end: "게임 종료",
 };
 
 const NON_EVENT_LABELS: Record<string, string> = {
   prompt: "선택 요청",
-  decision_ack: "선택 결과",
+  decision_ack: "선택 응답",
   heartbeat: "연결 상태",
   error: "오류",
 };
 
 export function eventLabelForCode(eventCode: string): string {
   if (!eventCode.trim()) {
-    return "알 수 없는 이벤트";
+    return "이벤트";
   }
   return EVENT_LABELS[eventCode] ?? eventCode;
 }
