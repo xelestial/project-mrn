@@ -42,6 +42,7 @@ class SessionServiceTests(unittest.TestCase):
         join_4 = self.service.join_session(session.session_id, 4, session.join_tokens[4], "P4")
         self.assertEqual(join_1["seat"], 1)
         self.assertEqual(join_4["seat"], 4)
+        self.assertFalse(self.service.get_session(session.session_id).seats[0].connected)
 
         started = self.service.start_session(session.session_id, session.host_token)
         self.assertEqual(started.status.value, "in_progress")

@@ -68,6 +68,24 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
         return
 
     await websocket.accept()
+    try:
+        runtime_state = runtime_service.runtime_status(session_id)
+        if auth_ctx.get("role") == "seat" and runtime_state.get("status") == "recovery_required":
+            session = session_service.get_session(session_id)
+            runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
+            await runtime_service.start_runtime(
+                session_id=session_id,
+                seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
+                policy_mode=runtime_cfg.get("policy_mode"),
+            )
+            log_event(
+                "runtime_recovery_started",
+                session_id=session_id,
+                reason=runtime_state.get("reason"),
+            )
+    except Exception as exc:  # pragma: no cover - defensive runtime recovery path
+        log_event("runtime_recovery_failed", session_id=session_id, error=str(exc))
+
     conn_id = f"conn_{uuid.uuid4().hex[:10]}"
     subscriber_queue = await stream_service.subscribe(session_id, conn_id)
     if auth_ctx["role"] == "seat" and auth_ctx["seat"] is not None:

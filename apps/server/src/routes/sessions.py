@@ -213,13 +213,12 @@ async def start_session(
         manifest_hash=session.parameter_manifest.get("manifest_hash"),
         player_count=len(session.seats),
     )
-    if service.is_all_ai(session_id):
-        runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
-        await runtime.start_runtime(
-            session_id=session_id,
-            seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
-            policy_mode=runtime_cfg.get("policy_mode"),
-        )
+    runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
+    await runtime.start_runtime(
+        session_id=session_id,
+        seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
+        policy_mode=runtime_cfg.get("policy_mode"),
+    )
     return _ok(service.to_public(session))
 
 

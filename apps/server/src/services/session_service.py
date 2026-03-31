@@ -100,7 +100,7 @@ class SessionService:
             raise SessionStateError("seat_already_joined")
 
         seat_cfg.player_id = seat
-        seat_cfg.connected = True
+        seat_cfg.connected = False
         session_token = self._new_token(f"session_p{seat}")
         session.session_tokens[seat] = session_token
         self._persist_sessions()

@@ -306,6 +306,8 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(replayed[1].get("payload", {}).get("event_type"), "turn_start")
 
     def test_resume_replays_manifest_with_non_default_topology_and_seat_profile(self) -> None:
+        from apps.server.src import state
+
         created = self.client.post("/api/v1/sessions", json=_three_seat_line_with_human_payload())
         self.assertEqual(created.status_code, 200)
         created_data = created.json()["data"]
@@ -318,10 +320,19 @@ class StreamApiTests(unittest.TestCase):
         )
         self.assertEqual(joined.status_code, 200)
 
-        started = self.client.post(
-            f"/api/v1/sessions/{session_id}/start",
-            json={"host_token": host_token},
-        )
+        original = state.runtime_service.start_runtime
+
+        async def _noop_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+            del session_id, seed, policy_mode
+
+        state.runtime_service.start_runtime = _noop_start_runtime  # type: ignore[assignment]
+        try:
+            started = self.client.post(
+                f"/api/v1/sessions/{session_id}/start",
+                json={"host_token": host_token},
+            )
+        finally:
+            state.runtime_service.start_runtime = original  # type: ignore[assignment]
         self.assertEqual(started.status_code, 200)
         expected_hash = started.json()["data"]["parameter_manifest"]["manifest_hash"]
 
@@ -363,10 +374,19 @@ class StreamApiTests(unittest.TestCase):
         )
         self.assertEqual(joined.status_code, 200)
 
-        started = self.client.post(
-            f"/api/v1/sessions/{session_id}/start",
-            json={"host_token": host_token},
-        )
+        original = state.runtime_service.start_runtime
+
+        async def _noop_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+            del session_id, seed, policy_mode
+
+        state.runtime_service.start_runtime = _noop_start_runtime  # type: ignore[assignment]
+        try:
+            started = self.client.post(
+                f"/api/v1/sessions/{session_id}/start",
+                json={"host_token": host_token},
+            )
+        finally:
+            state.runtime_service.start_runtime = original  # type: ignore[assignment]
         self.assertEqual(started.status_code, 200)
 
         first_manifest_seq = 0
@@ -421,6 +441,48 @@ class StreamApiTests(unittest.TestCase):
         changed_manifest = changed_manifest_event.get("payload", {}).get("parameter_manifest", {})
         self.assertEqual(changed_manifest.get("board", {}).get("topology"), "line")
         self.assertEqual(changed_manifest.get("seats", {}).get("allowed"), [1, 2, 3])
+
+    def test_seat_stream_connection_recovers_runtime_when_in_progress(self) -> None:
+        from apps.server.src import state
+
+        created = self.client.post("/api/v1/sessions", json=_three_seat_line_with_human_payload())
+        self.assertEqual(created.status_code, 200)
+        created_data = created.json()["data"]
+        session_id = created_data["session_id"]
+        host_token = created_data["host_token"]
+        join_token = created_data["join_tokens"]["1"]
+        joined = self.client.post(
+            f"/api/v1/sessions/{session_id}/join",
+            json={"seat": 1, "join_token": join_token, "display_name": "P1"},
+        )
+        self.assertEqual(joined.status_code, 200)
+        session_token = joined.json()["data"]["session_token"]
+
+        started = self.client.post(
+            f"/api/v1/sessions/{session_id}/start",
+            json={"host_token": host_token},
+        )
+        self.assertEqual(started.status_code, 200)
+
+        status_before = state.runtime_service.runtime_status(session_id)
+        self.assertEqual(status_before.get("status"), "recovery_required")
+
+        calls: list[tuple[str, int, str | None]] = []
+        original = state.runtime_service.start_runtime
+
+        async def _fake_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+            calls.append((session_id, seed, policy_mode))
+
+        state.runtime_service.start_runtime = _fake_start_runtime  # type: ignore[assignment]
+        try:
+            path = f"/api/v1/sessions/{session_id}/stream?token={session_token}"
+            with self.client.websocket_connect(path):
+                pass
+        finally:
+            state.runtime_service.start_runtime = original  # type: ignore[assignment]
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], session_id)
 
     def test_reconnect_soak_preserves_seq_continuity_across_multiple_resumes(self) -> None:
         from apps.server.src import state

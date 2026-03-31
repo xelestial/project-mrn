@@ -227,6 +227,41 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(started_manifest["dice"]["values"], [2, 4, 8])
         self.assertEqual(started_manifest["dice"]["max_cards_per_turn"], 1)
 
+    def test_start_session_starts_runtime_when_human_seat_is_connected(self) -> None:
+        from apps.server.src import state
+
+        created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
+        self.assertEqual(created.status_code, 200)
+        created_data = created.json()["data"]
+        session_id = created_data["session_id"]
+        host_token = created_data["host_token"]
+        join_token = created_data["join_tokens"]["1"]
+        joined = self.client.post(
+            f"/api/v1/sessions/{session_id}/join",
+            json={"seat": 1, "join_token": join_token, "display_name": "P1"},
+        )
+        self.assertEqual(joined.status_code, 200)
+
+        state.session_service.mark_connected(session_id, 1, True)
+        calls: list[tuple[str, int, str | None]] = []
+        original = state.runtime_service.start_runtime
+
+        async def _fake_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+            calls.append((session_id, seed, policy_mode))
+
+        state.runtime_service.start_runtime = _fake_start_runtime  # type: ignore[assignment]
+        try:
+            started = self.client.post(
+                f"/api/v1/sessions/{session_id}/start",
+                json={"host_token": host_token},
+            )
+            self.assertEqual(started.status_code, 200)
+        finally:
+            state.runtime_service.start_runtime = original  # type: ignore[assignment]
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], session_id)
+
 
 if __name__ == "__main__":
     unittest.main()
