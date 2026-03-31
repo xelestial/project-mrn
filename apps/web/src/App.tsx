@@ -369,12 +369,18 @@ export function App() {
       });
       setSessionManifest(created.parameter_manifest ?? null);
       setSessionInput(created.session_id);
+      setSessionId(created.session_id);
+      setTokenInput("");
+      setToken(undefined);
+      setLocalPlayerId(null);
       setHostTokenInput(created.host_token);
       setLastJoinTokens(created.join_tokens);
       const seat = Number(joinSeatInput) || 1;
       const autoToken = created.join_tokens[String(seat)] ?? "";
       if (autoToken) {
         setJoinTokenInput(autoToken);
+      } else {
+        setJoinTokenInput("");
       }
       setNotice(
         `Session created: ${created.session_id} host_token=${created.host_token} join_tokens=${JSON.stringify(
@@ -420,6 +426,8 @@ export function App() {
       setLocalPlayerId(null);
       setHostTokenInput(created.host_token);
       setLastJoinTokens(created.join_tokens);
+      setJoinSeatInput("1");
+      setJoinTokenInput("");
       setNotice(
         `AI session started: ${created.session_id} host_token=${created.host_token} join_tokens=${JSON.stringify(
           created.join_tokens
@@ -442,6 +450,7 @@ export function App() {
     }
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       const started = await startSession({ sessionId: current, hostToken: hostTokenInput.trim() });
       setSessionManifest(started.parameter_manifest ?? null);
@@ -464,7 +473,19 @@ export function App() {
     }
     setBusy(true);
     setError("");
+    setNotice("");
     try {
+      const snapshot = await getSession({ sessionId: current });
+      if (snapshot.status !== "waiting") {
+        throw new Error("Session is already started. Join is only allowed while waiting.");
+      }
+      const seatView = (snapshot.seats ?? []).find((s) => s.seat === seat);
+      if (!seatView) {
+        throw new Error(`Seat ${seat} does not exist in this session.`);
+      }
+      if (seatView.seat_type !== "human") {
+        throw new Error(`Seat ${seat} is not a human seat.`);
+      }
       const joined = await joinSession({
         sessionId: current,
         seat,
@@ -487,8 +508,15 @@ export function App() {
   };
 
   const onUseSession = (id: string) => {
+    setError("");
     setSessionInput(id);
     setSessionId(id);
+    setHostTokenInput("");
+    setJoinSeatInput("1");
+    setJoinTokenInput("");
+    setLastJoinTokens({});
+    setTokenInput("");
+    setToken(undefined);
     setLocalPlayerId(null);
     const selected = sessions.find((session) => session.session_id === id);
     setSessionManifest(selected?.parameter_manifest ?? null);
