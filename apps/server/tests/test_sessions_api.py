@@ -116,7 +116,7 @@ class SessionsApiTests(unittest.TestCase):
     def test_get_missing_session_returns_normalized_error_category(self) -> None:
         missing = self.client.get("/api/v1/sessions/sess_missing_404")
         self.assertEqual(missing.status_code, 404)
-        error = missing.json().get("detail", {}).get("error", {})
+        error = missing.json().get("error", {})
         self.assertEqual(error.get("code"), "SESSION_NOT_FOUND")
         self.assertEqual(error.get("category"), "session")
         self.assertFalse(error.get("retryable"))
@@ -161,9 +161,11 @@ class SessionsApiTests(unittest.TestCase):
         replay = self.client.get(f"/api/v1/sessions/{session_id}/replay")
         self.assertEqual(replay.status_code, 200)
         data = replay.json()["data"]
-        self.assertEqual(data["event_count"], 2)
-        self.assertEqual(data["events"][0]["seq"], 1)
-        self.assertEqual(data["events"][1]["seq"], 2)
+        self.assertEqual(data["event_count"], 3)
+        self.assertEqual(data["events"][-2]["seq"], 2)
+        self.assertEqual(data["events"][-1]["seq"], 3)
+        self.assertEqual(data["events"][-2].get("payload", {}).get("event_type"), "round_start")
+        self.assertEqual(data["events"][-1].get("payload", {}).get("event_type"), "turn_start")
         self.assertIn("server_time_ms", data["events"][0])
 
     def test_start_response_includes_parameter_manifest(self) -> None:
@@ -205,6 +207,12 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(manifest["resources"]["starting_shards"], 7)
         self.assertEqual(manifest["dice"]["values"], [2, 4, 8])
         self.assertEqual(manifest["dice"]["max_cards_per_turn"], 1)
+        join_token = created_data["join_tokens"]["1"]
+        joined = self.client.post(
+            f"/api/v1/sessions/{session_id}/join",
+            json={"seat": 1, "join_token": join_token, "display_name": "P1"},
+        )
+        self.assertEqual(joined.status_code, 200)
 
         started = self.client.post(
             f"/api/v1/sessions/{session_id}/start",

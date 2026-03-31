@@ -66,15 +66,32 @@ def _three_ai_line_payload() -> dict:
     }
 
 
+def _three_seat_line_with_human_payload() -> dict:
+    return {
+        "seats": [
+            {"seat": 1, "seat_type": "human"},
+            {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+        ],
+        "config": {
+            "seed": 202,
+            "board_topology": "line",
+            "seat_limits": {"min": 1, "max": 3, "allowed": [1, 2, 3]},
+        },
+    }
+
+
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi is not installed in this environment")
 class StreamApiTests(unittest.TestCase):
     def setUp(self) -> None:
-        _reset_state(max_buffer=2, heartbeat_interval_ms=250)
+        _reset_state(max_buffer=256, heartbeat_interval_ms=250)
         self.client = TestClient(app)
 
     def test_resume_gap_too_old_emits_error_and_replays_latest_buffer(self) -> None:
         from apps.server.src import state
 
+        _reset_state(max_buffer=2, heartbeat_interval_ms=250)
+        self.client = TestClient(app)
         session = state.session_service.create_session(_all_ai_seats(), config={"seed": 42})
 
         async def _seed() -> None:
@@ -289,11 +306,17 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(replayed[1].get("payload", {}).get("event_type"), "turn_start")
 
     def test_resume_replays_manifest_with_non_default_topology_and_seat_profile(self) -> None:
-        created = self.client.post("/api/v1/sessions", json=_three_ai_line_payload())
+        created = self.client.post("/api/v1/sessions", json=_three_seat_line_with_human_payload())
         self.assertEqual(created.status_code, 200)
         created_data = created.json()["data"]
         session_id = created_data["session_id"]
         host_token = created_data["host_token"]
+        join_token = created_data["join_tokens"]["1"]
+        joined = self.client.post(
+            f"/api/v1/sessions/{session_id}/join",
+            json={"seat": 1, "join_token": join_token, "display_name": "P1"},
+        )
+        self.assertEqual(joined.status_code, 200)
 
         started = self.client.post(
             f"/api/v1/sessions/{session_id}/start",
@@ -328,11 +351,17 @@ class StreamApiTests(unittest.TestCase):
     def test_reconnect_replays_latest_manifest_after_hash_change_end_to_end(self) -> None:
         from apps.server.src import state
 
-        created = self.client.post("/api/v1/sessions", json=_three_ai_line_payload())
+        created = self.client.post("/api/v1/sessions", json=_three_seat_line_with_human_payload())
         self.assertEqual(created.status_code, 200)
         created_data = created.json()["data"]
         session_id = created_data["session_id"]
         host_token = created_data["host_token"]
+        join_token = created_data["join_tokens"]["1"]
+        joined = self.client.post(
+            f"/api/v1/sessions/{session_id}/join",
+            json={"seat": 1, "join_token": join_token, "display_name": "P1"},
+        )
+        self.assertEqual(joined.status_code, 200)
 
         started = self.client.post(
             f"/api/v1/sessions/{session_id}/start",

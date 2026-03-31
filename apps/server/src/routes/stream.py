@@ -260,8 +260,8 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
         if auth_ctx["role"] == "seat" and auth_ctx["seat"] is not None:
             with contextlib.suppress(Exception):
                 session_service.mark_connected(session_id, auth_ctx["seat"], False)
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(asyncio.CancelledError, Exception):
             await heart
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(asyncio.CancelledError, Exception):
             await sender
         log_event("stream_disconnected", session_id=session_id, connection_id=conn_id)
