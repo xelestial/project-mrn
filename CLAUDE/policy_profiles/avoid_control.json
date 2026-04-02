@@ -1,6 +1,0 @@
-{
-  "name": "heuristic_v2_avoid_control",
-  "profile_key": "avoid_control",
-  "survival_strategy_key": "survival/default_v1",
-  "character_values_key": "default"
-}
