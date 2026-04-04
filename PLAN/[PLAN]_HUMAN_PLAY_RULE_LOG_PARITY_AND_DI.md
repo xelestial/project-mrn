@@ -163,3 +163,66 @@ First implementation slice:
 
 This order is chosen to stop further drift before additional feature edits.
 
+## 2026-04-05 Progress Note
+
+- Selector-side narrative drift was reduced in the live React client:
+  - resolved passive prompts now close from canonical decision events, not only from local `decision_ack`
+  - `현재 상황` headline now ignores prompt/system chatter and follows core turn narrative instead
+- This does not finish P0-2 yet.
+- Remaining visible parity gaps still include:
+  - distinct rendering of other-player turn actions as theater-grade cards
+  - observer prompt cards vs blocking local prompt separation at full-screen layout level
+  - weather/fortune/mark persistence and actor-stage continuity in the main match screen
+
+## 2026-04-05 Additional Progress Note
+
+- Added a dedicated public-action lane to the live React match screen.
+  - latest visible non-local/public action now appears as a hero card
+  - recent public actions appear in a short card feed beneath it
+  - legacy duplicated strip/banner UI is hidden so the core lane has a single entry point
+- Began viewport-scale layout recovery:
+  - desktop side column now stays sticky
+  - board square scales from viewport constraints instead of a hard `980px` cap
+  - prompt overlay now opens near full viewport size
+- Prompt presentation started separating further from public-action playback:
+  - prompt overlay is now request-type aware via CSS classing
+  - bottom-sheet style placement reduces total board occlusion
+  - choice density differs by prompt type instead of one uniform card wall
+- Turn-theater readability was raised:
+  - theater panel is now labeled in player-facing Korean
+  - latest core/public action is surfaced as a hero card
+  - lane cards have clearer hierarchy and emphasis
+- Stage summary readability was also raised:
+  - current actor turn summary is now a hero card
+  - weather remains visible in its own card
+  - movement / landing / card effect summaries are separated instead of mixed together
+- Board pawn readability improved:
+  - pawn tokens now render player numbers directly inside the token
+- Public-action classification improved:
+  - rent / fortune now render in the same economic/public-action tone family
+  - trick usage is promoted for stronger visibility in theater cards
+- Public-action cards now also expose lightweight category chips:
+  - `이동 / 경제 / 효과 / 선택 / 진행`
+  - this improves scanability before full per-event bespoke card rendering lands
+- Theater components were re-saved in clean UTF-8 Korean and re-stabilized:
+  - `CoreActionPanel`
+  - `IncidentCardStack`
+- Legacy duplicate public-action rendering in `App.tsx` is now disabled at runtime so only the new action lanes are visible.
+- This is still only a first UI slice.
+- Remaining parity work:
+  - stronger motion/readability treatment for movement, purchase, fortune, rent, and turn-end beats
+  - viewport-filling layout recovery
+  - prompt placement separation so local decisions do not feel like replay cards
+
+## 2026-04-05 Follow-up Progress Note
+
+- The remaining disabled legacy public-action JSX in `apps/web/src/App.tsx` has now been physically removed.
+- Theater/UI differentiation was raised another step:
+  - `CoreActionPanel` now renders distinct detail blocks per action family
+  - `IncidentCardStack` now explains each lane (`turn progress / prompt flow / system log`) with subtitles
+  - `TurnStagePanel` was re-centered around persistent weather / actor / movement / landing / card-effect summaries
+- This still does not complete P0-2.
+- Remaining visible parity gaps still include:
+  - stronger continuity/motion between actor start -> move -> landing -> economy/result beats
+  - richer other-player turn surfacing so the live view stops feeling like a replay/debug wall
+  - prompt presentation that feels fully native to live play instead of a large inspector-style panel

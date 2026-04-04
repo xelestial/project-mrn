@@ -35,11 +35,11 @@ class LapRewardRules:
     coins: int = 3
     shards: int = 3
     points_budget: int = 10
-    cash_point_cost: int = 1
-    shards_point_cost: int = 2
+    cash_point_cost: int = 2
+    shards_point_cost: int = 3
     coins_point_cost: int = 3
-    cash_pool: int = 60
-    shards_pool: int = 40
+    cash_pool: int = 30
+    shards_pool: int = 18
     coins_pool: int = 18
 
 

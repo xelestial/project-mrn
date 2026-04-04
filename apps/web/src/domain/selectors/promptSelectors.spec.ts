@@ -37,7 +37,7 @@ describe("promptSelectors", () => {
           {
             choice_id: "deck_12",
             label: "건강 검진",
-            value: { card_description: "모든 참가자의 통행료를 절반으로 감소합니다." },
+            value: { card_description: "모든 참가자의 통행료를 절반으로 낮춥니다." },
           },
         ],
       },
@@ -69,6 +69,65 @@ describe("promptSelectors", () => {
         seq: 4,
         session_id: "s1",
         payload: { request_id: "req_1", status: "accepted", player_id: 1 },
+      },
+    ];
+    expect(selectActivePrompt(messages)).toBeNull();
+  });
+
+  it("returns null when decision_resolved event exists for same request without local ack", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "prompt",
+        seq: 10,
+        session_id: "s1",
+        payload: {
+          request_id: "req_passive_1",
+          request_type: "purchase_tile",
+          player_id: 2,
+          timeout_ms: 30000,
+          choices: [{ choice_id: "yes", title: "buy", description: "buy tile" }],
+        },
+      },
+      {
+        type: "event",
+        seq: 11,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_resolved",
+          request_id: "req_passive_1",
+          player_id: 2,
+          resolution: "accepted",
+          choice_id: "yes",
+        },
+      },
+    ];
+    expect(selectActivePrompt(messages)).toBeNull();
+  });
+
+  it("returns null when timeout fallback event closes the same prompt", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "prompt",
+        seq: 20,
+        session_id: "s1",
+        payload: {
+          request_id: "req_timeout_1",
+          request_type: "movement",
+          player_id: 3,
+          timeout_ms: 30000,
+          choices: [{ choice_id: "roll", title: "roll", description: "roll move" }],
+        },
+      },
+      {
+        type: "event",
+        seq: 21,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_timeout_fallback",
+          request_id: "req_timeout_1",
+          player_id: 3,
+          fallback_choice_id: "roll",
+        },
       },
     ];
     expect(selectActivePrompt(messages)).toBeNull();

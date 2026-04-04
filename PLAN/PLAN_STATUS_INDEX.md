@@ -326,6 +326,19 @@ Practical implications:
   - adds explicit anti-regression mapping:
     - rule item -> payload contract -> UI rendering -> test case
 
+### 1P. String Resource Externalization And Encoding Stability
+- File: `PLAN/[PLAN]_STRING_RESOURCE_EXTERNALIZATION_AND_ENCODING_STABILITY.md`
+- Status: `ACTIVE`
+- Role: remove user-facing inline strings from React runtime surfaces and reduce mojibake/regression risk
+- Notes:
+  - focuses first on critical human-play/live-view surfaces
+  - groups text ownership into typed resource catalogs instead of per-component literals
+  - complements existing encoding gate by reducing the number of high-risk edit points
+  - should be referenced whenever:
+    - theater/stage/prompt/lobby wording changes
+    - status/waiting/runtime warning text changes
+    - selector-generated summaries are normalized
+
 ### 2. Turn Advantage Analysis
 - File: `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md`
 - Status: `ACTIVE`
@@ -571,6 +584,15 @@ Cross-plan guardrail:
 - Encoding cleanup sweep (`2026-03-31`) is complete:
   - `PLAN/` + `docs/` markdown files scanned for mojibake/replacement-character patterns
   - no remaining UTF-8 corruption lines detected under current scan rules
+- Decision-contract closure checkpoint (`2026-04-04`) is complete in local validation:
+  - ordered sequence fixtures added in runtime contracts:
+    - `sequence.decision.accepted_then_domain.json`
+    - `sequence.decision.timeout_then_domain.json`
+  - ordered sequence validation test added:
+    - `apps/server/tests/test_runtime_contract_examples.py`
+  - theater/timeline mixed human-play decision flow regression added:
+    - `apps/web/src/domain/selectors/streamSelectors.spec.ts`
+  - backend-decision CI workflow expanded to run runtime contract fixture tests.
 
 ## Implementation Reading Rule (Mandatory)
 

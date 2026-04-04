@@ -14,8 +14,17 @@ export type TheaterItem = {
   label: string;
   detail: string;
   tone: "move" | "economy" | "system" | "critical";
+  lane: "core" | "prompt" | "system";
   actor: string;
   eventCode: string;
+};
+
+export type CoreActionItem = {
+  seq: number;
+  actor: string;
+  label: string;
+  detail: string;
+  isLocalActor: boolean;
 };
 
 export type AlertItem = {
@@ -158,6 +167,26 @@ function pickMessageLabel(message: InboundMessage): string {
   return eventLabelForCode(code);
 }
 
+const WEATHER_EFFECT_FALLBACK: Record<string, string> = {
+  "배신의 징표": "현재 효과 없음",
+  "추운 겨울날": "출발점 통과 보상 없음 + 2냥 은행 지불",
+  "긴급 피난": "모든 짐 제거 비용 2배 지불",
+  "잔꾀 부리기": "잔꾀 1장 교체 선택",
+  "긴고 긴 겨울": "종료 시간 -1",
+};
+
+function weatherEffectFallbackText(weatherName: string): string {
+  const normalized = weatherName.trim();
+  if (!normalized || normalized === "-") {
+    return "-";
+  }
+  const mapped = WEATHER_EFFECT_FALLBACK[normalized];
+  if (typeof mapped === "string" && mapped.trim() && mapped !== "-") {
+    return mapped;
+  }
+  return `${normalized} 효과`;
+}
+
 function summarizePlayerMove(payload: Record<string, unknown>): string {
   const from = numberOrNull(payload["from_tile_index"] ?? payload["from_tile"] ?? payload["from_pos"]);
   const to = numberOrNull(payload["to_tile_index"] ?? payload["to_tile"] ?? payload["to_pos"]);
@@ -216,7 +245,7 @@ function pickMessageDetail(message: InboundMessage): string {
     const backpressure = message.payload["backpressure"];
     if (typeof interval === "number" && backpressure && typeof backpressure === "object") {
       const drop = (backpressure as Record<string, unknown>)["drop_count"];
-      return `주기 ${interval}ms / 누락 ${typeof drop === "number" ? drop : 0}`;
+      return `주기 ${interval}ms / 유실 ${typeof drop === "number" ? drop : 0}`;
     }
     return `주기 ${typeof interval === "number" ? `${interval}ms` : "-"}`;
   }
@@ -234,6 +263,9 @@ function pickMessageDetail(message: InboundMessage): string {
   if (message.type === "error") {
     const code = asString(message.payload["code"]);
     const text = asString(message.payload["message"]);
+    if (code === "RUNTIME_STALLED_WARN") {
+      return `처리 지연 경고: ${text}`;
+    }
     return code !== "-" ? `${code}: ${text}` : text;
   }
 
@@ -261,8 +293,32 @@ function pickMessageDetail(message: InboundMessage): string {
   }
   if (eventType === "weather_reveal") {
     const weather = asString(payload["weather_name"] ?? payload["weather"] ?? payload["card"]);
-    const effect = asString(payload["weather_effect"] ?? payload["effect"] ?? payload["description"]);
+    const effects = Array.isArray(payload["effects"])
+      ? payload["effects"].filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      : [];
+    const effectsSummary = effects.length > 0 ? effects.join(", ") : "-";
+    const explicitEffect = asString(payload["weather_effect"] ?? payload["effect"] ?? payload["description"]);
+    const effect =
+      explicitEffect !== "-"
+        ? explicitEffect
+        : effectsSummary !== "-" && effectsSummary !== weather
+          ? effectsSummary
+          : weatherEffectFallbackText(weather);
     return effect !== "-" ? `${weather} / ${effect}` : weather;
+  }
+  if (eventType === "decision_requested") {
+    const requestType = asString(payload["request_type"]);
+    const pid = payload["player_id"];
+    const actor = typeof pid === "number" ? `P${pid}` : "-";
+    return `${actor} / ${promptLabelForType(requestType === "-" ? "" : requestType)}`;
+  }
+  if (eventType === "decision_resolved") {
+    const resolution = asString(payload["resolution"]);
+    const choice = asString(payload["choice_id"]);
+    if (choice !== "-") {
+      return `${resolution} (${choice})`;
+    }
+    return resolution;
   }
   if (eventType === "landing_resolved") {
     const raw = asString(payload["result_type"] ?? payload["result_code"] ?? payload["result"] ?? "도착 칸 처리");
@@ -372,6 +428,50 @@ function toneFromMessage(message: InboundMessage): TheaterItem["tone"] {
   return toneForEventCode(eventCode);
 }
 
+const CORE_EVENT_CODES = new Set<string>([
+  "round_start",
+  "weather_reveal",
+  "draft_pick",
+  "final_character_choice",
+  "turn_start",
+  "dice_roll",
+  "trick_used",
+  "player_move",
+  "landing_resolved",
+  "rent_paid",
+  "tile_purchased",
+  "marker_transferred",
+  "marker_flip",
+  "lap_reward_chosen",
+  "fortune_drawn",
+  "fortune_resolved",
+  "bankruptcy",
+  "game_end",
+  "turn_end_snapshot",
+]);
+
+const PROMPT_EVENT_CODES = new Set<string>(["decision_requested", "decision_resolved", "decision_timeout_fallback"]);
+
+function laneFromMessage(message: InboundMessage): TheaterItem["lane"] {
+  if (message.type === "decision_ack") {
+    return "prompt";
+  }
+  if (message.type === "prompt") {
+    return "system";
+  }
+  if (message.type !== "event") {
+    return "system";
+  }
+  const eventCode = messageKindFromPayload(message.payload);
+  if (PROMPT_EVENT_CODES.has(eventCode)) {
+    return "prompt";
+  }
+  if (CORE_EVENT_CODES.has(eventCode)) {
+    return "core";
+  }
+  return "system";
+}
+
 function theaterCode(message: InboundMessage): string {
   if (message.type === "event") {
     return messageKindFromPayload(message.payload) || "event";
@@ -380,26 +480,62 @@ function theaterCode(message: InboundMessage): string {
 }
 
 export function selectTheaterFeed(messages: InboundMessage[], limit = 20): TheaterItem[] {
+  const safeLimit = Math.max(1, limit);
+  const coreCap = Math.max(1, Math.floor(safeLimit * 0.5));
+  const promptCap = Math.max(1, Math.floor(safeLimit * 0.3));
+  const systemCap = Math.max(1, safeLimit - coreCap - promptCap);
+  const caps: Record<TheaterItem["lane"], number> = { core: coreCap, prompt: promptCap, system: systemCap };
+  const laneCounts: Record<TheaterItem["lane"], number> = { core: 0, prompt: 0, system: 0 };
   const feed: TheaterItem[] = [];
+  const pickedSeq = new Set<number>();
+
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
     if (message.type === "heartbeat") {
       continue;
     }
-    const eventCode = theaterCode(message);
+    const lane = laneFromMessage(message);
+    if (laneCounts[lane] >= caps[lane]) {
+      continue;
+    }
     feed.push({
       seq: message.seq,
       label: pickMessageLabel(message),
       detail: pickMessageDetail(message),
       tone: toneFromMessage(message),
+      lane,
       actor: actorFromMessage(message),
-      eventCode,
+      eventCode: theaterCode(message),
     });
-    if (feed.length >= limit) {
+    pickedSeq.add(message.seq);
+    laneCounts[lane] += 1;
+    if (feed.length >= safeLimit) {
       break;
     }
   }
-  return feed;
+
+  if (feed.length < safeLimit) {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (message.type === "heartbeat" || pickedSeq.has(message.seq)) {
+        continue;
+      }
+      feed.push({
+        seq: message.seq,
+        label: pickMessageLabel(message),
+        detail: pickMessageDetail(message),
+        tone: toneFromMessage(message),
+        lane: laneFromMessage(message),
+        actor: actorFromMessage(message),
+        eventCode: theaterCode(message),
+      });
+      pickedSeq.add(message.seq);
+      if (feed.length >= safeLimit) {
+        break;
+      }
+    }
+  }
+  return feed.sort((a, b) => b.seq - a.seq);
 }
 
 function alertFromEvent(message: InboundMessage): AlertItem | null {
@@ -471,9 +607,15 @@ function findPersistedWeather(messages: InboundMessage[]): { name: string; effec
     }
     const weather = payload["weather_name"] ?? payload["weather"] ?? payload["card"];
     const effects = payload["effects"];
-    const weatherEffect =
+    const effectsSummary =
       Array.isArray(effects) && effects.length > 0 && typeof effects[0] === "string" && effects[0].trim()
-        ? effects[0]
+        ? effects
+            .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+            .join(", ")
+        : "-";
+    let weatherEffect =
+      effectsSummary !== "-"
+        ? effectsSummary
         : typeof payload["weather_effect"] === "string"
           ? payload["weather_effect"]
           : typeof payload["effect"] === "string"
@@ -482,14 +624,80 @@ function findPersistedWeather(messages: InboundMessage[]): { name: string; effec
               ? payload["description"]
               : "-";
     if (typeof weather === "string" && weather.trim()) {
+      if (weatherEffect === "-" || weatherEffect === weather) {
+        weatherEffect = weatherEffectFallbackText(weather);
+      }
       return { name: weather, effect: weatherEffect };
     }
   }
   return { name: "-", effect: "-" };
 }
 
+function isCoreActionMessage(message: InboundMessage): boolean {
+  if (message.type !== "event") {
+    return false;
+  }
+  const eventCode = messageKindFromPayload(message.payload);
+  return CORE_EVENT_CODES.has(eventCode);
+}
+
+export function selectCoreActionFeed(
+  messages: InboundMessage[],
+  focusPlayerId: number | null = null,
+  limit = 10
+): CoreActionItem[] {
+  const safeLimit = Math.max(1, limit);
+  const rows: CoreActionItem[] = [];
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (!isCoreActionMessage(message)) {
+      continue;
+    }
+    const actor = actorFromMessage(message);
+    rows.push({
+      seq: message.seq,
+      actor,
+      label: pickMessageLabel(message),
+      detail: pickMessageDetail(message),
+      isLocalActor: focusPlayerId !== null && actor === `P${focusPlayerId}`,
+    });
+    if (rows.length >= safeLimit) {
+      break;
+    }
+  }
+  return rows;
+}
+
+function isSituationNoise(message: InboundMessage): boolean {
+  if (message.type === "heartbeat") {
+    return true;
+  }
+  if (message.type === "prompt" || message.type === "decision_ack") {
+    return true;
+  }
+  if (message.type === "error") {
+    return true;
+  }
+  if (message.type === "event") {
+    const eventCode = messageKindFromPayload(message.payload);
+    if (PROMPT_EVENT_CODES.has(eventCode) || eventCode === "parameter_manifest") {
+      return true;
+    }
+  }
+  return false;
+}
+
+function latestSituationMessage(messages: InboundMessage[]): InboundMessage | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (!isSituationNoise(messages[i])) {
+      return messages[i];
+    }
+  }
+  return messages.length > 0 ? messages[messages.length - 1] : null;
+}
+
 export function selectSituation(messages: InboundMessage[]): SituationViewModel {
-  const last = messages.length > 0 ? messages[messages.length - 1] : null;
+  const last = latestSituationMessage(messages);
   if (!last) {
     return { actor: "-", round: "-", turn: "-", eventType: "-", weather: "-", weatherEffect: "-" };
   }
@@ -521,11 +729,7 @@ function roundTurnOfPayload(payload: Record<string, unknown>): { round: number |
   };
 }
 
-function sameRoundTurn(
-  payload: Record<string, unknown>,
-  targetRound: number | null,
-  targetTurn: number | null
-): boolean {
+function sameRoundTurn(payload: Record<string, unknown>, targetRound: number | null, targetTurn: number | null): boolean {
   if (targetRound === null || targetTurn === null) {
     return false;
   }
@@ -713,7 +917,6 @@ function snapshotFromMessage(message: InboundMessage): SnapshotViewModel | null 
   if (message.type !== "event") {
     return null;
   }
-
   const round = typeof message.payload["round_index"] === "number" ? message.payload["round_index"] : 0;
   const turn = typeof message.payload["turn_index"] === "number" ? message.payload["turn_index"] : 0;
   const explicitSnapshot = isRecord(message.payload["snapshot"]) ? message.payload["snapshot"] : null;

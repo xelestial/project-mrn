@@ -61,6 +61,21 @@ function zoneColorToCss(zoneColor: string): string {
   return catalog[trimmed] ?? zoneColor;
 }
 
+function playerColor(playerId: number): string {
+  const palette = ["#f97316", "#38bdf8", "#a78bfa", "#34d399", "#f472b6", "#facc15"];
+  return palette[(Math.max(1, playerId) - 1) % palette.length];
+}
+
+function zoneLabel(zoneColor: string): string {
+  return zoneColor ? `구역 ${zoneColor}` : "구역 -";
+}
+
+function costLabel(cost: number | null, rent: number | null): string {
+  const purchase = cost === null ? "-" : `${cost}냥`;
+  const rentText = rent === null ? "-" : `${rent}냥`;
+  return `구매 ${purchase} / 통행료 ${rentText}`;
+}
+
 export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLabels, lastMove }: BoardPanelProps) {
   const tiles = (snapshot?.tiles && snapshot.tiles.length > 0 ? snapshot.tiles : manifestTiles ?? []).slice();
   tiles.sort((a, b) => a.tileIndex - b.tileIndex);
@@ -82,6 +97,7 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
     list.push(player.playerId);
     pawnFallback.set(player.position, list);
   }
+
   const movedPlayerId = lastMove?.playerId ?? null;
   const movedTileIndex = lastMove?.toTileIndex ?? null;
   if (movedPlayerId !== null && movedTileIndex !== null) {
@@ -96,7 +112,7 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
     return (
       <section className="panel">
         <h2>보드</h2>
-        <p>보드 정보가 없습니다.</p>
+        <p>보드 정보를 불러오는 중입니다.</p>
       </section>
     );
   }
@@ -150,22 +166,26 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
                   <div className="tile-special-center">{kindLabel}</div>
                 ) : (
                   <div className="tile-body">
-                    <small>{tile.zoneColor ? `구역 ${tile.zoneColor}` : "구역 -"}</small>
-                    <small>구매가 {tile.purchaseCost ?? "-"}</small>
-                    <small>통행료 {tile.rentCost ?? "-"}</small>
+                    <small>{zoneLabel(tile.zoneColor ?? "")}</small>
+                    <small>{costLabel(tile.purchaseCost, tile.rentCost)}</small>
                   </div>
                 )}
                 <div className="tile-foot">
-                  <small>{ownerPlayerId === null ? "소유자 없음" : `소유자 P${ownerPlayerId}`}</small>
+                  <small>{ownerPlayerId === null ? "소유자 - 없음" : `소유자 P${ownerPlayerId}`}</small>
                   <div className="pawn-chips">
                     {tilePawns.length > 0 ? (
                       tilePawns.map((id) => (
-                        <span key={`${tile.tileIndex}-p${id}`} className={`pawn-chip ${isMoveTo ? "pawn-arrived" : ""}`}>
-                          ♟ P{id}
+                        <span
+                          key={`${tile.tileIndex}-p${id}`}
+                          className={`pawn-token ${isMoveTo ? "pawn-arrived" : ""}`}
+                          style={{ backgroundColor: playerColor(id) }}
+                          title={`P${id}`}
+                        >
+                          {id}
                         </span>
                       ))
                     ) : (
-                      <small>말 없음</small>
+                      <small className="pawn-empty">-</small>
                     )}
                   </div>
                 </div>

@@ -334,10 +334,13 @@ class HumanHttpPolicy:
         for card_index in offered_cards:
             # card_index is an int index into the characters config
             char_name = _card_name(state, card_index)
+            ability_text = _character_ability_text(char_name)
             options.append({
                 "id": str(card_index),
                 "label": char_name,
                 "card_index": card_index,
+                "character_name": char_name,
+                "character_ability": ability_text,
             })
 
         prompt = build_prompt_envelope(
@@ -347,7 +350,12 @@ class HumanHttpPolicy:
                 {
                     "choice_id": opt["id"],
                     "label": opt["label"],
-                    "value": {"card_index": opt["card_index"]},
+                    "description": opt["character_ability"],
+                    "value": {
+                        "card_index": opt["card_index"],
+                        "character_name": opt["character_name"],
+                        "character_ability": opt["character_ability"],
+                    },
                 }
                 for opt in options
             ],
@@ -356,6 +364,7 @@ class HumanHttpPolicy:
                 "player_position": player.position,
                 "offered_count": len(options),
                 "offered_names": [opt["label"] for opt in options],
+                "offered_abilities": [opt["character_ability"] for opt in options],
             },
             timeout_ms=int(TIMEOUT_S * 1000),
         )
@@ -381,11 +390,13 @@ class HumanHttpPolicy:
         options = []
         for card_index in card_choices:
             char_name = _card_name(state, card_index)
+            ability_text = _character_ability_text(char_name)
             options.append({
                 "id": str(card_index),
                 "label": char_name,
                 "card_index": card_index,
                 "character_name": char_name,
+                "character_ability": ability_text,
             })
 
         prompt = build_prompt_envelope(
@@ -395,9 +406,11 @@ class HumanHttpPolicy:
                 {
                     "choice_id": opt["id"],
                     "label": opt["label"],
+                    "description": opt["character_ability"],
                     "value": {
                         "card_index": opt["card_index"],
                         "character_name": opt["character_name"],
+                        "character_ability": opt["character_ability"],
                     },
                 }
                 for opt in options
@@ -407,6 +420,7 @@ class HumanHttpPolicy:
                 "player_position": player.position,
                 "choice_count": len(options),
                 "choice_names": [opt["label"] for opt in options],
+                "choice_abilities": [opt["character_ability"] for opt in options],
             },
             timeout_ms=int(TIMEOUT_S * 1000),
         )
@@ -430,11 +444,8 @@ class HumanHttpPolicy:
             return self._ai.choose_trick_to_use(state, player, hand)
 
         full_hand_cards = list(getattr(player, "trick_hand", []) or list(hand))
-        trick_phase = (
-            "anytime"
-            if hand and all(bool(getattr(card, "is_anytime", False)) for card in hand)
-            else "regular"
-        )
+        # Rule alignment (2026-04): trick cards are limited to one per turn.
+        trick_phase = "regular"
         usable_deck_indices = {getattr(card, "deck_index", None) for card in hand}
         hidden_deck_index = getattr(player, "hidden_trick_deck_index", None)
         full_hand_context = [
@@ -513,8 +524,8 @@ class HumanHttpPolicy:
             request_type="purchase_tile",
             player_id=player.player_id + 1,
             legal_choices=[
-                {"choice_id": "yes", "label": f"Buy tile {pos} (cost {cost})", "value": True},
-                {"choice_id": "no", "label": "Skip purchase", "value": False},
+                {"choice_id": "yes", "label": f"{pos}번 칸 구매 (비용 {cost})", "value": True},
+                {"choice_id": "no", "label": "구매 없이 턴 종료", "value": False},
             ],
             public_context={
                 "tile_index": pos,
@@ -548,6 +559,9 @@ class HumanHttpPolicy:
             return None
 
         options = []
+        hidden_deck_index = getattr(player, "hidden_trick_deck_index", None)
+        full_hand_cards = list(getattr(player, "trick_hand", []) or list(hand))
+        usable_deck_indices = {getattr(card, "deck_index", None) for card in hand}
         for card in hand:
             options.append({
                 "id": str(card.deck_index),
@@ -575,6 +589,19 @@ class HumanHttpPolicy:
                 "player_position": player.position,
                 "hand_count": len(hand),
                 "hand_names": [getattr(card, "name", str(card)) for card in hand],
+                "full_hand": [
+                    {
+                        "deck_index": getattr(card, "deck_index", None),
+                        "name": getattr(card, "name", str(card)),
+                        "card_description": getattr(card, "description", ""),
+                        "is_hidden": (
+                            hidden_deck_index is not None
+                            and getattr(card, "deck_index", None) == hidden_deck_index
+                        ),
+                        "is_usable": getattr(card, "deck_index", None) in usable_deck_indices,
+                    }
+                    for card in full_hand_cards
+                ],
                 "selection_required": True,
             },
             can_pass=False,
@@ -605,7 +632,7 @@ class HumanHttpPolicy:
         if not legal_targets:
             return None
 
-        options = [{"id": "none", "label": "No target", "target_character": None, "target_player_id": None}]
+        options = [{"id": "none", "label": "지목 안 함", "target_character": None, "target_player_id": None}]
         for target in legal_targets:
             target_character = str(getattr(target, "current_character", "") or "")
             target_player_id = int(getattr(target, "player_id", -1))
@@ -680,7 +707,7 @@ class HumanHttpPolicy:
         if not owned:
             return None
 
-        options = [{"id": str(idx), "label": f"Tile {idx}", "tile_index": idx} for idx in owned]
+        options = [{"id": str(idx), "label": f"{idx}번 칸", "tile_index": idx} for idx in owned]
 
         prompt = build_prompt_envelope(
             request_type="coin_placement",
@@ -721,9 +748,9 @@ class HumanHttpPolicy:
             return self._ai.choose_geo_bonus(state, player, char)
 
         options = [
-            {"id": "cash", "label": "Cash +1", "choice": "cash"},
-            {"id": "shards", "label": "Shards +1", "choice": "shards"},
-            {"id": "coins", "label": "Coins +1", "choice": "coins"},
+            {"id": "cash", "label": "현금 +1", "choice": "cash"},
+            {"id": "shards", "label": "조각 +1", "choice": "shards"},
+            {"id": "coins", "label": "승점 +1", "choice": "coins"},
         ]
 
         prompt = build_prompt_envelope(
@@ -765,7 +792,7 @@ class HumanHttpPolicy:
             burden_count = sum(1 for card in getattr(target, "trick_hand", []) if getattr(card, "is_burden", False))
             options.append({
                 "id": str(target.player_id),
-                "label": f"Player {target.player_id + 1}",
+                "label": f"P{target.player_id + 1}",
                 "target_player_id": target.player_id,
                 "target_position": getattr(target, "position", None),
                 "target_cash": getattr(target, "cash", None),
@@ -952,8 +979,8 @@ class HumanHttpPolicy:
             request_type="burden_exchange",
             player_id=player.player_id + 1,
             legal_choices=[
-                {"choice_id": "yes", "label": f"Pay {getattr(card, 'burden_cost', 0)} and remove", "value": True},
-                {"choice_id": "no", "label": "Keep burden card", "value": False},
+                {"choice_id": "yes", "label": f"{getattr(card, 'burden_cost', 0)}냥 지불 후 제거", "value": True},
+                {"choice_id": "no", "label": "유지", "value": False},
             ],
             public_context={
                 "player_cash": player.cash,
@@ -989,6 +1016,18 @@ class HumanHttpPolicy:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _character_ability_text(character_name: str) -> str:
+    try:
+        from characters import CHARACTERS
+
+        found = CHARACTERS.get(str(character_name))
+        if found and getattr(found, "ability_text", ""):
+            return str(found.ability_text)
+    except Exception:
+        pass
+    return f"{character_name} 능력"
+
 
 def _card_name(state: Any, card_index: int) -> str:
     """Try to resolve a character card index to a display name."""

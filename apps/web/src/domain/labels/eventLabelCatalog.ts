@@ -21,6 +21,8 @@ const EVENT_LABELS: Record<string, string> = {
   fortune_drawn: "운수 공개",
   fortune_resolved: "운수 처리",
   turn_end_snapshot: "턴 종료",
+  decision_requested: "선택 요청 등록",
+  decision_resolved: "선택 처리 완료",
   decision_timeout_fallback: "시간 초과 자동 처리",
   bankruptcy: "파산",
   game_end: "게임 종료",

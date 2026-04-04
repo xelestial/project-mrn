@@ -246,4 +246,74 @@ P3 종료 조건:
 3. PR-03 착수:
 - human provider + prompt lifecycle 이관
 - timeout/fallback 이벤트 순서 고정 테스트 추가
+## 2026-04-04 Progress Update (P0-1)
 
+- Implemented in server runtime bridge:
+  - emit `decision_requested` when prompt is registered.
+  - emit `decision_resolved` on:
+    - accepted decision
+    - timeout fallback
+    - parser-error fallback.
+- Implemented in stream timeout lane:
+  - enforce `decision_resolved` before `decision_timeout_fallback`.
+- Added/updated tests:
+  - `apps/server/tests/test_runtime_service.py`
+    - request/resolve ordering assertion for accepted path.
+    - timeout ordering assertion (`requested < resolved < timeout_fallback`).
+    - parser-error fallback assertion (single resolved emission).
+  - `apps/server/tests/test_stream_api.py`
+    - timeout lane ordering assertion (`resolved` < `timeout_fallback` seq).
+  - web selector/label tests updated for decision events visibility.
+  - `apps/server/tests/test_runtime_contract_examples.py`
+    - added ordered sequence fixture validation:
+      - `decision_requested -> decision_resolved -> player_move`
+      - `decision_requested -> decision_resolved -> decision_timeout_fallback -> turn_end_snapshot`
+  - `apps/web/src/domain/selectors/streamSelectors.spec.ts`
+    - added mixed human-play regression case:
+      - decision flow stays visible in theater (`prompt` lane)
+      - core turn progression (`dice_roll`, `player_move`, `landing_resolved`) remains visible
+
+## Remaining P0-1 Actions
+
+1. Verify CI execution result for `backend-decision-contract-tests` workflow after push.
+2. Continue P0-2 lane UX refinement in live human-play screen integration.
+3. Keep React prompt lifecycle aligned with canonical decision events so resolved non-local prompts cannot remain open from `prompt`-only state.
+
+## Local Validation Note
+
+- In the current local environment, FastAPI-gated stream API tests are partially skipped.
+- Runtime bridge/unit coverage is active and passing.
+- Non-timeout stream branch validation will be finalized via:
+  - CI run with FastAPI-enabled test matrix, and
+  - follow-up local verification when full backend test dependencies are available.
+
+## 2026-04-05 Progress Update (P0-1 -> P0-2 bridge)
+
+- React selector layer now consumes canonical decision-close signals in addition to `decision_ack`.
+  - `selectActivePrompt(...)` closes prompt state when later messages include:
+    - `decision_resolved`
+    - `decision_timeout_fallback`
+- Situation summary no longer treats prompt/system chatter as the main narrative event.
+  - filtered from headline selection:
+    - `prompt`
+    - `decision_ack`
+    - prompt-lane decision events
+    - `parameter_manifest`
+    - runtime `error` messages
+- Added regression coverage in:
+  - `apps/web/src/domain/selectors/promptSelectors.spec.ts`
+  - `apps/web/src/domain/selectors/streamSelectors.spec.ts`
+- Local validation:
+  - `npm run test -- --run src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/streamSelectors.spec.ts`
+  - passed (`18 passed`)
+
+## 2026-04-05 UI Follow-through Note
+
+- P0-2 follow-through started in the React screen:
+  - a dedicated `CoreActionPanel` is now mounted under the stage panel
+  - latest public/non-local turn action is surfaced as a hero card
+  - recent public actions are surfaced as a compact feed
+- Legacy duplicated action strip/banner UI is hidden so the runtime contract now maps to a single visible public-action lane.
+- Local validation:
+  - `npm run build`
+  - passed (`apps/web`)

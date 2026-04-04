@@ -6,6 +6,7 @@ from pathlib import Path
 REQUIRED_FILES = [
     "docs/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md",
     "PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md",
+    "docs/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md",
 ]
 
 REQUIRED_REFERENCES = {
@@ -24,6 +25,8 @@ REQUIRED_SNIPPETS = {
         "CP-949",
         "UTF-8",
         "DecisionRequest -> DecisionResponse",
+        "작업 원칙 - 소규모/대규모 작업에 관계 없이 어떤 일을 했는지 요약하여 작업 일지 문서에 남긴다.",
+        "작업 원칙 - 로직 등 복잡한 변경은 계획 문서를 먼저 작성한다.",
     ],
     "PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md": [
         "P0",

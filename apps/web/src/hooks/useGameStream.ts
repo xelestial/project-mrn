@@ -17,7 +17,7 @@ export function useGameStream({ sessionId, token }: UseGameStreamArgs): {
     playerId: number;
     choiceId: string;
     choicePayload?: Record<string, unknown>;
-  }) => void;
+  }) => boolean;
 } {
   const client = useMemo(() => new StreamClient(), []);
   const [state, dispatch] = useReducer(gameStreamReducer, initialGameStreamState);
@@ -76,8 +76,8 @@ export function useGameStream({ sessionId, token }: UseGameStreamArgs): {
     playerId: number;
     choiceId: string;
     choicePayload?: Record<string, unknown>;
-  }) => {
-    client.send({
+  }): boolean => {
+    return client.send({
       type: "decision",
       request_id: args.requestId,
       player_id: args.playerId,

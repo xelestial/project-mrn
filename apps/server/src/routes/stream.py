@@ -135,6 +135,19 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                     session_id,
                     "event",
                     {
+                        "event_type": "decision_resolved",
+                        "request_id": pending.request_id,
+                        "player_id": pending.player_id,
+                        "resolution": "timeout_fallback",
+                        "choice_id": fallback_result.get("choice_id"),
+                        "round_index": round_index,
+                        "turn_index": turn_index,
+                    },
+                )
+                await stream_service.publish(
+                    session_id,
+                    "event",
+                    {
                         "event_type": "decision_timeout_fallback",
                         "request_id": pending.request_id,
                         "player_id": pending.player_id,

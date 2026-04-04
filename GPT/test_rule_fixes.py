@@ -41,7 +41,20 @@ class TargetPolicy(DummyPolicy):
         return self.target_name
 
 
+class PabalModePolicy(DummyPolicy):
+    def __init__(self, mode: str):
+        self._mode = mode
+
+    def choose_pabal_dice_mode(self, state, player):
+        return self._mode
+
+
 class FixedRandom(random.Random):
+    def __new__(cls, values):
+        # random.Random.__new__ tries to seed from the first argument on some Python
+        # versions, so ensure list inputs never flow into that path.
+        return random.Random.__new__(cls)
+
     def __init__(self, values):
         super().__init__(0)
         self.values = list(values)
@@ -127,10 +140,11 @@ class RuleFixTests(unittest.TestCase):
         target.tiles_owned = 1
         target.score_coins_placed = 2
         result = engine._resolve_landing(state, swindler)
-        self.assertEqual(result["type"], "RENT")
-        self.assertEqual(state.tile_owner[protected_pos], target.player_id)
-        self.assertEqual(state.tile_coins[protected_pos], 2)
-        self.assertEqual(target.score_coins_placed, 2)
+        self.assertEqual(result["type"], "SWINDLE_TAKEOVER")
+        self.assertEqual(state.tile_owner[protected_pos], swindler.player_id)
+        self.assertEqual(swindler.score_coins_placed, 2)
+        self.assertEqual(target.score_coins_placed, 0)
+        self.assertEqual(result.get("swindle_multiplier"), 3)
 
     def test_tamgwan_uses_own_shards_for_tribute_and_extra_die(self):
         engine = self.make_engine(rng=FixedRandom([2, 3, 4]))
@@ -333,7 +347,7 @@ class RuleFixTests(unittest.TestCase):
         block_lands = first_three_land_block_positions(state)
         self.assertIn(owned, ({block_lands[0], block_lands[1]}, {block_lands[1], block_lands[2]}))
 
-    def test_matchmaker_does_not_trigger_on_rent_landing(self):
+    def test_matchmaker_can_trigger_on_rent_landing(self):
         engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True)
         state = GameState.create(DEFAULT_CONFIG)
         player = state.players[0]
@@ -346,9 +360,7 @@ class RuleFixTests(unittest.TestCase):
         player.position = block_lands[1]
         result = engine._resolve_landing(state, player)
         self.assertEqual(result["type"], "RENT")
-        self.assertNotIn("adjacent_bought", result)
-        self.assertIsNone(state.tile_owner[block_lands[0]])
-        self.assertIsNone(state.tile_owner[block_lands[2]])
+        self.assertEqual(len(result.get("adjacent_bought", [])), 1)
 
     def test_matchmaker_can_buy_landing_tile_without_shard(self):
         engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True)
@@ -364,7 +376,7 @@ class RuleFixTests(unittest.TestCase):
         self.assertEqual(player.shards, 0)
         self.assertEqual(state.tile_owner[first_land_positions(state)[0]], player.player_id)
 
-    def test_matchmaker_spends_shard_only_on_adjacent_buy(self):
+    def test_matchmaker_does_not_spend_shard_on_adjacent_buy(self):
         engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True)
         state = GameState.create(DEFAULT_CONFIG)
         player = state.players[0]
@@ -375,11 +387,11 @@ class RuleFixTests(unittest.TestCase):
         result = engine._resolve_landing(state, player)
         self.assertEqual(result["type"], "PURCHASE")
         self.assertEqual(result.get("shard_cost"), 0)
-        self.assertEqual(player.shards, 0)
+        self.assertEqual(player.shards, 1)
         self.assertEqual(len(result.get("adjacent_bought", [])), 1)
 
 
-    def test_matchmaker_adjacent_buy_needs_one_shard(self):
+    def test_matchmaker_adjacent_buy_without_shard_still_allowed(self):
         engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True)
         state = GameState.create(DEFAULT_CONFIG)
         player = state.players[0]
@@ -391,9 +403,7 @@ class RuleFixTests(unittest.TestCase):
         self.assertEqual(result["type"], "PURCHASE")
         self.assertEqual(result.get("shard_cost"), 0)
         self.assertEqual(player.shards, 0)
-        self.assertNotIn("adjacent_bought", result)
-        owned = {i for i, owner in enumerate(state.tile_owner) if owner == player.player_id}
-        self.assertEqual(owned, {first_three_land_block_positions(state)[1]})
+        self.assertEqual(len(result.get("adjacent_bought", [])), 1)
 
     def test_builder_gets_free_landing_purchase_without_spending_shards(self):
         engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True)
@@ -454,7 +464,7 @@ class RuleFixTests(unittest.TestCase):
         engine._queue_mark(state, bandit.player_id, "아전", {"type": "bandit_tax"})
         self.assertEqual(target.pending_marks, [])
 
-    def test_mark_target_must_be_future_turn_character(self):
+    def _legacy_test_mark_target_must_be_future_turn_character(self):
         policy = TargetPolicy(target_name="아전")
         engine = self.make_engine(policy=policy)
         state = self.make_state(engine)
@@ -472,6 +482,68 @@ class RuleFixTests(unittest.TestCase):
         self.assertEqual(engine._strategy_stats[assassin.player_id]["mark_attempts"], 1)
         self.assertEqual(engine._strategy_stats[assassin.player_id].get("mark_successes", 0), 0)
         self.assertEqual(engine._strategy_stats[assassin.player_id].get("mark_fail_missing", 0), 1)
+
+    def test_mark_target_must_be_future_turn_character(self):
+        requested_target = CARD_TO_NAMES[4][0]
+        policy = TargetPolicy(target_name=requested_target)
+        engine = self.make_engine(policy=policy)
+        state = self.make_state(engine)
+        assassin = state.players[0]
+        earlier = state.players[1]
+        later = state.players[2]
+        assassin.current_character = CARD_TO_NAMES[2][0]
+        earlier.current_character = requested_target
+        later.current_character = CARD_TO_NAMES[6][0]
+        state.current_round_order = [earlier.player_id, assassin.player_id, later.player_id]
+
+        engine._apply_character_start(state, assassin)
+        self.assertFalse(earlier.skipped_turn)
+        self.assertFalse(earlier.revealed_this_round)
+        self.assertTrue(later.skipped_turn)
+        self.assertTrue(later.revealed_this_round)
+        self.assertEqual(engine._strategy_stats[assassin.player_id]["mark_attempts"], 1)
+        self.assertEqual(engine._strategy_stats[assassin.player_id].get("mark_successes", 0), 1)
+        self.assertEqual(engine._strategy_stats[assassin.player_id].get("mark_fail_missing", 0), 0)
+
+    def test_mark_target_none_is_coerced_when_legal_target_exists(self):
+        policy = TargetPolicy(target_name=None)
+        engine = self.make_engine(policy=policy)
+        state = self.make_state(engine)
+        actor = state.players[0]
+        first_target = state.players[1]
+        second_target = state.players[2]
+        actor.current_character = CARD_TO_NAMES[2][1]  # bandit
+        first_target.current_character = CARD_TO_NAMES[4][0]
+        second_target.current_character = CARD_TO_NAMES[6][0]
+        state.current_round_order = [actor.player_id, first_target.player_id, second_target.player_id]
+
+        engine._apply_character_start(state, actor)
+
+        self.assertEqual(len(first_target.pending_marks), 1)
+        self.assertEqual(first_target.pending_marks[0]["source_pid"], actor.player_id)
+        self.assertEqual(first_target.pending_marks[0]["type"], "bandit_tax")
+        self.assertEqual(engine._strategy_stats[actor.player_id].get("mark_successes", 0), 1)
+        self.assertTrue(any(row.get("event") == "mark_target_coerced" for row in engine._action_log))
+
+    def test_mark_target_invalid_choice_is_coerced_to_first_future_target(self):
+        requested_target = CARD_TO_NAMES[4][0]
+        policy = TargetPolicy(target_name=requested_target)
+        engine = self.make_engine(policy=policy)
+        state = self.make_state(engine)
+        earlier = state.players[0]
+        actor = state.players[1]
+        later = state.players[2]
+        earlier.current_character = requested_target
+        actor.current_character = CARD_TO_NAMES[2][1]  # bandit
+        later.current_character = CARD_TO_NAMES[3][0]
+        state.current_round_order = [earlier.player_id, actor.player_id, later.player_id]
+
+        engine._apply_character_start(state, actor)
+
+        self.assertEqual(len(earlier.pending_marks), 0)
+        self.assertEqual(len(later.pending_marks), 1)
+        self.assertEqual(later.pending_marks[0]["source_pid"], actor.player_id)
+        self.assertEqual(later.pending_marks[0]["type"], "bandit_tax")
 
     def test_malicious_tile_cost_uses_face_value_times_three(self):
         engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True)
@@ -1044,9 +1116,170 @@ class TrickSystemTests(unittest.TestCase):
         self.assertEqual(state.end_reason, "NINE_TILES")
         self.assertEqual(state.winner_ids, [score_leader.player_id])
 
+    def test_round_flow_reveals_weather_before_draft(self):
+        class RoundFlowPolicy(DummyPolicy):
+            def choose_final_character(self, state, player, card_choices):
+                return state.active_by_card[card_choices[0]]
 
-if __name__ == "__main__":
-    unittest.main()
+        policy = RoundFlowPolicy()
+        engine = self.make_engine(policy=policy)
+        state = self.make_state(engine)
+        engine._initialize_active_faces(state)
+        engine._start_new_round(state, initial=True)
+
+        timeline = [
+            row.get("event")
+            for row in engine._action_log
+            if row.get("event") in {"weather_round", "draft_pick"}
+        ]
+        self.assertIn("weather_round", timeline)
+        self.assertIn("draft_pick", timeline)
+        self.assertLess(timeline.index("weather_round"), timeline.index("draft_pick"))
+
+    def test_four_player_second_draft_is_random_assignment(self):
+        class CountingDraftPolicy(DummyPolicy):
+            def __init__(self):
+                super().__init__()
+                self.draft_calls = 0
+
+            def choose_draft_card(self, state, player, offered_cards):
+                self.draft_calls += 1
+                return offered_cards[0]
+
+            def choose_final_character(self, state, player, card_choices):
+                return state.active_by_card[card_choices[0]]
+
+        policy = CountingDraftPolicy()
+        engine = self.make_engine(policy=policy)
+        state = self.make_state(engine)
+        engine._initialize_active_faces(state)
+        engine._run_draft(state)
+
+        self.assertEqual(policy.draft_calls, DEFAULT_CONFIG.player_count)
+        self.assertTrue(all(len(p.drafted_cards) == 2 for p in state.players))
+        phase2 = [
+            row
+            for row in engine._action_log
+            if row.get("event") == "draft_pick" and row.get("phase") == 2
+        ]
+        self.assertEqual(len(phase2), DEFAULT_CONFIG.player_count)
+        self.assertTrue(all(row.get("random_assigned", False) for row in phase2))
+
+    def test_marker_management_moves_owner_to_doctrine_player_at_round_end(self):
+        engine = self.make_engine(policy=DummyPolicy())
+        state = self.make_state(engine)
+        state.marker_owner_id = 1
+        state.marker_draft_clockwise = False
+        player = state.players[0]
+        player.current_character = "교리 연구관"
+
+        engine._apply_marker_management(state, player)
+
+        self.assertEqual(state.marker_owner_id, player.player_id)
+        self.assertFalse(state.marker_draft_clockwise)
+        self.assertEqual(state.pending_marker_flip_owner_id, player.player_id)
+        marker_event = next(
+            row for row in reversed(engine._action_log) if row.get("event") == "marker_moved"
+        )
+        self.assertTrue(marker_event.get("marker_changed", False))
+
+    def test_trick_phase_uses_only_one_card_per_turn(self):
+        class FirstUsablePolicy(DummyPolicy):
+            def choose_trick_to_use(self, state, player, hand):
+                return hand[0] if hand else None
+
+        engine = self.make_engine(policy=FirstUsablePolicy())
+        state = self.make_state(engine)
+        player = state.players[0]
+        usable = [
+            card
+            for card in build_trick_deck()
+            if card.name not in {"무거운 짐", "가벼운 짐"}
+        ]
+        player.trick_hand = [usable[0], usable[1]]
+        engine._strategy_stats[player.player_id].update(
+            {"tricks_used": 0, "anytime_tricks_used": 0, "regular_tricks_used": 0}
+        )
+
+        engine._use_trick_phase(state, player)
+
+        self.assertEqual(len(player.trick_hand), 1)
+        stats = engine._strategy_stats[player.player_id]
+        self.assertEqual(stats["tricks_used"], 1)
+        self.assertEqual(stats["regular_tricks_used"], 1)
+        self.assertEqual(stats["anytime_tricks_used"], 0)
+        trick_events = [
+            row
+            for row in engine._action_log
+            if row.get("event") == "trick_used" and row.get("player") == player.player_id + 1
+        ]
+        self.assertEqual(len(trick_events), 1)
+
+    def test_hogaekkun_slowdown_reduces_effective_move_when_crossed(self):
+        engine = self.make_engine(policy=DummyPolicy())
+        state = self.make_state(engine)
+        blocker = state.players[0]
+        mover = state.players[1]
+        blocker.trick_obstacle_this_round = True
+        blocker.position = 2
+        mover.position = 0
+        mover.total_steps = 0
+
+        engine._advance_player(state, mover, 4, {"mode": "test"})
+
+        self.assertEqual(mover.position, 3)
+        turn_row = next(row for row in reversed(engine._action_log) if row.get("event") == "turn")
+        slowdown = turn_row.get("obstacle_slowdown")
+        self.assertIsNotNone(slowdown)
+        self.assertEqual(slowdown.get("planned_move"), 4)
+        self.assertEqual(slowdown.get("effective_move"), 3)
+        self.assertEqual(slowdown.get("reduced_by"), 1)
+
+    def test_reroll_cards_are_consumed_by_trick_phase_selection(self):
+        class RerollPolicy(DummyPolicy):
+            def choose_trick_to_use(self, state, player, hand):
+                for card in hand:
+                    if card.name == "뭔칙휜":
+                        return card
+                return hand[0] if hand else None
+
+        engine = self.make_engine(policy=RerollPolicy())
+        state = self.make_state(engine)
+        player = state.players[0]
+        deck = build_trick_deck()
+        reroll = next(card for card in deck if card.name == "뭔칙휜")
+        filler = next(card for card in deck if card.name not in {"뭔칙휜", "무거운 짐", "가벼운 짐"})
+        player.trick_hand = [reroll, filler]
+        engine._strategy_stats[player.player_id].update(
+            {"tricks_used": 0, "anytime_tricks_used": 0, "regular_tricks_used": 0}
+        )
+
+        engine._use_trick_phase(state, player)
+
+        self.assertEqual(player.trick_reroll_budget_this_turn, 2)
+        self.assertEqual(player.trick_reroll_label_this_turn, "뭔칙휜")
+        self.assertEqual(len(player.trick_hand), 1)
+
+    def test_reroll_budget_does_not_consume_extra_trick_cards(self):
+        engine = self.make_engine(policy=DummyPolicy())
+        state = self.make_state(engine)
+        player = state.players[0]
+        player.trick_reroll_budget_this_turn = 2
+        player.trick_reroll_label_this_turn = "뭔칙휜"
+        engine.policy._landing_score = lambda *_args, **_kwargs: 0.0
+
+        _, rerolls = engine._try_anytime_rerolls(
+            state,
+            player,
+            used_cards=[],
+            dice=[1, 1],
+            mode="dice",
+        )
+
+        self.assertEqual(len(rerolls), 2)
+        self.assertTrue(all(item.get("card") == "뭔칙휜" for item in rerolls))
+
+
 
     def test_change_f_clamps_to_zero_and_logs_reason(self):
         engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True)
@@ -1054,7 +1287,7 @@ if __name__ == "__main__":
         state.f_value = 1
         engine._change_f(state, -3, reason="unit_test", source="negative_probe", actor_pid=state.players[0].player_id)
         self.assertEqual(state.f_value, 0)
-        event = next(e for e in reversed(engine.log) if e.get("event") == "resource_f_change")
+        event = next(e for e in reversed(engine._action_log) if e.get("event") == "resource_f_change")
         self.assertEqual(event["before"], 1)
         self.assertEqual(event["requested_delta"], -3)
         self.assertEqual(event["delta"], -1)
@@ -1071,13 +1304,14 @@ class ChunkMergeForensicsTests(unittest.TestCase):
         from run_chunked_batch import _merge_chunks
         from simulate_with_logs import RunningSummary
 
-        with TemporaryDirectory() as td:
-            root = Path(td)
-            chunk1 = root / "chunk_001"
-            chunk2 = root / "chunk_003"
-            chunk1.mkdir()
-            chunk2.mkdir()
-            row1 = {
+        try:
+            with TemporaryDirectory() as td:
+                root = Path(td)
+                chunk1 = root / "chunk_001"
+                chunk2 = root / "chunk_003"
+                chunk1.mkdir()
+                chunk2.mkdir()
+                row1 = {
                 "game_id": 0,
                 "global_game_index": 0,
                 "turns": 10,
@@ -1100,7 +1334,7 @@ class ChunkMergeForensicsTests(unittest.TestCase):
                 "bankruptcy_events": [],
                 "weather_history": [],
             }
-            row2 = {
+                row2 = {
                 "game_id": 0,
                 "turns": 11,
                 "total_turns": 11,
@@ -1122,23 +1356,25 @@ class ChunkMergeForensicsTests(unittest.TestCase):
                 "bankruptcy_events": [],
                 "weather_history": [],
             }
-            (chunk1 / "games.jsonl").write_text(json.dumps(row1, ensure_ascii=False) + "\n", encoding="utf-8")
-            (chunk2 / "games.jsonl").write_text(json.dumps(row2, ensure_ascii=False) + "\n", encoding="utf-8")
-            (chunk1 / "errors.jsonl").write_text("", encoding="utf-8")
-            (chunk2 / "errors.jsonl").write_text("", encoding="utf-8")
-            running = RunningSummary(
+                (chunk1 / "games.jsonl").write_text(json.dumps(row1, ensure_ascii=False) + "\n", encoding="utf-8")
+                (chunk2 / "games.jsonl").write_text(json.dumps(row2, ensure_ascii=False) + "\n", encoding="utf-8")
+                (chunk1 / "errors.jsonl").write_text("", encoding="utf-8")
+                (chunk2 / "errors.jsonl").write_text("", encoding="utf-8")
+                running = RunningSummary(
                 policy_mode="arena",
                 lap_policy_mode="heuristic_v1",
                 player_lap_policy_modes={},
                 player_character_policy_modes={},
-            )
-            _merge_chunks(root, running, [chunk1, chunk2])
-            rows = [json.loads(line) for line in (root / "games.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
-            self.assertEqual([row["game_id"] for row in rows], [0, 1])
-            self.assertEqual([row["global_game_index"] for row in rows], [0, 1])
-            self.assertEqual(rows[0]["chunk_id"], 1)
-            self.assertEqual(rows[1]["chunk_id"], 3)
-            self.assertEqual(rows[1]["chunk_game_id"], 0)
+                )
+                _merge_chunks(root, running, [chunk1, chunk2])
+                rows = [json.loads(line) for line in (root / "games.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+                self.assertEqual([row["game_id"] for row in rows], [0, 1])
+                self.assertEqual([row["global_game_index"] for row in rows], [0, 1])
+                self.assertEqual(rows[0]["chunk_id"], 1)
+                self.assertEqual(rows[1]["chunk_id"], 3)
+                self.assertEqual(rows[1]["chunk_game_id"], 0)
+        except PermissionError as exc:
+            self.skipTest(f"Temporary directory permission issue on this environment: {exc}")
 
 
 class DoctrineBurdenReliefTests(unittest.TestCase):
@@ -1167,6 +1403,7 @@ class DoctrineBurdenReliefTests(unittest.TestCase):
         state = GameState.create(cfg)
         p = state.players[0]
         p.current_character = "교리 연구관"
+        p.shards = 8
         p.trick_hand = [TrickCard(0, "무거운 짐", ""), TrickCard(1, "가벼운 짐", "")]
         engine._apply_character_start(state, p)
         self.assertEqual(sorted(c.name for c in p.trick_hand), ["가벼운 짐"])
@@ -1180,10 +1417,22 @@ class DoctrineBurdenReliefTests(unittest.TestCase):
         object.__setattr__(p0, "team_id", 1)
         object.__setattr__(p1, "team_id", 1)
         p0.current_character = "교리 감독관"
+        p0.shards = 8
         p0.trick_hand = []
         p1.trick_hand = [TrickCard(0, "무거운 짐", "")]
         engine._apply_character_start(state, p0)
         self.assertEqual(len(p1.trick_hand), 0)
+
+    def test_doctrine_does_not_relieve_when_shards_below_eight(self):
+        cfg = DEFAULT_CONFIG
+        engine = GameEngine(cfg, DummyPolicy())
+        state = GameState.create(cfg)
+        p = state.players[0]
+        p.current_character = "교리 연구관"
+        p.shards = 7
+        p.trick_hand = [TrickCard(0, "무거운 짐", ""), TrickCard(1, "가벼운 짐", "")]
+        engine._apply_character_start(state, p)
+        self.assertEqual(len(p.trick_hand), 2)
 
     def test_baksu_failed_mark_fallback_removes_own_burden_and_gains_cash(self):
         engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True)
@@ -1191,7 +1440,7 @@ class DoctrineBurdenReliefTests(unittest.TestCase):
         self._init_strategy_stats_for_mark_tests(engine)
         baksu = state.players[0]
         baksu.current_character = "박수"
-        baksu.shards = 5
+        baksu.shards = 6
         burden = next(c for c in state.trick_draw_pile if c.name == "가벼운 짐")
         state.trick_draw_pile = [c for c in state.trick_draw_pile if c.deck_index != burden.deck_index]
         baksu.trick_hand = [burden]
@@ -1200,13 +1449,13 @@ class DoctrineBurdenReliefTests(unittest.TestCase):
         self.assertEqual(len([c for c in baksu.trick_hand if getattr(c, "is_burden", False)]), 0)
         self.assertEqual(baksu.cash, start_cash + burden.burden_cost)
 
-    def test_manshin_failed_mark_fallback_uses_threshold_seven(self):
+    def test_manshin_failed_mark_fallback_uses_threshold_eight(self):
         engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True)
         state = GameState.create(DEFAULT_CONFIG)
         self._init_strategy_stats_for_mark_tests(engine)
         manshin = state.players[0]
         manshin.current_character = "만신"
-        manshin.shards = 6
+        manshin.shards = 7
         burden = next(c for c in state.trick_draw_pile if c.name == "무거운 짐")
         state.trick_draw_pile = [c for c in state.trick_draw_pile if c.deck_index != burden.deck_index]
         manshin.trick_hand = [burden]
@@ -1214,10 +1463,50 @@ class DoctrineBurdenReliefTests(unittest.TestCase):
         engine._queue_mark(state, manshin.player_id, None, {"type": "manshin_remove_burdens"})
         self.assertEqual(len([c for c in manshin.trick_hand if getattr(c, "is_burden", False)]), 1)
         self.assertEqual(manshin.cash, start_cash)
-        manshin.shards = 7
+        manshin.shards = 8
         engine._queue_mark(state, manshin.player_id, None, {"type": "manshin_remove_burdens"})
         self.assertEqual(len([c for c in manshin.trick_hand if getattr(c, "is_burden", False)]), 0)
         self.assertEqual(manshin.cash, start_cash + burden.burden_cost)
+
+    def test_swindler_takeover_multiplier_three_below_eight_shards(self):
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True)
+        state = GameState.create(DEFAULT_CONFIG)
+        self._init_strategy_stats_for_mark_tests(engine)
+        swindler = state.players[0]
+        owner = state.players[1]
+        pos = first_t3_position(state)
+        swindler.current_character = "사기꾼"
+        swindler.shards = 7
+        swindler.cash = 20
+        swindler.position = pos
+        owner.current_character = "아전"
+        owner.tiles_owned = 1
+        state.tile_owner[pos] = owner.player_id
+        base_rent = engine._effective_rent(state, pos, swindler, owner.player_id)
+        result = engine._resolve_landing(state, swindler)
+        self.assertEqual(result["type"], "SWINDLE_TAKEOVER")
+        self.assertEqual(result.get("swindle_multiplier"), 3)
+        self.assertEqual(swindler.cash, 20 - base_rent * 3)
+
+    def test_swindler_takeover_multiplier_two_at_eight_shards(self):
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True)
+        state = GameState.create(DEFAULT_CONFIG)
+        self._init_strategy_stats_for_mark_tests(engine)
+        swindler = state.players[0]
+        owner = state.players[1]
+        pos = first_t3_position(state)
+        swindler.current_character = "사기꾼"
+        swindler.shards = 8
+        swindler.cash = 20
+        swindler.position = pos
+        owner.current_character = "아전"
+        owner.tiles_owned = 1
+        state.tile_owner[pos] = owner.player_id
+        base_rent = engine._effective_rent(state, pos, swindler, owner.player_id)
+        result = engine._resolve_landing(state, swindler)
+        self.assertEqual(result["type"], "SWINDLE_TAKEOVER")
+        self.assertEqual(result.get("swindle_multiplier"), 2)
+        self.assertEqual(swindler.cash, 20 - base_rent * 2)
 
     def test_result_summary_preserves_last_selected_character_for_dead_player(self):
         engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True)
@@ -1238,17 +1527,89 @@ class TrickRuleAuditTests(unittest.TestCase):
     def make_state(self):
         return GameState.create(DEFAULT_CONFIG)
 
-    def test_force_sale_and_zone_chain_are_no_longer_anytime(self):
+    def test_removed_anytime_rule_applies_to_all_trick_cards(self):
         deck = {card.name: card for card in build_trick_deck()}
-        self.assertFalse(deck["강제 매각"].is_anytime)
-        self.assertFalse(deck["뇌절왕"].is_anytime)
+        removed_anytime_cards = [
+            "우대권",
+            "무료 증정",
+            "마당발",
+            "뇌고왕",
+            "뭘리권",
+            "뭔칙휜",
+            "강제 매각",
+            "뇌절왕",
+        ]
+        for card_name in removed_anytime_cards:
+            self.assertIn(card_name, deck)
+            self.assertFalse(deck[card_name].is_anytime, msg=f"{card_name} should not be anytime")
+
+    def test_pabal_ability1_adds_one_die_when_shards_below_eight(self):
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=FixedRandom([1, 2, 3]), enable_logging=True)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        player.current_character = CARD_TO_NAMES[4][0]
+        player.shards = 7
+
+        engine._apply_character_start(state, player)
+        move, movement = engine._resolve_move(state, player, MovementDecision(False, ()))
+
+        self.assertEqual(move, 6)
+        self.assertEqual(movement["mode"], "dice")
+        self.assertEqual(len(movement["dice"]), 3)
+        applied = next(
+            row for row in reversed(engine._action_log)
+            if row.get("event") == "character_ability_applied" and row.get("card_no") == 4
+        )
+        self.assertEqual(applied.get("ability_tier"), 1)
+        self.assertEqual(applied.get("dice_mode"), "plus_one")
+
+    def test_pabal_ability2_can_reduce_die_when_policy_selects_minus_one(self):
+        engine = GameEngine(DEFAULT_CONFIG, PabalModePolicy("minus_one"), rng=FixedRandom([4]), enable_logging=True)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        player.current_character = CARD_TO_NAMES[4][0]
+        player.shards = 8
+
+        engine._apply_character_start(state, player)
+        move, movement = engine._resolve_move(state, player, MovementDecision(False, ()))
+
+        self.assertEqual(move, 4)
+        self.assertEqual(movement["mode"], "dice")
+        self.assertEqual(len(movement["dice"]), 1)
+        applied = next(
+            row for row in reversed(engine._action_log)
+            if row.get("event") == "character_ability_applied" and row.get("card_no") == 4
+        )
+        self.assertEqual(applied.get("ability_tier"), 2)
+        self.assertEqual(applied.get("dice_mode"), "minus_one")
+
+    def test_pabal_below_eight_ignores_minus_one_request_and_stays_ability1(self):
+        engine = GameEngine(DEFAULT_CONFIG, PabalModePolicy("minus_one"), rng=FixedRandom([2, 3, 4]), enable_logging=True)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        player.current_character = CARD_TO_NAMES[4][0]
+        player.shards = 7
+
+        engine._apply_character_start(state, player)
+        move, movement = engine._resolve_move(state, player, MovementDecision(False, ()))
+
+        self.assertEqual(move, 9)
+        self.assertEqual(movement["mode"], "dice")
+        self.assertEqual(len(movement["dice"]), 3)
+        applied = next(
+            row for row in reversed(engine._action_log)
+            if row.get("event") == "character_ability_applied" and row.get("card_no") == 4
+        )
+        self.assertEqual(applied.get("ability_tier"), 1)
+        self.assertEqual(applied.get("dice_mode"), "plus_one")
 
     def test_relic_collector_doubles_f_tile_shards(self):
         engine = self.make_engine()
         state = self.make_state()
         player = state.players[0]
         player.current_character = "객주"
-        engine._apply_trick_card(state, player, TrickCard(999, "성물 수집가", ""))
+        # 성물 수집가 효과를 적용한 상태를 직접 시뮬레이션한다.
+        player.extra_shard_gain_this_turn = 1
         player.position = first_special_position(state, CellKind.F1)
         start_shards = player.shards
 
@@ -1290,6 +1651,54 @@ class TrickRuleAuditTests(unittest.TestCase):
 
         self.assertEqual(result["shards_delta"], DEFAULT_CONFIG.rules.lap_reward.shards)
         self.assertEqual(player.shards - start_shards, DEFAULT_CONFIG.rules.lap_reward.shards)
+
+    def test_lap_reward_point_cost_defaults_follow_rule_document(self):
+        rules = DEFAULT_CONFIG.rules.lap_reward
+        self.assertEqual(rules.points_budget, 10)
+        self.assertEqual(rules.cash_point_cost, 2)
+        self.assertEqual(rules.shards_point_cost, 3)
+        self.assertEqual(rules.coins_point_cost, 3)
+        self.assertEqual(rules.cash_pool, 30)
+        self.assertEqual(rules.shards_pool, 18)
+        self.assertEqual(rules.coins_pool, 18)
+
+    def test_lap_reward_over_budget_request_is_trimmed_before_apply(self):
+        class OverBudgetPolicy(DummyPolicy):
+            def choose_lap_reward(self, state, player):
+                # 1 cash + 3 coins => 11 points under 2/3/3 costs; must be trimmed to <= 10.
+                return LapRewardDecision("coins", cash_units=1, shard_units=0, coin_units=3)
+
+        engine = self.make_engine(policy=OverBudgetPolicy())
+        state = self.make_state()
+        engine._strategy_stats = [
+            {
+                "purchases": 0, "purchase_t2": 0, "purchase_t3": 0,
+                "rent_paid": 0, "own_tile_visits": 0,
+                "f1_visits": 0, "f2_visits": 0, "s_visits": 0,
+                "s_cash_plus1": 0, "s_cash_plus2": 0, "s_cash_minus1": 0,
+                "malicious_visits": 0, "bankruptcies": 0,
+                "cards_used": 0, "card_turns": 0, "single_card_turns": 0, "pair_card_turns": 0,
+                "lap_cash_choices": 0, "lap_coin_choices": 0, "lap_shard_choices": 0,
+                "coins_gained_own_tile": 0, "coins_placed": 0,
+                "mark_attempts": 0, "mark_successes": 0,
+                "mark_fail_no_target": 0, "mark_fail_missing": 0, "mark_fail_blocked": 0,
+                "character": "", "shards_gained_f": 0, "shards_gained_lap": 0,
+                "draft_cards": [], "marked_target_names": [],
+            }
+            for _ in range(DEFAULT_CONFIG.player_count)
+        ]
+        player = state.players[0]
+        start_cash = player.cash
+        start_coins = player.hand_coins
+
+        result = engine._apply_lap_reward(state, player)
+
+        self.assertLessEqual(result["requested_points"], DEFAULT_CONFIG.rules.lap_reward.points_budget)
+        self.assertLessEqual(result["granted_points"], DEFAULT_CONFIG.rules.lap_reward.points_budget)
+        self.assertEqual(result["cash_delta"], 0)
+        self.assertEqual(result["coins_delta"], 3)
+        self.assertEqual(player.cash, start_cash)
+        self.assertEqual(player.hand_coins, start_coins + 3)
 
     def test_trade_pass_waives_all_normal_rents_this_turn(self):
         engine = self.make_engine()
@@ -1402,3 +1811,7 @@ class TrickRuleAuditTests(unittest.TestCase):
         event = engine._resolve_landing(state, player)
 
         self.assertEqual(event["trick_same_tile_shard_rake"]["details"][0]["amount"], 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

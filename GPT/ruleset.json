@@ -15,11 +15,11 @@
       "coins": 3,
       "shards": 3,
       "points_budget": 10,
-      "cash_point_cost": 1,
-      "shards_point_cost": 2,
+      "cash_point_cost": 2,
+      "shards_point_cost": 3,
       "coins_point_cost": 3,
-      "cash_pool": 60,
-      "shards_pool": 40,
+      "cash_pool": 30,
+      "shards_pool": 18,
       "coins_pool": 18
     },
     "takeover": {

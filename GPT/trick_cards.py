@@ -26,7 +26,9 @@ class TrickCard:
 
     @property
     def is_anytime(self) -> bool:
-        return "언제나 사용할 수 있습니다" in self.description
+        # Rule alignment (2026-04): "anytime" trick usage was removed.
+        # Keep the property for backward compatibility, but always return False.
+        return False
 
     @property
     def burden_cost(self) -> int:

@@ -1,0 +1,50 @@
+[
+  {
+    "type": "event",
+    "seq": 220,
+    "session_id": "sess_example_flow",
+    "server_time_ms": 1743210200000,
+    "payload": {
+      "event_type": "decision_requested",
+      "request_id": "req_turn5_mark_target",
+      "request_type": "mark_target",
+      "player_id": 3
+    }
+  },
+  {
+    "type": "event",
+    "seq": 221,
+    "session_id": "sess_example_flow",
+    "server_time_ms": 1743210203000,
+    "payload": {
+      "event_type": "decision_resolved",
+      "request_id": "req_turn5_mark_target",
+      "player_id": 3,
+      "resolution": "timeout_fallback",
+      "choice_id": "auto_mark_random"
+    }
+  },
+  {
+    "type": "event",
+    "seq": 222,
+    "session_id": "sess_example_flow",
+    "server_time_ms": 1743210203001,
+    "payload": {
+      "event_type": "decision_timeout_fallback",
+      "request_id": "req_turn5_mark_target",
+      "player_id": 3,
+      "summary": "auto fallback applied"
+    }
+  },
+  {
+    "type": "event",
+    "seq": 223,
+    "session_id": "sess_example_flow",
+    "server_time_ms": 1743210203400,
+    "payload": {
+      "event_type": "turn_end_snapshot",
+      "round_index": 2,
+      "turn_index": 5
+    }
+  }
+]

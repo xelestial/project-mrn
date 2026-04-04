@@ -81,6 +81,7 @@ def build_player_public_state(player: Any, state: Any) -> PlayerPublicState:
         ("trick_zone_chain_this_turn", "zone_chain"),
         ("trick_encounter_boost_this_turn", "encounter_boost"),
         ("trick_force_sale_landing_this_turn", "force_sale"),
+        ("trick_obstacle_this_round", "obstacle"),
         ("trick_all_rent_waiver_this_turn", "all_rent_waiver"),
         ("trick_one_extra_adjacent_buy_this_turn", "extra_adjacent_buy"),
         ("trick_same_tile_cash2_this_turn", "same_tile_cash2"),

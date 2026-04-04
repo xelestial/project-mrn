@@ -1,3 +1,9 @@
+## v0.7.69-single-game-audit-and-betrayal-weather-noop (2026-04-04)
+- Added `audit_single_game_timeline.py` to generate strict time-ordered 1-game validation reports with round/turn grouping and richer movement, marker, fortune, lap-reward, and bankruptcy summaries.
+- Improved single-game audit readability by logging card-vs-dice movement details and keeping event index ordering explicit.
+- Locked `배신의 징표` weather to an explicit no-op in this version and emitted `details: [{"effect":"disabled_no_op"}]` so logs are unambiguous.
+- Updated weather source text to `[현재 효과 없음]` for `배신의 징표` to prevent rule/viewer confusion.
+
 ## v0.7.68-phase5-ux-overhaul-start (2026-03-29)
 - Opened a dedicated Phase 5 commercial UI/UX overhaul track so live/replay visualization can move beyond tool-style panels toward a board-game-grade match presentation.
 - Added the first live-viewer "public action rail" slice: recent public actions now persist as larger story cards instead of only flashing as transient overlays.

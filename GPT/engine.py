@@ -146,6 +146,7 @@ class GameEngine:
                     break
             state.turn_index += 1
             if state.turn_index % max(1, len(state.current_round_order)) == 0:
+                self._apply_round_end_marker_management(state)
                 state.rounds_completed += 1
                 self._start_new_round(state, initial=False)
         result = self._build_result(state)
@@ -356,6 +357,19 @@ class GameEngine:
             for other in state.players
         )
 
+    def _character_def(self, player: PlayerState):
+        if not player.current_character:
+            return None
+        return CHARACTERS.get(player.current_character)
+
+    def _character_card_no(self, player: PlayerState) -> int | None:
+        char_def = self._character_def(player)
+        return None if char_def is None else int(char_def.card_no)
+
+    def _is_character_front_face(self, player: PlayerState) -> bool:
+        char_def = self._character_def(player)
+        return bool(char_def.starting_active) if char_def is not None else False
+
     def _apply_forced_landing(self, state: GameState, player: PlayerState, source_pos: int) -> dict:
         old_pos = player.position
         player.position = source_pos
@@ -449,6 +463,9 @@ class GameEngine:
             details.append(self._fortune_burden_cleanup(state, [p for p in state.players if p.alive], multiplier=2, payout=True, name=card.name))
         elif card.name == "긴급 피난":
             details.append(self._fortune_burden_cleanup(state, [p for p in state.players if p.alive], multiplier=2, payout=False, name=card.name))
+        elif card.name == "배신의 징표":
+            # 룰 정합성 업데이트: 해당 날씨는 현재 버전에서 효과를 적용하지 않는다.
+            details.append({"effect": "disabled_no_op"})
         elif card.name == "밤인데 낮처럼 밝아요":
             self._change_f(state, -3, reason="weather_effect", source="밤인데 낮처럼 밝아요")
             details.append({"f_delta": -3})
@@ -456,7 +473,7 @@ class GameEngine:
             self._change_f(state, -1, reason="weather_effect", source="길고 긴 겨울")
             details.append({"f_delta": -1})
         elif card.name == "맑고 포근한 하루":
-            ordered = self._alive_ids_clockwise_from_marker(state)
+            ordered = self._alive_ids_from_marker_direction(state)
             for pid in ordered:
                 p = state.players[pid]
                 used = sorted(p.used_dice_cards)
@@ -501,7 +518,10 @@ class GameEngine:
             p.trick_one_extra_adjacent_buy_this_turn = False
             p.trick_encounter_boost_this_turn = False
             p.trick_force_sale_landing_this_turn = False
+            p.trick_obstacle_this_round = False
             p.trick_zone_chain_this_turn = False
+            p.trick_reroll_budget_this_turn = 0
+            p.trick_reroll_label_this_turn = ""
         state.global_rent_half_this_turn = False
         state.global_rent_double_this_turn = False
         state.tile_rent_modifiers_this_turn = {}
@@ -517,8 +537,8 @@ class GameEngine:
             initial=bool(initial),
             alive_player_ids=alive_ids,
             marker_owner_player_id=state.marker_owner_id + 1,
+            marker_draft_direction=("clockwise" if state.marker_draft_clockwise else "counterclockwise"),
         )
-        self._run_draft(state)
         self._apply_round_weather(state)
         self._emit_vis(
             "weather_reveal",
@@ -529,6 +549,7 @@ class GameEngine:
             weather_name=state.current_weather.name if state.current_weather else None,
             effects=list(state.current_weather_effects),
         )
+        self._run_draft(state)
         alive = [p for p in state.players if p.alive]
         alive.sort(key=lambda p: (CHARACTERS[p.current_character].priority, p.player_id))
         state.current_round_order = [p.player_id for p in alive]
@@ -539,10 +560,11 @@ class GameEngine:
             "order": [pid + 1 for pid in state.current_round_order],
             "characters": {p.player_id + 1: p.current_character for p in alive},
             "marker_owner": state.marker_owner_id + 1,
+            "marker_draft_direction": ("clockwise" if state.marker_draft_clockwise else "counterclockwise"),
             "active_by_card": dict(state.active_by_card),
         })
 
-    def _alive_ids_clockwise_from_marker(self, state: GameState) -> list[int]:
+    def _alive_ids_from_marker_direction(self, state: GameState) -> list[int]:
         alive_ids = {p.player_id for p in state.players if p.alive}
         if not alive_ids:
             return []
@@ -553,9 +575,10 @@ class GameEngine:
                 if cand in alive_ids:
                     start = cand
                     break
+        step = 1 if getattr(state, "marker_draft_clockwise", True) else -1
         ordered = []
         for i in range(self.config.player_count):
-            pid = (start + i) % self.config.player_count
+            pid = (start + (step * i)) % self.config.player_count
             if pid in alive_ids:
                 ordered.append(pid)
         return ordered
@@ -563,7 +586,7 @@ class GameEngine:
     def _run_draft(self, state: GameState) -> None:
         cards = list(CARD_TO_NAMES.keys())
         self.rng.shuffle(cards)
-        clockwise = self._alive_ids_clockwise_from_marker(state)
+        clockwise = self._alive_ids_from_marker_direction(state)
         reverse = list(reversed(clockwise))
         alive_count = len(clockwise)
 
@@ -650,21 +673,19 @@ class GameEngine:
                 pool.remove(pick)
 
             pool = list(second_pool)
-            for pid in reverse:
-                pick = self.policy.choose_draft_card(state, state.players[pid], list(pool))
+            self.rng.shuffle(pool)
+            for pid, pick in zip(clockwise, pool):
                 state.players[pid].drafted_cards.append(pick)
-                draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
                 self._record_ai_decision(
                     state,
                     state.players[pid],
                     "draft_card",
-                    draft_debug,
-                    result={"picked_card": pick, "draft_phase": 2},
+                    None,
+                    result={"picked_card": pick, "draft_phase": 2, "random_assigned": True},
                     source_event="draft_pick",
                 )
-                self._log({"event": "draft_pick", "phase": 2, "player": pid + 1, "picked_card": pick, "decision": draft_debug})
-                self._emit_vis("draft_pick", Phase.DRAFT, pid + 1, state, draft_phase=2, picked_card=pick)
-                pool.remove(pick)
+                self._log({"event": "draft_pick", "phase": 2, "player": pid + 1, "picked_card": pick, "decision": None, "random_assigned": True})
+                self._emit_vis("draft_pick", Phase.DRAFT, pid + 1, state, draft_phase=2, picked_card=pick, random_assigned=True)
 
         for p in state.players:
             if not p.alive:
@@ -714,7 +735,6 @@ class GameEngine:
                 character=player.current_character,
                 skipped=True,
             )
-            self._apply_marker_management(state, player)
             self._emit_vis(
                 "turn_end_snapshot",
                 Phase.TURN_END,
@@ -750,6 +770,21 @@ class GameEngine:
         )
         self._use_trick_phase(state, player)
         if not player.alive:
+            self._emit_vis(
+                "trick_window_closed",
+                Phase.TRICK_WINDOW,
+                player.player_id + 1,
+                state,
+                public_tricks=player.public_trick_names(),
+                hidden_trick_count=player.hidden_trick_count(),
+            )
+            self._emit_vis(
+                "turn_end_snapshot",
+                Phase.TURN_END,
+                player.player_id + 1,
+                state,
+                snapshot=build_turn_end_snapshot(state),
+            )
             return
         self._emit_vis(
             "trick_window_closed",
@@ -822,7 +857,6 @@ class GameEngine:
             elif len(used_cards) == 2:
                 stats["pair_card_turns"] += 1
         self._advance_player(state, player, move, movement_meta)
-        self._apply_marker_management(state, player)
         disruption_after = self._leader_disruption_snapshot(state, player)
         awarded = self._maybe_award_control_finisher_window(state, player, disruption_before, disruption_after)
         if finisher_before > 0 and not awarded:
@@ -965,13 +999,34 @@ class GameEngine:
 
     def _apply_character_start(self, state: GameState, player: PlayerState) -> None:
         char = player.current_character
+        card_no = self._character_card_no(player)
+        is_front_face = self._is_character_front_face(player)
+
+        def _resolve_mark_target() -> tuple[Optional[str], dict | None]:
+            requested = self.policy.choose_mark_target(state, player, char)
+            target, coerced = self._coerce_mark_target_character(state, player, requested)
+            mark_debug_local = self.policy.pop_debug("mark_target", player.player_id) if hasattr(self.policy, "pop_debug") else None
+            if mark_debug_local is not None and coerced:
+                mark_debug_local = dict(mark_debug_local)
+                mark_debug_local["coerced_by_engine"] = True
+                mark_debug_local["coerced_target_character"] = target
+            if coerced:
+                self._log(
+                    {
+                        "event": "mark_target_coerced",
+                        "player": player.player_id + 1,
+                        "character": char,
+                        "requested_target_character": requested,
+                        "target_character": target,
+                    }
+                )
+            return target, mark_debug_local
         if self._is_muroe_skill_blocked(state, player):
             self._log({"event": "ability_suppressed", "player": player.player_id + 1, "character": char, "reason": "어사"})
             return
         if char == "자객":
-            target = self.policy.choose_mark_target(state, player, char)
+            target, mark_debug = _resolve_mark_target()
             target_p = self._find_player_by_character(state, target, exclude=player.player_id, source_pid=player.player_id, future_only=True)
-            mark_debug = self.policy.pop_debug("mark_target", player.player_id) if hasattr(self.policy, "pop_debug") else None
             self._record_ai_decision(state, player, "mark_target", mark_debug, result={"target_character": target}, source_event="character_start")
             if target_p is not None:
                 self._record_mark_attempt(player.player_id, "success", state)
@@ -996,30 +1051,241 @@ class GameEngine:
                         row["target_character"] = target
                     self._log(row)
         elif char == "산적":
-            target = self.policy.choose_mark_target(state, player, char)
-            mark_debug = self.policy.pop_debug("mark_target", player.player_id) if hasattr(self.policy, "pop_debug") else None
+            target, mark_debug = _resolve_mark_target()
             self._record_ai_decision(state, player, "mark_target", mark_debug, result={"target_character": target}, source_event="character_start")
             self._queue_mark(state, player.player_id, target, {"type": "bandit_tax"}, decision=mark_debug)
         elif char == "추노꾼":
-            target = self.policy.choose_mark_target(state, player, char)
-            mark_debug = self.policy.pop_debug("mark_target", player.player_id) if hasattr(self.policy, "pop_debug") else None
+            target, mark_debug = _resolve_mark_target()
             self._record_ai_decision(state, player, "mark_target", mark_debug, result={"target_character": target}, source_event="character_start")
             self._queue_mark(state, player.player_id, target, {"type": "hunter_pull", "source_pos": player.position}, decision=mark_debug)
         elif char == "파발꾼":
             player.extra_dice_count_this_turn += 1
         elif char == "박수":
-            target = self.policy.choose_mark_target(state, player, char)
-            mark_debug = self.policy.pop_debug("mark_target", player.player_id) if hasattr(self.policy, "pop_debug") else None
+            target, mark_debug = _resolve_mark_target()
             self._record_ai_decision(state, player, "mark_target", mark_debug, result={"target_character": target}, source_event="character_start")
             self._queue_mark(state, player.player_id, target, {"type": "baksu_transfer"}, decision=mark_debug)
         elif char == "만신":
-            target = self.policy.choose_mark_target(state, player, char)
-            mark_debug = self.policy.pop_debug("mark_target", player.player_id) if hasattr(self.policy, "pop_debug") else None
+            target, mark_debug = _resolve_mark_target()
             self._record_ai_decision(state, player, "mark_target", mark_debug, result={"target_character": target}, source_event="character_start")
             self._queue_mark(state, player.player_id, target, {"type": "manshin_remove_burdens"}, decision=mark_debug)
         elif char in {"교리 연구관", "교리 감독관"}:
             self._resolve_doctrine_burden_relief(state, player)
         elif char == "건설업자":
+            player.free_purchase_this_turn = True
+
+    def _apply_character_start(self, state: GameState, player: PlayerState) -> None:
+        """Card-no based character-start ability flow.
+
+        This method intentionally mirrors the original behavior, but avoids
+        fragile string-literal branching and aligns updated ability1/ability2 rules.
+        """
+        char = player.current_character
+        card_no = self._character_card_no(player)
+        is_front_face = self._is_character_front_face(player)
+
+        def _resolve_mark_target() -> tuple[Optional[str], dict | None]:
+            requested = self.policy.choose_mark_target(state, player, char)
+            target, coerced = self._coerce_mark_target_character(state, player, requested)
+            mark_debug_local = self.policy.pop_debug("mark_target", player.player_id) if hasattr(self.policy, "pop_debug") else None
+            if mark_debug_local is not None and coerced:
+                mark_debug_local = dict(mark_debug_local)
+                mark_debug_local["coerced_by_engine"] = True
+                mark_debug_local["coerced_target_character"] = target
+            if coerced:
+                self._log(
+                    {
+                        "event": "mark_target_coerced",
+                        "player": player.player_id + 1,
+                        "character": char,
+                        "requested_target_character": requested,
+                        "target_character": target,
+                    }
+                )
+            return target, mark_debug_local
+
+        if self._is_muroe_skill_blocked(state, player):
+            self._log(
+                {
+                    "event": "ability_suppressed",
+                    "player": player.player_id + 1,
+                    "character": char,
+                    "reason": "muroe_blocked_by_eosa",
+                }
+            )
+            return
+
+        # Card 2: mark branch (front=assassin, back=bandit)
+        if card_no == 2 and is_front_face:
+            target, mark_debug = _resolve_mark_target()
+            target_p = self._find_player_by_character(
+                state,
+                target,
+                exclude=player.player_id,
+                source_pid=player.player_id,
+                future_only=True,
+            )
+            self._record_ai_decision(
+                state,
+                player,
+                "mark_target",
+                mark_debug,
+                result={"target_character": target},
+                source_event="character_start",
+            )
+            if target_p is not None:
+                self._record_mark_attempt(player.player_id, "success", state)
+                target_p.pending_marks.clear()
+                target_p.immune_to_marks_this_round = True
+                target_p.skipped_turn = True
+                target_p.revealed_this_round = True
+                self._strategy_stats[player.player_id]["marked_target_names"].append(target)
+                self._log(
+                    {
+                        "event": "assassin_reveal",
+                        "player": player.player_id + 1,
+                        "target_player": target_p.player_id + 1,
+                        "target_character": target,
+                        "decision": mark_debug,
+                    }
+                )
+            else:
+                self._record_mark_attempt(player.player_id, "none" if not target else "missing", state)
+                if mark_debug is not None:
+                    event_name = "mark_target_none" if not target else "mark_target_missing"
+                    row = {
+                        "event": event_name,
+                        "player": player.player_id + 1,
+                        "character": char,
+                        "decision": mark_debug,
+                    }
+                    if target:
+                        row["target_character"] = target
+                    self._log(row)
+            return
+
+        if card_no == 2 and not is_front_face:
+            target, mark_debug = _resolve_mark_target()
+            self._record_ai_decision(
+                state,
+                player,
+                "mark_target",
+                mark_debug,
+                result={"target_character": target},
+                source_event="character_start",
+            )
+            self._queue_mark(
+                state,
+                player.player_id,
+                target,
+                {"type": "bandit_tax"},
+                decision=mark_debug,
+            )
+            return
+
+        # Card 3 front: hunter pull mark queue
+        if card_no == 3 and is_front_face:
+            target, mark_debug = _resolve_mark_target()
+            self._record_ai_decision(
+                state,
+                player,
+                "mark_target",
+                mark_debug,
+                result={"target_character": target},
+                source_event="character_start",
+            )
+            self._queue_mark(
+                state,
+                player.player_id,
+                target,
+                {"type": "hunter_pull", "source_pos": player.position},
+                decision=mark_debug,
+            )
+            return
+
+        # Card 4 front (courier): mandatory die mode.
+        if card_no == 4 and is_front_face:
+            dice_mode = "plus_one"
+            ability_tier = 1
+            if player.shards >= 8:
+                ability_tier = 2
+                chooser = getattr(self.policy, "choose_pabal_dice_mode", None)
+                requested_mode = chooser(state, player) if callable(chooser) else None
+                if requested_mode in {"plus_one", "minus_one"}:
+                    dice_mode = requested_mode
+            if dice_mode == "minus_one":
+                player.trick_dice_delta_this_turn -= 1
+            else:
+                player.extra_dice_count_this_turn += 1
+            self._log(
+                {
+                    "event": "character_ability_applied",
+                    "player": player.player_id + 1,
+                    "card_no": 4,
+                    "ability_tier": ability_tier,
+                    "dice_mode": dice_mode,
+                    "shards": player.shards,
+                }
+            )
+            return
+
+        # Card 6: mark branch (front=baksu, back=manshin)
+        if card_no == 6 and is_front_face:
+            target, mark_debug = _resolve_mark_target()
+            self._record_ai_decision(
+                state,
+                player,
+                "mark_target",
+                mark_debug,
+                result={"target_character": target},
+                source_event="character_start",
+            )
+            self._queue_mark(
+                state,
+                player.player_id,
+                target,
+                {"type": "baksu_transfer"},
+                decision=mark_debug,
+            )
+            return
+
+        if card_no == 6 and not is_front_face:
+            target, mark_debug = _resolve_mark_target()
+            self._record_ai_decision(
+                state,
+                player,
+                "mark_target",
+                mark_debug,
+                result={"target_character": target},
+                source_event="character_start",
+            )
+            self._queue_mark(
+                state,
+                player.player_id,
+                target,
+                {"type": "manshin_remove_burdens"},
+                decision=mark_debug,
+            )
+            return
+
+        # Card 5: doctrine relief is ability2 and requires shards>=8.
+        if card_no == 5:
+            if player.shards >= 8:
+                self._resolve_doctrine_burden_relief(state, player)
+            else:
+                self._log(
+                    {
+                        "event": "doctrine_burden_relief_skipped",
+                        "player": player.player_id + 1,
+                        "character": char,
+                        "reason": "insufficient_shards",
+                        "required_shards": 8,
+                        "shards": player.shards,
+                    }
+                )
+            return
+
+        # Card 8 front (builder): free purchase for this turn.
+        if card_no == 8 and is_front_face:
             player.free_purchase_this_turn = True
 
     def _queue_mark(self, state: GameState, source_pid: int, target_character: Optional[str], payload: dict, decision: dict | None = None) -> None:
@@ -1121,6 +1387,75 @@ class GameEngine:
             **self._public_trick_snapshot(source),
         })
 
+    def _apply_failed_mark_fallback(self, state: GameState, source: PlayerState, payload: dict) -> None:
+        mark_type = payload.get("type")
+        if mark_type == "baksu_transfer":
+            threshold = 6
+        elif mark_type == "manshin_remove_burdens":
+            threshold = 8
+        else:
+            return
+        actor_name = source.current_character or "unknown"
+        if source.shards < threshold:
+            self._log(
+                {
+                    "event": "failed_mark_fallback_none",
+                    "player": source.player_id + 1,
+                    "character": actor_name,
+                    "reason": "insufficient_shards",
+                    "shards": source.shards,
+                    "threshold": threshold,
+                }
+            )
+            return
+        burdens = sorted(
+            self._burden_cards(source),
+            key=lambda c: (c.burden_cost, c.deck_index),
+            reverse=True,
+        )
+        if not burdens:
+            self._log(
+                {
+                    "event": "failed_mark_fallback_none",
+                    "player": source.player_id + 1,
+                    "character": actor_name,
+                    "reason": "no_burdens",
+                    "shards": source.shards,
+                    "threshold": threshold,
+                }
+            )
+            return
+        card = burdens[0]
+        moved = self._remove_trick_from_hand(state, source, card)
+        if moved is None:
+            self._log(
+                {
+                    "event": "failed_mark_fallback_none",
+                    "player": source.player_id + 1,
+                    "character": actor_name,
+                    "reason": "remove_failed",
+                    "shards": source.shards,
+                    "threshold": threshold,
+                }
+            )
+            return
+        state.trick_discard_pile.append(moved)
+        source.cash += moved.burden_cost
+        self._sync_trick_visibility(state, source)
+        self._log(
+            {
+                "event": "failed_mark_fallback",
+                "player": source.player_id + 1,
+                "character": actor_name,
+                "shards": source.shards,
+                "threshold": threshold,
+                "removed": [moved.name],
+                "removed_count": 1,
+                "cash_gained": moved.burden_cost,
+                **self._public_trick_snapshot(source),
+            }
+        )
+
     def _record_mark_attempt(self, source_pid: int, outcome: str, state: GameState | None = None) -> None:
         stats = self._strategy_stats[source_pid]
         stats["mark_attempts"] = stats.get("mark_attempts", 0) + 1
@@ -1137,6 +1472,45 @@ class GameEngine:
             stats["mark_fail_missing"] = stats.get("mark_fail_missing", 0) + 1
         elif outcome == "blocked":
             stats["mark_fail_blocked"] = stats.get("mark_fail_blocked", 0) + 1
+
+    def _ordered_mark_targets(self, state: GameState, source_pid: int) -> list[PlayerState]:
+        ordered_pids: list[int] = []
+        try:
+            order = list(state.current_round_order or [])
+            source_idx = order.index(source_pid)
+            ordered_pids = [pid for pid in order[source_idx + 1 :]]
+        except (ValueError, TypeError):
+            ordered_pids = []
+        if not ordered_pids:
+            return []
+        by_pid = {p.player_id: p for p in state.players}
+        targets: list[PlayerState] = []
+        for pid in ordered_pids:
+            target = by_pid.get(pid)
+            if target is None:
+                continue
+            if not target.alive:
+                continue
+            if not target.current_character:
+                continue
+            if target.revealed_this_round:
+                continue
+            targets.append(target)
+        return targets
+
+    def _coerce_mark_target_character(
+        self,
+        state: GameState,
+        source: PlayerState,
+        requested_target: Optional[str],
+    ) -> tuple[Optional[str], bool]:
+        ordered_targets = self._ordered_mark_targets(state, source.player_id)
+        if not ordered_targets:
+            return None, False
+        legal_names = {target.current_character for target in ordered_targets if target.current_character}
+        if requested_target and requested_target in legal_names:
+            return requested_target, False
+        return ordered_targets[0].current_character, True
 
     def _find_player_by_character(self, state: GameState, character_name: Optional[str], exclude: Optional[int] = None, source_pid: Optional[int] = None, future_only: bool = False) -> Optional[PlayerState]:
         if not character_name:
@@ -1458,7 +1832,7 @@ class GameEngine:
         return max(0, rent)
 
     def _is_trick_phase_usable(self, card: TrickCard) -> bool:
-        return card.name not in {"뭘리권", "뭔칙휜", "호객꾼"}
+        return True
 
     def _use_trick_phase(self, state: GameState, player: PlayerState) -> None:
         if not hasattr(self.policy, "choose_trick_to_use"):
@@ -1485,10 +1859,7 @@ class GameEngine:
             self._discard_trick(state, player, card)
             stats = self._strategy_stats[player.player_id]
             stats["tricks_used"] += 1
-            if phase == "anytime":
-                stats["anytime_tricks_used"] += 1
-            elif phase == "regular":
-                stats["regular_tricks_used"] += 1
+            stats["regular_tricks_used"] += 1
             self._log({"event": "trick_used", "player": player.player_id + 1, "phase": phase, "character": player.current_character, "card": {"deck_index": card.deck_index, "name": card.name}, "resolution": resolution, "decision": debug})
             self._emit_vis(
                 "trick_used",
@@ -1503,15 +1874,9 @@ class GameEngine:
             )
             return True
 
-        # 언제나 사용할 수 있는 잔꾀는 자신의 턴 잔꾀 단계에서 먼저 여러 장 사용할 수 있다.
-        while True:
-            anytime_hand = [c for c in player.trick_hand if c.is_anytime and self._is_trick_phase_usable(c)]
-            if not choose_and_apply(anytime_hand, "anytime"):
-                break
-
-        # 일반 잔꾀는 자신의 턴에 1장만 사용 가능.
-        regular_hand = [c for c in player.trick_hand if (not c.is_anytime) and self._is_trick_phase_usable(c)]
-        choose_and_apply(regular_hand, "regular")
+        # 규칙 정합성: 잔꾀는 매 턴 1장만 선택/사용한다.
+        usable_hand = [c for c in player.trick_hand if self._is_trick_phase_usable(c)]
+        choose_and_apply(usable_hand, "regular")
 
     def _apply_trick_card(self, state: GameState, player: PlayerState, card: TrickCard) -> dict:
         result = self.events.emit_first_non_none("trick.card.resolve", state, player, card)
@@ -1552,28 +1917,17 @@ class GameEngine:
             return self.policy._landing_score(state, player, pos) if hasattr(self.policy, '_landing_score') else 0.0
         current = list(dice)
         current_score = score_for(current)
-        budget = 0
-        if self._has_trick(player, "뭔칙휜"):
-            budget += 2
-        elif self._has_trick(player, "뭘리권"):
-            budget += 1
-        used_names: list[str] = []
+        budget = max(0, int(getattr(player, "trick_reroll_budget_this_turn", 0)))
+        label = getattr(player, "trick_reroll_label_this_turn", "") or "재굴림"
         while budget > 0:
             new_dice = [self.rng.randint(1, 6) for _ in current]
             new_score = score_for(new_dice)
             if new_score <= current_score and current_score >= 0.5:
                 break
-            card_name = "뭔칙휜" if self._has_trick(player, "뭔칙휜") else "뭘리권"
-            consumed = self._consume_trick_by_name(state, player, card_name)
-            if consumed is None:
-                break
-            used_names.append(card_name)
-            rerolls.append({"card": card_name, "before": list(current), "after": list(new_dice), "before_score": round(current_score,3), "after_score": round(new_score,3)})
+            rerolls.append({"card": label, "before": list(current), "after": list(new_dice), "before_score": round(current_score,3), "after_score": round(new_score,3)})
             current = new_dice
             current_score = new_score
             budget -= 1
-            if card_name == "뭘리권":
-                break
         return current, rerolls
 
     def _resolve_move(self, state: GameState, player: PlayerState, decision: MovementDecision) -> tuple[int, dict]:
@@ -1587,6 +1941,8 @@ class GameEngine:
                 and p.current_character == "탐관오리"
                 and player.attribute in {"관원", "상민"}
             ):
+                if self._is_muroe_skill_blocked(state, p):
+                    continue
                 tribute = p.shards // 2
                 if tribute > 0:
                     self._pay_or_bankrupt(state, player, tribute, p.player_id)
@@ -1661,7 +2017,55 @@ class GameEngine:
             meta["runaway_bonus_target_kind"] = runaway_bonus_target_kind
         if rerolls:
             meta["rerolls"] = rerolls
+        player.trick_reroll_budget_this_turn = 0
+        player.trick_reroll_label_this_turn = ""
         return move, meta
+
+    def _apply_obstacle_slowdown(
+        self,
+        state: GameState,
+        player: PlayerState,
+        *,
+        start_pos: int,
+        planned_move: int,
+    ) -> tuple[int, dict | None]:
+        if planned_move <= 0:
+            return planned_move, None
+        blockers_by_pos: dict[int, list[int]] = {}
+        for op in state.players:
+            if not op.alive or op.player_id == player.player_id:
+                continue
+            if not getattr(op, "trick_obstacle_this_round", False):
+                continue
+            blockers_by_pos.setdefault(op.position, []).append(op.player_id + 1)
+        if not blockers_by_pos:
+            return planned_move, None
+
+        board_len = len(state.board)
+        remaining_pips = planned_move
+        current_pos = start_pos
+        effective_move = 0
+        hits: list[dict] = []
+        while remaining_pips > 0:
+            next_pos = (current_pos + 1) % board_len
+            owners = blockers_by_pos.get(next_pos)
+            step_cost = 2 if owners else 1
+            if remaining_pips < step_cost:
+                break
+            remaining_pips -= step_cost
+            current_pos = next_pos
+            effective_move += 1
+            if owners:
+                hits.append({"pos": next_pos, "owners": owners})
+
+        if effective_move == planned_move:
+            return planned_move, None
+        return effective_move, {
+            "planned_move": planned_move,
+            "effective_move": effective_move,
+            "reduced_by": planned_move - effective_move,
+            "hits": hits,
+        }
 
     def _advance_player(self, state: GameState, player: PlayerState, move: int, movement_meta: dict) -> None:
         board_len = len(state.board)
@@ -1675,10 +2079,17 @@ class GameEngine:
 
         total_move = move
         encounter_event = None
-        if player.trick_encounter_boost_this_turn and move > 0:
+        obstacle_event = None
+        total_move, obstacle_event = self._apply_obstacle_slowdown(
+            state,
+            player,
+            start_pos=old_pos,
+            planned_move=total_move,
+        )
+        if player.trick_encounter_boost_this_turn and total_move > 0:
             seen = False
             cur = old_pos
-            for step in range(1, move):
+            for step in range(1, total_move):
                 cur = (cur + 1) % board_len
                 if any(op.alive and op.player_id != player.player_id and op.position == cur for op in state.players):
                     extra = [self.rng.randint(1, 6), self.rng.randint(1, 6)]
@@ -1702,17 +2113,16 @@ class GameEngine:
             for _ in range(new_laps - old_laps):
                 lap_events.append(self._apply_lap_reward(state, player))
                 if player.current_character == "객주":
-                    bonus = self.policy.choose_geo_bonus(state, player, player.current_character)
-                    geo_debug = self.policy.pop_debug("geo_bonus", player.player_id)
+                    geo_result = self._apply_geo_bonus(player, lap_events[-1])
                     self._record_ai_decision(
                         state,
                         player,
                         "geo_bonus",
-                        geo_debug,
-                        result={"bonus": bonus},
+                        None,
+                        result=geo_result,
                         source_event="lap_reward",
                     )
-                    lap_events.append(self._apply_geo_bonus(player, bonus))
+                    lap_events.append(geo_result)
 
             landing_event = self._resolve_landing(state, player)
             self._emit_vis(
@@ -1763,6 +2173,8 @@ class GameEngine:
         }
         if encounter_event is not None:
             log_row["encounter_bonus"] = encounter_event
+        if obstacle_event is not None:
+            log_row["obstacle_slowdown"] = obstacle_event
         if len(chain_segments) > 1:
             log_row["chain_segments"] = chain_segments
         self._log(log_row)
@@ -1792,15 +2204,26 @@ class GameEngine:
             movement_source=movement_source,
         )
 
-    def _apply_geo_bonus(self, player: PlayerState, choice: str) -> dict:
-        if choice == "cash":
-            player.cash += 1
-            return {"choice": "geo_cash", "cash_delta": 1}
-        if choice == "shards":
-            player.shards += 1
-            return {"choice": "geo_shards", "shards_delta": 1}
-        player.hand_coins += 1
-        return {"choice": "geo_coins", "coins_delta": 1}
+    def _apply_geo_bonus(self, player: PlayerState, lap_result: dict) -> dict:
+        """Apply geo character bonus by selected lap-reward categories.
+
+        Updated rule alignment: geo gets +1 for each resource category selected.
+        """
+        cash_bonus = 1 if int(lap_result.get("cash_delta", 0) or 0) > 0 else 0
+        shard_bonus = 1 if int(lap_result.get("shards_delta", 0) or 0) > 0 else 0
+        coin_bonus = 1 if int(lap_result.get("coins_delta", 0) or 0) > 0 else 0
+        if cash_bonus:
+            player.cash += cash_bonus
+        if shard_bonus:
+            player.shards += shard_bonus
+        if coin_bonus:
+            player.hand_coins += coin_bonus
+        return {
+            "choice": "geo_multi_bonus",
+            "cash_delta": cash_bonus,
+            "shards_delta": shard_bonus,
+            "coins_delta": coin_bonus,
+        }
 
     def _apply_lap_reward(self, state: GameState, player: PlayerState) -> dict:
         result = self.events.emit_first_non_none("lap.reward.resolve", state, player)
@@ -1828,6 +2251,8 @@ class GameEngine:
                     p.alive and p.player_id != player.player_id and p.current_character == "탐관오리"
                     and player.attribute in {"관원", "상민"}
                 ):
+                    if self._is_muroe_skill_blocked(state, p):
+                        continue
                     tribute = p.shards // 2
                     if tribute > 0:
                         self._pay_or_bankrupt(state, player, tribute, p.player_id)
@@ -1935,6 +2360,8 @@ class GameEngine:
                 p.alive and p.player_id != player.player_id and p.current_character == "탐관오리"
                 and player.attribute in {"관원", "상민"}
             ):
+                if self._is_muroe_skill_blocked(state, p):
+                    continue
                 tribute = p.shards // 2
                 if tribute > 0:
                     self._pay_or_bankrupt(state, player, tribute, p.player_id)
@@ -2462,6 +2889,49 @@ class GameEngine:
         )
         return idx
 
+    def _matchmaker_buy_adjacent(self, state: GameState, player: PlayerState, pos: int) -> Optional[int]:
+        block_id = state.block_ids[pos]
+        if block_id < 0 or state.board[pos] not in (CellKind.T2, CellKind.T3):
+            return None
+        candidates: list[int] = []
+        for idx, bid in enumerate(state.block_ids):
+            if bid != block_id or idx == pos:
+                continue
+            if state.board[idx] not in (CellKind.T2, CellKind.T3) or state.tile_owner[idx] is not None:
+                continue
+            if abs(idx - pos) == 1:
+                candidates.append(idx)
+        if not candidates:
+            return None
+        candidates.sort(key=lambda i: (state.config.rules.economy.purchase_cost_for(state, i), i))
+        idx = candidates[0]
+        base_cost = state.config.rules.economy.purchase_cost_for(state, idx)
+        multiplier = 1 if player.shards >= 8 else 2
+        cost = int(base_cost * multiplier)
+        if player.cash < cost:
+            return None
+        if not getattr(self.policy, "choose_purchase_tile", lambda *args, **kwargs: True)(
+            state, player, idx, state.board[idx], cost, source="matchmaker_adjacent"
+        ):
+            return None
+        player.cash -= cost
+        state.tile_owner[idx] = player.player_id
+        player.tiles_owned += 1
+        player.first_purchase_turn_by_tile[idx] = player.turns_taken
+        self._emit_vis(
+            "tile_purchased",
+            Phase.ECONOMY,
+            player.player_id + 1,
+            state,
+            player_id=player.player_id + 1,
+            tile_index=idx,
+            cost=cost,
+            purchase_source="matchmaker_adjacent",
+            purchase_multiplier=multiplier,
+            base_cost=base_cost,
+        )
+        return idx
+
     def _try_purchase_tile(self, state: GameState, player: PlayerState, pos: int, cell: CellKind) -> dict:
         result = self.events.emit_first_non_none("tile.purchase.attempt", state, player, pos, cell)
         if result is not None:
@@ -2541,6 +3011,30 @@ class GameEngine:
 
     def _apply_marker_management(self, state: GameState, player: PlayerState) -> None:
         self.events.emit_first_non_none("marker.management.apply", state, player)
+
+    def _apply_round_end_marker_management(self, state: GameState) -> None:
+        # Rule alignment: doctrine marker transfer happens at round end, not per-turn.
+        if not state.current_round_order:
+            return
+        doctrine_pids = [
+            pid
+            for pid in state.current_round_order
+            if state.players[pid].alive and state.players[pid].current_character in {"교리 연구관", "교리 감독관"}
+        ]
+        if not doctrine_pids:
+            return
+        chosen_pid = doctrine_pids[-1]
+        chosen = state.players[chosen_pid]
+        self._log(
+            {
+                "event": "round_end_marker_management",
+                "round_index": state.rounds_completed + 1,
+                "candidates": [pid + 1 for pid in doctrine_pids],
+                "chosen_player": chosen.player_id + 1,
+                "character": chosen.current_character,
+            }
+        )
+        self._apply_marker_management(state, chosen)
 
     def _check_end(self, state: GameState) -> bool:
         result = self.events.emit_first_non_none("game.end.evaluate", state)

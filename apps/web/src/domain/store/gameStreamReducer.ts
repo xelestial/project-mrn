@@ -22,7 +22,7 @@ export const initialGameStreamState: GameStreamState = {
 };
 
 function withCappedMessages(messages: InboundMessage[]): InboundMessage[] {
-  return messages.length <= 50 ? messages : messages.slice(messages.length - 50);
+  return messages.length <= 400 ? messages : messages.slice(messages.length - 400);
 }
 
 function extractManifestHash(message: InboundMessage): string | null {

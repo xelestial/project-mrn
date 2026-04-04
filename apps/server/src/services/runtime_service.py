@@ -342,6 +342,19 @@ class _ServerHumanPolicyBridge:
             self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
 
         self._publish("prompt", envelope)
+        public_context = dict(envelope.get("public_context") or {})
+        self._publish(
+            "event",
+            {
+                "event_type": "decision_requested",
+                "request_id": request_id,
+                "player_id": int(envelope.get("player_id", 0)),
+                "request_type": str(envelope.get("request_type", "")),
+                "fallback_policy": str(envelope.get("fallback_policy", "timeout_fallback")),
+                "round_index": public_context.get("round_index"),
+                "turn_index": public_context.get("turn_index"),
+            },
+        )
         self._touch_activity(self._session_id)
         response = self._prompt_service.wait_for_decision(request_id=request_id, timeout_ms=timeout_ms)
 
@@ -373,6 +386,18 @@ class _ServerHumanPolicyBridge:
             self._publish(
                 "event",
                 {
+                    "event_type": "decision_resolved",
+                    "request_id": request_id,
+                    "player_id": player_id,
+                    "resolution": "timeout_fallback",
+                    "choice_id": fallback_result.get("choice_id"),
+                    "round_index": (envelope.get("public_context") or {}).get("round_index"),
+                    "turn_index": (envelope.get("public_context") or {}).get("turn_index"),
+                },
+            )
+            self._publish(
+                "event",
+                {
                     "event_type": "decision_timeout_fallback",
                     "request_id": request_id,
                     "player_id": player_id,
@@ -385,9 +410,34 @@ class _ServerHumanPolicyBridge:
             )
             return fallback_fn()
         try:
-            return parser(response)
+            parsed = parser(response)
         except Exception:
+            self._publish(
+                "event",
+                {
+                    "event_type": "decision_resolved",
+                    "request_id": request_id,
+                    "player_id": int(envelope.get("player_id", 0)),
+                    "resolution": "parser_error_fallback",
+                    "choice_id": str(response.get("choice_id", "")),
+                    "round_index": public_context.get("round_index"),
+                    "turn_index": public_context.get("turn_index"),
+                },
+            )
             return fallback_fn()
+        self._publish(
+            "event",
+            {
+                "event_type": "decision_resolved",
+                "request_id": request_id,
+                "player_id": int(response.get("player_id", envelope.get("player_id", 0))),
+                "resolution": "accepted",
+                "choice_id": str(response.get("choice_id", "")),
+                "round_index": public_context.get("round_index"),
+                "turn_index": public_context.get("turn_index"),
+            },
+        )
+        return parsed
 
     def _next_request_id(self) -> str:
         self._request_seq += 1

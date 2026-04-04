@@ -125,13 +125,19 @@ class PlayerState:
     trick_one_extra_adjacent_buy_this_turn: bool = False
     trick_encounter_boost_this_turn: bool = False
     trick_force_sale_landing_this_turn: bool = False
+    trick_obstacle_this_round: bool = False
     trick_zone_chain_this_turn: bool = False
+    trick_reroll_budget_this_turn: int = 0
+    trick_reroll_label_this_turn: str = ""
     control_finisher_turns: int = 0
     control_finisher_reason: str = ""
 
     @property
     def attribute(self) -> str:
-        return CHARACTERS[self.current_character].attribute if self.current_character else ""
+        if not self.current_character:
+            return ""
+        char_def = CHARACTERS[self.current_character]
+        return char_def.attribute
 
     def public_trick_cards(self) -> List[TrickCard]:
         if not self.trick_hand:
@@ -164,6 +170,7 @@ class GameState:
     end_reason: str = ""
     players: List[PlayerState] = field(default_factory=list)
     marker_owner_id: int = 0
+    marker_draft_clockwise: bool = True
     active_by_card: Dict[int, str] = field(default_factory=dict)
     pending_marker_flip_owner_id: Optional[int] = None
     fortune_draw_pile: List[FortuneCard] = field(default_factory=list)
@@ -180,8 +187,8 @@ class GameState:
     global_rent_double_permanent: bool = False
     tile_rent_modifiers_this_turn: Dict[int, int] = field(default_factory=dict)
     tile_purchase_blocked_turn_index: Dict[int, int] = field(default_factory=dict)
-    lap_reward_cash_pool_remaining: int = 60
-    lap_reward_shards_pool_remaining: int = 40
+    lap_reward_cash_pool_remaining: int = 30
+    lap_reward_shards_pool_remaining: int = 18
     lap_reward_coins_pool_remaining: int = 18
 
     @classmethod
@@ -208,6 +215,7 @@ class GameState:
             current_round_order=list(range(config.player_count)),
             players=players,
             marker_owner_id=0,
+            marker_draft_clockwise=True,
             active_by_card=dict(config.characters.starting_active_by_card),
             fortune_draw_pile=build_fortune_deck(config.fortune_csv_path),
             trick_draw_pile=build_trick_deck(config.trick_csv_path),

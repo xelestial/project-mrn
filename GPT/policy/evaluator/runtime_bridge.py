@@ -50,8 +50,8 @@ def score_character_v1(policy: Any, state: Any, player: Any, character_name: str
         if state.board[pos] in (CellKind.T2, CellKind.T3) and state.tile_owner[pos] is None:
             near_unowned += 1
 
-    removed_small, payout_small = policy._failed_mark_fallback_metrics(player, 5)
-    removed_large, payout_large = policy._failed_mark_fallback_metrics(player, 7)
+    removed_small, payout_small = policy._failed_mark_fallback_metrics(player, 6)
+    removed_large, payout_large = policy._failed_mark_fallback_metrics(player, 8)
     structural_delta, structural_reasons = evaluate_v1_character_structural_rules(
         character_name,
         V1CharacterStructuralInputs(

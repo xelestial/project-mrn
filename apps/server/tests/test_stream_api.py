@@ -191,6 +191,104 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(errors[-1].get("payload", {}).get("code"), "PLAYER_MISMATCH")
         self.assertEqual(errors[-1].get("payload", {}).get("category"), "auth")
 
+    def test_seat_decision_accepts_pending_prompt_with_ack(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 17})
+        join_token = session.join_tokens[1]
+        joined = state.session_service.join_session(session.session_id, seat=1, join_token=join_token)
+        session_token = joined["session_token"]
+        state.prompt_service.create_prompt(
+            session.session_id,
+            {
+                "request_id": "r_accept_1",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 5000,
+                "fallback_policy": "timeout_fallback",
+            },
+        )
+
+        path = f"/api/v1/sessions/{session.session_id}/stream?token={session_token}"
+        with self.client.websocket_connect(path) as ws:
+            ws.send_json(
+                {
+                    "type": "decision",
+                    "request_id": "r_accept_1",
+                    "player_id": 1,
+                    "choice_id": "roll",
+                    "choice_payload": {},
+                }
+            )
+
+            messages: list[dict] = []
+            for _ in range(10):
+                msg = ws.receive_json()
+                messages.append(msg)
+                if msg.get("type") == "decision_ack" and msg.get("payload", {}).get("request_id") == "r_accept_1":
+                    break
+
+        acks = [m for m in messages if m.get("type") == "decision_ack" and m.get("payload", {}).get("request_id") == "r_accept_1"]
+        self.assertGreaterEqual(len(acks), 1)
+        self.assertEqual(acks[-1].get("payload", {}).get("status"), "accepted")
+        self.assertIsNone(acks[-1].get("payload", {}).get("reason"))
+
+    def test_seat_decision_retry_returns_stale_after_first_accept(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 18})
+        join_token = session.join_tokens[1]
+        joined = state.session_service.join_session(session.session_id, seat=1, join_token=join_token)
+        session_token = joined["session_token"]
+        state.prompt_service.create_prompt(
+            session.session_id,
+            {
+                "request_id": "r_retry_1",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 5000,
+                "fallback_policy": "timeout_fallback",
+            },
+        )
+
+        path = f"/api/v1/sessions/{session.session_id}/stream?token={session_token}"
+        with self.client.websocket_connect(path) as ws:
+            ws.send_json(
+                {
+                    "type": "decision",
+                    "request_id": "r_retry_1",
+                    "player_id": 1,
+                    "choice_id": "roll",
+                    "choice_payload": {},
+                }
+            )
+            ws.send_json(
+                {
+                    "type": "decision",
+                    "request_id": "r_retry_1",
+                    "player_id": 1,
+                    "choice_id": "roll",
+                    "choice_payload": {},
+                }
+            )
+
+            acks: list[dict] = []
+            for _ in range(20):
+                msg = ws.receive_json()
+                if msg.get("type") != "decision_ack":
+                    continue
+                payload = msg.get("payload", {})
+                if payload.get("request_id") != "r_retry_1":
+                    continue
+                acks.append(payload)
+                if len(acks) >= 2:
+                    break
+
+        self.assertGreaterEqual(len(acks), 2)
+        self.assertEqual(acks[0].get("status"), "accepted")
+        self.assertEqual(acks[1].get("status"), "stale")
+        self.assertEqual(acks[1].get("reason"), "already_resolved")
+
     def test_prompt_timeout_emits_fallback_execution_and_runtime_tracks_history(self) -> None:
         from apps.server.src import state
 
@@ -209,19 +307,32 @@ class StreamApiTests(unittest.TestCase):
 
         path = f"/api/v1/sessions/{session.session_id}/stream"
         timeout_events: list[dict] = []
+        resolved_events: list[dict] = []
+        resolved_seq: int | None = None
+        timeout_seq: int | None = None
         with self.client.websocket_connect(path) as ws:
             for _ in range(40):
                 msg = ws.receive_json()
                 if msg.get("type") != "event":
                     continue
                 payload = msg.get("payload", {})
+                if payload.get("event_type") == "decision_resolved":
+                    resolved_events.append(payload)
+                    resolved_seq = int(msg.get("seq", 0))
                 if payload.get("event_type") == "decision_timeout_fallback":
                     timeout_events.append(payload)
+                    timeout_seq = int(msg.get("seq", 0))
                     break
 
+        self.assertEqual(len(resolved_events), 1)
+        self.assertEqual(resolved_events[0].get("resolution"), "timeout_fallback")
+        self.assertEqual(resolved_events[0].get("choice_id"), "choice_timeout_default")
         self.assertEqual(len(timeout_events), 1)
         self.assertEqual(timeout_events[0].get("fallback_execution"), "executed")
         self.assertEqual(timeout_events[0].get("fallback_choice_id"), "choice_timeout_default")
+        self.assertIsNotNone(resolved_seq)
+        self.assertIsNotNone(timeout_seq)
+        self.assertLess(resolved_seq, timeout_seq)
         runtime_status = state.runtime_service.runtime_status(session.session_id)
         recent = runtime_status.get("recent_fallbacks", [])
         self.assertGreaterEqual(len(recent), 1)
@@ -308,6 +419,61 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(replayed[0].get("payload", {}).get("manifest_hash"), "flat_hash_new")
         self.assertEqual(replayed[0].get("payload", {}).get("board", {}).get("tile_count"), 40)
         self.assertEqual(replayed[1].get("payload", {}).get("event_type"), "turn_start")
+
+    def test_resume_preserves_decision_then_domain_event_order(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 101})
+
+        async def _seed() -> None:
+            await state.stream_service.publish(
+                session.session_id,
+                "event",
+                {
+                    "event_type": "decision_requested",
+                    "request_id": "r_order_1",
+                    "player_id": 1,
+                    "request_type": "movement",
+                },
+            )
+            await state.stream_service.publish(
+                session.session_id,
+                "event",
+                {
+                    "event_type": "decision_resolved",
+                    "request_id": "r_order_1",
+                    "player_id": 1,
+                    "resolution": "accepted",
+                    "choice_id": "roll",
+                },
+            )
+            await state.stream_service.publish(
+                session.session_id,
+                "event",
+                {
+                    "event_type": "player_move",
+                    "acting_player_id": 1,
+                    "from_tile_index": 0,
+                    "to_tile_index": 5,
+                },
+            )
+
+        asyncio.run(_seed())
+
+        path = f"/api/v1/sessions/{session.session_id}/stream"
+        with self.client.websocket_connect(path) as ws:
+            ws.send_json({"type": "resume", "last_seq": 0})
+            replayed: list[dict] = []
+            for _ in range(8):
+                msg = ws.receive_json()
+                if msg.get("type") != "event":
+                    continue
+                replayed.append(msg)
+                if len(replayed) >= 3:
+                    break
+
+        event_types = [m.get("payload", {}).get("event_type") for m in replayed]
+        self.assertEqual(event_types, ["decision_requested", "decision_resolved", "player_move"])
 
     def test_resume_replays_manifest_with_non_default_topology_and_seat_profile(self) -> None:
         from apps.server.src import state

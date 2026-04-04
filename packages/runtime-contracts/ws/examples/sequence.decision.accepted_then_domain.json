@@ -1,0 +1,39 @@
+[
+  {
+    "type": "event",
+    "seq": 120,
+    "session_id": "sess_example_flow",
+    "server_time_ms": 1743210100000,
+    "payload": {
+      "event_type": "decision_requested",
+      "request_id": "req_turn2_movement",
+      "request_type": "movement",
+      "player_id": 1
+    }
+  },
+  {
+    "type": "event",
+    "seq": 121,
+    "session_id": "sess_example_flow",
+    "server_time_ms": 1743210100100,
+    "payload": {
+      "event_type": "decision_resolved",
+      "request_id": "req_turn2_movement",
+      "player_id": 1,
+      "resolution": "accepted",
+      "choice_id": "roll"
+    }
+  },
+  {
+    "type": "event",
+    "seq": 122,
+    "session_id": "sess_example_flow",
+    "server_time_ms": 1743210100300,
+    "payload": {
+      "event_type": "player_move",
+      "acting_player_id": 1,
+      "from_tile_index": 0,
+      "to_tile_index": 4
+    }
+  }
+]

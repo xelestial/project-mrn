@@ -64,18 +64,19 @@ export class StreamClient {
     this.reconnectAttempt = 0;
   }
 
-  send(message: OutboundMessage): void {
+  send(message: OutboundMessage): boolean {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      return;
+      return false;
     }
     this.socket.send(JSON.stringify(message));
+    return true;
   }
 
-  requestResume(lastSeq: number): void {
+  requestResume(lastSeq: number): boolean {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      return;
+      return false;
     }
-    this.send({ type: "resume", last_seq: Math.max(0, Math.floor(lastSeq)) });
+    return this.send({ type: "resume", last_seq: Math.max(0, Math.floor(lastSeq)) });
   }
 
   onMessage(handler: (message: InboundMessage) => void): () => void {

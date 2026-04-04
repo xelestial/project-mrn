@@ -5,7 +5,7 @@
 중요:
 - 이 문서는 카드 설명문 요약이 아니라 `현재 소스 구현` 설명이다.
 - 카드 설명문과 구현이 다르면, 이 문서는 `현재 구현`을 우선해 적는다.
-- 특히 `언제나 사용할 수 있습니다` 표시는 [GPT/trick_cards.py](C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\GPT\trick_cards.py)의 `TrickCard.is_anytime`가 실제로 어떻게 판정하는지 기준으로 적는다.
+- 현재 규칙 기준으로 `언제나 사용`은 제거되었고, `TrickCard.is_anytime`는 항상 `False`다.
 
 기준 소스:
 - [GPT/trick.csv](C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\GPT\trick.csv)
@@ -24,7 +24,7 @@
 4. [GPT/engine.py](C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\GPT\engine.py)가
    - 잔꾀 공개/비공개 처리
    - 자신의 턴 잔꾀 단계
-   - 언제나 잔꾀 재굴림
+   - 재굴림 예산(뭘리권/뭔칙휜) 처리
    - 강제 매각/도착 트리거
    - 보급 시 burden 교환
    를 관리한다.
@@ -48,35 +48,21 @@
 - 정책이 `choose_hidden_trick_card(...)`를 제공하면 그 카드가 숨겨진다.
 - 정책이 없거나 유효하지 않으면 엔진이 손패 중 1장을 무작위로 숨긴다.
 
-## 3. 언제나 잔꾀와 실제 사용 시점
+## 3. 잔꾀 사용 시점(현재 규칙)
 
-`TrickCard.is_anytime` 판정은 설명문에 `언제나 사용할 수 있습니다`라는 문구가 포함되는지만 본다.
+`언제나 사용` 규칙은 제거되었다.
+
+- `TrickCard.is_anytime`는 항상 `False`
+- 잔꾀는 자신의 턴에서 `trick_to_use` 1회 선택으로만 사용
+- `뭘리권/뭔칙휜`은 별도 연속 사용이 아니라, 1장 사용 후 이동 굴림에서 재굴림 예산으로 동작
+- `강제 매각/뇌절왕`도 동일하게 턴 잔꾀 단계에서 “미리 사용”해야 효과가 켜진다
 
 관련 구현:
 - [GPT/trick_cards.py](C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\GPT\trick_cards.py)
+- [GPT/engine.py](C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\GPT\engine.py)의 `_use_trick_phase(...)`, `_try_anytime_rerolls(...)`
 
-하지만 `언제나`라고 적혀 있어도 실제로 자신의 턴 잔꾀 단계에서 선택 가능한지는 별도다.
-
-관련 구현:
-- [GPT/engine.py](C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\GPT\engine.py)의 `_is_trick_phase_usable(...)`
-
-현재 분류는 다음과 같다.
-
-| 카드 | `is_anytime` | 자신의 턴 잔꾀 단계에서 직접 선택 가능 | 실제 처리 방식 |
-|---|---|---:|---|
-| 우대권 | 예 | 예 | anytime 단계에서 직접 사용 |
-| 무료 증정 | 예 | 예 | anytime 단계에서 직접 사용 |
-| 마당발 | 예 | 예 | anytime 단계에서 직접 사용 |
-| 강제 매각 | 예 | 아니오 | 손패에 들고 있다가 적 소유 타일 도착 시 자동 발동 |
-| 뇌고왕 | 예 | 예 | anytime 단계에서 직접 사용 |
-| 뭘리권 | 예 | 아니오 | 이동 굴림 후 `_try_anytime_rerolls(...)`에서 자동 사용 |
-| 뭔칙휜 | 예 | 아니오 | 이동 굴림 후 `_try_anytime_rerolls(...)`에서 자동 사용 |
-| 뇌절왕 | 예 | 예 | 턴 잔꾀 단계에서 직접 사용 가능하지만, 실제 연쇄 이동은 별도 도착 처리에서 카드 보유 여부로 다시 확인 |
-| 호객꾼 | 아니오 | 아니오 | `_is_trick_phase_usable(...)`에서 제외되어 있고, 현재 활성 처리 경로도 보이지 않음 |
-
-잔꾀 단계 순서:
-- 자신의 턴 잔꾀 단계에서 `anytime` 카드를 먼저 여러 장 사용할 수 있다.
-- 그 다음 `non-anytime` 카드는 최대 1장만 사용한다.
+주의:
+- 아래 카드별 상세에서 `is_anytime` 표기가 남아 있더라도, 최신 규칙 기준 해석은 모두 `아니오`다.
 
 관련 구현:
 - [GPT/engine.py](C:\Users\SIL-EDITOR\Desktop\Workspace\project-mrn\GPT\engine.py)의 `_use_trick_phase(...)`
@@ -89,9 +75,9 @@
 - 설정 카드: `성물 수집가`
 - 설정 방식: `player.extra_shard_gain_this_turn += 1`
 - 리셋 시점: 라운드 시작
-- 현재 소비처: 현재 검색 기준 활성 소비처를 찾지 못했다
+- 현재 소비처: `landing.f.resolve`에서 F1/F2 획득 조각 배수 처리
 - 의미 요약:
-  - 현재 구현상 값은 올라가지만, 이 값이 실제 shard 획득량에 연결되는 활성 코드가 보이지 않는다
+  - 이번 턴 F칸 조각 획득량에 배수(2배)로 반영된다
   - 즉 현재 소스 기준으로는 `실효성이 불명확하거나 미완성`인 상태다
 
 ### `rent_waiver_count_this_turn`
@@ -368,12 +354,11 @@
 ### 호객꾼
 - 매수: 1
 - `is_anytime`: 아니오
-- 자신의 턴 잔꾀 단계 선택 가능: 아니오
+- 자신의 턴 잔꾀 단계 선택 가능: 예
 - 현재 처리:
-  - `HELD_ANYTIME`처럼 분류만 된다
-- 주의:
-  - 현재 활성 처리 경로를 찾지 못했다
-  - 사실상 미구현 또는 미연결 상태로 봐야 한다
+  - `player.trick_obstacle_this_round = True`
+  - 다른 플레이어가 이동 시, 호객꾼 소유자 말이 있는 칸 경유에 추가 이동 비용(감속) 적용
+  - 이동 로그에 `obstacle_slowdown`이 기록됨
 
 ### 뇌고왕
 - 매수: 1
@@ -529,7 +514,7 @@
 - 현재 구현은 `1대1 교환`이다.
 
 ### 호객꾼
-- held 분류는 있으나 활성 처리 경로가 없다.
+- 미구현 상태가 아니며, 현재는 라운드 단위 장애물 감속 플래그로 동작한다.
 
 ## 7. 인간 플레이 / 시각화에서 필요한 추가 UI
 

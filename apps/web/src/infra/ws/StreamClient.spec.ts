@@ -117,4 +117,22 @@ describe("StreamClient", () => {
     vi.advanceTimersByTime(15000);
     expect(MockWebSocket.instances).toHaveLength(1);
   });
+
+  it("returns false when sending decision without open socket", () => {
+    const client = new StreamClient();
+    const sent = client.send({
+      type: "decision",
+      request_id: "req_1",
+      player_id: 1,
+      choice_id: "dice",
+      client_seq: 0,
+    });
+    expect(sent).toBe(false);
+  });
+
+  it("returns false when resume is requested without open socket", () => {
+    const client = new StreamClient();
+    const sent = client.requestResume(10);
+    expect(sent).toBe(false);
+  });
 });

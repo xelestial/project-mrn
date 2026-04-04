@@ -1,17 +1,21 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+﻿import { FormEvent, useEffect, useMemo, useState } from "react";
 import { mergeSessionManifest } from "./domain/manifest/manifestRehydrate";
-import { characterAbilityLabelsFromManifestLabels, tileKindLabelsFromManifestLabels } from "./domain/labels/manifestLabelCatalog";
+import {
+  characterAbilityLabelsFromManifestLabels,
+  tileKindLabelsFromManifestLabels,
+} from "./domain/labels/manifestLabelCatalog";
 import { promptLabelForType } from "./domain/labels/promptTypeCatalog";
 import { selectActivePrompt, selectLatestDecisionAck } from "./domain/selectors/promptSelectors";
 import {
+  selectCoreActionFeed,
   selectCriticalAlerts,
   selectLastMove,
   selectLatestManifest,
   selectLatestSnapshot,
   selectSituation,
-  selectTurnStage,
   selectTheaterFeed,
   selectTimeline,
+  selectTurnStage,
 } from "./domain/selectors/streamSelectors";
 import { BoardPanel } from "./features/board/BoardPanel";
 import { LobbyView, type LobbySeatType } from "./features/lobby/LobbyView";
@@ -20,6 +24,7 @@ import { PromptOverlay } from "./features/prompt/PromptOverlay";
 import { TurnStagePanel } from "./features/stage/TurnStagePanel";
 import { ConnectionPanel } from "./features/status/ConnectionPanel";
 import { SituationPanel } from "./features/status/SituationPanel";
+import { CoreActionPanel } from "./features/theater/CoreActionPanel";
 import { IncidentCardStack } from "./features/theater/IncidentCardStack";
 import { TimelinePanel } from "./features/timeline/TimelinePanel";
 import { useGameStream } from "./hooks/useGameStream";
@@ -156,11 +161,13 @@ export function App() {
   const [promptExpiresAtMs, setPromptExpiresAtMs] = useState<number | null>(null);
   const [promptFeedback, setPromptFeedback] = useState("");
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [turnBanner, setTurnBanner] = useState<{ seq: number; actor: string } | null>(null);
+  const [turnBanner, setTurnBanner] = useState<{ seq: number; text: string } | null>(null);
 
   const stream = useGameStream({ sessionId, token });
   const timeline = selectTimeline(stream.messages, compactDensity ? 24 : 40);
   const theaterFeed = selectTheaterFeed(stream.messages, compactDensity ? 16 : 28);
+  const coreActionFeed = selectCoreActionFeed(stream.messages, effectivePlayerId, compactDensity ? 10 : 14);
+  const latestCoreAction = coreActionFeed.find((item) => !item.isLocalActor) ?? coreActionFeed[0] ?? null;
   const alerts = selectCriticalAlerts(stream.messages, 6);
   const situation = selectSituation(stream.messages);
   const turnStage = selectTurnStage(stream.messages);
@@ -345,18 +352,44 @@ export function App() {
     }
     setPromptBusy(false);
     if (latestPromptAck.status === "rejected") {
-      setPromptFeedback(latestPromptAck.reason ? `선택이 거절되었습니다: ${latestPromptAck.reason}` : "선택이 거절되었습니다.");
+      setPromptFeedback(latestPromptAck.reason ? `?좏깮??嫄곗젅?섏뿀?듬땲?? ${latestPromptAck.reason}` : "?좏깮??嫄곗젅?섏뿀?듬땲??");
       return;
     }
-    setPromptFeedback(latestPromptAck.reason ? `시간 초과로 자동 처리되었습니다: ${latestPromptAck.reason}` : "시간 초과로 자동 처리되었습니다.");
+    setPromptFeedback(latestPromptAck.reason ? `?쒓컙 珥덇낵濡??먮룞 泥섎━?섏뿀?듬땲?? ${latestPromptAck.reason}` : "?쒓컙 珥덇낵濡??먮룞 泥섎━?섏뿀?듬땲??");
   }, [latestPromptAck, promptBusy]);
 
   useEffect(() => {
     if (!actionablePrompt || promptBusy || promptSecondsLeft !== 0) {
       return;
     }
-    setPromptFeedback("시간이 초과되었습니다. 자동 처리 결과를 기다려주세요.");
+    setPromptFeedback("?쒓컙??珥덇낵?섏뿀?듬땲?? ?먮룞 泥섎━ 寃곌낵瑜?湲곕떎?ㅼ＜?몄슂.");
   }, [actionablePrompt, promptBusy, promptSecondsLeft]);
+
+  useEffect(() => {
+    if (!promptBusy) {
+      return;
+    }
+    if (stream.status === "connected" || stream.status === "connecting") {
+      return;
+    }
+    setPromptBusy(false);
+    setPromptFeedback("?곌껐??遺덉븞?뺥븯???좏깮 ?꾩넚???ㅽ뙣?덉뒿?덈떎. ?좎떆 ???ㅼ떆 ?쒕룄??二쇱꽭??");
+  }, [promptBusy, stream.status]);
+
+  useEffect(() => {
+    if (turnStage.turnStartSeq === null || turnStage.actor === "-") {
+      return;
+    }
+    const actorText = turnStage.character && turnStage.character !== "-" ? `${turnStage.actor} (${turnStage.character})` : turnStage.actor;
+    setTurnBanner({
+      seq: turnStage.turnStartSeq,
+      text: `${actorText}???댁엯?덈떎`,
+    });
+    const timer = window.setTimeout(() => {
+      setTurnBanner((prev) => (prev?.seq === turnStage.turnStartSeq ? null : prev));
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [turnStage.actor, turnStage.character, turnStage.turnStartSeq]);
 
   useEffect(() => {
     if (route !== "match" || stream.status !== "connected") {
@@ -388,7 +421,7 @@ export function App() {
       const result = await listSessions();
       setSessions(result.sessions);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "세션 목록 조회에 실패했습니다.");
+      setError(e instanceof Error ? e.message : "?몄뀡 紐⑸줉 議고쉶???ㅽ뙣?덉뒿?덈떎.");
     }
   };
 
@@ -441,13 +474,13 @@ export function App() {
       const autoToken = created.join_tokens[String(seat)] ?? "";
       setJoinTokenInput(autoToken);
       setNotice(
-        `세션 생성 완료: ${created.session_id} / host_token=${created.host_token} / join_tokens=${JSON.stringify(
+        `?몄뀡 ?앹꽦 ?꾨즺: ${created.session_id} / host_token=${created.host_token} / join_tokens=${JSON.stringify(
           created.join_tokens
         )}`
       );
       await refreshSessions();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "세션 생성에 실패했습니다.");
+      setError(e instanceof Error ? e.message : "?몄뀡 ?앹꽦???ㅽ뙣?덉뒿?덈떎.");
     } finally {
       setBusy(false);
     }
@@ -486,11 +519,11 @@ export function App() {
       setLastJoinTokens(created.join_tokens);
       setJoinSeatInput("1");
       setJoinTokenInput("");
-      setNotice(`AI 세션 시작: ${created.session_id}`);
+      setNotice(`AI ?몄뀡 ?쒖옉: ${created.session_id}`);
       navigateRoute("match");
       await refreshSessions();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "AI 세션 시작에 실패했습니다.");
+      setError(e instanceof Error ? e.message : "AI ?몄뀡 ?쒖옉???ㅽ뙣?덉뒿?덈떎.");
     } finally {
       setBusy(false);
     }
@@ -520,7 +553,7 @@ export function App() {
       });
       const seat1Token = created.join_tokens["1"];
       if (!seat1Token) {
-        throw new Error("좌석 1 참가 토큰을 받지 못했습니다.");
+        throw new Error("醫뚯꽍 1 李멸? ?좏겙??諛쏆? 紐삵뻽?듬땲??");
       }
       const joined = await joinSession({
         sessionId: created.session_id,
@@ -540,11 +573,11 @@ export function App() {
       setLastJoinTokens(created.join_tokens);
       setJoinSeatInput("1");
       setJoinTokenInput(seat1Token);
-      setNotice(`빠른 시작 완료: ${created.session_id} (P${joined.player_id})`);
+      setNotice(`鍮좊Ⅸ ?쒖옉 ?꾨즺: ${created.session_id} (P${joined.player_id})`);
       navigateRoute("match");
       await refreshSessions();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "빠른 시작에 실패했습니다.");
+      setError(e instanceof Error ? e.message : "鍮좊Ⅸ ?쒖옉???ㅽ뙣?덉뒿?덈떎.");
     } finally {
       setBusy(false);
     }
@@ -553,7 +586,7 @@ export function App() {
   const onStartByHostToken = async () => {
     const current = sessionInput.trim() || sessionId.trim();
     if (!current || !hostTokenInput.trim()) {
-      setError("세션 ID와 호스트 토큰이 필요합니다.");
+      setError("?몄뀡 ID? ?몄뒪???좏겙???꾩슂?⑸땲??");
       return;
     }
     setBusy(true);
@@ -563,10 +596,10 @@ export function App() {
       const started = await startSession({ sessionId: current, hostToken: hostTokenInput.trim() });
       setSessionManifest(started.parameter_manifest ?? null);
       setSessionId(current);
-      setNotice(`세션 시작됨: ${current}`);
+      setNotice(`?몄뀡 ?쒖옉?? ${current}`);
       await refreshSessions();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "세션 시작에 실패했습니다.");
+      setError(e instanceof Error ? e.message : "?몄뀡 ?쒖옉???ㅽ뙣?덉뒿?덈떎.");
     } finally {
       setBusy(false);
     }
@@ -576,7 +609,7 @@ export function App() {
     const current = sessionInput.trim() || sessionId.trim();
     const seat = Number(joinSeatInput);
     if (!current || !seat || !joinTokenInput.trim()) {
-      setError("세션 ID, 좌석, 참가 토큰이 필요합니다.");
+      setError("?몄뀡 ID, 醫뚯꽍, 李멸? ?좏겙???꾩슂?⑸땲??");
       return;
     }
     setBusy(true);
@@ -585,14 +618,14 @@ export function App() {
     try {
       const snapshotLocal = await getSession({ sessionId: current });
       if (snapshotLocal.status !== "waiting") {
-        throw new Error("세션이 이미 시작되었습니다. waiting 상태에서만 참가할 수 있습니다.");
+        throw new Error("?몄뀡???대? ?쒖옉?섏뿀?듬땲?? waiting ?곹깭?먯꽌留?李멸??????덉뒿?덈떎.");
       }
       const seatView = (snapshotLocal.seats ?? []).find((s) => s.seat === seat);
       if (!seatView) {
-        throw new Error(`좌석 ${seat}이 존재하지 않습니다.`);
+        throw new Error(`醫뚯꽍 ${seat}??議댁옱?섏? ?딆뒿?덈떎.`);
       }
       if (seatView.seat_type !== "human") {
-        throw new Error(`좌석 ${seat}은 human 좌석이 아닙니다.`);
+        throw new Error(`醫뚯꽍 ${seat}? human 醫뚯꽍???꾨떃?덈떎.`);
       }
       const joined = await joinSession({
         sessionId: current,
@@ -605,11 +638,11 @@ export function App() {
       setTokenInput(joined.session_token);
       setToken(joined.session_token);
       setLocalPlayerId(joined.player_id);
-      setNotice(`P${joined.player_id} 좌석 참가 완료`);
+      setNotice(`P${joined.player_id} 醫뚯꽍 李멸? ?꾨즺`);
       navigateRoute("match");
       await refreshSessions();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "좌석 참가에 실패했습니다.");
+      setError(e instanceof Error ? e.message : "醫뚯꽍 李멸????ㅽ뙣?덉뒿?덈떎.");
     } finally {
       setBusy(false);
     }
@@ -628,7 +661,7 @@ export function App() {
     setLocalPlayerId(null);
     const selected = sessions.find((session) => session.session_id === id);
     setSessionManifest(selected?.parameter_manifest ?? null);
-    setNotice(`세션 선택: ${id}`);
+    setNotice(`?몄뀡 ?좏깮: ${id}`);
     if (route === "match") {
       window.location.hash = buildMatchHash(id, tokenInput.trim() || undefined);
     }
@@ -645,31 +678,35 @@ export function App() {
       return;
     }
     if (!actionablePrompt.playerId) {
-      setError("잘못된 프롬프트 player_id 입니다.");
+      setError("?섎せ???꾨＼?꾪듃 player_id ?낅땲??");
       return;
     }
-    setPromptBusy(true);
     setPromptFeedback("");
-    stream.sendDecision({
+    const sent = stream.sendDecision({
       requestId: actionablePrompt.requestId,
       playerId: actionablePrompt.playerId,
       choiceId,
       choicePayload: {},
     });
+    if (!sent) {
+      setPromptFeedback("?좏깮 ?꾩넚???ㅽ뙣?덉뒿?덈떎. ?곌껐 ?곹깭瑜??뺤씤?????ㅼ떆 ?쒕룄??二쇱꽭??");
+      return;
+    }
+    setPromptBusy(true);
   };
 
   const topCommandSummary = useMemo(() => {
     if (!sessionId.trim()) {
-      return "세션 없음";
+      return "?몄뀡 ?놁쓬";
     }
-    return `세션 ${sessionId} / 런타임 ${runtime.status}`;
+    return `?몄뀡 ${sessionId} / ?고???${runtime.status}`;
   }, [runtime.status, sessionId]);
 
   return (
     <main className={`page ${compactDensity ? "page-compact" : ""}`}>
       <header className="header">
         <h1>MRN Online Viewer (React/FastAPI)</h1>
-        <p>세션 생성, 참가, 시작, 실시간 스트림 관찰을 한 화면에서 진행할 수 있습니다.</p>
+        <p>?몄뀡 ?앹꽦, 李멸?, ?쒖옉, ?ㅼ떆媛??ㅽ듃由?愿李곗쓣 ???붾㈃?먯꽌 吏꾪뻾?????덉뒿?덈떎.</p>
         <div className="route-tabs">
           <button
             type="button"
@@ -688,7 +725,7 @@ export function App() {
           {route === "match" ? (
             <>
               <button type="button" className="route-tab" onClick={() => setMatchTopCollapsed((prev) => !prev)}>
-                {matchTopCollapsed ? "상단 펼치기" : "상단 접기"}
+                {matchTopCollapsed ? "연결 상태 펼치기" : "연결 상태 접기"}
               </button>
               <button type="button" className="route-tab" onClick={() => setCompactDensity((prev) => !prev)}>
                 {compactDensity ? "표준 밀도" : "컴팩트 밀도"}
@@ -755,6 +792,9 @@ export function App() {
 
           <div className="match-layout">
             <div className="match-board-column">
+              <TurnStagePanel model={turnStage} characterAbilityText={activeCharacterAbility} isMyTurn={isMyTurn} />
+              <CoreActionPanel items={coreActionFeed} latest={latestCoreAction} />
+
               <BoardPanel
                 snapshot={snapshot}
                 manifestTiles={manifestTiles}
@@ -767,12 +807,12 @@ export function App() {
                 <section className="panel waiting-panel">
                   <strong>지금은 P{currentActorId}의 턴입니다.</strong>
                   <p>
-                    <span className="spinner" aria-hidden="true" /> 내 턴이 아닙니다. 다른 플레이어 진행을 관찰하세요.
+                    <span className="spinner" aria-hidden="true" /> 다른 플레이어의 행동을 기다리는 중입니다. 아래 턴 극장과 보드에서 공개 진행 상황을 확인하세요.
                   </p>
                 </section>
               ) : null}
 
-              <IncidentCardStack items={theaterFeed} />
+              <IncidentCardStack items={theaterFeed} focusPlayerId={effectivePlayerId} />
 
               {passivePrompt ? (
                 <section className="panel passive-prompt-card">
@@ -820,8 +860,12 @@ export function App() {
               </div>
             </section>
           ) : null}
+
+          {turnBanner ? <div className="turn-notice-banner">{turnBanner.text}</div> : null}
         </>
       )}
     </main>
   );
 }
+
+

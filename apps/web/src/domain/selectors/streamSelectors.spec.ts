@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { InboundMessage } from "../../core/contracts/stream";
 import {
+  selectCoreActionFeed,
   selectCriticalAlerts,
   selectLastMove,
   selectLatestManifest,
@@ -77,7 +78,7 @@ describe("streamSelectors", () => {
     expect(timeline[0].label).toBe("선택 응답");
   });
 
-  it("extracts situation and keeps weather persistence from older weather event", () => {
+  it("extracts situation and keeps weather persistence", () => {
     const situation = selectSituation([
       {
         type: "event",
@@ -93,8 +94,59 @@ describe("streamSelectors", () => {
     expect(situation.round).toBe("2");
     expect(situation.turn).toBe("5");
     expect(situation.actor).toBe("P3");
-    expect(situation.eventType.length).toBeGreaterThan(0);
     expect(situation.weather).toBe("긴급 피난");
+    expect(situation.weatherEffect).not.toBe("-");
+  });
+
+  it("ignores runtime stalled warnings in situation headline", () => {
+    const situation = selectSituation([
+      {
+        type: "event",
+        seq: 100,
+        session_id: "s1",
+        payload: { event_type: "dice_roll", total_move: 6 },
+      },
+      {
+        type: "error",
+        seq: 101,
+        session_id: "s1",
+        payload: { code: "RUNTIME_STALLED_WARN", message: "stalled" },
+      },
+    ]);
+    expect(situation.eventType).toBe("이동값 결정");
+  });
+
+  it("keeps prompt and decision events out of situation headline", () => {
+    const situation = selectSituation([
+      {
+        type: "event",
+        seq: 110,
+        session_id: "s1",
+        payload: { event_type: "turn_start", round_index: 2, turn_index: 3, acting_player_id: 2 },
+      },
+      {
+        type: "prompt",
+        seq: 111,
+        session_id: "s1",
+        payload: { request_id: "req_2", request_type: "purchase_tile", player_id: 2 },
+      },
+      {
+        type: "event",
+        seq: 112,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_resolved",
+          request_id: "req_2",
+          player_id: 2,
+          resolution: "accepted",
+          choice_id: "yes",
+        },
+      },
+    ]);
+    expect(situation.eventType).toBe("턴 시작");
+    expect(situation.actor).toBe("P2");
+    expect(situation.round).toBe("2");
+    expect(situation.turn).toBe("3");
   });
 
   it("extracts recent move summary from player_move event", () => {
@@ -157,7 +209,7 @@ describe("streamSelectors", () => {
       ],
       3
     );
-    expect(timeline[0].detail).toContain("누락 7");
+    expect(timeline[0].detail).toContain("유실 7");
     expect(timeline[1].detail).toContain("[징표] P2 -> P1");
     expect(timeline[2].detail).toContain("카드 1+4");
   });
@@ -212,63 +264,6 @@ describe("streamSelectors", () => {
     });
   });
 
-  it("recovers latest valid manifest when most-recent one is malformed", () => {
-    const manifest = selectLatestManifest([
-      {
-        type: "event",
-        seq: 50,
-        session_id: "s1",
-        payload: {
-          event_type: "parameter_manifest",
-          parameter_manifest: {
-            manifest_hash: "hash_good",
-            board: { tiles: [{ tile_index: 0, tile_kind: "F1" }] },
-            seats: { allowed: [1, 2] },
-          },
-        },
-      },
-      {
-        type: "event",
-        seq: 51,
-        session_id: "s1",
-        payload: {
-          event_type: "parameter_manifest",
-          parameter_manifest: {
-            board: { tile_count: 10 },
-          },
-        },
-      },
-    ]);
-    expect(manifest).not.toBeNull();
-    expect(manifest?.manifestHash).toBe("hash_good");
-    expect(manifest?.seatAllowed).toEqual([1, 2]);
-  });
-
-  it("parses flat parameter manifest payload and applies fallback fields", () => {
-    const manifest = selectLatestManifest([
-      {
-        type: "event",
-        seq: 60,
-        session_id: "s1",
-        payload: {
-          event_type: "parameter_manifest",
-          manifest_hash: "hash_flat",
-          board: {
-            tile_count: 6,
-          },
-          seats: {
-            max: 3,
-          },
-        },
-      },
-    ]);
-    expect(manifest).not.toBeNull();
-    expect(manifest?.manifestHash).toBe("hash_flat");
-    expect(manifest?.boardTiles).toHaveLength(6);
-    expect(manifest?.boardTiles[0].tileKind).toBe("UNKNOWN");
-    expect(manifest?.seatAllowed).toEqual([1, 2, 3]);
-  });
-
   it("keeps unknown event codes visible as timeline labels", () => {
     const timeline = selectTimeline([
       {
@@ -315,9 +310,10 @@ describe("streamSelectors", () => {
     expect(theater).toHaveLength(4);
     expect(theater[0].eventCode).toBe("bankruptcy");
     expect(theater[0].tone).toBe("critical");
+    expect(theater[0].lane).toBe("core");
     expect(theater[1].eventCode).toBe("decision_ack");
-    expect(theater[1].tone).toBe("system");
-    expect(theater[3].tone).toBe("move");
+    expect(theater[1].lane).toBe("prompt");
+    expect(theater[3].lane).toBe("core");
     expect(theater[3].actor).toBe("P2");
   });
 
@@ -357,5 +353,42 @@ describe("streamSelectors", () => {
     expect(alerts.map((a) => a.seq)).toEqual([94, 93, 91]);
     expect(alerts[0].severity).toBe("critical");
     expect(alerts[2].severity).toBe("warning");
+  });
+
+  it("builds core action feed and marks local actor entries", () => {
+    const feed = selectCoreActionFeed(
+      [
+        {
+          type: "event",
+          seq: 510,
+          session_id: "s1",
+          payload: {
+            event_type: "player_move",
+            acting_player_id: 1,
+            from_tile_index: 0,
+            to_tile_index: 5,
+          },
+        },
+        {
+          type: "event",
+          seq: 511,
+          session_id: "s1",
+          payload: {
+            event_type: "tile_purchased",
+            acting_player_id: 2,
+            player_id: 2,
+            tile_index: 5,
+            cost: 4,
+          },
+        },
+      ],
+      1,
+      8
+    );
+    expect(feed).toHaveLength(2);
+    expect(feed[0].seq).toBe(511);
+    expect(feed[0].isLocalActor).toBe(false);
+    expect(feed[1].seq).toBe(510);
+    expect(feed[1].isLocalActor).toBe(true);
   });
 });

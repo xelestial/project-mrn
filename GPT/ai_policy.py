@@ -229,8 +229,8 @@ class BasePolicy:
         threat_targets = sorted(self._alive_enemies(state, player), key=lambda op: self._estimated_threat(state, player, op), reverse=True)
         top_threat = threat_targets[0] if threat_targets else None
         land_race = self._early_land_race_context(state, player)
-        baksu_online = is_baksu(player.current_character) and player.shards >= 5
-        manshin_online = character_name == "만신" and player.shards >= 7
+        baksu_online = is_baksu(player.current_character) and player.shards >= 6
+        manshin_online = character_name == "만신" and player.shards >= 8
         top_tags = self._predicted_opponent_archetypes(state, player, top_threat) if top_threat else set()
         exclusive_blocks = self._exclusive_blocks_owned(state, player.player_id)
         placeable = any(state.tile_owner[i] == player.player_id and state.tile_coins[i] < state.config.rules.token.max_coins_per_tile for i in player.visited_owned_tile_indices)
@@ -562,7 +562,7 @@ class BasePolicy:
                 meta += 0.22 * cleanup_pressure
                 reasons.append("v3_cleanup_anchor")
             if character_name == "박수":
-                if player.shards >= 5:
+                if player.shards >= 6:
                     combo += 0.95
                     reasons.append("v3_baksu_checkpoint")
                 elif player.shards >= 4 and burden_count > 0:
@@ -583,7 +583,7 @@ class BasePolicy:
                 if lap_ctx["fast_window"] > 0.0 or lap_ctx["double_lap_threat"] > 0.0:
                     reasons.append("v3_gakju_lap_engine")
             if character_name == "만신":
-                if player.shards >= 7:
+                if player.shards >= 8:
                     combo += 0.85
                     reasons.append("v3_manshin_checkpoint")
                 else:
@@ -694,7 +694,24 @@ class BasePolicy:
         return score, reasons
 
     def choose_trick_to_use(self, state: GameState, player: PlayerState, hand: list[TrickCard]) -> TrickCard | None:
-        raise NotImplementedError("legacy body removed; live path delegates later")
+        if not hand:
+            return None
+        priority = {
+            "건강 검진": 2.5,
+            "우대권": 2.2,
+            "무료 증정": 2.0,
+            "마당발": 1.8,
+            "극심한 분리불안": 1.7,
+            "가벼운 분리불안": 1.5,
+            "도움 닫기": 1.4,
+            "과속": 1.2,
+            "저속": 1.1,
+            "이럇!": 1.0,
+            "무거운 짐": -10.0,
+            "가벼운 짐": -9.0,
+        }
+        pick = max(hand, key=lambda card: priority.get(card.name, 0.5))
+        return pick if priority.get(pick.name, 0.5) > 0.0 else None
         supported = {
             "성물 수집가": 1.8, "건강 검진": 1.2, "우대권": 1.4, "무료 증정": 1.6,
             "신의뜻": 1.0, "가벼운 분리불안": 0.9, "극심한 분리불안": 1.2, "마당발": 1.4, "뇌고왕": 1.1, "뇌절왕": 1.3,
@@ -777,7 +794,21 @@ class BasePolicy:
         return best
 
     def choose_specific_trick_reward(self, state: GameState, player: PlayerState, choices: list[TrickCard]) -> TrickCard | None:
-        raise NotImplementedError("legacy body removed; live path delegates later")
+        if not choices:
+            return None
+        def score(card: TrickCard) -> float:
+            if card.name in {"무거운 짐", "가벼운 짐"}:
+                return -10.0
+            return {
+                "무료 증정": 4.0,
+                "우대권": 3.4,
+                "성물 수집가": 3.0,
+                "건강 검진": 2.5,
+                "극도의 느슨함 혐오자": 2.0,
+            }.get(card.name, 1.0)
+        pick = max(choices, key=score)
+        self._set_debug("trick_reward", player.player_id, {"choices": [c.name for c in choices], "chosen": pick.name})
+        return pick
         if not choices:
             return None
         def score(card: TrickCard) -> float:
@@ -793,7 +824,11 @@ class BasePolicy:
         return player.cash >= card.burden_cost
 
     def choose_hidden_trick_card(self, state: GameState, player: PlayerState, hand: list[TrickCard]) -> TrickCard | None:
-        raise NotImplementedError("legacy body removed; live path delegates later")
+        if not hand:
+            return None
+        choice_run = resolve_hidden_trick_choice_run(hand, actor_name=player.current_character)
+        self._set_debug("hide_trick", player.player_id, choice_run.debug_payload)
+        return choice_run.choice
         if not hand:
             return None
         choice_run = resolve_hidden_trick_choice_run(hand, actor_name=player.current_character)
@@ -849,6 +884,10 @@ class BasePolicy:
     ) -> bool:
         # Default keeps existing AI behavior: take the optional +1 into special tile.
         return True
+
+    def choose_pabal_dice_mode(self, state: GameState, player: PlayerState) -> str:
+        # ability1(+1 die) is the default; ability2(-1 die) is opted into by policy when desired.
+        return "plus_one"
 
     def choose_lap_reward(self, state: GameState, player: PlayerState) -> LapRewardDecision:
         raise NotImplementedError
@@ -983,9 +1022,9 @@ class BasePolicy:
             shard_score = (1.8 if actor_name in {"산적", "탐관오리", "아전"} else 0.6) + max(0.0, 0.7 * land_f * float(f_ctx["land_f_value"]))
             if actor_name == "중매꾼" and player.shards < 2:
                 shard_score += 0.80
-            if actor_name == "박수" and self._failed_mark_fallback_metrics(player, 5)[0] > 0:
+            if actor_name == "박수" and self._failed_mark_fallback_metrics(player, 6)[0] > 0:
                 shard_score += 0.35
-            if actor_name == "만신" and self._failed_mark_fallback_metrics(player, 7)[0] > 0:
+            if actor_name == "만신" and self._failed_mark_fallback_metrics(player, 8)[0] > 0:
                 shard_score += 0.20
             cash_score = 0.5 + 0.25 * max(0, 9 - player.cash)
             cash_score += 1.75 * money_distress + 2.60 * two_turn_lethal + 0.55 * controller_need + 0.36 * burden_cost + 0.95 * cleanup_cash_gap + 0.55 * latent_cleanup_cost + 0.70 * expected_cleanup_cost + 0.35 * float(survival_ctx.get("downside_expected_cleanup_cost", 0.0))
@@ -2776,9 +2815,9 @@ class HeuristicPolicy(BasePolicy):
             + 0.25 * max(0.0, float(burden_context.get("expected_cleanup_gap", 0.0)) / 4.0)
             + 0.90 * max(0.0, float(burden_context.get("cleanup_cash_gap", 0.0)) / 4.0)
         )
-        if actor_name == "박수" and player.shards >= 5:
-            checkpoint_relief = 0.52 if player.shards >= 7 else 0.68
-            hazard_score = max(0.0, hazard_score - (0.55 if player.shards < 7 else 0.95))
+        if actor_name == "박수" and player.shards >= 6:
+            checkpoint_relief = 0.52 if player.shards >= 8 else 0.68
+            hazard_score = max(0.0, hazard_score - (0.55 if player.shards < 8 else 0.95))
             cleanup_distress *= checkpoint_relief
         money_distress = (
             0.65 * reserve_gap
@@ -2853,8 +2892,8 @@ class HeuristicPolicy(BasePolicy):
         worst_cleanup_cost = float(survival_ctx.get("worst_cleanup_cost", 0.0))
         active_cleanup_cost = float(survival_ctx.get("active_cleanup_cost", 0.0))
         money_distress = float(survival_ctx.get("money_distress", 0.0))
-        baksu_online = is_baksu(player.current_character) and player.shards >= 5
-        baksu_stable = is_baksu(player.current_character) and player.shards >= 7
+        baksu_online = is_baksu(player.current_character) and player.shards >= 6
+        baksu_stable = is_baksu(player.current_character) and player.shards >= 8
         if baksu_online:
             own_burdens = max(0.0, own_burdens - (2.0 if baksu_stable else 1.0))
             latent_cleanup_cost *= 0.55 if baksu_stable else 0.72
@@ -2894,7 +2933,7 @@ class HeuristicPolicy(BasePolicy):
                 return "cleanup_downside_floor"
         if latent_cleanup_cost >= max(8.0, reserve + 3.0) and remaining_cash < reserve + 3.0:
             return "latent_cleanup_floor"
-        distress_buffer = reserve + (1.5 if (is_baksu(player.current_character) and player.shards >= 7) else 2.5 if (is_baksu(player.current_character) and player.shards >= 5) else 4.0)
+        distress_buffer = reserve + (1.5 if (is_baksu(player.current_character) and player.shards >= 8) else 2.5 if (is_baksu(player.current_character) and player.shards >= 6) else 4.0)
         if (money_distress >= 1.0 or two_turn_lethal_prob >= 0.18) and remaining_cash < distress_buffer:
             return "distress_operating_floor"
         if worst_cleanup_cost >= max(16.0, reserve + 6.0) and remaining_cash < reserve + 5.0:
@@ -3143,18 +3182,18 @@ class HeuristicPolicy(BasePolicy):
         own_burden_cost = float(survival_ctx.get("own_burden_cost", 0.0))
         if character_name == "박수" and own_burden_cost > 0.0:
             bonus = 1.20 + 0.35 * own_burden_cost + 0.55 * min(3.0, burden_cleanup_gap) + 0.30 * float(survival_ctx.get("public_cleanup_active", 0.0))
-            if player.shards >= 5:
+            if player.shards >= 6:
                 bonus += 1.60
             elif player.shards < 5:
                 bonus -= 0.95 + 0.12 * max(0, 5 - player.shards)
-            removed, payout = self._failed_mark_fallback_metrics(player, 5)
+            removed, payout = self._failed_mark_fallback_metrics(player, 6)
             if removed > 0:
                 bonus += 0.55 * removed + 0.12 * payout
             adjustment += bonus
             reasons.append(f"burden_escape_value={bonus:.2f}")
         if character_name == "만신" and own_burden_cost > 0.0:
             bonus = 0.80 + 0.22 * own_burden_cost + 0.35 * min(3.0, burden_cleanup_gap)
-            removed, payout = self._failed_mark_fallback_metrics(player, 7)
+            removed, payout = self._failed_mark_fallback_metrics(player, 8)
             if removed > 0:
                 bonus += 0.45 * removed + 0.10 * payout
             adjustment += bonus
@@ -3560,14 +3599,14 @@ class HeuristicPolicy(BasePolicy):
                 score += lap_burst
                 reasons.append("lap_engine_window")
         if character_name == "박수" and own_burden >= 1:
-            removed, payout = self._failed_mark_fallback_metrics(player, 5)
+            removed, payout = self._failed_mark_fallback_metrics(player, 6)
             score += 1.7 + 1.20 * own_burden + 0.55 * cleanup_pressure + 0.45 * removed + 0.10 * payout
             reasons.append("future_burden_escape")
             if legal_low_cash_targets > 0:
                 score += 0.35 * legal_low_cash_targets
                 reasons.append("burden_dump_fragile_target")
         if character_name == "만신" and legal_visible_burden_total > 0:
-            removed, payout = self._failed_mark_fallback_metrics(player, 7)
+            removed, payout = self._failed_mark_fallback_metrics(player, 8)
             score += 1.4 + 1.15 * legal_visible_burden_total + 0.35 * legal_visible_burden_peak + 0.35 * removed + 0.08 * payout
             reasons.append("public_burden_cleanup")
             if legal_low_cash_targets > 0:
@@ -4005,8 +4044,8 @@ class HeuristicPolicy(BasePolicy):
                         not cleanup_strategy.growth_locked
                         and (
                             player.current_character not in {"박수", "만신"}
-                            or (is_baksu(player.current_character) and player.shards >= 5)
-                            or (is_mansin(player.current_character) and player.shards >= 7)
+                            or (is_baksu(player.current_character) and player.shards >= 6)
+                            or (is_mansin(player.current_character) and player.shards >= 8)
                         )
                     ):
                         preferred_override = "coins"
@@ -5087,6 +5126,16 @@ class HeuristicPolicy(BasePolicy):
     def choose_movement(self, state: GameState, player: PlayerState) -> MovementDecision:
         return choose_movement_runtime(self, state, player)
 
+    def choose_pabal_dice_mode(self, state: GameState, player: PlayerState) -> str:
+        if player.shards < 8:
+            return "plus_one"
+        survival_ctx = self._generic_survival_context(state, player, player.current_character)
+        reserve_gap = float(survival_ctx.get("reserve_gap", 0.0))
+        money_distress = float(survival_ctx.get("money_distress", 0.0))
+        if reserve_gap > 0.0 or money_distress >= 1.0 or player.cash <= 8:
+            return "minus_one"
+        return "plus_one"
+
     def choose_draft_card(self, state: GameState, player: PlayerState, offered_cards: list[int]) -> int:
         return choose_draft_card_runtime(self, state, player, offered_cards)
 
@@ -5164,6 +5213,9 @@ class ArenaPolicy:
 
     def choose_movement(self, state: GameState, player: PlayerState):
         return self._policy_for_player(player).choose_movement(state, player)
+
+    def choose_pabal_dice_mode(self, state: GameState, player: PlayerState) -> str:
+        return self._policy_for_player(player).choose_pabal_dice_mode(state, player)
 
     def choose_runaway_slave_step(
         self,

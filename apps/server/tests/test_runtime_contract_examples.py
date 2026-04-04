@@ -97,7 +97,45 @@ class RuntimeContractExampleTests(unittest.TestCase):
             example = _load_json(examples / example_name)
             _validate_subset(example, schema, path=f"$<{example_name}>")
 
+    def test_ws_decision_event_sequences_validate_and_keep_order(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        event_schema = _load_json(root / "schemas" / "inbound.event.schema.json")
+
+        sequence_specs: list[tuple[str, list[str]]] = [
+            (
+                "sequence.decision.accepted_then_domain.json",
+                ["decision_requested", "decision_resolved", "player_move"],
+            ),
+            (
+                "sequence.decision.timeout_then_domain.json",
+                ["decision_requested", "decision_resolved", "decision_timeout_fallback", "turn_end_snapshot"],
+            ),
+        ]
+
+        for filename, expected_order in sequence_specs:
+            sequence = _load_json(root / "examples" / filename)
+            assert isinstance(sequence, list), f"{filename}: expected top-level array"
+            assert len(sequence) >= len(expected_order), f"{filename}: expected at least {len(expected_order)} events"
+
+            event_types: list[str] = []
+            seqs: list[int] = []
+            for idx, message in enumerate(sequence):
+                assert isinstance(message, dict), f"{filename}[{idx}]: expected object message"
+                _validate_subset(message, event_schema, path=f"$<{filename}>[{idx}]")
+                payload = message.get("payload")
+                assert isinstance(payload, dict), f"{filename}[{idx}].payload: expected object"
+                event_type = payload.get("event_type")
+                assert isinstance(event_type, str), f"{filename}[{idx}].payload.event_type: expected string"
+                event_types.append(event_type)
+                seq = message.get("seq")
+                assert isinstance(seq, int), f"{filename}[{idx}].seq: expected integer"
+                seqs.append(seq)
+
+            assert seqs == sorted(seqs), f"{filename}: expected non-decreasing seq ordering"
+            assert event_types == expected_order, (
+                f"{filename}: expected event order {expected_order!r}, got {event_types!r}"
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
-

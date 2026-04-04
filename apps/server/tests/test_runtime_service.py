@@ -241,6 +241,168 @@ class RuntimeServiceTests(unittest.TestCase):
                 loop,
             ).result(timeout=2.0)
             self.assertTrue(any(msg.type == "prompt" and msg.payload.get("request_id") == "bridge_req_1" for msg in published))
+            bridge_events = [
+                msg
+                for msg in published
+                if msg.type == "event" and msg.payload.get("request_id") == "bridge_req_1"
+            ]
+            requested = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_requested"), None)
+            resolved = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_resolved"), None)
+            resolved_all = [msg for msg in bridge_events if msg.payload.get("event_type") == "decision_resolved"]
+            self.assertIsNotNone(requested)
+            self.assertIsNotNone(resolved)
+            self.assertEqual(len(resolved_all), 1)
+            self.assertLess(requested.seq, resolved.seq)
+            self.assertEqual(resolved.payload.get("resolution"), "accepted")
+            self.assertEqual(resolved.payload.get("choice_id"), "roll")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_human_bridge_timeout_path_emits_resolved_before_timeout_event(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerHumanPolicyBridge(
+                session_id="sess_bridge_timeout",
+                human_seats=[0],
+                ai_fallback=object(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+            )
+
+            result: dict[str, str] = {}
+
+            def _run_wait() -> None:
+                result["choice"] = bridge._inner._ask(  # type: ignore[attr-defined]
+                    {
+                        "request_id": "bridge_timeout_1",
+                        "request_type": "movement",
+                        "player_id": 1,
+                        "timeout_ms": 50,
+                        "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                        "fallback_policy": "timeout_fallback",
+                        "fallback_choice_id": "roll",
+                        "public_context": {"round_index": 1, "turn_index": 1},
+                    },
+                    lambda response: str(response.get("choice_id", "")),
+                    lambda: "fallback",
+                )
+
+            wait_thread = threading.Thread(target=_run_wait, daemon=True)
+            wait_thread.start()
+            wait_thread.join(timeout=2.0)
+            self.assertEqual(result.get("choice"), "fallback")
+
+            published = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot("sess_bridge_timeout"),
+                loop,
+            ).result(timeout=2.0)
+            bridge_events = [
+                msg
+                for msg in published
+                if msg.type == "event" and msg.payload.get("request_id") == "bridge_timeout_1"
+            ]
+            requested = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_requested"), None)
+            resolved = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_resolved"), None)
+            resolved_all = [msg for msg in bridge_events if msg.payload.get("event_type") == "decision_resolved"]
+            timeout_event = next(
+                (msg for msg in bridge_events if msg.payload.get("event_type") == "decision_timeout_fallback"),
+                None,
+            )
+            self.assertIsNotNone(requested)
+            self.assertIsNotNone(resolved)
+            self.assertEqual(len(resolved_all), 1)
+            self.assertIsNotNone(timeout_event)
+            self.assertLess(requested.seq, resolved.seq)
+            self.assertLess(resolved.seq, timeout_event.seq)
+            self.assertEqual(resolved.payload.get("resolution"), "timeout_fallback")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_human_bridge_parser_error_emits_single_parser_fallback_resolution(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerHumanPolicyBridge(
+                session_id="sess_bridge_parser_fallback",
+                human_seats=[0],
+                ai_fallback=object(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+            )
+
+            result: dict[str, str] = {}
+
+            def _run_wait() -> None:
+                result["choice"] = bridge._inner._ask(  # type: ignore[attr-defined]
+                    {
+                        "request_id": "bridge_parser_1",
+                        "request_type": "movement",
+                        "player_id": 1,
+                        "timeout_ms": 2000,
+                        "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                        "fallback_policy": "timeout_fallback",
+                        "public_context": {"round_index": 1, "turn_index": 2},
+                    },
+                    lambda _response: (_ for _ in ()).throw(ValueError("parser failure")),
+                    lambda: "fallback",
+                )
+
+            wait_thread = threading.Thread(target=_run_wait, daemon=True)
+            wait_thread.start()
+
+            pending_ready = False
+            for _ in range(100):
+                with self.prompt_service._lock:  # type: ignore[attr-defined]
+                    pending_ready = "bridge_parser_1" in self.prompt_service._pending  # type: ignore[attr-defined]
+                if pending_ready:
+                    break
+                time.sleep(0.01)
+            self.assertTrue(pending_ready)
+
+            decision_state = self.prompt_service.submit_decision(
+                {
+                    "request_id": "bridge_parser_1",
+                    "player_id": 1,
+                    "choice_id": "roll",
+                }
+            )
+            self.assertEqual(decision_state["status"], "accepted")
+            wait_thread.join(timeout=2.0)
+            self.assertEqual(result.get("choice"), "fallback")
+
+            published = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot("sess_bridge_parser_fallback"),
+                loop,
+            ).result(timeout=2.0)
+            bridge_events = [
+                msg
+                for msg in published
+                if msg.type == "event" and msg.payload.get("request_id") == "bridge_parser_1"
+            ]
+            requested = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_requested"), None)
+            resolved_all = [msg for msg in bridge_events if msg.payload.get("event_type") == "decision_resolved"]
+            self.assertIsNotNone(requested)
+            self.assertEqual(len(resolved_all), 1)
+            self.assertEqual(resolved_all[0].payload.get("resolution"), "parser_error_fallback")
+            self.assertEqual(resolved_all[0].payload.get("choice_id"), "roll")
+            self.assertLess(requested.seq, resolved_all[0].seq)
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)

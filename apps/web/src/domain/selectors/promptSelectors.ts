@@ -71,17 +71,26 @@ export function selectActivePrompt(messages: InboundMessage[]): PromptViewModel 
 
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
-    if (message.type !== "decision_ack") {
+    if (message.type === "decision_ack") {
+      if (message.payload["request_id"] !== requestId) {
+        continue;
+      }
+      const status = message.payload["status"];
+      if (status === "accepted" || status === "stale") {
+        return null;
+      }
+      break;
+    }
+    if (message.type !== "event") {
       continue;
     }
     if (message.payload["request_id"] !== requestId) {
       continue;
     }
-    const status = message.payload["status"];
-    if (status === "accepted" || status === "stale") {
+    const eventType = message.payload["event_type"];
+    if (eventType === "decision_resolved" || eventType === "decision_timeout_fallback") {
       return null;
     }
-    break;
   }
 
   const playerId = promptMessage.payload["player_id"];

@@ -2159,9 +2159,9 @@ def choose_geo_bonus_runtime(policy: Any, state: Any, player: Any, actor_name: s
         )
         if actor_name == CARD_TO_NAMES[7][1] and player.shards < 2:
             shard_score += 0.80
-        if is_baksu(actor_name) and policy._failed_mark_fallback_metrics(player, 5)[0] > 0:
+        if is_baksu(actor_name) and policy._failed_mark_fallback_metrics(player, 6)[0] > 0:
             shard_score += 0.35
-        if is_mansin(actor_name) and policy._failed_mark_fallback_metrics(player, 7)[0] > 0:
+        if is_mansin(actor_name) and policy._failed_mark_fallback_metrics(player, 8)[0] > 0:
             shard_score += 0.20
         cash_score = 0.5 + 0.25 * max(0, 9 - player.cash)
         cash_score += (
@@ -2629,3 +2629,177 @@ def choose_lap_reward_runtime(policy: Any, state: Any, player: Any) -> Any:
         preferred=preferred,
     )
     return decision
+
+
+# NOTE:
+# This module previously contained mojibake-corrupted card labels in trick-choice paths.
+# Keep the latest definitions at file end so runtime always resolves to canonical Korean labels.
+def choose_trick_to_use_runtime(policy: Any, state: Any, player: Any, hand: list[Any]) -> Any:
+    supported = {
+        "성물 수집가": 1.8,
+        "건강 검진": 1.2,
+        "우대권": 1.4,
+        "무료 증정": 1.6,
+        "신의뜻": 1.0,
+        "가벼운 분리불안": 0.9,
+        "극심한 분리불안": 1.2,
+        "마당발": 1.4,
+        "뇌고왕": 1.1,
+        "뇌절왕": 1.3,
+        "재뿌리기": 1.2,
+        "긴장감 조성": 1.3,
+        "무역의 선물": 1.0,
+        "도움 닫기": 1.1,
+        "번뜩임": 0.8,
+        "느슨함 혐오자": 0.9,
+        "극도의 느슨함 혐오자": 1.5,
+        "과속": 0.8,
+        "저속": 0.3,
+        "이럇!": 0.7,
+        "아주 큰 화목 난로": 1.0,
+        "거대한 산불": 1.3,
+        "무거운 짐": -0.6,
+        "가벼운 짐": -0.3,
+    }
+    survival_ctx = policy._generic_survival_context(state, player, player.current_character)
+    decisive_ctx = policy._trick_decisive_context(state, player, survival_ctx)
+    intent = policy._current_player_intent(state, player, player.current_character)
+
+    def score(card: Any) -> float:
+        immediate_cost = policy._predict_trick_cash_cost(card)
+        if immediate_cost > 0.0 and not policy._is_action_survivable(
+            state,
+            player,
+            immediate_cost=immediate_cost,
+            survival_ctx=survival_ctx,
+            buffer=0.5,
+        ):
+            return -999.0
+        if immediate_cost > 0.0:
+            post_cash = float(player.cash) - float(immediate_cost)
+            hard_reason = policy._survival_hard_guard_reason(state, player, survival_ctx, post_action_cash=post_cash)
+            if hard_reason is not None and float(decisive_ctx.get("strategic_mode", 0.0)) < 1.0:
+                return -998.0
+        value = supported.get(card.name, -99.0)
+        if card.name == "무료 증정" and player.cash >= 3:
+            value += 0.6
+        if card.name == "과속" and player.cash >= 2:
+            value += 0.4
+        if card.name == "저속":
+            value += 0.2 if player.cash < 6 else -0.5
+        if card.name == "재뿌리기":
+            value += 0.4 if any(
+                state.tile_owner[i] not in {None, player.player_id}
+                for i in range(len(state.board))
+                if state.tile_at(i).purchase_cost is not None
+            ) else -1.0
+        if card.name == "긴장감 조성":
+            value += 0.5 if player.tiles_owned > 0 else -1.0
+        if card.name == "무역의 선물":
+            value += 0.4 if player.tiles_owned > 0 and any(
+                own is not None and own != player.player_id for own in state.tile_owner
+            ) else -1.0
+        if card.name in {"무거운 짐", "가벼운 짐"}:
+            value = -1.0
+        value += policy._trick_survival_adjustment(state, player, card, survival_ctx)
+        own_burdens = float(survival_ctx.get("own_burdens", 0.0))
+        next_neg = float(survival_ctx.get("next_draw_negative_cleanup_prob", 0.0))
+        two_neg = float(survival_ctx.get("two_draw_negative_cleanup_prob", 0.0))
+        if own_burdens >= 2.0 and (next_neg >= 0.10 or two_neg >= 0.22):
+            if card.name not in {"건강 검진", "우대권", "뇌고왕", "저속", "도움 닫기", "신의뜻"}:
+                value -= 1.8
+            if immediate_cost > 0.0:
+                value -= 1.1
+        elif own_burdens >= 1.0 and next_neg >= 0.10 and immediate_cost > 0.0:
+            value -= 0.8
+        value += policy._trick_decisive_adjustment(state, player, card, survival_ctx, decisive_ctx)
+        value += policy._trick_preserve_adjustment(state, player, card, hand, survival_ctx, decisive_ctx)
+        value += apply_trick_preserve_rules(
+            card_name=card.name,
+            actor_name=player.current_character,
+            hand_names={c.name for c in hand},
+            rounds_completed=int(getattr(state, "round_index", 0)),
+            strategic_mode=float(decisive_ctx.get("strategic_mode", 0.0)),
+            intent=intent,
+            survival_urgency=float(survival_ctx.get("survival_urgency", 0.0)),
+            cleanup_cash_gap=float(survival_ctx.get("cleanup_cash_gap", 0.0)),
+            has_relic_collector_window=False,
+            has_help_run_window=False,
+            has_neojeol_chain_window=False,
+            short_range_frontier_is_better=False,
+        )
+        if policy._profile_from_mode() == "v3_gpt" and card.name in {"성물 수집가", "도움 닫기"}:
+            return -999.0
+        return value
+
+    resolution = resolve_trick_use_choice(hand, scorer=score)
+    policy._set_debug(
+        "trick_use",
+        player.player_id,
+        _payload_with_trace(
+            build_trick_use_debug_payload(
+                score_map=resolution.score_map,
+                chosen_name=None if resolution.choice is None else resolution.choice.name,
+                generic_survival_score=survival_ctx["generic_survival_score"],
+                survival_urgency=survival_ctx["survival_urgency"],
+                strategic_mode=decisive_ctx["strategic_mode"],
+            ),
+            _build_trick_use_trace(
+                hand=list(hand),
+                resolution=resolution,
+                generic_survival_score=float(survival_ctx["generic_survival_score"]),
+                survival_urgency=float(survival_ctx["survival_urgency"]),
+                strategic_mode=float(decisive_ctx["strategic_mode"]),
+                intent=intent,
+            ),
+        ),
+    )
+    return resolution.choice
+
+
+def choose_specific_trick_reward_runtime(policy: Any, state: Any, player: Any, choices: list[Any]) -> Any:
+    if not choices:
+        return None
+    survival_ctx = policy._generic_survival_context(state, player, player.current_character)
+
+    def score(card: Any) -> float:
+        if getattr(card, "is_burden", False):
+            return -10.0
+        immediate_cost = policy._predict_trick_cash_cost(card)
+        if immediate_cost > 0.0 and not policy._is_action_survivable(
+            state,
+            player,
+            immediate_cost=immediate_cost,
+            survival_ctx=survival_ctx,
+            buffer=0.5,
+        ):
+            return -999.0
+        base = {
+            "무료 증정": 4.0,
+            "우대권": 3.4,
+            "성물 수집가": 3.0,
+            "건강 검진": 2.5,
+            "극도의 느슨함 혐오자": 2.0,
+        }.get(card.name, 1.0)
+        return base + policy._trick_survival_adjustment(state, player, card, survival_ctx)
+
+    choice_run = resolve_trick_reward_choice_run(
+        choices=choices,
+        scorer=score,
+        generic_survival_score=survival_ctx["generic_survival_score"],
+        survival_urgency=survival_ctx["survival_urgency"],
+    )
+    policy._set_debug(
+        "trick_reward",
+        player.player_id,
+        _payload_with_trace(
+            choice_run.debug_payload,
+            _build_trick_reward_trace(
+                choices=list(choices),
+                choice_run=choice_run,
+                generic_survival_score=float(survival_ctx["generic_survival_score"]),
+                survival_urgency=float(survival_ctx["survival_urgency"]),
+            ),
+        ),
+    )
+    return choice_run.choice
