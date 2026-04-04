@@ -3,6 +3,16 @@
 ## Purpose
 This file is the current status index for documents under `PLAN/`.
 
+Operational quick-reference:
+- Next-work priority board:
+  - `PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
+- Mandatory principles + required reading order:
+  - `docs/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
+- Automated guardrail:
+  - `.github/workflows/plan-policy-gate.yml`
+  - `tools/encoding_gate.py`
+  - `tools/plan_policy_gate.py`
+
 Use it to answer:
 - which plans are still active
 - which plans are complete milestone records
@@ -301,6 +311,20 @@ Practical implications:
     - non-local turn theater continuity and movement visibility
     - weather persistence per round context
     - no raw JSON in default user-facing recent-events area
+
+### 1O. Game Rules Alignment Audit And Fix
+- File: `PLAN/[PLAN]_GAME_RULES_ALIGNMENT_AUDIT_AND_FIX_PLAN.md`
+- Status: `ACTIVE`
+- Role: align engine/server/web behavior with latest canonical rules document
+- Notes:
+  - primary rule source: `docs/Game-Rules.md`
+  - focuses on rule-semantic drift closure across:
+    - `mark_target` (character-target semantics)
+    - `active_flip` trigger/timing and multi-flip loop
+    - runaway-slave optional movement decision path
+    - lap-reward result visibility and weather-effect persistence
+  - adds explicit anti-regression mapping:
+    - rule item -> payload contract -> UI rendering -> test case
 
 ### 2. Turn Advantage Analysis
 - File: `PLAN/GPT_TURN_ADVANTAGE_ANALYSIS_PLAN.md`

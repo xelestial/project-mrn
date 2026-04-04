@@ -1,0 +1,26 @@
+name: plan-policy-gate
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  pull_request:
+
+jobs:
+  policy-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Encoding gate (UTF-8 / no BOM)
+        run: python tools/encoding_gate.py
+
+      - name: Mandatory plan/policy gate
+        run: python tools/plan_policy_gate.py
