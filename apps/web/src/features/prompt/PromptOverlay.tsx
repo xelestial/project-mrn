@@ -114,6 +114,20 @@ function formatNumber(value: number | null): string {
   return value === null ? "-" : String(value);
 }
 
+function playerLabel(playerId: number): string {
+  return `P${playerId}`;
+}
+
+function promptMetaLine(playerId: number, timeoutMs: number, secondsLeft: number | null): string {
+  const totalSeconds = Math.ceil(timeoutMs / 1000);
+  const remaining = secondsLeft ?? "-";
+  return `${playerLabel(playerId)} / ${totalSeconds}s / ${remaining}s left`;
+}
+
+function collapsedPromptChip(label: string, secondsLeft: number | null): string {
+  return `Decision: ${label} / ${secondsLeft ?? "-"}s left`;
+}
+
 function movementChoices(prompt: PromptViewModel): MovementChoiceParts {
   let rollChoice: PromptChoiceViewModel | null = null;
   const cardChoices: Array<{ cards: number[]; choice: PromptChoiceViewModel }> = [];
@@ -284,7 +298,10 @@ function normalizeChoiceText(
     const pos = asNumber(prompt.publicContext["pos"]);
     const cost = asNumber(prompt.publicContext["cost"]);
     if (choice.choiceId === "yes") {
-      return { title: promptText.choice.buyTileTitle, description: promptText.choice.buyTile(pos, cost) };
+      return {
+        title: promptText.choice.buyTileTitle,
+        description: pos !== null && cost !== null ? `Tile ${pos + 1} / cost ${cost}` : "Buy the tile you landed on.",
+      };
     }
     if (choice.choiceId === "no") {
       return { title: promptText.choice.skipPurchaseTitle, description: promptText.choice.skipPurchase };
@@ -442,11 +459,11 @@ export function PromptOverlay({
   const movementPosition = numberFromContext(prompt.publicContext, "player_position", "pos");
 
   if (collapsed) {
-    return (
-      <button type="button" className="prompt-floating-chip" onClick={onToggleCollapse}>
-        {promptText.collapsedChip(promptLabel, secondsLeft)}
-      </button>
-    );
+        return (
+          <button type="button" className="prompt-floating-chip" onClick={onToggleCollapse}>
+            {collapsedPromptChip(promptLabel, secondsLeft)}
+          </button>
+        );
   }
 
   const overlay = (
@@ -820,7 +837,7 @@ export function PromptOverlay({
         </div>
 
         <div className="prompt-footer">
-          <p className="prompt-meta">{promptText.requestMeta(prompt.requestId, prompt.playerId, prompt.timeoutMs, secondsLeft)}</p>
+          <p className="prompt-meta">{promptMetaLine(prompt.playerId, prompt.timeoutMs, secondsLeft)}</p>
           {feedbackMessage ? <p className="notice err">{cleanDisplayText(feedbackMessage)}</p> : null}
           {busy ? (
             <p className="notice ok">

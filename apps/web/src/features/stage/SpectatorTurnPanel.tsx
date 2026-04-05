@@ -17,6 +17,17 @@ function joinVisible(parts: string[]): string {
   return visible.length > 0 ? visible.join(" / ") : "-";
 }
 
+function hasValue(value: string): boolean {
+  return value.trim() !== "" && value.trim() !== "-";
+}
+
+type SpotlightCard = {
+  key: string;
+  title: string;
+  detail: string;
+  tone: "economy" | "effect";
+};
+
 export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: SpectatorTurnPanelProps) {
   const { app } = useI18n();
   const title = actorPlayerId === null ? app.spectatorHeadline : app.spectatorTitle(actorPlayerId);
@@ -25,6 +36,19 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
   const latestActionDetail = latestAction?.detail?.trim() ? latestAction.detail : "-";
   const economyText = joinVisible([model.purchaseSummary, model.rentSummary]);
   const effectText = joinVisible([model.trickSummary, model.fortuneSummary]);
+  const spotlightCards: SpotlightCard[] = [];
+  if (hasValue(model.purchaseSummary)) {
+    spotlightCards.push({ key: "purchase", title: app.spectatorFields.economy, detail: model.purchaseSummary, tone: "economy" });
+  }
+  if (hasValue(model.rentSummary)) {
+    spotlightCards.push({ key: "rent", title: app.spectatorFields.economy, detail: model.rentSummary, tone: "economy" });
+  }
+  if (hasValue(model.fortuneSummary)) {
+    spotlightCards.push({ key: "fortune", title: app.spectatorFields.effect, detail: model.fortuneSummary, tone: "effect" });
+  }
+  if (hasValue(model.trickSummary)) {
+    spotlightCards.push({ key: "trick", title: app.spectatorFields.effect, detail: model.trickSummary, tone: "effect" });
+  }
 
   return (
     <section className="panel spectator-turn-panel" data-testid="spectator-turn-panel">
@@ -79,6 +103,17 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
           <strong>{valueOrDash(effectText)}</strong>
         </article>
       </div>
+
+      {spotlightCards.length > 0 ? (
+        <div className="spectator-turn-spotlight" data-testid="spectator-turn-spotlight">
+          {spotlightCards.map((card) => (
+            <article key={card.key} className={`spectator-turn-spotlight-card spectator-turn-spotlight-card-${card.tone}`}>
+              <span>{card.title}</span>
+              <strong>{valueOrDash(card.detail)}</strong>
+            </article>
+          ))}
+        </div>
+      ) : null}
 
       <div className="spectator-turn-progress" data-testid="spectator-turn-progress">
         <span>{app.spectatorFields.progress}</span>

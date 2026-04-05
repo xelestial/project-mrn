@@ -36,12 +36,19 @@ function isSceneCard(card: SceneCard | null): card is SceneCard {
   return card !== null;
 }
 
+function hasOutcome(summary: string): boolean {
+  return hasMeaningfulValue(summary);
+}
+
 export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnStagePanelProps) {
   const { turnStage } = useI18n();
   const actorHeadline =
     model.actor !== "-" ? turnStage.actorHeadline(model.actor) : turnStage.actorWaiting;
   const roundTurn = `R${model.round ?? "-"} / T${model.turn ?? "-"}`;
   const sceneCardCandidates: Array<SceneCard | null> = [
+    hasMeaningfulValue(model.promptSummary)
+      ? { key: "prompt", label: turnStage.fields.beat, value: model.promptSummary, tone: "effect" }
+      : null,
     hasMeaningfulValue(model.moveSummary)
       ? { key: "move", label: turnStage.fields.move, value: model.moveSummary, tone: "move" }
       : null,
@@ -59,6 +66,19 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
       : null,
   ];
   const sceneCards = sceneCardCandidates.filter(isSceneCard);
+  const outcomeCards: SceneCard[] = [];
+  if (hasOutcome(model.purchaseSummary)) {
+    outcomeCards.push({ key: "purchase-outcome", label: turnStage.fields.purchase, value: model.purchaseSummary, tone: "economy" });
+  }
+  if (hasOutcome(model.rentSummary)) {
+    outcomeCards.push({ key: "rent-outcome", label: turnStage.fields.rent, value: model.rentSummary, tone: "economy" });
+  }
+  if (hasOutcome(model.fortuneSummary)) {
+    outcomeCards.push({ key: "fortune-outcome", label: turnStage.fields.fortune, value: model.fortuneSummary, tone: "effect" });
+  }
+  if (hasOutcome(model.trickSummary)) {
+    outcomeCards.push({ key: "trick-outcome", label: turnStage.fields.trick, value: model.trickSummary, tone: "effect" });
+  }
 
   return (
     <section className="panel turn-stage-panel">
@@ -162,8 +182,26 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
               <span>{turnStage.currentBeatBadge}</span>
             </div>
             <div className="turn-stage-scene-list">
-              {sceneCards.map((card) => (
+              {sceneCards.map((card, index) => (
                 <div key={card.key} className={`turn-stage-scene-card turn-stage-scene-card-${card.tone}`}>
+                  <span className="turn-stage-scene-index">0{index + 1}</span>
+                  <span>{card.label}</span>
+                  <strong>{valueOrDash(card.value)}</strong>
+                </div>
+              ))}
+            </div>
+          </article>
+        ) : null}
+
+        {outcomeCards.length > 0 ? (
+          <article className="turn-stage-card turn-stage-card-wide turn-stage-outcome-strip" data-testid="turn-stage-outcome-strip">
+            <div className="turn-stage-card-top">
+              <strong>{turnStage.cardEffectTitle}</strong>
+              <span>{turnStage.cardEffectBadge}</span>
+            </div>
+            <div className="turn-stage-outcome-list">
+              {outcomeCards.map((card) => (
+                <div key={card.key} className={`turn-stage-outcome-card turn-stage-outcome-card-${card.tone}`}>
                   <span>{card.label}</span>
                   <strong>{valueOrDash(card.value)}</strong>
                 </div>

@@ -574,3 +574,49 @@ This order is chosen to stop further drift before additional feature edits.
   - stronger pawn/path animation instead of static path-step badges only
   - more theatrical fortune / purchase / rent staging after the route completes
   - continued prompt-surface cleanup so local choices feel less like an inspector
+
+## 2026-04-06 Ordered Turn-Journey Follow-up
+
+- The turn-stage scene strip now includes prompt/decision state in the same ordered lane as:
+  - move
+  - landing
+  - purchase
+  - rent
+  - fortune
+- Scene steps are now explicitly numbered, so observers can read the turn as a sequence instead of a loose group of cards.
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - stronger pawn/path animation instead of static emphasis only
+  - more theatrical fortune / purchase / rent resolution cards
+  - continued cleanup of residual prompt metadata weight
+
+## 2026-04-06 Outcome-Card Staging Follow-up
+
+- The live React client now gives purchase / rent / fortune / trick outcomes their own dedicated scene surfaces:
+  - `TurnStagePanel` now exposes a dedicated outcome strip
+  - `SpectatorTurnPanel` now exposes a spotlight row for public economy/effect outcomes
+  - `CoreActionPanel` now exposes a dedicated latest-result card for economy/effect beats
+- Prompt HUD wording was also shortened again at the component layer so collapsed/local prompt state reads less like transport metadata.
+- Browser parity now explicitly locks:
+  - `spectator-turn-spotlight`
+  - `core-action-result-card`
+  - `turn-stage-outcome-strip`
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - stronger pawn/path animation instead of static path badges and pulse only
+  - fuller live fortune / weather reveal treatment as scene beats, not only summary cards
+  - more reduction of residual inspector feel in movement / reward / mark prompt surfaces
+
+## 2026-04-06 Move-Trail Wave Follow-up
+
+- The board now gives recent move-path tiles a staggered pulse instead of only a static badge.
+- `BoardPanel` now passes path-step order through to CSS.
+- `styles.css` now animates:
+  - intermediate move-trail tiles
+  - path-step badges
+  with step-based delays so the route reads left-to-right / start-to-end more naturally.
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - true pawn interpolation or equivalent stronger route animation
+  - fuller fortune / weather reveal staging as dedicated scene beats
+  - continued simplification of movement / reward / target prompt surfaces

@@ -408,6 +408,45 @@ body {
   color: #dbe8ff;
 }
 
+.spectator-turn-spotlight {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.spectator-turn-spotlight-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(76, 114, 177, 0.72);
+  background: rgba(15, 26, 49, 0.84);
+}
+
+.spectator-turn-spotlight-card span {
+  color: #9db5df;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.spectator-turn-spotlight-card strong {
+  color: #ffffff;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.spectator-turn-spotlight-card-economy {
+  border-color: rgba(255, 218, 119, 0.78);
+  background: linear-gradient(180deg, rgba(255, 218, 119, 0.08), rgba(15, 26, 49, 0.92));
+}
+
+.spectator-turn-spotlight-card-effect {
+  border-color: rgba(134, 239, 172, 0.72);
+  background: linear-gradient(180deg, rgba(134, 239, 172, 0.08), rgba(15, 26, 49, 0.92));
+}
+
 .board-scroll {
   overflow: auto;
   width: 100%;
@@ -626,6 +665,8 @@ body {
 .tile-move-trail {
   border-color: rgba(125, 211, 252, 0.76);
   box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.28) inset;
+  animation: tileMoveTrailPulse 1.3s ease-in-out infinite;
+  animation-delay: calc(var(--path-step-order, 1) * 90ms);
 }
 
 .tile-move-has-path::after {
@@ -677,6 +718,8 @@ body {
   font-size: 11px;
   font-weight: 800;
   box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+  animation: pathStepBadgePulse 1.3s ease-in-out infinite;
+  animation-delay: calc(var(--path-step-order, 1) * 90ms);
 }
 
 .tile-fortune .tile-special-center,
@@ -760,6 +803,30 @@ body {
   50% {
     transform: translateY(-1px) scale(1.07);
     box-shadow: 0 0 0 4px rgba(255, 218, 119, 0.55), 0 10px 18px rgba(0, 0, 0, 0.3);
+  }
+}
+
+@keyframes tileMoveTrailPulse {
+  0%,
+  100% {
+    border-color: rgba(125, 211, 252, 0.58);
+    box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.2) inset;
+  }
+  50% {
+    border-color: rgba(125, 211, 252, 0.96);
+    box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.35) inset, 0 0 18px rgba(125, 211, 252, 0.18);
+  }
+}
+
+@keyframes pathStepBadgePulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.24), 0 0 16px rgba(147, 197, 253, 0.2);
   }
 }
 
@@ -933,6 +1000,20 @@ body {
   background: rgba(11, 24, 46, 0.72);
 }
 
+.turn-stage-scene-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(159, 179, 217, 0.28);
+  background: rgba(159, 179, 217, 0.12);
+  color: #eef4ff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .turn-stage-scene-card span {
   color: #9fb3d9;
   font-size: 11px;
@@ -959,6 +1040,48 @@ body {
 .turn-stage-scene-card-effect {
   border-color: rgba(134, 239, 172, 0.82);
   background: linear-gradient(180deg, rgba(134, 239, 172, 0.08), rgba(11, 24, 46, 0.84));
+}
+
+.turn-stage-outcome-strip {
+  gap: 12px;
+}
+
+.turn-stage-outcome-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.turn-stage-outcome-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(60, 95, 149, 0.78);
+  background: rgba(11, 24, 46, 0.76);
+}
+
+.turn-stage-outcome-card span {
+  color: #9fb3d9;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.turn-stage-outcome-card strong {
+  color: #eef4ff;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.turn-stage-outcome-card-economy {
+  border-color: rgba(255, 218, 119, 0.82);
+  background: linear-gradient(180deg, rgba(255, 218, 119, 0.09), rgba(11, 24, 46, 0.84));
+}
+
+.turn-stage-outcome-card-effect {
+  border-color: rgba(134, 239, 172, 0.82);
+  background: linear-gradient(180deg, rgba(134, 239, 172, 0.09), rgba(11, 24, 46, 0.84));
 }
 
 .live-action-banner {
@@ -1111,6 +1234,47 @@ body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.core-action-result-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(76, 114, 177, 0.72);
+  background: rgba(15, 26, 49, 0.84);
+}
+
+.core-action-result-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.core-action-result-head strong {
+  color: #eef4ff;
+}
+
+.core-action-result-head span {
+  color: #b7c8ea;
+  font-size: 12px;
+}
+
+.core-action-result-card p {
+  margin: 0;
+  color: #d6e4ff;
+  line-height: 1.5;
+}
+
+.core-action-result-card-economy {
+  border-color: rgba(255, 218, 119, 0.82);
+  background: linear-gradient(180deg, rgba(255, 218, 119, 0.09), rgba(15, 26, 49, 0.92));
+}
+
+.core-action-result-card-effect {
+  border-color: rgba(134, 239, 172, 0.82);
+  background: linear-gradient(180deg, rgba(134, 239, 172, 0.09), rgba(15, 26, 49, 0.92));
 }
 
 .core-action-journey {

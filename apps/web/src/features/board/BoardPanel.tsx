@@ -179,7 +179,11 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
                   </div>
                 ) : null}
                 {isMoveTrail ? (
-                  <div className="tile-path-step-badge" data-testid={`board-path-step-${tile.tileIndex}`}>
+                  <div
+                    className="tile-path-step-badge"
+                    data-testid={`board-path-step-${tile.tileIndex}`}
+                    style={{ "--path-step-order": String(pathStep) } as CSSProperties}
+                  >
                     {pathStep}
                   </div>
                 ) : null}

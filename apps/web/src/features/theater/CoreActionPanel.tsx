@@ -77,6 +77,16 @@ function headlineDetail(item: CoreActionItem, theaterText: ReturnType<typeof use
   return splitDetail(item.detail, theaterText.noDetail)[0] ?? theaterText.noDetail;
 }
 
+function resultHeadline(kind: ActionKind, theaterText: ReturnType<typeof useI18n>["theater"]): string {
+  if (kind === "economy") {
+    return theaterText.panelLead.economy;
+  }
+  if (kind === "effect") {
+    return theaterText.panelLead.effect;
+  }
+  return theaterText.panelLead.system;
+}
+
 export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
   const { theater } = useI18n();
   if (!latest && items.length === 0) {
@@ -118,6 +128,24 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
           <div className="core-action-detail-list">
             {splitDetail(latest.detail, theater.noDetail).map((line, index) => (
               <div key={`latest-${latest.seq}-${index}`} className="core-action-detail-item">
+                <span>{theater.detailHeading[latestKind]}</span>
+                <strong>{line}</strong>
+              </div>
+            ))}
+          </div>
+        </article>
+      ) : null}
+
+      {latest && (latestKind === "economy" || latestKind === "effect") ? (
+        <article className={`core-action-result-card core-action-result-card-${latestKind}`} data-testid="core-action-result-card">
+          <div className="core-action-result-head">
+            <strong>{theater.actionKind[latestKind]}</strong>
+            <span>{latest.actor}</span>
+          </div>
+          <p>{resultHeadline(latestKind, theater)}</p>
+          <div className="core-action-detail-list">
+            {splitDetail(latest.detail, theater.noDetail).map((line, index) => (
+              <div key={`result-${latest.seq}-${index}`} className="core-action-detail-item">
                 <span>{theater.detailHeading[latestKind]}</span>
                 <strong>{line}</strong>
               </div>

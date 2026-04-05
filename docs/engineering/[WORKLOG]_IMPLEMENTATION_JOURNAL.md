@@ -1431,3 +1431,50 @@ Updated: 2026-04-04
   - `python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_stream_api.py` passed (`9 passed, 13 skipped`)
   - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts` passed (`17 passed`)
   - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 075
+
+- Scope: P0-2 turn-journey readability follow-up.
+- Done:
+  - Updated `apps/web/src/features/stage/TurnStagePanel.tsx` so the scene strip now includes prompt/decision state in the same ordered journey as move / landing / purchase / rent / fortune.
+  - Added scene-step numbering to the turn-stage strip.
+  - Updated `apps/web/src/styles.css` to style the numbered scene-step badge.
+- Why:
+  - remote turns still needed a clearer read order for `choose -> move -> land -> resolve`
+  - adding prompt state into the same strip makes the turn feel more like one continuous scene instead of disconnected cards
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 076
+
+- Scope: P0-2 outcome-card staging and prompt HUD simplification follow-up.
+- Done:
+  - Updated `apps/web/src/features/stage/TurnStagePanel.tsx` so purchase / rent / fortune / trick results now also render as a dedicated outcome strip instead of only living inside mixed summary cards.
+  - Updated `apps/web/src/features/stage/SpectatorTurnPanel.tsx` so remote-turn viewing now includes a spotlight row for public economy/effect outcomes.
+  - Updated `apps/web/src/features/theater/CoreActionPanel.tsx` so the latest economy/effect beat gets a dedicated result card in addition to the hero/journey/feed layout.
+  - Updated `apps/web/src/features/prompt/PromptOverlay.tsx` so collapsed prompt chip text and footer meta use a shorter local HUD line instead of request/debug-heavy wording.
+  - Extended browser parity in `apps/web/e2e/human_play_runtime.spec.ts` to lock:
+    - `spectator-turn-spotlight`
+    - `core-action-result-card`
+    - `turn-stage-outcome-strip`
+- Why:
+  - remote/public turns still needed stronger scene payoff after movement finished
+  - prompt surfaces still carried more metadata weight than necessary for human play
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/features/board/boardProjection.spec.ts` passed (`22 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 077
+
+- Scope: P0-2 board move-trail animation follow-up.
+- Done:
+  - Updated `apps/web/src/features/board/BoardPanel.tsx` so recent path-step badges now carry a step-order CSS variable.
+  - Updated `apps/web/src/styles.css` so intermediate move-trail tiles and path-step badges animate in a staggered wave instead of remaining static.
+- Why:
+  - remote turns still needed more motion/readability even before true token interpolation lands
+  - staggered path emphasis makes board movement read more like a route in progress rather than only a set of highlighted boxes
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
