@@ -1,8 +1,10 @@
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import type { PromptChoiceViewModel, PromptViewModel } from "../../domain/selectors/promptSelectors";
 import { promptHelperForType } from "../../domain/labels/promptHelperCatalog";
 import { promptLabelForType } from "../../domain/labels/promptTypeCatalog";
-import type { PromptChoiceViewModel, PromptViewModel } from "../../domain/selectors/promptSelectors";
+import type { LocaleMessages } from "../../i18n/types";
+import { useI18n } from "../../i18n/useI18n";
 
 type PromptOverlayProps = {
   prompt: PromptViewModel | null;
@@ -14,6 +16,10 @@ type PromptOverlayProps = {
   onToggleCollapse: () => void;
   onSelectChoice: (choiceId: string) => void;
 };
+
+type PromptText = LocaleMessages["prompt"];
+type PromptTypeText = LocaleMessages["promptType"];
+type PromptHelperText = LocaleMessages["promptHelper"];
 
 type MovementChoiceParts = {
   rollChoice: PromptChoiceViewModel | null;
@@ -43,27 +49,65 @@ function asString(value: unknown, fallback = ""): string {
   return typeof value === "string" && value.trim() ? value : fallback;
 }
 
-function choiceDescription(choice: PromptChoiceViewModel): string {
+function cleanDisplayText(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("[") && trimmed.endsWith("]") && trimmed.length >= 2) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function choiceDescription(choice: PromptChoiceViewModel, promptText: PromptText): string {
   const text = choice.description.trim();
-  return text ? text : "설명이 없습니다.";
+  return text ? cleanDisplayText(text) : promptText.noChoiceDescription;
 }
 
 function parseMovementChoice(choice: PromptChoiceViewModel): { cards: number[] } | null {
-  const match = /^card_(\d+)(?:_(\d+))?$/.exec(choice.choiceId);
+  const value = choice.value ?? {};
+  const fromValue = Array.isArray(value["card_values"])
+    ? value["card_values"].map((item) => Number(item)).filter((item) => Number.isFinite(item))
+    : [];
+  if (fromValue.length > 0) {
+    return { cards: [...fromValue].sort((a, b) => a - b) };
+  }
+
+  const match = /^(?:card|dice)_(\d+)(?:_(\d+))?$/.exec(choice.choiceId);
   if (!match) {
     return null;
   }
+
   const first = Number(match[1]);
   const second = match[2] ? Number(match[2]) : null;
   if (!Number.isFinite(first)) {
     return null;
   }
-  const cards = [first];
-  if (second !== null && Number.isFinite(second)) {
-    cards.push(second);
-  }
-  cards.sort((a, b) => a - b);
+
+  const cards = [first, ...(second !== null && Number.isFinite(second) ? [second] : [])].sort((a, b) => a - b);
   return { cards };
+}
+
+function numberFromContext(context: Record<string, unknown>, ...keys: string[]): number | null {
+  for (const key of keys) {
+    const parsed = asNumber(context[key]);
+    if (parsed !== null) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function stringFromContext(context: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const parsed = asString(context[key]);
+    if (parsed) {
+      return parsed;
+    }
+  }
+  return "";
+}
+
+function tileLabel(tileIndex: number | null): string {
+  return tileIndex === null ? "-" : `${tileIndex + 1}번 칸`;
 }
 
 function movementChoices(prompt: PromptViewModel): MovementChoiceParts {
@@ -78,11 +122,14 @@ function movementChoices(prompt: PromptViewModel): MovementChoiceParts {
       cardChoices.push({ cards: parsed.cards, choice });
       continue;
     }
+
     const isRoll =
       choice.choiceId === "dice" ||
       choice.choiceId === "roll" ||
       /roll/i.test(choice.choiceId) ||
-      /주사위/.test(choice.title);
+      choice.title.includes("주사위") ||
+      choice.title.toLowerCase().includes("dice");
+
     if (isRoll) {
       rollChoice = choice;
     }
@@ -101,9 +148,10 @@ function findCardChoice(
   return candidates.find((item) => item.cards.join(",") === sorted.join(","))?.choice ?? null;
 }
 
-function buildHandChoiceCards(prompt: PromptViewModel): { cards: HandChoiceCard[]; passChoiceId: string | null } {
+function buildHandChoiceCards(prompt: PromptViewModel, promptText: PromptText): { cards: HandChoiceCard[]; passChoiceId: string | null } {
   const choiceByDeck = new Map<number, PromptChoiceViewModel>();
   let passChoiceId: string | null = null;
+
   for (const choice of prompt.choices) {
     if (choice.choiceId === "none") {
       passChoiceId = choice.choiceId;
@@ -128,8 +176,8 @@ function buildHandChoiceCards(prompt: PromptViewModel): { cards: HandChoiceCard[
           return null;
         }
         const deckIndex = asNumber(item["deck_index"]);
-        const name = asString(item["name"], "카드");
-        const description = asString(item["card_description"], `${name} 효과`);
+        const name = asString(item["name"], promptText.hiddenCardName);
+        const description = asString(item["card_description"], promptText.hiddenCardDescription(name));
         const isHidden = Boolean(item["is_hidden"]);
         const linkedChoice = deckIndex === null ? null : choiceByDeck.get(deckIndex) ?? null;
         const isUsable = linkedChoice !== null && Boolean(item["is_usable"] ?? true);
@@ -151,53 +199,56 @@ function buildHandChoiceCards(prompt: PromptViewModel): { cards: HandChoiceCard[
     .map((choice, index) => ({
       key: `${choice.choiceId}-${index}`,
       name: choice.title,
-      description: choiceDescription(choice),
+      description: choiceDescription(choice, promptText),
       isHidden: false,
       isUsable: true,
       choiceId: choice.choiceId,
     }));
+
   return { cards, passChoiceId };
 }
 
-function characterAbilityText(choice: PromptChoiceViewModel): string {
+function characterAbilityText(choice: PromptChoiceViewModel, promptText: PromptText): string {
   const fromValue =
     asString(choice.value?.["character_ability"]) ||
     asString(choice.value?.["ability_text"]) ||
     asString(choice.value?.["card_description"]);
+
   if (fromValue) {
-    return fromValue;
+    return cleanDisplayText(fromValue);
   }
   if (choice.description.trim()) {
-    return choice.description.trim();
+    return cleanDisplayText(choice.description.trim());
   }
-  return `${choice.title} 능력`;
+  return cleanDisplayText(promptText.character.ability(choice.title));
 }
 
-function markChoiceTitle(choice: PromptChoiceViewModel): string {
+function markChoiceTitle(choice: PromptChoiceViewModel, promptText: PromptText): string {
   if (choice.choiceId === "none") {
-    return "[지목 안 함]";
+    return cleanDisplayText(promptText.mark.noneTitle);
   }
-  return `[${choice.title}]`;
+  return cleanDisplayText(promptText.mark.title(choice.title));
 }
 
-function markChoiceDescription(choice: PromptChoiceViewModel): string {
+function markChoiceDescription(choice: PromptChoiceViewModel, promptText: PromptText): string {
   if (choice.choiceId === "none") {
-    return "[이번 턴에는 지목 효과를 사용하지 않습니다.]";
+    return cleanDisplayText(promptText.mark.noneDescription);
   }
   const targetCharacter = asString(choice.value?.["target_character"]);
   const targetPlayerId = asNumber(choice.value?.["target_player_id"]);
   if (targetCharacter && targetPlayerId !== null) {
-    return `[대상 인물 / 플레이어: ${targetCharacter} / P${targetPlayerId}]`;
+    return cleanDisplayText(promptText.mark.description(targetCharacter, targetPlayerId));
   }
-  return "[지목 대상 정보]";
+  return cleanDisplayText(promptText.mark.fallbackDescription);
 }
 
 function normalizeChoiceText(
   prompt: PromptViewModel,
-  choice: PromptChoiceViewModel
+  choice: PromptChoiceViewModel,
+  promptText: PromptText
 ): { title: string; description: string } {
   const fallbackTitle = choice.title.trim() ? choice.title.trim() : choice.choiceId;
-  const fallbackDescription = choiceDescription(choice);
+  const fallbackDescription = choiceDescription(choice, promptText);
   const value = choice.value ?? {};
 
   if (prompt.requestType === "lap_reward") {
@@ -205,54 +256,57 @@ function normalizeChoiceText(
     const cashUnits = asNumber(value["cash_units"]) ?? 0;
     const shardUnits = asNumber(value["shard_units"]) ?? 0;
     const coinUnits = asNumber(value["coin_units"]) ?? 0;
+
     if (reward === "cash" || cashUnits > 0) {
-      return { title: "현금 선택", description: `현금 +${cashUnits}` };
+      return { title: promptText.choice.cashTitle, description: promptText.choice.cashReward(cashUnits) };
     }
     if (reward === "shards" || shardUnits > 0) {
-      return { title: "조각 선택", description: `조각 +${shardUnits}` };
+      return { title: promptText.choice.shardTitle, description: promptText.choice.shardReward(shardUnits) };
     }
     if (reward === "coins" || coinUnits > 0) {
-      return { title: "승점 선택", description: `승점 +${coinUnits}` };
+      return { title: promptText.choice.coinTitle, description: promptText.choice.coinReward(coinUnits) };
     }
-    return { title: fallbackTitle, description: fallbackDescription };
+    return { title: cleanDisplayText(fallbackTitle), description: cleanDisplayText(fallbackDescription) };
   }
 
   if (prompt.requestType === "purchase_tile") {
     const pos = asNumber(prompt.publicContext["pos"]);
     const cost = asNumber(prompt.publicContext["cost"]);
     if (choice.choiceId === "yes") {
-      const detail = pos !== null && cost !== null ? `${pos}번 칸 / 비용 ${cost}` : "도착한 칸을 구매합니다.";
-      return { title: "토지 구매", description: detail };
+      return { title: promptText.choice.buyTileTitle, description: promptText.choice.buyTile(pos, cost) };
     }
     if (choice.choiceId === "no") {
-      return { title: "구매 없이 턴 종료", description: "이번 턴에는 구매하지 않습니다." };
+      return { title: promptText.choice.skipPurchaseTitle, description: promptText.choice.skipPurchase };
     }
-    return { title: fallbackTitle, description: fallbackDescription };
+    return { title: cleanDisplayText(fallbackTitle), description: cleanDisplayText(fallbackDescription) };
   }
 
   if (prompt.requestType === "active_flip") {
     if (choice.choiceId === "none") {
-      return { title: "뒤집기 종료", description: "이번 라운드 카드 뒤집기를 종료합니다." };
+      return { title: promptText.choice.endFlip, description: promptText.choice.endFlipDescription };
     }
     const currentName = asString(value["current_name"]);
     const flippedName = asString(value["flipped_name"]);
     if (currentName && flippedName) {
-      return { title: `${currentName} -> ${flippedName}`, description: "선택한 카드를 즉시 뒤집습니다." };
+      return {
+        title: promptText.choice.flipChange(currentName, flippedName),
+        description: promptText.choice.flipDescription,
+      };
     }
-    return { title: fallbackTitle, description: fallbackDescription };
+    return { title: cleanDisplayText(fallbackTitle), description: cleanDisplayText(fallbackDescription) };
   }
 
   if (prompt.requestType === "burden_exchange") {
     if (choice.choiceId === "yes") {
-      return { title: "지 카드 제거", description: "비용을 지불하고 지 카드를 제거합니다." };
+      return { title: promptText.choice.exchangeBurden, description: promptText.choice.exchangeBurdenDescription };
     }
     if (choice.choiceId === "no") {
-      return { title: "유지", description: "이번에는 지 카드를 유지합니다." };
+      return { title: cleanDisplayText(promptText.choice.skip), description: cleanDisplayText(fallbackDescription) };
     }
-    return { title: fallbackTitle, description: fallbackDescription };
+    return { title: cleanDisplayText(fallbackTitle), description: cleanDisplayText(fallbackDescription) };
   }
 
-  return { title: fallbackTitle, description: fallbackDescription };
+  return { title: cleanDisplayText(fallbackTitle), description: cleanDisplayText(fallbackDescription) };
 }
 
 export function PromptOverlay({
@@ -265,6 +319,7 @@ export function PromptOverlay({
   onToggleCollapse,
   onSelectChoice,
 }: PromptOverlayProps) {
+  const { prompt: promptText, promptType, promptHelper } = useI18n();
   const rootRef = useRef<HTMLElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const [movementMode, setMovementMode] = useState<"roll" | "cards">("roll");
@@ -281,8 +336,8 @@ export function PromptOverlay({
     if (!prompt || (prompt.requestType !== "trick_to_use" && prompt.requestType !== "hidden_trick_card")) {
       return null;
     }
-    return buildHandChoiceCards(prompt);
-  }, [prompt]);
+    return buildHandChoiceCards(prompt, promptText);
+  }, [prompt, promptText]);
 
   useEffect(() => {
     if (!prompt) {
@@ -312,6 +367,9 @@ export function PromptOverlay({
   if (!prompt) {
     return null;
   }
+
+  const promptLabel = promptLabelForType(prompt.requestType, promptType);
+  const promptHelp = promptHelperForType(prompt.requestType, promptHelper);
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {
@@ -351,13 +409,27 @@ export function PromptOverlay({
     onSelectChoice(movementSelectedChoice.choiceId);
   };
 
-  const isCharacterPick = prompt.requestType === "draft_card" || prompt.requestType === "final_character";
+  const isCharacterPick =
+    prompt.requestType === "draft_card" ||
+    prompt.requestType === "final_character" ||
+    prompt.requestType === "final_character_choice";
   const isMarkTarget = prompt.requestType === "mark_target";
+  const isPurchaseTile = prompt.requestType === "purchase_tile";
+  const isLapReward = prompt.requestType === "lap_reward";
+
+  const currentTileIndex = numberFromContext(prompt.publicContext, "tile_index", "pos", "player_position");
+  const currentCash = numberFromContext(prompt.publicContext, "player_cash", "cash");
+  const currentCost = numberFromContext(prompt.publicContext, "cost", "purchase_cost");
+  const currentZone = stringFromContext(prompt.publicContext, "zone_color", "tile_zone_color");
+  const weatherName = stringFromContext(prompt.publicContext, "weather_name");
+  const markActorName = stringFromContext(prompt.publicContext, "actor_name", "character_name");
+  const markCandidateCount = prompt.choices.filter((choice) => choice.choiceId !== "none").length;
+  const movementPosition = numberFromContext(prompt.publicContext, "player_position", "pos");
 
   if (collapsed) {
     return (
       <button type="button" className="prompt-floating-chip" onClick={onToggleCollapse}>
-        선택 요청: {promptLabelForType(prompt.requestType)} / 남은 시간 {secondsLeft ?? "-"}초
+        {promptText.collapsedChip(promptLabel, secondsLeft)}
       </button>
     );
   }
@@ -368,49 +440,93 @@ export function PromptOverlay({
       <section
         ref={rootRef}
         className={`panel prompt-overlay prompt-overlay-${prompt.requestType}`}
+        data-testid="prompt-overlay"
+        data-prompt-type={prompt.requestType}
         onKeyDown={onKeyDown}
         tabIndex={-1}
       >
         <div className="prompt-head">
-          <h2>선택 요청: {promptLabelForType(prompt.requestType)}</h2>
+          <h2>{promptText.headTitle(promptLabel)}</h2>
           <button type="button" onClick={onToggleCollapse}>
-            접기
+            {promptText.collapse}
           </button>
         </div>
-        <p className="prompt-helper">{promptHelperForType(prompt.requestType)}</p>
-        <p>
-          요청 ID {prompt.requestId} / 행동자 P{prompt.playerId} / 제한 시간 {Math.ceil(prompt.timeoutMs / 1000)}초 / 남은 시간{" "}
-          {secondsLeft ?? "-"}초
-        </p>
+
+        <p className="prompt-helper">{promptHelp}</p>
+        <p>{promptText.requestMeta(prompt.requestId, prompt.playerId, prompt.timeoutMs, secondsLeft)}</p>
 
         {prompt.requestType === "movement" && movement ? (
           <section className="prompt-movement-stage">
+            <div className="prompt-context-grid">
+              <div className="prompt-context-card">
+                <strong>{promptText.context.currentPosition}</strong>
+                <span>{tileLabel(movementPosition)}</span>
+              </div>
+              <div className="prompt-context-card">
+                <strong>{promptText.context.usableCards}</strong>
+                <span>{movement.cardPool.length}장</span>
+              </div>
+              <div className="prompt-context-card">
+                <strong>{promptText.context.selectedCards}</strong>
+                <span>{selectedCards.length > 0 ? selectedCards.join(" + ") : promptText.context.noneSelected}</span>
+              </div>
+              <div className="prompt-context-card">
+                <strong>{promptText.context.currentWeather}</strong>
+                <span>{weatherName || "-"}</span>
+              </div>
+            </div>
+
             <div className="prompt-move-mode">
               <button
                 type="button"
+                data-testid="movement-roll-mode"
                 className={movementMode === "roll" ? "route-tab route-tab-active" : "route-tab"}
                 onClick={() => setMovementMode("roll")}
                 disabled={busy}
               >
-                주사위 굴리기
+                {promptText.movement.rollMode}
               </button>
               <button
                 type="button"
+                data-testid="movement-card-mode"
                 className={movementMode === "cards" ? "route-tab route-tab-active" : "route-tab"}
                 onClick={() => setMovementMode("cards")}
                 disabled={busy || movement.cardPool.length === 0}
               >
-                주사위 카드 사용
+                {promptText.movement.cardMode}
               </button>
             </div>
+
+            <div className="prompt-context-grid prompt-context-grid-tight">
+              <div className="prompt-context-card">
+                <strong>{promptText.context.selectedCards}</strong>
+                <span>{selectedCards.length > 0 ? selectedCards.join(" + ") : promptText.context.noneSelected}</span>
+              </div>
+              <div className="prompt-context-card">
+                <strong>{promptText.context.usableCards}</strong>
+                <span>{movement.cardPool.length}</span>
+              </div>
+              <div className="prompt-context-card">
+                <strong>{cleanDisplayText(movementMode === "roll" ? promptText.movement.rollMode : promptText.movement.cardMode)}</strong>
+                <span>
+                  {movementMode === "roll"
+                    ? cleanDisplayText(promptText.movement.rollButton)
+                    : movementSelectedChoice
+                      ? cleanDisplayText(promptText.movement.rollWithCardsButton(selectedCards))
+                      : cleanDisplayText(promptText.movement.selectCardsFirst)}
+                </span>
+              </div>
+            </div>
+
             {movementMode === "cards" ? (
               <div className="dice-chip-row">
-                <small>사용할 주사위 카드를 선택하세요. 최대 {movement.canUseTwoCards ? "2" : "1"}장까지 사용 가능합니다.</small>
+                <small>{promptText.movement.cardGuide(movement.canUseTwoCards ? 2 : 1)}</small>
                 <div className="dice-chip-list">
                   {movement.cardPool.map((card) => (
                     <button
                       type="button"
                       key={`dice-card-${card}`}
+                      data-testid={`movement-card-${card}`}
                       className={selectedCards.includes(card) ? "dice-chip dice-chip-selected" : "dice-chip"}
                       disabled={busy}
                       onClick={() => onToggleCardChip(card)}
@@ -421,47 +537,54 @@ export function PromptOverlay({
                 </div>
               </div>
             ) : null}
+
             <button
               type="button"
               className="prompt-primary-action"
+              data-testid="movement-submit"
               disabled={busy || (movementMode === "cards" && !movementSelectedChoice)}
               onClick={onSubmitMovement}
             >
               {movementMode === "roll"
-                ? "주사위 굴리기"
+                ? promptText.movement.rollButton
                 : movementSelectedChoice
-                  ? `주사위 굴리기 (카드 ${selectedCards.join(", ")} 사용)`
-                  : "주사위 카드를 선택하세요"}
+                  ? promptText.movement.rollWithCardsButton(selectedCards)
+                  : promptText.movement.selectCardsFirst}
             </button>
           </section>
         ) : null}
 
         {(prompt.requestType === "trick_to_use" || prompt.requestType === "hidden_trick_card") && trickChoices ? (
           <section className="prompt-hand-stage">
-            <p>{prompt.requestType === "trick_to_use" ? "[사용할 잔꾀를 선택하세요]" : "[이번 라운드 히든 잔꾀를 선택하세요]"}</p>
+            <p>{cleanDisplayText(prompt.requestType === "trick_to_use" ? promptText.trick.usePrompt : promptText.trick.hiddenPrompt)}</p>
             <p>
-              손패 전체 {trickChoices.cards.length}장
-              {typeof prompt.publicContext["hidden_trick_count"] === "number"
-                ? ` / 히든 ${prompt.publicContext["hidden_trick_count"]}장`
-                : ""}
+              {promptText.trick.handSummary(
+                trickChoices.cards.length,
+                typeof prompt.publicContext["hidden_trick_count"] === "number"
+                  ? (prompt.publicContext["hidden_trick_count"] as number)
+                  : undefined
+              )}
             </p>
             <div className="prompt-choices hand-grid">
               {prompt.requestType === "trick_to_use" && trickChoices.passChoiceId ? (
                 <button
                   type="button"
-                  className="prompt-choice-card"
+                  className="prompt-choice-card prompt-choice-card-pass"
+                  data-testid="trick-pass"
                   disabled={busy}
                   onClick={() => onSelectChoice(trickChoices.passChoiceId as string)}
                 >
-                  <strong>[이번에는 사용 안 함]</strong>
-                  <small>[이번 턴에는 잔꾀를 사용하지 않습니다.]</small>
+                  <strong>{promptText.trick.skipTitle}</strong>
+                  <small>{promptText.trick.skipDescription}</small>
                 </button>
               ) : null}
+
               {trickChoices.cards.map((card) => (
                 <button
                   type="button"
                   key={card.key}
                   className={`prompt-choice-card ${card.isHidden ? "hand-card-hidden" : ""}`}
+                  data-testid={`trick-choice-${card.key}`}
                   disabled={busy || !card.isUsable || !card.choiceId}
                   onClick={() => {
                     if (card.choiceId) {
@@ -469,9 +592,16 @@ export function PromptOverlay({
                     }
                   }}
                 >
-                  <strong>[{card.name}]</strong>
-                  <small>[{card.description}]</small>
-                  <small>{card.isHidden ? "히든 잔꾀" : "공개 잔꾀"} / {card.isUsable ? "사용 가능" : "현재 사용 불가"}</small>
+                  <div className="prompt-choice-topline">
+                    <strong>{card.name}</strong>
+                    <span className="prompt-choice-badge">
+                      {card.isHidden ? promptText.hiddenState.hidden : promptText.hiddenState.public}
+                    </span>
+                  </div>
+                  <small>{card.description}</small>
+                  <small className="prompt-choice-footnote">
+                    {card.isUsable ? promptText.hiddenState.usable : promptText.hiddenState.unavailable}
+                  </small>
                 </button>
               ))}
             </div>
@@ -480,18 +610,19 @@ export function PromptOverlay({
 
         {isCharacterPick ? (
           <section className="prompt-hand-stage">
-            <p>{prompt.requestType === "draft_card" ? "[클릭해서 이번 턴에 사용할 인물을 고르세요]" : "[최종으로 사용할 인물을 고르세요]"}</p>
+            <p>{cleanDisplayText(prompt.requestType === "draft_card" ? promptText.character.draftPrompt : promptText.character.finalPrompt)}</p>
             <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
               {prompt.choices.map((choice) => (
                 <button
                   type="button"
                   key={choice.choiceId}
                   className="prompt-choice-card"
+                  data-testid={`character-choice-${choice.choiceId}`}
                   onClick={() => onSelectChoice(choice.choiceId)}
                   disabled={busy}
                 >
-                  <strong>[{choice.title}]</strong>
-                  <small>[{characterAbilityText(choice)}]</small>
+                  <strong>{choice.title}</strong>
+                  <small>{characterAbilityText(choice, promptText)}</small>
                 </button>
               ))}
             </div>
@@ -500,53 +631,155 @@ export function PromptOverlay({
 
         {isMarkTarget ? (
           <section className="prompt-hand-stage">
-            <p>[지목할 대상(인물/플레이어)을 선택하세요]</p>
-            <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
+            <div className="prompt-context-grid prompt-context-grid-tight">
+              <div className="prompt-context-card">
+                <strong>{promptText.context.actorCharacter}</strong>
+                <span>{markActorName || "-"}</span>
+              </div>
+              <div className="prompt-context-card">
+                <strong>{promptText.context.selectableTargets}</strong>
+                <span>{markCandidateCount}명</span>
+              </div>
+              <div className="prompt-context-card">
+                <strong>{promptText.context.currentPosition}</strong>
+                <span>{tileLabel(currentTileIndex)}</span>
+              </div>
+            </div>
+            <div className={`prompt-choices prompt-choices-target ${compactChoices ? "prompt-choices-compact" : ""}`}>
               {prompt.choices.map((choice) => (
                 <button
                   type="button"
                   key={choice.choiceId}
                   className="prompt-choice-card"
+                  data-testid={`mark-choice-${choice.choiceId}`}
                   onClick={() => onSelectChoice(choice.choiceId)}
                   disabled={busy}
                 >
-                  <strong>{markChoiceTitle(choice)}</strong>
-                  <small>{markChoiceDescription(choice)}</small>
+                  <div className="prompt-choice-topline">
+                    <strong>{markChoiceTitle(choice, promptText)}</strong>
+                    {choice.choiceId === "none" ? <span className="prompt-choice-badge">{cleanDisplayText(promptText.choice.skip)}</span> : null}
+                  </div>
+                  <small>{markChoiceDescription(choice, promptText)}</small>
                 </button>
               ))}
             </div>
           </section>
         ) : null}
 
+        {isPurchaseTile ? (
+          <section className="prompt-hand-stage">
+            <div className="prompt-context-grid prompt-context-grid-tight">
+              <div className="prompt-context-card">
+                <strong>{promptText.context.currentPosition}</strong>
+                <span>{tileLabel(currentTileIndex)}</span>
+              </div>
+              <div className="prompt-context-card">
+                <strong>{promptText.context.purchaseCost}</strong>
+                <span>{currentCost === null ? "-" : `${currentCost}냥`}</span>
+              </div>
+              <div className="prompt-context-card">
+                <strong>{promptText.context.currentCash}</strong>
+                <span>{currentCash === null ? "-" : `${currentCash}냥`}</span>
+              </div>
+              <div className="prompt-context-card">
+                <strong>{promptText.context.zone}</strong>
+                <span>{currentZone || "-"}</span>
+              </div>
+            </div>
+            <div className="prompt-choices prompt-choices-decision">
+              {prompt.choices.map((choice) => {
+                const normalized = normalizeChoiceText(prompt, choice, promptText);
+                return (
+                  <button
+                    type="button"
+                    key={choice.choiceId}
+                    className="prompt-choice-card prompt-choice-card-emphasis"
+                    data-testid={`purchase-choice-${choice.choiceId}`}
+                    onClick={() => onSelectChoice(choice.choiceId)}
+                    disabled={busy}
+                  >
+                    <div className="prompt-choice-topline">
+                      <strong>{normalized.title}</strong>
+                    </div>
+                    <small>{normalized.description}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        {isLapReward ? (
+          <section className="prompt-hand-stage">
+            <div className="prompt-context-grid prompt-context-grid-tight">
+              <div className="prompt-context-card">
+                <strong>{promptText.context.currentCash}</strong>
+                <span>{currentCash === null ? "-" : `${currentCash}냥`}</span>
+              </div>
+              <div className="prompt-context-card">
+                <strong>{promptText.context.currentShards}</strong>
+                <span>{numberFromContext(prompt.publicContext, "player_shards", "shards") ?? "-"}</span>
+              </div>
+              <div className="prompt-context-card">
+                <strong>{promptText.context.currentCoins}</strong>
+                <span>{numberFromContext(prompt.publicContext, "player_coins", "coins") ?? "-"}</span>
+              </div>
+            </div>
+            <div className="prompt-choices prompt-choices-reward">
+              {prompt.choices.map((choice) => {
+                const normalized = normalizeChoiceText(prompt, choice, promptText);
+                return (
+                  <button
+                    type="button"
+                    key={choice.choiceId}
+                    className="prompt-choice-card prompt-choice-card-emphasis"
+                    data-testid={`lap-reward-choice-${choice.choiceId}`}
+                    onClick={() => onSelectChoice(choice.choiceId)}
+                    disabled={busy}
+                  >
+                    <div className="prompt-choice-topline">
+                      <strong>{normalized.title}</strong>
+                    </div>
+                    <small>{normalized.description}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
         {prompt.requestType !== "movement" &&
+        !isLapReward &&
         prompt.requestType !== "trick_to_use" &&
         prompt.requestType !== "hidden_trick_card" &&
+        !isPurchaseTile &&
         !isCharacterPick &&
         !isMarkTarget ? (
           <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
             {prompt.choices.map((choice) => {
-              const normalized = normalizeChoiceText(prompt, choice);
+              const normalized = normalizeChoiceText(prompt, choice, promptText);
               return (
                 <button
                   type="button"
                   key={choice.choiceId}
                   className="prompt-choice-card"
+                  data-testid={`generic-choice-${choice.choiceId}`}
                   onClick={() => onSelectChoice(choice.choiceId)}
                   disabled={busy}
                 >
-                  <strong>[{normalized.title}]</strong>
-                  <small>[{normalized.description}]</small>
+                  <strong>{normalized.title}</strong>
+                  <small>{normalized.description}</small>
                 </button>
               );
             })}
-            {prompt.choices.length === 0 ? <p>선택 가능한 항목이 없습니다.</p> : null}
+            {prompt.choices.length === 0 ? <p>{promptText.choice.noChoices}</p> : null}
           </div>
         ) : null}
 
         {feedbackMessage ? <p className="notice err">{feedbackMessage}</p> : null}
         {busy ? (
           <p className="notice ok">
-            <span className="spinner" aria-hidden="true" /> 처리 중... 엔진 응답을 기다리는 중
+            <span className="spinner" aria-hidden="true" /> {promptText.busy}
           </p>
         ) : null}
       </section>

@@ -21,6 +21,7 @@ import { BoardPanel } from "./features/board/BoardPanel";
 import { LobbyView, type LobbySeatType } from "./features/lobby/LobbyView";
 import { PlayersPanel } from "./features/players/PlayersPanel";
 import { PromptOverlay } from "./features/prompt/PromptOverlay";
+import { SpectatorTurnPanel } from "./features/stage/SpectatorTurnPanel";
 import { TurnStagePanel } from "./features/stage/TurnStagePanel";
 import { ConnectionPanel } from "./features/status/ConnectionPanel";
 import { SituationPanel } from "./features/status/SituationPanel";
@@ -28,6 +29,7 @@ import { CoreActionPanel } from "./features/theater/CoreActionPanel";
 import { IncidentCardStack } from "./features/theater/IncidentCardStack";
 import { TimelinePanel } from "./features/timeline/TimelinePanel";
 import { useGameStream } from "./hooks/useGameStream";
+import { useI18n } from "./i18n/useI18n";
 import {
   createSession,
   getRuntimeStatus,
@@ -126,6 +128,7 @@ function findCurrentActorId(messages: Array<{ payload: Record<string, unknown> }
 }
 
 export function App() {
+  const { app, eventLabel, promptType, stream: streamText, turnStage: turnStageText, locale, setLocale } = useI18n();
   const [route, setRoute] = useState<ViewRoute>(() => parseHashState(window.location.hash).route);
   const [sessionInput, setSessionInput] = useState("");
   const [tokenInput, setTokenInput] = useState("");
@@ -161,16 +164,26 @@ export function App() {
   const [promptExpiresAtMs, setPromptExpiresAtMs] = useState<number | null>(null);
   const [promptFeedback, setPromptFeedback] = useState("");
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [turnBanner, setTurnBanner] = useState<{ seq: number; text: string } | null>(null);
+  const [turnBanner, setTurnBanner] = useState<{ seq: number; text: string; detail: string } | null>(null);
 
   const stream = useGameStream({ sessionId, token });
-  const timeline = selectTimeline(stream.messages, compactDensity ? 24 : 40);
-  const theaterFeed = selectTheaterFeed(stream.messages, compactDensity ? 16 : 28);
-  const coreActionFeed = selectCoreActionFeed(stream.messages, effectivePlayerId, compactDensity ? 10 : 14);
+  const selectorText = useMemo(
+    () => ({
+      eventLabel,
+      promptType,
+      stream: streamText,
+      turnStage: turnStageText,
+    }),
+    [eventLabel, promptType, streamText, turnStageText]
+  );
+
+  const timeline = selectTimeline(stream.messages, compactDensity ? 24 : 40, selectorText);
+  const theaterFeed = selectTheaterFeed(stream.messages, compactDensity ? 16 : 28, selectorText);
+  const coreActionFeed = selectCoreActionFeed(stream.messages, effectivePlayerId, compactDensity ? 10 : 14, selectorText);
   const latestCoreAction = coreActionFeed.find((item) => !item.isLocalActor) ?? coreActionFeed[0] ?? null;
-  const alerts = selectCriticalAlerts(stream.messages, 6);
-  const situation = selectSituation(stream.messages);
-  const turnStage = selectTurnStage(stream.messages);
+  const alerts = selectCriticalAlerts(stream.messages, 6, selectorText);
+  const situation = selectSituation(stream.messages, selectorText);
+  const turnStage = selectTurnStage(stream.messages, selectorText);
   const snapshot = selectLatestSnapshot(stream.messages);
   const lastMove = selectLastMove(stream.messages);
   const latestManifest = selectLatestManifest(stream.messages);
@@ -352,17 +365,17 @@ export function App() {
     }
     setPromptBusy(false);
     if (latestPromptAck.status === "rejected") {
-      setPromptFeedback(latestPromptAck.reason ? `?좏깮??嫄곗젅?섏뿀?듬땲?? ${latestPromptAck.reason}` : "?좏깮??嫄곗젅?섏뿀?듬땲??");
+      setPromptFeedback(app.errors.promptRejected(latestPromptAck.reason));
       return;
     }
-    setPromptFeedback(latestPromptAck.reason ? `?쒓컙 珥덇낵濡??먮룞 泥섎━?섏뿀?듬땲?? ${latestPromptAck.reason}` : "?쒓컙 珥덇낵濡??먮룞 泥섎━?섏뿀?듬땲??");
+    setPromptFeedback(app.errors.promptStale(latestPromptAck.reason));
   }, [latestPromptAck, promptBusy]);
 
   useEffect(() => {
     if (!actionablePrompt || promptBusy || promptSecondsLeft !== 0) {
       return;
     }
-    setPromptFeedback("?쒓컙??珥덇낵?섏뿀?듬땲?? ?먮룞 泥섎━ 寃곌낵瑜?湲곕떎?ㅼ＜?몄슂.");
+    setPromptFeedback(app.errors.promptTimedOut);
   }, [actionablePrompt, promptBusy, promptSecondsLeft]);
 
   useEffect(() => {
@@ -373,7 +386,7 @@ export function App() {
       return;
     }
     setPromptBusy(false);
-    setPromptFeedback("?곌껐??遺덉븞?뺥븯???좏깮 ?꾩넚???ㅽ뙣?덉뒿?덈떎. ?좎떆 ???ㅼ떆 ?쒕룄??二쇱꽭??");
+    setPromptFeedback(app.errors.promptConnectionLost);
   }, [promptBusy, stream.status]);
 
   useEffect(() => {
@@ -383,7 +396,8 @@ export function App() {
     const actorText = turnStage.character && turnStage.character !== "-" ? `${turnStage.actor} (${turnStage.character})` : turnStage.actor;
     setTurnBanner({
       seq: turnStage.turnStartSeq,
-      text: `${actorText}???댁엯?덈떎`,
+      text: app.turnBanner(actorText),
+      detail: turnStage.currentBeatLabel !== "-" ? turnStage.currentBeatLabel : turnStage.weatherName,
     });
     const timer = window.setTimeout(() => {
       setTurnBanner((prev) => (prev?.seq === turnStage.turnStartSeq ? null : prev));
@@ -421,7 +435,7 @@ export function App() {
       const result = await listSessions();
       setSessions(result.sessions);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "?몄뀡 紐⑸줉 議고쉶???ㅽ뙣?덉뒿?덈떎.");
+      setError(e instanceof Error ? e.message : app.errors.refreshSessions);
     }
   };
 
@@ -473,14 +487,10 @@ export function App() {
       const seat = Number(joinSeatInput) || 1;
       const autoToken = created.join_tokens[String(seat)] ?? "";
       setJoinTokenInput(autoToken);
-      setNotice(
-        `?몄뀡 ?앹꽦 ?꾨즺: ${created.session_id} / host_token=${created.host_token} / join_tokens=${JSON.stringify(
-          created.join_tokens
-        )}`
-      );
+      setNotice(app.notices.createSession(created.session_id, created.host_token, created.join_tokens));
       await refreshSessions();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "?몄뀡 ?앹꽦???ㅽ뙣?덉뒿?덈떎.");
+      setError(e instanceof Error ? e.message : app.errors.createSession);
     } finally {
       setBusy(false);
     }
@@ -519,11 +529,11 @@ export function App() {
       setLastJoinTokens(created.join_tokens);
       setJoinSeatInput("1");
       setJoinTokenInput("");
-      setNotice(`AI ?몄뀡 ?쒖옉: ${created.session_id}`);
+      setNotice(app.notices.startAiSession(created.session_id));
       navigateRoute("match");
       await refreshSessions();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "AI ?몄뀡 ?쒖옉???ㅽ뙣?덉뒿?덈떎.");
+      setError(e instanceof Error ? e.message : app.errors.startAiSession);
     } finally {
       setBusy(false);
     }
@@ -553,7 +563,7 @@ export function App() {
       });
       const seat1Token = created.join_tokens["1"];
       if (!seat1Token) {
-        throw new Error("醫뚯꽍 1 李멸? ?좏겙??諛쏆? 紐삵뻽?듬땲??");
+        throw new Error("Seat 1 join token was not issued.");
       }
       const joined = await joinSession({
         sessionId: created.session_id,
@@ -573,11 +583,11 @@ export function App() {
       setLastJoinTokens(created.join_tokens);
       setJoinSeatInput("1");
       setJoinTokenInput(seat1Token);
-      setNotice(`鍮좊Ⅸ ?쒖옉 ?꾨즺: ${created.session_id} (P${joined.player_id})`);
+      setNotice(app.notices.quickStart(created.session_id, joined.player_id));
       navigateRoute("match");
       await refreshSessions();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "鍮좊Ⅸ ?쒖옉???ㅽ뙣?덉뒿?덈떎.");
+      setError(e instanceof Error ? e.message : app.errors.quickStart);
     } finally {
       setBusy(false);
     }
@@ -586,7 +596,7 @@ export function App() {
   const onStartByHostToken = async () => {
     const current = sessionInput.trim() || sessionId.trim();
     if (!current || !hostTokenInput.trim()) {
-      setError("?몄뀡 ID? ?몄뒪???좏겙???꾩슂?⑸땲??");
+      setError(app.errors.startByHostTokenMissing);
       return;
     }
     setBusy(true);
@@ -596,10 +606,10 @@ export function App() {
       const started = await startSession({ sessionId: current, hostToken: hostTokenInput.trim() });
       setSessionManifest(started.parameter_manifest ?? null);
       setSessionId(current);
-      setNotice(`?몄뀡 ?쒖옉?? ${current}`);
+      setNotice(app.notices.startSession(current));
       await refreshSessions();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "?몄뀡 ?쒖옉???ㅽ뙣?덉뒿?덈떎.");
+      setError(e instanceof Error ? e.message : app.errors.startSession);
     } finally {
       setBusy(false);
     }
@@ -609,7 +619,7 @@ export function App() {
     const current = sessionInput.trim() || sessionId.trim();
     const seat = Number(joinSeatInput);
     if (!current || !seat || !joinTokenInput.trim()) {
-      setError("?몄뀡 ID, 醫뚯꽍, 李멸? ?좏겙???꾩슂?⑸땲??");
+      setError(app.errors.joinSeatMissing);
       return;
     }
     setBusy(true);
@@ -618,14 +628,14 @@ export function App() {
     try {
       const snapshotLocal = await getSession({ sessionId: current });
       if (snapshotLocal.status !== "waiting") {
-        throw new Error("?몄뀡???대? ?쒖옉?섏뿀?듬땲?? waiting ?곹깭?먯꽌留?李멸??????덉뒿?덈떎.");
+        throw new Error(app.errors.joinSeatNotWaiting);
       }
       const seatView = (snapshotLocal.seats ?? []).find((s) => s.seat === seat);
       if (!seatView) {
-        throw new Error(`醫뚯꽍 ${seat}??議댁옱?섏? ?딆뒿?덈떎.`);
+        throw new Error(app.errors.joinSeatNotFound(seat));
       }
       if (seatView.seat_type !== "human") {
-        throw new Error(`醫뚯꽍 ${seat}? human 醫뚯꽍???꾨떃?덈떎.`);
+        throw new Error(app.errors.joinSeatNotHuman(seat));
       }
       const joined = await joinSession({
         sessionId: current,
@@ -638,11 +648,11 @@ export function App() {
       setTokenInput(joined.session_token);
       setToken(joined.session_token);
       setLocalPlayerId(joined.player_id);
-      setNotice(`P${joined.player_id} 醫뚯꽍 李멸? ?꾨즺`);
+      setNotice(app.notices.joinSeat(joined.player_id));
       navigateRoute("match");
       await refreshSessions();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "醫뚯꽍 李멸????ㅽ뙣?덉뒿?덈떎.");
+      setError(e instanceof Error ? e.message : app.errors.joinSeatFailed);
     } finally {
       setBusy(false);
     }
@@ -661,7 +671,7 @@ export function App() {
     setLocalPlayerId(null);
     const selected = sessions.find((session) => session.session_id === id);
     setSessionManifest(selected?.parameter_manifest ?? null);
-    setNotice(`?몄뀡 ?좏깮: ${id}`);
+    setNotice(app.notices.useSession(id));
     if (route === "match") {
       window.location.hash = buildMatchHash(id, tokenInput.trim() || undefined);
     }
@@ -678,7 +688,7 @@ export function App() {
       return;
     }
     if (!actionablePrompt.playerId) {
-      setError("?섎せ???꾨＼?꾪듃 player_id ?낅땲??");
+      setError(app.errors.invalidPromptPlayer);
       return;
     }
     setPromptFeedback("");
@@ -689,7 +699,7 @@ export function App() {
       choicePayload: {},
     });
     if (!sent) {
-      setPromptFeedback("?좏깮 ?꾩넚???ㅽ뙣?덉뒿?덈떎. ?곌껐 ?곹깭瑜??뺤씤?????ㅼ떆 ?쒕룄??二쇱꽭??");
+      setPromptFeedback(app.errors.sendPrompt);
       return;
     }
     setPromptBusy(true);
@@ -697,41 +707,55 @@ export function App() {
 
   const topCommandSummary = useMemo(() => {
     if (!sessionId.trim()) {
-      return "?몄뀡 ?놁쓬";
+      return app.topSummaryEmpty;
     }
-    return `?몄뀡 ${sessionId} / ?고???${runtime.status}`;
-  }, [runtime.status, sessionId]);
+    return app.topSummary(sessionId, runtime.status);
+  }, [app, runtime.status, sessionId]);
 
   return (
-    <main className={`page ${compactDensity ? "page-compact" : ""}`}>
+    <main className={`page ${compactDensity ? "page-compact" : ""} ${route === "match" ? "page-match" : ""}`}>
       <header className="header">
-        <h1>MRN Online Viewer (React/FastAPI)</h1>
-        <p>?몄뀡 ?앹꽦, 李멸?, ?쒖옉, ?ㅼ떆媛??ㅽ듃由?愿李곗쓣 ???붾㈃?먯꽌 吏꾪뻾?????덉뒿?덈떎.</p>
+        <h1>{app.title}</h1>
+        <p>{app.subtitle}</p>
         <div className="route-tabs">
           <button
             type="button"
             className={route === "lobby" ? "route-tab route-tab-active" : "route-tab"}
             onClick={() => navigateRoute("lobby")}
           >
-            Lobby
+            {app.routeLobby}
           </button>
           <button
             type="button"
             className={route === "match" ? "route-tab route-tab-active" : "route-tab"}
             onClick={() => navigateRoute("match")}
           >
-            Match
+            {app.routeMatch}
           </button>
           {route === "match" ? (
             <>
               <button type="button" className="route-tab" onClick={() => setMatchTopCollapsed((prev) => !prev)}>
-                {matchTopCollapsed ? "연결 상태 펼치기" : "연결 상태 접기"}
+                {matchTopCollapsed ? app.connectionExpand : app.connectionCollapse}
               </button>
               <button type="button" className="route-tab" onClick={() => setCompactDensity((prev) => !prev)}>
-                {compactDensity ? "표준 밀도" : "컴팩트 밀도"}
+                {compactDensity ? app.densityStandard : app.densityCompact}
               </button>
             </>
           ) : null}
+          <button
+            type="button"
+            className={locale === "ko" ? "route-tab route-tab-active" : "route-tab"}
+            onClick={() => setLocale("ko")}
+          >
+            {app.localeKo}
+          </button>
+          <button
+            type="button"
+            className={locale === "en" ? "route-tab route-tab-active" : "route-tab"}
+            onClick={() => setLocale("en")}
+          >
+            {app.localeEn}
+          </button>
         </div>
       </header>
 
@@ -783,7 +807,7 @@ export function App() {
               <strong>{topCommandSummary}</strong>
               <div className="actions">
                 <button type="button" className="route-tab" onClick={() => setShowRawMessages((prev) => !prev)}>
-                  {showRawMessages ? "Raw 숨기기" : "Raw 보기"}
+                  {showRawMessages ? app.rawHide : app.rawShow}
                 </button>
               </div>
             </div>
@@ -801,24 +825,25 @@ export function App() {
                 boardTopology={boardTopology}
                 tileKindLabels={tileKindLabels}
                 lastMove={lastMove}
+                stageFocus={turnStage}
+                weather={turnStage}
               />
 
               {!isMyTurn && currentActorId !== null ? (
-                <section className="panel waiting-panel">
-                  <strong>지금은 P{currentActorId}의 턴입니다.</strong>
-                  <p>
-                    <span className="spinner" aria-hidden="true" /> 다른 플레이어의 행동을 기다리는 중입니다. 아래 턴 극장과 보드에서 공개 진행 상황을 확인하세요.
-                  </p>
-                </section>
+                <SpectatorTurnPanel actorPlayerId={currentActorId} model={turnStage} latestAction={latestCoreAction} />
               ) : null}
 
               <IncidentCardStack items={theaterFeed} focusPlayerId={effectivePlayerId} />
 
               {passivePrompt ? (
                 <section className="panel passive-prompt-card">
-                  <h2>다른 플레이어 선택 진행 중</h2>
+                  <h2>{app.passivePromptTitle}</h2>
                   <p>
-                    P{passivePrompt.playerId} / {promptLabelForType(passivePrompt.requestType)} / 남은 시간 {promptSecondsLeft ?? "-"}초
+                    {app.passivePromptSummary(
+                      passivePrompt.playerId,
+                      promptLabelForType(passivePrompt.requestType),
+                      promptSecondsLeft
+                    )}
                   </p>
                 </section>
               ) : null}
@@ -845,9 +870,9 @@ export function App() {
           {showRawMessages ? (
             <section className="panel debug-panel">
               <div className="debug-head">
-                <h2>Raw Messages ({stream.messages.length})</h2>
+                <h2>{app.rawMessages} ({stream.messages.length})</h2>
                 <button type="button" className="route-tab" onClick={() => setShowRawMessages(false)}>
-                  숨기기
+                  {app.rawHide}
                 </button>
               </div>
               <div className="messages">
@@ -861,7 +886,12 @@ export function App() {
             </section>
           ) : null}
 
-          {turnBanner ? <div className="turn-notice-banner">{turnBanner.text}</div> : null}
+          {turnBanner ? (
+            <div className="turn-notice-banner" data-testid="turn-notice-banner">
+              <strong>{turnBanner.text}</strong>
+              <small>{turnBanner.detail}</small>
+            </div>
+          ) : null}
         </>
       )}
     </main>

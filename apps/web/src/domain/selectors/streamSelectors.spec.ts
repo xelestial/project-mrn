@@ -9,6 +9,7 @@ import {
   selectSituation,
   selectTheaterFeed,
   selectTimeline,
+  selectTurnStage,
 } from "./streamSelectors";
 
 const snapshotEvent: InboundMessage = {
@@ -95,7 +96,7 @@ describe("streamSelectors", () => {
     expect(situation.turn).toBe("5");
     expect(situation.actor).toBe("P3");
     expect(situation.weather).toBe("긴급 피난");
-    expect(situation.weatherEffect).not.toBe("-");
+    expect(situation.weatherEffect).toContain("2배");
   });
 
   it("ignores runtime stalled warnings in situation headline", () => {
@@ -207,9 +208,9 @@ describe("streamSelectors", () => {
           },
         },
       ],
-      3
+      3,
     );
-    expect(timeline[0].detail).toContain("유실 7");
+    expect(timeline[0].detail).toContain("누락 7");
     expect(timeline[1].detail).toContain("[징표] P2 -> P1");
     expect(timeline[2].detail).toContain("카드 1+4");
   });
@@ -236,8 +237,8 @@ describe("streamSelectors", () => {
             },
             labels: {
               tile_kind_labels: {
-                S: "Fortune",
-                F1: "End - 1",
+                S: "운수",
+                F1: "종료 - 1",
               },
             },
             dice: {
@@ -383,12 +384,213 @@ describe("streamSelectors", () => {
         },
       ],
       1,
-      8
+      8,
     );
     expect(feed).toHaveLength(2);
     expect(feed[0].seq).toBe(511);
     expect(feed[0].isLocalActor).toBe(false);
     expect(feed[1].seq).toBe(510);
     expect(feed[1].isLocalActor).toBe(true);
+  });
+
+  it("builds a turn-stage beat and progress trail from the current turn", () => {
+    const stage = selectTurnStage([
+      {
+        type: "event",
+        seq: 200,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 3,
+          turn_index: 8,
+          acting_player_id: 2,
+          character: "교리 연구관",
+        },
+      },
+      {
+        type: "event",
+        seq: 201,
+        session_id: "s1",
+        payload: {
+          event_type: "dice_roll",
+          round_index: 3,
+          turn_index: 8,
+          acting_player_id: 2,
+          cards_used: [1, 4],
+          total_move: 5,
+        },
+      },
+      {
+        type: "event",
+        seq: 202,
+        session_id: "s1",
+        payload: {
+          event_type: "player_move",
+          round_index: 3,
+          turn_index: 8,
+          acting_player_id: 2,
+          from_tile_index: 3,
+          to_tile_index: 8,
+        },
+      },
+      {
+        type: "event",
+        seq: 203,
+        session_id: "s1",
+        payload: {
+          event_type: "landing_resolved",
+          round_index: 3,
+          turn_index: 8,
+          acting_player_id: 2,
+          result_type: "PURCHASE",
+        },
+      },
+      {
+        type: "event",
+        seq: 204,
+        session_id: "s1",
+        payload: {
+          event_type: "tile_purchased",
+          round_index: 3,
+          turn_index: 8,
+          acting_player_id: 2,
+          tile_index: 8,
+          cost: 5,
+        },
+      },
+    ]);
+
+    expect(stage.actor).toBe("P2");
+    expect(stage.character).toBe("교리 연구관");
+    expect(stage.currentBeatLabel).toBe("토지 구매");
+    expect(stage.currentBeatDetail).toContain("9번 칸");
+    expect(stage.progressTrail).toEqual(["턴 시작", "이동값 결정", "말 이동", "도착 칸 처리", "토지 구매"]);
+  });
+
+  it("tracks beat kind and focus tile for purchase, rent, and prompt flows", () => {
+    const purchaseStage = selectTurnStage([
+      {
+        type: "event",
+        seq: 200,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 3,
+          turn_index: 8,
+          acting_player_id: 2,
+          character: "Scholar",
+        },
+      },
+      {
+        type: "event",
+        seq: 201,
+        session_id: "s1",
+        payload: {
+          event_type: "player_move",
+          round_index: 3,
+          turn_index: 8,
+          acting_player_id: 2,
+          from_tile_index: 3,
+          to_tile_index: 8,
+        },
+      },
+      {
+        type: "event",
+        seq: 202,
+        session_id: "s1",
+        payload: {
+          event_type: "tile_purchased",
+          round_index: 3,
+          turn_index: 8,
+          acting_player_id: 2,
+          tile_index: 8,
+          cost: 5,
+        },
+      },
+    ]);
+
+    expect(purchaseStage.currentBeatKind).toBe("economy");
+    expect(purchaseStage.focusTileIndex).toBe(8);
+
+    const rentStage = selectTurnStage([
+      {
+        type: "event",
+        seq: 300,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 4,
+          turn_index: 9,
+          acting_player_id: 4,
+          character: "Courier",
+        },
+      },
+      {
+        type: "event",
+        seq: 301,
+        session_id: "s1",
+        payload: {
+          event_type: "rent_paid",
+          round_index: 4,
+          turn_index: 9,
+          acting_player_id: 4,
+          payer_player_id: 4,
+          owner_player_id: 2,
+          tile_index: 14,
+          final_amount: 6,
+        },
+      },
+      {
+        type: "prompt",
+        seq: 302,
+        session_id: "s1",
+        payload: {
+          request_id: "req_9",
+          request_type: "lap_reward",
+          player_id: 4,
+          public_context: {
+            tile_index: 14,
+          },
+        },
+      },
+    ]);
+
+    expect(rentStage.rentSummary).toContain("P4");
+    expect(rentStage.currentBeatKind).toBe("decision");
+    expect(rentStage.focusTileIndex).toBe(14);
+    expect(rentStage.promptSummary).not.toBe("-");
+  });
+
+  it("includes landing tile position in landing summaries when available", () => {
+    const stage = selectTurnStage([
+      {
+        type: "event",
+        seq: 400,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 5,
+          turn_index: 2,
+          acting_player_id: 1,
+          character: "Builder",
+        },
+      },
+      {
+        type: "event",
+        seq: 401,
+        session_id: "s1",
+        payload: {
+          event_type: "landing_resolved",
+          round_index: 5,
+          turn_index: 2,
+          acting_player_id: 1,
+          position: 11,
+          result_type: "PURCHASE",
+        },
+      },
+    ]);
+
+    expect(stage.landingSummary).toContain("12");
+    expect(stage.focusTileIndex).toBe(11);
   });
 });

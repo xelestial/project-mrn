@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
-import type { LastMoveViewModel, SnapshotViewModel } from "../../domain/selectors/streamSelectors";
+import type { LastMoveViewModel, SnapshotViewModel, TurnStageViewModel } from "../../domain/selectors/streamSelectors";
+import { useI18n } from "../../i18n/useI18n";
 import { DEFAULT_RING_TILE_COUNT, boardGridForTileCount, projectTilePosition } from "./boardProjection";
 
 type BoardPanelProps = {
@@ -16,49 +17,39 @@ type BoardPanelProps = {
   boardTopology?: string;
   tileKindLabels?: Record<string, string>;
   lastMove: LastMoveViewModel | null;
+  stageFocus: Pick<TurnStageViewModel, "focusTileIndex" | "currentBeatKind" | "currentBeatLabel" | "currentBeatDetail">;
+  weather: Pick<TurnStageViewModel, "weatherName" | "weatherEffect">;
 };
 
-function tileKindLabel(kind: string, labels?: Record<string, string>): string {
+type BoardText = ReturnType<typeof useI18n>["board"];
+
+function tileKindLabel(kind: string, boardText: BoardText, labels?: Record<string, string>): string {
   const override = labels?.[kind];
   if (override && override.trim()) {
     return override;
   }
   switch (kind) {
     case "S":
-      return "운수";
+      return boardText.tileKind.S;
     case "F1":
-      return "종료 - 1";
+      return boardText.tileKind.F1;
     case "F2":
-      return "종료 - 2";
+      return boardText.tileKind.F2;
     case "T2":
-      return "토지";
+      return boardText.tileKind.T2;
     case "T3":
-      return "고급 토지";
+      return boardText.tileKind.T3;
     default:
       return kind;
   }
 }
 
-function zoneColorToCss(zoneColor: string): string {
+function zoneColorToCss(zoneColor: string, boardText: BoardText): string {
   const trimmed = zoneColor.trim().toLowerCase();
   if (!trimmed) {
     return "#274679";
   }
-  const catalog: Record<string, string> = {
-    "검은색": "#475569",
-    black: "#475569",
-    "빨간색": "#ef4444",
-    red: "#ef4444",
-    "노란색": "#eab308",
-    yellow: "#eab308",
-    "파란색": "#3b82f6",
-    blue: "#3b82f6",
-    "초록색": "#22c55e",
-    green: "#22c55e",
-    "하얀색": "#e2e8f0",
-    white: "#e2e8f0",
-  };
-  return catalog[trimmed] ?? zoneColor;
+  return boardText.zoneColorCss[trimmed as keyof typeof boardText.zoneColorCss] ?? zoneColor;
 }
 
 function playerColor(playerId: number): string {
@@ -66,17 +57,16 @@ function playerColor(playerId: number): string {
   return palette[(Math.max(1, playerId) - 1) % palette.length];
 }
 
-function zoneLabel(zoneColor: string): string {
-  return zoneColor ? `구역 ${zoneColor}` : "구역 -";
+function zoneLabel(zoneColor: string, boardText: BoardText): string {
+  return boardText.zoneLabel(zoneColor);
 }
 
-function costLabel(cost: number | null, rent: number | null): string {
-  const purchase = cost === null ? "-" : `${cost}냥`;
-  const rentText = rent === null ? "-" : `${rent}냥`;
-  return `구매 ${purchase} / 통행료 ${rentText}`;
+function costLabel(cost: number | null, rent: number | null, boardText: BoardText): string {
+  return boardText.costLabel(cost, rent);
 }
 
-export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLabels, lastMove }: BoardPanelProps) {
+export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLabels, lastMove, stageFocus, weather }: BoardPanelProps) {
+  const { board } = useI18n();
   const tiles = (snapshot?.tiles && snapshot.tiles.length > 0 ? snapshot.tiles : manifestTiles ?? []).slice();
   tiles.sort((a, b) => a.tileIndex - b.tileIndex);
   const normalizedTopology = boardTopology === "line" ? "line" : "ring";
@@ -111,39 +101,45 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
   if (tiles.length === 0) {
     return (
       <section className="panel">
-        <h2>보드</h2>
-        <p>보드 정보를 불러오는 중입니다.</p>
+        <h2>{board.title}</h2>
+        <p>{board.loading}</p>
       </section>
     );
   }
 
   return (
     <section className="panel">
-      <h2>보드</h2>
+      <h2>{board.title}</h2>
       {snapshot ? (
-        <p>
-          {snapshot.round}라운드 / {snapshot.turn}턴 / 징표 소유자 P{snapshot.markerOwnerPlayerId ?? "-"} / 종료 시간{" "}
-          {endTimeRemaining?.toFixed(2)}
-        </p>
+        <p>{board.roundTurnMarker(snapshot.round, snapshot.turn, snapshot.markerOwnerPlayerId, endTimeRemaining)}</p>
       ) : (
-        <p>설정 정보(parameter manifest)로 초기화된 보드입니다.</p>
+        <p>{board.manifestBoard}</p>
       )}
-      {lastMove ? (
-        <p className="board-move-summary">
-          최근 이동: P{lastMove.playerId ?? "?"} {lastMove.fromTileIndex === null ? "?" : lastMove.fromTileIndex + 1}
-          {" -> "}
-          {lastMove.toTileIndex === null ? "?" : lastMove.toTileIndex + 1}
+      {weather.weatherName !== "-" ? (
+        <p className="board-weather-summary" data-testid="board-weather-summary">
+          <strong>{weather.weatherName}</strong>
+          <span>{weather.weatherEffect}</span>
         </p>
+      ) : null}
+      {stageFocus.currentBeatLabel !== "-" ? (
+        <p className={`board-focus-summary board-focus-summary-${stageFocus.currentBeatKind}`} data-testid="board-focus-summary">
+          <strong>{stageFocus.currentBeatLabel}</strong>
+          <span>{stageFocus.currentBeatDetail}</span>
+        </p>
+      ) : null}
+      {lastMove ? (
+        <p className="board-move-summary">{board.lastMove(lastMove.playerId, lastMove.fromTileIndex, lastMove.toTileIndex)}</p>
       ) : null}
       <div className="board-scroll">
         <div className={`board-ring ${normalizedTopology === "line" ? "board-ring-line" : "board-ring-ring"}`} style={boardStyle}>
           {tiles.map((tile) => {
             const isMoveFrom = lastMove?.fromTileIndex === tile.tileIndex;
             const isMoveTo = lastMove?.toTileIndex === tile.tileIndex;
+            const isStageFocus = stageFocus.focusTileIndex === tile.tileIndex;
             const position = projectTilePosition(tile.tileIndex, tiles.length, normalizedTopology);
             const ownerPlayerId = tile.ownerPlayerId ?? null;
             const tilePawns = tile.pawnPlayerIds.length > 0 ? tile.pawnPlayerIds : pawnFallback.get(tile.tileIndex) ?? [];
-            const kindLabel = tileKindLabel(tile.tileKind, tileKindLabels);
+            const kindLabel = tileKindLabel(tile.tileKind, board, tileKindLabels);
             const isFortune = tile.tileKind === "S";
             const isFinish = tile.tileKind === "F1" || tile.tileKind === "F2";
             return (
@@ -152,12 +148,17 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
                 className={`tile-card ${isMoveFrom ? "tile-move-from" : ""} ${isMoveTo ? "tile-move-to" : ""} ${
                   isFortune ? "tile-fortune" : ""
                 } ${isFinish ? "tile-finish" : ""}`}
+                data-focus-kind={isStageFocus ? stageFocus.currentBeatKind : undefined}
                 style={{
                   gridRow: position.row,
                   gridColumn: position.col,
                 }}
               >
-                <div className="tile-zone-strip" style={{ backgroundColor: zoneColorToCss(tile.zoneColor ?? "") }} />
+                {isStageFocus ? <div className={`tile-stage-focus tile-stage-focus-${stageFocus.currentBeatKind}`} /> : null}
+                {isStageFocus && stageFocus.currentBeatLabel !== "-" ? (
+                  <div className={`tile-live-tag tile-live-tag-${stageFocus.currentBeatKind}`}>{stageFocus.currentBeatLabel}</div>
+                ) : null}
+                <div className="tile-zone-strip" style={{ backgroundColor: zoneColorToCss(tile.zoneColor ?? "", board) }} />
                 <div className="tile-head">
                   <strong>{tile.tileIndex + 1}</strong>
                   {!isFortune && !isFinish ? <span>{kindLabel}</span> : null}
@@ -166,12 +167,12 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
                   <div className="tile-special-center">{kindLabel}</div>
                 ) : (
                   <div className="tile-body">
-                    <small>{zoneLabel(tile.zoneColor ?? "")}</small>
-                    <small>{costLabel(tile.purchaseCost, tile.rentCost)}</small>
+                    <small>{zoneLabel(tile.zoneColor ?? "", board)}</small>
+                    <small>{costLabel(tile.purchaseCost, tile.rentCost, board)}</small>
                   </div>
                 )}
                 <div className="tile-foot">
-                  <small>{ownerPlayerId === null ? "소유자 - 없음" : `소유자 P${ownerPlayerId}`}</small>
+                  <small>{ownerPlayerId === null ? board.ownerNone : board.owner(ownerPlayerId)}</small>
                   <div className="pawn-chips">
                     {tilePawns.length > 0 ? (
                       tilePawns.map((id) => (

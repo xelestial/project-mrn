@@ -1,5 +1,6 @@
 import type { ConnectionStatus } from "../../core/contracts/stream";
 import type { RuntimeStatusResult } from "../../infra/http/sessionApi";
+import { useI18n } from "../../i18n/useI18n";
 
 type ConnectionPanelProps = {
   status: ConnectionStatus;
@@ -7,43 +8,47 @@ type ConnectionPanelProps = {
   runtime: RuntimeStatusResult["runtime"];
 };
 
-function runtimeStatusLabel(status: string): string {
+function runtimeStatusLabel(status: string, labels: ReturnType<typeof useI18n>["connection"]["runtimeStatus"]): string {
   switch (status) {
     case "running":
-      return "진행 중";
+      return labels.running;
     case "finished":
-      return "종료됨";
+      return labels.finished;
     case "failed":
-      return "실패";
+      return labels.failed;
     case "recovery_required":
-      return "복구 필요";
+      return labels.recovery_required;
     default:
       return status;
   }
 }
 
-function watchdogLabel(state: string | undefined): string {
+function watchdogLabel(
+  state: string | undefined,
+  labels: ReturnType<typeof useI18n>["connection"]["watchdogStatus"]
+): string {
   if (!state) {
     return "-";
   }
   if (state === "stalled_warning") {
-    return "지연 경고";
+    return labels.stalled_warning;
   }
   if (state === "ok") {
-    return "정상";
+    return labels.ok;
   }
   return state;
 }
 
 export function ConnectionPanel({ status, lastSeq, runtime }: ConnectionPanelProps) {
+  const { connection } = useI18n();
   return (
     <section className="panel">
-      <h2>연결 상태</h2>
-      <p>연결: {status}</p>
-      <p>마지막 시퀀스: {lastSeq}</p>
-      <p>런타임: {runtimeStatusLabel(runtime.status)}</p>
-      <p>Watchdog: {watchdogLabel(runtime.watchdog_state)}</p>
-      <p>마지막 활동(ms): {runtime.last_activity_ms ?? "-"}</p>
+      <h2>{connection.title}</h2>
+      <p>{connection.fields.connection}: {status}</p>
+      <p>{connection.fields.lastSequence}: {lastSeq}</p>
+      <p>{connection.fields.runtime}: {runtimeStatusLabel(runtime.status, connection.runtimeStatus)}</p>
+      <p>{connection.fields.watchdog}: {watchdogLabel(runtime.watchdog_state, connection.watchdogStatus)}</p>
+      <p>{connection.fields.lastActivityMs}: {runtime.last_activity_ms ?? "-"}</p>
     </section>
   );
 }

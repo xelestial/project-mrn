@@ -1,7 +1,7 @@
 # [PLAN] Human Play Rule/Log Parity And DI Injection Path
 
 Status: ACTIVE  
-Updated: 2026-04-04  
+Updated: 2026-04-05  
 Owner: GPT
 
 ## 1) Current Assessment
@@ -100,6 +100,34 @@ Conclusion:
 - Files:
   - `apps/server/tests/test_runtime_service.py`
   - `apps/web/e2e/*` (or existing integration harness)
+
+### 2026-04-05 spectator continuity checkpoint
+
+- Completed:
+  - `uiText.ts` was rebuilt as a UTF-8 resource catalog again.
+  - non-local turn waiting state now uses `SpectatorTurnPanel` instead of a bare spinner-only waiting card.
+  - the spectator panel now keeps weather / current beat / latest public action / move / landing / economy / effect / progress visible while another player is acting.
+- Remaining:
+  - prompt surfaces still contain leftover inline broken strings and legacy inspector phrasing
+  - browser parity still needs an explicit non-local-turn spectator assertion, not only board/theater shell assertions
+  - the main browser parity suite is green again after the UTF-8 catalog rebuild (`e2e/parity.spec.ts`)
+
+### 2026-04-05 locale-boundary follow-up
+
+- The next active slice is no longer "add i18n foundation".
+- That foundation already exists and is in active use.
+- Current parity risk now comes from selector-owned wording and bridge-owned fallback text:
+  - `apps/web/src/domain/selectors/streamSelectors.ts`
+  - `apps/web/src/domain/text/uiText.ts`
+- Therefore the immediate execution order for this plan is:
+  1. reduce selector ownership of visible phrases
+  2. keep prompt/theater/stage continuity on top of locale resources
+  3. continue browser parity checks for `1 human + 3 AI`
+ - Dedicated browser recovery coverage now also exists in:
+   - `apps/web/e2e/human_play_runtime.spec.ts`
+ - That coverage currently locks:
+   - quick start -> first local prompt visible
+   - remote actor turn -> spectator panel visible and no local prompt
 
 ## P1 (Rule parity in visible UX)
 
@@ -226,3 +254,96 @@ This order is chosen to stop further drift before additional feature edits.
   - stronger continuity/motion between actor start -> move -> landing -> economy/result beats
   - richer other-player turn surfacing so the live view stops feeling like a replay/debug wall
   - prompt presentation that feels fully native to live play instead of a large inspector-style panel
+
+## 2026-04-05 Turn-Stage Continuity Update
+
+- `selectTurnStage` now carries a live current-beat projection instead of only static sub-summaries.
+  - latest core/public action in the current turn is projected as `currentBeatLabel` / `currentBeatDetail`
+  - turn-start is now explicitly seeded into the visible progress trail
+  - local blocking prompts can temporarily own the beat headline without mutating the underlying core summaries
+- `TurnStagePanel` now surfaces:
+  - actor hero
+  - weather card
+  - character card
+  - current-beat card
+  - progress-trail card
+- This improves readability, but it still does not finish P0-2.
+- Remaining parity work still includes:
+  - richer visual distinction between movement / purchase / fortune / rent / turn-end beats
+  - stronger board-side coupling between move destination and turn-theater beat
+  - prompt choreography that feels fully live-play native instead of primarily inspector-style
+
+## 2026-04-05 Browser Quick-Start Smoke Lock
+
+- Added a browser-level smoke path for `1 human + 3 AI` quick start.
+- The browser test now verifies:
+  - session creation
+  - human seat join
+  - session start
+  - match navigation
+  - first human prompt visibility
+  - weather/character text presence in the live match shell
+- This does not finish P0-2.
+- Remaining parity gaps are still mostly experiential:
+  - movement prompt still needs stronger game-like choreography
+  - prompt overlays still need to feel less like inspectors and more like live decision surfaces
+  - other-player movement / purchase / fortune beats still need more motion and stronger continuity
+
+## 2026-04-05 Prompt Surface Recovery Update
+
+- The live React human-play prompt layer now covers the first major decision surfaces with dedicated browser checks:
+  - `movement`
+    - runtime-contract `dice_*` choice ids are now parsed correctly by the web prompt layer
+    - card-mode selection is browser-tested
+  - `purchase_tile`
+    - decision cards now render with current tile / cost / cash / zone summaries
+  - `mark_target`
+    - target prompts now keep explicit `대상 인물 / 플레이어` wording in dedicated target cards
+- This improves P0-2, but still does not finish it.
+- Remaining visible parity work still includes:
+  - actor-start -> move -> landing -> economy/result continuity for other-player turns
+  - stronger board-side emphasis/motion when movement, purchase, fortune, and rent resolve
+  - weather / fortune persistence that feels like live board state, not only prompt/local-card context
+
+## 2026-04-05 Board/Stage Coupling Update
+
+- The live React client now projects turn-beat metadata far enough to let the board and turn-stage point at the same public event:
+  - `selectTurnStage` now carries:
+    - `currentBeatKind`
+    - `focusTileIndex`
+  - those values are derived from canonical payload fields, not from ad-hoc UI-only state
+- `BoardPanel` now uses that turn-stage focus to render:
+  - a live board focus summary
+  - tile emphasis by beat kind (`move / economy / effect / decision`)
+- `TurnStagePanel` hero/current-beat cards now also shift emphasis by beat kind, so the board and stage no longer feel visually disconnected.
+- Selector parity also improved for public economic beats:
+  - `rent_paid` summaries are no longer blank
+  - `fortune_drawn` / `fortune_resolved` now emit explicit summary strings through shared text resources
+- This still does not finish P0-2.
+- Remaining visible parity work still includes:
+  - stronger continuity between actor start -> move -> landing -> result cards for non-local turns
+  - weather / fortune persistence as a more anchored match-surface component
+  - prompt choreography that feels like a live board game surface instead of a large inspector block
+
+## 2026-04-05 Focused-Tile Readability Follow-up
+
+- The board now shows a short live action tag directly on the focused tile, not only in the stage summary.
+- `turn_start` summaries also no longer collapse into blank detail lines, which helps the first beat of a turn feel intentional instead of empty.
+- This improves readability, but it still does not finish P0-2.
+- Remaining visible parity work still includes:
+  - stronger continuity between turn-start and the first public action card
+  - more persistent weather / fortune anchoring in the match shell
+  - reducing the remaining inspector/debug feel during long prompt-heavy turns
+
+## 2026-04-05 Turn-Flow Surface Follow-up
+
+- The live React client now exposes the latest public turn as a short ordered flow inside the theater panel instead of only showing disconnected recent cards.
+- The board also now keeps the current round weather visible inside the board surface itself, not only in the turn-stage summary.
+- Browser parity smoke now verifies both:
+  - `board-weather-summary`
+  - `core-action-flow-panel`
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - stronger motion/choreography so the scene feels live rather than statically updated
+  - fuller other-player turn storytelling around movement -> landing -> result
+  - prompt surfaces that feel more like game actions than inspector panels

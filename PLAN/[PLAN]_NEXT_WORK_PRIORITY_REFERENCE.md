@@ -1,156 +1,170 @@
 # [PLAN] Next Work Priority Reference
 
 Status: ACTIVE  
-Updated: 2026-04-04  
+Updated: 2026-04-05  
 Owner: GPT
 
 ## Purpose
 
-이 문서는 다음 작업의 우선순위를 고정하고, 시작 전에 반드시 확인해야 할 기준을 제공합니다.
+This is the daily execution board.
 
-## Current Execution Status
+If multiple plans exist, this file decides:
+- what is blocked now
+- what is active now
+- what should wait
 
-- `P0-1` 진행 중 (started: 2026-04-04)
-  - 범위: Unified Decision API 계약 정합성 점검 및 이벤트 순서 고정
-  - 현재 착수:
-    - `decision_requested` / `decision_resolved` 서버 이벤트 발행 추가
-    - 관련 단위 테스트 보강
-    - timeout fallback lane에서도 `decision_resolved -> decision_timeout_fallback` 순서 고정
-    - web selector/label 경로에 decision 이벤트 가시성 반영
-    - retry/reconnect ordering fixture 추가
-    - backend decision contract CI workflow 추가
+Always read this after the mandatory principles document.
 
-- `P0-2` 진행 중
-  - 범위: Human Play 룰/로그 체감 순서 정렬
-  - 진행:
-    - turn theater lane 분리(`core/prompt/system`) 구현
-    - selector + UI 표기 + 회귀 테스트 반영
-    - lane 그룹 렌더링(핵심 진행/선택응답/시스템) 반영
-    - prompt 폭주 시에도 core가 유지되도록 lane quota 정책 반영
-    - actor-focus 우선순위 반영(타 플레이어 core 행동 가시성 강화)
-    - prompt lane 내부 우선순위 반영(결과/타임아웃/응답/요청 순)
-    - lane별 접기/펼치기 제어 추가(운영자 가시성 제어)
+## P0. Immediate Execution
 
-## Priority Buckets
+### P0-1. Unified Decision API Stability
 
-## P0 (Immediate / Blocker)
+Source plans:
+- `PLAN/[PLAN]_UNIFIED_DECISION_API_ORCHESTRATION.md`
+- `PLAN/[PLAN]_UNIFIED_DECISION_API_DETAILED_EXECUTION.md`
 
-1. Unified Decision API 계약 고정 + 서버 게임런타임 주입
-- Source plans:
-  - `PLAN/[PLAN]_UNIFIED_DECISION_API_ORCHESTRATION.md`
-  - `PLAN/[PLAN]_UNIFIED_DECISION_API_DETAILED_EXECUTION.md`
-- Exit:
-  - `DecisionRequest -> DecisionResponse` 계약 고정
-  - `decision_requested/resolved/timeout_fallback` 이벤트 순서 고정
+Goal:
+- keep one canonical decision flow for both AI and human seats
 
-2. Human Play 룰/로그 체감 순서 정렬
-- Source plan:
-  - `PLAN/[PLAN]_HUMAN_PLAY_RULE_LOG_PARITY_AND_DI.md`
-- Exit:
-  - core lane / prompt lane / system lane 분리
-  - weather/fortune/mark 표시 순서 룰 일치
+Must remain true:
+- `decision_requested -> decision_resolved(or decision_timeout_fallback) -> domain events`
+- prompt ownership is seat-correct
+- replay/live ordering stays deterministic
 
-3. 룰 문서 정합성 감사 + 재발 방지
-- Source plan:
-  - `PLAN/[PLAN]_GAME_RULES_ALIGNMENT_AUDIT_AND_FIX_PLAN.md`
-- Exit:
-  - 룰 문서와 구현 차이 목록 0건, 또는 예외 문서화
+Current focus:
+- preserve ordering while refactoring prompt UI and locale architecture
+- do not let UI-side wording changes reintroduce stale-prompt or wrong-seat regressions
 
-## P1 (Stabilization)
+### P0-2. Human Play Runtime Recovery
 
-1. Decision API 경로 E2E 자동화
-- server/web/engine 통합 테스트로 1 human + 3 AI 시나리오 고정
+Source plan:
+- `PLAN/[PLAN]_HUMAN_PLAY_RULE_LOG_PARITY_AND_DI.md`
 
-2. Prompt UX 간결화 분류
-- actionable prompt만 blocking
-- non-actionable은 observer 카드
+Goal:
+- make the React/FastAPI surface feel like a playable board game, not a replay inspector
 
-3. 로그/리플레이 가독성 정리
-- 이벤트 코드명이 아닌 플레이어 친화 문구 우선
+Current focus:
+- spectator continuity during other players' turns
+- strong weather / movement / landing / purchase / rent visibility
+- prompt UX that is obvious, blocking only when actually actionable, and readable on first glance
+- protect against previously reported regressions
 
-## P2 (Maintainability / DI Expansion)
+### P0-3. Game Rules Parity
 
-1. mark/fortune/weather behavior DI 확장
-- provider 또는 registry로 동작 분리
+Source plan:
+- `PLAN/[PLAN]_GAME_RULES_ALIGNMENT_AUDIT_AND_FIX_PLAN.md`
+- `docs/Game-Rules.md`
 
-2. selector 하드코딩 축소
-- canonical payload 우선, 후처리 최소화
+Goal:
+- engine / server / web must reflect the latest rules document
 
-3. 계약 역직렬화/스키마 자동 검증 강화
-- schema fixture + parser/property tests
+Current focus:
+- human prompt semantics
+- visual timing for weather / fortune / flips / marks / lap reward
+- no UI rendering that implies the wrong rule
 
-## P3 (Polish / Performance)
+### P0-4. String Resource / Encoding Stabilization
 
-1. 시각 연출 개선(애니메이션/이벤트 카드/턴 극장)
-2. 대규모 세션/재연결 성능 최적화
-3. 운영 가이드/인수인계 문서 고도화
+Source plans:
+- `PLAN/[PLAN]_STRING_RESOURCE_EXTERNALIZATION_AND_ENCODING_STABILITY.md`
+- `PLAN/[PLAN]_BILINGUAL_STRING_RESOURCE_ARCHITECTURE.md`
 
-## Always-Check Order (When starting work)
+Goal:
+- remove fragile inline user-facing strings from active UI surfaces
+- prevent mojibake regressions
+- prepare clean KO/EN switching
+
+Current focus:
+- keep locale resources outside components
+- reduce remaining `uiText.ts` compatibility-bridge ownership
+- move selector-visible wording toward locale-aware boundaries
+
+## P1. Stabilization
+
+### P1-1. Human E2E Hardening
+- `1 human + 3 AI` full-path confidence
+- browser smoke and parity flows
+- timeout/fallback visibility
+
+### P1-2. Parameter-Driven Decoupling Follow-up
+Source plan:
+- `PLAN/[PLAN]_PARAMETER_DRIVEN_RUNTIME_DECOUPLING.md`
+
+Goal:
+- prevent tile/rule/character/trick parameter changes from breaking web/runtime assumptions
+
+### P1-3. Contract / Selector Cleanup
+- reduce selector ownership of locale-specific sentences
+- move toward key + params or canonical payload at selector boundaries
+
+## P2. Secondary / Deferred
+
+### P2-1. Broader React architecture/history documents
+- `PLAN/REACT_ONLINE_GAME_IMPL_PLAN.md`
+- `PLAN/GPT_ONLINE_STYLE_REPLAY_VISUALIZATION_PLAN.md`
+
+Status:
+- reference-only unless a task explicitly needs them
+
+### P2-2. Older audit / proposal / strategy records
+
+Status:
+- supporting context only
+- do not use as the main task list
+
+## Always-Read Order
 
 1. `docs/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
 2. `PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
-3. `PLAN/[PLAN]_UNIFIED_DECISION_API_DETAILED_EXECUTION.md`
-4. `PLAN/[PLAN]_HUMAN_PLAY_RULE_LOG_PARITY_AND_DI.md`
-5. `PLAN/[PLAN]_GAME_RULES_ALIGNMENT_AUDIT_AND_FIX_PLAN.md`
+3. `docs/Game-Rules.md`
+4. `PLAN/[PLAN]_UNIFIED_DECISION_API_DETAILED_EXECUTION.md`
+5. `PLAN/[PLAN]_HUMAN_PLAY_RULE_LOG_PARITY_AND_DI.md`
+6. `PLAN/[PLAN]_GAME_RULES_ALIGNMENT_AUDIT_AND_FIX_PLAN.md`
+7. `PLAN/[PLAN]_STRING_RESOURCE_EXTERNALIZATION_AND_ENCODING_STABILITY.md`
+8. `PLAN/[PLAN]_BILINGUAL_STRING_RESOURCE_ARCHITECTURE.md`
+9. `PLAN/[PLAN]_PARAMETER_DRIVEN_RUNTIME_DECOUPLING.md`
+10. `PLAN/PLAN_STATUS_INDEX.md`
 
-## Conflict Resolution Rule
+## Current Execution Order
 
-문서가 충돌하면 아래 순서로 적용:
+Implement in this order unless a blocker forces a swap:
 
-1. `docs/Game-Rules.md`
-2. `PLAN/[PLAN]_UNIFIED_DECISION_API_DETAILED_EXECUTION.md`
-3. `PLAN/[PLAN]_HUMAN_PLAY_RULE_LOG_PARITY_AND_DI.md`
-4. `PLAN/PLAN_STATUS_INDEX.md`
+1. selector/resource locale detachment
+2. prompt surface cleanup on top of the locale foundation
+3. non-local turn theater continuity
+4. rule-parity visual fixes
+5. parameter/contract decoupling follow-up
 
-## 2026-04-04 Progress Snapshot (Latest)
+## 2026-04-05 Concrete Next Steps
 
-- P0-1 (Unified Decision API ordering/contracts):
-  - Runtime bridge ordering and timeout ordering are fixed.
-  - Retry/reconnect ordering fixtures are in place.
-  - Contract-level ordered sequence fixtures are added.
-  - Human-play selector regression fixture verifies decision/core lane coexistence.
-  - Status: locally complete; waiting for CI confirmation on fastapi-enabled matrix.
-- P0-2 (Human-play log experience):
-  - Lane grouping/priority/toggle controls are implemented.
-  - Actor visibility baseline improved (turn-stage panel + board pawn visibility).
-  - Prompt payload/render parity hardened:
-    - draft/final character ability text is now carried in decision payload.
-    - hidden-trick prompt now carries full-hand context for single unified card-grid rendering.
-    - mark-target prompt shows explicit character/player target summary.
-    - prompt overlay copy and interaction flow were normalized for human play:
-      - movement split to roll/card mode with compact card chips.
-      - trick/hidden-trick unified hand display with hidden/usability states.
-      - prompt label/helper catalogs rewritten with clean UTF-8 Korean wording.
-  - Newly reinforced:
-    - match screen now shows a `core action strip` (latest core events) for non-local turn visibility.
-    - weather effect fallback text is persisted even when reveal payload omits explicit effect detail.
-    - prompt submit reliability now guards against lost sends:
-      - decision send path returns explicit success/failure.
-      - `처리 중` 상태는 실제 전송 성공 이후에만 진입.
-      - 연결 불안정/단절 시 busy 상태를 자동 해제하고 재시도 메시지를 노출.
-    - generic prompt cards now render human wording by request type:
-      - lap reward / purchase / active flip / burden exchange 선택지가 기계식 id 대신 플레이어 문구로 표시.
-  - Next: continue live-screen UX parity fixes (prompt placement, text normalization, and action narration polish).
+1. Keep `apps/web/src/i18n/` as the source of truth and remove new direct ownership from:
+   - selectors
+   - runtime-facing prompt helpers
+   - theater/stage summary helpers
+2. Continue prompt cleanup with the locale resource model:
+   - movement
+   - trick
+   - purchase
+   - mark
+   - lap reward
+3. Preserve non-local turn continuity so the match reads as:
+   - actor start
+   - movement
+   - landing
+   - purchase/rent/fortune
+   - turn end
+4. Only after the above, continue selector/key decoupling and parameter-driven follow-up.
 
-## 2026-04-05 Priority Update
+### 2026-04-05 Progress Update
 
-- New active plan added:
-  - `PLAN/[PLAN]_STRING_RESOURCE_EXTERNALIZATION_AND_ENCODING_STABILITY.md`
-- Reason:
-  - repeated mojibake/string-regression risk remains high when user-facing copy lives inside React components
-  - this is now a direct blocker for stable human-play UX recovery
-
-Updated short-term priority order:
-
-1. `P0-2` keep live human-play UI flow recovery moving
-2. `P0-string` externalize user-facing strings from critical React match surfaces
-3. `P0-1` keep Unified Decision API contract/order stable while UI refactors continue
-
-Immediate execution note:
-
-- Any change touching these files should prefer resource extraction over new inline copy:
-  - `apps/web/src/App.tsx`
-  - `apps/web/src/features/theater/*`
-  - `apps/web/src/features/stage/*`
-  - `apps/web/src/features/prompt/*`
-  - `apps/web/src/features/lobby/*`
+- `streamSelectors.ts` now accepts locale-aware text resources instead of forcing runtime rendering through the Korean compatibility bridge.
+- `App.tsx` now passes current locale resources into:
+  - timeline
+  - theater
+  - alert
+  - situation
+  - turn-stage selectors
+- Therefore the next immediate implementation order is:
+  1. keep trimming selector-owned phrase composition
+  2. continue prompt/theater human-play cleanup
+  3. only then return to lower-priority decoupling follow-up

@@ -1,102 +1,123 @@
 # [MANDATORY] Principles And Required Plan Reading
 
 Status: ACTIVE  
-Updated: 2026-04-04  
+Updated: 2026-04-05  
 Scope: engine / server / web / contracts
 
-## CI Guardrail (Fixed)
+## Absolute Start Rule
 
-These mandatory rules are enforced by:
+Before any implementation work:
 
-- `.github/workflows/plan-policy-gate.yml`
-- `tools/encoding_gate.py`
-- `tools/plan_policy_gate.py`
+1. open this document first
+2. open the required plans in the order listed below
+3. only then begin code changes
 
-Local checks:
+This rule applies to all work sizes:
+- small patch
+- medium refactor
+- large architecture change
 
-- `python tools/encoding_gate.py`
-- `python tools/plan_policy_gate.py`
+## Required Reading Order Before Coding
 
-## 1) Mandatory Reading Before Any Implementation
+Read these in order:
 
-Read in this order before starting implementation:
+1. `docs/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
+2. `docs/Game-Rules.md`
+3. `PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
+4. `PLAN/[PLAN]_UNIFIED_DECISION_API_ORCHESTRATION.md`
+5. `PLAN/[PLAN]_UNIFIED_DECISION_API_DETAILED_EXECUTION.md`
+6. `PLAN/[PLAN]_HUMAN_PLAY_RULE_LOG_PARITY_AND_DI.md`
+7. `PLAN/[PLAN]_GAME_RULES_ALIGNMENT_AUDIT_AND_FIX_PLAN.md`
+8. `PLAN/[PLAN]_STRING_RESOURCE_EXTERNALIZATION_AND_ENCODING_STABILITY.md`
+9. `PLAN/[PLAN]_BILINGUAL_STRING_RESOURCE_ARCHITECTURE.md`
+10. `PLAN/[PLAN]_PARAMETER_DRIVEN_RUNTIME_DECOUPLING.md`
+11. `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`
+12. `PLAN/PLAN_STATUS_INDEX.md`
 
-1. `docs/Game-Rules.md`
-2. `PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
-3. `PLAN/[PLAN]_UNIFIED_DECISION_API_ORCHESTRATION.md`
-4. `PLAN/[PLAN]_UNIFIED_DECISION_API_DETAILED_EXECUTION.md`
-5. `PLAN/[PLAN]_HUMAN_PLAY_RULE_LOG_PARITY_AND_DI.md`
-6. `PLAN/[PLAN]_GAME_RULES_ALIGNMENT_AUDIT_AND_FIX_PLAN.md`
-7. `PLAN/[PLAN]_STRING_RESOURCE_EXTERNALIZATION_AND_ENCODING_STABILITY.md`
-8. `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`
-9. `PLAN/PLAN_STATUS_INDEX.md`
+## Mandatory Engineering Principles
 
-## 2) Mandatory Engineering Principles
+### P-00 Encoding Safety
 
-## P-01 Encoding
+- All text files must remain `UTF-8` with `LF`.
+- `CP-949` is forbidden.
+- Do not rewrite file encoding because PowerShell output looks broken.
+- If visible user-facing wording changes, check the string/i18n plans first.
+- Prefer shared text resources over inline literals.
 
-- CP-949 사용 금지.
-- UTF-8(가능하면 UTF-8 with LF) 사용.
-- 문서/코드/CSV/로그 샘플 모두 동일 인코딩 유지.
+### P-01 DI And Boundary Discipline
 
-## P-02 DI and Boundary
+- Human and AI decisions must follow the same request/response contract.
+- Route behavior through provider / adapter / contract boundaries, not hidden direct coupling.
+- Keep mark / weather / fortune / prompt policy logic injectable where applicable.
 
-- AI/인간 처리 분기는 엔진 내부 분기 금지, API/Provider 경계에서 처리.
-- `DecisionRequest -> DecisionResponse` 계약을 단일 진입점으로 유지.
-- mark/fortune/weather 규칙은 엔진 직접 분기 대신 provider/registry 주입 구조로 유지.
+### P-02 Low Coupling / High Maintainability
 
-## P-03 Low Coupling / High Maintainability
+- Avoid scattering gameplay wording or rules across unrelated components.
+- Keep selectors, renderers, and transport layers clearly separated.
+- Prefer stable canonical payloads over UI-generated pseudo-contracts.
 
-- 엔진/서버/프론트 직접 참조를 줄이고 계약 객체 전달로 연결.
-- 하드코딩 문자열(이벤트명/라벨/룰 상수) 분산 금지.
-- canonical payload를 1차 소스로 사용하고 selector 후처리는 최소화.
+### P-03 Ordering And Determinism
 
-## P-04 Ordering and Determinism
+- Preserve:
+  - `decision_requested`
+  - `decision_resolved` or `decision_timeout_fallback`
+  - domain events
+- Keep stream ordering deterministic.
+- Replay/live views must read the same canonical event order.
 
-- 결정 이벤트 순서 고정:
-  - `decision_requested -> decision_resolved(or timeout_fallback) -> domain events`
-- `seq` 단조 증가 보장.
-- 재연 가능성을 위해 append-only 로그 원칙 유지.
+### P-04 Testing Discipline
 
-## P-05 Testing Discipline
+- Complex changes require plan-first work.
+- Behavioral changes should add or update tests.
+- Human-play changes should be validated with browser-level coverage when practical.
 
-- 계약 변경 시 schema fixture + parser test + e2e 최소 1개 필수.
-- 1 human + 3 AI 혼합 시나리오 통합 테스트 필수.
-- 룰 문서 변경 시 엔진/서버/UI 정합성 문서 업데이트 필수.
+### P-05 UX Safety
 
-## P-06 UX Safety Rules
+- Only actionable prompts should block the local player.
+- Non-actionable remote activity should be shown as observer/theater information.
+- Runtime errors and warnings must not replace core gameplay narrative.
 
-- actionable prompt만 blocking.
-- non-actionable prompt는 observer 카드로 표시.
-- system error/warning은 core gameplay narrative를 덮지 않음.
+### P-06 Documentation Policy
 
-## P-07 Documentation Policy
-
-- 계획/정책/아키텍처 문서는 `main` 기준으로 유지.
-- 구현 변경 시 다음 문서를 함께 갱신:
-  - 해당 PLAN 문서
-  - `PLAN/PLAN_STATUS_INDEX.md`
-  - 관련 `docs/*` 사양 문서
-
-## P-08 Work Execution Rules (Added)
-
-- 작업 원칙 - 소규모/대규모 작업에 관계 없이 어떤 일을 했는지 요약하여 작업 일지 문서에 남긴다.
-- 작업 원칙 - 로직 등 복잡한 변경은 계획 문서를 먼저 작성한다.
-- 작업 일지 문서: `docs/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md`
-
-## 3) Working Checklist (Must pass before merge)
-
-- [ ] 필독 순서 문서 확인
-- [ ] Game-Rules와 구현 동작 차이 확인 및 기록
-- [ ] Decision API 계약 위반 없음
-- [ ] CP-949 검출 없음
-- [ ] 테스트 통과
-- [ ] 변경 문서 동시 업데이트 완료
-
-## P-09 UI String Ownership (Added)
-
-- New user-facing UI strings should be defined in shared resource/catalog modules first.
-- Avoid embedding large visible phrases directly inside React runtime components when the text is likely to be reused or revised.
-- If wording changes affect theater/stage/prompt/lobby UX, update both:
-  - `PLAN/[PLAN]_STRING_RESOURCE_EXTERNALIZATION_AND_ENCODING_STABILITY.md`
+- Plans live on `main`.
+- Update relevant plan docs when the implementation direction changes.
+- Leave a summary in:
   - `docs/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md`
+
+### P-07 Work Execution Policy
+
+- Every task, small or large, must leave a worklog summary.
+- Logic-heavy or architecture-heavy changes must start from a plan document.
+
+### P-08 String Ownership
+
+- User-facing strings should live in shared resources/catalogs.
+- Do not introduce new inline visible strings unless there is a strong temporary reason.
+- Any string or wording work must check:
+  - `PLAN/[PLAN]_STRING_RESOURCE_EXTERNALIZATION_AND_ENCODING_STABILITY.md`
+  - `PLAN/[PLAN]_BILINGUAL_STRING_RESOURCE_ARCHITECTURE.md`
+
+## Mandatory Working Checklist
+
+Before merge or handoff, confirm:
+
+- [ ] required documents were read first
+- [ ] rule source matches implementation intent
+- [ ] decision contract ordering was preserved
+- [ ] UTF-8 / LF policy was preserved
+- [ ] relevant tests were run or explicitly noted as not run
+- [ ] worklog entry was added
+
+## Encoding Incident Prevention Note
+
+If text appears broken:
+
+- do not guess the encoding and rewrite files blindly
+- check whether the terminal output is the problem instead of the file itself
+- verify against the string resource files and plan docs first
+
+When touching user-facing text, always re-check:
+
+- `docs/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
+- `PLAN/[PLAN]_STRING_RESOURCE_EXTERNALIZATION_AND_ENCODING_STABILITY.md`
+- `PLAN/[PLAN]_BILINGUAL_STRING_RESOURCE_ARCHITECTURE.md`

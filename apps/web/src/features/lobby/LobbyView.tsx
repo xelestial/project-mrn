@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { type PublicSessionResult } from "../../infra/http/sessionApi";
+import { useI18n } from "../../i18n/useI18n";
 
 export type LobbySeatType = "human" | "ai";
 
@@ -78,6 +79,7 @@ export function LobbyView({
   onRefreshSessions,
   onUseSession,
 }: LobbyViewProps) {
+  const { lobby } = useI18n();
   const [collapsed, setCollapsed] = useState({
     controls: false,
     stream: true,
@@ -88,103 +90,105 @@ export function LobbyView({
     <>
       <section className="panel">
         <div className="panel-head">
-          <h2>로비 제어</h2>
+          <h2>{lobby.controlsTitle}</h2>
           <button
             type="button"
             className="route-tab"
             onClick={() => setCollapsed((prev) => ({ ...prev, controls: !prev.controls }))}
           >
-            {collapsed.controls ? "펼치기" : "접기"}
+            {collapsed.controls ? lobby.expand : lobby.collapse}
           </button>
         </div>
         {collapsed.controls ? null : (
           <div className="lobby-grid">
             <div>
-              <h3>세션 생성</h3>
+              <h3>{lobby.createSessionTitle}</h3>
+              <p>{lobby.createSessionDescription}</p>
               <label>
-                시드
+                {lobby.fields.seed}
                 <input value={seedInput} onChange={(e) => onSeedInput(e.target.value)} />
               </label>
               <label>
-                좌석 수 (1-4)
+                {lobby.fields.seatCount}
                 <input value={seatCountInput} onChange={(e) => onSeatCountInput(e.target.value)} />
               </label>
               <label>
-                AI 프로필
+                {lobby.fields.aiProfile}
                 <input value={aiProfile} onChange={(e) => onAiProfile(e.target.value)} />
               </label>
               <div className="seat-grid">
                 {seatTypes.map((seatType, idx) => (
                   <label key={`seat-${idx + 1}`}>
-                    좌석 {idx + 1}
+                    {lobby.values.seat(String(idx + 1))}
                     <select
                       value={seatType}
                       onChange={(e) => onSeatTypeChange(idx, e.target.value === "human" ? "human" : "ai")}
                     >
-                      <option value="human">human</option>
-                      <option value="ai">ai</option>
+                      <option value="human">{lobby.values.human}</option>
+                      <option value="ai">{lobby.values.ai}</option>
                     </select>
                   </label>
                 ))}
               </div>
               <div className="actions">
-                <button type="button" disabled={busy} onClick={onQuickStartHumanVsAi}>
-                  사람1 + AI3 바로 시작
+                <button type="button" data-testid="quick-start-human-vs-ai" disabled={busy} onClick={onQuickStartHumanVsAi}>
+                  {lobby.buttons.quickStartHumanVsAi}
                 </button>
                 <button type="button" disabled={busy} onClick={onCreateCustomSession}>
-                  커스텀 세션 생성
+                  {lobby.buttons.createCustomSession}
                 </button>
                 <button type="button" disabled={busy} onClick={onCreateAndStartAi}>
-                  AI 전용 즉시 시작
+                  {lobby.buttons.createAndStartAi}
                 </button>
               </div>
             </div>
 
             <div>
-              <h3>호스트 / 참가</h3>
+              <h3>{lobby.hostJoinTitle}</h3>
+              <p>{lobby.hostJoinDescription}</p>
               <label>
-                세션 ID
-                <input value={sessionInput} onChange={(e) => onSessionInput(e.target.value)} placeholder="sess_xxx" />
+                {lobby.fields.sessionId}
+                <input value={sessionInput} onChange={(e) => onSessionInput(e.target.value)} placeholder={lobby.placeholders.sessionId} />
               </label>
               <label>
-                호스트 토큰
-                <input value={hostTokenInput} onChange={(e) => onHostTokenInput(e.target.value)} placeholder="host_xxx" />
+                {lobby.fields.hostToken}
+                <input value={hostTokenInput} onChange={(e) => onHostTokenInput(e.target.value)} placeholder={lobby.placeholders.hostToken} />
               </label>
               <div className="actions">
                 <button type="button" disabled={busy} onClick={onStartByHostToken}>
-                  세션 시작
+                  {lobby.buttons.startSession}
                 </button>
               </div>
               <label>
-                참가 좌석
+                {lobby.fields.joinSeat}
                 <select value={joinSeatInput} onChange={(e) => onJoinSeatInput(e.target.value)}>
                   {joinSeatOptions.map((seat) => (
                     <option key={`seat-option-${seat}`} value={seat}>
-                      Seat {seat}
+                      {lobby.values.seat(seat)}
                     </option>
                   ))}
                 </select>
               </label>
               <label>
-                참가 토큰
-                <input value={joinTokenInput} onChange={(e) => onJoinTokenInput(e.target.value)} placeholder="seat_join_token" />
+                {lobby.fields.joinToken}
+                <input value={joinTokenInput} onChange={(e) => onJoinTokenInput(e.target.value)} placeholder={lobby.placeholders.joinToken} />
               </label>
               <label>
-                표시 이름
+                {lobby.fields.displayName}
                 <input value={displayNameInput} onChange={(e) => onDisplayNameInput(e.target.value)} />
               </label>
               <div className="actions">
                 <button type="button" disabled={busy} onClick={onJoinSeat}>
-                  참가 + 연결
+                  {lobby.buttons.joinAndConnect}
                 </button>
               </div>
               {Object.keys(lastJoinTokens).length > 0 ? (
                 <div className="token-list">
-                  <p className="mono">최근 생성 join token</p>
+                  <p className="mono">{lobby.labels.latestCreateTokens}</p>
                   <div className="token-actions">
                     {Object.entries(lastJoinTokens).map(([seat, value]) => (
                       <button key={`token-${seat}`} type="button" onClick={() => onUseToken(seat, value)}>
-                        Use Seat {seat} token
+                        {lobby.buttons.useSeatToken(seat)}
                       </button>
                     ))}
                   </div>
@@ -197,36 +201,36 @@ export function LobbyView({
 
       <section className="panel">
         <div className="panel-head">
-          <h2>스트림 연결</h2>
+          <h2>{lobby.streamTitle}</h2>
           <button
             type="button"
             className="route-tab"
             onClick={() => setCollapsed((prev) => ({ ...prev, stream: !prev.stream }))}
           >
-            {collapsed.stream ? "펼치기" : "접기"}
+            {collapsed.stream ? lobby.expand : lobby.collapse}
           </button>
         </div>
         {collapsed.stream ? null : (
           <>
             <form onSubmit={onConnect} className="form">
               <label>
-                세션 ID
-                <input value={sessionInput} onChange={(e) => onSessionInput(e.target.value)} placeholder="sess_xxx" />
+                {lobby.fields.sessionId}
+                <input value={sessionInput} onChange={(e) => onSessionInput(e.target.value)} placeholder={lobby.placeholders.sessionId} />
               </label>
               <label>
-                세션 토큰 (옵션)
+                {lobby.fields.sessionToken}
                 <input
                   value={tokenInput}
                   onChange={(e) => onTokenInput(e.target.value)}
-                  placeholder="session_p1_xxx (비우면 관전자)"
+                  placeholder={lobby.placeholders.sessionToken}
                 />
               </label>
               <div className="actions">
                 <button type="submit" disabled={busy}>
-                  연결
+                  {lobby.buttons.connect}
                 </button>
                 <button type="button" onClick={onRefreshSessions} disabled={busy}>
-                  세션 목록 갱신
+                  {lobby.buttons.refreshSessions}
                 </button>
               </div>
             </form>
@@ -238,26 +242,26 @@ export function LobbyView({
 
       <section className="panel">
         <div className="panel-head">
-          <h2>세션 목록 ({sessions.length})</h2>
+          <h2>{lobby.sessionListTitle(sessions.length)}</h2>
           <button
             type="button"
             className="route-tab"
             onClick={() => setCollapsed((prev) => ({ ...prev, sessions: !prev.sessions }))}
           >
-            {collapsed.sessions ? "펼치기" : "접기"}
+            {collapsed.sessions ? lobby.expand : lobby.collapse}
           </button>
         </div>
         {collapsed.sessions ? null : (
           <div className="timeline">
-            {sessions.map((s) => (
-              <article key={s.session_id} className="timeline-item">
-                <strong>{s.session_id}</strong>
-                <span>{s.status}</span>
+            {sessions.map((session) => (
+              <article key={session.session_id} className="timeline-item">
+                <strong>{session.session_id}</strong>
+                <span>{session.status}</span>
                 <small>
-                  R{s.round_index ?? 0} / T{s.turn_index ?? 0}
+                  R{session.round_index ?? 0} / T{session.turn_index ?? 0}
                 </small>
-                <button type="button" onClick={() => onUseSession(s.session_id)}>
-                  Use session
+                <button type="button" onClick={() => onUseSession(session.session_id)}>
+                  {lobby.buttons.useSession}
                 </button>
               </article>
             ))}

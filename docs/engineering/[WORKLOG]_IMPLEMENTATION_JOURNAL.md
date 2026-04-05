@@ -679,3 +679,418 @@ Updated: 2026-04-04
   - existing `apps/web` build remains passing from the current UI slice.
 - Next:
   - extract critical live-view strings from `App.tsx`, theater, stage, prompt, and lobby components before further UX reshaping.
+
+### Entry 040
+
+- Scope: P0-string phase 1 implementation and verification.
+- Done:
+  - Added centralized typed resource ownership in `apps/web/src/domain/text/uiText.ts`.
+  - Migrated major visible React strings to shared catalogs in:
+    - `App.tsx`
+    - `LobbyView.tsx`
+    - `PromptOverlay.tsx`
+    - `CoreActionPanel.tsx`
+    - `IncidentCardStack.tsx`
+    - `TurnStagePanel.tsx`
+    - `BoardPanel.tsx`
+    - `ConnectionPanel.tsx`
+  - Replaced remaining direct join-seat error text in `App.tsx` with catalog-driven wording.
+  - Normalized lobby chrome wording to player-facing Korean labels.
+- Validation:
+  - `npm run test -- --run src/domain/labels` passed (`17 passed`).
+  - `npm run build` passed (`apps/web`).
+- Next:
+  - Continue P1 string migration into selector-generated visible summaries (`streamSelectors.ts` and adjacent runtime-facing summary helpers).
+
+### Entry 041
+
+- Scope: P0-string phase 2 selector-summary migration.
+- Done:
+  - Added shared `STREAM_TEXT` helpers to `apps/web/src/domain/text/uiText.ts`.
+  - Migrated selector-facing visible phrases in `apps/web/src/domain/selectors/streamSelectors.ts`:
+    - generic event fallback
+    - weather effect fallback text
+    - move/dice summaries
+    - landing result labels
+    - heartbeat detail text
+    - runtime stalled warning text
+    - tile purchase / marker transfer summaries
+    - bankruptcy / game-end winner summaries
+    - lap reward summary pieces
+    - manifest sync / mark resolved / marker flip / 종료 시간 변경 text
+    - prompt waiting summary in turn-stage projection
+  - Fixed `decision_ack` non-event label regression back to `선택 응답`.
+- Validation:
+  - `npm run test -- --run src/domain/labels src/domain/selectors` passed (`35 passed`).
+  - `npm run build` passed (`apps/web`).
+- Next:
+  - Continue remaining string ownership cleanup in theater classification heuristics and any leftover board/runtime display literals.
+
+### Entry 042
+
+- Scope: priority reference UTF-8 recovery.
+- Done:
+  - Rewrote `PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md` in clean UTF-8.
+  - Re-aligned the document with current actual priorities:
+    - Unified Decision API stability
+    - Human Play live UI recovery
+    - latest game-rule alignment
+    - string externalization / encoding stability
+- Validation:
+  - document rewritten as plain UTF-8 text and now usable as the current start-order reference.
+- Next:
+  - continue remaining P0-string cleanup and then return to live human-play UI recovery tasks using the refreshed priority reference.
+
+### Entry 043
+
+- Scope: P0-string phase 3 prompt/auxiliary catalog consolidation.
+- Done:
+  - Expanded `apps/web/src/domain/text/uiText.ts` with:
+    - `PLAYERS_TEXT`
+    - `TIMELINE_TEXT`
+    - `PROMPT_TYPE_TEXT`
+    - `PROMPT_HELPER_TEXT`
+  - Rewired these modules to consume centralized text resources:
+    - `apps/web/src/domain/labels/promptTypeCatalog.ts`
+    - `apps/web/src/domain/labels/promptHelperCatalog.ts`
+    - `apps/web/src/features/players/PlayersPanel.tsx`
+    - `apps/web/src/features/timeline/TimelinePanel.tsx`
+  - Recovered corrupted spec files in clean UTF-8:
+    - `promptTypeCatalog.spec.ts`
+    - `promptHelperCatalog.spec.ts`
+    - `uiText.spec.ts`
+  - Removed remaining direct mark-target helper copy in `PromptOverlay.tsx` and routed it through prompt helper text.
+- Validation:
+  - pending local test/build run after this consolidation pass.
+- Next:
+  - run `apps/web` test/build verification
+  - continue remaining selector-string cleanup
+  - then return to live human-play UI recovery
+
+### Entry 044
+
+- Scope: P0-string phase 4 leftover selector/display cleanup.
+- Done:
+  - Removed duplicated weather fallback ownership from `streamSelectors.ts` so selector weather fallback now depends only on `STREAM_TEXT`.
+  - Moved board zone-color CSS aliases into `BOARD_TEXT.zoneColorCss`.
+  - Rewired `BoardPanel.tsx` to consume the centralized board color catalog.
+- Validation:
+  - pending local test/build run after this leftover cleanup.
+- Next:
+  - re-run `apps/web` tests/build
+  - if clean, shift focus back to human-play live UI recovery
+
+### Entry 045
+
+- Scope: P0-2 situation panel readability recovery.
+- Done:
+  - Added `SITUATION_TEXT` to the shared UI text catalog.
+  - Rebuilt `apps/web/src/features/status/SituationPanel.tsx` as a card-based summary panel:
+    - 행동자
+    - 라운드 / 턴
+    - 현재 이벤트
+    - 이번 라운드 날씨
+    - 날씨 효과
+  - Added matching layout styles in `apps/web/src/styles.css` so the situation area reads like a live match summary instead of raw stacked lines.
+- Validation:
+  - pending local build/test after the panel rewrite.
+- Next:
+  - verify `apps/web` build/test
+  - continue human-play theater/live-flow improvements
+
+### Entry 046
+
+- Scope: P0-string UTF-8 catalog recovery and selector label stabilization.
+- Done:
+  - Rebuilt `apps/web/src/domain/text/uiText.ts` in clean UTF-8 with restored Korean wording for:
+    - app/lobby/connection/board/player/timeline/situation text
+    - prompt type/helper text
+    - stream/theater/turn-stage/prompt text
+  - Rebuilt `apps/web/src/domain/labels/eventLabelCatalog.ts` in clean UTF-8.
+  - Recovered corrupted spec files in clean UTF-8:
+    - `uiText.spec.ts`
+    - `eventLabelCatalog.spec.ts`
+    - `promptTypeCatalog.spec.ts`
+    - `promptHelperCatalog.spec.ts`
+    - `streamSelectors.spec.ts`
+- Validation:
+  - `npm run test -- --run src/domain/text src/domain/labels src/domain/selectors` passed (`43 passed`).
+  - `npm run build` passed (`apps/web`).
+- Next:
+  - continue remaining string ownership cleanup by moving event labels into the shared catalog layer
+  - keep pushing live human-play stage continuity
+
+### Entry 047
+
+- Scope: P0-string shared event-label ownership + P0-2 turn-stage continuity.
+- Done:
+  - Added `EVENT_LABEL_TEXT` to `apps/web/src/domain/text/uiText.ts`.
+  - Rewired `apps/web/src/domain/labels/eventLabelCatalog.ts` to consume shared text resources instead of owning inline labels.
+  - Extended `selectTurnStage` in `apps/web/src/domain/selectors/streamSelectors.ts` with:
+    - `currentBeatLabel`
+    - `currentBeatDetail`
+    - turn-progress trail seeded from `turn_start`
+  - Updated `apps/web/src/features/stage/TurnStagePanel.tsx` to render:
+    - current live beat card
+    - prompt/current-action summary
+    - visible turn-progress trail chips
+  - Added matching trail/wide-card styles in `apps/web/src/styles.css`.
+- Validation:
+  - `npm run test -- --run src/domain/text src/domain/labels src/domain/selectors` passed.
+  - `npm run build` passed (`apps/web`).
+- Next:
+  - keep reducing “replay/debug wall” feel by making other-player turn beats more theatrical
+  - continue prompt UX tightening and board/readability recovery
+
+### Entry 048
+
+- Scope: P0-string UTF-8 catalog hard recovery + browser quick-start parity lock.
+- Done:
+  - Fully restored `apps/web/src/domain/text/uiText.ts` in clean UTF-8 Korean/English.
+  - Recovered corrupted spec files in clean UTF-8:
+    - `apps/web/src/domain/text/uiText.spec.ts`
+    - `apps/web/src/domain/labels/promptTypeCatalog.spec.ts`
+    - `apps/web/src/domain/labels/promptHelperCatalog.spec.ts`
+    - `apps/web/src/domain/labels/eventLabelCatalog.spec.ts`
+    - `apps/web/src/domain/selectors/streamSelectors.spec.ts`
+  - Extended `apps/web/e2e/parity.spec.ts` with a real `1 human + 3 AI quick start` browser flow:
+    - `POST /sessions`
+    - `POST /join`
+    - `POST /start`
+    - runtime polling
+    - stream replay
+    - first human prompt visibility
+  - Updated existing browser parity assertions so they match the current Korean lobby/match UI instead of stale English/raw-debug assumptions.
+- Validation:
+  - `npm run test -- --run src/domain/text src/domain/labels src/domain/selectors` passed (`43 passed`).
+  - `npm run e2e -- e2e/parity.spec.ts` passed (`4 passed`).
+  - `npm run build` passed (`apps/web`).
+- Next:
+  - keep pushing P0-2 live-play UX so prompt surfaces feel like a game, not a debug inspector
+  - add more mixed-session browser coverage for follow-up human decisions (`movement`, `purchase_tile`, `mark_target`)
+
+### Entry 049
+
+- Scope: mandatory encoding-safety rule reinforcement.
+- Done:
+  - Rewrote `docs/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md` in clean UTF-8.
+  - Added an absolute start rule so every task must open the mandatory reading document first.
+  - Strengthened the encoding policy:
+    - Korean text must stay UTF-8
+    - CP-949 is forbidden
+    - PowerShell mojibake must not trigger ad-hoc file re-encoding
+  - Updated `PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md` so every future task explicitly re-checks:
+    - mandatory principles
+    - string/externalization plan
+- Validation:
+  - documentation update only
+- Next:
+  - continue P0-2 live-play UX recovery on top of the stabilized encoding/documentation rules
+
+### Entry 050
+
+- Scope: P0-2 prompt-surface recovery for movement / purchase / mark, plus browser parity lock.
+- Done:
+  - Updated `apps/web/src/features/prompt/PromptOverlay.tsx` so key human prompts render as dedicated game-style cards instead of falling back to one generic choice wall:
+    - `movement`
+      - now parses both runtime-contract `dice_*` ids and `card_values` payloads
+      - shows context cards (`현재 위치`, `사용 가능 카드`, `선택 카드`, `현재 날씨`)
+      - exposes stable `data-testid` hooks for browser verification
+    - `purchase_tile`
+      - now renders a dedicated decision layout with tile/cost/cash/zone summary cards
+      - action cards are emphasized as `토지 구매` vs `구매 없이 턴 종료`
+    - `mark_target`
+      - now renders actor/candidate/location context cards
+      - target cards stay explicit about `대상 인물 / 플레이어`
+    - `lap_reward`
+      - now renders a dedicated reward-choice surface with current resource summaries
+  - Updated `apps/web/src/styles.css` with prompt context grids and stronger dedicated choice layouts for target/purchase/reward decisions.
+  - Extended `apps/web/e2e/parity.spec.ts` with new browser coverage:
+    - movement prompt contract path using `dice_1_4`
+    - purchase decision prompt
+    - mark target prompt
+- Validation:
+  - `npm run test -- --run src/domain/selectors src/domain/labels src/domain/text` passed (`43 passed`)
+  - `npm run e2e -- e2e/parity.spec.ts` passed (`6 passed`)
+  - `npm run build` passed (`apps/web`)
+- Next:
+  - continue P0-2 on non-local turn choreography so other-player actions feel live, not replay-like
+  - keep shrinking prompt inspector feel by moving more context into stage/theater cards and less into large static walls
+
+### Entry 051
+
+- Scope: P0-2 non-local turn continuity recovery between stage, board, and core-action summaries.
+- Done:
+  - Extended `apps/web/src/domain/selectors/streamSelectors.ts` so `selectTurnStage` now carries:
+    - `currentBeatKind`
+    - `focusTileIndex`
+  - Beat kind is now projected from canonical event codes:
+    - `move`
+    - `economy`
+    - `effect`
+    - `decision`
+    - `system`
+  - Tile focus is now derived from canonical payload fields for:
+    - `player_move`
+    - `landing_resolved`
+    - `tile_purchased`
+    - `rent_paid`
+    - `fortune_drawn`
+    - `fortune_resolved`
+    - `trick_used`
+    - actionable prompt context with `public_context.tile_index`
+  - Updated `apps/web/src/features/board/BoardPanel.tsx` so the board can render a live focus summary and focus-ring overlay that follows the current turn beat.
+  - Updated `apps/web/src/features/stage/TurnStagePanel.tsx` and `apps/web/src/styles.css` so hero/current-beat cards change emphasis by beat kind instead of always looking identical.
+  - Filled a real selector UX hole:
+    - `rent_paid` details are now summarized explicitly instead of falling through as empty text
+    - `fortune_drawn` / `fortune_resolved` now also emit explicit summary strings through the shared text catalog
+  - Added selector regression coverage in `apps/web/src/domain/selectors/streamSelectors.spec.ts` for:
+    - purchase focus
+    - rent focus
+    - prompt-driven focus carry-over
+- Validation:
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/features/board/boardProjection.spec.ts` passed (`19 passed`)
+  - `npm run build` passed (`apps/web`)
+- Next:
+  - keep pushing P0-2 by making the other-player turn read more like `actor start -> move -> landing -> result` instead of isolated cards
+  - strengthen weather / fortune persistence so it feels like live board state, not just one summary field
+
+### Entry 052
+
+- Scope: P0-2 focused board readability follow-up.
+- Done:
+  - Added an in-tile live action tag to `apps/web/src/features/board/BoardPanel.tsx` so the currently focused board tile now shows the active beat label directly on the square.
+  - Added beat-colored focus styling in `apps/web/src/styles.css` so the board summary and the focused tile share the same move/economy/effect/decision language.
+  - Updated `pickMessageDetail` in `apps/web/src/domain/selectors/streamSelectors.ts` so `turn_start` no longer produces an empty detail line in stage/theater summaries.
+- Validation:
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts` passed (`14 passed`)
+  - `npm run build` passed (`apps/web`)
+- Next:
+  - keep reducing the gap between "highlighted tile" and "felt turn flow" by chaining actor start / move / landing / result more explicitly across stage and theater
+
+### Entry 053
+
+- Scope: P0-2 turn-flow visibility + board-weather persistence + browser regression coverage.
+- Done:
+  - Added persistent board weather summary to `apps/web/src/features/board/BoardPanel.tsx` so the current round weather remains visible near the board even when the user is focused on turn actions.
+  - Added a per-tile live action tag for the currently focused board tile so the player can see not just which tile is active, but what kind of beat is being processed there.
+  - Extended `apps/web/src/features/theater/CoreActionPanel.tsx` with a same-turn flow panel:
+    - it now shows the latest turn's public sequence as a short ordered strip instead of only isolated recent cards
+  - Extended `CoreActionItem` with canonical event metadata (`eventCode`, `round`, `turn`) so the UI can group public actions by actual turn boundaries.
+  - Added browser test coverage in `apps/web/e2e/parity.spec.ts` so the quick-start smoke now verifies:
+    - `board-weather-summary`
+    - `core-action-flow-panel`
+- Validation:
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/labels/eventLabelCatalog.spec.ts` passed (`19 passed`)
+  - `npm run e2e -- e2e/parity.spec.ts` passed (`6 passed`)
+  - `npm run build` passed (`apps/web`)
+- Next:
+  - continue toward full human-play feel by making non-local turns animate/read as one continuous scene instead of a better-organized live log
+
+### Entry 054
+
+- Scope: P0-string UTF-8 catalog recovery + P0-2 spectator continuity.
+- Done:
+  - Rewrote `apps/web/src/domain/text/uiText.ts` as a clean UTF-8 resource catalog.
+  - Rewrote `apps/web/src/domain/text/uiText.spec.ts` so string-catalog regression checks now assert human-readable Korean instead of mojibake snapshots.
+  - Added `apps/web/src/features/stage/SpectatorTurnPanel.tsx`.
+  - Replaced the old waiting-only panel in `apps/web/src/App.tsx` with the spectator turn panel so non-local turns now keep showing:
+    - current weather
+    - current beat
+    - latest public action
+    - move / landing / economy / effect summaries
+    - turn progress trail
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/features/board/boardProjection.spec.ts src/domain/text/uiText.spec.ts` passed (`27 passed`)
+  - `npm run e2e -- e2e/parity.spec.ts` passed (`6 passed`)
+- Next:
+  - continue recovering prompt-surface copy/layout so the movement / trick / mark / purchase prompts stop inheriting legacy broken inline strings
+  - add browser-level coverage for spectator-side continuity when it is not the local player's turn
+
+### Entry 055
+
+- Scope: bilingual string architecture planning.
+- Done:
+  - Added `PLAN/[PLAN]_BILINGUAL_STRING_RESOURCE_ARCHITECTURE.md`.
+  - Defined a locale-split architecture so Korean/English strings can be stored outside components and injected through a provider layer.
+  - Covered:
+    - target directory layout under `apps/web/src/i18n/`
+    - locale bundle composition
+    - translator/provider usage model
+    - selector detachment from locale-specific sentence ownership
+    - migration order
+    - parity/e2e test requirements
+- Next:
+  - after the current prompt-surface cleanup, start the i18n foundation:
+    - `apps/web/src/i18n/`
+    - `ko/en` locale skeletons
+    - `uiText.ts` compatibility bridge
+
+### Entry 056
+
+- Scope: priority-board resync + locale-boundary execution start.
+- Done:
+  - Re-synced active plan documents so current implementation is no longer driven by already-completed "add i18n foundation" tasks.
+  - Updated the live priority order to:
+    - selector/resource locale detachment
+    - prompt cleanup on top of locale resources
+    - non-local turn continuity
+    - rule-parity visual fixes
+  - Marked `apps/web/src/i18n/` foundation as already active and narrowed the string plan to:
+    - selector-visible phrasing
+    - compatibility-bridge reduction
+    - locale-aware resource ownership
+  - Prepared the next execution slice around `streamSelectors.ts` so visible wording can stop depending on the Korean bridge by default.
+- Validation:
+  - document/status resync only
+- Next:
+  - add locale-aware text injection path to `streamSelectors.ts`
+  - wire `App.tsx` to pass current locale resources into selector formatting
+  - keep browser/test coverage green while reducing `uiText.ts` ownership
+
+### Entry 057
+
+- Scope: P0-4 selector locale-boundary implementation.
+- Done:
+  - Added locale-aware text injection to `apps/web/src/domain/selectors/streamSelectors.ts`.
+  - Added `StreamSelectorTextResources` and kept a default compatibility path for existing tests/callers.
+  - Moved runtime selector formatting away from forced Korean bridge ownership for:
+    - timeline
+    - theater feed
+    - critical alerts
+    - situation
+    - turn stage
+    - core action feed
+  - Updated `apps/web/src/App.tsx` so live runtime selectors receive the current locale resources from `useI18n()`.
+  - Re-synced the active string/priority plans to reflect that selector locale injection is now in place.
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/labels/eventLabelCatalog.spec.ts src/domain/labels/promptTypeCatalog.spec.ts src/domain/labels/promptHelperCatalog.spec.ts src/domain/text/uiText.spec.ts` passed (`33 passed`)
+  - `npm run e2e -- e2e/parity.spec.ts` passed (`6 passed`)
+- Next:
+- continue shrinking selector-owned visible sentence composition
+- keep prompt/theater/runtime surfaces aligned with locale resources
+- move further toward human-play-first match UX on top of the locale-safe selector path
+
+### Entry 058
+
+- Scope: P0-2 browser-level human-play recovery hardening.
+- Done:
+  - Added stable test ids for:
+    - quick-start lobby button
+    - turn notice banner
+    - spectator turn detail cards
+  - Added `apps/web/e2e/human_play_runtime.spec.ts` with dedicated UTF-8-safe browser coverage for:
+    - quick start -> first local prompt visible
+    - remote actor turn -> spectator panel visible and no local prompt
+- Why:
+  - core human-play flow should not depend on brittle direct locale text matching
+  - this protects against regressions in:
+    - local actionable prompt visibility
+    - remote turn continuity
+    - turn-start feedback visibility
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts` passed (`22 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)

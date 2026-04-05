@@ -129,12 +129,45 @@ async function installMockRuntime(
   args: {
     sessionManifests: Record<string, ManifestRecord>;
     sessionEvents: Record<string, StreamMessage[]>;
+    createSessionQueue?: Array<{
+      session_id: string;
+      status: string;
+      host_token: string;
+      join_tokens: Record<string, string>;
+      seats?: Array<{ seat: number; seat_type: "human" | "ai"; ai_profile?: string | null; player_id?: number | null; connected?: boolean }>;
+      parameter_manifest?: ManifestRecord;
+    }>;
+    joinResults?: Record<
+      string,
+      {
+        session_id: string;
+        seat: number;
+        player_id: number;
+        session_token: string;
+        role: "seat";
+      }
+    >;
+    startedSessions?: Record<
+      string,
+      {
+        session_id: string;
+        status: string;
+        round_index?: number;
+        turn_index?: number;
+        seats?: Array<{ seat: number; seat_type: "human" | "ai"; ai_profile?: string | null; player_id?: number | null; connected?: boolean }>;
+        parameter_manifest?: ManifestRecord;
+      }
+    >;
   },
 ): Promise<void> {
   await page.addInitScript(
-    ({ sessionManifests, sessionEvents }) => {
+    ({ sessionManifests, sessionEvents, createSessionQueue, joinResults, startedSessions }) => {
       const manifests = sessionManifests as Record<string, ManifestRecord>;
       const eventsBySession = sessionEvents as Record<string, StreamMessage[]>;
+      const pendingCreates = [...(createSessionQueue as Array<Record<string, unknown>> | undefined ?? [])];
+      const joinResultMap = (joinResults as Record<string, Record<string, unknown>> | undefined) ?? {};
+      const startedSessionMap = (startedSessions as Record<string, Record<string, unknown>> | undefined) ?? {};
+      const sessionSnapshots = new Map<string, Record<string, unknown>>();
 
       function response(data: unknown, status = 200): Response {
         return new Response(
@@ -152,44 +185,101 @@ async function installMockRuntime(
         const urlValue = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
         const url = new URL(urlValue, window.location.origin);
         const path = url.pathname;
+        const method = (init?.method ?? "GET").toUpperCase();
         const sessionMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)$/);
         const runtimeMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)\/runtime-status$/);
+        const joinMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)\/join$/);
+        const startMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)\/start$/);
         if (runtimeMatch) {
           return response({
             session_id: decodeURIComponent(runtimeMatch[1]),
             runtime: { status: "running", watchdog_state: "ok", last_activity_ms: Date.now() },
           });
         }
-        if (sessionMatch && (init?.method ?? "GET").toUpperCase() === "GET") {
+        if (path === "/api/v1/sessions" && method === "POST") {
+          const created = pendingCreates.shift();
+          if (!created) {
+            return response(null, 500);
+          }
+          const sessionId = String(created.session_id);
+          const manifest = (created.parameter_manifest as ManifestRecord | undefined) ?? manifests[sessionId];
+          if (manifest) {
+            manifests[sessionId] = manifest;
+          }
+          sessionSnapshots.set(sessionId, {
+            session_id: sessionId,
+            status: created.status ?? "waiting",
+            round_index: 0,
+            turn_index: 0,
+            seats: created.seats ?? [],
+            parameter_manifest: manifest ?? null,
+          });
+          return response(created);
+        }
+        if (sessionMatch && method === "GET") {
           const sessionId = decodeURIComponent(sessionMatch[1]);
+          const snapshot = sessionSnapshots.get(sessionId);
           const manifest = manifests[sessionId];
-          if (!manifest) {
+          if (!snapshot && !manifest) {
             return response(null, 404);
           }
           return response({
+            ...(snapshot ?? {}),
             session_id: sessionId,
-            status: "in_progress",
-            round_index: 1,
-            turn_index: 1,
+            status: snapshot?.status ?? "in_progress",
+            round_index: snapshot?.round_index ?? 1,
+            turn_index: snapshot?.turn_index ?? 1,
             seats:
-              manifest.seats?.allowed?.map((seat) => ({
+              (snapshot?.seats as Array<Record<string, unknown>> | undefined) ??
+              manifest?.seats?.allowed?.map((seat) => ({
                 seat,
                 seat_type: seat === 1 ? "human" : "ai",
                 ai_profile: seat === 1 ? null : "balanced",
                 player_id: seat,
                 connected: true,
-              })) ?? [],
-            parameter_manifest: manifest,
+              })) ??
+              [],
+            parameter_manifest: (snapshot?.parameter_manifest as ManifestRecord | undefined) ?? manifest,
           });
         }
-        if (path === "/api/v1/sessions" && (init?.method ?? "GET").toUpperCase() === "GET") {
-          const sessions = Object.keys(manifests).map((sessionId) => ({
+        if (joinMatch && method === "POST") {
+          const sessionId = decodeURIComponent(joinMatch[1]);
+          const requestBody = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
+          const seat = Number(requestBody.seat ?? 0);
+          const result = joinResultMap[`${sessionId}:${seat}`];
+          if (!result) {
+            return response(null, 404);
+          }
+          const snapshot = sessionSnapshots.get(sessionId);
+          if (snapshot && Array.isArray(snapshot.seats)) {
+            snapshot.seats = (snapshot.seats as Array<Record<string, unknown>>).map((seatView) =>
+              Number(seatView.seat) === seat
+                ? { ...seatView, player_id: result.player_id, connected: true }
+                : seatView,
+            );
+            sessionSnapshots.set(sessionId, snapshot);
+          }
+          return response(result);
+        }
+        if (startMatch && method === "POST") {
+          const sessionId = decodeURIComponent(startMatch[1]);
+          const started = startedSessionMap[sessionId];
+          if (!started) {
+            return response(null, 404);
+          }
+          sessionSnapshots.set(sessionId, started);
+          return response(started);
+        }
+        if (path === "/api/v1/sessions" && method === "GET") {
+          const sessionIds = new Set([...Object.keys(manifests), ...Array.from(sessionSnapshots.keys())]);
+          const sessions = Array.from(sessionIds).map((sessionId) => ({
+            ...(sessionSnapshots.get(sessionId) ?? {}),
             session_id: sessionId,
-            status: "in_progress",
-            round_index: 1,
-            turn_index: 1,
-            seats: [],
-            parameter_manifest: manifests[sessionId],
+            status: sessionSnapshots.get(sessionId)?.status ?? "in_progress",
+            round_index: sessionSnapshots.get(sessionId)?.round_index ?? 1,
+            turn_index: sessionSnapshots.get(sessionId)?.turn_index ?? 1,
+            seats: sessionSnapshots.get(sessionId)?.seats ?? [],
+            parameter_manifest: sessionSnapshots.get(sessionId)?.parameter_manifest ?? manifests[sessionId],
           }));
           return response({ sessions });
         }
@@ -259,6 +349,326 @@ async function installMockRuntime(
   );
 }
 
+test("quick start human vs ai enters match and surfaces the first human prompt", async ({ page }) => {
+  const manifest = buildManifest({
+    hash: "quick_start_hash_001",
+    topology: "ring",
+    tileCount: 40,
+    seats: [1, 2, 3, 4],
+  });
+  const sessionId = "sess_quick_human";
+  const hostToken = "host_quick_human";
+  const joinTokens = {
+    "1": "seat1_quick_join",
+    "2": "seat2_quick_join",
+    "3": "seat3_quick_join",
+    "4": "seat4_quick_join",
+  };
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({
+          seq: 1,
+          sessionId,
+          payload: {
+            event_type: "parameter_manifest",
+            parameter_manifest: manifest,
+          },
+        }),
+        eventMessage({
+          seq: 2,
+          sessionId,
+          payload: {
+            event_type: "round_start",
+            round_index: 1,
+          },
+        }),
+        eventMessage({
+          seq: 3,
+          sessionId,
+          payload: {
+            event_type: "weather_reveal",
+            weather_name: "긴급 피난",
+          },
+        }),
+        eventMessage({
+          seq: 4,
+          sessionId,
+          payload: {
+            event_type: "turn_start",
+            round_index: 1,
+            turn_index: 1,
+            acting_player_id: 1,
+            character: "교리 연구관",
+          },
+        }),
+        {
+          type: "prompt",
+          seq: 5,
+          session_id: sessionId,
+          server_time_ms: 1_700_000_000_005,
+          payload: {
+            request_id: "req_hidden_1",
+            request_type: "hidden_trick_card",
+            player_id: 1,
+            timeout_ms: 300000,
+            public_context: {
+              hidden_trick_count: 0,
+              full_hand: [
+                { deck_index: 10, name: "무거운 짐", card_description: "효과 없음", is_hidden: false, is_usable: true },
+                { deck_index: 11, name: "마당발", card_description: "인접 토지를 추가 구매합니다", is_hidden: false, is_usable: true },
+                { deck_index: 12, name: "건강 검진", card_description: "모든 참가자의 통행료가 절반이 됩니다", is_hidden: false, is_usable: true },
+                { deck_index: 13, name: "긴장감 조성", card_description: "지정 타일 통행료를 두 배로 올립니다", is_hidden: false, is_usable: true },
+                { deck_index: 14, name: "가벼운 분리불안", card_description: "같은 칸 조우 시 2냥을 얻습니다", is_hidden: false, is_usable: true },
+              ],
+            },
+            choices: [
+              { choice_id: "10", title: "무거운 짐", description: "효과 없음", value: { deck_index: 10 } },
+              { choice_id: "11", title: "마당발", description: "인접 토지를 추가 구매합니다", value: { deck_index: 11 } },
+              { choice_id: "12", title: "건강 검진", description: "모든 참가자의 통행료가 절반이 됩니다", value: { deck_index: 12 } },
+              { choice_id: "13", title: "긴장감 조성", description: "지정 타일 통행료를 두 배로 올립니다", value: { deck_index: 13 } },
+              { choice_id: "14", title: "가벼운 분리불안", description: "같은 칸 조우 시 2냥을 얻습니다", value: { deck_index: 14 } },
+            ],
+          },
+        },
+      ],
+    },
+    createSessionQueue: [
+      {
+        session_id: sessionId,
+        status: "waiting",
+        host_token: hostToken,
+        join_tokens: joinTokens,
+        seats: [
+          { seat: 1, seat_type: "human", connected: false, player_id: null },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced" },
+          { seat: 3, seat_type: "ai", connected: true, player_id: 3, ai_profile: "balanced" },
+          { seat: 4, seat_type: "ai", connected: true, player_id: 4, ai_profile: "balanced" },
+        ],
+        parameter_manifest: manifest,
+      },
+    ],
+    joinResults: {
+      [`${sessionId}:1`]: {
+        session_id: sessionId,
+        seat: 1,
+        player_id: 1,
+        session_token: "session_p1_quick_token",
+        role: "seat",
+      },
+    },
+    startedSessions: {
+      [sessionId]: {
+        session_id: sessionId,
+        status: "in_progress",
+        round_index: 1,
+        turn_index: 1,
+        seats: [
+          { seat: 1, seat_type: "human", connected: true, player_id: 1 },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced" },
+          { seat: 3, seat_type: "ai", connected: true, player_id: 3, ai_profile: "balanced" },
+          { seat: 4, seat_type: "ai", connected: true, player_id: 4, ai_profile: "balanced" },
+        ],
+        parameter_manifest: manifest,
+      },
+    },
+  });
+
+  await page.goto("/#/lobby");
+  await page.getByRole("button", { name: "사람 1 + AI 3 빠른 시작" }).click();
+
+  await expect(page).toHaveURL(/#\/match/);
+  await expect(page.getByTestId("board-weather-summary")).toBeVisible();
+  await expect(page.getByTestId("core-action-flow-panel")).toBeVisible();
+  await expect(page.getByText("선택 요청: 히든 잔꾀 지정")).toBeVisible();
+  await expect(page.getByText("손패 전체 5장 / 히든 0장")).toBeVisible();
+  await expect(page.getByText("현재 라운드 날씨")).toBeVisible();
+  await expect(page.getByText("긴급 피난 / 모든 짐 제거 비용이 2배가 됩니다").first()).toBeVisible();
+  await expect(page.getByText("교리 연구관", { exact: true })).toBeVisible();
+});
+
+test("movement prompt supports dice_* contract choices and card-mode selection", async ({ page }) => {
+  const sessionId = "sess_prompt_movement";
+  const manifest = buildManifest({
+    hash: "movement_prompt_hash_001",
+    topology: "ring",
+    tileCount: 40,
+    seats: [1, 2, 3, 4],
+  });
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({
+          seq: 1,
+          sessionId,
+          payload: {
+            event_type: "parameter_manifest",
+            parameter_manifest: manifest,
+          },
+        }),
+        eventMessage({
+          seq: 2,
+          sessionId,
+          payload: {
+            event_type: "turn_start",
+            round_index: 2,
+            turn_index: 7,
+            acting_player_id: 1,
+            character: "어사",
+          },
+        }),
+        {
+          type: "prompt",
+          seq: 3,
+          session_id: sessionId,
+          server_time_ms: 1_700_000_000_003,
+          payload: {
+            request_id: "req_move_ui_1",
+            request_type: "movement",
+            player_id: 1,
+            timeout_ms: 300000,
+            public_context: {
+              player_position: 9,
+              weather_name: "긴급 피난",
+            },
+            choices: [
+              { choice_id: "roll", title: "Roll dice", description: "Normal move." },
+              {
+                choice_id: "dice_1_4",
+                title: "Use dice cards 1,4",
+                description: "Fixed move 5.",
+                value: { use_cards: true, card_values: [1, 4] },
+              },
+              {
+                choice_id: "dice_2_5",
+                title: "Use dice cards 2,5",
+                description: "Fixed move 7.",
+                value: { use_cards: true, card_values: [2, 5] },
+              },
+            ],
+          },
+        },
+      ],
+    },
+  });
+
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_movement_demo`);
+  await expect(page.getByTestId("prompt-overlay")).toHaveAttribute("data-prompt-type", "movement");
+  await page.getByTestId("movement-card-mode").click();
+  await expect(page.getByTestId("movement-card-1")).toBeVisible();
+  await expect(page.getByTestId("movement-card-4")).toBeVisible();
+  await page.getByTestId("movement-card-1").click();
+  await page.getByTestId("movement-card-4").click();
+  await expect(page.getByTestId("movement-submit")).toContainText("주사위 카드 1, 4 사용");
+});
+
+test("purchase and mark prompts render dedicated decision cards", async ({ page }) => {
+  const purchaseSession = "sess_prompt_purchase";
+  const markSession = "sess_prompt_mark";
+  const manifest = buildManifest({
+    hash: "decision_prompt_hash_001",
+    topology: "ring",
+    tileCount: 40,
+    seats: [1, 2, 3, 4],
+  });
+
+  await installMockRuntime(page, {
+    sessionManifests: {
+      [purchaseSession]: manifest,
+      [markSession]: manifest,
+    },
+    sessionEvents: {
+      [purchaseSession]: [
+        eventMessage({
+          seq: 1,
+          sessionId: purchaseSession,
+          payload: {
+            event_type: "parameter_manifest",
+            parameter_manifest: manifest,
+          },
+        }),
+        {
+          type: "prompt",
+          seq: 2,
+          session_id: purchaseSession,
+          server_time_ms: 1_700_000_000_102,
+          payload: {
+            request_id: "req_purchase_ui_1",
+            request_type: "purchase_tile",
+            player_id: 1,
+            timeout_ms: 300000,
+            public_context: {
+              tile_index: 14,
+              cost: 4,
+              player_cash: 9,
+              zone_color: "하얀색",
+            },
+            choices: [
+              { choice_id: "yes", title: "buy", description: "buy tile" },
+              { choice_id: "no", title: "skip", description: "skip purchase" },
+            ],
+          },
+        },
+      ],
+      [markSession]: [
+        eventMessage({
+          seq: 1,
+          sessionId: markSession,
+          payload: {
+            event_type: "parameter_manifest",
+            parameter_manifest: manifest,
+          },
+        }),
+        {
+          type: "prompt",
+          seq: 2,
+          session_id: markSession,
+          server_time_ms: 1_700_000_000_202,
+          payload: {
+            request_id: "req_mark_ui_1",
+            request_type: "mark_target",
+            player_id: 1,
+            timeout_ms: 300000,
+            public_context: {
+              actor_name: "자객",
+              player_position: 8,
+            },
+            choices: [
+              { choice_id: "none", title: "No target", description: "skip mark" },
+              {
+                choice_id: "mark_p2",
+                title: "만신 / P2",
+                description: "target P2",
+                value: { target_character: "만신", target_player_id: 2 },
+              },
+              {
+                choice_id: "mark_p4",
+                title: "아전 / P4",
+                description: "target P4",
+                value: { target_character: "아전", target_player_id: 4 },
+              },
+            ],
+          },
+        },
+      ],
+    },
+  });
+
+  await page.goto(`/#/match?session=${purchaseSession}&token=session_p1_purchase_demo`);
+  await expect(page.getByTestId("prompt-overlay")).toHaveAttribute("data-prompt-type", "purchase_tile");
+  await expect(page.getByTestId("purchase-choice-yes")).toContainText("토지 구매");
+  await expect(page.getByTestId("purchase-choice-no")).toContainText("구매 없이 턴 종료");
+
+  await page.goto(`/#/match?session=${markSession}&token=session_p1_mark_demo`);
+  await expect(page.getByTestId("prompt-overlay")).toHaveAttribute("data-prompt-type", "mark_target");
+  await expect(page.getByTestId("mark-choice-mark_p2")).toContainText("만신 / P2");
+  await expect(page.getByTestId("mark-choice-mark_p2")).toContainText("대상 인물 / 플레이어: 만신 / P2");
+});
+
 test("non-default topology fixture renders line board and 3-seat lobby options", async ({ page }) => {
   const fixture = loadFixture("non_default_topology_line_3seat.json");
   expect(fixture.id).toBe("non_default_topology_line_3seat");
@@ -286,8 +696,8 @@ test("non-default topology fixture renders line board and 3-seat lobby options",
 
   await page.goto("/#/match?session=sess_line");
   await expect(page.locator(".tile-card")).toHaveCount(6);
-  await page.getByRole("button", { name: "Lobby" }).click();
-  const joinOptions = page.locator("label:has-text('Join Seat') option");
+  await page.getByRole("button", { name: "로비" }).click();
+  const joinOptions = page.locator("label:has-text('참가 좌석') option");
   await expect(joinOptions).toHaveCount(3);
   await expect(joinOptions.nth(0)).toContainText("Seat 1");
   await expect(joinOptions.nth(1)).toContainText("Seat 2");
@@ -345,8 +755,8 @@ test("manifest-hash reconnect fixture rehydrates projection after session switch
   await page.goto("/#/match?session=sess_b");
   await expect(page.locator(".tile-card")).toHaveCount(7);
   await expect(page.locator(".timeline-item small").first()).toContainText(manifestB.manifest_hash.slice(0, 8));
-  await page.getByRole("button", { name: "Lobby" }).click();
-  await expect(page.locator("label:has-text('Join Seat') option")).toHaveCount(3);
+  await page.getByRole("button", { name: "로비" }).click();
+  await expect(page.locator("label:has-text('참가 좌석') option")).toHaveCount(3);
 });
 
 test("parameter matrix fixture rehydrates seat/economy/dice assumptions", async ({ page }) => {
@@ -382,11 +792,12 @@ test("parameter matrix fixture rehydrates seat/economy/dice assumptions", async 
   });
 
   await page.goto("/#/match?session=sess_matrix");
+  await page.getByRole("button", { name: "Raw 보기" }).click();
   await expect(page.locator(".tile-card")).toHaveCount(5);
   await expect(page.locator(".timeline-item small").first()).toContainText(manifest.manifest_hash.slice(0, 8));
   await expect(page.locator("pre").first()).toContainText('"starting_cash": 55');
   await expect(page.locator("pre").first()).toContainText('"starting_shards": 7');
   await expect(page.locator("pre").first()).toContainText('"values": [');
-  await page.getByRole("button", { name: "Lobby" }).click();
-  await expect(page.locator("label:has-text('Join Seat') option")).toHaveCount(2);
+  await page.getByRole("button", { name: "로비" }).click();
+  await expect(page.locator("label:has-text('참가 좌석') option")).toHaveCount(2);
 });

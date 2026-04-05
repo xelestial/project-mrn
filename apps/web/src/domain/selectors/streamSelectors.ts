@@ -1,7 +1,9 @@
 import type { InboundMessage } from "../../core/contracts/stream";
+import type { LocaleMessages } from "../../i18n/types";
 import { eventLabelForCode, nonEventLabelForMessageType } from "../labels/eventLabelCatalog";
 import { toneForEventCode } from "../labels/eventToneCatalog";
 import { promptLabelForType } from "../labels/promptTypeCatalog";
+import { EVENT_LABEL_TEXT, PROMPT_TYPE_TEXT, STREAM_TEXT, TURN_STAGE_TEXT } from "../text/uiText";
 
 export type TimelineItem = {
   seq: number;
@@ -22,6 +24,9 @@ export type TheaterItem = {
 export type CoreActionItem = {
   seq: number;
   actor: string;
+  eventCode: string;
+  round: number | null;
+  turn: number | null;
   label: string;
   detail: string;
   isLocalActor: boolean;
@@ -52,6 +57,8 @@ export type TurnStageViewModel = {
   character: string;
   weatherName: string;
   weatherEffect: string;
+  currentBeatKind: "move" | "economy" | "effect" | "decision" | "system";
+  focusTileIndex: number | null;
   diceSummary: string;
   moveSummary: string;
   trickSummary: string;
@@ -60,6 +67,11 @@ export type TurnStageViewModel = {
   rentSummary: string;
   fortuneSummary: string;
   promptSummary: string;
+  latestActionLabel: string;
+  latestActionDetail: string;
+  currentBeatLabel: string;
+  currentBeatDetail: string;
+  progressTrail: string[];
 };
 
 export type LastMoveViewModel = {
@@ -115,6 +127,15 @@ export type ParameterManifestViewModel = {
   };
 };
 
+export type StreamSelectorTextResources = Pick<LocaleMessages, "eventLabel" | "promptType" | "stream" | "turnStage">;
+
+const DEFAULT_STREAM_SELECTOR_TEXT: StreamSelectorTextResources = {
+  eventLabel: EVENT_LABEL_TEXT,
+  promptType: PROMPT_TYPE_TEXT,
+  stream: STREAM_TEXT,
+  turnStage: TURN_STAGE_TEXT,
+};
+
 function asString(value: unknown): string {
   return typeof value === "string" && value.trim() ? value : "-";
 }
@@ -156,50 +177,39 @@ function actorFromMessage(message: InboundMessage): string {
   return "-";
 }
 
-function pickMessageLabel(message: InboundMessage): string {
+function pickMessageLabel(message: InboundMessage, text: StreamSelectorTextResources): string {
   if (message.type !== "event") {
-    return nonEventLabelForMessageType(message.type);
+    return nonEventLabelForMessageType(message.type, text.eventLabel);
   }
   const code = messageKindFromPayload(message.payload);
   if (!code) {
-    return "이벤트";
+    return text.stream.genericEvent;
   }
-  return eventLabelForCode(code);
+  return eventLabelForCode(code, text.eventLabel);
 }
 
-const WEATHER_EFFECT_FALLBACK: Record<string, string> = {
-  "배신의 징표": "현재 효과 없음",
-  "추운 겨울날": "출발점 통과 보상 없음 + 2냥 은행 지불",
-  "긴급 피난": "모든 짐 제거 비용 2배 지불",
-  "잔꾀 부리기": "잔꾀 1장 교체 선택",
-  "긴고 긴 겨울": "종료 시간 -1",
-};
-
-function weatherEffectFallbackText(weatherName: string): string {
+function weatherEffectFallbackText(weatherName: string, streamText: StreamSelectorTextResources["stream"]): string {
   const normalized = weatherName.trim();
   if (!normalized || normalized === "-") {
     return "-";
   }
-  const mapped = WEATHER_EFFECT_FALLBACK[normalized];
-  if (typeof mapped === "string" && mapped.trim() && mapped !== "-") {
+  const mapped = streamText.weatherEffectFallback[normalized as keyof typeof streamText.weatherEffectFallback];
+  if (typeof mapped === "string" && mapped.trim()) {
     return mapped;
   }
-  return `${normalized} 효과`;
+  return streamText.genericEffect(normalized);
 }
 
-function summarizePlayerMove(payload: Record<string, unknown>): string {
+function summarizePlayerMove(payload: Record<string, unknown>, streamText: StreamSelectorTextResources["stream"]): string {
   const from = numberOrNull(payload["from_tile_index"] ?? payload["from_tile"] ?? payload["from_pos"]);
   const to = numberOrNull(payload["to_tile_index"] ?? payload["to_tile"] ?? payload["to_pos"]);
   const fromDisplay = from === null ? "?" : String(from + 1);
   const toDisplay = to === null ? "?" : String(to + 1);
   const path = Array.isArray(payload["path"]) ? payload["path"] : [];
-  if (path.length > 0) {
-    return `${fromDisplay} -> ${toDisplay} (경유 ${path.length}칸)`;
-  }
-  return `${fromDisplay} -> ${toDisplay}`;
+  return streamText.moveSummary(fromDisplay, toDisplay, path.length);
 }
 
-function summarizeDiceRoll(payload: Record<string, unknown>): string {
+function summarizeDiceRoll(payload: Record<string, unknown>, streamText: StreamSelectorTextResources["stream"]): string {
   const cards = Array.isArray(payload["cards_used"])
     ? payload["cards_used"]
     : Array.isArray(payload["used_cards"])
@@ -209,8 +219,8 @@ function summarizeDiceRoll(payload: Record<string, unknown>): string {
         : [];
   const dice = Array.isArray(payload["dice_values"]) ? payload["dice_values"] : Array.isArray(payload["dice"]) ? payload["dice"] : [];
   const total = payload["total_move"] ?? payload["total"] ?? payload["move"] ?? "?";
-  const cardText = cards.length > 0 ? `카드 ${cards.join("+")}` : "";
-  const diceText = dice.length > 0 ? `주사위 ${dice.join("+")}` : "";
+  const cardText = cards.length > 0 ? streamText.diceCard(cards.join("+")) : "";
+  const diceText = dice.length > 0 ? streamText.diceRoll(dice.join("+")) : "";
   if (cardText && diceText) {
     return `${cardText} + ${diceText} = ${total}`;
   }
@@ -223,37 +233,88 @@ function summarizeDiceRoll(payload: Record<string, unknown>): string {
   return String(total);
 }
 
-function summarizeLandingResult(raw: string): string {
+function summarizeLandingResult(raw: string, streamText: StreamSelectorTextResources["stream"]): string {
   if (raw === "PURCHASE_SKIP_POLICY") {
-    return "구매 없이 턴 종료";
+    return streamText.landing.purchaseSkip;
   }
   if (raw === "PURCHASE") {
-    return "토지 구매";
+    return streamText.landing.purchase;
   }
   if (raw === "RENT_PAID" || raw === "RENT") {
-    return "렌트 지불";
+    return streamText.landing.rent;
   }
   if (raw === "MARK_RESOLVED") {
-    return "지목 처리";
+    return streamText.landing.markResolved;
   }
   return raw;
 }
 
-function pickMessageDetail(message: InboundMessage): string {
+function turnBeatKindFromEventCode(eventCode: string): TurnStageViewModel["currentBeatKind"] {
+  if (eventCode === "dice_roll" || eventCode === "player_move") {
+    return "move";
+  }
+  if (eventCode === "tile_purchased" || eventCode === "rent_paid" || eventCode === "lap_reward_chosen") {
+    return "economy";
+  }
+  if (
+    eventCode === "weather_reveal" ||
+    eventCode === "fortune_drawn" ||
+    eventCode === "fortune_resolved" ||
+    eventCode === "trick_used" ||
+    eventCode === "marker_flip" ||
+    eventCode === "marker_transferred" ||
+    eventCode === "landing_resolved"
+  ) {
+    return "effect";
+  }
+  if (
+    eventCode === "draft_pick" ||
+    eventCode === "final_character_choice" ||
+    eventCode === "decision_requested" ||
+    eventCode === "decision_resolved" ||
+    eventCode === "decision_timeout_fallback"
+  ) {
+    return "decision";
+  }
+  return "system";
+}
+
+function focusTileIndexFromPayload(payload: Record<string, unknown>, eventCode: string): number | null {
+  if (eventCode === "player_move") {
+    return numberOrNull(payload["to_tile_index"] ?? payload["to_tile"] ?? payload["to_pos"]);
+  }
+  if (eventCode === "landing_resolved") {
+    return numberOrNull(payload["position"] ?? payload["tile_index"] ?? payload["tile"]);
+  }
+  if (eventCode === "tile_purchased" || eventCode === "rent_paid") {
+    return numberOrNull(payload["tile_index"] ?? payload["position"] ?? payload["tile"]);
+  }
+  if (eventCode === "fortune_drawn" || eventCode === "fortune_resolved") {
+    return numberOrNull(
+      payload["tile_index"] ?? payload["position"] ?? payload["end_pos"] ?? payload["target_pos"] ?? payload["tile"]
+    );
+  }
+  if (eventCode === "trick_used") {
+    return numberOrNull(payload["tile_index"] ?? payload["position"] ?? payload["target_pos"] ?? payload["tile"]);
+  }
+  return null;
+}
+
+function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextResources): string {
   if (message.type === "heartbeat") {
     const interval = message.payload["interval_ms"];
     const backpressure = message.payload["backpressure"];
     if (typeof interval === "number" && backpressure && typeof backpressure === "object") {
       const drop = (backpressure as Record<string, unknown>)["drop_count"];
-      return `주기 ${interval}ms / 유실 ${typeof drop === "number" ? drop : 0}`;
+      return text.stream.heartbeat.detail(interval, typeof drop === "number" ? drop : 0);
     }
-    return `주기 ${typeof interval === "number" ? `${interval}ms` : "-"}`;
+    return text.stream.heartbeat.interval(typeof interval === "number" ? `${interval}ms` : "-");
   }
   if (message.type === "prompt") {
     const requestType = asString(message.payload["request_type"]);
     const pid = message.payload["player_id"];
     const actor = typeof pid === "number" ? `P${pid}` : "-";
-    return `${actor} / ${promptLabelForType(requestType === "-" ? "" : requestType)}`;
+    return text.stream.promptDetail(actor, promptLabelForType(requestType === "-" ? "" : requestType, text.promptType));
   }
   if (message.type === "decision_ack") {
     const status = asString(message.payload["status"]);
@@ -262,34 +323,41 @@ function pickMessageDetail(message: InboundMessage): string {
   }
   if (message.type === "error") {
     const code = asString(message.payload["code"]);
-    const text = asString(message.payload["message"]);
+    const errorText = asString(message.payload["message"]);
     if (code === "RUNTIME_STALLED_WARN") {
-      return `처리 지연 경고: ${text}`;
+      return text.stream.stalledWarning(errorText);
     }
-    return code !== "-" ? `${code}: ${text}` : text;
+    return code !== "-" ? `${code}: ${errorText}` : errorText;
   }
 
   const payload = message.payload;
   const eventType = messageKindFromPayload(payload);
+  if (eventType === "turn_start") {
+    return text.turnStage.turnStartDetail(actorFromPayload(payload));
+  }
   if (eventType === "player_move") {
-    return summarizePlayerMove(payload);
+    return summarizePlayerMove(payload, text.stream);
   }
   if (eventType === "dice_roll") {
-    return summarizeDiceRoll(payload);
+    return summarizeDiceRoll(payload, text.stream);
   }
   if (eventType === "tile_purchased") {
     const tile = numberOrNull(payload["tile_index"]);
     const cost = payload["cost"] ?? payload["purchase_cost"] ?? "?";
-    return `${tile === null ? "?" : tile + 1}번 칸 구매 / 비용 ${cost}`;
+    return text.stream.tilePurchased(tile === null ? "?" : String(tile + 1), cost);
+  }
+  if (eventType === "rent_paid") {
+    const payer = payload["payer_player_id"] ?? payload["payer"] ?? "?";
+    const owner = payload["owner_player_id"] ?? payload["owner"] ?? "?";
+    const amount = payload["final_amount"] ?? payload["amount"] ?? payload["base_amount"] ?? "?";
+    const tile = numberOrNull(payload["tile_index"]);
+    return text.stream.rentPaid(payer, owner, amount, tile === null ? "?" : String(tile + 1));
   }
   if (eventType === "marker_transferred") {
     const from = payload["from_player_id"] ?? payload["from_owner"] ?? "?";
     const to = payload["to_player_id"] ?? payload["to_owner"] ?? "?";
     const flipped = payload["flip_player_id"];
-    if (typeof flipped === "number") {
-      return `[징표] P${from} -> P${to} (플립 P${flipped})`;
-    }
-    return `[징표] P${from} -> P${to}`;
+    return text.stream.markerTransferred(from, to, flipped);
   }
   if (eventType === "weather_reveal") {
     const weather = asString(payload["weather_name"] ?? payload["weather"] ?? payload["card"]);
@@ -303,14 +371,14 @@ function pickMessageDetail(message: InboundMessage): string {
         ? explicitEffect
         : effectsSummary !== "-" && effectsSummary !== weather
           ? effectsSummary
-          : weatherEffectFallbackText(weather);
+          : weatherEffectFallbackText(weather, text.stream);
     return effect !== "-" ? `${weather} / ${effect}` : weather;
   }
   if (eventType === "decision_requested") {
     const requestType = asString(payload["request_type"]);
     const pid = payload["player_id"];
     const actor = typeof pid === "number" ? `P${pid}` : "-";
-    return `${actor} / ${promptLabelForType(requestType === "-" ? "" : requestType)}`;
+    return `${actor} / ${promptLabelForType(requestType === "-" ? "" : requestType, text.promptType)}`;
   }
   if (eventType === "decision_resolved") {
     const resolution = asString(payload["resolution"]);
@@ -321,19 +389,21 @@ function pickMessageDetail(message: InboundMessage): string {
     return resolution;
   }
   if (eventType === "landing_resolved") {
-    const raw = asString(payload["result_type"] ?? payload["result_code"] ?? payload["result"] ?? "도착 칸 처리");
-    return summarizeLandingResult(raw);
+    const raw = asString(payload["result_type"] ?? payload["result_code"] ?? payload["result"] ?? text.stream.landing.default);
+    const summary = summarizeLandingResult(raw, text.stream);
+    const position = numberOrNull(payload["position"] ?? payload["tile_index"] ?? payload["tile"]);
+    return position === null ? summary : text.stream.landingResultAt(summary, String(position + 1));
   }
   if (eventType === "bankruptcy") {
     const pid = payload["player_id"] ?? payload["target_player_id"] ?? "?";
-    return `P${pid} 파산`;
+    return text.stream.bankruptcy(pid);
   }
   if (eventType === "game_end") {
     const winner = payload["winner_player_id"];
     if (typeof winner === "number") {
-      return `승자 P${winner}`;
+      return text.stream.winner(winner);
     }
-    return asString(payload["summary"] ?? "게임 종료");
+    return asString(payload["summary"] ?? text.stream.gameEndDefault);
   }
   if (eventType === "lap_reward_chosen") {
     const amountRaw = payload["amount"];
@@ -343,13 +413,13 @@ function pickMessageDetail(message: InboundMessage): string {
       const coins = typeof amountRaw["coins"] === "number" ? amountRaw["coins"] : 0;
       const parts: string[] = [];
       if (cash > 0) {
-        parts.push(`현금 +${cash}`);
+        parts.push(text.stream.lapReward.cash(cash));
       }
       if (shards > 0) {
-        parts.push(`조각 +${shards}`);
+        parts.push(text.stream.lapReward.shards(shards));
       }
       if (coins > 0) {
-        parts.push(`승점 +${coins}`);
+        parts.push(text.stream.lapReward.coins(coins));
       }
       if (parts.length > 0) {
         return parts.join(" / ");
@@ -366,17 +436,17 @@ function pickMessageDetail(message: InboundMessage): string {
     const manifest = manifestRecordFromPayload(payload);
     const hash = manifest ? manifest["manifest_hash"] : null;
     if (typeof hash === "string" && hash.length >= 8) {
-      return `설정 동기화 ${hash.slice(0, 8)}`;
+      return text.stream.manifestSyncHash(hash.slice(0, 8));
     }
-    return "설정 동기화";
+    return text.stream.manifestSync;
   }
   if (eventType === "mark_resolved") {
     const source = payload["source_player_id"];
     const target = payload["target_player_id"];
     if (typeof source === "number" && typeof target === "number") {
-      return `[지목] P${source} -> P${target}`;
+      return text.stream.markResolved(source, target);
     }
-    return "지목 처리";
+    return text.stream.landing.markResolved;
   }
   if (eventType === "marker_flip") {
     const from = asString(payload["from_character"] ?? payload["from"]);
@@ -384,16 +454,24 @@ function pickMessageDetail(message: InboundMessage): string {
     if (from !== "-" && to !== "-") {
       return `${from} -> ${to}`;
     }
-    return "카드 뒤집기";
+    return text.stream.markerFlip;
   }
   if (eventType === "f_value_change") {
     const before = payload["before"];
     const delta = payload["delta"];
     const after = payload["after"];
     if (typeof before === "number" && typeof delta === "number" && typeof after === "number") {
-      return `종료 시간 ${before} + (${delta}) = ${after}`;
+      return text.stream.fValueChange.detail(before, delta, after);
     }
-    return "종료 시간 변경";
+    return text.stream.fValueChange.label;
+  }
+  if (eventType === "fortune_drawn") {
+    const cardName = asString(payload["card_name"] ?? payload["card"] ?? payload["summary"]);
+    return text.stream.fortuneDrawn(cardName);
+  }
+  if (eventType === "fortune_resolved") {
+    const summary = asString(payload["summary"] ?? payload["resolution"] ?? payload["card_name"]);
+    return text.stream.fortuneResolved(summary);
   }
 
   const summary = payload["summary"];
@@ -403,13 +481,17 @@ function pickMessageDetail(message: InboundMessage): string {
   return "";
 }
 
-export function selectTimeline(messages: InboundMessage[], limit = 12): TimelineItem[] {
+export function selectTimeline(
+  messages: InboundMessage[],
+  limit = 12,
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): TimelineItem[] {
   return messages
     .slice(-limit)
     .map((message) => ({
       seq: message.seq,
-      label: pickMessageLabel(message),
-      detail: pickMessageDetail(message),
+      label: pickMessageLabel(message, text),
+      detail: pickMessageDetail(message, text),
     }))
     .reverse();
 }
@@ -479,7 +561,11 @@ function theaterCode(message: InboundMessage): string {
   return message.type;
 }
 
-export function selectTheaterFeed(messages: InboundMessage[], limit = 20): TheaterItem[] {
+export function selectTheaterFeed(
+  messages: InboundMessage[],
+  limit = 20,
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): TheaterItem[] {
   const safeLimit = Math.max(1, limit);
   const coreCap = Math.max(1, Math.floor(safeLimit * 0.5));
   const promptCap = Math.max(1, Math.floor(safeLimit * 0.3));
@@ -500,8 +586,8 @@ export function selectTheaterFeed(messages: InboundMessage[], limit = 20): Theat
     }
     feed.push({
       seq: message.seq,
-      label: pickMessageLabel(message),
-      detail: pickMessageDetail(message),
+      label: pickMessageLabel(message, text),
+      detail: pickMessageDetail(message, text),
       tone: toneFromMessage(message),
       lane,
       actor: actorFromMessage(message),
@@ -522,8 +608,8 @@ export function selectTheaterFeed(messages: InboundMessage[], limit = 20): Theat
       }
       feed.push({
         seq: message.seq,
-        label: pickMessageLabel(message),
-        detail: pickMessageDetail(message),
+        label: pickMessageLabel(message, text),
+        detail: pickMessageDetail(message, text),
         tone: toneFromMessage(message),
         lane: laneFromMessage(message),
         actor: actorFromMessage(message),
@@ -538,15 +624,15 @@ export function selectTheaterFeed(messages: InboundMessage[], limit = 20): Theat
   return feed.sort((a, b) => b.seq - a.seq);
 }
 
-function alertFromEvent(message: InboundMessage): AlertItem | null {
+function alertFromEvent(message: InboundMessage, text: StreamSelectorTextResources): AlertItem | null {
   if (message.type === "error") {
     const code = asString(message.payload["code"]);
     if (code === "RUNTIME_EXECUTION_FAILED") {
       return {
         seq: message.seq,
         severity: "critical",
-        title: "런타임 오류",
-        detail: pickMessageDetail(message),
+        title: text.stream.runtimeError,
+        detail: pickMessageDetail(message, text),
       };
     }
     return null;
@@ -562,15 +648,19 @@ function alertFromEvent(message: InboundMessage): AlertItem | null {
   return {
     seq: message.seq,
     severity,
-    title: eventLabelForCode(eventCode),
-    detail: pickMessageDetail(message) || "-",
+    title: eventLabelForCode(eventCode, text.eventLabel),
+    detail: pickMessageDetail(message, text) || "-",
   };
 }
 
-export function selectCriticalAlerts(messages: InboundMessage[], limit = 4): AlertItem[] {
+export function selectCriticalAlerts(
+  messages: InboundMessage[],
+  limit = 4,
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): AlertItem[] {
   const alerts: AlertItem[] = [];
   for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const alert = alertFromEvent(messages[i]);
+    const alert = alertFromEvent(messages[i], text);
     if (!alert) {
       continue;
     }
@@ -594,7 +684,10 @@ function findLatestField(messages: InboundMessage[], keys: string[]): unknown {
   return undefined;
 }
 
-function findPersistedWeather(messages: InboundMessage[]): { name: string; effect: string } {
+function findPersistedWeather(
+  messages: InboundMessage[],
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): { name: string; effect: string } {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
     if (message.type !== "event") {
@@ -625,7 +718,7 @@ function findPersistedWeather(messages: InboundMessage[]): { name: string; effec
               : "-";
     if (typeof weather === "string" && weather.trim()) {
       if (weatherEffect === "-" || weatherEffect === weather) {
-        weatherEffect = weatherEffectFallbackText(weather);
+        weatherEffect = weatherEffectFallbackText(weather, text.stream);
       }
       return { name: weather, effect: weatherEffect };
     }
@@ -644,7 +737,8 @@ function isCoreActionMessage(message: InboundMessage): boolean {
 export function selectCoreActionFeed(
   messages: InboundMessage[],
   focusPlayerId: number | null = null,
-  limit = 10
+  limit = 10,
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): CoreActionItem[] {
   const safeLimit = Math.max(1, limit);
   const rows: CoreActionItem[] = [];
@@ -657,8 +751,11 @@ export function selectCoreActionFeed(
     rows.push({
       seq: message.seq,
       actor,
-      label: pickMessageLabel(message),
-      detail: pickMessageDetail(message),
+      eventCode: messageKindFromPayload(message.payload),
+      round: numberOrNull(message.payload["round_index"]),
+      turn: numberOrNull(message.payload["turn_index"]),
+      label: pickMessageLabel(message, text),
+      detail: pickMessageDetail(message, text),
       isLocalActor: focusPlayerId !== null && actor === `P${focusPlayerId}`,
     });
     if (rows.length >= safeLimit) {
@@ -696,7 +793,10 @@ function latestSituationMessage(messages: InboundMessage[]): InboundMessage | nu
   return messages.length > 0 ? messages[messages.length - 1] : null;
 }
 
-export function selectSituation(messages: InboundMessage[]): SituationViewModel {
+export function selectSituation(
+  messages: InboundMessage[],
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): SituationViewModel {
   const last = latestSituationMessage(messages);
   if (!last) {
     return { actor: "-", round: "-", turn: "-", eventType: "-", weather: "-", weatherEffect: "-" };
@@ -711,12 +811,12 @@ export function selectSituation(messages: InboundMessage[]): SituationViewModel 
         : "-";
   const round = asNumberText(findLatestField(messages, ["round_index"]));
   const turn = asNumberText(findLatestField(messages, ["turn_index"]));
-  const weather = findPersistedWeather(messages);
+  const weather = findPersistedWeather(messages, text);
   return {
     actor,
     round,
     turn,
-    eventType: pickMessageLabel(last),
+    eventType: pickMessageLabel(last, text),
     weather: weather.name,
     weatherEffect: weather.effect,
   };
@@ -737,7 +837,11 @@ function sameRoundTurn(payload: Record<string, unknown>, targetRound: number | n
   return current.round === targetRound && current.turn === targetTurn;
 }
 
-function detailFromEventCode(payload: Record<string, unknown>, eventCode: string): string {
+function detailFromEventCode(
+  payload: Record<string, unknown>,
+  eventCode: string,
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): string {
   const stub: InboundMessage = {
     type: "event",
     seq: 0,
@@ -747,11 +851,14 @@ function detailFromEventCode(payload: Record<string, unknown>, eventCode: string
       event_type: eventCode,
     },
   };
-  return pickMessageDetail(stub);
+  return pickMessageDetail(stub, text);
 }
 
-export function selectTurnStage(messages: InboundMessage[]): TurnStageViewModel {
-  const weather = findPersistedWeather(messages);
+export function selectTurnStage(
+  messages: InboundMessage[],
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): TurnStageViewModel {
+  const weather = findPersistedWeather(messages, text);
   const fallback: TurnStageViewModel = {
     turnStartSeq: null,
     actorPlayerId: null,
@@ -761,6 +868,8 @@ export function selectTurnStage(messages: InboundMessage[]): TurnStageViewModel 
     character: "-",
     weatherName: weather.name,
     weatherEffect: weather.effect,
+    currentBeatKind: "system",
+    focusTileIndex: null,
     diceSummary: "-",
     moveSummary: "-",
     trickSummary: "-",
@@ -769,6 +878,11 @@ export function selectTurnStage(messages: InboundMessage[]): TurnStageViewModel 
     rentSummary: "-",
     fortuneSummary: "-",
     promptSummary: "-",
+    latestActionLabel: "-",
+    latestActionDetail: "-",
+    currentBeatLabel: "-",
+    currentBeatDetail: "-",
+    progressTrail: [],
   };
 
   let turnStartIndex = -1;
@@ -800,6 +914,28 @@ export function selectTurnStage(messages: InboundMessage[]): TurnStageViewModel 
     round: roundTurn.round,
     turn: roundTurn.turn,
     character: asString(startMessage.payload["character"] ?? startMessage.payload["actor_name"]),
+    currentBeatKind: "system",
+    focusTileIndex: null,
+    currentBeatLabel: eventLabelForCode("turn_start", text.eventLabel),
+    currentBeatDetail: actorPlayerId === null ? "-" : text.turnStage.turnStartDetail(`P${actorPlayerId}`),
+  };
+  const trail: string[] = [eventLabelForCode("turn_start", text.eventLabel)];
+
+  const updateBeat = (
+    label: string,
+    detail: string,
+    kind: TurnStageViewModel["currentBeatKind"],
+    focusTileIndex: number | null
+  ) => {
+    model.latestActionLabel = label;
+    model.latestActionDetail = detail || "-";
+    model.currentBeatKind = kind;
+    if (focusTileIndex !== null) {
+      model.focusTileIndex = focusTileIndex;
+    }
+    model.currentBeatLabel = label;
+    model.currentBeatDetail = detail || "-";
+    trail.push(label);
   };
 
   for (let i = turnStartIndex + 1; i < messages.length; i += 1) {
@@ -808,7 +944,15 @@ export function selectTurnStage(messages: InboundMessage[]): TurnStageViewModel 
       const requestType = asString(message.payload["request_type"]);
       const promptActor = numberOrNull(message.payload["player_id"]);
       if (requestType !== "-" && (model.actorPlayerId === null || model.actorPlayerId === promptActor)) {
-        model.promptSummary = `${promptLabelForType(requestType)} 대기`;
+        model.promptSummary = text.stream.promptWaiting(promptLabelForType(requestType, text.promptType));
+        model.currentBeatKind = "decision";
+        model.currentBeatLabel = promptLabelForType(requestType, text.promptType);
+        model.currentBeatDetail = model.promptSummary;
+        const publicContext = isRecord(message.payload["public_context"]) ? message.payload["public_context"] : null;
+        const promptTileIndex = numberOrNull(message.payload["tile_index"] ?? publicContext?.["tile_index"]);
+        if (promptTileIndex !== null) {
+          model.focusTileIndex = promptTileIndex;
+        }
       }
       continue;
     }
@@ -822,35 +966,45 @@ export function selectTurnStage(messages: InboundMessage[]): TurnStageViewModel 
     if (eventCode === "turn_start") {
       continue;
     }
+    if (CORE_EVENT_CODES.has(eventCode) && eventCode !== "turn_end_snapshot") {
+      updateBeat(
+        pickMessageLabel(message, text),
+        detailFromEventCode(message.payload, eventCode, text) || "-",
+        turnBeatKindFromEventCode(eventCode),
+        focusTileIndexFromPayload(message.payload, eventCode)
+      );
+    }
     if (eventCode === "trick_used") {
-      model.trickSummary = detailFromEventCode(message.payload, eventCode);
+      model.trickSummary = detailFromEventCode(message.payload, eventCode, text);
       continue;
     }
     if (eventCode === "dice_roll") {
-      model.diceSummary = detailFromEventCode(message.payload, eventCode);
+      model.diceSummary = detailFromEventCode(message.payload, eventCode, text);
       continue;
     }
     if (eventCode === "player_move") {
-      model.moveSummary = detailFromEventCode(message.payload, eventCode);
+      model.moveSummary = detailFromEventCode(message.payload, eventCode, text);
       continue;
     }
     if (eventCode === "landing_resolved") {
-      model.landingSummary = detailFromEventCode(message.payload, eventCode);
+      model.landingSummary = detailFromEventCode(message.payload, eventCode, text);
       continue;
     }
     if (eventCode === "tile_purchased") {
-      model.purchaseSummary = detailFromEventCode(message.payload, eventCode);
+      model.purchaseSummary = detailFromEventCode(message.payload, eventCode, text);
       continue;
     }
     if (eventCode === "rent_paid") {
-      model.rentSummary = detailFromEventCode(message.payload, eventCode);
+      model.rentSummary = detailFromEventCode(message.payload, eventCode, text);
       continue;
     }
     if (eventCode === "fortune_drawn" || eventCode === "fortune_resolved") {
-      model.fortuneSummary = detailFromEventCode(message.payload, eventCode);
+      model.fortuneSummary = detailFromEventCode(message.payload, eventCode, text);
       continue;
     }
   }
+
+  model.progressTrail = trail.slice(-6);
 
   return model;
 }

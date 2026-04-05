@@ -1,5 +1,6 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { TheaterItem } from "../../domain/selectors/streamSelectors";
+import { useI18n } from "../../i18n/useI18n";
 
 type IncidentCardStackProps = {
   items: TheaterItem[];
@@ -8,64 +9,21 @@ type IncidentCardStackProps = {
 
 type LaneKey = "core" | "prompt" | "system";
 
-function toneBadge(tone: TheaterItem["tone"]): string {
+function toneBadge(tone: TheaterItem["tone"], theaterText: ReturnType<typeof useI18n>["theater"]): string {
   switch (tone) {
     case "move":
-      return "이동";
+      return theaterText.toneBadge.move;
     case "economy":
-      return "경제";
+      return theaterText.toneBadge.economy;
     case "critical":
-      return "중요";
+      return theaterText.toneBadge.critical;
     default:
-      return "진행";
-  }
-}
-
-function laneBadge(lane: TheaterItem["lane"]): string {
-  switch (lane) {
-    case "core":
-      return "공개 행동";
-    case "prompt":
-      return "선택 요청";
-    default:
-      return "시스템";
-  }
-}
-
-function laneTitle(lane: LaneKey): string {
-  switch (lane) {
-    case "core":
-      return "턴 진행";
-    case "prompt":
-      return "선택 흐름";
-    default:
-      return "시스템 기록";
-  }
-}
-
-function laneDescription(lane: LaneKey): string {
-  switch (lane) {
-    case "core":
-      return "이동, 구매, 렌트, 운수처럼 모두에게 공개되는 흐름입니다.";
-    case "prompt":
-      return "선택 요청, 응답, 타임아웃 대체를 추적합니다.";
-    default:
-      return "연결 상태, 회복, 경고 같은 시스템 메시지입니다.";
-  }
-}
-
-function emptyMessage(lane: LaneKey): string {
-  switch (lane) {
-    case "core":
-      return "아직 공개된 턴 진행이 없습니다.";
-    case "prompt":
-      return "아직 선택 요청 흐름이 없습니다.";
-    default:
-      return "시스템 기록이 없습니다.";
+      return theaterText.toneBadge.system;
   }
 }
 
 export function IncidentCardStack({ items, focusPlayerId }: IncidentCardStackProps) {
+  const { theater } = useI18n();
   const [collapsed, setCollapsed] = useState<Record<LaneKey, boolean>>({
     core: false,
     prompt: false,
@@ -119,8 +77,8 @@ export function IncidentCardStack({ items, focusPlayerId }: IncidentCardStackPro
     <section className="panel incident-panel">
       <div className="incident-panel-head">
         <div>
-          <h2>턴 극장</h2>
-          <small>공개 행동, 선택 흐름, 시스템 기록을 나눠서 보여줍니다. 다른 플레이어의 턴도 여기서 따라갈 수 있습니다.</small>
+          <h2>{theater.incidentTitle}</h2>
+          <small>{theater.incidentDescription}</small>
         </div>
       </div>
 
@@ -128,8 +86,8 @@ export function IncidentCardStack({ items, focusPlayerId }: IncidentCardStackPro
         <article className={`incident-hero incident-${coreHero.tone}`}>
           <div className="incident-meta">
             <div className="incident-meta-left">
-              <span className="incident-badge">{toneBadge(coreHero.tone)}</span>
-              <span className="incident-badge incident-lane-badge">{laneBadge(coreHero.lane)}</span>
+              <span className="incident-badge">{toneBadge(coreHero.tone, theater)}</span>
+              <span className="incident-badge incident-lane-badge">{theater.laneBadge[coreHero.lane]}</span>
             </div>
             <span className="incident-seq">#{coreHero.seq}</span>
           </div>
@@ -145,8 +103,8 @@ export function IncidentCardStack({ items, focusPlayerId }: IncidentCardStackPro
           <div key={section.key} className="incident-lane-group">
             <div className="incident-lane-header">
               <div>
-                <h3>{laneTitle(section.key)}</h3>
-                <small className="incident-lane-subtitle">{laneDescription(section.key)}</small>
+                <h3>{theater.laneTitle[section.key]}</h3>
+                <small className="incident-lane-subtitle">{theater.laneDescription[section.key]}</small>
               </div>
               <button
                 type="button"
@@ -158,12 +116,12 @@ export function IncidentCardStack({ items, focusPlayerId }: IncidentCardStackPro
                   }))
                 }
               >
-                {collapsed[section.key] ? "펼치기" : "접기"}
+                {collapsed[section.key] ? theater.expand : theater.collapse}
               </button>
             </div>
 
             {collapsed[section.key] ? null : section.items.length === 0 ? (
-              <small className="incident-empty">{emptyMessage(section.key)}</small>
+              <small className="incident-empty">{theater.laneEmpty[section.key]}</small>
             ) : (
               <div className="incident-lane-list">
                 {section.items.map((item, index) => (
@@ -175,8 +133,8 @@ export function IncidentCardStack({ items, focusPlayerId }: IncidentCardStackPro
                   >
                     <div className="incident-meta">
                       <div className="incident-meta-left">
-                        <span className="incident-badge">{toneBadge(item.tone)}</span>
-                        <span className="incident-badge incident-lane-badge">{laneBadge(item.lane)}</span>
+                        <span className="incident-badge">{toneBadge(item.tone, theater)}</span>
+                        <span className="incident-badge incident-lane-badge">{theater.laneBadge[item.lane]}</span>
                       </div>
                       <span className="incident-seq">#{item.seq}</span>
                     </div>

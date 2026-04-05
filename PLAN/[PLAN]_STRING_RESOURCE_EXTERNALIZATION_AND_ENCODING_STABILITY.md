@@ -4,6 +4,83 @@ Status: ACTIVE
 Updated: 2026-04-05  
 Owner: GPT
 
+## Progress Snapshot
+
+### Done
+
+1. Added centralized typed text catalogs in:
+- `apps/web/src/domain/text/uiText.ts`
+
+2. Migrated major React surface strings to catalogs:
+- `apps/web/src/App.tsx`
+- `apps/web/src/features/lobby/LobbyView.tsx`
+- `apps/web/src/features/prompt/PromptOverlay.tsx`
+- `apps/web/src/features/theater/CoreActionPanel.tsx`
+- `apps/web/src/features/theater/IncidentCardStack.tsx`
+- `apps/web/src/features/stage/TurnStagePanel.tsx`
+- `apps/web/src/features/board/BoardPanel.tsx`
+- `apps/web/src/features/status/ConnectionPanel.tsx`
+
+3. Recovered/normalized label catalogs and label tests:
+- `eventLabelCatalog.ts`
+- `promptTypeCatalog.ts`
+- `promptHelperCatalog.ts`
+
+4. Expanded auxiliary/prompt text ownership:
+- `PLAYERS_TEXT`
+- `TIMELINE_TEXT`
+- `PROMPT_TYPE_TEXT`
+- `PROMPT_HELPER_TEXT`
+- `promptTypeCatalog.ts` and `promptHelperCatalog.ts` now read from shared text resources instead of owning visible Korean strings
+- `PlayersPanel.tsx` and `TimelinePanel.tsx` now render from catalog text
+
+4. Validation completed:
+- `npm run build` passed in `apps/web`
+- `npm run test -- --run src/domain/labels` passed
+
+5. Locale foundation is now active in implementation:
+- `apps/web/src/i18n/`
+- `I18nProvider`
+- `useI18n`
+- `ko/en` locale bundles
+
+6. Hook-based locale usage has already reached major match surfaces:
+- `App.tsx`
+- `LobbyView.tsx`
+- `ConnectionPanel.tsx`
+- `PlayersPanel.tsx`
+- `TimelinePanel.tsx`
+- `SituationPanel.tsx`
+- `TurnStagePanel.tsx`
+- `SpectatorTurnPanel.tsx`
+- `CoreActionPanel.tsx`
+- `IncidentCardStack.tsx`
+- `BoardPanel.tsx`
+- `PromptOverlay.tsx`
+
+### In Progress
+
+1. Selector/domain-generated phrasing is still partially embedded in:
+- `apps/web/src/domain/selectors/streamSelectors.ts`
+- action classification heuristics in theater components
+- zone-color mapping literals in `BoardPanel.tsx`
+
+   Current note:
+   - `streamSelectors.ts` now has a locale-aware text injection path and no longer has to rely on the Korean bridge at runtime when called from `App.tsx`
+   - remaining work is to keep shrinking selector-owned phrasing, not to rebuild the injection path itself
+
+2. `uiText.ts` still exists as a Korean compatibility bridge and should shrink over time instead of regaining ownership.
+3. Some non-UI/internal fallback strings still remain in runtime-facing handlers and should be normalized next.
+4. Leftover centralized mappings are being folded into locale bundles instead of staying in per-component helpers.
+
+### Next
+
+1. Finish moving selector-generated visible summaries behind locale-aware phrase helpers/catalog keys.
+2. Reduce `uiText.ts` to a temporary compatibility bridge only.
+3. Add resource-focused tests for selector-resource coupling and locale switching.
+4. Continue P0-2 live human-play UI recovery on top of the locale foundation.
+5. Treat any newly discovered inline Korean/English display string as a regression and move it into catalog ownership before further UI layering.
+
 ## Purpose
 
 React/FastAPI live viewer and related runtime surfaces still carry too many inline UI strings inside components.
@@ -209,3 +286,55 @@ Update mandatory principles so future work must:
 3. P1: normalize selector-generated summaries
 4. P1: normalize runtime/server/client warning text
 5. P2: evaluate shared phrase ownership for future Unity frontend
+
+## 2026-04-05 Additional Progress Update
+
+- Restored the main React UI text catalog in clean UTF-8 and re-covered it with tests.
+- Recovered corrupted selector/label specs so string regressions now fail earlier in domain tests instead of surfacing only in the browser.
+- Moved event/non-event labels into shared text ownership via `EVENT_LABEL_TEXT`.
+- Remaining work on this plan is now narrower:
+  1. finish splitting the large `uiText.ts` catalog into smaller feature catalogs if navigation starts to degrade
+  2. continue removing any leftover inline user-visible phrases from runtime-oriented components
+  3. keep validating that selector-generated summaries read from canonical text helpers
+
+## 2026-04-05 Browser Parity Follow-up
+
+- The string/resource work is now strong enough to support browser-level human-play smoke coverage.
+- Added a Playwright quick-start parity scenario that verifies:
+  1. lobby quick start creates a `1 human + 3 AI` session
+  2. the human seat joins
+  3. the host starts the session
+  4. the match view opens
+  5. the first human prompt renders using the restored text catalogs
+- Existing parity tests were also updated to follow the current Korean UI wording (`참가 좌석`, `Raw 보기`, etc.).
+- This plan is not fully complete yet.
+- Remaining work on this plan is now:
+  1. split `uiText.ts` into smaller feature catalogs once navigation/readability starts to suffer
+  2. keep eliminating leftover inline literals from runtime-oriented React components
+  3. extend browser assertions so prompt/theater/stage UI is checked with canonical resource text instead of ad-hoc raw strings
+
+## 2026-04-05 Prompt Decision Surface Follow-up
+
+- Prompt-surface browser coverage now extends past quick-start shell validation and into real request types:
+  1. `movement` prompt with runtime-contract `dice_*` choices
+  2. `purchase_tile` prompt
+  3. `mark_target` prompt
+- This reduces the risk that selector/resource cleanup accidentally regresses live human-play decision wording while preserving superficially similar layouts.
+- Remaining string-plan follow-up is now mostly structural:
+  1. split `uiText.ts` into smaller feature catalogs when file navigation starts slowing implementation
+  2. continue removing any leftover inline visible strings from prompt/stage/theater helpers
+  3. keep browser assertions tied to canonical text ownership instead of ad-hoc component literals
+
+## 2026-04-05 Beat/Board Summary Follow-up
+
+- Added new canonical text ownership for public economic/effect summaries:
+  - `rent_paid`
+  - `fortune_drawn`
+  - `fortune_resolved`
+- This was driven by live-play continuity work, because blank selector summaries immediately break the theater/board coupling effect.
+- Result:
+  - stage summaries, board focus summaries, and selector tests now read from the same shared text catalog for these beats
+- Remaining string-plan follow-up remains:
+  1. continue extracting any leftover inline visible phrases from stage/theater/board helpers
+  2. split `uiText.ts` by feature once navigation cost starts slowing implementation
+  3. keep browser/selectors/tests tied to canonical resource ownership so mojibake or wording drift cannot quietly return
