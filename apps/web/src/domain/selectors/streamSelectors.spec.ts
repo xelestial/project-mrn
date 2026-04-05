@@ -99,6 +99,24 @@ describe("streamSelectors", () => {
     expect(situation.weatherEffect).toContain("2배");
   });
 
+  it("uses weather effect text when the payload provides effect_text", () => {
+    const situation = selectSituation([
+      {
+        type: "event",
+        seq: 8,
+        session_id: "s1",
+        payload: {
+          event_type: "weather_reveal",
+          weather_name: "Cold Front",
+          effect_text: "No lap cash. Pay 2 cash to bank.",
+        },
+      },
+      snapshotEvent,
+    ]);
+    expect(situation.weather).toBe("Cold Front");
+    expect(situation.weatherEffect).toBe("No lap cash. Pay 2 cash to bank.");
+  });
+
   it("ignores runtime stalled warnings in situation headline", () => {
     const situation = selectSituation([
       {
@@ -162,6 +180,7 @@ describe("streamSelectors", () => {
           acting_player_id: 2,
           from_tile_index: 5,
           to_tile_index: 8,
+          path: [6, 7, 8],
         },
       },
     ]);
@@ -169,6 +188,7 @@ describe("streamSelectors", () => {
     expect(move?.playerId).toBe(2);
     expect(move?.fromTileIndex).toBe(5);
     expect(move?.toTileIndex).toBe(8);
+    expect(move?.pathTileIndices).toEqual([6, 7, 8]);
   });
 
   it("formats less-common event details for timeline", () => {
@@ -316,6 +336,39 @@ describe("streamSelectors", () => {
     expect(theater[1].lane).toBe("prompt");
     expect(theater[3].lane).toBe("core");
     expect(theater[3].actor).toBe("P2");
+  });
+
+  it("routes ai decision lifecycle events to the system lane instead of the prompt lane", () => {
+    const theater = selectTheaterFeed([
+      {
+        type: "event",
+        seq: 84,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_requested",
+          request_type: "purchase_tile",
+          player_id: 2,
+          provider: "ai",
+        },
+      },
+      {
+        type: "event",
+        seq: 85,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_resolved",
+          player_id: 2,
+          provider: "ai",
+          resolution: "accepted",
+          choice_id: "no",
+        },
+      },
+    ]);
+
+    expect(theater[0].eventCode).toBe("decision_resolved");
+    expect(theater[0].lane).toBe("system");
+    expect(theater[1].eventCode).toBe("decision_requested");
+    expect(theater[1].lane).toBe("system");
   });
 
   it("extracts critical alerts from bankruptcy/game_end/timeout/runtime failures", () => {

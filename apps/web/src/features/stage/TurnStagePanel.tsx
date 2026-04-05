@@ -7,6 +7,13 @@ type TurnStagePanelProps = {
   isMyTurn: boolean;
 };
 
+type SceneCard = {
+  key: string;
+  label: string;
+  value: string;
+  tone: "move" | "economy" | "effect";
+};
+
 function valueOrDash(value: string): string {
   const trimmed = value.trim();
   return trimmed ? trimmed : "-";
@@ -21,11 +28,37 @@ function stageLine(label: string, value: string) {
   );
 }
 
+function hasMeaningfulValue(value: string): boolean {
+  return value.trim() !== "" && value.trim() !== "-";
+}
+
+function isSceneCard(card: SceneCard | null): card is SceneCard {
+  return card !== null;
+}
+
 export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnStagePanelProps) {
   const { turnStage } = useI18n();
   const actorHeadline =
     model.actor !== "-" ? turnStage.actorHeadline(model.actor) : turnStage.actorWaiting;
   const roundTurn = `R${model.round ?? "-"} / T${model.turn ?? "-"}`;
+  const sceneCardCandidates: Array<SceneCard | null> = [
+    hasMeaningfulValue(model.moveSummary)
+      ? { key: "move", label: turnStage.fields.move, value: model.moveSummary, tone: "move" }
+      : null,
+    hasMeaningfulValue(model.landingSummary)
+      ? { key: "landing", label: turnStage.fields.landing, value: model.landingSummary, tone: "effect" }
+      : null,
+    hasMeaningfulValue(model.purchaseSummary)
+      ? { key: "purchase", label: turnStage.fields.purchase, value: model.purchaseSummary, tone: "economy" }
+      : null,
+    hasMeaningfulValue(model.rentSummary)
+      ? { key: "rent", label: turnStage.fields.rent, value: model.rentSummary, tone: "economy" }
+      : null,
+    hasMeaningfulValue(model.fortuneSummary)
+      ? { key: "fortune", label: turnStage.fields.fortune, value: model.fortuneSummary, tone: "effect" }
+      : null,
+  ];
+  const sceneCards = sceneCardCandidates.filter(isSceneCard);
 
   return (
     <section className="panel turn-stage-panel">
@@ -121,6 +154,23 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
             <small>{turnStage.progressEmpty}</small>
           )}
         </article>
+
+        {sceneCards.length > 0 ? (
+          <article className="turn-stage-card turn-stage-card-wide turn-stage-scene-strip" data-testid="turn-stage-scene-strip">
+            <div className="turn-stage-card-top">
+              <strong>{turnStage.currentBeatTitle}</strong>
+              <span>{turnStage.currentBeatBadge}</span>
+            </div>
+            <div className="turn-stage-scene-list">
+              {sceneCards.map((card) => (
+                <div key={card.key} className={`turn-stage-scene-card turn-stage-scene-card-${card.tone}`}>
+                  <span>{card.label}</span>
+                  <strong>{valueOrDash(card.value)}</strong>
+                </div>
+              ))}
+            </div>
+          </article>
+        ) : null}
       </div>
     </section>
   );

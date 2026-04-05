@@ -1232,3 +1232,202 @@ Updated: 2026-04-04
   - `npm run build` passed (`apps/web`)
   - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts` passed (`27 passed`)
   - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 065
+
+- Scope: P0-2 public turn-flow choreography follow-up.
+- Done:
+  - Upgraded `apps/web/src/features/theater/CoreActionPanel.tsx` so the latest same-turn public actions now render as a compact journey strip, not only as isolated cards.
+  - Added journey-strip styling in `apps/web/src/styles.css` so move/economy/effect/decision beats read like a chained scene.
+  - Extended browser regression in `apps/web/e2e/human_play_runtime.spec.ts` to lock `core-action-journey` during remote-turn viewing.
+- Why:
+  - remote turns still felt too much like a card log
+  - same-turn public events need to read as one unfolding scene for human observers
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts` passed (`27 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 066
+
+- Scope: P0-2/P0-4 runtime stabilization in forced English mode.
+- Done:
+  - Switched `apps/web/src/i18n/index.ts` default locale to `en`.
+  - Tightened `apps/web/src/i18n/I18nProvider.tsx` initial-locale resolution so the app now boots into English unless the stored locale is already `en`.
+  - Preserved the in-progress turn-stage scene-strip / public-turn flow work while re-stabilizing runtime behavior.
+  - Cleaned temporary Playwright output under `apps/web/test-results/`.
+- Why:
+  - the Korean locale recovery path is still in progress and should not block runtime verification
+  - human-play validation needs one stable language mode that can keep build, selector tests, and browser parity green
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts` passed (`27 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 067
+
+- Scope: P0-2/P0-4 prompt readability cleanup and turn-scene continuity.
+- Done:
+  - Cleaned `apps/web/src/features/prompt/PromptOverlay.tsx` so visible prompt context no longer shows corrupted unit suffixes.
+  - Reduced prompt inspector feel in English mode by:
+    - removing bracket-heavy copy
+    - simplifying request meta to actor/time information
+    - making dice-card chips render as plain card numbers
+  - Extended `apps/web/src/features/stage/TurnStagePanel.tsx` scene-strip so it now carries:
+    - move
+    - landing
+    - purchase
+    - rent
+    - fortune
+  - Added move-tone scene styling in `apps/web/src/styles.css`.
+  - Updated `apps/web/src/i18n/locales/en.ts` so English-mode labels read naturally during:
+    - trick selection
+    - character selection
+    - mark targeting
+    - locale switching
+- Why:
+  - human-play prompts still contained debug-ish wording and broken suffix text
+  - remote turns needed stronger continuous scene beats so they read less like isolated state cards
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts` passed (`27 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 068
+
+- Scope: P0-2 theater de-duplication and spectator readability follow-up.
+- Done:
+  - Removed the duplicate same-turn flow panel from `apps/web/src/features/theater/CoreActionPanel.tsx` so the public action area now relies on:
+    - latest hero action
+    - same-turn journey strip
+    - older public action feed
+    instead of rendering the same flow twice.
+  - Added `data-testid="core-action-panel"` and updated browser coverage to anchor on the panel itself rather than requiring a journey strip in turn states that do not yet have one.
+  - Refined `apps/web/src/features/stage/SpectatorTurnPanel.tsx` so:
+    - current beat title
+    - current beat detail
+    - latest public action title
+    - latest public action detail
+    render on separate lines instead of slash-joined inspector text.
+  - Polished English prompt copy in `apps/web/src/i18n/locales/en.ts`:
+    - lighter request meta
+    - cleaner decision chip wording
+    - less mechanical movement / trick / mark / purchase copy
+    - simpler busy state text
+  - Restyled prompt footer metadata in `apps/web/src/styles.css` into a compact HUD pill instead of raw footer text.
+- Why:
+  - the match screen still felt too much like a state inspector because the same turn flow was rendered more than once
+  - spectator cards still packed multiple ideas into one slash-delimited line
+  - prompt footer/status text still read more like transport metadata than live game UI
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts` passed (`27 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 069
+
+- Scope: P0-2 prompt HUD timing follow-up.
+- Done:
+  - Added a live countdown bar to `apps/web/src/features/prompt/PromptOverlay.tsx` so actionable prompts now show time pressure as a visible HUD element instead of only footer text.
+  - Restyled the prompt footer in `apps/web/src/styles.css` so actor/time metadata reads as a compact pill plus timer bar instead of raw inspector text.
+- Why:
+  - even after wording cleanup, the prompt footer still felt like transport metadata rather than a live game decision surface
+  - human testing benefits from seeing countdown pressure immediately, not reconstructing it from text
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts` passed (`27 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 070
+
+- Scope: P0-2/P0-3 weather selector parity follow-up.
+- Done:
+  - Updated `apps/web/src/domain/selectors/streamSelectors.ts` so weather summaries now honor `effect_text` when the runtime payload provides it.
+  - Added selector coverage in `apps/web/src/domain/selectors/streamSelectors.spec.ts` to lock `weather_reveal.effect_text` parity.
+- Why:
+  - weather cards must show the actual rule text from the runtime when it exists, not fall back to a generic effect label
+  - this directly affects whether live human-play feels trustworthy during round start
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts` passed (`28 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 071
+
+- Scope: P0-1 unified decision runtime wrapper for AI seats.
+- Done:
+  - Added `apps/server/src/services/decision_gateway.py`.
+  - Moved canonical human decision request/resolve publishing into `DecisionGateway`.
+  - Replaced the human-only runtime bridge with `_ServerDecisionPolicyBridge` in `apps/server/src/services/runtime_service.py`.
+  - Runtime now wraps both human and AI seats behind one decision contract at the server boundary.
+  - AI decisions now emit:
+    - `decision_requested`
+    - `decision_resolved`
+    with `provider="ai"`.
+  - Human decision events now explicitly emit `provider="human"`.
+  - Added backend regression coverage proving AI purchase decisions emit ordered request/resolve events.
+- Why:
+  - the runtime previously used one contract for human seats and direct policy calls for AI seats
+  - this was the main P0-1 architectural gap still left open in live/runtime mode
+- Validation:
+  - `python -m pytest apps/server/tests/test_runtime_service.py` passed (`9 passed`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts` passed (`17 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 072
+
+- Scope: P0-2 human-play noise control after AI decision unification.
+- Done:
+  - Updated `apps/web/src/domain/selectors/streamSelectors.ts` so AI-side decision lifecycle events are routed to the `system` lane instead of the `prompt` lane.
+  - Added selector coverage to lock this behavior.
+- Why:
+  - AI now shares the same backend decision contract, but those internal request/resolve events should not visually compete with actionable human prompts
+- Validation:
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts` passed (`17 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 073
+
+- Scope: P0-2 remote-turn board continuity / move-path visibility.
+- Done:
+  - Extended `selectLastMove()` in `apps/web/src/domain/selectors/streamSelectors.ts` so recent `player_move` state now preserves the emitted `path` tiles, not only start/end.
+  - Updated `apps/web/src/features/board/BoardPanel.tsx` to render recent path-step markers on intermediate tiles during the latest move.
+  - Added board styling in `apps/web/src/styles.css` for:
+    - intermediate move-trail tiles
+    - dashed recent-path emphasis
+    - numbered path-step badges
+  - Updated `apps/web/e2e/human_play_runtime.spec.ts` so remote-turn runtime coverage now asserts an intermediate path step is visible on the board.
+  - Added selector coverage in `apps/web/src/domain/selectors/streamSelectors.spec.ts` to lock `pathTileIndices` extraction.
+- Why:
+  - remote turns still felt too much like card/log updates because only the source and destination tiles were highlighted
+  - preserving and rendering the path makes other-player turns read more like spatial movement on a board
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts` passed (`17 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 074
+
+- Scope: P0-1 canonical decision payload follow-up for stream timeout/ack paths.
+- Done:
+  - Added shared decision payload builders to `apps/server/src/services/decision_gateway.py`:
+    - `build_decision_ack_payload(...)`
+    - `build_decision_requested_payload(...)`
+    - `build_decision_resolved_payload(...)`
+    - `build_decision_timeout_fallback_payload(...)`
+  - Refactored `DecisionGateway` itself to use those builders instead of ad-hoc inline dictionaries.
+  - Updated `apps/server/src/routes/stream.py` so:
+    - websocket timeout fallback emission
+    - seat decision acknowledgement emission
+    now use the same canonical payload builders.
+  - Human-side `decision_ack`, `decision_resolved`, and `decision_timeout_fallback` messages now explicitly carry `provider="human"` on the stream route path as well.
+  - Added/updated backend regression coverage in:
+    - `apps/server/tests/test_runtime_service.py`
+    - `apps/server/tests/test_stream_api.py`
+- Why:
+  - AI-seat runtime wrapping was already emitting canonical lifecycle events, but stream timeout/ack code paths still hand-built similar payloads
+  - centralizing those payloads lowers drift risk and moves the system closer to a true shared human/AI decision contract
+- Validation:
+  - `python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_stream_api.py` passed (`9 passed, 13 skipped`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts` passed (`17 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)

@@ -17,8 +17,8 @@ function resolveInitialLocale(): LocaleCode {
     return DEFAULT_LOCALE;
   }
   const stored = window.localStorage.getItem(STORAGE_KEY);
-  if (stored && SUPPORTED_LOCALES.includes(stored as LocaleCode)) {
-    return stored as LocaleCode;
+  if (stored === "en") {
+    return "en";
   }
   return DEFAULT_LOCALE;
 }

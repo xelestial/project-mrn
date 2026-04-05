@@ -12,12 +12,19 @@ function valueOrDash(value: string): string {
   return trimmed ? trimmed : "-";
 }
 
+function joinVisible(parts: string[]): string {
+  const visible = parts.map((part) => part.trim()).filter((part) => part && part !== "-");
+  return visible.length > 0 ? visible.join(" / ") : "-";
+}
+
 export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: SpectatorTurnPanelProps) {
   const { app } = useI18n();
   const title = actorPlayerId === null ? app.spectatorHeadline : app.spectatorTitle(actorPlayerId);
   const progress = model.progressTrail.filter((item) => item.trim());
-  const latestActionText =
-    latestAction && latestAction.detail.trim() ? `${latestAction.label} / ${latestAction.detail}` : latestAction?.label ?? "-";
+  const latestActionTitle = latestAction?.label ?? "-";
+  const latestActionDetail = latestAction?.detail?.trim() ? latestAction.detail : "-";
+  const economyText = joinVisible([model.purchaseSummary, model.rentSummary]);
+  const effectText = joinVisible([model.trickSummary, model.fortuneSummary]);
 
   return (
     <section className="panel spectator-turn-panel" data-testid="spectator-turn-panel">
@@ -43,11 +50,13 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
         </article>
         <article className="spectator-turn-card" data-testid="spectator-turn-beat">
           <span>{app.spectatorFields.beat}</span>
-          <strong>{`${valueOrDash(model.currentBeatLabel)} / ${valueOrDash(model.currentBeatDetail)}`}</strong>
+          <strong>{valueOrDash(model.currentBeatLabel)}</strong>
+          <small>{valueOrDash(model.currentBeatDetail)}</small>
         </article>
         <article className="spectator-turn-card" data-testid="spectator-turn-action">
           <span>{app.spectatorFields.action}</span>
-          <strong>{valueOrDash(latestActionText)}</strong>
+          <strong>{valueOrDash(latestActionTitle)}</strong>
+          <small>{valueOrDash(latestActionDetail)}</small>
         </article>
         <article className="spectator-turn-card" data-testid="spectator-turn-prompt">
           <span>{app.spectatorFields.prompt}</span>
@@ -63,11 +72,11 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
         </article>
         <article className="spectator-turn-card" data-testid="spectator-turn-economy">
           <span>{app.spectatorFields.economy}</span>
-          <strong>{valueOrDash([model.purchaseSummary, model.rentSummary].filter((item) => item.trim()).join(" / "))}</strong>
+          <strong>{valueOrDash(economyText)}</strong>
         </article>
         <article className="spectator-turn-card" data-testid="spectator-turn-effect">
           <span>{app.spectatorFields.effect}</span>
-          <strong>{valueOrDash([model.trickSummary, model.fortuneSummary].filter((item) => item.trim()).join(" / "))}</strong>
+          <strong>{valueOrDash(effectText)}</strong>
         </article>
       </div>
 

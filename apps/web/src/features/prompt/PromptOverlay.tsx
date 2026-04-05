@@ -107,7 +107,11 @@ function stringFromContext(context: Record<string, unknown>, ...keys: string[]):
 }
 
 function tileLabel(tileIndex: number | null): string {
-  return tileIndex === null ? "-" : `${tileIndex + 1}번 칸`;
+  return tileIndex === null ? "-" : String(tileIndex + 1);
+}
+
+function formatNumber(value: number | null): string {
+  return value === null ? "-" : String(value);
 }
 
 function movementChoices(prompt: PromptViewModel): MovementChoiceParts {
@@ -377,6 +381,10 @@ export function PromptOverlay({
 
   const promptLabel = promptLabelForType(prompt.requestType, promptType);
   const promptHelp = promptHelperForType(prompt.requestType, promptHelper);
+  const promptTimeRatio =
+    secondsLeft !== null && prompt.timeoutMs > 0
+      ? Math.max(0, Math.min(100, (secondsLeft * 1000 * 100) / prompt.timeoutMs))
+      : null;
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {
@@ -485,7 +493,7 @@ export function PromptOverlay({
               </div>
               <div className="prompt-context-card">
                 <strong>{promptText.context.usableCards}</strong>
-                <span>{movement.cardPool.length}장</span>
+                <span>{String(movement.cardPool.length)}</span>
               </div>
               <div className="prompt-context-card">
                 <strong>{promptText.context.selectedCards}</strong>
@@ -539,7 +547,7 @@ export function PromptOverlay({
                       disabled={busy}
                       onClick={() => onToggleCardChip(card)}
                     >
-                      [{card}]
+                      {card}
                     </button>
                   ))}
                 </div>
@@ -654,7 +662,7 @@ export function PromptOverlay({
               </div>
               <div className="prompt-context-card">
                 <strong>{promptText.context.selectableTargets}</strong>
-                <span>{markCandidateCount}명</span>
+                <span>{String(markCandidateCount)}</span>
               </div>
               <div className="prompt-context-card">
                 <strong>{promptText.context.currentPosition}</strong>
@@ -706,11 +714,11 @@ export function PromptOverlay({
               </div>
               <div className="prompt-context-card">
                 <strong>{promptText.context.purchaseCost}</strong>
-                <span>{currentCost === null ? "-" : `${currentCost}냥`}</span>
+                <span>{formatNumber(currentCost)}</span>
               </div>
               <div className="prompt-context-card">
                 <strong>{promptText.context.currentCash}</strong>
-                <span>{currentCash === null ? "-" : `${currentCash}냥`}</span>
+                <span>{formatNumber(currentCash)}</span>
               </div>
               <div className="prompt-context-card">
                 <strong>{promptText.context.zone}</strong>
@@ -745,7 +753,7 @@ export function PromptOverlay({
             <div className="prompt-context-grid prompt-context-grid-tight">
               <div className="prompt-context-card">
                 <strong>{promptText.context.currentCash}</strong>
-                <span>{currentCash === null ? "-" : `${currentCash}냥`}</span>
+                <span>{formatNumber(currentCash)}</span>
               </div>
               <div className="prompt-context-card">
                 <strong>{promptText.context.currentShards}</strong>
@@ -813,11 +821,16 @@ export function PromptOverlay({
 
         <div className="prompt-footer">
           <p className="prompt-meta">{promptText.requestMeta(prompt.requestId, prompt.playerId, prompt.timeoutMs, secondsLeft)}</p>
-          {feedbackMessage ? <p className="notice err">{feedbackMessage}</p> : null}
+          {feedbackMessage ? <p className="notice err">{cleanDisplayText(feedbackMessage)}</p> : null}
           {busy ? (
             <p className="notice ok">
               <span className="spinner" aria-hidden="true" /> {promptText.busy}
             </p>
+          ) : null}
+          {promptTimeRatio !== null ? (
+            <div className="prompt-timebar" aria-hidden="true">
+              <span style={{ width: `${promptTimeRatio}%` }} />
+            </div>
           ) : null}
         </div>
       </section>

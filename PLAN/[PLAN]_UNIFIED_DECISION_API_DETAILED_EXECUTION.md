@@ -317,3 +317,41 @@ P3 종료 조건:
 - Local validation:
   - `npm run build`
   - passed (`apps/web`)
+
+## 2026-04-06 Progress Update (runtime wrapper unification)
+
+- Added `apps/server/src/services/decision_gateway.py` as the canonical runtime decision publisher.
+- Server runtime no longer keeps AI seats fully outside the decision contract.
+  - `RuntimeService` now mounts `_ServerDecisionPolicyBridge` instead of a human-only bridge.
+  - Human seats still use prompt/request-response flow.
+  - AI seats now also emit:
+    - `decision_requested`
+    - `decision_resolved`
+    through the same server-side gateway boundary.
+- Added provider tagging:
+  - `provider="human"`
+  - `provider="ai"`
+- This closes the previous "AI direct-call bypass" gap at the runtime boundary.
+- Remaining P0-1 work is now narrower:
+  1. move more request-type serialization/context logic out of the bridge and into typed provider classes
+  2. migrate engine-side `choose_*` callsites toward a real `DecisionPort`
+  3. expand backend tests beyond the current runtime-wrapper slice
+
+## 2026-04-06 Progress Update (canonical payload builders)
+
+- `DecisionGateway` now also owns shared payload builders for:
+  - `decision_ack`
+  - `decision_requested`
+  - `decision_resolved`
+  - `decision_timeout_fallback`
+- The websocket route timeout/ack path now uses those builders too.
+- Result:
+  - human timeout fallback emission no longer drifts away from the runtime gateway shape
+  - human websocket `decision_ack` now also carries `provider="human"` consistently
+- Updated coverage:
+  - `apps/server/tests/test_runtime_service.py`
+  - `apps/server/tests/test_stream_api.py`
+- Remaining P0-1 work is now:
+  1. typed provider cleanup so bridge mapping logic is less string-heavy
+  2. engine-side `DecisionPort` migration
+  3. broader stream API coverage in environments with full FastAPI test support

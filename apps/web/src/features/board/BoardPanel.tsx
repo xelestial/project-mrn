@@ -98,6 +98,11 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
     }
   }
 
+  const recentPathSteps = new Map<number, number>();
+  for (const [index, tileIndex] of (lastMove?.pathTileIndices ?? []).entries()) {
+    recentPathSteps.set(tileIndex, index + 1);
+  }
+
   if (tiles.length === 0) {
     return (
       <section className="panel">
@@ -135,6 +140,8 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
           {tiles.map((tile) => {
             const isMoveFrom = lastMove?.fromTileIndex === tile.tileIndex;
             const isMoveTo = lastMove?.toTileIndex === tile.tileIndex;
+            const pathStep = recentPathSteps.get(tile.tileIndex) ?? null;
+            const isMoveTrail = pathStep !== null && !isMoveFrom && !isMoveTo;
             const isStageFocus = stageFocus.focusTileIndex === tile.tileIndex;
             const position = projectTilePosition(tile.tileIndex, tiles.length, normalizedTopology);
             const ownerPlayerId = tile.ownerPlayerId ?? null;
@@ -151,6 +158,8 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
                 key={tile.tileIndex}
                 className={`tile-card ${isMoveFrom ? "tile-move-from" : ""} ${isMoveTo ? "tile-move-to" : ""} ${
                   isFortune ? "tile-fortune" : ""
+                } ${isMoveTrail ? "tile-move-trail" : ""} ${
+                  pathStep !== null ? "tile-move-has-path" : ""
                 } ${isFinish ? "tile-finish" : ""}`}
                 data-focus-kind={isStageFocus ? stageFocus.currentBeatKind : undefined}
                 style={{
@@ -167,6 +176,11 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
                 {isMoveTo ? (
                   <div className="tile-corner-badge tile-corner-badge-to" data-testid="board-move-end-badge">
                     {board.moveEndTag}
+                  </div>
+                ) : null}
+                {isMoveTrail ? (
+                  <div className="tile-path-step-badge" data-testid={`board-path-step-${tile.tileIndex}`}>
+                    {pathStep}
                   </div>
                 ) : null}
                 {actorOnTile ? (

@@ -78,6 +78,7 @@ export type LastMoveViewModel = {
   playerId: number | null;
   fromTileIndex: number | null;
   toTileIndex: number | null;
+  pathTileIndices: number[];
 };
 
 export type PlayerViewModel = {
@@ -155,6 +156,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function messageKindFromPayload(payload: Record<string, unknown>): string {
   const eventType = payload["event_type"];
   return typeof eventType === "string" && eventType.trim() ? eventType : "";
+}
+
+function decisionProviderFromPayload(payload: Record<string, unknown>): string {
+  const provider = payload["provider"];
+  return typeof provider === "string" && provider.trim() ? provider : "";
 }
 
 function actorFromPayload(payload: Record<string, unknown>): string {
@@ -365,7 +371,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
       ? payload["effects"].filter((item): item is string => typeof item === "string" && item.trim().length > 0)
       : [];
     const effectsSummary = effects.length > 0 ? effects.join(", ") : "-";
-    const explicitEffect = asString(payload["weather_effect"] ?? payload["effect"] ?? payload["description"]);
+    const explicitEffect = asString(payload["weather_effect"] ?? payload["effect_text"] ?? payload["effect"] ?? payload["description"]);
     const effect =
       explicitEffect !== "-"
         ? explicitEffect
@@ -546,6 +552,9 @@ function laneFromMessage(message: InboundMessage): TheaterItem["lane"] {
   }
   const eventCode = messageKindFromPayload(message.payload);
   if (PROMPT_EVENT_CODES.has(eventCode)) {
+    if (decisionProviderFromPayload(message.payload) === "ai") {
+      return "system";
+    }
     return "prompt";
   }
   if (CORE_EVENT_CODES.has(eventCode)) {
@@ -711,6 +720,8 @@ function findPersistedWeather(
         ? effectsSummary
         : typeof payload["weather_effect"] === "string"
           ? payload["weather_effect"]
+          : typeof payload["effect_text"] === "string"
+            ? payload["effect_text"]
           : typeof payload["effect"] === "string"
             ? payload["effect"]
             : typeof payload["description"] === "string"
@@ -1015,10 +1026,13 @@ export function selectLastMove(messages: InboundMessage[]): LastMoveViewModel | 
     if (message.type !== "event" || messageKindFromPayload(message.payload) !== "player_move") {
       continue;
     }
+    const rawPath = Array.isArray(message.payload["path"]) ? message.payload["path"] : [];
+    const pathTileIndices = rawPath.filter((value): value is number => typeof value === "number");
     return {
       playerId: numberOrNull(message.payload["acting_player_id"] ?? message.payload["player_id"]),
       fromTileIndex: numberOrNull(message.payload["from_tile_index"] ?? message.payload["from_tile"] ?? message.payload["from_pos"]),
       toTileIndex: numberOrNull(message.payload["to_tile_index"] ?? message.payload["to_tile"] ?? message.payload["to_pos"]),
+      pathTileIndices,
     };
   }
   return null;

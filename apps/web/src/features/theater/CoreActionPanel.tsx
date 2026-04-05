@@ -73,6 +73,10 @@ function splitDetail(detail: string, noDetailLabel: string): string[] {
   return pieces.length > 0 ? pieces.slice(0, 3) : [compact];
 }
 
+function headlineDetail(item: CoreActionItem, theaterText: ReturnType<typeof useI18n>["theater"]): string {
+  return splitDetail(item.detail, theaterText.noDetail)[0] ?? theaterText.noDetail;
+}
+
 export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
   const { theater } = useI18n();
   if (!latest && items.length === 0) {
@@ -88,9 +92,11 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
           .slice()
           .reverse()
       : [];
+  const turnFlowSeqs = new Set(turnFlowItems.map((item) => item.seq));
+  const historyItems = feedItems.filter((item) => !turnFlowSeqs.has(item.seq));
 
   return (
-    <section className="panel core-action-panel">
+    <section className="panel core-action-panel" data-testid="core-action-panel">
       <div className="core-action-panel-head">
         <div>
           <strong>{theater.coreActionTitle}</strong>
@@ -120,32 +126,31 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
         </article>
       ) : null}
 
-      <article className="core-action-flow-panel" data-testid="core-action-flow-panel">
-        <div className="core-action-flow-head">
-          <strong>{theater.turnFlowTitle}</strong>
-          {latest ? <small>{theater.roundTurnBadge(latest.round, latest.turn)}</small> : null}
-        </div>
-        {turnFlowItems.length > 0 ? (
-          <div className="core-action-flow-steps">
-            {turnFlowItems.map((item) => {
+      {turnFlowItems.length > 0 ? (
+        <article className="core-action-journey" data-testid="core-action-journey">
+          <div className="core-action-journey-head">
+            <strong>{theater.turnFlowTitle}</strong>
+            {latest ? <small>{theater.roundTurnBadge(latest.round, latest.turn)}</small> : null}
+          </div>
+          <div className="core-action-journey-strip">
+            {turnFlowItems.map((item, index) => {
               const kind = classifyAction(item, theater);
               return (
-                <div key={`flow-${item.seq}`} className={`core-action-flow-step core-action-flow-step-${kind}`}>
-                  <span>{item.actor}</span>
+                <div key={`journey-${item.seq}`} className={`core-action-journey-step core-action-journey-step-${kind}`}>
+                  <span className="core-action-journey-index">0{index + 1}</span>
+                  <span className="core-action-chip">{theater.actionKind[kind]}</span>
                   <strong>{item.label}</strong>
-                  <small>{item.detail}</small>
+                  <small>{headlineDetail(item, theater)}</small>
                 </div>
               );
             })}
           </div>
-        ) : (
-          <small>{theater.turnFlowEmpty}</small>
-        )}
-      </article>
+        </article>
+      ) : null}
 
-      {feedItems.length > 0 ? (
+      {historyItems.length > 0 ? (
         <div className="core-action-feed-grid">
-          {feedItems.map((item) => {
+          {historyItems.map((item) => {
             const kind = classifyAction(item, theater);
             return (
               <article key={`core-action-${item.seq}`} className={cardClassName(item, kind)}>

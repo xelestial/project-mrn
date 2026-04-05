@@ -3,12 +3,16 @@ from __future__ import annotations
 import asyncio
 import random
 import sys
-import uuid
 from pathlib import Path
 
 from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.domain.session_models import SeatType, SessionStatus
 from apps.server.src.infra.structured_log import log_event
+from apps.server.src.services.decision_gateway import (
+    DecisionGateway,
+    build_public_context,
+    serialize_ai_choice_id,
+)
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
 
 
@@ -174,8 +178,8 @@ class RuntimeService:
             if seat.seat_type == SeatType.HUMAN
         ]
         policy = ai_policy
-        if self._prompt_service is not None and human_seats:
-            policy = _ServerHumanPolicyBridge(
+        if self._stream_service is not None:
+            policy = _ServerDecisionPolicyBridge(
                 session_id=session_id,
                 human_seats=human_seats,
                 ai_fallback=ai_policy,
@@ -291,8 +295,8 @@ class RuntimeService:
             )
 
 
-class _ServerHumanPolicyBridge:
-    """Server runtime adapter: forwards human-seat prompts into PromptService + stream."""
+class _ServerDecisionPolicyBridge:
+    """Server runtime adapter: normalizes human and AI seats through one decision contract."""
 
     def __init__(
         self,
@@ -306,152 +310,90 @@ class _ServerHumanPolicyBridge:
         touch_activity,
         fallback_executor,
     ) -> None:
-        from viewer.human_policy import HumanHttpPolicy
+        self._ai = ai_fallback
+        self._human_seats = frozenset(int(seat) for seat in human_seats)
+        self._inner = None
+        if human_seats:
+            from viewer.human_policy import HumanHttpPolicy
 
-        self._inner = HumanHttpPolicy(
-            human_seat=human_seats[0],
-            human_seats=human_seats,
-            ai_fallback=ai_fallback,
-        )
+            self._inner = HumanHttpPolicy(
+                human_seat=human_seats[0],
+                human_seats=human_seats,
+                ai_fallback=ai_fallback,
+            )
         self._session_id = session_id
-        self._prompt_service = prompt_service
-        self._stream_service = stream_service
-        self._loop = loop
-        self._touch_activity = touch_activity
-        self._fallback_executor = fallback_executor
-        self._request_seq = 0
-        # HumanHttpPolicy methods call self._ask(...). Override that callsite so
-        # engine decisions are bridged to server PromptService/WS instead of
-        # viewer-local in-process queues.
-        self._inner._ask = self._ask  # type: ignore[method-assign]
+        self._gateway = DecisionGateway(
+            session_id=session_id,
+            prompt_service=prompt_service,
+            stream_service=stream_service,
+            loop=loop,
+            touch_activity=touch_activity,
+            fallback_executor=fallback_executor,
+        )
+        if self._inner is not None:
+            # HumanHttpPolicy methods call self._ask(...). Override that callsite so
+            # engine decisions are bridged to server PromptService/WS instead of
+            # viewer-local in-process queues.
+            self._inner._ask = self._ask  # type: ignore[method-assign]
+
+    def _is_human_seat(self, player_id: int) -> bool:
+        return player_id in self._human_seats
 
     def _ask(self, prompt: dict, parser, fallback_fn):
-        self._inner._prompt_seq += 1
-        envelope = dict(prompt)
-        envelope["prompt_instance_id"] = self._inner._prompt_seq
-        request_id = str(envelope.get("request_id") or self._next_request_id())
-        timeout_ms = max(1, int(envelope.get("timeout_ms", 300000)))
-        envelope["request_id"] = request_id
-        envelope["timeout_ms"] = timeout_ms
+        if self._inner is not None:
+            self._inner._prompt_seq += 1
+            prompt = dict(prompt)
+            prompt["prompt_instance_id"] = self._inner._prompt_seq
+        return self._gateway.resolve_human_prompt(prompt, parser, fallback_fn)
 
-        try:
-            self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
-        except ValueError:
-            request_id = self._next_request_id()
-            envelope["request_id"] = request_id
-            self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
-
-        self._publish("prompt", envelope)
-        public_context = dict(envelope.get("public_context") or {})
-        self._publish(
-            "event",
-            {
-                "event_type": "decision_requested",
-                "request_id": request_id,
-                "player_id": int(envelope.get("player_id", 0)),
-                "request_type": str(envelope.get("request_type", "")),
-                "fallback_policy": str(envelope.get("fallback_policy", "timeout_fallback")),
-                "round_index": public_context.get("round_index"),
-                "turn_index": public_context.get("turn_index"),
-            },
+    def _dispatch_ai_decision(self, method_name: str, args: tuple, kwargs: dict, ai_callable):
+        player = args[1] if len(args) > 1 else kwargs.get("player")
+        player_id = int(getattr(player, "player_id", -1)) + 1
+        request_type = {
+            "choose_movement": "movement",
+            "choose_runaway_slave_step": "runaway_step_choice",
+            "choose_lap_reward": "lap_reward",
+            "choose_draft_card": "draft_card",
+            "choose_final_character": "final_character",
+            "choose_trick_to_use": "trick_to_use",
+            "choose_purchase_tile": "purchase_tile",
+            "choose_hidden_trick_card": "hidden_trick_card",
+            "choose_mark_target": "mark_target",
+            "choose_coin_placement_tile": "coin_placement",
+            "choose_geo_bonus": "geo_bonus",
+            "choose_doctrine_relief_target": "doctrine_relief",
+            "choose_active_flip_card": "active_flip",
+            "choose_specific_trick_reward": "specific_trick_reward",
+            "choose_burden_exchange_on_supply": "burden_exchange",
+            "choose_pabal_dice_mode": "pabal_dice_mode",
+        }.get(method_name, method_name.removeprefix("choose_"))
+        public_context = build_public_context(method_name, args, kwargs)
+        return self._gateway.resolve_ai_decision(
+            request_type=request_type,
+            player_id=player_id,
+            public_context=public_context,
+            resolver=lambda: ai_callable(*args, **kwargs),
+            choice_serializer=lambda result: serialize_ai_choice_id(method_name, result),
         )
-        self._touch_activity(self._session_id)
-        response = self._prompt_service.wait_for_decision(request_id=request_id, timeout_ms=timeout_ms)
-
-        if response is None:
-            expired = self._prompt_service.expire_prompt(request_id=request_id, reason="prompt_timeout")
-            if expired is None:
-                return fallback_fn()
-            player_id = int(envelope.get("player_id", 0))
-            fallback_policy = str(envelope.get("fallback_policy", "timeout_fallback"))
-            fallback_result = asyncio.run_coroutine_threadsafe(
-                self._fallback_executor(
-                    session_id=self._session_id,
-                    request_id=request_id,
-                    player_id=player_id,
-                    fallback_policy=fallback_policy,
-                    prompt_payload=envelope,
-                ),
-                self._loop,
-            ).result()
-            self._publish(
-                "decision_ack",
-                {
-                    "request_id": request_id,
-                    "status": "stale",
-                    "player_id": player_id,
-                    "reason": "prompt_timeout",
-                },
-            )
-            self._publish(
-                "event",
-                {
-                    "event_type": "decision_resolved",
-                    "request_id": request_id,
-                    "player_id": player_id,
-                    "resolution": "timeout_fallback",
-                    "choice_id": fallback_result.get("choice_id"),
-                    "round_index": (envelope.get("public_context") or {}).get("round_index"),
-                    "turn_index": (envelope.get("public_context") or {}).get("turn_index"),
-                },
-            )
-            self._publish(
-                "event",
-                {
-                    "event_type": "decision_timeout_fallback",
-                    "request_id": request_id,
-                    "player_id": player_id,
-                    "fallback_policy": fallback_policy,
-                    "fallback_execution": fallback_result.get("status"),
-                    "fallback_choice_id": fallback_result.get("choice_id"),
-                    "round_index": (envelope.get("public_context") or {}).get("round_index"),
-                    "turn_index": (envelope.get("public_context") or {}).get("turn_index"),
-                },
-            )
-            return fallback_fn()
-        try:
-            parsed = parser(response)
-        except Exception:
-            self._publish(
-                "event",
-                {
-                    "event_type": "decision_resolved",
-                    "request_id": request_id,
-                    "player_id": int(envelope.get("player_id", 0)),
-                    "resolution": "parser_error_fallback",
-                    "choice_id": str(response.get("choice_id", "")),
-                    "round_index": public_context.get("round_index"),
-                    "turn_index": public_context.get("turn_index"),
-                },
-            )
-            return fallback_fn()
-        self._publish(
-            "event",
-            {
-                "event_type": "decision_resolved",
-                "request_id": request_id,
-                "player_id": int(response.get("player_id", envelope.get("player_id", 0))),
-                "resolution": "accepted",
-                "choice_id": str(response.get("choice_id", "")),
-                "round_index": public_context.get("round_index"),
-                "turn_index": public_context.get("turn_index"),
-            },
-        )
-        return parsed
-
-    def _next_request_id(self) -> str:
-        self._request_seq += 1
-        return f"{self._session_id}_req_{self._request_seq}_{uuid.uuid4().hex[:6]}"
-
-    def _publish(self, message_type: str, payload: dict) -> None:
-        fut = asyncio.run_coroutine_threadsafe(
-            self._stream_service.publish(self._session_id, message_type, payload),
-            self._loop,
-        )
-        fut.result()
 
     def __getattr__(self, name: str):
-        return getattr(self._inner, name)
+        target = self._inner if self._inner is not None and hasattr(self._inner, name) else self._ai
+        attr = getattr(target, name)
+        if not name.startswith("choose_") or not callable(attr):
+            return attr
+
+        def _wrapped(*args, **kwargs):
+            player = args[1] if len(args) > 1 else kwargs.get("player")
+            player_id = getattr(player, "player_id", None)
+            if isinstance(player_id, int) and self._is_human_seat(player_id) and self._inner is not None:
+                return attr(*args, **kwargs)
+            ai_attr = getattr(self._ai, name)
+            return self._dispatch_ai_decision(name, args, kwargs, ai_attr)
+
+        return _wrapped
+
+
+_ServerHumanPolicyBridge = _ServerDecisionPolicyBridge
 
 
 class _FanoutVisEventStream:

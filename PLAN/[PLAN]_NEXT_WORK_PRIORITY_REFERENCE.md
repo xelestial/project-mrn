@@ -34,6 +34,10 @@ Must remain true:
 Current focus:
 - preserve ordering while refactoring prompt UI and locale architecture
 - do not let UI-side wording changes reintroduce stale-prompt or wrong-seat regressions
+- continue after the runtime-wrapper unification slice:
+  - AI seats already emit canonical decision lifecycle events at the server boundary
+  - timeout/ack stream paths now share canonical payload builders too
+  - next step is engine-side `DecisionPort` migration and typed provider cleanup
 
 ### P0-2. Human Play Runtime Recovery
 
@@ -168,3 +172,11 @@ Implement in this order unless a blocker forces a swap:
   1. keep trimming selector-owned phrase composition
   2. continue prompt/theater human-play cleanup
   3. only then return to lower-priority decoupling follow-up
+
+### 2026-04-06 Progress Update
+
+- Remote-turn board continuity now preserves and renders intermediate move-path tiles, not only move origin/destination.
+- As a result, the next immediate P0-2 slice should stay focused on:
+  1. theatrical fortune / purchase / rent staging after movement completes
+  2. stronger pawn/path animation on top of the new path-step groundwork
+  3. continued local prompt simplification on the locale-safe foundation

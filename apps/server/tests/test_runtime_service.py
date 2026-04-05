@@ -175,7 +175,58 @@ class RuntimeServiceTests(unittest.TestCase):
 
         policy_obj = captured.get("policy")
         self.assertIsNotNone(policy_obj)
-        self.assertFalse(hasattr(policy_obj, "_inner"))
+        self.assertTrue(hasattr(policy_obj, "_gateway"))
+
+    def test_ai_bridge_emits_requested_then_resolved_for_ai_choice(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+
+        class _FakeAiPolicy:
+            def choose_purchase_tile(self, state, player, pos, cell, cost, *, source="landing"):  # noqa: ANN001
+                del state, player, pos, cell, cost, source
+                return False
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerDecisionPolicyBridge(
+                session_id="sess_ai_bridge_test",
+                human_seats=[],
+                ai_fallback=_FakeAiPolicy(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+            )
+
+            state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+            player = type("Player", (), {"player_id": 1, "cash": 12, "position": 5, "shards": 4})()
+            result = bridge.choose_purchase_tile(state, player, 6, "T2", 4, source="landing")
+            self.assertFalse(result)
+
+            published = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot("sess_ai_bridge_test"),
+                loop,
+            ).result(timeout=2.0)
+            bridge_events = [
+                msg
+                for msg in published
+                if msg.type == "event" and msg.payload.get("player_id") == 2
+            ]
+            requested = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_requested"), None)
+            resolved = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_resolved"), None)
+            self.assertIsNotNone(requested)
+            self.assertIsNotNone(resolved)
+            self.assertLess(requested.seq, resolved.seq)
+            self.assertEqual(requested.payload.get("provider"), "ai")
+            self.assertEqual(resolved.payload.get("provider"), "ai")
+            self.assertEqual(requested.payload.get("request_type"), "purchase_tile")
+            self.assertEqual(resolved.payload.get("choice_id"), "no")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
 
     def test_human_bridge_replaces_inner_ask_with_server_prompt_flow(self) -> None:
         from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
@@ -255,6 +306,8 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertLess(requested.seq, resolved.seq)
             self.assertEqual(resolved.payload.get("resolution"), "accepted")
             self.assertEqual(resolved.payload.get("choice_id"), "roll")
+            self.assertEqual(requested.payload.get("provider"), "human")
+            self.assertEqual(resolved.payload.get("provider"), "human")
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -324,6 +377,9 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertLess(requested.seq, resolved.seq)
             self.assertLess(resolved.seq, timeout_event.seq)
             self.assertEqual(resolved.payload.get("resolution"), "timeout_fallback")
+            self.assertEqual(requested.payload.get("provider"), "human")
+            self.assertEqual(resolved.payload.get("provider"), "human")
+            self.assertEqual(timeout_event.payload.get("provider"), "human")
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)

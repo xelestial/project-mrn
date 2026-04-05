@@ -425,12 +425,13 @@ test("human quick start surfaces turn banner and first prompt through stable ids
 
   await expect(page).toHaveURL(/#\/match/);
   await expect(page.getByTestId("board-weather-summary")).toBeVisible();
-  await expect(page.getByTestId("core-action-flow-panel")).toBeVisible();
+  await expect(page.getByTestId("core-action-panel")).toBeVisible();
   await expect(page.getByTestId("turn-notice-banner")).toBeVisible();
   await expect(page.getByTestId("prompt-overlay")).toBeVisible();
   await expect(page.getByTestId("trick-choice-10-0")).toBeVisible();
   await expect(page.getByTestId("trick-choice-14-4")).toBeVisible();
   await expect(page.getByTestId("prompt-overlay")).toContainText("Scout Route");
+  await expect(page.getByTestId("prompt-overlay")).not.toContainText("Request ID");
 });
 
 test("remote turn keeps spectator continuity visible and does not open a local prompt", async ({ page }) => {
@@ -466,12 +467,25 @@ test("remote turn keeps spectator continuity visible and does not open a local p
         eventMessage({
           seq: 6,
           sessionId,
-          payload: { event_type: "player_move", round_index: 1, turn_index: 1, player_id: 2, from_tile_index: 0, to_tile_index: 6 },
+          payload: {
+            event_type: "player_move",
+            round_index: 1,
+            turn_index: 1,
+            player_id: 2,
+            from_tile_index: 0,
+            to_tile_index: 6,
+            path: [1, 2, 3, 4, 5, 6],
+          },
         }),
         eventMessage({
           seq: 7,
           sessionId,
           payload: { event_type: "landing_resolved", round_index: 1, turn_index: 1, player_id: 2, summary: "PURCHASE", tile_index: 6 },
+        }),
+        eventMessage({
+          seq: 8,
+          sessionId,
+          payload: { event_type: "tile_purchased", round_index: 1, turn_index: 1, player_id: 2, tile_index: 6, cost: 2 },
         }),
       ],
     },
@@ -489,7 +503,10 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await expect(page.getByTestId("spectator-turn-progress")).toBeVisible();
   await expect(page.getByTestId("board-move-start-badge")).toBeVisible();
   await expect(page.getByTestId("board-move-end-badge")).toBeVisible();
+  await expect(page.getByTestId("board-path-step-3")).toBeVisible();
   await expect(page.getByTestId("board-actor-banner")).toBeVisible();
+  await expect(page.getByTestId("core-action-journey")).toBeVisible();
+  await expect(page.getByTestId("turn-stage-scene-strip")).toBeVisible();
   await expect(page.getByTestId("prompt-overlay")).toHaveCount(0);
-  await expect(page.getByTestId("core-action-flow-panel")).toContainText("P2");
+  await expect(page.getByTestId("core-action-journey")).toContainText("P2");
 });

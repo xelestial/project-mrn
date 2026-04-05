@@ -9,6 +9,11 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.infra.structured_log import log_event
+from apps.server.src.services.decision_gateway import (
+    build_decision_ack_payload,
+    build_decision_resolved_payload,
+    build_decision_timeout_fallback_payload,
+)
 from apps.server.src.services.session_service import SessionNotFoundError, SessionStateError
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["stream"])
@@ -124,39 +129,40 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                 await stream_service.publish(
                     session_id,
                     "decision_ack",
-                    {
-                        "request_id": pending.request_id,
-                        "status": "stale",
-                        "player_id": pending.player_id,
-                        "reason": "prompt_timeout",
-                    },
+                    build_decision_ack_payload(
+                        request_id=pending.request_id,
+                        status="stale",
+                        player_id=pending.player_id,
+                        reason="prompt_timeout",
+                        provider="human",
+                    ),
                 )
                 await stream_service.publish(
                     session_id,
                     "event",
-                    {
-                        "event_type": "decision_resolved",
-                        "request_id": pending.request_id,
-                        "player_id": pending.player_id,
-                        "resolution": "timeout_fallback",
-                        "choice_id": fallback_result.get("choice_id"),
-                        "round_index": round_index,
-                        "turn_index": turn_index,
-                    },
+                    build_decision_resolved_payload(
+                        request_id=pending.request_id,
+                        player_id=pending.player_id,
+                        resolution="timeout_fallback",
+                        choice_id=fallback_result.get("choice_id"),
+                        provider="human",
+                        round_index=round_index,
+                        turn_index=turn_index,
+                    ),
                 )
                 await stream_service.publish(
                     session_id,
                     "event",
-                    {
-                        "event_type": "decision_timeout_fallback",
-                        "request_id": pending.request_id,
-                        "player_id": pending.player_id,
-                        "fallback_policy": fallback_policy,
-                        "fallback_execution": fallback_result.get("status"),
-                        "fallback_choice_id": fallback_result.get("choice_id"),
-                        "round_index": round_index,
-                        "turn_index": turn_index,
-                    },
+                    build_decision_timeout_fallback_payload(
+                        request_id=pending.request_id,
+                        player_id=pending.player_id,
+                        fallback_policy=str(fallback_policy),
+                        fallback_execution=fallback_result.get("status"),
+                        fallback_choice_id=fallback_result.get("choice_id"),
+                        provider="human",
+                        round_index=round_index,
+                        turn_index=turn_index,
+                    ),
                 )
                 log_event(
                     "decision_timeout_fallback",
@@ -255,12 +261,13 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                 await stream_service.publish(
                     session_id,
                     "decision_ack",
-                    {
-                        "request_id": message.get("request_id"),
-                        "status": decision_state.get("status", "rejected"),
-                        "player_id": message.get("player_id"),
-                        "reason": decision_state.get("reason"),
-                    },
+                    build_decision_ack_payload(
+                        request_id=str(message.get("request_id", "")),
+                        status=str(decision_state.get("status", "rejected")),
+                        player_id=int(message.get("player_id", 0)),
+                        reason=decision_state.get("reason"),
+                        provider="human",
+                    ),
                 )
                 log_event(
                     "decision_received",

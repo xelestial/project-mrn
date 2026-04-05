@@ -232,6 +232,7 @@ class StreamApiTests(unittest.TestCase):
         self.assertGreaterEqual(len(acks), 1)
         self.assertEqual(acks[-1].get("payload", {}).get("status"), "accepted")
         self.assertIsNone(acks[-1].get("payload", {}).get("reason"))
+        self.assertEqual(acks[-1].get("payload", {}).get("provider"), "human")
 
     def test_seat_decision_retry_returns_stale_after_first_accept(self) -> None:
         from apps.server.src import state
@@ -288,6 +289,8 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(acks[0].get("status"), "accepted")
         self.assertEqual(acks[1].get("status"), "stale")
         self.assertEqual(acks[1].get("reason"), "already_resolved")
+        self.assertEqual(acks[0].get("provider"), "human")
+        self.assertEqual(acks[1].get("provider"), "human")
 
     def test_prompt_timeout_emits_fallback_execution_and_runtime_tracks_history(self) -> None:
         from apps.server.src import state
@@ -327,9 +330,11 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(len(resolved_events), 1)
         self.assertEqual(resolved_events[0].get("resolution"), "timeout_fallback")
         self.assertEqual(resolved_events[0].get("choice_id"), "choice_timeout_default")
+        self.assertEqual(resolved_events[0].get("provider"), "human")
         self.assertEqual(len(timeout_events), 1)
         self.assertEqual(timeout_events[0].get("fallback_execution"), "executed")
         self.assertEqual(timeout_events[0].get("fallback_choice_id"), "choice_timeout_default")
+        self.assertEqual(timeout_events[0].get("provider"), "human")
         self.assertIsNotNone(resolved_seq)
         self.assertIsNotNone(timeout_seq)
         self.assertLess(resolved_seq, timeout_seq)

@@ -445,3 +445,132 @@ This order is chosen to stop further drift before additional feature edits.
   - stronger per-event scene choreography for fortune / rent / purchase
   - more reduction of leftover inspector-like metadata in prompt surfaces
   - fuller remote-turn storytelling so non-local turns feel less like card swaps
+
+## 2026-04-05 Public Turn-Flow Journey Follow-up
+
+- The public action panel now exposes the latest same-turn public beats as a compact journey strip.
+- This is intentionally separate from the feed grid so a human observer can read:
+  - what happened first
+  - what followed
+  - what the current public beat is
+  without reconstructing that order from disconnected cards.
+- Browser regression now locks `core-action-journey` for remote-turn continuity.
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - stronger fortune / purchase / rent result staging
+  - more persistent scene anchoring during long remote turns
+  - additional reduction of raw/debug mental-model cues in the match shell
+
+## 2026-04-05 English Runtime Safety Mode
+
+- Runtime validation is temporarily anchored to English boot mode.
+- Reason:
+  - Korean locale recovery is still in progress
+  - human-play runtime work must continue on a stable language baseline instead of blocking on locale repair
+- Current rule:
+  - `apps/web` should boot in English by default
+  - selector/build/browser parity must remain green in English mode
+  - Korean locale repair should proceed as a separate controlled track under P0-4
+- This does not change the long-term bilingual goal.
+- It is only the current stabilization baseline while P0-2 human-play recovery continues.
+
+## 2026-04-05 Prompt Readability / Scene Continuity Follow-up
+
+- English-mode prompt surfaces were cleaned further so they read less like raw inspector cards:
+  - bracket-heavy wording was removed from visible trick / character / mark copy
+  - request meta now prioritizes actor + time left instead of exposing request ids first
+  - corrupted unit suffixes were removed from movement / mark / purchase / lap-reward context cards
+- The movement prompt now shows dice-card chips as plain card numbers instead of bracket-wrapped debug tokens.
+- Turn-stage scene continuity was extended:
+  - move
+  - landing
+  - purchase
+  - rent
+  - fortune
+  now all appear in the scene strip when available
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - stronger pawn/path animation instead of only scene-card continuity
+  - more theatrical resolution treatment for fortune / purchase / rent beats
+  - additional reduction of residual inspector/debug affordances from prompt and side panels
+
+## 2026-04-06 Theater De-duplication / Spectator Readability Follow-up
+
+- The public-action theater now avoids rendering the same turn flow twice.
+  - `CoreActionPanel` keeps:
+    - latest hero action
+    - same-turn journey strip
+    - older public action feed
+  - the extra duplicate flow panel was removed
+- Browser parity now anchors on `core-action-panel` itself for early-turn states where a journey strip is not guaranteed yet.
+- Spectator readability was raised:
+  - current beat title/detail are now separated
+  - latest public action title/detail are now separated
+  - economy/effect summaries are normalized through shared join logic instead of ad-hoc slash packing
+- English prompt copy was softened again so prompt surfaces read less like transport/debug UI:
+  - lighter request meta
+  - cleaner collapsed chip wording
+  - cleaner movement/trick/mark/purchase copy
+  - simpler busy-state wording
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - stronger pawn/path animation instead of only tile emphasis
+  - more theatrical fortune / purchase / rent result staging
+  - further reduction of residual prompt metadata weight in non-English locale recovery
+
+## 2026-04-06 Prompt HUD Timing Follow-up
+
+- Actionable prompt surfaces now expose countdown pressure with a live timer bar in addition to the metadata pill.
+- This intentionally shifts the prompt footer from:
+  - transport/debug text
+  toward:
+  - game HUD timing
+  - actor awareness
+  - immediate urgency cue
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - stronger pawn/path animation instead of only tile emphasis
+  - more theatrical fortune / purchase / rent result staging
+  - continued cleanup of residual non-English prompt metadata weight during KO recovery
+
+## 2026-04-06 Weather Effect Payload Parity Follow-up
+
+- Weather summaries in the live React selectors now explicitly honor `weather_reveal.effect_text` when provided by the runtime.
+- This closes one visible parity gap where the UI could otherwise fall back to:
+  - generic weather effect labels
+  instead of:
+  - the actual rule text supplied by the runtime
+- Selector coverage was added so this does not silently regress.
+- This improves P0-3, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - stronger pawn/path animation instead of only tile emphasis
+  - more theatrical fortune / purchase / rent result staging
+  - continued cleanup of residual non-English prompt metadata weight during KO recovery
+
+## 2026-04-06 AI Decision-Lane Noise Follow-up
+
+- Server runtime now emits AI-seat decision lifecycle events through the same canonical contract used by human seats.
+- To keep human-play readability intact:
+  - React selector lane routing now treats `provider="ai"` decision lifecycle events as `system` lane, not `prompt` lane.
+- Result:
+  - auditability improved
+  - local human prompt UX remains protected from new AI decision chatter
+- Remaining parity work still includes:
+  - stronger turn scene continuity during remote actions
+  - more theatrical purchase / rent / fortune presentation
+  - eventual typed provider/port migration so runtime wrapper logic does not stay concentrated in one bridge class
+
+## 2026-04-06 Remote-Turn Move Path Follow-up
+
+- Remote-turn continuity now preserves the latest emitted move path, not only move origin/destination.
+- React selectors now retain `player_move.path` as recent move state.
+- The board now renders intermediate path-step badges so observers can read:
+  - where the actor started
+  - which tiles the route passed through
+  - where the actor arrived
+- Browser parity now locks at least one intermediate path step for remote-turn continuity.
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - stronger pawn/path animation instead of static path-step badges only
+  - more theatrical fortune / purchase / rent staging after the route completes
+  - continued prompt-surface cleanup so local choices feel less like an inspector
