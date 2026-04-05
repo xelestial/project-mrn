@@ -347,3 +347,85 @@ This order is chosen to stop further drift before additional feature edits.
   - stronger motion/choreography so the scene feels live rather than statically updated
   - fuller other-player turn storytelling around movement -> landing -> result
   - prompt surfaces that feel more like game actions than inspector panels
+
+## 2026-04-05 Prompt/Spectator Surface Follow-up
+
+- The local prompt overlay is now split into:
+  - instruction/header
+  - choice body
+  - low-priority request metadata footer
+- This change is intentionally aimed at removing the lingering "inspector panel" feel from human decisions.
+- Remote-turn viewing also now exposes:
+  - current weather
+  - current weather effect
+  - current character
+  - current beat
+  - latest public action
+- Browser regression now locks the spectator character card as part of the remote-turn continuity contract.
+- This still does not finish P0-2.
+- Remaining visible parity work still includes:
+  - stronger animated scene transitions for movement -> landing -> result
+  - better anchoring of fortune/weather as long-lived scene elements during the whole turn
+  - further shrinking of low-value metadata and raw-debug affordances in the human-play shell
+
+## 2026-04-05 Top-Shell / Passive Guidance Follow-up
+
+- The match top shell is now treated more like a compact HUD than a diagnostic strip:
+  - connection data is rendered as small status cards
+  - sticky top chrome is visually quieter
+- Passive waiting state for other players' choices now uses a dedicated observer card instead of plain paragraph text.
+- This improves readability for human players because the page no longer competes as strongly with:
+  - the board
+  - the turn stage
+  - the theater flow
+- This still does not finish P0-2.
+- Remaining visible parity work still includes:
+  - reducing or compartmentalizing the raw/debug surface even further
+  - making the board scene itself feel more alive during other-player turns
+  - stronger choreography around movement -> landing -> purchase/rent/fortune resolution
+
+## 2026-04-05 Observer Continuity Follow-up
+
+- The spectator surface now also exposes:
+  - current weather effect
+  - current prompt / decision state
+- This means a remote turn is less likely to feel "frozen" in the gaps between public actions.
+- Browser parity now locks:
+  - spectator weather card
+  - spectator character card
+  - spectator prompt card
+- This still does not finish P0-2.
+- Remaining visible parity work still includes:
+  - stronger board-space animation and arrival emphasis
+  - making fortune / purchase / rent resolution feel like scene beats rather than static card swaps
+  - removing more of the remaining raw/debug-first mental model from the match shell
+
+## 2026-04-05 Board Focus Follow-up
+
+- The board focus tile now exposes both:
+  - the current beat label
+  - the current beat detail
+- Focused tiles also now pulse by beat kind so the board itself carries more of the live-scene explanation burden.
+- This improves the "log replay" problem because the viewer no longer has to read only side panels to understand why a tile is currently important.
+- This still does not finish P0-2.
+- Remaining visible parity work still includes:
+  - stronger pawn/path animation rather than only highlighted arrival/focus states
+  - better scene presentation for fortune / rent / purchase resolution
+  - further reducing raw/debug prominence from the main match shell
+
+## 2026-04-05 Board Actor / Move Marker Follow-up
+
+- The board now explicitly marks movement continuity in-scene with:
+  - `출발 / 도착` tile badges
+  - an active-turn actor banner on the currently relevant tile
+  - stronger pulse emphasis for the active pawn
+- These markers are locale-backed instead of hardcoded in the component, so the same scene can later switch language without re-editing the board surface.
+- Browser regression now locks:
+  - `board-move-start-badge`
+  - `board-move-end-badge`
+  - `board-actor-banner`
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - path-like movement animation rather than only origin/destination emphasis
+  - more theatrical fortune / rent / purchase result presentation
+  - continued reduction of residual debug/inspector affordances from the match shell

@@ -23,8 +23,10 @@ export const koLocale = {
     spectatorHeadline: "관전자 패널",
     spectatorFields: {
       weather: "현재 날씨",
+      character: "현재 인물",
       beat: "현재 단계",
       action: "공개 행동",
+      prompt: "현재 선택",
       move: "최근 이동",
       landing: "도착 처리",
       economy: "경제 처리",
@@ -147,6 +149,9 @@ export const koLocale = {
     },
     ownerNone: "소유자 -",
     owner: (playerId: number) => `소유자 P${playerId}`,
+    moveStartTag: "출발",
+    moveEndTag: "도착",
+    activeTurnTag: (playerId: number) => `현재 턴 P${playerId}`,
     zoneColorCss: {
       "": "#475569",
       black: "#475569",

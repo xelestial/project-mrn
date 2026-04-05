@@ -35,6 +35,11 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
         <article className="spectator-turn-card" data-testid="spectator-turn-weather">
           <span>{app.spectatorFields.weather}</span>
           <strong>{valueOrDash(model.weatherName)}</strong>
+          <small>{valueOrDash(model.weatherEffect)}</small>
+        </article>
+        <article className="spectator-turn-card" data-testid="spectator-turn-character">
+          <span>{app.spectatorFields.character}</span>
+          <strong>{valueOrDash(model.character)}</strong>
         </article>
         <article className="spectator-turn-card" data-testid="spectator-turn-beat">
           <span>{app.spectatorFields.beat}</span>
@@ -43,6 +48,10 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
         <article className="spectator-turn-card" data-testid="spectator-turn-action">
           <span>{app.spectatorFields.action}</span>
           <strong>{valueOrDash(latestActionText)}</strong>
+        </article>
+        <article className="spectator-turn-card" data-testid="spectator-turn-prompt">
+          <span>{app.spectatorFields.prompt}</span>
+          <strong>{valueOrDash(model.promptSummary)}</strong>
         </article>
         <article className="spectator-turn-card" data-testid="spectator-turn-move">
           <span>{app.spectatorFields.move}</span>

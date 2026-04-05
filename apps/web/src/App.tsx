@@ -836,15 +836,22 @@ export function App() {
               <IncidentCardStack items={theaterFeed} focusPlayerId={effectivePlayerId} />
 
               {passivePrompt ? (
-                <section className="panel passive-prompt-card">
-                  <h2>{app.passivePromptTitle}</h2>
-                  <p>
-                    {app.passivePromptSummary(
-                      passivePrompt.playerId,
-                      promptLabelForType(passivePrompt.requestType),
-                      promptSecondsLeft
-                    )}
-                  </p>
+                <section className="panel passive-prompt-card" data-testid="passive-prompt-card">
+                  <div className="passive-prompt-head">
+                    <div>
+                      <h2>{app.passivePromptTitle}</h2>
+                      <p>
+                        {app.passivePromptSummary(
+                          passivePrompt.playerId,
+                          promptLabelForType(passivePrompt.requestType),
+                          promptSecondsLeft
+                        )}
+                      </p>
+                    </div>
+                    <div className="passive-prompt-badge">
+                      <span className="spinner" aria-hidden="true" />
+                    </div>
+                  </div>
                 </section>
               ) : null}
 

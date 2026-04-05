@@ -446,17 +446,19 @@ export function PromptOverlay({
         tabIndex={-1}
       >
         <div className="prompt-head">
-          <h2>{promptText.headTitle(promptLabel)}</h2>
+          <div className="prompt-head-copy">
+            <h2>{promptText.headTitle(promptLabel)}</h2>
+            <p className="prompt-helper">{promptHelp}</p>
+          </div>
           <button type="button" onClick={onToggleCollapse}>
             {promptText.collapse}
           </button>
         </div>
 
-        <p className="prompt-helper">{promptHelp}</p>
-        <p>{promptText.requestMeta(prompt.requestId, prompt.playerId, prompt.timeoutMs, secondsLeft)}</p>
+        <div className="prompt-body">
 
         {prompt.requestType === "movement" && movement ? (
-          <section className="prompt-movement-stage">
+          <section className="prompt-section prompt-movement-stage">
             <div className="prompt-context-grid">
               <div className="prompt-context-card">
                 <strong>{promptText.context.currentPosition}</strong>
@@ -538,33 +540,39 @@ export function PromptOverlay({
               </div>
             ) : null}
 
-            <button
-              type="button"
-              className="prompt-primary-action"
-              data-testid="movement-submit"
-              disabled={busy || (movementMode === "cards" && !movementSelectedChoice)}
-              onClick={onSubmitMovement}
-            >
-              {movementMode === "roll"
-                ? promptText.movement.rollButton
-                : movementSelectedChoice
-                  ? promptText.movement.rollWithCardsButton(selectedCards)
-                  : promptText.movement.selectCardsFirst}
-            </button>
+            <div className="prompt-primary-row">
+              <button
+                type="button"
+                className="prompt-primary-action"
+                data-testid="movement-submit"
+                disabled={busy || (movementMode === "cards" && !movementSelectedChoice)}
+                onClick={onSubmitMovement}
+              >
+                {movementMode === "roll"
+                  ? promptText.movement.rollButton
+                  : movementSelectedChoice
+                    ? promptText.movement.rollWithCardsButton(selectedCards)
+                    : promptText.movement.selectCardsFirst}
+              </button>
+            </div>
           </section>
         ) : null}
 
         {(prompt.requestType === "trick_to_use" || prompt.requestType === "hidden_trick_card") && trickChoices ? (
-          <section className="prompt-hand-stage">
-            <p>{cleanDisplayText(prompt.requestType === "trick_to_use" ? promptText.trick.usePrompt : promptText.trick.hiddenPrompt)}</p>
-            <p>
-              {promptText.trick.handSummary(
-                trickChoices.cards.length,
-                typeof prompt.publicContext["hidden_trick_count"] === "number"
-                  ? (prompt.publicContext["hidden_trick_count"] as number)
-                  : undefined
-              )}
-            </p>
+          <section className="prompt-section prompt-hand-stage">
+            <div className="prompt-section-summary">
+              <p>{cleanDisplayText(prompt.requestType === "trick_to_use" ? promptText.trick.usePrompt : promptText.trick.hiddenPrompt)}</p>
+              <div className="prompt-summary-pill-row">
+                <span className="prompt-summary-pill">
+                  {promptText.trick.handSummary(
+                    trickChoices.cards.length,
+                    typeof prompt.publicContext["hidden_trick_count"] === "number"
+                      ? (prompt.publicContext["hidden_trick_count"] as number)
+                      : undefined
+                  )}
+                </span>
+              </div>
+            </div>
             <div className="prompt-choices hand-grid">
               {prompt.requestType === "trick_to_use" && trickChoices.passChoiceId ? (
                 <button
@@ -609,8 +617,10 @@ export function PromptOverlay({
         ) : null}
 
         {isCharacterPick ? (
-          <section className="prompt-hand-stage">
-            <p>{cleanDisplayText(prompt.requestType === "draft_card" ? promptText.character.draftPrompt : promptText.character.finalPrompt)}</p>
+          <section className="prompt-section prompt-hand-stage">
+            <div className="prompt-section-summary">
+              <p>{cleanDisplayText(prompt.requestType === "draft_card" ? promptText.character.draftPrompt : promptText.character.finalPrompt)}</p>
+            </div>
             <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
               {prompt.choices.map((choice) => (
                 <button
@@ -630,7 +640,7 @@ export function PromptOverlay({
         ) : null}
 
         {isMarkTarget ? (
-          <section className="prompt-hand-stage">
+          <section className="prompt-section prompt-hand-stage">
             <div className="prompt-context-grid prompt-context-grid-tight">
               <div className="prompt-context-card">
                 <strong>{promptText.context.actorCharacter}</strong>
@@ -667,7 +677,7 @@ export function PromptOverlay({
         ) : null}
 
         {isPurchaseTile ? (
-          <section className="prompt-hand-stage">
+          <section className="prompt-section prompt-hand-stage">
             <div className="prompt-context-grid prompt-context-grid-tight">
               <div className="prompt-context-card">
                 <strong>{promptText.context.currentPosition}</strong>
@@ -710,7 +720,7 @@ export function PromptOverlay({
         ) : null}
 
         {isLapReward ? (
-          <section className="prompt-hand-stage">
+          <section className="prompt-section prompt-hand-stage">
             <div className="prompt-context-grid prompt-context-grid-tight">
               <div className="prompt-context-card">
                 <strong>{promptText.context.currentCash}</strong>
@@ -755,7 +765,8 @@ export function PromptOverlay({
         !isPurchaseTile &&
         !isCharacterPick &&
         !isMarkTarget ? (
-          <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
+          <section className="prompt-section">
+            <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
             {prompt.choices.map((choice) => {
               const normalized = normalizeChoiceText(prompt, choice, promptText);
               return (
@@ -772,16 +783,22 @@ export function PromptOverlay({
                 </button>
               );
             })}
-            {prompt.choices.length === 0 ? <p>{promptText.choice.noChoices}</p> : null}
-          </div>
+              {prompt.choices.length === 0 ? <p>{promptText.choice.noChoices}</p> : null}
+            </div>
+          </section>
         ) : null}
 
-        {feedbackMessage ? <p className="notice err">{feedbackMessage}</p> : null}
-        {busy ? (
-          <p className="notice ok">
-            <span className="spinner" aria-hidden="true" /> {promptText.busy}
-          </p>
-        ) : null}
+        </div>
+
+        <div className="prompt-footer">
+          <p className="prompt-meta">{promptText.requestMeta(prompt.requestId, prompt.playerId, prompt.timeoutMs, secondsLeft)}</p>
+          {feedbackMessage ? <p className="notice err">{feedbackMessage}</p> : null}
+          {busy ? (
+            <p className="notice ok">
+              <span className="spinner" aria-hidden="true" /> {promptText.busy}
+            </p>
+          ) : null}
+        </div>
       </section>
     </div>
   );

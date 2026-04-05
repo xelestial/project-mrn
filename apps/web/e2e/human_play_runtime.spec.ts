@@ -482,9 +482,14 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await expect(page.getByTestId("turn-notice-banner")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-panel")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-weather")).toBeVisible();
+  await expect(page.getByTestId("spectator-turn-character")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-action")).toBeVisible();
+  await expect(page.getByTestId("spectator-turn-prompt")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-move")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-progress")).toBeVisible();
+  await expect(page.getByTestId("board-move-start-badge")).toBeVisible();
+  await expect(page.getByTestId("board-move-end-badge")).toBeVisible();
+  await expect(page.getByTestId("board-actor-banner")).toBeVisible();
   await expect(page.getByTestId("prompt-overlay")).toHaveCount(0);
   await expect(page.getByTestId("core-action-flow-panel")).toContainText("P2");
 });

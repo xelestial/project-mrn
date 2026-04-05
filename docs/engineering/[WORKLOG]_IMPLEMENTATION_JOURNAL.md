@@ -1094,3 +1094,117 @@ Updated: 2026-04-04
   - `npm run build` passed (`apps/web`)
   - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts` passed (`22 passed`)
   - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 059
+
+- Scope: P0-2 prompt surface cleanup and spectator continuity uplift.
+- Done:
+  - Reworked `apps/web/src/features/prompt/PromptOverlay.tsx` so the local decision surface now separates:
+    - header/instruction
+    - choice body
+    - low-priority request metadata/footer
+  - Added section wrappers and stronger choice-surface styling in `apps/web/src/styles.css` to reduce the remaining inspector/debug feel.
+  - Upgraded `apps/web/src/features/stage/SpectatorTurnPanel.tsx` so remote-turn viewing now shows:
+    - current weather
+    - weather effect
+    - current character
+    - current beat
+    - latest public action
+  - Extended browser coverage in `apps/web/e2e/human_play_runtime.spec.ts` to assert the spectator character card is present.
+- Why:
+  - human play still suffered from a "form inspector" feeling during prompts
+  - remote turns needed faster comprehension of "who is acting as what under which weather"
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts` passed (`22 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 060
+
+- Scope: P0-2 top-shell cleanup and passive/observer guidance polish.
+- Done:
+  - Reworked `apps/web/src/features/status/ConnectionPanel.tsx` into a compact status-card grid so the connection shell reads like a game HUD instead of a debug paragraph block.
+  - Updated `apps/web/src/App.tsx` passive-prompt surface so other-player decision waiting is shown as a compact observer card with a spinner badge instead of plain text.
+  - Extended `apps/web/src/styles.css` to support:
+    - connection HUD cards
+    - cleaner sticky top shell background
+    - stronger passive prompt presentation
+  - Kept the human-play browser/runtime regression green after the shell changes.
+- Why:
+  - the top area still pulled visual attention away from the actual board/gameplay scene
+  - passive waiting feedback needed to feel like "someone else is deciding" rather than "a debug paragraph happened"
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts` passed (`22 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 061
+
+- Scope: P0-2 observer continuity follow-up.
+- Done:
+  - Extended `apps/web/src/features/stage/SpectatorTurnPanel.tsx` so remote-turn viewing now also surfaces:
+    - current weather effect
+    - current prompt/choice state
+  - Added a stable `spectator-turn-prompt` browser hook.
+  - Updated locale resources in:
+    - `apps/web/src/i18n/locales/ko.ts`
+    - `apps/web/src/i18n/locales/en.ts`
+  - Kept browser coverage aligned in `apps/web/e2e/human_play_runtime.spec.ts`.
+- Why:
+  - remote-turn readability still dropped whenever there was a lull between public actions
+  - human observers need to know whether the remote player is moving, resolving, or currently deciding
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts` passed (`22 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 062
+
+- Scope: P0-2 board scene readability follow-up.
+- Done:
+  - Upgraded the focused tile surface in `apps/web/src/features/board/BoardPanel.tsx` so the live tag now shows:
+    - beat label
+    - beat detail
+  - Added pulsing emphasis by beat kind in `apps/web/src/styles.css` for:
+    - move
+    - economy
+    - effect
+    - decision
+- Why:
+  - board focus previously showed that a tile mattered, but not clearly why it mattered
+  - human observers need the board itself to explain the scene, not only the side/theater panels
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts` passed (`27 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 063
+
+- Scope: P0-2 board actor/move scene follow-up.
+- Done:
+  - Extended `apps/web/src/features/board/BoardPanel.tsx` so the focused board scene now exposes:
+    - explicit move-start badge
+    - explicit move-end badge
+    - current active-turn actor banner on the relevant tile
+  - Added locale-backed board strings in:
+    - `apps/web/src/i18n/locales/ko.ts`
+    - `apps/web/src/i18n/locales/en.ts`
+    for:
+    - move start
+    - move end
+    - active actor tag
+  - Expanded `apps/web/src/styles.css` so:
+    - move badges are visually anchored to the tile corner
+    - the active pawn pulses more strongly
+    - the active-turn tile now carries a small live actor banner
+  - Tightened browser regression in `apps/web/e2e/human_play_runtime.spec.ts` to verify:
+    - `board-move-start-badge`
+    - `board-move-end-badge`
+    - `board-actor-banner`
+- Why:
+  - human observers still had to infer too much from side panels instead of reading the board directly
+  - movement continuity is more legible when the board explicitly marks origin, destination, and active actor
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts` passed (`27 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)

@@ -17,7 +17,7 @@ type BoardPanelProps = {
   boardTopology?: string;
   tileKindLabels?: Record<string, string>;
   lastMove: LastMoveViewModel | null;
-  stageFocus: Pick<TurnStageViewModel, "focusTileIndex" | "currentBeatKind" | "currentBeatLabel" | "currentBeatDetail">;
+  stageFocus: Pick<TurnStageViewModel, "focusTileIndex" | "currentBeatKind" | "currentBeatLabel" | "currentBeatDetail" | "actorPlayerId">;
   weather: Pick<TurnStageViewModel, "weatherName" | "weatherEffect">;
 };
 
@@ -142,6 +142,10 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
             const kindLabel = tileKindLabel(tile.tileKind, board, tileKindLabels);
             const isFortune = tile.tileKind === "S";
             const isFinish = tile.tileKind === "F1" || tile.tileKind === "F2";
+            const actorOnTile =
+              stageFocus.actorPlayerId !== null &&
+              tilePawns.includes(stageFocus.actorPlayerId) &&
+              (isStageFocus || isMoveTo || movedPlayerId === stageFocus.actorPlayerId);
             return (
               <article
                 key={tile.tileIndex}
@@ -155,8 +159,26 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
                 }}
               >
                 {isStageFocus ? <div className={`tile-stage-focus tile-stage-focus-${stageFocus.currentBeatKind}`} /> : null}
+                {isMoveFrom ? (
+                  <div className="tile-corner-badge tile-corner-badge-from" data-testid="board-move-start-badge">
+                    {board.moveStartTag}
+                  </div>
+                ) : null}
+                {isMoveTo ? (
+                  <div className="tile-corner-badge tile-corner-badge-to" data-testid="board-move-end-badge">
+                    {board.moveEndTag}
+                  </div>
+                ) : null}
+                {actorOnTile ? (
+                  <div className="tile-actor-banner" data-testid="board-actor-banner">
+                    {board.activeTurnTag(stageFocus.actorPlayerId ?? 0)}
+                  </div>
+                ) : null}
                 {isStageFocus && stageFocus.currentBeatLabel !== "-" ? (
-                  <div className={`tile-live-tag tile-live-tag-${stageFocus.currentBeatKind}`}>{stageFocus.currentBeatLabel}</div>
+                  <div className={`tile-live-tag tile-live-tag-${stageFocus.currentBeatKind}`}>
+                    <strong>{stageFocus.currentBeatLabel}</strong>
+                    {stageFocus.currentBeatDetail !== "-" ? <small>{stageFocus.currentBeatDetail}</small> : null}
+                  </div>
                 ) : null}
                 <div className="tile-zone-strip" style={{ backgroundColor: zoneColorToCss(tile.zoneColor ?? "", board) }} />
                 <div className="tile-head">
@@ -178,7 +200,9 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
                       tilePawns.map((id) => (
                         <span
                           key={`${tile.tileIndex}-p${id}`}
-                          className={`pawn-token ${isMoveTo ? "pawn-arrived" : ""}`}
+                          className={`pawn-token ${isMoveTo ? "pawn-arrived" : ""} ${
+                            isStageFocus && stageFocus.actorPlayerId === id ? "pawn-active-turn" : ""
+                          }`}
                           style={{ backgroundColor: playerColor(id) }}
                           title={`P${id}`}
                         >

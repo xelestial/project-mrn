@@ -42,13 +42,32 @@ function watchdogLabel(
 export function ConnectionPanel({ status, lastSeq, runtime }: ConnectionPanelProps) {
   const { connection } = useI18n();
   return (
-    <section className="panel">
-      <h2>{connection.title}</h2>
-      <p>{connection.fields.connection}: {status}</p>
-      <p>{connection.fields.lastSequence}: {lastSeq}</p>
-      <p>{connection.fields.runtime}: {runtimeStatusLabel(runtime.status, connection.runtimeStatus)}</p>
-      <p>{connection.fields.watchdog}: {watchdogLabel(runtime.watchdog_state, connection.watchdogStatus)}</p>
-      <p>{connection.fields.lastActivityMs}: {runtime.last_activity_ms ?? "-"}</p>
+    <section className="panel connection-panel">
+      <div className="panel-head">
+        <h2>{connection.title}</h2>
+      </div>
+      <div className="connection-grid">
+        <article className="connection-card">
+          <span>{connection.fields.connection}</span>
+          <strong>{status}</strong>
+        </article>
+        <article className="connection-card">
+          <span>{connection.fields.runtime}</span>
+          <strong>{runtimeStatusLabel(runtime.status, connection.runtimeStatus)}</strong>
+        </article>
+        <article className="connection-card">
+          <span>{connection.fields.lastSequence}</span>
+          <strong>{lastSeq}</strong>
+        </article>
+        <article className="connection-card">
+          <span>{connection.fields.watchdog}</span>
+          <strong>{watchdogLabel(runtime.watchdog_state, connection.watchdogStatus)}</strong>
+        </article>
+        <article className="connection-card connection-card-wide">
+          <span>{connection.fields.lastActivityMs}</span>
+          <strong>{runtime.last_activity_ms ?? "-"}</strong>
+        </article>
+      </div>
     </section>
   );
 }

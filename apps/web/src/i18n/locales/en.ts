@@ -23,8 +23,10 @@ export const enLocale = {
     spectatorHeadline: "Spectator Panel",
     spectatorFields: {
       weather: "Weather",
+      character: "Current character",
       beat: "Beat",
       action: "Public action",
+      prompt: "Current choice",
       move: "Latest move",
       landing: "Landing",
       economy: "Economy",
@@ -146,6 +148,9 @@ export const enLocale = {
     },
     ownerNone: "Owner -",
     owner: (playerId: number) => `Owner P${playerId}`,
+    moveStartTag: "Start",
+    moveEndTag: "Arrive",
+    activeTurnTag: (playerId: number) => `Active P${playerId}`,
     zoneColorCss: {
       "": "#475569",
       black: "#475569",
