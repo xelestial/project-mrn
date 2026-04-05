@@ -429,3 +429,19 @@ This order is chosen to stop further drift before additional feature edits.
   - path-like movement animation rather than only origin/destination emphasis
   - more theatrical fortune / rent / purchase result presentation
   - continued reduction of residual debug/inspector affordances from the match shell
+
+## 2026-04-05 Movement / Mark Prompt Follow-up
+
+- The movement prompt is now intentionally flatter and more game-like:
+  - compact current context
+  - mode tabs
+  - selected-state pills
+  - one clear execute button
+- The mark-target prompt now exposes target identity directly as choice pills:
+  - target character
+  - target player id
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - stronger per-event scene choreography for fortune / rent / purchase
+  - more reduction of leftover inspector-like metadata in prompt surfaces
+  - fuller remote-turn storytelling so non-local turns feel less like card swaps

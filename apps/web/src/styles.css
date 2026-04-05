@@ -1731,6 +1731,25 @@ body {
   gap: 8px;
 }
 
+.movement-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.movement-status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(72, 111, 168, 0.9);
+  background: rgba(17, 34, 64, 0.82);
+  color: #dce9ff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .dice-chip-row {
   display: grid;
   gap: 6px;

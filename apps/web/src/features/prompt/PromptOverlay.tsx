@@ -242,6 +242,13 @@ function markChoiceDescription(choice: PromptChoiceViewModel, promptText: Prompt
   return cleanDisplayText(promptText.mark.fallbackDescription);
 }
 
+function markChoiceTarget(choice: PromptChoiceViewModel): { character: string; playerId: number | null } {
+  return {
+    character: asString(choice.value?.["target_character"]),
+    playerId: asNumber(choice.value?.["target_player_id"]),
+  };
+}
+
 function normalizeChoiceText(
   prompt: PromptViewModel,
   choice: PromptChoiceViewModel,
@@ -459,10 +466,22 @@ export function PromptOverlay({
 
         {prompt.requestType === "movement" && movement ? (
           <section className="prompt-section prompt-movement-stage">
-            <div className="prompt-context-grid">
+            <div className="prompt-section-summary">
+              <p>
+                {movementMode === "roll"
+                  ? cleanDisplayText(promptText.movement.rollButton)
+                  : cleanDisplayText(promptText.movement.cardGuide(movement.canUseTwoCards ? 2 : 1))}
+              </p>
+            </div>
+
+            <div className="prompt-context-grid prompt-context-grid-tight">
               <div className="prompt-context-card">
                 <strong>{promptText.context.currentPosition}</strong>
                 <span>{tileLabel(movementPosition)}</span>
+              </div>
+              <div className="prompt-context-card">
+                <strong>{promptText.context.currentWeather}</strong>
+                <span>{weatherName || "-"}</span>
               </div>
               <div className="prompt-context-card">
                 <strong>{promptText.context.usableCards}</strong>
@@ -471,10 +490,6 @@ export function PromptOverlay({
               <div className="prompt-context-card">
                 <strong>{promptText.context.selectedCards}</strong>
                 <span>{selectedCards.length > 0 ? selectedCards.join(" + ") : promptText.context.noneSelected}</span>
-              </div>
-              <div className="prompt-context-card">
-                <strong>{promptText.context.currentWeather}</strong>
-                <span>{weatherName || "-"}</span>
               </div>
             </div>
 
@@ -499,30 +514,21 @@ export function PromptOverlay({
               </button>
             </div>
 
-            <div className="prompt-context-grid prompt-context-grid-tight">
-              <div className="prompt-context-card">
-                <strong>{promptText.context.selectedCards}</strong>
-                <span>{selectedCards.length > 0 ? selectedCards.join(" + ") : promptText.context.noneSelected}</span>
-              </div>
-              <div className="prompt-context-card">
-                <strong>{promptText.context.usableCards}</strong>
-                <span>{movement.cardPool.length}</span>
-              </div>
-              <div className="prompt-context-card">
-                <strong>{cleanDisplayText(movementMode === "roll" ? promptText.movement.rollMode : promptText.movement.cardMode)}</strong>
-                <span>
-                  {movementMode === "roll"
-                    ? cleanDisplayText(promptText.movement.rollButton)
-                    : movementSelectedChoice
-                      ? cleanDisplayText(promptText.movement.rollWithCardsButton(selectedCards))
-                      : cleanDisplayText(promptText.movement.selectCardsFirst)}
-                </span>
-              </div>
+            <div className="movement-status-row">
+              <span className="movement-status-pill">
+                {cleanDisplayText(movementMode === "roll" ? promptText.movement.rollMode : promptText.movement.cardMode)}
+              </span>
+              <span className="movement-status-pill">
+                {movementMode === "roll"
+                  ? cleanDisplayText(promptText.movement.rollButton)
+                  : movementSelectedChoice
+                    ? cleanDisplayText(promptText.movement.rollWithCardsButton(selectedCards))
+                    : cleanDisplayText(promptText.movement.selectCardsFirst)}
+              </span>
             </div>
 
             {movementMode === "cards" ? (
               <div className="dice-chip-row">
-                <small>{promptText.movement.cardGuide(movement.canUseTwoCards ? 2 : 1)}</small>
                 <div className="dice-chip-list">
                   {movement.cardPool.map((card) => (
                     <button
@@ -656,22 +662,37 @@ export function PromptOverlay({
               </div>
             </div>
             <div className={`prompt-choices prompt-choices-target ${compactChoices ? "prompt-choices-compact" : ""}`}>
-              {prompt.choices.map((choice) => (
-                <button
-                  type="button"
-                  key={choice.choiceId}
-                  className="prompt-choice-card"
-                  data-testid={`mark-choice-${choice.choiceId}`}
-                  onClick={() => onSelectChoice(choice.choiceId)}
-                  disabled={busy}
-                >
-                  <div className="prompt-choice-topline">
-                    <strong>{markChoiceTitle(choice, promptText)}</strong>
-                    {choice.choiceId === "none" ? <span className="prompt-choice-badge">{cleanDisplayText(promptText.choice.skip)}</span> : null}
-                  </div>
-                  <small>{markChoiceDescription(choice, promptText)}</small>
-                </button>
-              ))}
+              {prompt.choices.map((choice) => {
+                const target = markChoiceTarget(choice);
+                return (
+                  <button
+                    type="button"
+                    key={choice.choiceId}
+                    className="prompt-choice-card"
+                    data-testid={`mark-choice-${choice.choiceId}`}
+                    onClick={() => onSelectChoice(choice.choiceId)}
+                    disabled={busy}
+                  >
+                    <div className="prompt-choice-topline">
+                      <strong>{markChoiceTitle(choice, promptText)}</strong>
+                      {choice.choiceId === "none" ? (
+                        <span className="prompt-choice-badge">{cleanDisplayText(promptText.choice.skip)}</span>
+                      ) : null}
+                    </div>
+                    {choice.choiceId === "none" ? (
+                      <div className="prompt-summary-pill-row">
+                        <span className="prompt-summary-pill">{cleanDisplayText(promptText.choice.skip)}</span>
+                      </div>
+                    ) : (
+                      <div className="prompt-summary-pill-row">
+                        {target.character ? <span className="prompt-summary-pill">{target.character}</span> : null}
+                        {target.playerId !== null ? <span className="prompt-summary-pill">P{target.playerId}</span> : null}
+                      </div>
+                    )}
+                    <small>{markChoiceDescription(choice, promptText)}</small>
+                  </button>
+                );
+              })}
             </div>
           </section>
         ) : null}

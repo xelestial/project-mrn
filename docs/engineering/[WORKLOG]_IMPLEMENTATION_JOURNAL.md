@@ -1208,3 +1208,27 @@ Updated: 2026-04-04
   - `npm run build` passed (`apps/web`)
   - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts` passed (`27 passed`)
   - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 064
+
+- Scope: P0-2 movement/mark prompt simplification follow-up.
+- Done:
+  - Simplified the movement decision surface in `apps/web/src/features/prompt/PromptOverlay.tsx` so it now reads as:
+    - short instruction
+    - compact current context
+    - mode switch
+    - selected-state pills
+    - execute button
+    instead of repeating multiple context card blocks.
+  - Added movement status-pill styling in `apps/web/src/styles.css` so card-mode selection no longer feels like a raw inspector dump.
+  - Upgraded mark-target choice cards in `apps/web/src/features/prompt/PromptOverlay.tsx` to expose:
+    - target character
+    - target player id
+    as direct choice pills instead of relying only on descriptive text.
+- Why:
+  - human decision prompts still spent too much vertical space on duplicated metadata
+  - mark-target selection needed more glanceable "who exactly is this target" information
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts` passed (`27 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
