@@ -53,12 +53,13 @@ function hasWorkerStatus(model: TurnStageViewModel): boolean {
     hasMeaningfulValue(model.externalAiWorkerId) ||
     hasMeaningfulValue(model.externalAiFailureCode) ||
     hasMeaningfulValue(model.externalAiFallbackMode) ||
-    hasMeaningfulValue(model.externalAiResolutionStatus)
+    hasMeaningfulValue(model.externalAiResolutionStatus) ||
+    model.externalAiAttemptCount !== null
   );
 }
 
 export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnStagePanelProps) {
-  const { turnStage, eventLabel } = useI18n();
+  const { turnStage, eventLabel, stream } = useI18n();
   const landingEventLabel = eventLabel.events.landing_resolved ?? turnStage.fields.landing;
   const purchaseEventLabel = eventLabel.events.tile_purchased ?? turnStage.fields.purchase;
   const rentEventLabel = eventLabel.events.rent_paid ?? turnStage.fields.rent;
@@ -73,6 +74,15 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
   const actorHeadline =
     model.actor !== "-" ? turnStage.actorHeadline(model.actor) : turnStage.actorWaiting;
   const roundTurn = `R${model.round ?? "-"} / T${model.turn ?? "-"}`;
+  const workerStatusDetail = valueOrDash(
+    stream.workerStatusDetail(
+      "",
+      model.externalAiWorkerId,
+      model.externalAiFailureCode,
+      model.externalAiFallbackMode,
+      model.externalAiAttemptCount
+    )
+  );
   const sceneCardCandidates: Array<SceneCard | null> = [
     hasMeaningfulValue(model.weatherName) || hasMeaningfulValue(model.weatherEffect)
       ? {
@@ -275,17 +285,7 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
               <span>{turnStage.workerBadge}</span>
             </div>
             <p>{valueOrDash(turnStage.workerStatusLabel(model.externalAiResolutionStatus))}</p>
-            <small>
-              {valueOrDash(
-                [
-                  hasMeaningfulValue(model.externalAiWorkerId) ? `worker ${model.externalAiWorkerId}` : "",
-                  hasMeaningfulValue(model.externalAiFailureCode) ? `failure ${model.externalAiFailureCode}` : "",
-                  hasMeaningfulValue(model.externalAiFallbackMode) ? `fallback ${model.externalAiFallbackMode}` : "",
-                ]
-                  .filter(Boolean)
-                  .join(" / ")
-              )}
-            </small>
+            <small>{workerStatusDetail}</small>
           </article>
         ) : null}
 

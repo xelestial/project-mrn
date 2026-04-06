@@ -679,6 +679,29 @@ def _default_external_ai_http_sender(envelope: _ExternalAiDecisionEnvelope) -> d
 _EXTERNAL_AI_HEALTH_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
 
 
+def _external_ai_health_cache_key(config: dict[str, object], endpoint: str, healthcheck_path: str) -> str:
+    required_version = str(config.get("contract_version", "v1") or "v1").strip().lower()
+    expected_worker_id = str(config.get("expected_worker_id") or "").strip()
+    required_capabilities = sorted(
+        str(item).strip()
+        for item in (config.get("required_capabilities") or [])
+        if isinstance(item, str) and str(item).strip()
+    )
+    auth_header_name = str(config.get("auth_header_name", "Authorization") or "Authorization").strip()
+    auth_scheme = str(config.get("auth_scheme", "Bearer") or "Bearer").strip()
+    return "|".join(
+        [
+            endpoint,
+            healthcheck_path,
+            required_version,
+            expected_worker_id,
+            ",".join(required_capabilities),
+            auth_header_name,
+            auth_scheme,
+        ]
+    )
+
+
 def _default_external_ai_healthcheck(config: dict[str, object]) -> dict[str, object]:
     endpoint = str(config.get("endpoint") or "").strip()
     if not endpoint:
@@ -692,7 +715,7 @@ def _default_external_ai_healthcheck(config: dict[str, object]) -> dict[str, obj
         for item in (config.get("required_capabilities") or [])
         if isinstance(item, str) and str(item).strip()
     }
-    cache_key = f"{endpoint}|{healthcheck_path}"
+    cache_key = _external_ai_health_cache_key(config, endpoint, healthcheck_path)
     now = time.time() * 1000.0
     cached = _EXTERNAL_AI_HEALTH_CACHE.get(cache_key)
     if cached is not None and ttl_ms > 0 and now - cached[0] <= ttl_ms:

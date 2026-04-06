@@ -946,6 +946,7 @@ test("mixed participant runtime keeps worker success then fallback visible acros
               external_ai_failure_code: "external_ai_timeout",
               external_ai_fallback_mode: "local_ai",
               external_ai_resolution_status: "resolved_by_local_fallback",
+              external_ai_attempt_count: 3,
             },
           },
         }),
@@ -976,8 +977,10 @@ test("mixed participant runtime keeps worker success then fallback visible acros
 
   await expect(page.getByTestId("spectator-turn-worker")).toContainText("prod-bot-1");
   await expect(page.getByTestId("spectator-turn-worker")).toContainText("local fallback");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("attempt 3");
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("Participant status");
   await expect(page.getByTestId("turn-stage-worker-status")).toContainText("external_ai_timeout");
+  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("attempt 3");
   await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("Bought tile 11 for 3");
 });
 

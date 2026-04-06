@@ -2481,3 +2481,22 @@ Updated: 2026-04-07
   - `cd apps/web && npm run build`
   - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
   - `.venv311/bin/python -m pytest apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_runtime_service.py`
+
+## 2026-04-07 Worker Detail Localization + Health Cache Hardening
+
+- What changed:
+  - Web:
+    - `apps/web/src/domain/selectors/streamSelectors.ts` now preserves `external_ai_attempt_count` inside the turn-stage model
+    - worker status cards and journey rows now rely on locale helpers for worker detail phrasing instead of inline `worker/failure/fallback` string assembly
+    - mixed-seat E2E now asserts retry-attempt visibility alongside worker-id and fallback status
+  - Server:
+    - `apps/server/src/services/runtime_service.py` now keys external-worker health-cache entries by worker requirements as well as endpoint/path
+    - this prevents stale health metadata reuse across different expected worker ids / required capabilities
+- Why:
+  - the previous slice made worker state visible, but some of that detail was still component-owned wording
+  - operationally, cache reuse needed to reflect seat-specific worker requirements before the external participant seam could be treated as production-shaped
+- Validation:
+  - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+  - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
+  - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_external_ai_worker_api.py`

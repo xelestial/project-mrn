@@ -443,6 +443,7 @@ describe("streamSelectors", () => {
             external_ai_worker_id: "prod-bot-1",
             external_ai_failure_code: "external_ai_timeout",
             external_ai_fallback_mode: "local_ai",
+            external_ai_attempt_count: 3,
           },
         },
       },
@@ -818,6 +819,7 @@ describe("streamSelectors", () => {
             external_ai_worker_id: "prod-bot-1",
             external_ai_failure_code: "external_ai_timeout",
             external_ai_fallback_mode: "local_ai",
+            external_ai_attempt_count: 3,
           },
         },
       },
@@ -830,6 +832,7 @@ describe("streamSelectors", () => {
     expect(stage.externalAiWorkerId).toBe("prod-bot-1");
     expect(stage.externalAiFailureCode).toBe("external_ai_timeout");
     expect(stage.externalAiFallbackMode).toBe("local_ai");
+    expect(stage.externalAiAttemptCount).toBe(3);
     expect(stage.externalAiResolutionStatus).toBe("-");
     expect(stage.progressTrail).toContain("시간 초과 기본 처리");
   });
@@ -862,6 +865,7 @@ describe("streamSelectors", () => {
           public_context: {
             external_ai_worker_id: "prod-bot-1",
             external_ai_resolution_status: "resolved_by_worker",
+            external_ai_attempt_count: 1,
           },
         },
       },
@@ -869,6 +873,7 @@ describe("streamSelectors", () => {
 
     expect(stage.externalAiWorkerId).toBe("prod-bot-1");
     expect(stage.externalAiResolutionStatus).toBe("resolved_by_worker");
+    expect(stage.externalAiAttemptCount).toBe(1);
   });
 
   it("includes landing tile position in landing summaries when available", () => {

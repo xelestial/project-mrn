@@ -712,6 +712,54 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertEqual(headers["X-Worker-Auth"], "Token worker-secret")
 
+    def test_default_healthcheck_cache_key_respects_worker_requirements(self) -> None:
+        from apps.server.src.services.runtime_service import _EXTERNAL_AI_HEALTH_CACHE, _default_external_ai_healthcheck
+
+        class _FakeResponse:
+            def __init__(self, payload: str) -> None:
+                self._payload = payload
+
+            def read(self) -> bytes:
+                return self._payload.encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> bool:  # noqa: ANN001
+                return False
+
+        urlopen_calls: list[str] = []
+
+        def _fake_urlopen(request, timeout=0):  # noqa: ANN001
+            del timeout
+            urlopen_calls.append(request.full_url)
+            return _FakeResponse(
+                '{"ok": true, "worker_id": "worker-a", "worker_contract_version": "v1", "capabilities": ["choice_id_response", "healthcheck"]}'
+            )
+
+        _EXTERNAL_AI_HEALTH_CACHE.clear()
+        with patch("apps.server.src.services.runtime_service.urllib_request.urlopen", side_effect=_fake_urlopen):
+            payload_a = _default_external_ai_healthcheck(
+                {
+                    "endpoint": "http://bot-worker.local/decide",
+                    "healthcheck_ttl_ms": 10000,
+                    "expected_worker_id": "worker-a",
+                    "required_capabilities": ["choice_id_response"],
+                }
+            )
+            payload_b = _default_external_ai_healthcheck(
+                {
+                    "endpoint": "http://bot-worker.local/decide",
+                    "healthcheck_ttl_ms": 10000,
+                    "expected_worker_id": "worker-a",
+                    "required_capabilities": ["choice_id_response", "healthcheck"],
+                }
+            )
+
+        self.assertEqual(payload_a["worker_id"], "worker-a")
+        self.assertEqual(payload_b["worker_id"], "worker-a")
+        self.assertEqual(len(urlopen_calls), 2)
+
     def test_external_ai_error_classifier_maps_timeout_and_known_runtime_codes(self) -> None:
         from apps.server.src.services.runtime_service import _classify_external_ai_error
 

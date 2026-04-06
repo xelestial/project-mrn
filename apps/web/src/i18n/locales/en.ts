@@ -331,6 +331,31 @@ export const enLocale = {
       }
       return parts.join(" / ");
     },
+    workerStatusDetail: (
+      workerLabel: string,
+      workerId?: string,
+      failureCode?: string,
+      fallbackMode?: string,
+      attemptCount?: number | null
+    ) => {
+      const parts: string[] = [];
+      if (workerLabel && workerLabel !== "-") {
+        parts.push(workerLabel);
+      }
+      if (workerId && workerId !== "-") {
+        parts.push(`worker ${workerId}`);
+      }
+      if (failureCode && failureCode !== "-") {
+        parts.push(`failure ${failureCode}`);
+      }
+      if (fallbackMode && fallbackMode !== "-") {
+        parts.push(`fallback ${fallbackMode}`);
+      }
+      if (typeof attemptCount === "number" && attemptCount > 0) {
+        parts.push(`attempt ${attemptCount}`);
+      }
+      return parts.length > 0 ? parts.join(" / ") : "-";
+    },
     weatherDetail: (weather: string, effect: string) => (effect && effect !== "-" ? `${weather} / ${effect}` : weather),
     errorDetail: (code: string, message: string) => (code && code !== "-" ? `${code}: ${message}` : message),
     stalledWarning: (text: string) => `Runtime warning: ${text}`,
@@ -484,6 +509,32 @@ export const enLocale = {
         return "Resolved by local fallback";
       }
       return status || "-";
+    },
+    workerStatusSummary: (
+      status: string,
+      workerId?: string,
+      failureCode?: string,
+      fallbackMode?: string,
+      attemptCount?: number | null
+    ) => {
+      const parts: string[] = [];
+      const label = status && status !== "-" ? enLocale.turnStage.workerStatusLabel(status) : "";
+      if (label) {
+        parts.push(label);
+      }
+      if (workerId && workerId !== "-") {
+        parts.push(`worker ${workerId}`);
+      }
+      if (failureCode && failureCode !== "-") {
+        parts.push(`failure ${failureCode}`);
+      }
+      if (fallbackMode && fallbackMode !== "-") {
+        parts.push(`fallback ${fallbackMode}`);
+      }
+      if (typeof attemptCount === "number" && attemptCount > 0) {
+        parts.push(`attempt ${attemptCount}`);
+      }
+      return parts.length > 0 ? parts.join(" / ") : "-";
     },
     turnStartDetail: (actor: string) => `${actor} / turn start`,
     sequenceIndex: (index: number, total: number) => `${index}/${total}`,

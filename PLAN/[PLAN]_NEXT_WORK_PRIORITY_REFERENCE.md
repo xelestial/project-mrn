@@ -268,6 +268,15 @@ This is the practical next-work list after the closed slices above.
 - Practical meaning:
   - remote turns read more like multiplayer participant turns than opaque replay rows
   - mixed-seat playtests can now verify worker success and fallback continuity across adjacent turns without relying only on event-feed details
+
+### 2026-04-07 Progress Update (worker detail localization + runtime cache hardening)
+
+- Selector/UI ownership moved a little further out of component-local formatting:
+  - external-worker detail strings on stage/spectator surfaces are now assembled through locale helpers instead of inline string stitching
+  - external worker retry counts are now preserved in turn-stage models so remote-turn participant cards can show how many attempts preceded a fallback
+- Runtime hardening also advanced:
+  - external worker health-cache reuse is now keyed by worker requirements, not only endpoint/path
+  - this reduces the chance that one seat configuration reuses stale health metadata from a different worker-identity/capability requirement set
   - runtime fallback on worker-identity mismatch
   - runtime validation for custom healthchecker identity mismatch
   - mixed-seat browser runtime with `human_http + local_ai + external_ai` descriptors

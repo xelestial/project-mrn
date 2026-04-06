@@ -336,6 +336,31 @@ export const koLocale = {
       }
       return parts.join(" / ");
     },
+    workerStatusDetail: (
+      workerLabel: string,
+      workerId?: string,
+      failureCode?: string,
+      fallbackMode?: string,
+      attemptCount?: number | null
+    ) => {
+      const parts: string[] = [];
+      if (workerLabel && workerLabel !== "-") {
+        parts.push(workerLabel);
+      }
+      if (workerId && workerId !== "-") {
+        parts.push(`worker ${workerId}`);
+      }
+      if (failureCode && failureCode !== "-") {
+        parts.push(`실패 ${failureCode}`);
+      }
+      if (fallbackMode && fallbackMode !== "-") {
+        parts.push(`폴백 ${fallbackMode}`);
+      }
+      if (typeof attemptCount === "number" && attemptCount > 0) {
+        parts.push(`시도 ${attemptCount}회`);
+      }
+      return parts.length > 0 ? parts.join(" / ") : "-";
+    },
     weatherDetail: (weather: string, effect: string) => (effect && effect !== "-" ? `${weather} / ${effect}` : weather),
     errorDetail: (code: string, message: string) => (code && code !== "-" ? `${code}: ${message}` : message),
     stalledWarning: (text: string) => `런타임 경고: ${text}`,
@@ -489,6 +514,32 @@ export const koLocale = {
         return "로컬 폴백 처리";
       }
       return status || "-";
+    },
+    workerStatusSummary: (
+      status: string,
+      workerId?: string,
+      failureCode?: string,
+      fallbackMode?: string,
+      attemptCount?: number | null
+    ) => {
+      const parts: string[] = [];
+      const label = status && status !== "-" ? koLocale.turnStage.workerStatusLabel(status) : "";
+      if (label) {
+        parts.push(label);
+      }
+      if (workerId && workerId !== "-") {
+        parts.push(`worker ${workerId}`);
+      }
+      if (failureCode && failureCode !== "-") {
+        parts.push(`실패 ${failureCode}`);
+      }
+      if (fallbackMode && fallbackMode !== "-") {
+        parts.push(`폴백 ${fallbackMode}`);
+      }
+      if (typeof attemptCount === "number" && attemptCount > 0) {
+        parts.push(`시도 ${attemptCount}회`);
+      }
+      return parts.length > 0 ? parts.join(" / ") : "-";
     },
     turnStartDetail: (actor: string) => `${actor} / 턴 시작`,
     sequenceIndex: (index: number, total: number) => `${index}/${total}`,

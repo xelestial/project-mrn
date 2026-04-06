@@ -65,12 +65,13 @@ function hasWorkerStatus(model: TurnStageViewModel): boolean {
     hasValue(model.externalAiWorkerId) ||
     hasValue(model.externalAiFailureCode) ||
     hasValue(model.externalAiFallbackMode) ||
-    hasValue(model.externalAiResolutionStatus)
+    hasValue(model.externalAiResolutionStatus) ||
+    model.externalAiAttemptCount !== null
   );
 }
 
 export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: SpectatorTurnPanelProps) {
-  const { app, turnStage, eventLabel } = useI18n();
+  const { app, turnStage, eventLabel, stream } = useI18n();
   const purchaseEventLabel = eventLabel.events.tile_purchased ?? turnStage.fields.purchase;
   const rentEventLabel = eventLabel.events.rent_paid ?? turnStage.fields.rent;
   const fortuneDrawEventLabel = eventLabel.events.fortune_drawn ?? turnStage.fields.fortune;
@@ -109,6 +110,20 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     model.markSummary,
     model.flipSummary,
   ]);
+  const workerStatusSummary = turnStage.workerStatusSummary(
+    model.externalAiResolutionStatus,
+    model.externalAiWorkerId,
+    model.externalAiFailureCode,
+    model.externalAiFallbackMode,
+    model.externalAiAttemptCount
+  );
+  const workerStatusDetail = stream.workerStatusDetail(
+    "",
+    model.externalAiWorkerId,
+    model.externalAiFailureCode,
+    model.externalAiFallbackMode,
+    model.externalAiAttemptCount
+  );
   const payoffTitle =
     latestActionTone === "economy"
       ? app.spectatorFields.economy
@@ -227,12 +242,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     journeyCards.push({
       key: "worker",
       label: app.spectatorFields.worker,
-      detail: joinVisible([
-        turnStage.workerStatusLabel(model.externalAiResolutionStatus),
-        hasValue(model.externalAiWorkerId) ? `worker ${model.externalAiWorkerId}` : "",
-        hasValue(model.externalAiFailureCode) ? `failure ${model.externalAiFailureCode}` : "",
-        hasValue(model.externalAiFallbackMode) ? `fallback ${model.externalAiFallbackMode}` : "",
-      ]),
+      detail: valueOrDash(workerStatusSummary),
       tone: "decision",
     });
   }
@@ -381,17 +391,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
           <article className="spectator-turn-card spectator-turn-card-worker" data-testid="spectator-turn-worker">
             <span>{app.spectatorFields.worker}</span>
             <strong>{valueOrDash(turnStage.workerStatusLabel(model.externalAiResolutionStatus))}</strong>
-            <small>
-              {valueOrDash(
-                [
-                  hasValue(model.externalAiWorkerId) ? `worker ${model.externalAiWorkerId}` : "",
-                  hasValue(model.externalAiFailureCode) ? `failure ${model.externalAiFailureCode}` : "",
-                  hasValue(model.externalAiFallbackMode) ? `fallback ${model.externalAiFallbackMode}` : "",
-                ]
-                  .filter(Boolean)
-                  .join(" / ")
-              )}
-            </small>
+            <small>{valueOrDash(workerStatusDetail)}</small>
           </article>
         ) : null}
         <article className="spectator-turn-card" data-testid="spectator-turn-move">

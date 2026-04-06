@@ -88,6 +88,7 @@ export type TurnStageViewModel = {
   externalAiFailureCode: string;
   externalAiFallbackMode: string;
   externalAiResolutionStatus: string;
+  externalAiAttemptCount: number | null;
   progressTrail: string[];
 };
 
@@ -902,6 +903,7 @@ function externalAiStatusFromPayload(payload: Record<string, unknown>): {
   failureCode: string;
   fallbackMode: string;
   resolutionStatus: string;
+  attemptCount: number | null;
 } {
   const publicContext = externalAiPublicContext(payload);
   return {
@@ -909,6 +911,7 @@ function externalAiStatusFromPayload(payload: Record<string, unknown>): {
     failureCode: asString(publicContext?.["external_ai_failure_code"]),
     fallbackMode: asString(publicContext?.["external_ai_fallback_mode"]),
     resolutionStatus: asString(publicContext?.["external_ai_resolution_status"]),
+    attemptCount: numberOrNull(publicContext?.["external_ai_attempt_count"]),
   };
 }
 
@@ -974,6 +977,7 @@ export function selectTurnStage(
     externalAiFailureCode: "-",
     externalAiFallbackMode: "-",
     externalAiResolutionStatus: "-",
+    externalAiAttemptCount: null,
     progressTrail: [],
   };
 
@@ -1043,6 +1047,9 @@ export function selectTurnStage(
     }
     if (status.resolutionStatus !== "-") {
       model.externalAiResolutionStatus = status.resolutionStatus;
+    }
+    if (status.attemptCount !== null) {
+      model.externalAiAttemptCount = status.attemptCount;
     }
   };
 
