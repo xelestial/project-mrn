@@ -130,6 +130,8 @@ These are no longer the immediate blockers, but they are recently completed and 
   - auth-header and expected-worker-id validation are now part of the runtime/worker seam too
   - worker payload docs now include a production-shaped external seat example
   - health checks can now be parameter-driven via `healthcheck_policy`
+  - worker readiness can now be enforced via `require_ready`
+  - total worker call attempts can now be capped via `max_attempt_count`
   - remote-turn stage/spectator payoff strips now surface worker outcomes as part of the scene instead of only side diagnostics
 - Main implementation references:
   - `apps/server/src/external_ai_app.py`
@@ -176,6 +178,7 @@ These are the slices that should still actively drive implementation after the r
   - keep the runtime/client seam stable as more capable external workers replace the reference implementation
   - keep selector-side sentence ownership moving into locale resources instead of inline formatter logic
   - keep external-worker auth/identity/capability checks mandatory even for injected custom transports
+  - keep worker readiness / attempt-limit policy parameter-driven and visible in mixed-seat regressions
 
 ## Active But Secondary Plans
 

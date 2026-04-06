@@ -15,6 +15,7 @@
       "additionalProperties": true
     },
     "worker_id": { "type": "string" },
+    "ready": { "type": "boolean" },
     "policy_mode": { "type": "string" },
     "policy_class": { "type": "string" },
     "worker_contract_version": { "type": "string", "minLength": 1 },

@@ -258,6 +258,32 @@ This is the practical next-work list after the closed slices above.
   - injected/custom sender and healthchecker seams no longer bypass identity validation
 - Regression coverage expanded:
   - worker API auth-required coverage
+  - mixed-seat browser runtime now asserts worker-not-ready fallback continuity together with weather/payoff visibility
+
+### 2026-04-07 Progress Update (worker readiness / attempt-cap hardening)
+
+- The external participant seam now has a stronger operational gate:
+  - external-AI participant defaults now include:
+    - `require_ready`
+    - `max_attempt_count`
+  - worker `/health` metadata now advertises `ready`
+  - runtime can now reject workers that are reachable but not yet ready when `require_ready=true`
+  - retry policy is now bounded by `max_attempt_count` even if transport retry settings are higher
+  - timeout/fallback public context now keeps:
+    - `external_ai_attempt_count`
+    - `external_ai_attempt_limit`
+- Regression coverage expanded again:
+  - runtime tests now lock:
+    - worker-not-ready fallback
+    - attempt-count capping
+  - browser mixed-seat coverage now checks:
+    - weather continuity
+    - worker-not-ready visibility
+    - payoff continuity after local fallback
+- Therefore the practical carry-forward remains:
+  1. use evidence to close any remaining remote-turn/rule-parity visual drift
+  2. keep selector-side wording locale-owned
+  3. harden stronger external workers on top of the now-parameterized readiness/attempt seam
   - mixed-seat browser parity now keeps worker outcome cards inside remote-turn payoff strips
   - runtime can now require or disable health checks per participant config through `healthcheck_policy`
 

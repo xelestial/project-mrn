@@ -179,6 +179,12 @@ class GameParameterResolver:
         healthcheck_policy = str(external_ai_raw.get("healthcheck_policy", "auto")).strip().lower()
         if healthcheck_policy not in {"auto", "required", "disabled"}:
             raise ParameterValidationError("invalid_external_ai_healthcheck_policy")
+        require_ready = external_ai_raw.get("require_ready", False)
+        if not isinstance(require_ready, bool):
+            raise ParameterValidationError("invalid_external_ai_require_ready")
+        max_attempt_count = external_ai_raw.get("max_attempt_count", 3)
+        if not isinstance(max_attempt_count, int) or max_attempt_count < 1:
+            raise ParameterValidationError("invalid_external_ai_max_attempt_count")
 
         endpoint = external_ai_raw.get("endpoint")
         if endpoint is not None and not isinstance(endpoint, str):
@@ -225,6 +231,8 @@ class GameParameterResolver:
                 "healthcheck_path": healthcheck_path,
                 "healthcheck_ttl_ms": int(healthcheck_ttl_ms),
                 "healthcheck_policy": healthcheck_policy,
+                "require_ready": require_ready,
+                "max_attempt_count": int(max_attempt_count),
                 "endpoint": endpoint.strip() if isinstance(endpoint, str) and endpoint.strip() else None,
                 "required_capabilities": normalized_capabilities,
                 "required_request_types": normalized_request_types,

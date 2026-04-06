@@ -614,6 +614,56 @@ class RuntimeServiceTests(unittest.TestCase):
         )
         self.assertEqual(gateway.calls[0]["public_context"]["external_ai_resolution_status"], "resolved_by_local_fallback")
 
+    def test_http_external_transport_falls_back_when_worker_is_not_ready(self) -> None:
+        from apps.server.src.services.runtime_service import _HttpExternalAiTransport
+
+        class _FakeAiPolicy:
+            def choose_pabal_dice_mode(self, state, player):  # noqa: ANN001
+                del state, player
+                return "minus_one"
+
+        class _FakeGateway:
+            def __init__(self) -> None:
+                self.calls: list[dict] = []
+
+            def resolve_ai_decision(self, **kwargs):  # noqa: ANN003
+                self.calls.append(kwargs)
+                return kwargs["resolver"]()
+
+        gateway = _FakeGateway()
+        transport = _HttpExternalAiTransport(
+            session_id="sess_http_health_not_ready",
+            ai_fallback=_FakeAiPolicy(),
+            gateway=gateway,  # type: ignore[arg-type]
+            seat=2,
+            config={
+                "transport": "http",
+                "endpoint": "http://bot-worker.local/decide",
+                "fallback_mode": "local_ai",
+                "require_ready": True,
+            },
+            healthchecker=lambda _config: {
+                "ok": True,
+                "ready": False,
+                "worker_contract_version": "v1",
+                "capabilities": ["choice_id_response"],
+                "supported_request_types": ["pabal_dice_mode"],
+            },
+            sender=lambda _envelope: {"choice_id": "plus_one"},
+        )
+        state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+        player = type("Player", (), {"player_id": 1, "cash": 5, "position": 9, "shards": 1})()
+        call = build_routed_decision_call(
+            build_decision_invocation("choose_pabal_dice_mode", (state, player), {}),
+            fallback_policy="ai",
+        )
+
+        result = transport.resolve(call)
+
+        self.assertEqual(result, "minus_one")
+        self.assertEqual(gateway.calls[0]["public_context"]["external_ai_failure_code"], "external_ai_worker_not_ready")
+        self.assertEqual(gateway.calls[0]["public_context"]["external_ai_resolution_status"], "resolved_by_local_fallback")
+
     def test_http_external_transport_falls_back_when_worker_lacks_request_type_support(self) -> None:
         from apps.server.src.services.runtime_service import _HttpExternalAiTransport
 
@@ -885,6 +935,52 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(gateway.calls[0]["public_context"]["external_ai_resolution_status"], "resolved_by_worker")
         self.assertEqual(urlopen.call_count, 1)
 
+    def test_http_external_transport_caps_attempts_by_max_attempt_count(self) -> None:
+        from apps.server.src.services.runtime_service import _HttpExternalAiTransport
+
+        class _FakeAiPolicy:
+            def choose_pabal_dice_mode(self, state, player):  # noqa: ANN001
+                del state, player
+                return "minus_one"
+
+        class _FakeGateway:
+            def __init__(self) -> None:
+                self.calls: list[dict] = []
+
+            def resolve_ai_decision(self, **kwargs):  # noqa: ANN003
+                self.calls.append(kwargs)
+                return kwargs["resolver"]()
+
+        sender_attempts: list[int] = []
+        gateway = _FakeGateway()
+        transport = _HttpExternalAiTransport(
+            session_id="sess_http_attempt_cap",
+            ai_fallback=_FakeAiPolicy(),
+            gateway=gateway,  # type: ignore[arg-type]
+            seat=2,
+            config={
+                "transport": "http",
+                "endpoint": "http://bot-worker.local/decide",
+                "retry_count": 5,
+                "max_attempt_count": 2,
+                "fallback_mode": "local_ai",
+            },
+            sender=lambda _envelope: sender_attempts.append(len(sender_attempts) + 1) or (_ for _ in ()).throw(RuntimeError("external_ai_http_error")),
+        )
+        state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+        player = type("Player", (), {"player_id": 1, "cash": 5, "position": 9, "shards": 1})()
+        call = build_routed_decision_call(
+            build_decision_invocation("choose_pabal_dice_mode", (state, player), {}),
+            fallback_policy="ai",
+        )
+
+        result = transport.resolve(call)
+
+        self.assertEqual(result, "minus_one")
+        self.assertEqual(sender_attempts, [1, 2])
+        self.assertEqual(gateway.calls[0]["public_context"]["external_ai_attempt_count"], 2)
+        self.assertEqual(gateway.calls[0]["public_context"]["external_ai_attempt_limit"], 2)
+
     def test_external_ai_error_classifier_maps_timeout_and_known_runtime_codes(self) -> None:
         from apps.server.src.services.runtime_service import _classify_external_ai_error
 
@@ -896,6 +992,10 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(
             _classify_external_ai_error(RuntimeError("external_ai_missing_required_request_type")),
             "external_ai_missing_required_request_type",
+        )
+        self.assertEqual(
+            _classify_external_ai_error(RuntimeError("external_ai_worker_not_ready")),
+            "external_ai_worker_not_ready",
         )
         self.assertEqual(
             _classify_external_ai_error(ValueError("external_ai_response_not_object")),

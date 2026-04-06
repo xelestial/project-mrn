@@ -2551,3 +2551,44 @@ Updated: 2026-04-07
   - `cd apps/web && npm run build`
   - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
   - `.venv311/bin/python -m pytest apps/server/tests/test_parameter_service.py apps/server/tests/test_runtime_service.py apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_parameter_propagation.py apps/server/tests/test_parameter_manifest_snapshot.py`
+
+## 2026-04-07 Worker Readiness Gate + Attempt-Limit Hardening
+
+- What changed:
+  - Server:
+    - `apps/server/src/services/parameter_service.py` now accepts external-AI participant defaults for:
+      - `require_ready`
+      - `max_attempt_count`
+    - `apps/server/src/services/runtime_service.py` now:
+      - rejects `/health` payloads that are reachable but not ready when `require_ready=true`
+      - caps actual worker send attempts with `max_attempt_count`
+      - records `external_ai_attempt_limit` alongside `external_ai_attempt_count`
+      - scopes health-cache reuse by readiness requirements too
+    - `apps/server/src/services/external_ai_worker_service.py` now advertises `ready: true` in both health metadata and decision responses
+    - `apps/server/src/external_ai_app.py` now exposes that `ready` field through the worker API contract
+    - `tools/parameter_manifest_snapshot.json` was refreshed after the participant parameter-shape change
+  - Contracts / docs:
+    - `packages/runtime-contracts/external-ai/schemas/response.schema.json` now includes `ready`
+    - `packages/runtime-contracts/external-ai/examples/response.purchase_tile_yes.json` now includes `ready: true`
+    - `packages/runtime-contracts/external-ai/README.md` and `docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md` now document:
+      - readiness gating
+      - attempt caps
+      - surfaced attempt-limit diagnostics
+  - Browser regression:
+    - `apps/web/e2e/human_play_runtime.spec.ts` now covers a mixed-seat turn where:
+      - weather continuity remains visible
+      - the external worker reports not-ready
+      - runtime falls back locally
+      - payoff continuity still survives the handoff
+- Why:
+  - the external participant path was already auth/identity/capability-aware, but a production-shaped multiplayer seam also needs to distinguish:
+    - worker is unreachable
+    - worker is reachable but not ready
+    - retry settings are higher than the seat should actually allow
+  - the useful next step was to make those rollout constraints parameter-driven and visible in both runtime diagnostics and browser continuity coverage
+- Validation:
+  - `.venv311/bin/python tools/parameter_manifest_gate.py --write`
+  - `.venv311/bin/python -m pytest apps/server/tests/test_parameter_service.py apps/server/tests/test_runtime_service.py apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_runtime_contract_examples.py apps/server/tests/test_parameter_propagation.py apps/server/tests/test_parameter_manifest_snapshot.py`
+  - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts`
+  - `cd apps/web && npm run build`
+  - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`

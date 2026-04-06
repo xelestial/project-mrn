@@ -80,6 +80,8 @@ class ParameterServiceTests(unittest.TestCase):
                         "healthcheck_path": "/health",
                         "healthcheck_ttl_ms": 5000,
                         "healthcheck_policy": "required",
+                        "require_ready": True,
+                        "max_attempt_count": 4,
                         "required_capabilities": ["choice_id_response", "healthcheck"],
                         "required_request_types": ["movement", "purchase_tile"],
                         "headers": {"Authorization": "Bearer token"},
@@ -107,6 +109,8 @@ class ParameterServiceTests(unittest.TestCase):
         self.assertEqual(resolved["participants"]["external_ai"]["healthcheck_path"], "/health")
         self.assertEqual(resolved["participants"]["external_ai"]["healthcheck_ttl_ms"], 5000)
         self.assertEqual(resolved["participants"]["external_ai"]["healthcheck_policy"], "required")
+        self.assertEqual(resolved["participants"]["external_ai"]["require_ready"], True)
+        self.assertEqual(resolved["participants"]["external_ai"]["max_attempt_count"], 4)
         self.assertEqual(resolved["participants"]["external_ai"]["required_capabilities"], ["choice_id_response", "healthcheck"])
         self.assertEqual(resolved["participants"]["external_ai"]["required_request_types"], ["movement", "purchase_tile"])
         self.assertIn("event_labels", resolved["labels"])
@@ -126,6 +130,12 @@ class ParameterServiceTests(unittest.TestCase):
     def test_resolve_rejects_invalid_external_ai_healthcheck_policy(self) -> None:
         with self.assertRaises(ParameterValidationError):
             self.resolver.resolve({"participants": {"external_ai": {"healthcheck_policy": "sometimes"}}})
+
+    def test_resolve_rejects_invalid_external_ai_readiness_and_attempt_limits(self) -> None:
+        with self.assertRaises(ParameterValidationError):
+            self.resolver.resolve({"participants": {"external_ai": {"require_ready": "yes"}}})
+        with self.assertRaises(ParameterValidationError):
+            self.resolver.resolve({"participants": {"external_ai": {"max_attempt_count": 0}}})
 
     def test_resolve_rejects_blank_external_ai_identity_fields(self) -> None:
         with self.assertRaises(ParameterValidationError):

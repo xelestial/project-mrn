@@ -35,6 +35,7 @@ class ExternalAiDecisionResponse(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
     supported_request_types: list[str] = Field(default_factory=list)
     required_capabilities: list[str] = Field(default_factory=list)
+    ready: bool | None = None
 
 
 @lru_cache(maxsize=1)

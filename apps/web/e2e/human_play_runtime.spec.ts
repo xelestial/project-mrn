@@ -987,6 +987,112 @@ test("mixed participant runtime keeps worker success then fallback visible acros
   await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("Bought tile 11 for 3");
 });
 
+test("mixed participant runtime keeps worker-not-ready fallback and weather continuity visible", async ({ page }) => {
+  const sessionId = "sess_mixed_worker_not_ready_runtime";
+  const manifest = buildManifest({
+    hash: "mixed_worker_not_ready_hash",
+    topology: "ring",
+    tileCount: 36,
+    seats: [1, 2, 3],
+  });
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({ seq: 1, sessionId, payload: { event_type: "parameter_manifest", parameter_manifest: manifest } }),
+        eventMessage({ seq: 2, sessionId, payload: { event_type: "round_start", round_index: 4 } }),
+        eventMessage({
+          seq: 3,
+          sessionId,
+          payload: { event_type: "weather_reveal", round_index: 4, turn_index: 3, weather_name: "Dry Season", effect_text: "Rent increases by 1 on red tiles." },
+        }),
+        eventMessage({
+          seq: 4,
+          sessionId,
+          payload: { event_type: "turn_start", round_index: 4, turn_index: 3, acting_player_id: 3, character: "Surveyor" },
+        }),
+        eventMessage({
+          seq: 5,
+          sessionId,
+          payload: {
+            event_type: "decision_requested",
+            round_index: 4,
+            turn_index: 3,
+            player_id: 3,
+            request_type: "purchase_tile",
+            provider: "ai",
+            public_context: {
+              tile_index: 12,
+              external_ai_worker_id: "prod-bot-2",
+              external_ai_resolution_status: "pending",
+            },
+            legal_choices: [
+              { choice_id: "yes", label: "Buy tile" },
+              { choice_id: "no", label: "Skip purchase", priority: "secondary" },
+            ],
+          },
+        }),
+        eventMessage({
+          seq: 6,
+          sessionId,
+          payload: {
+            event_type: "decision_timeout_fallback",
+            round_index: 4,
+            turn_index: 3,
+            player_id: 3,
+            provider: "ai",
+            summary: "worker reported not ready",
+            public_context: {
+              tile_index: 12,
+              external_ai_worker_id: "prod-bot-2",
+              external_ai_failure_code: "external_ai_worker_not_ready",
+              external_ai_fallback_mode: "local_ai",
+              external_ai_resolution_status: "resolved_by_local_fallback",
+              external_ai_attempt_count: 1,
+            },
+          },
+        }),
+        eventMessage({
+          seq: 7,
+          sessionId,
+          payload: { event_type: "rent_paid", round_index: 4, turn_index: 3, player_id: 3, payer_player_id: 3, owner_player_id: 1, tile_index: 12, final_amount: 5 },
+        }),
+        eventMessage({
+          seq: 8,
+          sessionId,
+          payload: { event_type: "turn_end_snapshot", round_index: 4, turn_index: 3, player_id: 3, summary: "P3 weather turn closed" },
+        }),
+      ],
+    },
+    startedSessions: {
+      [sessionId]: {
+        session_id: sessionId,
+        status: "in_progress",
+        round_index: 4,
+        turn_index: 3,
+        seats: [
+          { seat: 1, seat_type: "human", connected: true, player_id: 1, participant_client: "human_http" },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced", participant_client: "local_ai" },
+          { seat: 3, seat_type: "ai", connected: true, player_id: 3, ai_profile: "balanced", participant_client: "external_ai" },
+        ],
+        parameter_manifest: manifest,
+      },
+    },
+  });
+
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_worker_not_ready_runtime`);
+
+  await expect(page.getByTestId("spectator-turn-weather")).toContainText("Dry Season");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("external_ai_worker_not_ready");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("attempt 1");
+  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Participant status");
+  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("P3 paid P1 5 on tile 13");
+  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("external_ai_worker_not_ready");
+  await expect(page.getByTestId("turn-stage-scene-strip")).toContainText("Dry Season");
+  await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("P3 paid P1 5 on tile 13");
+});
+
 test("locale toggle persists across reload", async ({ page }) => {
   await page.goto("/#/lobby");
 

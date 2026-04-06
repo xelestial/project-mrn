@@ -51,6 +51,7 @@ Expected shape:
 {
   "ok": true,
   "worker_id": "external-ai-worker",
+  "ready": true,
   "policy_mode": "heuristic_v3_gpt",
   "policy_class": "HeuristicPolicy",
   "decision_style": "contract_heuristic",
@@ -98,6 +99,8 @@ Use `participant_client: "external_ai"` on an AI seat and provide an HTTP endpoi
         "healthcheck_path": "/health",
         "healthcheck_ttl_ms": 10000,
         "healthcheck_policy": "required",
+        "require_ready": true,
+        "max_attempt_count": 3,
         "required_capabilities": ["choice_id_response", "healthcheck"],
         "required_request_types": ["movement", "purchase_tile"],
         "headers": {}
@@ -128,6 +131,8 @@ Important rules:
 - when configured, worker auth and `expected_worker_id` must match on both `/health` and `/decide`
 - `healthcheck_policy=required` keeps health preflight active even when the runtime uses an injected custom sender seam
 - `healthcheck_policy=disabled` skips health preflight intentionally and should only be used for tightly controlled local/testing setups
+- `require_ready=true` also requires `/health` to advertise `ready: true`
+- `max_attempt_count` caps total worker call attempts even if `retry_count` is set higher
 - the server owns timeout, retry, and fallback behavior
 - the server converts `choice_id` back into engine-native values through method-specific parsers
 
@@ -162,6 +167,7 @@ Useful failure codes seen from the runtime seam:
 - `external_ai_contract_version_mismatch`
 - `external_ai_missing_required_capability`
 - `external_ai_missing_required_request_type`
+- `external_ai_worker_not_ready`
 - `external_ai_missing_choice_id`
 
 Useful runtime status values surfaced into prompt/event `public_context`:
@@ -170,3 +176,4 @@ Useful runtime status values surfaced into prompt/event `public_context`:
 - `external_ai_resolution_status=worker_failed`
 - `external_ai_resolution_status=resolved_by_local_fallback`
 - `external_ai_attempt_count=<n>`
+- `external_ai_attempt_limit=<n>`

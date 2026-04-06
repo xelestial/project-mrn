@@ -8,6 +8,7 @@
     }
   },
   "worker_id": "bot-worker-1",
+  "ready": true,
   "policy_mode": "heuristic_v3_gpt",
   "policy_class": "HeuristicPolicy",
   "worker_contract_version": "v1",

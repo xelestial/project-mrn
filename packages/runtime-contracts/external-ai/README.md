@@ -41,6 +41,7 @@ The reference worker is intentionally contract-driven:
 - it selects a canonical `choice_id` from `legal_choices`
 - it can return the matched `choice_payload` for debugging and inspection
 - it exposes `worker_contract_version`, `capabilities`, and `supported_request_types`
+- it exposes `ready` so the runtime can gate rollout when participant config requires worker readiness
 - the runtime server remains responsible for timeout / retry / fallback
 
 The request envelope also carries:
@@ -68,5 +69,10 @@ Reference worker capabilities now also advertise:
 
 - `failure_code_response`
 - `worker_identity`
+
+Operational seat defaults can now also require:
+
+- `require_ready`
+- `max_attempt_count`
 
 See `docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md` for a full local session example.

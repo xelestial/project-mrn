@@ -249,6 +249,7 @@ class ExternalAiWorkerService:
     def describe(self) -> dict[str, Any]:
         return {
             "worker_id": self._worker_id,
+            "ready": True,
             "policy_mode": self._policy_mode,
             "policy_class": type(self._runtime_policy).__name__,
             "worker_contract_version": "v1",
@@ -297,4 +298,5 @@ class ExternalAiWorkerService:
             "capabilities": metadata["capabilities"],
             "supported_request_types": metadata["supported_request_types"],
             "required_capabilities": list(required_capabilities),
+            "ready": metadata.get("ready"),
         }

@@ -583,17 +583,20 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
         envelope = self._build_envelope(call)
         parser = getattr(call, "choice_parser", None)
         retry_count = max(0, int(self._config.get("retry_count", 1) or 0))
+        max_attempt_count = max(1, int(self._config.get("max_attempt_count", 3) or 1))
+        effective_attempt_count = min(retry_count + 1, max_attempt_count)
         backoff_ms = max(0, int(self._config.get("backoff_ms", 250) or 0))
         fallback_mode = str(self._config.get("fallback_mode", "local_ai") or "local_ai").strip().lower()
         diagnostics: dict[str, object] = {
             "external_ai_transport_mode": "http",
             "external_ai_resolution_status": "pending",
             "external_ai_attempt_count": 0,
+            "external_ai_attempt_limit": effective_attempt_count,
         }
 
         def _resolve_via_sender(public_context: dict[str, object]):
             last_error: Exception | None = None
-            for attempt in range(retry_count + 1):
+            for attempt in range(effective_attempt_count):
                 try:
                     public_context["external_ai_attempt_count"] = attempt + 1
                     health = self._check_worker_health()
@@ -622,7 +625,7 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
                     public_context["external_ai_failure_code"] = _classify_external_ai_error(exc)
                     public_context["external_ai_failure_detail"] = str(exc)
                     public_context["external_ai_resolution_status"] = "worker_failed"
-                    if attempt < retry_count and backoff_ms > 0:
+                    if attempt < effective_attempt_count - 1 and backoff_ms > 0:
                         time.sleep(backoff_ms / 1000.0)
                         continue
             if fallback_mode == "local_ai":
@@ -686,6 +689,7 @@ def _external_ai_health_cache_key(config: dict[str, object], endpoint: str, heal
     required_version = str(config.get("contract_version", "v1") or "v1").strip().lower()
     expected_worker_id = str(config.get("expected_worker_id") or "").strip()
     healthcheck_policy = str(config.get("healthcheck_policy", "auto") or "auto").strip().lower()
+    require_ready = "1" if bool(config.get("require_ready", False)) else "0"
     required_capabilities = sorted(
         str(item).strip()
         for item in (config.get("required_capabilities") or [])
@@ -705,6 +709,7 @@ def _external_ai_health_cache_key(config: dict[str, object], endpoint: str, heal
             required_version,
             expected_worker_id,
             healthcheck_policy,
+            require_ready,
             ",".join(required_capabilities),
             ",".join(required_request_types),
             auth_header_name,
@@ -784,6 +789,8 @@ def _validate_external_ai_health_payload(payload: dict[str, object], config: dic
     if payload.get("ok") is not True:
         raise RuntimeError("external_ai_health_not_ok")
     _validate_external_ai_identity(payload, config)
+    if bool(config.get("require_ready", False)) and payload.get("ready") is not True:
+        raise RuntimeError("external_ai_worker_not_ready")
     required_version = str(config.get("contract_version", "v1") or "v1").strip().lower()
     worker_version = str(payload.get("worker_contract_version") or "").strip().lower()
     if required_version and worker_version and worker_version != required_version:
@@ -836,6 +843,7 @@ def _classify_external_ai_error(exc: Exception) -> str:
         "external_ai_contract_version_mismatch",
         "external_ai_missing_required_capability",
         "external_ai_missing_required_request_type",
+        "external_ai_worker_not_ready",
         "external_ai_missing_request_type_support",
         "external_ai_missing_choice_id",
         "external_ai_response_not_object",
