@@ -2130,6 +2130,7 @@ Updated: 2026-04-04
     - `_LocalAiDecisionClient`
     - `_ServerDecisionClientRouter`
     - `_ServerDecisionClientFactory`
+  - The runtime router can now also resolve participant client type from session seat descriptors, not only from a bare `human_seats` list.
   - Added `RoutedDecisionCall` in `apps/server/src/services/decision_gateway.py` so both local clients consume the same normalized call object:
     - invocation
     - canonical request

@@ -55,6 +55,7 @@ Detailed execution: [PLAN/[PLAN]_UNIFIED_DECISION_API_DETAILED_EXECUTION.md](/C:
 3a. `DecisionClient` interface (follow-on, now preferred direction)
 - `resolve(call) -> response`
 - 인간/AI를 모두 “정규화된 decision call을 받는 참가자 클라이언트”로 취급
+- participant registry / seat registry가 어떤 client가 어떤 seat/player를 담당하는지 결정
 - 초기 구현:
   - local human client adapter
   - local AI client adapter

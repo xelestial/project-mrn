@@ -158,8 +158,47 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(getattr(router.attribute_target("ai_only_attr"), "ai_only_attr"), "ai")
         self.assertEqual(router.client_for_call(human_call).__class__.__name__, "_FakeHumanClient")
         self.assertEqual(router.client_for_call(ai_call).__class__.__name__, "_FakeAiClient")
+        self.assertEqual(getattr(router.seat_type_for_player_id(0), "value", None), "human")
+        self.assertIsNone(router.seat_type_for_player_id(99))
         self.assertEqual(human_call.request.fallback_policy, "human_timeout")
         self.assertEqual(ai_call.request.fallback_policy, "ai")
+
+    def test_decision_client_router_can_resolve_seat_types_from_session_seats(self) -> None:
+        from apps.server.src.domain.session_models import SeatConfig, SeatType
+        from apps.server.src.services.runtime_service import _ServerDecisionClientRouter
+
+        class _FakeHumanClient:
+            def __init__(self) -> None:
+                self.policy = type("HumanPolicy", (), {})()
+
+            def resolve(self, call):  # noqa: ANN001
+                return ("human", call.request.player_id)
+
+        class _FakeAiClient:
+            def __init__(self) -> None:
+                self.policy = type("AiPolicy", (), {})()
+
+            def resolve(self, call):  # noqa: ANN001
+                return ("ai", call.request.player_id)
+
+        router = _ServerDecisionClientRouter(
+            session_seats=[
+                SeatConfig(seat=1, seat_type=SeatType.HUMAN),
+                SeatConfig(seat=2, seat_type=SeatType.AI, ai_profile="balanced"),
+            ],
+            human_client=_FakeHumanClient(),
+            ai_client=_FakeAiClient(),
+        )
+
+        human_player = type("Player", (), {"player_id": 0})()
+        ai_player = type("Player", (), {"player_id": 1})()
+        human_call = build_routed_decision_call(build_decision_invocation("choose_movement", (object(), human_player), {}))
+        ai_call = build_routed_decision_call(build_decision_invocation("choose_movement", (object(), ai_player), {}))
+
+        self.assertEqual(getattr(router.seat_type_for_player_id(0), "value", None), "human")
+        self.assertEqual(getattr(router.seat_type_for_player_id(1), "value", None), "ai")
+        self.assertEqual(router.client_for_call(human_call).resolve(human_call), ("human", 0))
+        self.assertEqual(router.client_for_call(ai_call).resolve(ai_call), ("ai", 1))
 
     def test_build_decision_invocation_captures_method_and_player_identity(self) -> None:
         player = type("Player", (), {"player_id": 2, "cash": 11})()

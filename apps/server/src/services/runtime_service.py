@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from apps.server.src.core.error_payload import build_error_payload
-from apps.server.src.domain.session_models import SeatType, SessionStatus
+from apps.server.src.domain.session_models import SeatConfig, SeatType, SessionStatus
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.decision_gateway import (
     DecisionGateway,
@@ -185,6 +185,7 @@ class RuntimeService:
         if self._stream_service is not None:
             policy = _ServerDecisionPolicyBridge(
                 session_id=session_id,
+                session_seats=session.seats,
                 human_seats=human_seats,
                 ai_fallback=ai_policy,
                 prompt_service=self._prompt_service,
@@ -308,6 +309,7 @@ class _ServerDecisionPolicyBridge:
         self,
         *,
         session_id: str,
+        session_seats: list[SeatConfig] | None = None,
         human_seats: list[int],
         ai_fallback,
         prompt_service,
@@ -335,6 +337,7 @@ class _ServerDecisionPolicyBridge:
             gateway=self._gateway,
         )
         self._router = _ServerDecisionClientRouter(
+            session_seats=session_seats,
             human_seats=human_seats,
             human_client=self._human_client,
             ai_client=self._ai_client,
@@ -432,11 +435,22 @@ class _ServerDecisionClientRouter:
     def __init__(
         self,
         *,
-        human_seats: list[int],
+        session_seats: list[SeatConfig] | None = None,
+        human_seats: list[int] | None = None,
         human_client: _LocalHumanDecisionClient,
         ai_client: _LocalAiDecisionClient,
     ) -> None:
-        self._human_seats = frozenset(int(seat) for seat in human_seats)
+        self._seat_types_by_player_id: dict[int, SeatType] = {}
+        if session_seats:
+            self._seat_types_by_player_id = {
+                max(0, int(seat.seat) - 1): seat.seat_type
+                for seat in session_seats
+            }
+        else:
+            self._seat_types_by_player_id = {
+                int(seat): SeatType.HUMAN
+                for seat in (human_seats or [])
+            }
         self._human_client = human_client
         self._ai_client = ai_client
 
@@ -448,13 +462,14 @@ class _ServerDecisionClientRouter:
 
     def client_for_call(self, call):
         player_id = call.request.player_id
-        if (
-            isinstance(player_id, int)
-            and player_id in self._human_seats
-            and self._human_client.policy is not None
-        ):
+        if self.seat_type_for_player_id(player_id) == SeatType.HUMAN and self._human_client.policy is not None:
             return self._human_client
         return self._ai_client
+
+    def seat_type_for_player_id(self, player_id: int | None) -> SeatType | None:
+        if not isinstance(player_id, int):
+            return None
+        return self._seat_types_by_player_id.get(player_id)
 
 
 class _ServerDecisionClientFactory:

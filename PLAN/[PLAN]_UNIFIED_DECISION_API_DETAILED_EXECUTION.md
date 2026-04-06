@@ -497,6 +497,7 @@ P3 종료 조건:
   - normalized method calls into `DecisionInvocation`
   - added `CanonicalDecisionRequest`
   - added `RoutedDecisionCall`
+  - router can now resolve client type from session seat descriptors, not only a bare human-seat list
   - `_ServerDecisionPolicyBridge.request(...)` now consumes engine-style requests directly
 - Engine:
   - `GameEngine(..., decision_port=...)` seam is active
