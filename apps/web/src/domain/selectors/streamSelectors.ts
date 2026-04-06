@@ -91,6 +91,8 @@ export type TurnStageViewModel = {
   externalAiAttemptCount: number | null;
   externalAiAttemptLimit: number | null;
   externalAiReadyState: string;
+  externalAiPolicyMode: string;
+  externalAiDecisionStyle: string;
   progressTrail: string[];
 };
 
@@ -183,22 +185,32 @@ function decisionProviderFromPayload(payload: Record<string, unknown>): string {
   return typeof provider === "string" && provider.trim() ? provider : "";
 }
 
-function actorFromPayload(payload: Record<string, unknown>): string {
+function playerLabel(playerId: number, text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT): string {
+  return text.stream.playerLabel(playerId);
+}
+
+function actorFromPayload(
+  payload: Record<string, unknown>,
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): string {
   const actor = payload["actor"];
   if (typeof actor === "string" && actor.trim()) {
     return actor;
   }
   const acting = payload["acting_player_id"] ?? payload["player_id"];
-  return typeof acting === "number" ? `P${acting}` : "-";
+  return typeof acting === "number" ? playerLabel(acting, text) : "-";
 }
 
-function actorFromMessage(message: InboundMessage): string {
+function actorFromMessage(
+  message: InboundMessage,
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): string {
   if (message.type === "event") {
-    return actorFromPayload(message.payload);
+    return actorFromPayload(message.payload, text);
   }
   const pid = message.payload["player_id"];
   if (typeof pid === "number") {
-    return `P${pid}`;
+    return playerLabel(pid, text);
   }
   return "-";
 }
@@ -331,7 +343,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
   if (message.type === "prompt") {
     const requestType = asString(message.payload["request_type"]);
     const pid = message.payload["player_id"];
-    const actor = typeof pid === "number" ? `P${pid}` : "-";
+    const actor = typeof pid === "number" ? playerLabel(pid, text) : "-";
     return text.stream.promptDetail(actor, promptLabelForType(requestType === "-" ? "" : requestType, text.promptType));
   }
   if (message.type === "decision_ack") {
@@ -363,7 +375,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
     const tile = numberOrNull(payload["tile_index"]);
     const cost = payload["cost"] ?? payload["purchase_cost"] ?? "?";
     return text.stream.actorDetail(
-      actorFromPayload(payload),
+      actorFromPayload(payload, text),
       text.stream.tilePurchased(tile === null ? "?" : String(tile + 1), cost)
     );
   }
@@ -398,7 +410,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
   if (eventType === "decision_requested") {
     const requestType = asString(payload["request_type"]);
     const pid = payload["player_id"];
-    const actor = typeof pid === "number" ? `P${pid}` : "-";
+    const actor = typeof pid === "number" ? playerLabel(pid, text) : "-";
     return text.stream.decisionRequestedDetail(
       actor,
       promptLabelForType(requestType === "-" ? "" : requestType, text.promptType),
@@ -421,7 +433,9 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
       asString(publicContext?.["external_ai_failure_code"]),
       asString(publicContext?.["external_ai_fallback_mode"]),
       numberOrNull(publicContext?.["external_ai_attempt_count"]),
-      numberOrNull(publicContext?.["external_ai_attempt_limit"])
+      numberOrNull(publicContext?.["external_ai_attempt_limit"]),
+      asString(publicContext?.["external_ai_policy_mode"]),
+      asString(publicContext?.["external_ai_decision_style"])
     );
   }
   if (eventType === "landing_resolved") {
@@ -458,15 +472,15 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
         parts.push(text.stream.lapReward.coins(coins));
       }
       if (parts.length > 0) {
-        return text.stream.lapRewardChosen(actorFromPayload(payload), text.stream.lapRewardBundle(parts));
+        return text.stream.lapRewardChosen(actorFromPayload(payload, text), text.stream.lapRewardBundle(parts));
       }
     }
     const choice = asString(payload["choice"] ?? payload["reward"] ?? payload["summary"]);
     const amount = payload["amount"] ?? payload["cash_amount"] ?? payload["value"];
     if (typeof amount === "number") {
-      return text.stream.lapRewardChosen(actorFromPayload(payload), `${choice} (${amount})`);
+      return text.stream.lapRewardChosen(actorFromPayload(payload, text), `${choice} (${amount})`);
     }
-    return text.stream.lapRewardChosen(actorFromPayload(payload), choice);
+    return text.stream.lapRewardChosen(actorFromPayload(payload, text), choice);
   }
   if (eventType === "parameter_manifest") {
     const manifest = manifestRecordFromPayload(payload);
@@ -503,11 +517,11 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
   }
   if (eventType === "fortune_drawn") {
     const cardName = asString(payload["card_name"] ?? payload["card"] ?? payload["summary"]);
-    return text.stream.actorDetail(actorFromPayload(payload), text.stream.fortuneDrawn(cardName));
+    return text.stream.actorDetail(actorFromPayload(payload, text), text.stream.fortuneDrawn(cardName));
   }
   if (eventType === "fortune_resolved") {
     const summary = asString(payload["summary"] ?? payload["resolution"] ?? payload["card_name"]);
-    return text.stream.actorDetail(actorFromPayload(payload), text.stream.fortuneResolved(summary));
+    return text.stream.actorDetail(actorFromPayload(payload, text), text.stream.fortuneResolved(summary));
   }
 
   const summary = payload["summary"];
@@ -629,7 +643,7 @@ export function selectTheaterFeed(
       detail: pickMessageDetail(message, text),
       tone: toneFromMessage(message),
       lane,
-      actor: actorFromMessage(message),
+      actor: actorFromMessage(message, text),
       eventCode: theaterCode(message),
     });
     pickedSeq.add(message.seq);
@@ -651,7 +665,7 @@ export function selectTheaterFeed(
         detail: pickMessageDetail(message, text),
         tone: toneFromMessage(message),
         lane: laneFromMessage(message),
-        actor: actorFromMessage(message),
+        actor: actorFromMessage(message, text),
         eventCode: theaterCode(message),
       });
       pickedSeq.add(message.seq);
@@ -788,7 +802,7 @@ export function selectCoreActionFeed(
     if (!isCoreActionMessage(message)) {
       continue;
     }
-    const actor = actorFromMessage(message);
+    const actor = actorFromMessage(message, text);
     rows.push({
       seq: message.seq,
       actor,
@@ -797,7 +811,7 @@ export function selectCoreActionFeed(
       turn: numberOrNull(message.payload["turn_index"]),
       label: pickMessageLabel(message, text),
       detail: pickMessageDetail(message, text),
-      isLocalActor: focusPlayerId !== null && actor === `P${focusPlayerId}`,
+      isLocalActor: focusPlayerId !== null && actor === playerLabel(focusPlayerId, text),
     });
     if (rows.length >= safeLimit) {
       break;
@@ -848,7 +862,7 @@ export function selectSituation(
     typeof actorField === "string" && actorField.trim()
       ? actorField
       : typeof actorNum === "number"
-        ? `P${actorNum}`
+        ? playerLabel(actorNum, text)
         : "-";
   const round = asNumberText(findLatestField(messages, ["round_index"]));
   const turn = asNumberText(findLatestField(messages, ["turn_index"]));
@@ -908,6 +922,8 @@ function externalAiStatusFromPayload(payload: Record<string, unknown>): {
   attemptCount: number | null;
   attemptLimit: number | null;
   readyState: string;
+  policyMode: string;
+  decisionStyle: string;
 } {
   const publicContext = externalAiPublicContext(payload);
   return {
@@ -918,6 +934,8 @@ function externalAiStatusFromPayload(payload: Record<string, unknown>): {
     attemptCount: numberOrNull(publicContext?.["external_ai_attempt_count"]),
     attemptLimit: numberOrNull(publicContext?.["external_ai_attempt_limit"]),
     readyState: asString(publicContext?.["external_ai_ready_state"]),
+    policyMode: asString(publicContext?.["external_ai_policy_mode"]),
+    decisionStyle: asString(publicContext?.["external_ai_decision_style"]),
   };
 }
 
@@ -939,7 +957,9 @@ function workerSummaryFromPayload(payload: Record<string, unknown>, text: Stream
     status.fallbackMode,
     status.attemptCount,
     status.attemptLimit,
-    status.readyState
+    status.readyState,
+    status.policyMode,
+    status.decisionStyle
   );
 }
 
@@ -1008,6 +1028,8 @@ export function selectTurnStage(
     externalAiAttemptCount: null,
     externalAiAttemptLimit: null,
     externalAiReadyState: "-",
+    externalAiPolicyMode: "-",
+    externalAiDecisionStyle: "-",
     progressTrail: [],
   };
 
@@ -1036,14 +1058,14 @@ export function selectTurnStage(
     ...fallback,
     turnStartSeq: startMessage.seq,
     actorPlayerId,
-    actor: actorPlayerId === null ? "-" : `P${actorPlayerId}`,
+    actor: actorPlayerId === null ? "-" : playerLabel(actorPlayerId, text),
     round: roundTurn.round,
     turn: roundTurn.turn,
     character: asString(startMessage.payload["character"] ?? startMessage.payload["actor_name"]),
     currentBeatKind: "system",
     focusTileIndex: null,
     currentBeatLabel: eventLabelForCode("turn_start", text.eventLabel),
-    currentBeatDetail: actorPlayerId === null ? "-" : text.turnStage.turnStartDetail(`P${actorPlayerId}`),
+    currentBeatDetail: actorPlayerId === null ? "-" : text.turnStage.turnStartDetail(playerLabel(actorPlayerId, text)),
   };
   const trail: string[] = [eventLabelForCode("turn_start", text.eventLabel)];
 
@@ -1086,6 +1108,12 @@ export function selectTurnStage(
     }
     if (status.readyState !== "-") {
       model.externalAiReadyState = status.readyState;
+    }
+    if (status.policyMode !== "-") {
+      model.externalAiPolicyMode = status.policyMode;
+    }
+    if (status.decisionStyle !== "-") {
+      model.externalAiDecisionStyle = status.decisionStyle;
     }
   };
 

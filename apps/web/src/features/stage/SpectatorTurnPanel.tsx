@@ -62,6 +62,8 @@ function hasWorkerStatus(model: TurnStageViewModel): boolean {
     hasValue(model.externalAiFallbackMode) ||
     hasValue(model.externalAiResolutionStatus) ||
     model.externalAiReadyState !== "-" ||
+    hasValue(model.externalAiPolicyMode) ||
+    hasValue(model.externalAiDecisionStyle) ||
     model.externalAiAttemptCount !== null ||
     model.externalAiAttemptLimit !== null
   );
@@ -114,7 +116,9 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     model.externalAiFallbackMode,
     model.externalAiAttemptCount,
     model.externalAiAttemptLimit,
-    model.externalAiReadyState
+    model.externalAiReadyState,
+    model.externalAiPolicyMode,
+    model.externalAiDecisionStyle
   );
   const workerStatusDetail = stream.workerStatusDetail(
     turnStage.workerStatusLabel(model.externalAiResolutionStatus),
@@ -123,7 +127,9 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     model.externalAiFallbackMode,
     model.externalAiAttemptCount,
     model.externalAiAttemptLimit,
-    model.externalAiReadyState
+    model.externalAiReadyState,
+    model.externalAiPolicyMode,
+    model.externalAiDecisionStyle
   );
   const payoffTitle =
     latestActionTone === "economy"

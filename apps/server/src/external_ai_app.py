@@ -30,10 +30,12 @@ class ExternalAiDecisionResponse(BaseModel):
     choice_payload: dict | None = None
     worker_id: str = Field(..., min_length=1)
     policy_mode: str = Field(..., min_length=1)
+    decision_style: str = Field(..., min_length=1)
     policy_class: str = Field(..., min_length=1)
     worker_contract_version: str = Field(default="v1", min_length=1)
     capabilities: list[str] = Field(default_factory=list)
     supported_request_types: list[str] = Field(default_factory=list)
+    supported_transports: list[str] = Field(default_factory=list)
     required_capabilities: list[str] = Field(default_factory=list)
     ready: bool | None = None
 

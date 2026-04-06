@@ -593,6 +593,8 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
             "external_ai_ready_state": "-",
             "external_ai_attempt_count": 0,
             "external_ai_attempt_limit": effective_attempt_count,
+            "external_ai_policy_mode": "-",
+            "external_ai_decision_style": "-",
         }
 
         def _resolve_via_sender(public_context: dict[str, object]):
@@ -612,6 +614,12 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
                         worker_id = str(health.get("worker_id") or "").strip()
                         if worker_id:
                             public_context["external_ai_worker_id"] = worker_id
+                        policy_mode = str(health.get("policy_mode") or "").strip()
+                        if policy_mode:
+                            public_context["external_ai_policy_mode"] = policy_mode
+                        decision_style = str(health.get("decision_style") or "").strip()
+                        if decision_style:
+                            public_context["external_ai_decision_style"] = decision_style
                     response = self._sender(envelope) if self._sender is not None else _default_external_ai_http_sender(envelope)
                     if not isinstance(response, dict):
                         raise ValueError("external_ai_response_not_object")
@@ -625,6 +633,12 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
                     worker_id = str(response.get("worker_id") or "").strip()
                     if worker_id:
                         public_context["external_ai_worker_id"] = worker_id
+                    policy_mode = str(response.get("policy_mode") or "").strip()
+                    if policy_mode:
+                        public_context["external_ai_policy_mode"] = policy_mode
+                    decision_style = str(response.get("decision_style") or "").strip()
+                    if decision_style:
+                        public_context["external_ai_decision_style"] = decision_style
                     choice_id = response.get("choice_id")
                     if not isinstance(choice_id, str) or not choice_id.strip():
                         raise ValueError("external_ai_missing_choice_id")

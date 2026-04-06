@@ -321,6 +321,26 @@ export const enLocale = {
       detail: (interval: number, dropCount: number) => `interval ${interval}ms / drop ${dropCount}`,
       interval: (interval: string) => `interval ${interval}`,
     },
+    playerLabel: (playerId: number | string) => `P${playerId}`,
+    readyStateLabel: (readyState: string) => {
+      if (readyState === "ready") {
+        return "state ready";
+      }
+      if (readyState === "not_ready") {
+        return "state not_ready";
+      }
+      return `state ${readyState}`;
+    },
+    workerModeSummary: (policyMode?: string, decisionStyle?: string) => {
+      const parts: string[] = [];
+      if (policyMode && policyMode !== "-") {
+        parts.push(`mode ${policyMode}`);
+      }
+      if (decisionStyle && decisionStyle !== "-") {
+        parts.push(`style ${decisionStyle}`);
+      }
+      return parts.length > 0 ? parts.join(" / ") : "-";
+    },
     actorDetail: (actor: string, detail: string) => `${actor} / ${detail}`,
     promptDetail: (actor: string, promptLabel: string) => `${actor} / ${promptLabel}`,
     decisionRequestedDetail: (
@@ -353,7 +373,9 @@ export const enLocale = {
       failureCode?: string,
       fallbackMode?: string,
       attemptCount?: number | null,
-      attemptLimit?: number | null
+      attemptLimit?: number | null,
+      policyMode?: string,
+      decisionStyle?: string
     ) => {
       const parts = ["Timeout fallback"];
       if (summary && summary !== "-") {
@@ -371,6 +393,10 @@ export const enLocale = {
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `attempt ${attemptCount}/${attemptLimit}` : `attempt ${attemptCount}`);
       }
+      const modeSummary = enLocale.stream.workerModeSummary(policyMode, decisionStyle);
+      if (modeSummary !== "-") {
+        parts.push(modeSummary);
+      }
       return parts.join(" / ");
     },
     workerStatusDetail: (
@@ -380,14 +406,16 @@ export const enLocale = {
       fallbackMode?: string,
       attemptCount?: number | null,
       attemptLimit?: number | null,
-      readyState?: string
+      readyState?: string,
+      policyMode?: string,
+      decisionStyle?: string
     ) => {
       const parts: string[] = [];
       if (workerLabel && workerLabel !== "-") {
         parts.push(workerLabel);
       }
       if (readyState && readyState !== "-") {
-        parts.push(readyState === "ready" ? "state ready" : readyState === "not_ready" ? "state not_ready" : `state ${readyState}`);
+        parts.push(enLocale.stream.readyStateLabel(readyState));
       }
       if (workerId && workerId !== "-") {
         parts.push(`worker ${workerId}`);
@@ -400,6 +428,10 @@ export const enLocale = {
       }
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `attempt ${attemptCount}/${attemptLimit}` : `attempt ${attemptCount}`);
+      }
+      const modeSummary = enLocale.stream.workerModeSummary(policyMode, decisionStyle);
+      if (modeSummary !== "-") {
+        parts.push(modeSummary);
       }
       return parts.length > 0 ? parts.join(" / ") : "-";
     },
@@ -572,7 +604,9 @@ export const enLocale = {
       fallbackMode?: string,
       attemptCount?: number | null,
       attemptLimit?: number | null,
-      readyState?: string
+      readyState?: string,
+      policyMode?: string,
+      decisionStyle?: string
     ) => {
       const parts: string[] = [];
       const label = status && status !== "-" ? enLocale.turnStage.workerStatusLabel(status) : "";
@@ -580,7 +614,7 @@ export const enLocale = {
         parts.push(label);
       }
       if (readyState && readyState !== "-") {
-        parts.push(readyState === "ready" ? "state ready" : readyState === "not_ready" ? "state not_ready" : `state ${readyState}`);
+        parts.push(enLocale.stream.readyStateLabel(readyState));
       }
       if (workerId && workerId !== "-") {
         parts.push(`worker ${workerId}`);
@@ -593,6 +627,10 @@ export const enLocale = {
       }
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `attempt ${attemptCount}/${attemptLimit}` : `attempt ${attemptCount}`);
+      }
+      const modeSummary = enLocale.stream.workerModeSummary(policyMode, decisionStyle);
+      if (modeSummary !== "-") {
+        parts.push(modeSummary);
       }
       return parts.length > 0 ? parts.join(" / ") : "-";
     },

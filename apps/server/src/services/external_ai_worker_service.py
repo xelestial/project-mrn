@@ -297,6 +297,8 @@ class ExternalAiWorkerService:
             "worker_contract_version": metadata["worker_contract_version"],
             "capabilities": metadata["capabilities"],
             "supported_request_types": metadata["supported_request_types"],
+            "supported_transports": metadata["supported_transports"],
+            "decision_style": metadata["decision_style"],
             "required_capabilities": list(required_capabilities),
             "ready": metadata.get("ready"),
         }

@@ -716,3 +716,20 @@ This is the practical next-work list after the closed slices above.
      - fortune / purchase / rent scene payoff
      - specialized prompt simplification
      - provider-local drift reduction before typed `DecisionPort` cleanup
+
+### 2026-04-07 Progress Update (worker metadata surfaced through stage continuity)
+
+- Selector-stage surfaces now keep external worker metadata readable through the same localized status seam:
+  - `external_ai_policy_mode`
+  - `external_ai_decision_style`
+  - `external_ai_ready_state`
+  - `external_ai_attempt_count` / `external_ai_attempt_limit`
+- The HTTP worker transport now records policy/style metadata into canonical `public_context` when the worker advertises them.
+- Browser coverage now includes a longer mixed-seat chain that keeps worker mode visibility readable across:
+  - worker success
+  - local fallback
+  - payoff continuity
+- Therefore the next immediate execution order is:
+  1. only adjust remaining visual drift when new evidence appears
+  2. keep shrinking any final selector-local phrasing remnants
+  3. use the surfaced worker metadata seam when replacing the reference worker with a stronger service

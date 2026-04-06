@@ -822,6 +822,67 @@ class RuntimeServiceTests(unittest.TestCase):
         )
         self.assertEqual(gateway.calls[0]["public_context"]["external_ai_resolution_status"], "resolved_by_local_fallback")
 
+    def test_http_external_transport_surfaces_worker_policy_metadata(self) -> None:
+        from apps.server.src.services.runtime_service import _HttpExternalAiTransport
+
+        class _FakeAiPolicy:
+            def choose_pabal_dice_mode(self, state, player):  # noqa: ANN001
+                del state, player
+                return "minus_one"
+
+        class _FakeGateway:
+            def __init__(self) -> None:
+                self.calls: list[dict] = []
+
+            def resolve_ai_decision(self, **kwargs):  # noqa: ANN003
+                self.calls.append(kwargs)
+                return kwargs["resolver"]()
+
+        gateway = _FakeGateway()
+        transport = _HttpExternalAiTransport(
+            session_id="sess_http_policy_metadata",
+            ai_fallback=_FakeAiPolicy(),
+            gateway=gateway,  # type: ignore[arg-type]
+            seat=2,
+            config={
+                "transport": "http",
+                "endpoint": "http://bot-worker.local/decide",
+                "fallback_mode": "local_ai",
+            },
+            healthchecker=lambda _config: {
+                "ok": True,
+                "ready": True,
+                "worker_id": "bot-worker-1",
+                "worker_contract_version": "v1",
+                "capabilities": ["choice_id_response"],
+                "supported_request_types": ["pabal_dice_mode"],
+                "supported_transports": ["http"],
+                "policy_mode": "heuristic_v3_gpt",
+                "decision_style": "contract_heuristic",
+            },
+            sender=lambda _envelope: {
+                "choice_id": "plus_one",
+                "worker_id": "bot-worker-1",
+                "policy_mode": "heuristic_v3_gpt",
+                "decision_style": "contract_heuristic",
+                "supported_transports": ["http"],
+            },
+        )
+        state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+        player = type("Player", (), {"player_id": 1, "cash": 5, "position": 9, "shards": 1})()
+        call = build_routed_decision_call(
+            build_decision_invocation("choose_pabal_dice_mode", (state, player), {}),
+            fallback_policy="ai",
+        )
+
+        result = transport.resolve(call)
+
+        self.assertEqual(result, "plus_one")
+        public_context = gateway.calls[0]["public_context"]
+        self.assertEqual(public_context["external_ai_policy_mode"], "heuristic_v3_gpt")
+        self.assertEqual(public_context["external_ai_decision_style"], "contract_heuristic")
+        self.assertEqual(public_context["external_ai_resolution_status"], "resolved_by_worker")
+
     def test_http_external_transport_falls_back_when_worker_policy_metadata_mismatches(self) -> None:
         from apps.server.src.services.runtime_service import _HttpExternalAiTransport
 

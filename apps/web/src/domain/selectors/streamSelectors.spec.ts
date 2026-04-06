@@ -116,6 +116,8 @@ describe("streamSelectors", () => {
             external_ai_worker_id: "prod-bot-1",
             external_ai_resolution_status: "resolved_by_worker",
             external_ai_ready_state: "ready",
+            external_ai_policy_mode: "heuristic_v3_gpt",
+            external_ai_decision_style: "contract_heuristic",
           },
         },
       },
@@ -133,13 +135,16 @@ describe("streamSelectors", () => {
             external_ai_worker_id: "prod-bot-1",
             external_ai_resolution_status: "resolved_by_worker",
             external_ai_ready_state: "ready",
+            external_ai_policy_mode: "heuristic_v3_gpt",
+            external_ai_decision_style: "contract_heuristic",
           },
         },
       },
     ]);
 
     expect(timeline[0].detail).toContain("외부 worker 처리 완료");
-    expect(timeline[0].detail).toContain("상태 ready");
+    expect(timeline[0].detail).toContain("상태 준비됨");
+    expect(timeline[0].detail).toContain("모드 heuristic_v3_gpt");
     expect(timeline[1].detail).toContain("10번 칸");
     expect(timeline[1].detail).toContain("선택지 2개");
   });
@@ -869,6 +874,8 @@ describe("streamSelectors", () => {
             external_ai_attempt_count: 3,
             external_ai_attempt_limit: 4,
             external_ai_ready_state: "not_ready",
+            external_ai_policy_mode: "heuristic_v3_gpt",
+            external_ai_decision_style: "contract_heuristic",
           },
         },
       },
@@ -884,6 +891,8 @@ describe("streamSelectors", () => {
     expect(stage.externalAiAttemptCount).toBe(3);
     expect(stage.externalAiAttemptLimit).toBe(4);
     expect(stage.externalAiReadyState).toBe("not_ready");
+    expect(stage.externalAiPolicyMode).toBe("heuristic_v3_gpt");
+    expect(stage.externalAiDecisionStyle).toBe("contract_heuristic");
     expect(stage.externalAiResolutionStatus).toBe("-");
     expect(stage.progressTrail).toContain("시간 초과 기본 처리");
     expect(stage.promptSummary).toContain("시도 3/4");
@@ -920,6 +929,8 @@ describe("streamSelectors", () => {
             external_ai_attempt_count: 1,
             external_ai_attempt_limit: 2,
             external_ai_ready_state: "ready",
+            external_ai_policy_mode: "heuristic_v3_gpt",
+            external_ai_decision_style: "contract_heuristic",
           },
         },
       },
@@ -930,8 +941,10 @@ describe("streamSelectors", () => {
     expect(stage.externalAiAttemptCount).toBe(1);
     expect(stage.externalAiAttemptLimit).toBe(2);
     expect(stage.externalAiReadyState).toBe("ready");
+    expect(stage.externalAiPolicyMode).toBe("heuristic_v3_gpt");
+    expect(stage.externalAiDecisionStyle).toBe("contract_heuristic");
     expect(stage.promptSummary).toContain("외부 worker 처리 완료");
-    expect(stage.promptSummary).toContain("상태 ready");
+    expect(stage.promptSummary).toContain("상태 준비됨");
   });
 
   it("keeps canonical request context visible inside the current turn stage decision beat", () => {

@@ -185,3 +185,5 @@ Useful runtime status values surfaced into prompt/event `public_context`:
 - `external_ai_resolution_status=resolved_by_local_fallback`
 - `external_ai_attempt_count=<n>`
 - `external_ai_attempt_limit=<n>`
+- `external_ai_policy_mode=<worker-policy-mode>`
+- `external_ai_decision_style=<worker-decision-style>`

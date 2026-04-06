@@ -55,6 +55,8 @@ function hasWorkerStatus(model: TurnStageViewModel): boolean {
     hasMeaningfulValue(model.externalAiFallbackMode) ||
     hasMeaningfulValue(model.externalAiResolutionStatus) ||
     model.externalAiReadyState !== "-" ||
+    hasMeaningfulValue(model.externalAiPolicyMode) ||
+    hasMeaningfulValue(model.externalAiDecisionStyle) ||
     model.externalAiAttemptCount !== null ||
     model.externalAiAttemptLimit !== null
   );
@@ -84,7 +86,9 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
       model.externalAiFallbackMode,
       model.externalAiAttemptCount,
       model.externalAiAttemptLimit,
-      model.externalAiReadyState
+      model.externalAiReadyState,
+      model.externalAiPolicyMode,
+      model.externalAiDecisionStyle
     )
   );
   const sceneCardCandidates: Array<SceneCard | null> = [
@@ -111,7 +115,9 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
             model.externalAiFallbackMode,
             model.externalAiAttemptCount,
             model.externalAiAttemptLimit,
-            model.externalAiReadyState
+            model.externalAiReadyState,
+            model.externalAiPolicyMode,
+            model.externalAiDecisionStyle
           )),
           detail: workerStatusDetail,
           tone: "effect",

@@ -326,6 +326,26 @@ export const koLocale = {
       detail: (interval: number, dropCount: number) => `간격 ${interval}ms / 누락 ${dropCount}`,
       interval: (interval: string) => `간격 ${interval}`,
     },
+    playerLabel: (playerId: number | string) => `P${playerId}`,
+    readyStateLabel: (readyState: string) => {
+      if (readyState === "ready") {
+        return "상태 준비됨";
+      }
+      if (readyState === "not_ready") {
+        return "상태 준비 안 됨";
+      }
+      return `상태 ${readyState}`;
+    },
+    workerModeSummary: (policyMode?: string, decisionStyle?: string) => {
+      const parts: string[] = [];
+      if (policyMode && policyMode !== "-") {
+        parts.push(`모드 ${policyMode}`);
+      }
+      if (decisionStyle && decisionStyle !== "-") {
+        parts.push(`스타일 ${decisionStyle}`);
+      }
+      return parts.length > 0 ? parts.join(" / ") : "-";
+    },
     actorDetail: (actor: string, detail: string) => `${actor} / ${detail}`,
     promptDetail: (actor: string, promptLabel: string) => `${actor} / ${promptLabel}`,
     decisionRequestedDetail: (
@@ -358,7 +378,9 @@ export const koLocale = {
       failureCode?: string,
       fallbackMode?: string,
       attemptCount?: number | null,
-      attemptLimit?: number | null
+      attemptLimit?: number | null,
+      policyMode?: string,
+      decisionStyle?: string
     ) => {
       const parts = ["시간 초과 기본 처리"];
       if (summary && summary !== "-") {
@@ -376,6 +398,10 @@ export const koLocale = {
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `시도 ${attemptCount}/${attemptLimit}` : `시도 ${attemptCount}회`);
       }
+      const modeSummary = koLocale.stream.workerModeSummary(policyMode, decisionStyle);
+      if (modeSummary !== "-") {
+        parts.push(modeSummary);
+      }
       return parts.join(" / ");
     },
     workerStatusDetail: (
@@ -385,14 +411,16 @@ export const koLocale = {
       fallbackMode?: string,
       attemptCount?: number | null,
       attemptLimit?: number | null,
-      readyState?: string
+      readyState?: string,
+      policyMode?: string,
+      decisionStyle?: string
     ) => {
       const parts: string[] = [];
       if (workerLabel && workerLabel !== "-") {
         parts.push(workerLabel);
       }
       if (readyState && readyState !== "-") {
-        parts.push(readyState === "ready" ? "상태 ready" : readyState === "not_ready" ? "상태 not_ready" : `상태 ${readyState}`);
+        parts.push(koLocale.stream.readyStateLabel(readyState));
       }
       if (workerId && workerId !== "-") {
         parts.push(`worker ${workerId}`);
@@ -405,6 +433,10 @@ export const koLocale = {
       }
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `시도 ${attemptCount}/${attemptLimit}` : `시도 ${attemptCount}회`);
+      }
+      const modeSummary = koLocale.stream.workerModeSummary(policyMode, decisionStyle);
+      if (modeSummary !== "-") {
+        parts.push(modeSummary);
       }
       return parts.length > 0 ? parts.join(" / ") : "-";
     },
@@ -577,7 +609,9 @@ export const koLocale = {
       fallbackMode?: string,
       attemptCount?: number | null,
       attemptLimit?: number | null,
-      readyState?: string
+      readyState?: string,
+      policyMode?: string,
+      decisionStyle?: string
     ) => {
       const parts: string[] = [];
       const label = status && status !== "-" ? koLocale.turnStage.workerStatusLabel(status) : "";
@@ -585,7 +619,7 @@ export const koLocale = {
         parts.push(label);
       }
       if (readyState && readyState !== "-") {
-        parts.push(readyState === "ready" ? "상태 ready" : readyState === "not_ready" ? "상태 not_ready" : `상태 ${readyState}`);
+        parts.push(koLocale.stream.readyStateLabel(readyState));
       }
       if (workerId && workerId !== "-") {
         parts.push(`worker ${workerId}`);
@@ -598,6 +632,10 @@ export const koLocale = {
       }
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `시도 ${attemptCount}/${attemptLimit}` : `시도 ${attemptCount}회`);
+      }
+      const modeSummary = koLocale.stream.workerModeSummary(policyMode, decisionStyle);
+      if (modeSummary !== "-") {
+        parts.push(modeSummary);
       }
       return parts.length > 0 ? parts.join(" / ") : "-";
     },

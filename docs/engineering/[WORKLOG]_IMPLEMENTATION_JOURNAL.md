@@ -2677,3 +2677,23 @@ Updated: 2026-04-07
   - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts`
   - `cd apps/web && npm run build`
   - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
+
+## 2026-04-07 Worker Metadata Surfaced Through Localized Stage Flows
+
+- What changed:
+  - Web:
+    - `apps/web/src/domain/selectors/streamSelectors.ts` now keeps worker `policy_mode` / `decision_style` alongside ready-state and attempt data inside the current-turn model
+    - stage/spectator worker summaries now compose those details through locale-owned helpers instead of selector-local string fragments
+    - player labels inside the stream selector path now prefer locale-owned formatting helpers over direct `P${id}` joins
+    - the longer mixed-seat browser scenario now asserts worker mode visibility remains readable through a worker-success -> fallback chain
+  - Server:
+    - `apps/server/src/services/runtime_service.py` now persists worker-advertised `policy_mode` / `decision_style` into canonical decision `public_context`
+    - `apps/server/src/services/external_ai_worker_service.py` now echoes `decision_style` and `supported_transports` on `/decide` responses, matching `/health`
+- Why:
+  - the remaining selector locale-ownership drift had narrowed to small participant/worker formatting joins
+  - the next stronger-worker replacement step needed the runtime to preserve more provenance than just worker id and failure code
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_runtime_service.py`
+  - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts`
+  - `cd apps/web && npm run build`
+  - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`

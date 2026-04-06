@@ -148,6 +148,9 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         self.assertEqual(payload["worker_id"], "worker-api-test")
         self.assertTrue(payload["ready"])
         self.assertEqual(payload["worker_contract_version"], "v1")
+        self.assertEqual(payload["policy_mode"], "heuristic_v3_gpt")
+        self.assertEqual(payload["decision_style"], "contract_heuristic")
+        self.assertEqual(payload["supported_transports"], ["http"])
         self.assertIn("healthcheck", payload["capabilities"])
 
     def test_decide_handles_mark_target_contract(self) -> None:
