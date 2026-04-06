@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from apps.server.src.core.error_payload import build_error_payload
-from apps.server.src.domain.session_models import SeatConfig, SeatType, SessionStatus
+from apps.server.src.domain.session_models import ParticipantClientType, SeatConfig, SeatType, SessionStatus
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.decision_gateway import (
     DecisionGateway,
@@ -330,17 +330,28 @@ class _ServerDecisionPolicyBridge:
             fallback_executor=fallback_executor,
         )
         factory = client_factory or _ServerDecisionClientFactory()
-        self._ai_client = factory.create_ai_client(ai_fallback=ai_fallback, gateway=self._gateway)
         self._human_client = factory.create_human_client(
             human_seats=human_seats,
             ai_fallback=ai_fallback,
             gateway=self._gateway,
         )
+        default_ai_client = factory.create_ai_client(ai_fallback=ai_fallback, gateway=self._gateway)
+        if hasattr(factory, "create_participant_clients"):
+            self._participant_clients = factory.create_participant_clients(
+                session_seats=session_seats or [],
+                human_client=self._human_client,
+                ai_fallback=ai_fallback,
+                gateway=self._gateway,
+            )
+        else:
+            self._participant_clients = {}
+        self._ai_client = self._participant_clients.get("__default_ai__") or default_ai_client
         self._router = _ServerDecisionClientRouter(
             session_seats=session_seats,
             human_seats=human_seats,
             human_client=self._human_client,
             ai_client=self._ai_client,
+            participant_clients=self._participant_clients,
         )
         self._inner = self._human_client.policy if self._human_client is not None else None
 
@@ -397,6 +408,37 @@ class _LocalAiDecisionClient:
         )
 
 
+class _ExternalAiDecisionClientPlaceholder:
+    """Compatibility adapter for future external AI participants.
+
+    Current implementation still resolves through the local AI gateway path,
+    but preserves an explicit client boundary and seat-specific descriptor/config.
+    """
+
+    def __init__(self, *, ai_fallback, gateway: DecisionGateway, seat: int, config: dict[str, object] | None = None) -> None:
+        self.policy = ai_fallback
+        self._gateway = gateway
+        self._seat = int(seat)
+        self._config = dict(config or {})
+
+    def resolve(self, call):
+        ai_callable = getattr(self.policy, call.invocation.method_name)
+        request = call.request
+        public_context = dict(request.public_context)
+        public_context.setdefault("participant_client", ParticipantClientType.EXTERNAL_AI.value)
+        public_context.setdefault("participant_seat", self._seat)
+        if self._config:
+            public_context.setdefault("participant_config", dict(self._config))
+        player_id = int(request.player_id if request.player_id is not None else -1) + 1
+        return self._gateway.resolve_ai_decision(
+            request_type=request.request_type,
+            player_id=player_id,
+            public_context=public_context,
+            resolver=lambda: ai_callable(*call.invocation.args, **call.invocation.kwargs),
+            choice_serializer=call.choice_serializer,
+        )
+
+
 class _LocalHumanDecisionClient:
     def __init__(self, *, human_seats: list[int], ai_fallback, gateway: DecisionGateway) -> None:
         if not human_seats:
@@ -439,6 +481,7 @@ class _ServerDecisionClientRouter:
         human_seats: list[int] | None = None,
         human_client: _LocalHumanDecisionClient,
         ai_client: _LocalAiDecisionClient,
+        participant_clients: dict[object, object] | None = None,
     ) -> None:
         self._seat_types_by_player_id: dict[int, SeatType] = {}
         if session_seats:
@@ -453,6 +496,7 @@ class _ServerDecisionClientRouter:
             }
         self._human_client = human_client
         self._ai_client = ai_client
+        self._participant_clients = dict(participant_clients or {})
 
     def attribute_target(self, name: str):
         human_policy = self._human_client.policy
@@ -462,6 +506,8 @@ class _ServerDecisionClientRouter:
 
     def client_for_call(self, call):
         player_id = call.request.player_id
+        if isinstance(player_id, int) and player_id in self._participant_clients:
+            return self._participant_clients[player_id]
         if self.seat_type_for_player_id(player_id) == SeatType.HUMAN and self._human_client.policy is not None:
             return self._human_client
         return self._ai_client
@@ -482,6 +528,27 @@ class _ServerDecisionClientFactory:
             ai_fallback=ai_fallback,
             gateway=gateway,
         )
+
+    def create_participant_clients(self, *, session_seats: list[SeatConfig], human_client, ai_fallback, gateway: DecisionGateway):
+        clients: dict[object, object] = {}
+        default_ai_client = self.create_ai_client(ai_fallback=ai_fallback, gateway=gateway)
+        clients["__default_ai__"] = default_ai_client
+        for seat in session_seats:
+            player_id = max(0, int(seat.seat) - 1)
+            participant_client = seat.participant_client
+            if seat.seat_type == SeatType.HUMAN:
+                clients[player_id] = human_client
+                continue
+            if participant_client == ParticipantClientType.EXTERNAL_AI:
+                clients[player_id] = _ExternalAiDecisionClientPlaceholder(
+                    ai_fallback=ai_fallback,
+                    gateway=gateway,
+                    seat=seat.seat,
+                    config=seat.participant_config,
+                )
+                continue
+            clients[player_id] = default_ai_client
+        return clients
 
 
 class _FanoutVisEventStream:

@@ -4,7 +4,14 @@ import secrets
 import uuid
 from dataclasses import asdict
 
-from apps.server.src.domain.session_models import SeatConfig, SeatType, Session, SessionStatus, utc_now_iso
+from apps.server.src.domain.session_models import (
+    ParticipantClientType,
+    SeatConfig,
+    SeatType,
+    Session,
+    SessionStatus,
+    utc_now_iso,
+)
 from apps.server.src.services.parameter_service import (
     GameParameterResolver,
     ParameterValidationError,
@@ -203,13 +210,33 @@ class SessionService:
             if seat_type not in (SeatType.HUMAN.value, SeatType.AI.value):
                 raise SessionStateError("invalid_seat_type")
             ai_profile = raw.get("ai_profile")
+            participant_client_raw = raw.get("participant_client")
+            participant_config = raw.get("participant_config")
             if seat_type == SeatType.HUMAN.value and ai_profile:
                 raise SessionStateError("human_seat_cannot_have_ai_profile")
+            if participant_client_raw is not None:
+                participant_client_value = str(participant_client_raw).strip().lower()
+            elif seat_type == SeatType.HUMAN.value:
+                participant_client_value = ParticipantClientType.HUMAN_HTTP.value
+            else:
+                participant_client_value = ParticipantClientType.LOCAL_AI.value
+            try:
+                participant_client = ParticipantClientType(participant_client_value)
+            except ValueError as exc:
+                raise SessionStateError("invalid_participant_client") from exc
+            if seat_type == SeatType.HUMAN.value and participant_client != ParticipantClientType.HUMAN_HTTP:
+                raise SessionStateError("human_seat_invalid_participant_client")
+            if seat_type == SeatType.AI.value and participant_client == ParticipantClientType.HUMAN_HTTP:
+                raise SessionStateError("ai_seat_invalid_participant_client")
+            if participant_config is not None and not isinstance(participant_config, dict):
+                raise SessionStateError("invalid_participant_config")
             result.append(
                 SeatConfig(
                     seat=seat,
                     seat_type=SeatType(seat_type),
                     ai_profile=str(ai_profile) if ai_profile is not None else None,
+                    participant_client=participant_client,
+                    participant_config=dict(participant_config or {}),
                 )
             )
         result.sort(key=lambda s: s.seat)
@@ -257,6 +284,8 @@ class SessionService:
                     "seat": seat.seat,
                     "seat_type": seat.seat_type.value,
                     "ai_profile": seat.ai_profile,
+                    "participant_client": seat.participant_client.value if seat.participant_client is not None else None,
+                    "participant_config": dict(seat.participant_config),
                     "player_id": seat.player_id,
                     "connected": seat.connected,
                 }
@@ -288,6 +317,8 @@ class SessionService:
                     seat=int(item.get("seat", 0)),
                     seat_type=seat_type,
                     ai_profile=item.get("ai_profile"),
+                    participant_client=ParticipantClientType(str(item.get("participant_client", ParticipantClientType.HUMAN_HTTP.value if seat_type == SeatType.HUMAN else ParticipantClientType.LOCAL_AI.value))),
+                    participant_config=dict(item.get("participant_config", {})),
                     player_id=int(item["player_id"]) if item.get("player_id") is not None else None,
                     connected=bool(item.get("connected", False)),
                 )

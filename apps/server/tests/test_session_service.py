@@ -101,6 +101,33 @@ class SessionServiceTests(unittest.TestCase):
         all_ai = self.service.create_session(_all_ai_seats())
         self.assertTrue(self.service.is_all_ai(all_ai.session_id))
 
+    def test_ai_seat_can_declare_external_participant_client(self) -> None:
+        session = self.service.create_session(
+            [
+                {
+                    "seat": 1,
+                    "seat_type": "ai",
+                    "ai_profile": "balanced",
+                    "participant_client": "external_ai",
+                    "participant_config": {"endpoint": "local://bot-worker-1"},
+                },
+                {"seat": 2, "seat_type": "human"},
+            ]
+        )
+
+        ai_seat = session.seats[0]
+        self.assertEqual(ai_seat.participant_client.value, "external_ai")
+        self.assertEqual(ai_seat.participant_config["endpoint"], "local://bot-worker-1")
+
+    def test_reject_human_seat_with_non_human_participant_client(self) -> None:
+        with self.assertRaises(SessionStateError):
+            self.service.create_session(
+                [
+                    {"seat": 1, "seat_type": "human", "participant_client": "external_ai"},
+                    {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                ]
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

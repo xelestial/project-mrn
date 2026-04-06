@@ -16,6 +16,8 @@ class SeatInput(BaseModel):
     seat: int = Field(..., ge=1)
     seat_type: str
     ai_profile: str | None = None
+    participant_client: str | None = None
+    participant_config: dict | None = None
 
 
 class CreateSessionRequest(BaseModel):
@@ -184,6 +186,8 @@ async def start_session(
                     "player_id": seat.player_id,
                     "seat_type": seat.seat_type.value,
                     "ai_profile": seat.ai_profile,
+                    "participant_client": seat.participant_client.value if seat.participant_client is not None else None,
+                    "participant_config": dict(seat.participant_config),
                 }
                 for seat in session.seats
             ],

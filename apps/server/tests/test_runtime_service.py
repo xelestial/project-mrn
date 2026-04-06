@@ -200,6 +200,37 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(router.client_for_call(human_call).resolve(human_call), ("human", 0))
         self.assertEqual(router.client_for_call(ai_call).resolve(ai_call), ("ai", 1))
 
+    def test_client_factory_builds_external_ai_placeholder_per_seat_descriptor(self) -> None:
+        from apps.server.src.domain.session_models import ParticipantClientType, SeatConfig, SeatType
+        from apps.server.src.services.runtime_service import _ExternalAiDecisionClientPlaceholder, _ServerDecisionClientFactory
+
+        gateway = object()
+        human_client = object()
+        factory = _ServerDecisionClientFactory()
+        participants = factory.create_participant_clients(
+            session_seats=[
+                SeatConfig(
+                    seat=1,
+                    seat_type=SeatType.AI,
+                    ai_profile="balanced",
+                    participant_client=ParticipantClientType.EXTERNAL_AI,
+                    participant_config={"endpoint": "local://bot-worker-1"},
+                ),
+                SeatConfig(
+                    seat=2,
+                    seat_type=SeatType.HUMAN,
+                    participant_client=ParticipantClientType.HUMAN_HTTP,
+                ),
+            ],
+            human_client=human_client,
+            ai_fallback=object(),
+            gateway=gateway,  # type: ignore[arg-type]
+        )
+
+        self.assertIs(participants[1], human_client)
+        self.assertIsInstance(participants[0], _ExternalAiDecisionClientPlaceholder)
+        self.assertEqual(participants[0]._config["endpoint"], "local://bot-worker-1")
+
     def test_build_decision_invocation_captures_method_and_player_identity(self) -> None:
         player = type("Player", (), {"player_id": 2, "cash": 11})()
         state = type("State", (), {"rounds_completed": 1})()

@@ -190,6 +190,7 @@ This is the practical next-work list after the closed slices above.
   4. move the runtime toward the open-participant model:
      - local AI stays as a decision-client adapter
      - external AI client can later mount on the same seam
+     - session seat descriptors now already preserve participant intent (`human_http` / `local_ai` / `external_ai`)
 
 ## 2026-04-05 Concrete Next Steps
 

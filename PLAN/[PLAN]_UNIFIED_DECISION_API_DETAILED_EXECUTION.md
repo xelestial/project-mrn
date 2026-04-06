@@ -522,3 +522,17 @@ P3 종료 조건:
     2. broader frontend request-type coverage
     3. final bridge/router simplification
     4. external AI client promotion on top of the now-explicit local decision-client seam
+
+## 2026-04-07 Progress Update (external AI seat descriptors)
+
+- Added seat-level participant descriptors:
+  - `participant_client`
+  - `participant_config`
+- Session/API/runtime now preserve and consume these descriptors.
+- Current runtime behavior:
+  - `human_http` -> local human decision client
+  - `local_ai` -> local AI decision client
+  - `external_ai` -> explicit external-AI placeholder client adapter
+- Result:
+  - the open-participant model is now represented in persisted session state, not only in internal runtime wiring
+  - the next real step is no longer “invent a place to put external AI”, but “replace the placeholder adapter with a real external worker/client implementation”

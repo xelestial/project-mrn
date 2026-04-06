@@ -190,6 +190,7 @@ Detailed execution: [PLAN/[PLAN]_UNIFIED_DECISION_API_DETAILED_EXECUTION.md](/C:
 - local AI는 서버 내부 특례가 아니라 local client adapter로 유지
 - 외부 AI client도 동일 contract로 연결 가능하게 경계 고정
 - engine request builder / adapter DI 확대
+- session/seat descriptor가 어떤 participant client가 각 seat를 담당하는지 표현
 
 ---
 

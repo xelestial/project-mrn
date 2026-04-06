@@ -17,6 +17,12 @@ class SeatType(str, Enum):
     AI = "ai"
 
 
+class ParticipantClientType(str, Enum):
+    HUMAN_HTTP = "human_http"
+    LOCAL_AI = "local_ai"
+    EXTERNAL_AI = "external_ai"
+
+
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -26,6 +32,8 @@ class SeatConfig:
     seat: int
     seat_type: SeatType
     ai_profile: str | None = None
+    participant_client: ParticipantClientType | None = None
+    participant_config: dict = field(default_factory=dict)
     player_id: int | None = None
     connected: bool = False
 

@@ -42,6 +42,25 @@ def _all_ai_payload() -> dict:
     }
 
 
+def _external_ai_payload() -> dict:
+    return {
+        "seats": [
+            {
+                "seat": 1,
+                "seat_type": "ai",
+                "ai_profile": "balanced",
+                "participant_client": "external_ai",
+                "participant_config": {"endpoint": "local://bot-worker-1"},
+            },
+            {"seat": 2, "seat_type": "human"},
+        ],
+        "config": {
+            "seed": 42,
+            "seat_limits": {"min": 1, "max": 2, "allowed": [1, 2]},
+        },
+    }
+
+
 def _three_ai_payload() -> dict:
     return {
         "seats": [
@@ -116,6 +135,14 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(runtime.status_code, 200)
         payload = runtime.json()["data"]["runtime"]
         self.assertIn("status", payload)
+
+    def test_create_session_exposes_participant_client_descriptor(self) -> None:
+        created = self.client.post("/api/v1/sessions", json=_external_ai_payload())
+        self.assertEqual(created.status_code, 200)
+        data = created.json()["data"]
+        ai_seat = next(seat for seat in data["seats"] if seat["seat"] == 1)
+        self.assertEqual(ai_seat["participant_client"], "external_ai")
+        self.assertEqual(ai_seat["participant_config"]["endpoint"], "local://bot-worker-1")
 
     def test_get_missing_session_returns_normalized_error_category(self) -> None:
         missing = self.client.get("/api/v1/sessions/sess_missing_404")

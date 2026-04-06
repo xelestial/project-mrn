@@ -2147,3 +2147,27 @@ Updated: 2026-04-04
   - opening request construction DI on the engine side keeps the engine boundary compatible with multiple participant adapters instead of only the current default builder
 - Validation:
   - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py GPT/test_decision_port_contract.py`
+
+## 2026-04-07 External AI Participant Descriptor Hookup
+
+- What changed:
+  - Extended `SeatConfig` with participant-level client metadata:
+    - `participant_client`
+    - `participant_config`
+  - `SessionService` now validates and persists participant descriptors for seats:
+    - human seats default to `human_http`
+    - AI seats default to `local_ai`
+    - AI seats can now explicitly declare `external_ai`
+  - Session HTTP payloads now expose participant descriptors in create/public/start responses.
+  - Runtime client selection now uses seat-level participant descriptors:
+    - local AI seats route to the local AI decision client
+    - `external_ai` seats route to an `_ExternalAiDecisionClientPlaceholder`
+  - The external AI placeholder still resolves through the local gateway today, but it preserves:
+    - explicit participant boundary
+    - seat-specific config
+    - a dedicated upgrade seam for future real external workers/services
+- Why:
+  - the architecture goal is no longer just “AI and humans share similar decision events”; it is “AI can participate through the same kind of open multiplayer boundary”
+  - seat descriptors are the smallest stable way to carry that participant intent from session creation through runtime routing
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_session_service.py apps/server/tests/test_runtime_service.py apps/server/tests/test_sessions_api.py`
