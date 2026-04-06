@@ -8,6 +8,7 @@ export type PayoffSceneItem = {
   actor: string;
   label: string;
   detail: string;
+  headline: string;
   kind: ActionKind;
   eventCode: string;
   phaseLabel: string;
@@ -122,6 +123,7 @@ export function buildPayoffSceneItems(itemsNewestFirst: CoreActionItem[], theate
       actor: item.actor,
       label: item.label,
       detail: item.detail,
+      headline: headlineCoreActionDetail(item, theaterText),
       kind: classifyCoreAction(item, theaterText),
       eventCode: item.eventCode,
       phaseLabel: payoffPhaseLabel(item.eventCode, theaterText),

@@ -19,6 +19,7 @@ class ParameterServiceTests(unittest.TestCase):
     def test_resolve_defaults_has_core_sections(self) -> None:
         resolved = self.resolver.resolve({"seed": 42})
         self.assertIn("seats", resolved)
+        self.assertIn("participants", resolved)
         self.assertIn("board", resolved)
         self.assertIn("dice", resolved)
         self.assertIn("economy", resolved)
@@ -63,6 +64,14 @@ class ParameterServiceTests(unittest.TestCase):
                 "dice_values": [2, 4, 8],
                 "dice_max_cards_per_turn": 1,
                 "labels": {"event_labels": {"player_move": "Move"}},
+                "participants": {
+                    "external_ai": {
+                        "transport": "http",
+                        "endpoint": "http://bot-worker.local/decide",
+                        "timeout_ms": 9000,
+                        "headers": {"Authorization": "Bearer token"},
+                    }
+                },
             }
         )
         self.assertEqual(resolved["runtime"]["player_count"], 2)
@@ -72,7 +81,13 @@ class ParameterServiceTests(unittest.TestCase):
         self.assertEqual(resolved["resources"]["starting_shards"], 7)
         self.assertEqual(resolved["dice"]["values"], [2, 4, 8])
         self.assertEqual(resolved["dice"]["max_cards_per_turn"], 1)
+        self.assertEqual(resolved["participants"]["external_ai"]["transport"], "http")
+        self.assertEqual(resolved["participants"]["external_ai"]["timeout_ms"], 9000)
         self.assertIn("event_labels", resolved["labels"])
+
+    def test_resolve_rejects_invalid_external_ai_transport(self) -> None:
+        with self.assertRaises(ParameterValidationError):
+            self.resolver.resolve({"participants": {"external_ai": {"transport": "grpc"}}})
 
     def test_manifest_hash_changes_for_dice_and_economy_updates(self) -> None:
         base = self.manifest_builder.build_public_manifest(

@@ -208,7 +208,7 @@ class RuntimeServiceTests(unittest.TestCase):
             _ServerDecisionClientFactory,
         )
 
-        gateway = object()
+        gateway = type("Gateway", (), {"_session_id": "sess_loopback"})()
         human_client = object()
         factory = _ServerDecisionClientFactory()
         participants = factory.create_participant_clients(
@@ -218,7 +218,7 @@ class RuntimeServiceTests(unittest.TestCase):
                     seat_type=SeatType.AI,
                     ai_profile="balanced",
                     participant_client=ParticipantClientType.EXTERNAL_AI,
-                    participant_config={"endpoint": "local://bot-worker-1"},
+                    participant_config={"transport": "loopback", "endpoint": "local://bot-worker-1"},
                 ),
                 SeatConfig(
                     seat=2,
@@ -235,6 +235,37 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertIsInstance(participants[0], _ExternalAiDecisionClient)
         self.assertIsInstance(participants[0]._transport, _LoopbackExternalAiTransport)
         self.assertEqual(participants[0]._transport._config["endpoint"], "local://bot-worker-1")
+
+    def test_client_factory_builds_http_external_transport_when_requested(self) -> None:
+        from apps.server.src.domain.session_models import ParticipantClientType, SeatConfig, SeatType
+        from apps.server.src.services.runtime_service import (
+            _ExternalAiDecisionClient,
+            _HttpExternalAiTransport,
+            _ServerDecisionClientFactory,
+        )
+
+        gateway = type("Gateway", (), {"_session_id": "sess_http"})()
+        human_client = object()
+        sender_calls: list[object] = []
+        factory = _ServerDecisionClientFactory(external_ai_sender=lambda envelope: sender_calls.append(envelope) or "minus_one")
+        participants = factory.create_participant_clients(
+            session_seats=[
+                SeatConfig(
+                    seat=1,
+                    seat_type=SeatType.AI,
+                    ai_profile="balanced",
+                    participant_client=ParticipantClientType.EXTERNAL_AI,
+                    participant_config={"transport": "http", "endpoint": "http://bot-worker.local/decide"},
+                )
+            ],
+            human_client=human_client,
+            ai_fallback=object(),
+            gateway=gateway,  # type: ignore[arg-type]
+        )
+
+        self.assertIsInstance(participants[0], _ExternalAiDecisionClient)
+        self.assertIsInstance(participants[0]._transport, _HttpExternalAiTransport)
+        self.assertEqual(participants[0]._transport._config["transport"], "http")
 
     def test_external_ai_transport_enriches_public_context_with_participant_metadata(self) -> None:
         from apps.server.src.services.runtime_service import _LoopbackExternalAiTransport
@@ -254,10 +285,11 @@ class RuntimeServiceTests(unittest.TestCase):
 
         gateway = _FakeGateway()
         transport = _LoopbackExternalAiTransport(
+            session_id="sess_ext_1",
             ai_fallback=_FakeAiPolicy(),
             gateway=gateway,  # type: ignore[arg-type]
             seat=3,
-            config={"endpoint": "local://bot-worker-3"},
+            config={"transport": "loopback", "endpoint": "local://bot-worker-3"},
         )
         state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
         player = type("Player", (), {"player_id": 2, "cash": 5, "position": 9, "shards": 1})()
@@ -271,6 +303,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(result, "minus_one")
         self.assertEqual(gateway.calls[0]["public_context"]["participant_client"], "external_ai")
         self.assertEqual(gateway.calls[0]["public_context"]["participant_seat"], 3)
+        self.assertEqual(gateway.calls[0]["public_context"]["participant_transport"], "loopback")
         self.assertEqual(gateway.calls[0]["public_context"]["participant_config"]["endpoint"], "local://bot-worker-3")
 
     def test_build_decision_invocation_captures_method_and_player_identity(self) -> None:

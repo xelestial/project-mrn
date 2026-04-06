@@ -8,7 +8,7 @@
     5,
     6
   ],
-  "manifest_hash": "aeddcdbf424a86a0194039bb4664595aa7b79c2f04db2371c80f3c377dd8f728",
+  "manifest_hash": "b9b285f1d036b9f79decff539cf7b6e547dfbe256931b242e3752fa845f27074",
   "manifest_version": 1,
   "seat_limits": {
     "allowed": [
@@ -22,12 +22,12 @@
     "min": 2
   },
   "source_fingerprints": {
-    "board_layout": "70ad4fe71087f56bc53e0419e24ddbf5c1075287c41843945dff32fad4d71a6b",
-    "characters": "b73bbf2f667f31e33c58569775c7f486f5b45606e26d47e294fc6ad3f9bd2d4f",
-    "config": "c945aae1cf5b36633098dd35db34b28354a33845bc526dcc4447798e94b5b4ce",
-    "fortune_cards": "e253bdea6573ff9a1968318b21846e184a9419e461cc32d58087cd238d4645d9",
-    "ruleset": "2ff62a10814d538c5d5fe3a1f3f558834e210badff9bcd5a673651344507acc3",
-    "trick_cards": "54d610005ce3494040b4eaec024d7a147b06ccbda0ed5e5667b3662ea2861fee",
-    "weather_cards": "179bbc8e49a6d260b56296354b726b4ac4bd2c9e6af5f9200fa297e8c186b1ed"
+    "board_layout": "235db8e747be4551ae962366a58fa9a65975e3e0475879954849765dfd405562",
+    "characters": "21fc7008b7354ed5a23d238db0b8b4805d999ff57d68686ece7818bb7cd78b64",
+    "config": "9673810ca29d8ec25af560b183c8210a2e642fd6edcf85d9ed3c713943614f49",
+    "fortune_cards": "465536fd3f0cd94ae45c42bfb11df9ba185d56c421a10b0e72decde6cc71190c",
+    "ruleset": "236759d28f43e8893f0b0f99cb1d92fe395886aa4470aad7fdc29680d8c2a616",
+    "trick_cards": "28d2302f16edbde8b452256404c4a422720ea0e0dc4587b4d260946bfeb7060d",
+    "weather_cards": "0e8e30c6540927d01d1388abf724794107f09ad103a25b08c176b035332b6310"
   }
 }

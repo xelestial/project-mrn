@@ -396,6 +396,10 @@ body {
   background: linear-gradient(180deg, rgba(96, 165, 250, 0.12), rgba(18, 34, 66, 0.92));
 }
 
+.spectator-turn-payoff-sequence {
+  margin-top: 12px;
+}
+
 .spectator-turn-card span {
   font-size: 12px;
   color: #9db5df;
@@ -1171,6 +1175,11 @@ body {
   line-height: 1.45;
 }
 
+.turn-stage-scene-card small {
+  color: #9fb6df;
+  line-height: 1.4;
+}
+
 .turn-stage-scene-card-move {
   border-color: rgba(125, 211, 252, 0.82);
   background: linear-gradient(180deg, rgba(56, 189, 248, 0.09), rgba(11, 24, 46, 0.84));
@@ -1443,6 +1452,8 @@ body {
   margin: 0;
   color: #d6e4ff;
   line-height: 1.5;
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .core-action-result-caption {
@@ -2076,6 +2087,10 @@ body {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.prompt-choices-secondary {
+  margin-top: 10px;
+}
+
 .prompt-choice-card {
   display: grid;
   gap: 6px;
@@ -2294,6 +2309,11 @@ body {
 .prompt-choice-card-emphasis {
   min-height: 120px;
   align-content: start;
+}
+
+.prompt-choice-card-secondary {
+  border-color: rgba(96, 118, 160, 0.55);
+  background: rgba(11, 24, 46, 0.66);
 }
 
 .prompt-primary-action {

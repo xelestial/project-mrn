@@ -238,6 +238,16 @@ Add tests and checks for:
 - required key presence
 - no empty string values in critical catalogs
 - selector/component tests using canonical text helpers
+
+## 2026-04-07 Progress Update
+
+- Remote-turn/payoff/prompt surfaces now moved another step under locale ownership:
+  - payoff beat numbering for theater scenes
+  - turn-stage sequence annotations for purchase / rent / fortune
+  - prompt secondary-choice badge text for passive/skip actions
+- The practical implication is:
+  - component-owned wording drift was reduced again in `CoreActionPanel.tsx`, `TurnStagePanel.tsx`, `SpectatorTurnPanel.tsx`, and `PromptOverlay.tsx`
+  - the next string-ownership work should focus less on visible prompt chrome and more on selector-generated summaries
 - existing encoding gate remains mandatory
 
 ### Step 5. Documentation And Usage Policy

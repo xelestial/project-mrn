@@ -109,7 +109,7 @@ class SessionServiceTests(unittest.TestCase):
                     "seat_type": "ai",
                     "ai_profile": "balanced",
                     "participant_client": "external_ai",
-                    "participant_config": {"endpoint": "local://bot-worker-1"},
+                    "participant_config": {"transport": "loopback", "endpoint": "local://bot-worker-1"},
                 },
                 {"seat": 2, "seat_type": "human"},
             ]
@@ -118,6 +118,36 @@ class SessionServiceTests(unittest.TestCase):
         ai_seat = session.seats[0]
         self.assertEqual(ai_seat.participant_client.value, "external_ai")
         self.assertEqual(ai_seat.participant_config["endpoint"], "local://bot-worker-1")
+
+    def test_external_ai_seat_inherits_participant_defaults_from_resolved_parameters(self) -> None:
+        session = self.service.create_session(
+            [
+                {
+                    "seat": 1,
+                    "seat_type": "ai",
+                    "ai_profile": "balanced",
+                    "participant_client": "external_ai",
+                    "participant_config": {"endpoint": "http://seat-specific.local/decide"},
+                },
+                {"seat": 2, "seat_type": "human"},
+            ],
+            config={
+                "seat_limits": {"min": 1, "max": 2, "allowed": [1, 2]},
+                "participants": {
+                    "external_ai": {
+                        "transport": "http",
+                        "timeout_ms": 9000,
+                        "headers": {"Authorization": "Bearer token"},
+                    }
+                },
+            },
+        )
+
+        ai_seat = session.seats[0]
+        self.assertEqual(ai_seat.participant_config["transport"], "http")
+        self.assertEqual(ai_seat.participant_config["timeout_ms"], 9000)
+        self.assertEqual(ai_seat.participant_config["headers"]["Authorization"], "Bearer token")
+        self.assertEqual(ai_seat.participant_config["endpoint"], "http://seat-specific.local/decide")
 
     def test_reject_human_seat_with_non_human_participant_client(self) -> None:
         with self.assertRaises(SessionStateError):

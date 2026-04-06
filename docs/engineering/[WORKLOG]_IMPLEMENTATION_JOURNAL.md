@@ -2174,3 +2174,38 @@ Updated: 2026-04-04
   - seat descriptors are the smallest stable way to carry that participant intent from session creation through runtime routing
 - Validation:
   - `.venv311/bin/python -m pytest apps/server/tests/test_session_service.py apps/server/tests/test_runtime_service.py apps/server/tests/test_sessions_api.py`
+
+## 2026-04-07 Remote-Turn Payoff, Prompt Chrome, and Participant Defaults Closure
+
+- What changed:
+  - Strengthened remote-turn payoff continuity on the React match surface:
+    - `apps/web/src/features/theater/coreActionScene.ts` now builds richer payoff beats with a stable headline
+    - `apps/web/src/features/theater/CoreActionPanel.tsx` renders same-turn payoff beats as numbered scene steps
+    - `apps/web/src/features/stage/TurnStagePanel.tsx` adds scene-sequence annotations for purchase / rent / fortune phases
+    - `apps/web/src/features/stage/SpectatorTurnPanel.tsx` now renders a payoff-beat strip instead of collapsing non-local resolution into a single card
+  - Reduced prompt chrome drift in `apps/web/src/features/prompt/PromptOverlay.tsx`:
+    - `none` / `no` style passive choices are now visually demoted into a secondary choice row
+    - prompt-specific choice cards keep the same canonical request/public-context path but read as a more game-native action surface
+  - Tightened locale ownership:
+    - added scene-sequence and secondary-choice strings to `apps/web/src/i18n/locales/ko.ts`
+    - added matching English coverage in `apps/web/src/i18n/locales/en.ts`
+  - Closed more of the shared/open-participant contract follow-up:
+    - `packages/runtime-contracts/ws/schemas/inbound.prompt.schema.json` now freezes canonical `legal_choices` as the primary prompt field
+    - the prompt example fixture now follows that canonical field
+    - `apps/server/src/services/parameter_service.py` resolves participant defaults, including external-AI transport config
+    - `apps/server/src/services/session_service.py` merges resolved participant defaults into external-AI seat descriptors
+    - `apps/server/src/services/runtime_service.py` now supports transport-shaped external AI routing:
+      - loopback transport
+      - http-shaped transport seam with injectable sender
+      - explicit external decision envelope metadata
+    - updated `tools/parameter_manifest_snapshot.json` for the new participant-default manifest shape
+- Why:
+  - the match needed to read more like a multiplayer scene and less like a log feed during non-local turns
+  - canonical prompt/data ownership was already in place, so the next leverage point was better scene composition and less inspector-like skip/passive presentation
+  - external AI had a seat-level seam already, but the runtime still needed transport-aware structure and parameter-driven defaults so the open-participant model would not stay ad-hoc
+- Validation:
+  - `npm run test -- --run src/features/theater/coreActionScene.spec.ts src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/streamSelectors.spec.ts src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts`
+  - `npm run build`
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts`
+  - `.venv311/bin/python -m pytest apps/server/tests/test_parameter_service.py apps/server/tests/test_session_service.py apps/server/tests/test_sessions_api.py apps/server/tests/test_runtime_service.py apps/server/tests/test_runtime_contract_examples.py`
+  - `.venv311/bin/python -m pytest apps/server/tests/test_parameter_manifest_snapshot.py apps/server/tests/test_parameter_propagation.py apps/server/tests/test_prompt_service.py apps/server/tests/test_stream_api.py GPT/test_decision_port_contract.py GPT/test_draft_three_players.py GPT/test_event_effects.py`

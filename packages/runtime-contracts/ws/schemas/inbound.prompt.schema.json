@@ -32,7 +32,7 @@
         "request_type",
         "player_id",
         "timeout_ms",
-        "choices",
+        "legal_choices",
         "public_context"
       ],
       "properties": {
@@ -55,7 +55,7 @@
         "fallback_policy": {
           "type": "string"
         },
-        "choices": {
+        "legal_choices": {
           "type": "array",
           "items": {
             "type": "object",
@@ -77,6 +77,22 @@
             "additionalProperties": true
           }
         },
+        "choices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "choice_id"
+            ],
+            "properties": {
+              "choice_id": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": true
+          }
+        },
         "public_context": {
           "type": "object",
           "additionalProperties": true
@@ -87,4 +103,3 @@
   },
   "additionalProperties": true
 }
-

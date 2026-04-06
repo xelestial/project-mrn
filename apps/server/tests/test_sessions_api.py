@@ -50,13 +50,20 @@ def _external_ai_payload() -> dict:
                 "seat_type": "ai",
                 "ai_profile": "balanced",
                 "participant_client": "external_ai",
-                "participant_config": {"endpoint": "local://bot-worker-1"},
+                "participant_config": {"endpoint": "http://bot-worker.local/seat-1"},
             },
             {"seat": 2, "seat_type": "human"},
         ],
         "config": {
             "seed": 42,
             "seat_limits": {"min": 1, "max": 2, "allowed": [1, 2]},
+            "participants": {
+                "external_ai": {
+                    "transport": "http",
+                    "timeout_ms": 9000,
+                    "headers": {"Authorization": "Bearer test-token"},
+                }
+            },
         },
     }
 
@@ -142,7 +149,10 @@ class SessionsApiTests(unittest.TestCase):
         data = created.json()["data"]
         ai_seat = next(seat for seat in data["seats"] if seat["seat"] == 1)
         self.assertEqual(ai_seat["participant_client"], "external_ai")
-        self.assertEqual(ai_seat["participant_config"]["endpoint"], "local://bot-worker-1")
+        self.assertEqual(ai_seat["participant_config"]["transport"], "http")
+        self.assertEqual(ai_seat["participant_config"]["timeout_ms"], 9000)
+        self.assertEqual(ai_seat["participant_config"]["headers"]["Authorization"], "Bearer test-token")
+        self.assertEqual(ai_seat["participant_config"]["endpoint"], "http://bot-worker.local/seat-1")
 
     def test_get_missing_session_returns_normalized_error_category(self) -> None:
         missing = self.client.get("/api/v1/sessions/sess_missing_404")

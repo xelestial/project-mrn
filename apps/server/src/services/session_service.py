@@ -58,7 +58,11 @@ class SessionService:
             resolved_parameters = self._parameter_resolver.resolve(raw_config)
         except ParameterValidationError as exc:
             raise SessionStateError(str(exc)) from exc
-        normalized = self._normalize_seats(seats, resolved_parameters["seats"])
+        normalized = self._normalize_seats(
+            seats,
+            resolved_parameters["seats"],
+            resolved_parameters.get("participants", {}),
+        )
         session_id = f"sess_{uuid.uuid4().hex[:12]}"
         host_token = self._new_token("host")
         join_tokens: dict[int, str] = {}
@@ -189,10 +193,16 @@ class SessionService:
         return f"{prefix}_{secrets.token_urlsafe(16)}"
 
     @staticmethod
-    def _normalize_seats(seats: list[dict], seat_limits: dict) -> list[SeatConfig]:
+    def _normalize_seats(seats: list[dict], seat_limits: dict, participant_defaults: dict | None = None) -> list[SeatConfig]:
         min_seat_count = int(seat_limits.get("min", 1))
         max_seat_count = int(seat_limits.get("max", 4))
         allowed_seats = {int(v) for v in seat_limits.get("allowed", list(range(1, max_seat_count + 1)))}
+        participant_defaults = dict(participant_defaults or {})
+        external_ai_defaults = participant_defaults.get("external_ai")
+        if external_ai_defaults is None:
+            external_ai_defaults = {}
+        if not isinstance(external_ai_defaults, dict):
+            raise SessionStateError("invalid_participant_defaults")
         if len(seats) < min_seat_count:
             raise SessionStateError("seat_count_below_min")
         if len(seats) > max_seat_count:
@@ -230,13 +240,19 @@ class SessionService:
                 raise SessionStateError("ai_seat_invalid_participant_client")
             if participant_config is not None and not isinstance(participant_config, dict):
                 raise SessionStateError("invalid_participant_config")
+            merged_participant_config = dict(participant_config or {})
+            if participant_client == ParticipantClientType.EXTERNAL_AI:
+                merged_participant_config = {
+                    **external_ai_defaults,
+                    **merged_participant_config,
+                }
             result.append(
                 SeatConfig(
                     seat=seat,
                     seat_type=SeatType(seat_type),
                     ai_profile=str(ai_profile) if ai_profile is not None else None,
                     participant_client=participant_client,
-                    participant_config=dict(participant_config or {}),
+                    participant_config=merged_participant_config,
                 )
             )
         result.sort(key=lambda s: s.seat)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import random
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from apps.server.src.core.error_payload import build_error_payload
@@ -408,25 +409,58 @@ class _LocalAiDecisionClient:
         )
 
 
-class _LoopbackExternalAiTransport:
-    """Default external-AI transport adapter.
+@dataclass(frozen=True)
+class _ExternalAiDecisionEnvelope:
+    session_id: str
+    seat: int
+    player_id: int
+    method_name: str
+    request_type: str
+    fallback_policy: str
+    public_context: dict[str, object]
+    transport: str
+    participant_config: dict[str, object]
 
-    This keeps the contract on an explicit transport seam while still using the
-    configured local AI fallback policy until a real remote worker/service is mounted.
-    """
 
-    def __init__(self, *, ai_fallback, gateway: DecisionGateway, seat: int, config: dict[str, object] | None = None) -> None:
+class _ExternalAiTransportBase:
+    def __init__(
+        self,
+        *,
+        session_id: str,
+        ai_fallback,
+        gateway: DecisionGateway,
+        seat: int,
+        config: dict[str, object] | None = None,
+        transport_name: str,
+    ) -> None:
         self.policy = ai_fallback
+        self._session_id = session_id
         self._gateway = gateway
         self._seat = int(seat)
         self._config = dict(config or {})
+        self._transport_name = transport_name
 
-    def resolve(self, call):
-        ai_callable = getattr(self.policy, call.invocation.method_name)
+    def _build_envelope(self, call) -> _ExternalAiDecisionEnvelope:
+        request = call.request
+        player_id = int(request.player_id if request.player_id is not None else -1) + 1
+        return _ExternalAiDecisionEnvelope(
+            session_id=self._session_id,
+            seat=self._seat,
+            player_id=player_id,
+            method_name=call.invocation.method_name,
+            request_type=request.request_type,
+            fallback_policy=request.fallback_policy,
+            public_context=dict(request.public_context),
+            transport=self._transport_name,
+            participant_config=dict(self._config),
+        )
+
+    def _publish(self, call, resolver):
         request = call.request
         public_context = dict(request.public_context)
         public_context.setdefault("participant_client", ParticipantClientType.EXTERNAL_AI.value)
         public_context.setdefault("participant_seat", self._seat)
+        public_context.setdefault("participant_transport", self._transport_name)
         if self._config:
             public_context.setdefault("participant_config", dict(self._config))
         player_id = int(request.player_id if request.player_id is not None else -1) + 1
@@ -434,8 +468,30 @@ class _LoopbackExternalAiTransport:
             request_type=request.request_type,
             player_id=player_id,
             public_context=public_context,
-            resolver=lambda: ai_callable(*call.invocation.args, **call.invocation.kwargs),
+            resolver=resolver,
             choice_serializer=call.choice_serializer,
+        )
+
+
+class _LoopbackExternalAiTransport(_ExternalAiTransportBase):
+    """Default external-AI transport adapter using a local loopback sender."""
+
+    def __init__(self, *, session_id: str, ai_fallback, gateway: DecisionGateway, seat: int, config: dict[str, object] | None = None) -> None:
+        super().__init__(
+            session_id=session_id,
+            ai_fallback=ai_fallback,
+            gateway=gateway,
+            seat=seat,
+            config=config,
+            transport_name="loopback",
+        )
+
+    def resolve(self, call):
+        ai_callable = getattr(self.policy, call.invocation.method_name)
+        envelope = self._build_envelope(call)
+        return self._publish(
+            call,
+            resolver=lambda: ai_callable(*call.invocation.args, **call.invocation.kwargs),
         )
 
 
@@ -446,6 +502,32 @@ class _ExternalAiDecisionClient:
 
     def resolve(self, call):
         return self._transport.resolve(call)
+
+
+class _HttpExternalAiTransport(_ExternalAiTransportBase):
+    """HTTP-shaped external-AI transport seam with an injectable sender."""
+
+    def __init__(self, *, session_id: str, ai_fallback, gateway: DecisionGateway, seat: int, config: dict[str, object] | None = None, sender=None) -> None:
+        super().__init__(
+            session_id=session_id,
+            ai_fallback=ai_fallback,
+            gateway=gateway,
+            seat=seat,
+            config=config,
+            transport_name="http",
+        )
+        self._sender = sender
+
+    def resolve(self, call):
+        ai_callable = getattr(self.policy, call.invocation.method_name)
+        envelope = self._build_envelope(call)
+
+        def _resolve_via_sender():
+            if self._sender is not None:
+                return self._sender(envelope)
+            return ai_callable(*call.invocation.args, **call.invocation.kwargs)
+
+        return self._publish(call, resolver=_resolve_via_sender)
 
 
 class _LocalHumanDecisionClient:
@@ -528,6 +610,9 @@ class _ServerDecisionClientRouter:
 
 
 class _ServerDecisionClientFactory:
+    def __init__(self, *, external_ai_sender=None) -> None:
+        self._external_ai_sender = external_ai_sender
+
     def create_ai_client(self, *, ai_fallback, gateway: DecisionGateway):
         return _LocalAiDecisionClient(ai_fallback=ai_fallback, gateway=gateway)
 
@@ -550,6 +635,7 @@ class _ServerDecisionClientFactory:
                 continue
             if participant_client == ParticipantClientType.EXTERNAL_AI:
                 transport = self.create_external_ai_transport(
+                    session_id=gateway._session_id,  # type: ignore[attr-defined]
                     ai_fallback=ai_fallback,
                     gateway=gateway,
                     seat=seat.seat,
@@ -563,12 +649,24 @@ class _ServerDecisionClientFactory:
     def create_external_ai_transport(
         self,
         *,
+        session_id: str,
         ai_fallback,
         gateway: DecisionGateway,
         seat: int,
         config: dict[str, object] | None = None,
     ):
+        transport_kind = str((config or {}).get("transport", "loopback")).strip().lower()
+        if transport_kind == "http":
+            return _HttpExternalAiTransport(
+                session_id=session_id,
+                ai_fallback=ai_fallback,
+                gateway=gateway,
+                seat=seat,
+                config=config,
+                sender=self._external_ai_sender,
+            )
         return _LoopbackExternalAiTransport(
+            session_id=session_id,
             ai_fallback=ai_fallback,
             gateway=gateway,
             seat=seat,

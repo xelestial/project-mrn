@@ -387,6 +387,7 @@ export const koLocale = {
       fortune_resolved: "운수 효과",
       lap_reward_chosen: "보상 결과",
     },
+    payoffBeatIndex: (index: number, total: number, label: string) => `${index}/${total} ${label}`,
     incidentTitle: "턴 극장",
     incidentDescription: "턴 진행, 선택 요청, 시스템 기록을 분리해서 현재 게임의 흐름을 따라갑니다.",
     laneBadge: {
@@ -446,6 +447,13 @@ export const koLocale = {
     promptIdle: "선택 요청 없음",
     progressEmpty: "아직 이번 턴의 진행 기록이 없습니다.",
     turnStartDetail: (actor: string) => `${actor} / 턴 시작`,
+    sequenceIndex: (index: number, total: number) => `${index}/${total}`,
+    sequenceBeat: {
+      purchase: "도착 직후 구매 판단",
+      rent: "상대 소유 칸 렌트 정산",
+      fortuneDraw: "운수 카드 공개",
+      fortuneResolved: "운수 효과 반영",
+    },
   },
   prompt: {
     noChoiceDescription: "선택지가 아직 없습니다.",
@@ -460,6 +468,7 @@ export const koLocale = {
     collapsedChip: (label: string, secondsLeft: number | null) => `선택 요청: ${label} / 남은 시간 ${secondsLeft ?? "-"}초`,
     headTitle: (label: string) => `선택 요청: ${label}`,
     collapse: "접기",
+    secondaryChoiceBadge: "보조 선택",
     requestMetaPills: (playerId: number, timeoutMs: number, secondsLeft: number | null) => [
       `행동자 P${playerId}`,
       `제한 ${Math.ceil(timeoutMs / 1000)}초`,

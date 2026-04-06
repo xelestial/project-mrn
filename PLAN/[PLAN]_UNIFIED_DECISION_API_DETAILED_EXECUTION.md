@@ -536,3 +536,19 @@ P3 종료 조건:
 - Result:
   - the open-participant model is now represented in persisted session state, not only in internal runtime wiring
   - the next real step is no longer “invent a place to put external AI”, but “replace the default loopback transport with a real external worker/client implementation”
+
+## 2026-04-07 Progress Update (canonical prompt artifacts + transport-aware external AI)
+
+- Canonical prompt artifact closure advanced:
+  - shared WS prompt schema now freezes `legal_choices` as the primary prompt choice field
+  - the canonical movement prompt example now also uses `legal_choices`
+- External-AI runtime promotion also advanced:
+  - participant defaults can now be resolved from session config through the parameter path
+  - session normalization merges those defaults into `external_ai` seat descriptors
+  - runtime transport selection is now explicit:
+    - `loopback`
+    - `http`
+  - the external-AI client now emits a transport-aware decision envelope instead of relying on a loopback-only shape
+- Result:
+  - engine/server/web/shared artifacts now agree more closely on the canonical prompt surface
+  - the remaining work is no longer “design a transport seam”, but “mount a real worker/service behind the HTTP seam”

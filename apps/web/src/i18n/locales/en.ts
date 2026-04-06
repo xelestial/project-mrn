@@ -382,6 +382,7 @@ export const enLocale = {
       fortune_resolved: "Fortune effect",
       lap_reward_chosen: "Reward resolved",
     },
+    payoffBeatIndex: (index: number, total: number, label: string) => `${index}/${total} ${label}`,
     incidentTitle: "Turn Theater",
     incidentDescription: "Separates turn progress, decision prompts, and system records.",
     laneBadge: {
@@ -441,6 +442,13 @@ export const enLocale = {
     promptIdle: "No active prompt",
     progressEmpty: "No turn progress yet.",
     turnStartDetail: (actor: string) => `${actor} / turn start`,
+    sequenceIndex: (index: number, total: number) => `${index}/${total}`,
+    sequenceBeat: {
+      purchase: "Purchase check after landing",
+      rent: "Rent settlement on an owned tile",
+      fortuneDraw: "Reveal the fortune card",
+      fortuneResolved: "Apply the fortune effect",
+    },
   },
   prompt: {
     noChoiceDescription: "No choices available yet.",
@@ -455,6 +463,7 @@ export const enLocale = {
     collapsedChip: (label: string, secondsLeft: number | null) => `Decision: ${label} / ${secondsLeft ?? "-"}s left`,
     headTitle: (label: string) => `Decision: ${label}`,
     collapse: "Collapse",
+    secondaryChoiceBadge: "Secondary",
     requestMetaPills: (playerId: number, timeoutMs: number, secondsLeft: number | null) => [
       `Actor P${playerId}`,
       `Limit ${Math.ceil(timeoutMs / 1000)}s`,

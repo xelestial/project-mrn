@@ -153,6 +153,10 @@ function choiceGridClass(variant: ChoiceGridVariant, compactChoices: boolean): s
   return base.join(" ");
 }
 
+function isSecondaryChoice(choice: PromptChoiceViewModel): boolean {
+  return choice.choiceId === "none" || choice.choiceId === "no";
+}
+
 function movementChoices(prompt: PromptViewModel): MovementChoiceParts {
   let rollChoice: PromptChoiceViewModel | null = null;
   const cardChoices: Array<{ cards: number[]; choice: PromptChoiceViewModel }> = [];
@@ -384,29 +388,42 @@ function EmphasisChoiceGrid({
   testIdPrefix,
   renderExtra,
 }: EmphasisChoiceGridProps) {
+  const primaryChoices = orderedChoices.filter((choice) => !isSecondaryChoice(choice));
+  const secondaryChoices = orderedChoices.filter((choice) => isSecondaryChoice(choice));
+  const groups = [primaryChoices, secondaryChoices].filter((group) => group.length > 0);
+
   return (
-    <div className={choiceGridClass(variant, compactChoices)}>
-      {orderedChoices.map((choice) => {
-        const normalized = normalizeChoiceText(prompt, choice, promptText);
-        return (
-          <button
-            type="button"
-            key={choice.choiceId}
-            className="prompt-choice-card prompt-choice-card-emphasis"
-            data-testid={`${testIdPrefix}-${choice.choiceId}`}
-            onClick={() => onSelectChoice(choice.choiceId)}
-            disabled={busy}
-          >
-            <div className="prompt-choice-topline">
-              <strong>{normalized.title}</strong>
-            </div>
-            {renderExtra ? renderExtra(choice) : null}
-            <small>{normalized.description}</small>
-          </button>
-        );
-      })}
+    <>
+      {groups.map((group, groupIndex) => (
+        <div
+          key={`${testIdPrefix}-${groupIndex}`}
+          className={`${choiceGridClass(variant, compactChoices)} ${groupIndex > 0 ? "prompt-choices-secondary" : ""}`}
+        >
+          {group.map((choice) => {
+            const normalized = normalizeChoiceText(prompt, choice, promptText);
+            const secondary = isSecondaryChoice(choice);
+            return (
+              <button
+                type="button"
+                key={choice.choiceId}
+                className={`prompt-choice-card prompt-choice-card-emphasis ${secondary ? "prompt-choice-card-secondary" : ""}`}
+                data-testid={`${testIdPrefix}-${choice.choiceId}`}
+                onClick={() => onSelectChoice(choice.choiceId)}
+                disabled={busy}
+              >
+                <div className="prompt-choice-topline">
+                  <strong>{normalized.title}</strong>
+                  {secondary ? <span className="prompt-choice-badge">{promptText.secondaryChoiceBadge}</span> : null}
+                </div>
+                {renderExtra ? renderExtra(choice) : null}
+                <small>{normalized.description}</small>
+              </button>
+            );
+          })}
+        </div>
+      ))}
       {orderedChoices.length === 0 ? <p>{promptText.choice.noChoices}</p> : null}
-    </div>
+    </>
   );
 }
 

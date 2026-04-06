@@ -58,6 +58,7 @@ class GameParameterResolver:
         raw = dict(session_config or {})
         seat_limits = self._resolve_seat_limits(raw=raw, default_player_count=int(cfg.player_count))
         board_topology = self._resolve_board_topology(raw=raw)
+        participant_defaults = self._resolve_participant_defaults(raw=raw)
 
         dice_values = raw.get("dice_values", list(cfg.dice_cards.values))
         if not isinstance(dice_values, list) or not dice_values or not all(isinstance(v, int) and v > 0 for v in dice_values):
@@ -89,6 +90,7 @@ class GameParameterResolver:
                 "policy_mode": str(raw.get("policy_mode", "")).strip() or None,
                 "player_count": int(seat_limits["max"]),
             },
+            "participants": participant_defaults,
             "seats": seat_limits,
             "board": {
                 "topology": board_topology,
@@ -117,6 +119,50 @@ class GameParameterResolver:
                 "starting_shards": int(starting_shards),
             },
             "labels": labels,
+        }
+
+    @staticmethod
+    def _resolve_participant_defaults(raw: dict[str, Any]) -> dict[str, Any]:
+        participants_raw = raw.get("participants")
+        if participants_raw is None:
+            participants_raw = raw.get("participant_clients")
+        if participants_raw is None:
+            participants_raw = {}
+        if not isinstance(participants_raw, dict):
+            raise ParameterValidationError("invalid_participants_config")
+
+        external_ai_raw = participants_raw.get("external_ai") or {}
+        if not isinstance(external_ai_raw, dict):
+            raise ParameterValidationError("invalid_external_ai_config")
+
+        transport = str(external_ai_raw.get("transport", "loopback")).strip().lower()
+        if transport not in {"loopback", "http"}:
+            raise ParameterValidationError("invalid_external_ai_transport")
+
+        timeout_ms = external_ai_raw.get("timeout_ms", 15000)
+        if not isinstance(timeout_ms, int) or timeout_ms <= 0:
+            raise ParameterValidationError("invalid_external_ai_timeout")
+
+        endpoint = external_ai_raw.get("endpoint")
+        if endpoint is not None and not isinstance(endpoint, str):
+            raise ParameterValidationError("invalid_external_ai_endpoint")
+
+        headers = external_ai_raw.get("headers") or {}
+        if not isinstance(headers, dict):
+            raise ParameterValidationError("invalid_external_ai_headers")
+        normalized_headers: dict[str, str] = {}
+        for key, value in headers.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                raise ParameterValidationError("invalid_external_ai_headers")
+            normalized_headers[key] = value
+
+        return {
+            "external_ai": {
+                "transport": transport,
+                "timeout_ms": int(timeout_ms),
+                "endpoint": endpoint.strip() if isinstance(endpoint, str) and endpoint.strip() else None,
+                "headers": normalized_headers,
+            }
         }
 
     @staticmethod
@@ -193,6 +239,7 @@ class PublicManifestBuilder:
         manifest_core = {
             "manifest_version": 1,
             "version": params.get("version", "v1"),
+            "participants": params.get("participants", {}),
             "board": params.get("board", {}),
             "seats": params.get("seats", {}),
             "dice": params.get("dice", {}),

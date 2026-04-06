@@ -158,9 +158,9 @@ These are finished enough that they should not be reopened unless regression evi
 
 This is the practical next-work list after the closed slices above.
 
-1. scene-grade payoff for fortune / purchase / rent
-2. simplify specialized prompt layouts until they feel game-native
-3. close remaining canonical decision contract gaps across web selectors / shared artifacts
+1. promote the new external-AI HTTP seam into a real worker/service transport
+2. continue selector-generated locale ownership reduction
+3. use regression evidence to close any remaining rule-parity visual gaps
 
 ### 2026-04-07 Progress Update (DecisionPort + frontend canonical prompt checkpoint)
 
@@ -181,16 +181,16 @@ This is the practical next-work list after the closed slices above.
   - `PromptOverlay.tsx` now prefers canonical prompt `public_context` keys
   - `selectTurnStage(...)` can derive prompt focus from `legal_choices[].value.tile_index`
 - Therefore the next immediate execution order is:
-  1. continue non-local turn scene polish for fortune reveal and purchase/rent payoff transitions
-  2. keep simplifying remaining specialized prompt layouts and reduce inspector-like chrome
-  3. close the remaining unified-decision contract gaps:
-     - shared schema/example artifacts
-     - wider frontend prompt/selector coverage
-     - any still-string-heavy bridge/router seams
-  4. move the runtime toward the open-participant model:
-     - local AI stays as a decision-client adapter
-     - external AI client can later mount on the same seam
-     - session seat descriptors now already preserve participant intent (`human_http` / `local_ai` / `external_ai`)
+  1. remote-turn payoff continuity and prompt-surface simplification are now closed enough for the current checkpoint
+  2. shared prompt artifacts now freeze canonical `legal_choices`
+  3. external-AI runtime routing is now parameter-driven and transport-aware:
+     - seat descriptors preserve participant intent
+     - resolved participant defaults flow into session/runtime state
+     - runtime can branch between loopback and http-shaped external-AI transports
+  4. the next immediate execution order is therefore:
+     - mount a real external worker/service transport behind the HTTP seam
+     - continue trimming selector-owned phrasing
+     - only then widen parameter/profile expansion
 
 ## 2026-04-05 Concrete Next Steps
 

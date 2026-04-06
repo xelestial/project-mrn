@@ -41,6 +41,13 @@ type PersistentPayoff = {
   tone: "economy" | "effect";
 };
 
+type SpectatorPayoffBeat = {
+  key: string;
+  title: string;
+  detail: string;
+  tone: "economy" | "effect";
+};
+
 type PayoffTone = "economy" | "effect" | "neutral";
 
 function payoffToneForEventCode(eventCode: string): PayoffTone {
@@ -107,6 +114,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     persistentPayoff = { title: turnStage.fields.trick, detail: model.trickSummary, tone: "effect" };
   }
   const spotlightCards: SpotlightCard[] = [];
+  const payoffBeats: SpectatorPayoffBeat[] = [];
   if (hasValue(model.weatherName) || hasValue(model.weatherEffect)) {
     spotlightCards.push({
       key: "weather",
@@ -117,15 +125,24 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
   }
   if (hasValue(model.purchaseSummary)) {
     spotlightCards.push({ key: "purchase", title: purchaseEventLabel, detail: model.purchaseSummary, tone: "economy" });
+    payoffBeats.push({ key: "purchase", title: purchaseEventLabel, detail: model.purchaseSummary, tone: "economy" });
   }
   if (hasValue(model.rentSummary)) {
     spotlightCards.push({ key: "rent", title: rentEventLabel, detail: model.rentSummary, tone: "economy" });
+    payoffBeats.push({ key: "rent", title: rentEventLabel, detail: model.rentSummary, tone: "economy" });
   }
   if (hasValue(model.fortuneDrawSummary)) {
     spotlightCards.push({ key: "fortune-draw", title: fortuneDrawEventLabel, detail: model.fortuneDrawSummary, tone: "effect" });
+    payoffBeats.push({ key: "fortune-draw", title: fortuneDrawEventLabel, detail: model.fortuneDrawSummary, tone: "effect" });
   }
   if (hasValue(model.fortuneResolvedSummary || model.fortuneSummary)) {
     spotlightCards.push({
+      key: "fortune-effect",
+      title: fortuneResolvedEventLabel,
+      detail: model.fortuneResolvedSummary || model.fortuneSummary,
+      tone: "effect",
+    });
+    payoffBeats.push({
       key: "fortune-effect",
       title: fortuneResolvedEventLabel,
       detail: model.fortuneResolvedSummary || model.fortuneSummary,
@@ -312,6 +329,26 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
             </article>
           ))}
         </div>
+      ) : null}
+
+      {payoffBeats.length > 0 ? (
+        <section className="core-action-payoff-sequence spectator-turn-payoff-sequence" data-testid="spectator-turn-payoff-sequence">
+          <div className="core-action-journey-head">
+            <strong>{app.spectatorFields.effect}</strong>
+            <small>{valueOrDash(latestActionTitle)}</small>
+          </div>
+          <div className="core-action-payoff-strip">
+            {payoffBeats.map((beat, index) => (
+              <article key={beat.key} className={`core-action-result-card core-action-result-card-${beat.tone}`}>
+                <div className="core-action-result-head">
+                  <strong>{turnStage.sequenceIndex(index + 1, payoffBeats.length)}</strong>
+                  <span>{beat.title}</span>
+                </div>
+                <p>{valueOrDash(beat.detail)}</p>
+              </article>
+            ))}
+          </div>
+        </section>
       ) : null}
 
       {journeyCards.length > 0 ? (

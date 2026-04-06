@@ -55,6 +55,7 @@ describe("coreActionScene", () => {
 
     expect(scenes.map((scene) => scene.eventCode)).toEqual(["tile_purchased", "fortune_drawn", "fortune_resolved"]);
     expect(scenes.map((scene) => scene.phaseLabel)).toEqual(["구매 결과", "운수 공개", "운수 효과"]);
+    expect(scenes.map((scene) => scene.headline)).toEqual(["P2", "P2", "P2"]);
     expect(scenes.map((scene) => scene.isLatest)).toEqual([false, false, true]);
   });
 

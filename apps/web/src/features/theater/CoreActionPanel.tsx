@@ -90,7 +90,7 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
             {latest ? <small>{theater.roundTurnBadge(latest.round, latest.turn)}</small> : null}
           </div>
           <div className="core-action-payoff-strip">
-            {payoffScenes.map((scene) => (
+            {payoffScenes.map((scene, index) => (
               <article
                 key={`payoff-${scene.seq}`}
                 className={`core-action-result-card core-action-result-card-${scene.kind} ${
@@ -99,10 +99,10 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
                 data-testid={scene.isLatest ? "core-action-result-card" : undefined}
               >
                 <div className="core-action-result-head">
-                  <strong>{scene.phaseLabel}</strong>
+                  <strong>{theater.payoffBeatIndex(index + 1, payoffScenes.length, scene.phaseLabel)}</strong>
                   <span>{scene.actor}</span>
                 </div>
-                <p>{scene.label}</p>
+                <p>{scene.headline}</p>
                 <small className="core-action-result-caption">{resultHeadline(scene.kind, theater)}</small>
                 <div className="core-action-detail-list">
                   {splitCoreActionDetail(scene.detail, theater.noDetail).map((line, index) => (

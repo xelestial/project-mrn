@@ -272,9 +272,9 @@ The current implementation focus is:
   - specialty seam recovery for `pabal_dice_mode`
   - turn-handoff payoff continuity
 - Active carry-forward after this checkpoint:
-  1. scene-grade remote-turn payoff polish for fortune / purchase / rent
-  2. remaining specialized prompt simplification and game-native prompt presentation
-  3. shared-contract closure for canonical decision request artifacts and frontend-facing prompt coverage
-  4. open-participant structure so AI can remain a local client adapter now and an external API participant later
+  1. replace the new external-AI HTTP seam with a real worker/service transport
+  2. continue locale ownership reduction in selector-generated summaries
+  3. keep closing rule-parity visuals around mark/flip/weather persistence where regression evidence appears
+  4. only after that, continue lower-priority parameter/profile expansion
 
 Everything else is currently supporting context, not the main queue.

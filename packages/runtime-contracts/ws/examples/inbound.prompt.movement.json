@@ -9,7 +9,7 @@
     "player_id": 1,
     "timeout_ms": 30000,
     "fallback_policy": "auto_roll_dice",
-    "choices": [
+    "legal_choices": [
       {
         "choice_id": "roll",
         "title": "Roll dice",
@@ -28,4 +28,3 @@
     }
   }
 }
-

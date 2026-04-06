@@ -11,6 +11,7 @@ type SceneCard = {
   key: string;
   label: string;
   value: string;
+  detail?: string;
   tone: "move" | "economy" | "effect";
 };
 
@@ -82,19 +83,25 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
       ? { key: "landing", label: landingEventLabel, value: model.landingSummary, tone: "effect" }
       : null,
     hasMeaningfulValue(model.purchaseSummary)
-      ? { key: "purchase", label: purchaseEventLabel, value: model.purchaseSummary, tone: "economy" }
+      ? { key: "purchase", label: purchaseEventLabel, value: model.purchaseSummary, detail: turnStage.sequenceBeat.purchase, tone: "economy" }
       : null,
     hasMeaningfulValue(model.rentSummary)
-      ? { key: "rent", label: rentEventLabel, value: model.rentSummary, tone: "economy" }
+      ? { key: "rent", label: rentEventLabel, value: model.rentSummary, detail: turnStage.sequenceBeat.rent, tone: "economy" }
       : null,
     hasMeaningfulValue(model.turnEndSummary)
       ? { key: "turn-end", label: turnEndLabel, value: model.turnEndSummary, tone: "effect" }
       : null,
     hasMeaningfulValue(model.fortuneDrawSummary)
-      ? { key: "fortune-draw", label: fortuneDrawEventLabel, value: model.fortuneDrawSummary, tone: "effect" }
+      ? { key: "fortune-draw", label: fortuneDrawEventLabel, value: model.fortuneDrawSummary, detail: turnStage.sequenceBeat.fortuneDraw, tone: "effect" }
       : null,
     hasMeaningfulValue(model.fortuneResolvedSummary || model.fortuneSummary)
-      ? { key: "fortune-effect", label: fortuneResolvedEventLabel, value: model.fortuneResolvedSummary || model.fortuneSummary, tone: "effect" }
+      ? {
+          key: "fortune-effect",
+          label: fortuneResolvedEventLabel,
+          value: model.fortuneResolvedSummary || model.fortuneSummary,
+          detail: turnStage.sequenceBeat.fortuneResolved,
+          tone: "effect",
+        }
       : null,
   ];
   const sceneCards = sceneCardCandidates.filter(isSceneCard);
@@ -292,9 +299,10 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
             <div className="turn-stage-scene-list">
               {sceneCards.map((card, index) => (
                 <div key={card.key} className={`turn-stage-scene-card turn-stage-scene-card-${card.tone}`}>
-                  <span className="turn-stage-scene-index">0{index + 1}</span>
+                  <span className="turn-stage-scene-index">{turnStage.sequenceIndex(index + 1, sceneCards.length)}</span>
                   <span>{card.label}</span>
                   <strong>{valueOrDash(card.value)}</strong>
+                  {card.detail ? <small>{card.detail}</small> : null}
                 </div>
               ))}
             </div>

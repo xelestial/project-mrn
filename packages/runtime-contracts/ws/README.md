@@ -18,6 +18,8 @@ Inbound (`server -> client`):
 - `error`
 - `heartbeat`
 
+Prompt payloads use canonical `legal_choices` as the primary choice list. A legacy `choices` field may still appear temporarily for compatibility, but frozen examples and new surfaces should prefer `legal_choices`.
+
 Outbound (`client -> server`):
 
 - `resume`
