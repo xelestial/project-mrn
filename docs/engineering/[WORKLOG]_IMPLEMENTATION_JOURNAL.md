@@ -1945,6 +1945,7 @@ Updated: 2026-04-04
     - AI `choice_id` serialization
     - specialized `public_context` enrichment
   - Kept the existing `decision_request_type_for_method`, `serialize_ai_choice_id`, and `build_public_context` interfaces intact so runtime callers did not need a wider migration.
+  - Added `prepare_decision_method(...)` and switched `apps/server/src/services/runtime_service.py` to consume the prepared contract directly instead of pulling request type, context, and serializer through three separate helper calls.
   - Extended `apps/server/tests/test_runtime_service.py` with focused contract checks for:
     - `choose_purchase_tile`
     - `choose_specific_trick_reward`

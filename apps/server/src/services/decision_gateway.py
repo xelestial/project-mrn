@@ -18,6 +18,13 @@ class DecisionMethodSpec:
     public_context_builder: ContextBuilder | None = None
 
 
+@dataclass(frozen=True)
+class PreparedDecisionMethod:
+    request_type: str
+    public_context: dict[str, Any]
+    choice_serializer: ChoiceSerializer
+
+
 def _number_or_none(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
@@ -296,6 +303,15 @@ def build_public_context(method_name: str, args: tuple[Any, ...], kwargs: dict[s
         context.update(spec.public_context_builder(args, kwargs, state, player))
 
     return _trim_public_context(context)
+
+
+def prepare_decision_method(method_name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> PreparedDecisionMethod:
+    spec = _decision_method_spec_for_method(method_name)
+    return PreparedDecisionMethod(
+        request_type=spec.request_type,
+        public_context=build_public_context(method_name, args, kwargs),
+        choice_serializer=spec.choice_serializer,
+    )
 
 
 def build_decision_ack_payload(

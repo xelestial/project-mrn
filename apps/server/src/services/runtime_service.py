@@ -10,9 +10,7 @@ from apps.server.src.domain.session_models import SeatType, SessionStatus
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.decision_gateway import (
     DecisionGateway,
-    build_public_context,
-    decision_request_type_for_method,
-    serialize_ai_choice_id,
+    prepare_decision_method,
 )
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
 
@@ -350,14 +348,13 @@ class _ServerDecisionPolicyBridge:
     def _dispatch_ai_decision(self, method_name: str, args: tuple, kwargs: dict, ai_callable):
         player = args[1] if len(args) > 1 else kwargs.get("player")
         player_id = int(getattr(player, "player_id", -1)) + 1
-        request_type = decision_request_type_for_method(method_name)
-        public_context = build_public_context(method_name, args, kwargs)
+        decision_method = prepare_decision_method(method_name, args, kwargs)
         return self._gateway.resolve_ai_decision(
-            request_type=request_type,
+            request_type=decision_method.request_type,
             player_id=player_id,
-            public_context=public_context,
+            public_context=decision_method.public_context,
             resolver=lambda: ai_callable(*args, **kwargs),
-            choice_serializer=lambda result: serialize_ai_choice_id(method_name, result),
+            choice_serializer=decision_method.choice_serializer,
         )
 
     def __getattr__(self, name: str):
