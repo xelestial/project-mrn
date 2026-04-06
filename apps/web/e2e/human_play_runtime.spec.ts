@@ -488,6 +488,17 @@ test("remote turn keeps spectator continuity visible and does not open a local p
           sessionId,
           payload: { event_type: "tile_purchased", round_index: 1, turn_index: 1, player_id: 2, tile_index: 6, cost: 2 },
         }),
+        eventMessage({
+          seq: 9,
+          sessionId,
+          payload: {
+            event_type: "turn_end_snapshot",
+            round_index: 1,
+            turn_index: 1,
+            player_id: 2,
+            summary: "P2 turn closed",
+          },
+        }),
       ],
     },
   });
@@ -508,6 +519,7 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await expect(page.getByTestId("spectator-turn-journey")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-progress")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-result")).toBeVisible();
+  await expect(page.getByTestId("spectator-turn-handoff")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-spotlight")).toContainText("Bought tile 7 for 2");
   await expect(page.getByTestId("board-move-start-badge")).toBeVisible();
   await expect(page.getByTestId("board-move-end-badge")).toBeVisible();
@@ -519,10 +531,13 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await expect(page.getByTestId("turn-stage-spotlight-strip")).toBeVisible();
   await expect(page.getByTestId("turn-stage-scene-strip")).toBeVisible();
   await expect(page.getByTestId("turn-stage-outcome-strip")).toBeVisible();
+  await expect(page.getByTestId("turn-stage-handoff-card")).toBeVisible();
   await expect(page.getByTestId("prompt-overlay")).toHaveCount(0);
   await expect(page.getByTestId("core-action-journey")).toContainText("P2");
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("Bandit");
   await expect(page.getByTestId("spectator-turn-result")).toContainText("Tile purchased");
+  await expect(page.getByTestId("spectator-turn-handoff")).toContainText("P2 turn closed");
+  await expect(page.getByTestId("turn-stage-handoff-card")).toContainText("P2 turn closed");
 });
 
 test("locale toggle persists across reload", async ({ page }) => {

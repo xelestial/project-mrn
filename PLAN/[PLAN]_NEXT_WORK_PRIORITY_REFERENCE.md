@@ -300,3 +300,23 @@ Implement in this order unless a blocker forces a swap:
   1. continue scene-grade continuity for true turn handoff and payoff animation
   2. keep trimming any still-generic prompt surface that does not yet feel game-native
   3. after the above, keep collapsing provider drift toward the typed `DecisionPort` boundary
+
+### 2026-04-06 Progress Update (turn handoff surfaced)
+
+- Turn-end summaries are now promoted into dedicated handoff cards in both:
+  - spectator panel
+  - turn stage
+- Browser parity now explicitly checks that remote-turn handoff remains visible.
+- Therefore the next immediate execution order is:
+  1. continue payoff animation and scene-beat polish for fortune / purchase / rent
+  2. trim any remaining generic prompt presentation that still feels like a fallback list
+  3. continue reducing provider-local drift before typed `DecisionPort` cleanup
+
+### 2026-04-06 Progress Update (payoff survives turn_end)
+
+- The public action result card now follows the latest payoff beat from the same turn, not merely the most recent event.
+- This means purchase / rent / fortune payoff remains visible after `turn_end_snapshot`.
+- Therefore the next immediate execution order is:
+  1. continue scene-beat polish for fortune reveal and payoff transitions
+  2. finish trimming the remaining generic prompt surfaces
+  3. keep shrinking provider-local drift before typed `DecisionPort` cleanup

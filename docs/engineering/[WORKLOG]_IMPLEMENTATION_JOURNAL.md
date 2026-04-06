@@ -1790,3 +1790,30 @@ Updated: 2026-04-04
   - stage continuity became easier to read once payoff beats used explicit event names instead of generic field labels
 - Validation:
   - pending local build/test pass after this patch
+
+## 2026-04-06 Turn Handoff Scene Card
+
+- What changed:
+  - Added a dedicated end-of-turn handoff card to:
+    - `apps/web/src/features/stage/SpectatorTurnPanel.tsx`
+    - `apps/web/src/features/stage/TurnStagePanel.tsx`
+  - Added matching styles in `apps/web/src/styles.css` so turn-end handoff now pulses as a closing beat instead of being buried in generic summaries.
+  - Extended `apps/web/e2e/human_play_runtime.spec.ts` so the remote-turn browser regression now explicitly checks:
+    - spectator handoff visibility
+    - turn-stage handoff visibility
+    - turn-end summary text
+- Why:
+  - live human play still needed a stronger visual handoff between one actor finishing and the next public phase beginning
+  - this is a scene-continuity improvement, not just a text polish change
+- Validation:
+  - pending local build/test pass after this patch
+
+## 2026-04-06 Payoff Persistence After Turn End
+
+- What changed:
+  - Updated `apps/web/src/features/theater/CoreActionPanel.tsx` so the result card now follows the latest payoff event in the same turn, not just the latest event overall.
+  - This keeps purchase / rent / fortune payoff visible even when `turn_end_snapshot` becomes the newest public event.
+- Why:
+  - the previous UI dropped the payoff card as soon as turn-end arrived, which weakened scene continuity and broke the browser regression added for handoff.
+- Validation:
+  - pending local build/test pass after this patch

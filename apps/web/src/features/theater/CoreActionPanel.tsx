@@ -95,13 +95,17 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
 
   const latestKind = latest ? classifyAction(latest, theater) : "system";
   const feedItems = items.slice(0, 8);
-  const turnFlowItems =
+  const sameTurnItemsNewestFirst =
     latest && latest.round !== null && latest.turn !== null
-      ? feedItems
-          .filter((item) => item.round === latest.round && item.turn === latest.turn)
-          .slice()
-          .reverse()
+      ? feedItems.filter((item) => item.round === latest.round && item.turn === latest.turn)
       : [];
+  const latestPayoffItem =
+    sameTurnItemsNewestFirst.find((item) => {
+      const kind = classifyAction(item, theater);
+      return kind === "economy" || kind === "effect";
+    }) ?? null;
+  const latestPayoffKind = latestPayoffItem ? classifyAction(latestPayoffItem, theater) : "system";
+  const turnFlowItems = sameTurnItemsNewestFirst.slice().reverse();
   const turnFlowSeqs = new Set(turnFlowItems.map((item) => item.seq));
   const historyItems = feedItems.filter((item) => !turnFlowSeqs.has(item.seq));
 
@@ -136,17 +140,20 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
         </article>
       ) : null}
 
-      {latest && (latestKind === "economy" || latestKind === "effect") ? (
-        <article className={`core-action-result-card core-action-result-card-${latestKind}`} data-testid="core-action-result-card">
+      {latestPayoffItem && (latestPayoffKind === "economy" || latestPayoffKind === "effect") ? (
+        <article
+          className={`core-action-result-card core-action-result-card-${latestPayoffKind}`}
+          data-testid="core-action-result-card"
+        >
           <div className="core-action-result-head">
-            <strong>{theater.actionKind[latestKind]}</strong>
-            <span>{latest.actor}</span>
+            <strong>{theater.actionKind[latestPayoffKind]}</strong>
+            <span>{latestPayoffItem.actor}</span>
           </div>
-          <p>{resultHeadline(latestKind, theater)}</p>
+          <p>{resultHeadline(latestPayoffKind, theater)}</p>
           <div className="core-action-detail-list">
-            {splitDetail(latest.detail, theater.noDetail).map((line, index) => (
-              <div key={`result-${latest.seq}-${index}`} className="core-action-detail-item">
-                <span>{theater.detailHeading[latestKind]}</span>
+            {splitDetail(latestPayoffItem.detail, theater.noDetail).map((line, index) => (
+              <div key={`result-${latestPayoffItem.seq}-${index}`} className="core-action-detail-item">
+                <span>{theater.detailHeading[latestPayoffKind]}</span>
                 <strong>{line}</strong>
               </div>
             ))}

@@ -35,6 +35,12 @@ type JourneyCard = {
   tone: "move" | "economy" | "effect" | "decision";
 };
 
+type PersistentPayoff = {
+  title: string;
+  detail: string;
+  tone: "economy" | "effect";
+};
+
 type PayoffTone = "economy" | "effect" | "neutral";
 
 function payoffToneForEventCode(eventCode: string): PayoffTone {
@@ -84,6 +90,22 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
       : latestActionTone === "effect"
         ? effectText
         : joinVisible([model.currentBeatDetail, latestActionDetail]);
+  let persistentPayoff: PersistentPayoff | null = null;
+  if (hasValue(model.rentSummary)) {
+    persistentPayoff = { title: rentEventLabel, detail: model.rentSummary, tone: "economy" };
+  } else if (hasValue(model.purchaseSummary)) {
+    persistentPayoff = { title: purchaseEventLabel, detail: model.purchaseSummary, tone: "economy" };
+  } else if (hasValue(model.fortuneResolvedSummary || model.fortuneSummary)) {
+    persistentPayoff = {
+      title: fortuneResolvedEventLabel,
+      detail: model.fortuneResolvedSummary || model.fortuneSummary,
+      tone: "effect",
+    };
+  } else if (hasValue(model.fortuneDrawSummary)) {
+    persistentPayoff = { title: fortuneDrawEventLabel, detail: model.fortuneDrawSummary, tone: "effect" };
+  } else if (hasValue(model.trickSummary)) {
+    persistentPayoff = { title: turnStage.fields.trick, detail: model.trickSummary, tone: "effect" };
+  }
   const spotlightCards: SpotlightCard[] = [];
   if (hasValue(model.weatherName) || hasValue(model.weatherEffect)) {
     spotlightCards.push({
@@ -248,7 +270,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
           <strong>{valueOrDash(latestActionTitle)}</strong>
           <small>{valueOrDash(latestActionDetail)}</small>
         </article>
-        {latestActionTitle !== "-" ? (
+      {latestActionTitle !== "-" ? (
           <article
             className={`spectator-turn-card spectator-turn-card-payoff spectator-turn-card-payoff-${latestActionTone}`}
             data-testid="spectator-turn-payoff"
@@ -310,14 +332,22 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
         </section>
       ) : null}
 
-      {latestActionTitle !== "-" && payoffSummary !== "-" ? (
+      {persistentPayoff ? (
         <article
-          className={`spectator-turn-card spectator-turn-card-payoff spectator-turn-card-payoff-${latestActionTone}`}
+          className={`spectator-turn-card spectator-turn-card-payoff spectator-turn-card-payoff-${persistentPayoff.tone}`}
           data-testid="spectator-turn-result"
         >
           <span>{app.spectatorFields.action}</span>
-          <strong>{valueOrDash(latestActionTitle)}</strong>
-          <small>{valueOrDash(payoffSummary)}</small>
+          <strong>{valueOrDash(persistentPayoff.title)}</strong>
+          <small>{valueOrDash(persistentPayoff.detail)}</small>
+        </article>
+      ) : null}
+
+      {hasValue(model.turnEndSummary) ? (
+        <article className="spectator-turn-card spectator-turn-card-handoff" data-testid="spectator-turn-handoff">
+          <span>{turnEndLabel}</span>
+          <strong>{valueOrDash(model.turnEndSummary)}</strong>
+          <small>{app.spectatorDescription}</small>
         </article>
       ) : null}
 

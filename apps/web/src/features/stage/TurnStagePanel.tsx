@@ -317,6 +317,17 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
             </div>
           </article>
         ) : null}
+
+        {hasMeaningfulValue(model.turnEndSummary) ? (
+          <article className="turn-stage-card turn-stage-card-wide turn-stage-card-handoff" data-testid="turn-stage-handoff-card">
+            <div className="turn-stage-card-top">
+              <strong>{turnEndLabel}</strong>
+              <span>{turnStage.progressBadge}</span>
+            </div>
+            <p>{valueOrDash(model.turnEndSummary)}</p>
+            <small>{turnStage.progressTitle}</small>
+          </article>
+        ) : null}
       </div>
     </section>
   );

@@ -1229,6 +1229,14 @@ body {
   background: linear-gradient(180deg, rgba(134, 239, 172, 0.09), rgba(11, 24, 46, 0.84));
 }
 
+.turn-stage-card-handoff {
+  border-color: rgba(196, 181, 253, 0.92);
+  background:
+    linear-gradient(180deg, rgba(196, 181, 253, 0.11), rgba(8, 19, 39, 0.96)),
+    #081327;
+  animation: stagePayoffPulse 1.9s ease-in-out infinite;
+}
+
 .live-action-banner {
   border-color: #4f74ad;
   background: linear-gradient(180deg, #10274a 0%, #0a1c35 100%);
@@ -1379,6 +1387,14 @@ body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.spectator-turn-card-handoff {
+  border-color: rgba(196, 181, 253, 0.9);
+  background:
+    linear-gradient(180deg, rgba(196, 181, 253, 0.12), rgba(11, 24, 46, 0.92)),
+    #102647;
+  animation: stagePayoffPulse 1.9s ease-in-out infinite;
 }
 
 .core-action-result-card {
