@@ -47,6 +47,34 @@ class RootSourceRegistry:
         return sha.hexdigest()
 
 
+EXTERNAL_AI_WORKER_PROFILE_PRESETS: dict[str, dict[str, Any]] = {
+    "reference_heuristic": {
+        "required_worker_adapter": "reference_heuristic_v1",
+        "required_policy_class": "HeuristicPolicy",
+        "required_decision_style": "contract_heuristic",
+        "required_capabilities": [
+            "choice_id_response",
+            "choice_payload_echo",
+            "healthcheck",
+            "worker_identity",
+        ],
+    },
+    "priority_scored": {
+        "required_worker_adapter": "priority_score_v1",
+        "required_policy_class": "PriorityScoredPolicy",
+        "required_decision_style": "priority_scored_contract",
+        "required_capabilities": [
+            "choice_id_response",
+            "choice_payload_echo",
+            "healthcheck",
+            "worker_identity",
+            "priority_scored_choice",
+            "scored_choice_strategy_v1",
+        ],
+    },
+}
+
+
 class GameParameterResolver:
     """Resolve session config into runtime-safe game parameter set."""
 
@@ -206,6 +234,12 @@ class GameParameterResolver:
             if not isinstance(item, str) or not item.strip():
                 raise ParameterValidationError("invalid_external_ai_required_request_types")
             normalized_request_types.append(item.strip())
+        worker_profile = external_ai_raw.get("worker_profile")
+        if worker_profile is not None and (not isinstance(worker_profile, str) or not worker_profile.strip()):
+            raise ParameterValidationError("invalid_external_ai_worker_profile")
+        normalized_worker_profile = worker_profile.strip().lower() if isinstance(worker_profile, str) else None
+        if normalized_worker_profile is not None and normalized_worker_profile not in EXTERNAL_AI_WORKER_PROFILE_PRESETS:
+            raise ParameterValidationError("invalid_external_ai_worker_profile")
         required_policy_mode = external_ai_raw.get("required_policy_mode")
         if required_policy_mode is not None and (not isinstance(required_policy_mode, str) or not required_policy_mode.strip()):
             raise ParameterValidationError("invalid_external_ai_required_policy_mode")
@@ -228,9 +262,22 @@ class GameParameterResolver:
                 raise ParameterValidationError("invalid_external_ai_headers")
             normalized_headers[key] = value
 
+        if normalized_worker_profile is not None:
+            preset = EXTERNAL_AI_WORKER_PROFILE_PRESETS[normalized_worker_profile]
+            normalized_capabilities = list(
+                dict.fromkeys([*preset.get("required_capabilities", []), *normalized_capabilities])
+            )
+            if required_worker_adapter is None:
+                required_worker_adapter = str(preset.get("required_worker_adapter") or "")
+            if required_policy_class is None:
+                required_policy_class = str(preset.get("required_policy_class") or "")
+            if required_decision_style is None:
+                required_decision_style = str(preset.get("required_decision_style") or "")
+
         return {
             "external_ai": {
                 "transport": transport,
+                **({"worker_profile": normalized_worker_profile} if normalized_worker_profile is not None else {}),
                 "contract_version": contract_version,
                 "expected_worker_id": expected_worker_id.strip() if isinstance(expected_worker_id, str) else None,
                 "auth_token": auth_token.strip() if isinstance(auth_token, str) else None,

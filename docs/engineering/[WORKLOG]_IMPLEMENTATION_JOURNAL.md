@@ -2779,3 +2779,22 @@ Updated: 2026-04-07
   - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts`
   - `cd apps/web && npm run build`
   - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
+
+## 2026-04-07 Worker Profile Presets + Localhost Priority Worker Round-Trip
+
+- What changed:
+  - Server:
+    - `apps/server/src/services/parameter_service.py` now accepts `worker_profile` for external-AI participant defaults
+    - `worker_profile=priority_scored` now expands to the stronger-worker compatibility bundle automatically:
+      - `required_worker_adapter=priority_score_v1`
+      - `required_policy_class=PriorityScoredPolicy`
+      - `required_decision_style=priority_scored_contract`
+      - scored-choice capability requirements
+    - runtime localhost integration coverage now includes a real HTTP round-trip against a priority-scored worker adapter
+  - Docs:
+    - the external worker runbook and production-shaped session payload now show `worker_profile=priority_scored` as the higher-quality worker path
+- Why:
+  - after proving the stronger adapter seam at the code level, the next practical step was to make that seam easy to select from session/runtime config
+  - that reduces manual config drift when swapping from the reference worker to a stronger worker/service
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_runtime_service.py apps/server/tests/test_parameter_service.py apps/server/tests/test_parameter_propagation.py`

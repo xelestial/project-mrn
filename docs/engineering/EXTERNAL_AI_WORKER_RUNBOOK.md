@@ -25,6 +25,11 @@ Optional flags:
 - `--log-level debug`
 - `--reload`
 
+Worker presets:
+
+- `reference_heuristic`
+- `priority_scored`
+
 ## Verify Health
 
 ```bash
@@ -70,6 +75,25 @@ To run the stronger scored reference adapter locally:
   --worker-adapter priority_score_v1
 ```
 
+If you want session config to fill compatibility requirements automatically, set:
+
+```json
+{
+  "participants": {
+    "external_ai": {
+      "worker_profile": "priority_scored"
+    }
+  }
+}
+```
+
+The resolver will fill:
+
+- `required_worker_adapter=priority_score_v1`
+- `required_policy_class=PriorityScoredPolicy`
+- `required_decision_style=priority_scored_contract`
+- scored-choice capability requirements
+
 ## Attach a Seat to the Worker
 
 Use `participant_client: "external_ai"` on an AI seat and provide an HTTP endpoint.
@@ -112,11 +136,13 @@ Use `participant_client: "external_ai"` on an AI seat and provide an HTTP endpoi
         "healthcheck_policy": "required",
         "require_ready": true,
         "max_attempt_count": 3,
+        "worker_profile": "priority_scored",
         "required_capabilities": ["choice_id_response", "healthcheck"],
         "required_request_types": ["movement", "purchase_tile"],
-        "required_worker_adapter": "reference_heuristic_v1",
+        "required_worker_adapter": "priority_score_v1",
+        "required_policy_class": "PriorityScoredPolicy",
         "required_policy_mode": "heuristic_v3_gpt",
-        "required_decision_style": "contract_heuristic",
+        "required_decision_style": "priority_scored_contract",
         "headers": {}
       }
     }
@@ -142,6 +168,7 @@ Important rules:
 - the worker should advertise the capabilities required by the seat config
 - when provided, `supported_request_types` should accurately describe which canonical request types the worker can actually resolve
 - when configured, `required_request_types` must be a subset of the worker's advertised `supported_request_types`
+- when configured, `worker_profile` may prefill stronger-worker compatibility requirements
 - when configured, `required_worker_adapter` must match the worker's advertised `worker_adapter`
 - when configured, `required_policy_mode` must match the worker's advertised `policy_mode`
 - when configured, `required_policy_class` must match the worker's advertised `policy_class`
@@ -212,4 +239,5 @@ The default local worker is no longer hard-wired directly to one heuristic imple
 - `apps/server/src/services/external_ai_worker_service.py` now mounts the reference worker through an explicit decision-adapter seam
 - the default adapter id is `reference_heuristic_v1`
 - a built-in stronger scored adapter is also available as `priority_score_v1`
+- `worker_profile=priority_scored` is the parameter-driven shortcut for the stronger scored adapter path
 - stronger workers/services can replace that adapter while keeping the frozen HTTP request/response contract stable

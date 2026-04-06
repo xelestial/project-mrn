@@ -73,6 +73,7 @@ Reference worker capabilities now also advertise:
 
 Operational seat defaults can now also require:
 
+- `worker_profile`
 - `require_ready`
 - `max_attempt_count`
 - `required_worker_adapter`
@@ -88,6 +89,7 @@ The bundled reference worker now sits behind an explicit adapter seam:
 
 - default adapter id: `reference_heuristic_v1`
 - stronger scored adapter id: `priority_score_v1`
+- parameter shortcut: `worker_profile=priority_scored`
 - replacement workers/services can keep the same frozen HTTP contract while swapping the underlying adapter implementation
 
 See `docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md` for a full local session example.

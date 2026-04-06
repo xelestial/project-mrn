@@ -1483,6 +1483,93 @@ class RuntimeServiceTests(unittest.TestCase):
             server.should_exit = True
             thread.join(timeout=5.0)
 
+    def test_http_external_transport_reaches_real_priority_worker_over_localhost(self) -> None:
+        try:
+            import uvicorn
+        except ModuleNotFoundError:
+            self.skipTest("uvicorn is not installed in this environment")
+
+        from apps.server.src.external_ai_app import create_app
+        from apps.server.src.services.external_ai_worker_service import ExternalAiWorkerService
+        from apps.server.src.services.runtime_service import _HttpExternalAiTransport
+
+        class _FakeAiPolicy:
+            def choose_pabal_dice_mode(self, state, player):  # noqa: ANN001
+                del state, player
+                return "minus_one"
+
+        class _FakeGateway:
+            def __init__(self) -> None:
+                self.calls: list[dict] = []
+
+            def resolve_ai_decision(self, **kwargs):  # noqa: ANN003
+                self.calls.append(kwargs)
+                return kwargs["resolver"]()
+
+        sock = socket.socket()
+        try:
+            sock.bind(("127.0.0.1", 0))
+        except PermissionError:
+            sock.close()
+            self.skipTest("localhost socket binding is not permitted in this environment")
+        host, port = sock.getsockname()
+        sock.close()
+
+        worker = ExternalAiWorkerService(
+            worker_id="worker-http-priority-test",
+            policy_mode="heuristic_v3_gpt",
+            worker_adapter="priority_score_v1",
+        )
+        app = create_app(worker)
+        config = uvicorn.Config(app, host=host, port=port, log_level="error")
+        server = uvicorn.Server(config)
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        try:
+            for _ in range(100):
+                if getattr(server, "started", False):
+                    break
+                time.sleep(0.05)
+            else:
+                self.fail("external_ai_priority_worker_failed_to_start")
+
+            gateway = _FakeGateway()
+            transport = _HttpExternalAiTransport(
+                session_id="sess_http_real_priority_worker",
+                ai_fallback=_FakeAiPolicy(),
+                gateway=gateway,  # type: ignore[arg-type]
+                seat=2,
+                config={
+                    "transport": "http",
+                    "endpoint": f"http://{host}:{port}/decide",
+                    "timeout_ms": 3000,
+                    "retry_count": 0,
+                    "backoff_ms": 0,
+                    "fallback_mode": "local_ai",
+                    "required_worker_adapter": "priority_score_v1",
+                    "required_policy_class": "PriorityScoredPolicy",
+                    "required_decision_style": "priority_scored_contract",
+                },
+            )
+            state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+            player = type("Player", (), {"player_id": 1, "cash": 8, "position": 9, "shards": 1})()
+            call = build_routed_decision_call(
+                build_decision_invocation("choose_pabal_dice_mode", (state, player), {}),
+                fallback_policy="ai",
+            )
+
+            result = transport.resolve(call)
+
+            self.assertEqual(result, "plus_one")
+            public_context = gateway.calls[0]["public_context"]
+            self.assertEqual(public_context["external_ai_worker_adapter"], "priority_score_v1")
+            self.assertEqual(public_context["external_ai_policy_class"], "PriorityScoredPolicy")
+            self.assertEqual(public_context["external_ai_decision_style"], "priority_scored_contract")
+            self.assertEqual(public_context["external_ai_resolution_status"], "resolved_by_worker")
+        finally:
+            server.should_exit = True
+            thread.join(timeout=5.0)
+
     def test_start_runtime_uses_async_to_thread_bridge(self) -> None:
         session = self.session_service.create_session(
             seats=[

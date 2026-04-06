@@ -140,6 +140,7 @@ These are no longer the immediate blockers, but they are recently completed and 
   - the reference worker now sits behind an explicit adapter seam so stronger workers/services can replace it without changing the frozen HTTP contract
   - canonical `public_context` now preserves `external_ai_worker_adapter` alongside worker id / mode / class / decision style
   - the worker seam now has a built-in stronger scored adapter (`priority_score_v1`) that exercises the same contract with distinct adapter/class/style metadata
+  - participant defaults can now use `worker_profile` to expand stronger-worker compatibility requirements without repeating every low-level gate
 - Main implementation references:
   - `apps/server/src/external_ai_app.py`
   - `apps/server/src/services/external_ai_worker_service.py`

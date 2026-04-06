@@ -60,6 +60,41 @@ class ParameterPropagationTests(unittest.TestCase):
         self.assertEqual(before["participants"]["external_ai"]["healthcheck_policy"], "auto")
         self.assertEqual(after["participants"]["external_ai"]["healthcheck_policy"], "required")
 
+    def test_manifest_hash_changes_when_external_worker_profile_changes(self) -> None:
+        resolver = GameParameterResolver()
+        builder = PublicManifestBuilder()
+
+        before = builder.build_public_manifest(
+            resolver.resolve(
+                {
+                    "seed": 42,
+                    "participants": {
+                        "external_ai": {
+                            "transport": "http",
+                            "worker_profile": "reference_heuristic",
+                        }
+                    },
+                }
+            )
+        )
+        after = builder.build_public_manifest(
+            resolver.resolve(
+                {
+                    "seed": 42,
+                    "participants": {
+                        "external_ai": {
+                            "transport": "http",
+                            "worker_profile": "priority_scored",
+                        }
+                    },
+                }
+            )
+        )
+
+        self.assertNotEqual(before["manifest_hash"], after["manifest_hash"])
+        self.assertEqual(before["participants"]["external_ai"]["worker_profile"], "reference_heuristic")
+        self.assertEqual(after["participants"]["external_ai"]["worker_profile"], "priority_scored")
+
     def test_manifest_hash_changes_when_root_source_file_changes(self) -> None:
         resolver = GameParameterResolver()
         resolved = resolver.resolve({"seed": 42})

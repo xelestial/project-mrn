@@ -38,12 +38,16 @@
         "fallback_mode": "local_ai",
         "healthcheck_path": "/health",
         "healthcheck_ttl_ms": 10000,
+        "worker_profile": "priority_scored",
         "required_capabilities": [
           "choice_id_response",
           "choice_payload_echo",
           "worker_identity",
           "healthcheck"
         ],
+        "required_worker_adapter": "priority_score_v1",
+        "required_policy_class": "PriorityScoredPolicy",
+        "required_decision_style": "priority_scored_contract",
         "headers": {
           "X-Worker-Environment": "production"
         }

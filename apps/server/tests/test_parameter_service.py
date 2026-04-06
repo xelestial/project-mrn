@@ -123,9 +123,34 @@ class ParameterServiceTests(unittest.TestCase):
         self.assertEqual(resolved["participants"]["external_ai"]["required_decision_style"], "contract_heuristic")
         self.assertIn("event_labels", resolved["labels"])
 
+    def test_resolve_applies_external_ai_worker_profile_presets(self) -> None:
+        resolved = self.resolver.resolve(
+            {
+                "seed": 42,
+                "participants": {
+                    "external_ai": {
+                        "transport": "http",
+                        "worker_profile": "priority_scored",
+                    }
+                },
+            }
+        )
+
+        external_ai = resolved["participants"]["external_ai"]
+        self.assertEqual(external_ai["worker_profile"], "priority_scored")
+        self.assertEqual(external_ai["required_worker_adapter"], "priority_score_v1")
+        self.assertEqual(external_ai["required_policy_class"], "PriorityScoredPolicy")
+        self.assertEqual(external_ai["required_decision_style"], "priority_scored_contract")
+        self.assertIn("priority_scored_choice", external_ai["required_capabilities"])
+        self.assertIn("scored_choice_strategy_v1", external_ai["required_capabilities"])
+
     def test_resolve_rejects_invalid_external_ai_transport(self) -> None:
         with self.assertRaises(ParameterValidationError):
             self.resolver.resolve({"participants": {"external_ai": {"transport": "grpc"}}})
+
+    def test_resolve_rejects_invalid_external_ai_worker_profile(self) -> None:
+        with self.assertRaises(ParameterValidationError):
+            self.resolver.resolve({"participants": {"external_ai": {"worker_profile": "unknown_profile"}}})
 
     def test_resolve_rejects_invalid_external_ai_required_capabilities(self) -> None:
         with self.assertRaises(ParameterValidationError):

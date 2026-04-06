@@ -270,6 +270,8 @@ This is the practical next-work list after the closed slices above.
 - The worker-replacement seam is now exercised by more than one built-in adapter shape:
   - `reference_heuristic_v1`
   - `priority_score_v1`
+- Participant defaults can now also select stronger-worker compatibility through a parameter-level preset:
+  - `worker_profile=priority_scored`
 - The stronger scored adapter path now proves that the frozen HTTP contract can stay stable while worker provenance changes:
   - different `worker_adapter`
   - different `policy_class`
