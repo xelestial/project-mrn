@@ -39,6 +39,7 @@ describe("uiText catalogs", () => {
 
   it("keeps theater/stage/prompt phrasing populated", () => {
     expect(THEATER_TEXT.coreActionTitle).toBe("최근 공개 행동");
+    expect(THEATER_TEXT.payoffSceneTitle).toBe("같은 턴 결과 장면");
     expect(THEATER_TEXT.toneBadge.critical).toBe("중요");
     expect(TURN_STAGE_TEXT.actorHeadline("P1")).toContain("P1");
     expect(TURN_STAGE_TEXT.currentBeatTitle).toBe("현재 단계");

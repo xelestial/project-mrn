@@ -134,10 +134,6 @@ function collapsedPromptChip(promptText: PromptText, label: string, secondsLeft:
   return promptText.collapsedChip(label, secondsLeft);
 }
 
-function promptMetaPills(playerId: number, timeoutMs: number, secondsLeft: number | null): string[] {
-  return [`Actor P${playerId}`, `${Math.ceil(timeoutMs / 1000)}s`, `${secondsLeft ?? "-"}s left`];
-}
-
 function movementChoices(prompt: PromptViewModel): MovementChoiceParts {
   let rollChoice: PromptChoiceViewModel | null = null;
   const cardChoices: Array<{ cards: number[]; choice: PromptChoiceViewModel }> = [];
@@ -412,7 +408,7 @@ export function PromptOverlay({
     secondsLeft !== null && prompt.timeoutMs > 0
       ? Math.max(0, Math.min(100, (secondsLeft * 1000 * 100) / prompt.timeoutMs))
       : null;
-  const headMetaPills = promptMetaPills(prompt.playerId, prompt.timeoutMs, secondsLeft);
+  const headMetaPills = promptText.requestMetaPills(prompt.playerId, prompt.timeoutMs, secondsLeft);
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {

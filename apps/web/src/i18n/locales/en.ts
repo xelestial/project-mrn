@@ -335,6 +335,7 @@ export const enLocale = {
   theater: {
     coreActionTitle: "Recent Public Actions",
     coreActionDescription: "Shows movement, purchase, rent, fortune, weather, and other public action flow.",
+    payoffSceneTitle: "Same-Turn Payoff Beats",
     turnFlowTitle: "Same Turn Flow",
     turnFlowEmpty: "No connected public actions in this turn yet.",
     roundTurnBadge: (round: number | null, turn: number | null) =>
@@ -373,6 +374,13 @@ export const enLocale = {
       effect: "Effect detail",
       decision: "Decision detail",
       system: "System detail",
+    },
+    payoffBeat: {
+      tile_purchased: "Purchase resolved",
+      rent_paid: "Rent paid",
+      fortune_drawn: "Fortune revealed",
+      fortune_resolved: "Fortune effect",
+      lap_reward_chosen: "Reward resolved",
     },
     incidentTitle: "Turn Theater",
     incidentDescription: "Separates turn progress, decision prompts, and system records.",
@@ -447,6 +455,11 @@ export const enLocale = {
     collapsedChip: (label: string, secondsLeft: number | null) => `Decision: ${label} / ${secondsLeft ?? "-"}s left`,
     headTitle: (label: string) => `Decision: ${label}`,
     collapse: "Collapse",
+    requestMetaPills: (playerId: number, timeoutMs: number, secondsLeft: number | null) => [
+      `Actor P${playerId}`,
+      `Limit ${Math.ceil(timeoutMs / 1000)}s`,
+      `${secondsLeft ?? "-"}s left`,
+    ],
     requestMeta: (_requestId: string, playerId: number, timeoutMs: number, secondsLeft: number | null) =>
       `Actor P${playerId} / limit ${Math.ceil(timeoutMs / 1000)}s / ${secondsLeft ?? "-"}s left`,
     context: {

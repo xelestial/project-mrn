@@ -1406,6 +1406,23 @@ body {
   background: rgba(15, 26, 49, 0.84);
 }
 
+.core-action-payoff-sequence {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(76, 114, 177, 0.72);
+  background:
+    linear-gradient(180deg, rgba(83, 121, 184, 0.08), rgba(11, 24, 46, 0.9)),
+    rgba(11, 24, 46, 0.92);
+}
+
+.core-action-payoff-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
 .core-action-result-head {
   display: flex;
   justify-content: space-between;
@@ -1428,6 +1445,11 @@ body {
   line-height: 1.5;
 }
 
+.core-action-result-caption {
+  color: #9fb6df;
+  line-height: 1.4;
+}
+
 .core-action-result-card-economy {
   border-color: rgba(255, 218, 119, 0.82);
   background: linear-gradient(180deg, rgba(255, 218, 119, 0.09), rgba(15, 26, 49, 0.92));
@@ -1436,6 +1458,11 @@ body {
 .core-action-result-card-effect {
   border-color: rgba(134, 239, 172, 0.82);
   background: linear-gradient(180deg, rgba(134, 239, 172, 0.09), rgba(15, 26, 49, 0.92));
+}
+
+.core-action-result-card-latest {
+  animation: stagePayoffPulse 1.9s ease-in-out infinite;
+  box-shadow: 0 0 0 1px rgba(244, 247, 255, 0.08), 0 20px 36px rgba(4, 10, 24, 0.28);
 }
 
 .core-action-journey {

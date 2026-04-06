@@ -1,51 +1,17 @@
 import type { CoreActionItem } from "../../domain/selectors/streamSelectors";
 import { useI18n } from "../../i18n/useI18n";
+import {
+  buildPayoffSceneItems,
+  classifyCoreAction,
+  headlineCoreActionDetail,
+  splitCoreActionDetail,
+  type ActionKind,
+} from "./coreActionScene";
 
 type CoreActionPanelProps = {
   items: CoreActionItem[];
   latest: CoreActionItem | null;
 };
-
-type ActionKind = "move" | "economy" | "effect" | "decision" | "system";
-
-function normalize(value: string): string {
-  return value.toLowerCase();
-}
-
-function classifyAction(item: CoreActionItem, theaterText: ReturnType<typeof useI18n>["theater"]): ActionKind {
-  const haystack = normalize(`${item.label} ${item.detail}`);
-  const includesAny = (terms: readonly string[]) => terms.some((term) => haystack.includes(normalize(term)));
-
-  if (haystack.includes("move") || haystack.includes("dice") || includesAny(theaterText.actionKeywords.move)) {
-    return "move";
-  }
-
-  if (
-    haystack.includes("rent") ||
-    haystack.includes("purchase") ||
-    haystack.includes("cash") ||
-    haystack.includes("shard") ||
-    includesAny(theaterText.actionKeywords.economy)
-  ) {
-    return "economy";
-  }
-
-  if (
-    haystack.includes("fortune") ||
-    haystack.includes("weather") ||
-    haystack.includes("trick") ||
-    haystack.includes("flip") ||
-    includesAny(theaterText.actionKeywords.effect)
-  ) {
-    return "effect";
-  }
-
-  if (haystack.includes("prompt") || haystack.includes("decision") || includesAny(theaterText.actionKeywords.decision)) {
-    return "decision";
-  }
-
-  return "system";
-}
 
 function actorToneClass(item: CoreActionItem): string {
   return item.isLocalActor ? "core-action-hero core-action-hero-local" : "core-action-hero";
@@ -57,24 +23,6 @@ function cardClassName(item: CoreActionItem, kind: ActionKind): string {
     classes.push("core-action-feed-card-local");
   }
   return classes.join(" ");
-}
-
-function splitDetail(detail: string, noDetailLabel: string): string[] {
-  const compact = detail.replace(/\s+/g, " ").trim();
-  if (!compact || compact === "-") {
-    return [noDetailLabel];
-  }
-
-  const pieces = compact
-    .split(/\s*\|\s*|\s*\/\s*|(?<=\.)\s+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  return pieces.length > 0 ? pieces.slice(0, 3) : [compact];
-}
-
-function headlineDetail(item: CoreActionItem, theaterText: ReturnType<typeof useI18n>["theater"]): string {
-  return splitDetail(item.detail, theaterText.noDetail)[0] ?? theaterText.noDetail;
 }
 
 function resultHeadline(kind: ActionKind, theaterText: ReturnType<typeof useI18n>["theater"]): string {
@@ -93,18 +41,13 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
     return null;
   }
 
-  const latestKind = latest ? classifyAction(latest, theater) : "system";
+  const latestKind = latest ? classifyCoreAction(latest, theater) : "system";
   const feedItems = items.slice(0, 8);
   const sameTurnItemsNewestFirst =
     latest && latest.round !== null && latest.turn !== null
       ? feedItems.filter((item) => item.round === latest.round && item.turn === latest.turn)
       : [];
-  const latestPayoffItem =
-    sameTurnItemsNewestFirst.find((item) => {
-      const kind = classifyAction(item, theater);
-      return kind === "economy" || kind === "effect";
-    }) ?? null;
-  const latestPayoffKind = latestPayoffItem ? classifyAction(latestPayoffItem, theater) : "system";
+  const payoffScenes = buildPayoffSceneItems(sameTurnItemsNewestFirst, theater);
   const turnFlowItems = sameTurnItemsNewestFirst.slice().reverse();
   const turnFlowSeqs = new Set(turnFlowItems.map((item) => item.seq));
   const historyItems = feedItems.filter((item) => !turnFlowSeqs.has(item.seq));
@@ -130,7 +73,7 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
           <strong>{latest.label}</strong>
           <p>{theater.panelLead[latestKind]}</p>
           <div className="core-action-detail-list">
-            {splitDetail(latest.detail, theater.noDetail).map((line, index) => (
+            {splitCoreActionDetail(latest.detail, theater.noDetail).map((line, index) => (
               <div key={`latest-${latest.seq}-${index}`} className="core-action-detail-item">
                 <span>{theater.detailHeading[latestKind]}</span>
                 <strong>{line}</strong>
@@ -140,25 +83,39 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
         </article>
       ) : null}
 
-      {latestPayoffItem && (latestPayoffKind === "economy" || latestPayoffKind === "effect") ? (
-        <article
-          className={`core-action-result-card core-action-result-card-${latestPayoffKind}`}
-          data-testid="core-action-result-card"
-        >
-          <div className="core-action-result-head">
-            <strong>{theater.actionKind[latestPayoffKind]}</strong>
-            <span>{latestPayoffItem.actor}</span>
+      {payoffScenes.length > 0 ? (
+        <section className="core-action-payoff-sequence" data-testid="core-action-payoff-sequence">
+          <div className="core-action-journey-head">
+            <strong>{theater.payoffSceneTitle}</strong>
+            {latest ? <small>{theater.roundTurnBadge(latest.round, latest.turn)}</small> : null}
           </div>
-          <p>{resultHeadline(latestPayoffKind, theater)}</p>
-          <div className="core-action-detail-list">
-            {splitDetail(latestPayoffItem.detail, theater.noDetail).map((line, index) => (
-              <div key={`result-${latestPayoffItem.seq}-${index}`} className="core-action-detail-item">
-                <span>{theater.detailHeading[latestPayoffKind]}</span>
-                <strong>{line}</strong>
-              </div>
+          <div className="core-action-payoff-strip">
+            {payoffScenes.map((scene) => (
+              <article
+                key={`payoff-${scene.seq}`}
+                className={`core-action-result-card core-action-result-card-${scene.kind} ${
+                  scene.isLatest ? "core-action-result-card-latest" : ""
+                }`}
+                data-testid={scene.isLatest ? "core-action-result-card" : undefined}
+              >
+                <div className="core-action-result-head">
+                  <strong>{scene.phaseLabel}</strong>
+                  <span>{scene.actor}</span>
+                </div>
+                <p>{scene.label}</p>
+                <small className="core-action-result-caption">{resultHeadline(scene.kind, theater)}</small>
+                <div className="core-action-detail-list">
+                  {splitCoreActionDetail(scene.detail, theater.noDetail).map((line, index) => (
+                    <div key={`result-${scene.seq}-${index}`} className="core-action-detail-item">
+                      <span>{theater.detailHeading[scene.kind]}</span>
+                      <strong>{line}</strong>
+                    </div>
+                  ))}
+                </div>
+              </article>
             ))}
           </div>
-        </article>
+        </section>
       ) : null}
 
       {turnFlowItems.length > 0 ? (
@@ -169,13 +126,13 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
           </div>
           <div className="core-action-journey-strip">
             {turnFlowItems.map((item, index) => {
-              const kind = classifyAction(item, theater);
+              const kind = classifyCoreAction(item, theater);
               return (
                 <div key={`journey-${item.seq}`} className={`core-action-journey-step core-action-journey-step-${kind}`}>
                   <span className="core-action-journey-index">0{index + 1}</span>
                   <span className="core-action-chip">{theater.actionKind[kind]}</span>
                   <strong>{item.label}</strong>
-                  <small>{headlineDetail(item, theater)}</small>
+                  <small>{headlineCoreActionDetail(item, theater)}</small>
                 </div>
               );
             })}
@@ -186,7 +143,7 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
       {historyItems.length > 0 ? (
         <div className="core-action-feed-grid">
           {historyItems.map((item) => {
-            const kind = classifyAction(item, theater);
+            const kind = classifyCoreAction(item, theater);
             return (
               <article key={`core-action-${item.seq}`} className={cardClassName(item, kind)}>
                 <div className="core-action-feed-meta">
@@ -197,7 +154,7 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
                 <strong>{item.label}</strong>
                 <small>{theater.panelLead[kind]}</small>
                 <div className="core-action-detail-list">
-                  {splitDetail(item.detail, theater.noDetail).map((line, index) => (
+                  {splitCoreActionDetail(item.detail, theater.noDetail).map((line, index) => (
                     <div key={`feed-${item.seq}-${index}`} className="core-action-detail-item">
                       <span>{theater.detailHeading[kind]}</span>
                       <strong>{line}</strong>

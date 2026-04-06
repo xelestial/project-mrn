@@ -12,6 +12,16 @@ describe("i18n registry", () => {
     expect(LOCALES.ko.app.title).toBe("MRN Online Viewer (React/FastAPI)");
     expect(LOCALES.en.app.routeLobby).toBe("Lobby");
     expect(LOCALES.en.prompt.choice.buyTileTitle).toBe("Buy tile");
+    expect(LOCALES.ko.prompt.requestMetaPills(2, 30000, 18)).toEqual([
+      "행동자 P2",
+      "제한 30초",
+      "남은 시간 18초",
+    ]);
+    expect(LOCALES.en.prompt.requestMetaPills(2, 30000, 18)).toEqual([
+      "Actor P2",
+      "Limit 30s",
+      "18s left",
+    ]);
   });
 
   it("restores stored locale values and falls back to default", () => {

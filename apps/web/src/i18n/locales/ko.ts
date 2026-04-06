@@ -340,6 +340,7 @@ export const koLocale = {
   theater: {
     coreActionTitle: "최근 공개 행동",
     coreActionDescription: "이동, 구매, 렌트, 운수, 날씨, 카드 효과처럼 모든 플레이어가 아는 진행 흐름을 모아 보여줍니다.",
+    payoffSceneTitle: "같은 턴 결과 장면",
     turnFlowTitle: "같은 턴 흐름",
     turnFlowEmpty: "아직 같은 턴 안에서 이어진 공개 행동이 없습니다.",
     roundTurnBadge: (round: number | null, turn: number | null) =>
@@ -378,6 +379,13 @@ export const koLocale = {
       effect: "효과 상세",
       decision: "선택 상세",
       system: "시스템 상세",
+    },
+    payoffBeat: {
+      tile_purchased: "구매 결과",
+      rent_paid: "렌트 결과",
+      fortune_drawn: "운수 공개",
+      fortune_resolved: "운수 효과",
+      lap_reward_chosen: "보상 결과",
     },
     incidentTitle: "턴 극장",
     incidentDescription: "턴 진행, 선택 요청, 시스템 기록을 분리해서 현재 게임의 흐름을 따라갑니다.",
@@ -452,6 +460,11 @@ export const koLocale = {
     collapsedChip: (label: string, secondsLeft: number | null) => `선택 요청: ${label} / 남은 시간 ${secondsLeft ?? "-"}초`,
     headTitle: (label: string) => `선택 요청: ${label}`,
     collapse: "접기",
+    requestMetaPills: (playerId: number, timeoutMs: number, secondsLeft: number | null) => [
+      `행동자 P${playerId}`,
+      `제한 ${Math.ceil(timeoutMs / 1000)}초`,
+      `남은 시간 ${secondsLeft ?? "-"}초`,
+    ],
     requestMeta: (requestId: string, playerId: number, timeoutMs: number, secondsLeft: number | null) =>
       `요청 ID ${requestId} / 행동자 P${playerId} / 제한 시간 ${Math.ceil(timeoutMs / 1000)}초 / 남은 시간 ${secondsLeft ?? "-"}초`,
     context: {

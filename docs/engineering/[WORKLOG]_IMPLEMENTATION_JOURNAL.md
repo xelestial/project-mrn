@@ -1849,3 +1849,63 @@ Updated: 2026-04-04
   - the execution documents had become append-heavy, making it harder to tell what was already done versus what should actually drive the next coding slice
 - Validation:
   - documentation-only update
+
+## 2026-04-07 Payoff Scene Strip + Local Validation Pass
+
+- What changed:
+  - Bootstrapped local validation dependencies for this workspace:
+    - created `.venv/` and installed server-side Python test dependencies
+    - installed `apps/web` npm dependencies and Playwright Chromium
+  - Verified the current web runtime path end-to-end, then upgraded the theater payoff UI:
+    - added `apps/web/src/features/theater/coreActionScene.ts`
+    - added `apps/web/src/features/theater/coreActionScene.spec.ts`
+    - updated `apps/web/src/features/theater/CoreActionPanel.tsx`
+    - updated locale resources in `apps/web/src/i18n/locales/ko.ts` and `apps/web/src/i18n/locales/en.ts`
+    - updated theater styling in `apps/web/src/styles.css`
+  - The core-action payoff area now renders same-turn payoff beats in sequence instead of compressing them into a single latest result card:
+    - `tile_purchased`
+    - `rent_paid`
+    - `fortune_drawn`
+    - `fortune_resolved`
+    - `lap_reward_chosen`
+  - Classification now uses canonical `eventCode` first before fallback keyword heuristics, reducing inspector-like ambiguity in payoff rendering.
+- Why:
+  - the active carry-forward slice in the execution plans calls for stronger fortune / purchase / rent scene payoff, and the old UI still flattened those beats into one summary card
+  - local runtime validation was also needed to distinguish real implementation issues from machine/environment issues
+- Validation:
+  - `npm run test -- --run src/features/theater/coreActionScene.spec.ts src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts`
+  - `npm run build`
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts`
+  - server-side note:
+    - current local machine only exposes `python3` 3.9.6
+    - `apps/server` currently imports `@dataclass(slots=True)` paths, so server import/test/runtime fail under 3.9 before app startup
+    - `apps/server/tests/test_stream_api.py` also needs `httpx` in the local venv for FastAPI `TestClient`
+
+## 2026-04-07 Python 3.11 Server Validation Recovery
+
+- What changed:
+  - Installed Homebrew `python@3.11` and created `.venv311/` for server validation.
+  - Installed server dependencies plus `pytest` and `httpx` into `.venv311/`.
+  - Re-ran the server validation batch with Python 3.11 and confirmed the FastAPI app binds successfully when sandbox port restrictions are lifted.
+- Why:
+  - the local machine defaulted to Python 3.9.6, which could not import the current server modules because `dataclass(slots=True)` requires Python 3.10+ in this codebase.
+  - this was an environment blocker, not an app logic failure, so the execution path needed a valid interpreter before further server work.
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_contract_examples.py apps/server/tests/test_stream_api.py apps/server/tests/test_runtime_service.py apps/server/tests/test_prompt_service.py apps/server/tests/test_error_payload.py apps/server/tests/test_structured_log.py` (`48 passed`)
+  - `.venv311/bin/python -m uvicorn apps.server.src.app:app --host 127.0.0.1 --port 8001` (startup and bind confirmed)
+
+## 2026-04-07 Prompt Head Locale Ownership Cleanup
+
+- What changed:
+  - Removed the remaining prompt-head meta pill string assembly from `apps/web/src/features/prompt/PromptOverlay.tsx`.
+  - Added locale-owned `requestMetaPills` resources in:
+    - `apps/web/src/i18n/locales/ko.ts`
+    - `apps/web/src/i18n/locales/en.ts`
+  - Extended `apps/web/src/i18n/i18n.spec.ts` to lock the Korean/English prompt-head pill output shape.
+- Why:
+  - prompt surface cleanup is still an active carry-forward slice, and the prompt head still had component-owned English literals even after the broader locale split work.
+  - this keeps the prompt HUD aligned with the “locale resources outside components” rule and reduces inspector-style drift.
+- Validation:
+  - `npm run test -- --run src/i18n/i18n.spec.ts src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/streamSelectors.spec.ts src/features/theater/coreActionScene.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts`
+  - `npm run build`
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts`
