@@ -498,6 +498,7 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await expect(page.getByTestId("spectator-turn-panel")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-scene")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-weather")).toBeVisible();
+  await expect(page.getByTestId("spectator-turn-weather")).toContainText("Cold Front");
   await expect(page.getByTestId("spectator-turn-character")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-action")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-payoff")).toBeVisible();
@@ -507,6 +508,7 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await expect(page.getByTestId("spectator-turn-journey")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-progress")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-result")).toBeVisible();
+  await expect(page.getByTestId("spectator-turn-spotlight")).toContainText("Bought tile 7 for 2");
   await expect(page.getByTestId("board-move-start-badge")).toBeVisible();
   await expect(page.getByTestId("board-move-end-badge")).toBeVisible();
   await expect(page.getByTestId("board-moving-pawn-ghost")).toBeVisible();

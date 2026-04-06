@@ -70,6 +70,14 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
         ? effectText
         : joinVisible([model.currentBeatDetail, latestActionDetail]);
   const spotlightCards: SpotlightCard[] = [];
+  if (hasValue(model.weatherName) || hasValue(model.weatherEffect)) {
+    spotlightCards.push({
+      key: "weather",
+      title: app.spectatorFields.weather,
+      detail: joinVisible([model.weatherName, model.weatherEffect]),
+      tone: "effect",
+    });
+  }
   if (hasValue(model.purchaseSummary)) {
     spotlightCards.push({ key: "purchase", title: turnStage.fields.purchase, detail: model.purchaseSummary, tone: "economy" });
   }
@@ -115,18 +123,35 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
       tone: "effect",
     });
   }
-  if (hasValue(economyText)) {
+  if (hasValue(model.purchaseSummary)) {
     journeyCards.push({
-      key: "economy",
-      label: app.spectatorFields.economy,
-      detail: economyText,
+      key: "purchase",
+      label: turnStage.fields.purchase,
+      detail: model.purchaseSummary,
       tone: "economy",
     });
-  } else if (hasValue(effectText)) {
+  }
+  if (hasValue(model.rentSummary)) {
+    journeyCards.push({
+      key: "rent",
+      label: turnStage.fields.rent,
+      detail: model.rentSummary,
+      tone: "economy",
+    });
+  }
+  if (hasValue(model.fortuneSummary)) {
+    journeyCards.push({
+      key: "fortune",
+      label: turnStage.fields.fortune,
+      detail: model.fortuneSummary,
+      tone: "effect",
+    });
+  }
+  if (!hasValue(model.fortuneSummary) && hasValue(model.trickSummary)) {
     journeyCards.push({
       key: "effect",
       label: app.spectatorFields.effect,
-      detail: effectText,
+      detail: model.trickSummary,
       tone: "effect",
     });
   }

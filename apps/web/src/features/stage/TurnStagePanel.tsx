@@ -53,6 +53,17 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
     model.actor !== "-" ? turnStage.actorHeadline(model.actor) : turnStage.actorWaiting;
   const roundTurn = `R${model.round ?? "-"} / T${model.turn ?? "-"}`;
   const sceneCardCandidates: Array<SceneCard | null> = [
+    hasMeaningfulValue(model.weatherName) || hasMeaningfulValue(model.weatherEffect)
+      ? {
+          key: "weather",
+          label: turnStage.weatherTitle,
+          value:
+            model.weatherEffect !== "-" && model.weatherEffect.trim()
+              ? `${valueOrDash(model.weatherName)} / ${valueOrDash(model.weatherEffect)}`
+              : valueOrDash(model.weatherName),
+          tone: "effect",
+        }
+      : null,
     hasMeaningfulValue(model.promptSummary)
       ? { key: "prompt", label: turnStage.fields.beat, value: model.promptSummary, tone: "effect" }
       : null,
@@ -82,6 +93,14 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
   }
   if (hasOutcome(model.fortuneSummary)) {
     outcomeCards.push({ key: "fortune-outcome", label: turnStage.fields.fortune, value: model.fortuneSummary, tone: "effect" });
+  }
+  if (!hasOutcome(model.fortuneSummary) && hasOutcome(model.weatherEffect)) {
+    outcomeCards.push({
+      key: "weather-outcome",
+      label: turnStage.weatherTitle,
+      value: model.weatherEffect,
+      tone: "effect",
+    });
   }
   if (hasOutcome(model.trickSummary)) {
     outcomeCards.push({ key: "trick-outcome", label: turnStage.fields.trick, value: model.trickSummary, tone: "effect" });

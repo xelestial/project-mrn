@@ -453,6 +453,9 @@ export function PromptOverlay({
   const isMarkTarget = prompt.requestType === "mark_target";
   const isPurchaseTile = prompt.requestType === "purchase_tile";
   const isLapReward = prompt.requestType === "lap_reward";
+  const isActiveFlip = prompt.requestType === "active_flip";
+  const isBurdenExchange = prompt.requestType === "burden_exchange";
+  const isSpecificTrickReward = prompt.requestType === "specific_trick_reward";
 
   const currentTileIndex = numberFromContext(prompt.publicContext, "tile_index", "pos", "player_position");
   const currentCash = numberFromContext(prompt.publicContext, "player_cash", "cash");
@@ -795,13 +798,121 @@ export function PromptOverlay({
           </section>
         ) : null}
 
+        {isActiveFlip ? (
+          <section className="prompt-section prompt-hand-stage">
+            <div className="prompt-section-summary">
+              <div className="prompt-summary-pill-row">
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentPosition}: {tileLabel(currentTileIndex)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentCash}: {formatNumber(currentCash)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.usableCards}: {String(prompt.choices.filter((choice) => choice.choiceId !== "none").length)}
+                </span>
+              </div>
+            </div>
+            <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
+              {orderedChoices.map((choice) => {
+                const normalized = normalizeChoiceText(prompt, choice, promptText);
+                return (
+                  <button
+                    type="button"
+                    key={choice.choiceId}
+                    className="prompt-choice-card prompt-choice-card-emphasis"
+                    data-testid={`active-flip-choice-${choice.choiceId}`}
+                    onClick={() => onSelectChoice(choice.choiceId)}
+                    disabled={busy}
+                  >
+                    <strong>{normalized.title}</strong>
+                    <small>{normalized.description}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        {isBurdenExchange ? (
+          <section className="prompt-section prompt-hand-stage">
+            <div className="prompt-section-summary">
+              <div className="prompt-summary-pill-row">
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentCash}: {formatNumber(currentCash)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentShards}: {numberFromContext(prompt.publicContext, "player_shards", "shards") ?? "-"}
+                </span>
+              </div>
+            </div>
+            <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
+              {orderedChoices.map((choice) => {
+                const normalized = normalizeChoiceText(prompt, choice, promptText);
+                return (
+                  <button
+                    type="button"
+                    key={choice.choiceId}
+                    className="prompt-choice-card prompt-choice-card-emphasis"
+                    data-testid={`burden-exchange-choice-${choice.choiceId}`}
+                    onClick={() => onSelectChoice(choice.choiceId)}
+                    disabled={busy}
+                  >
+                    <strong>{normalized.title}</strong>
+                    <small>{normalized.description}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        {isSpecificTrickReward ? (
+          <section className="prompt-section prompt-hand-stage">
+            <div className="prompt-section-summary">
+              <div className="prompt-summary-pill-row">
+                <span className="prompt-summary-pill">
+                  {promptText.context.usableCards}: {String(prompt.choices.filter((choice) => choice.choiceId !== "none").length)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentCash}: {formatNumber(currentCash)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentShards}: {numberFromContext(prompt.publicContext, "player_shards", "shards") ?? "-"}
+                </span>
+              </div>
+            </div>
+            <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
+              {orderedChoices.map((choice) => {
+                const normalized = normalizeChoiceText(prompt, choice, promptText);
+                return (
+                  <button
+                    type="button"
+                    key={choice.choiceId}
+                    className="prompt-choice-card prompt-choice-card-emphasis"
+                    data-testid={`specific-reward-choice-${choice.choiceId}`}
+                    onClick={() => onSelectChoice(choice.choiceId)}
+                    disabled={busy}
+                  >
+                    <strong>{normalized.title}</strong>
+                    <small>{normalized.description}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
         {prompt.requestType !== "movement" &&
         !isLapReward &&
         prompt.requestType !== "trick_to_use" &&
         prompt.requestType !== "hidden_trick_card" &&
         !isPurchaseTile &&
         !isCharacterPick &&
-        !isMarkTarget ? (
+        !isMarkTarget &&
+        !isActiveFlip &&
+        !isBurdenExchange &&
+        !isSpecificTrickReward ? (
           <section className="prompt-section">
             <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
             {orderedChoices.map((choice) => {

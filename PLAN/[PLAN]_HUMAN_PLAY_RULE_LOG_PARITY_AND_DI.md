@@ -741,3 +741,27 @@ This order is chosen to stop further drift before additional feature edits.
   - stronger fortune/weather reveal staging as dedicated scene beats
   - more animated purchase/rent outcome transitions
   - final prompt simplification for a few specialty flows
+
+## 2026-04-06 Weather / Specialty Prompt Follow-up
+
+- Remote-turn weather is now also part of the spectator spotlight strip instead of only a small static status card.
+- Spectator journey continuity now sequences:
+  - character
+  - current choice
+  - movement
+  - landing
+  - purchase
+  - rent
+  - fortune
+  where those beats are available, instead of collapsing all outcomes into one generic economy/effect step.
+- `TurnStagePanel` now keeps weather in the scene strip and can surface weather effect as an outcome beat when no stronger fortune outcome is active.
+- Remaining specialty prompt surfaces now have dedicated layouts for:
+  - `active_flip`
+  - `burden_exchange`
+  - `specific_trick_reward`
+  so they no longer fall back to the generic inspector-style grid.
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - stronger fortune reveal staging as a dedicated scene beat, not only a summary/result card
+  - more animated purchase/rent outcome transitions
+  - continued reduction of inspector feel in a few remaining generic/secondary prompt states

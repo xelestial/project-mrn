@@ -228,3 +228,21 @@ Implement in this order unless a blocker forces a swap:
   1. finish the remaining specialty prompt simplification slices
   2. continue scene-grade continuity for weather / fortune / purchase / rent handoff
   3. extend canonical decision coverage to the remaining specialty methods before full `DecisionPort` migration
+
+### 2026-04-06 Progress Update (weather spotlight + specific reward)
+
+- Remote-turn weather is now also promoted into the spectator spotlight strip.
+- Remote-turn journey continuity now separates:
+  - purchase
+  - rent
+  - fortune
+  into their own beats when present.
+- Specialty prompt layouts now also explicitly cover:
+  - `active_flip`
+  - `burden_exchange`
+  - `specific_trick_reward`
+- AI-side canonical request coverage now also explicitly includes `specific_trick_reward`.
+- Therefore the next immediate execution order is:
+  1. keep trimming the last remaining generic/inspector-feeling prompt states
+  2. keep strengthening scene-grade continuity for fortune reveal and purchase/rent payoff transitions
+  3. extend canonical decision coverage to the remaining specialty methods before full `DecisionPort` migration

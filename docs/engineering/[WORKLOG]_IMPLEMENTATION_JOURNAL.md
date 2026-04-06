@@ -1678,3 +1678,30 @@ Updated: 2026-04-04
   - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts`
   - `npm run e2e -- e2e/human_play_runtime.spec.ts`
   - `python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_stream_api.py`
+
+## 2026-04-06 Weather / Specialty Prompt / Specific Reward Follow-up
+
+- What changed:
+  - Added stronger remote-turn weather payoff visibility:
+    - `apps/web/src/features/stage/SpectatorTurnPanel.tsx` now includes weather in the spectator spotlight strip
+    - spectator journey now sequences purchase / rent / fortune as separate beats instead of collapsing them into one generic economy/effect bucket
+    - `apps/web/src/features/stage/TurnStagePanel.tsx` now keeps weather in the scene strip and uses weather effect as an outcome beat when no fortune outcome is present
+  - Split remaining specialty prompts out of the generic inspector path:
+    - `active_flip`
+    - `burden_exchange`
+    - `specific_trick_reward`
+    now render on their own card sections in `apps/web/src/features/prompt/PromptOverlay.tsx`
+  - Added backend specialty-decision guard coverage for AI `choose_specific_trick_reward` so another non-trivial path stays on the canonical:
+    - `decision_requested`
+    - `decision_resolved`
+    lifecycle.
+  - Tightened browser parity so remote-turn spotlight/result assertions now match the new scene-style payoff wording.
+- Why:
+  - weather and payoff visibility still needed to feel like a continuing scene instead of disconnected status cards
+  - a few remaining specialty prompts were still falling back to the generic choice grid and reading too much like tooling UI
+  - unified decision coverage needed one more specialty seam guarded before later provider/port migration
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts` passed (`29 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`3 passed`)
+  - `python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_stream_api.py` passed (`13 passed, 13 skipped`)

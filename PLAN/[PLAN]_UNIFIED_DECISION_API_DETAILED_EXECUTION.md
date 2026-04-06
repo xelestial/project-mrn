@@ -415,3 +415,18 @@ P3 종료 조건:
   - `active_flip`
 - Result:
   - branch-local request-type / choice-serialization drift is shrinking before typed provider cleanup starts
+
+## 2026-04-06 Progress Update (specific trick reward coverage)
+
+- Added explicit runtime coverage for AI `choose_specific_trick_reward`.
+- Specialty method guards now explicitly cover at least:
+  - `purchase_tile`
+  - `mark_target`
+  - `active_flip`
+  - `specific_trick_reward`
+- Result:
+  - another non-trivial trick-related decision seam is now locked to the canonical request/response lifecycle
+  - remaining specialty drift risk is concentrated more narrowly in the still-untested paths such as:
+    - `burden_exchange`
+    - `runaway_step_choice`
+    - `doctrine_relief`
