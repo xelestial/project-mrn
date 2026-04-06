@@ -325,10 +325,12 @@ class _ServerDecisionPolicyBridge:
             ai_fallback=ai_fallback,
             gateway=self._gateway,
         )
+        self._router = _ServerDecisionProviderRouter(
+            human_seats=human_seats,
+            human_provider=self._human_provider,
+            ai_provider=self._ai_provider,
+        )
         self._inner = self._human_provider.policy if self._human_provider is not None else None
-
-    def _is_human_seat(self, player_id: int) -> bool:
-        return player_id in self._human_seats
 
     def _ask(self, prompt: dict, parser, fallback_fn):
         if self._human_provider is not None:
@@ -338,17 +340,14 @@ class _ServerDecisionPolicyBridge:
         return self._gateway.resolve_human_prompt(prompt, parser, fallback_fn)
 
     def __getattr__(self, name: str):
-        target = self._human_provider.policy if self._human_provider is not None and hasattr(self._human_provider.policy, name) else self._ai_provider.policy
+        target = self._router.attribute_target(name)
         attr = getattr(target, name)
         if not name.startswith("choose_") or not callable(attr):
             return attr
 
         def _wrapped(*args, **kwargs):
-            player = args[1] if len(args) > 1 else kwargs.get("player")
-            player_id = getattr(player, "player_id", None)
-            if isinstance(player_id, int) and self._is_human_seat(player_id) and self._human_provider is not None:
-                return self._human_provider.call(name, *args, **kwargs)
-            return self._ai_provider.call(name, *args, **kwargs)
+            provider = self._router.provider_for_choice(args, kwargs)
+            return provider.call(name, *args, **kwargs)
 
         return _wrapped
 
@@ -407,6 +406,36 @@ class _ServerHumanDecisionProvider:
         if self.policy is None:
             raise AttributeError(method_name)
         return getattr(self.policy, method_name)(*args, **kwargs)
+
+
+class _ServerDecisionProviderRouter:
+    def __init__(
+        self,
+        *,
+        human_seats: list[int],
+        human_provider: _ServerHumanDecisionProvider,
+        ai_provider: _ServerAiDecisionProvider,
+    ) -> None:
+        self._human_seats = frozenset(int(seat) for seat in human_seats)
+        self._human_provider = human_provider
+        self._ai_provider = ai_provider
+
+    def attribute_target(self, name: str):
+        human_policy = self._human_provider.policy
+        if human_policy is not None and hasattr(human_policy, name):
+            return human_policy
+        return self._ai_provider.policy
+
+    def provider_for_choice(self, args: tuple, kwargs: dict):
+        player = args[1] if len(args) > 1 else kwargs.get("player")
+        player_id = getattr(player, "player_id", None)
+        if (
+            isinstance(player_id, int)
+            and player_id in self._human_seats
+            and self._human_provider.policy is not None
+        ):
+            return self._human_provider
+        return self._ai_provider
 
 
 class _FanoutVisEventStream:

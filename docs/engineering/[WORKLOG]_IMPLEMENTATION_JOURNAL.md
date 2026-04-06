@@ -1971,3 +1971,20 @@ Updated: 2026-04-04
   - it shrinks `_ServerDecisionPolicyBridge` toward provider selection and leaves provider-specific execution in narrower units ahead of a later `DecisionPort` migration
 - Validation:
   - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py`
+
+## 2026-04-07 Decision Provider Router Cleanup
+
+- What changed:
+  - Added `_ServerDecisionProviderRouter` in `apps/server/src/services/runtime_service.py` so the bridge no longer directly owns:
+    - attribute target selection for engine policy access
+    - seat-based provider selection for `choose_*` calls
+  - Kept `__getattr__` only as the engine compatibility surface while moving its routing judgment into the dedicated router helper.
+  - Added focused router tests in `apps/server/tests/test_runtime_service.py` covering:
+    - human-policy attribute precedence
+    - AI fallback attribute lookup
+    - human-seat vs non-human-seat provider selection
+- Why:
+  - the engine still expects dynamic `choose_*` attributes, so `__getattr__` remains for now
+  - moving the routing judgment out of the bridge keeps the remaining dynamic surface thinner and makes the eventual `DecisionPort` migration boundary easier to see
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py`

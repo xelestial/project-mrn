@@ -114,6 +114,40 @@ class RuntimeServiceTests(unittest.TestCase):
             },
         )
 
+    def test_decision_provider_router_prefers_human_policy_attributes_and_human_seats(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerDecisionProviderRouter
+
+        class _FakeHumanProvider:
+            def __init__(self) -> None:
+                self.policy = type("HumanPolicy", (), {"human_only_attr": "human"})()
+
+            def call(self, method_name: str, *args, **kwargs):  # noqa: ANN001
+                return ("human", method_name, args, kwargs)
+
+        class _FakeAiPolicy:
+            ai_only_attr = "ai"
+
+        class _FakeAiProvider:
+            def __init__(self) -> None:
+                self.policy = _FakeAiPolicy()
+
+            def call(self, method_name: str, *args, **kwargs):  # noqa: ANN001
+                return ("ai", method_name, args, kwargs)
+
+        router = _ServerDecisionProviderRouter(
+            human_seats=[0],
+            human_provider=_FakeHumanProvider(),
+            ai_provider=_FakeAiProvider(),
+        )
+
+        human_player = type("Player", (), {"player_id": 0})()
+        ai_player = type("Player", (), {"player_id": 1})()
+
+        self.assertEqual(getattr(router.attribute_target("human_only_attr"), "human_only_attr"), "human")
+        self.assertEqual(getattr(router.attribute_target("ai_only_attr"), "ai_only_attr"), "ai")
+        self.assertEqual(router.provider_for_choice((object(), human_player), {}).__class__.__name__, "_FakeHumanProvider")
+        self.assertEqual(router.provider_for_choice((object(), ai_player), {}).__class__.__name__, "_FakeAiProvider")
+
     def test_start_runtime_uses_async_to_thread_bridge(self) -> None:
         session = self.session_service.create_session(
             seats=[
