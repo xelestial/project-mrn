@@ -1,4 +1,4 @@
-import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { KeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PromptChoiceViewModel, PromptViewModel } from "../../domain/selectors/promptSelectors";
 import { promptHelperForType } from "../../domain/labels/promptHelperCatalog";
@@ -37,6 +37,8 @@ type HandChoiceCard = {
   isUsable: boolean;
   choiceId: string | null;
 };
+
+type ChoiceGridVariant = "default" | "target" | "decision" | "reward";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
@@ -132,6 +134,23 @@ function booleanFromValue(value: unknown): boolean | null {
 
 function collapsedPromptChip(promptText: PromptText, label: string, secondsLeft: number | null): string {
   return promptText.collapsedChip(label, secondsLeft);
+}
+
+function nonEmptyPills(values: Array<string | null | undefined>): string[] {
+  return values
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter((value) => value.length > 0 && value !== "-");
+}
+
+function choiceGridClass(variant: ChoiceGridVariant, compactChoices: boolean): string {
+  const base = ["prompt-choices"];
+  if (variant !== "default") {
+    base.push(`prompt-choices-${variant}`);
+  }
+  if (compactChoices) {
+    base.push("prompt-choices-compact");
+  }
+  return base.join(" ");
 }
 
 function movementChoices(prompt: PromptViewModel): MovementChoiceParts {
@@ -340,6 +359,55 @@ function normalizeChoiceText(
   }
 
   return { title: cleanDisplayText(fallbackTitle), description: cleanDisplayText(fallbackDescription) };
+}
+
+type EmphasisChoiceGridProps = {
+  prompt: PromptViewModel;
+  orderedChoices: PromptChoiceViewModel[];
+  promptText: PromptText;
+  compactChoices: boolean;
+  busy: boolean;
+  onSelectChoice: (choiceId: string) => void;
+  variant?: ChoiceGridVariant;
+  testIdPrefix: string;
+  renderExtra?: (choice: PromptChoiceViewModel) => ReactNode;
+};
+
+function EmphasisChoiceGrid({
+  prompt,
+  orderedChoices,
+  promptText,
+  compactChoices,
+  busy,
+  onSelectChoice,
+  variant = "default",
+  testIdPrefix,
+  renderExtra,
+}: EmphasisChoiceGridProps) {
+  return (
+    <div className={choiceGridClass(variant, compactChoices)}>
+      {orderedChoices.map((choice) => {
+        const normalized = normalizeChoiceText(prompt, choice, promptText);
+        return (
+          <button
+            type="button"
+            key={choice.choiceId}
+            className="prompt-choice-card prompt-choice-card-emphasis"
+            data-testid={`${testIdPrefix}-${choice.choiceId}`}
+            onClick={() => onSelectChoice(choice.choiceId)}
+            disabled={busy}
+          >
+            <div className="prompt-choice-topline">
+              <strong>{normalized.title}</strong>
+            </div>
+            {renderExtra ? renderExtra(choice) : null}
+            <small>{normalized.description}</small>
+          </button>
+        );
+      })}
+      {orderedChoices.length === 0 ? <p>{promptText.choice.noChoices}</p> : null}
+    </div>
+  );
 }
 
 export function PromptOverlay({
@@ -740,40 +808,28 @@ export function PromptOverlay({
           <section className="prompt-section prompt-hand-stage">
             <div className="prompt-section-summary">
               <div className="prompt-summary-pill-row">
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentPosition}: {tileLabel(currentTileIndex)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.purchaseCost}: {formatNumber(currentCost)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentCash}: {formatNumber(currentCash)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.zone}: {currentZone || "-"}
-                </span>
+                {nonEmptyPills([
+                  `${promptText.context.currentPosition}: ${tileLabel(currentTileIndex)}`,
+                  `${promptText.context.purchaseCost}: ${formatNumber(currentCost)}`,
+                  `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
+                  currentZone ? `${promptText.context.zone}: ${currentZone}` : null,
+                ]).map((pill) => (
+                  <span key={pill} className="prompt-summary-pill">
+                    {pill}
+                  </span>
+                ))}
               </div>
             </div>
-            <div className="prompt-choices prompt-choices-decision">
-              {orderedChoices.map((choice) => {
-                const normalized = normalizeChoiceText(prompt, choice, promptText);
-                return (
-                  <button
-                    type="button"
-                    key={choice.choiceId}
-                    className="prompt-choice-card prompt-choice-card-emphasis"
-                    data-testid={`purchase-choice-${choice.choiceId}`}
-                    onClick={() => onSelectChoice(choice.choiceId)}
-                    disabled={busy}
-                  >
-                    <div className="prompt-choice-topline">
-                      <strong>{normalized.title}</strong>
-                    </div>
-                    <small>{normalized.description}</small>
-                  </button>
-                );
-              })}
-            </div>
+            <EmphasisChoiceGrid
+              prompt={prompt}
+              orderedChoices={orderedChoices}
+              promptText={promptText}
+              compactChoices={compactChoices}
+              busy={busy}
+              onSelectChoice={onSelectChoice}
+              variant="decision"
+              testIdPrefix="purchase-choice"
+            />
           </section>
         ) : null}
 
@@ -781,37 +837,27 @@ export function PromptOverlay({
           <section className="prompt-section prompt-hand-stage">
             <div className="prompt-section-summary">
               <div className="prompt-summary-pill-row">
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentCash}: {formatNumber(currentCash)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentShards}: {numberFromContext(prompt.publicContext, "player_shards", "shards") ?? "-"}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentCoins}: {numberFromContext(prompt.publicContext, "player_coins", "coins") ?? "-"}
-                </span>
+                {nonEmptyPills([
+                  `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
+                  `${promptText.context.currentShards}: ${numberFromContext(prompt.publicContext, "player_shards", "shards") ?? "-"}`,
+                  `${promptText.context.currentCoins}: ${numberFromContext(prompt.publicContext, "player_coins", "coins") ?? "-"}`,
+                ]).map((pill) => (
+                  <span key={pill} className="prompt-summary-pill">
+                    {pill}
+                  </span>
+                ))}
               </div>
             </div>
-            <div className="prompt-choices prompt-choices-reward">
-              {prompt.choices.map((choice) => {
-                const normalized = normalizeChoiceText(prompt, choice, promptText);
-                return (
-                  <button
-                    type="button"
-                    key={choice.choiceId}
-                    className="prompt-choice-card prompt-choice-card-emphasis"
-                    data-testid={`lap-reward-choice-${choice.choiceId}`}
-                    onClick={() => onSelectChoice(choice.choiceId)}
-                    disabled={busy}
-                  >
-                    <div className="prompt-choice-topline">
-                      <strong>{normalized.title}</strong>
-                    </div>
-                    <small>{normalized.description}</small>
-                  </button>
-                );
-              })}
-            </div>
+            <EmphasisChoiceGrid
+              prompt={prompt}
+              orderedChoices={prompt.choices}
+              promptText={promptText}
+              compactChoices={compactChoices}
+              busy={busy}
+              onSelectChoice={onSelectChoice}
+              variant="reward"
+              testIdPrefix="lap-reward-choice"
+            />
           </section>
         ) : null}
 
@@ -830,24 +876,15 @@ export function PromptOverlay({
                 </span>
               </div>
             </div>
-            <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
-              {orderedChoices.map((choice) => {
-                const normalized = normalizeChoiceText(prompt, choice, promptText);
-                return (
-                  <button
-                    type="button"
-                    key={choice.choiceId}
-                    className="prompt-choice-card prompt-choice-card-emphasis"
-                    data-testid={`active-flip-choice-${choice.choiceId}`}
-                    onClick={() => onSelectChoice(choice.choiceId)}
-                    disabled={busy}
-                  >
-                    <strong>{normalized.title}</strong>
-                    <small>{normalized.description}</small>
-                  </button>
-                );
-              })}
-            </div>
+            <EmphasisChoiceGrid
+              prompt={prompt}
+              orderedChoices={orderedChoices}
+              promptText={promptText}
+              compactChoices={compactChoices}
+              busy={busy}
+              onSelectChoice={onSelectChoice}
+              testIdPrefix="active-flip-choice"
+            />
           </section>
         ) : null}
 
@@ -863,24 +900,15 @@ export function PromptOverlay({
                 </span>
               </div>
             </div>
-            <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
-              {orderedChoices.map((choice) => {
-                const normalized = normalizeChoiceText(prompt, choice, promptText);
-                return (
-                  <button
-                    type="button"
-                    key={choice.choiceId}
-                    className="prompt-choice-card prompt-choice-card-emphasis"
-                    data-testid={`burden-exchange-choice-${choice.choiceId}`}
-                    onClick={() => onSelectChoice(choice.choiceId)}
-                    disabled={busy}
-                  >
-                    <strong>{normalized.title}</strong>
-                    <small>{normalized.description}</small>
-                  </button>
-                );
-              })}
-            </div>
+            <EmphasisChoiceGrid
+              prompt={prompt}
+              orderedChoices={orderedChoices}
+              promptText={promptText}
+              compactChoices={compactChoices}
+              busy={busy}
+              onSelectChoice={onSelectChoice}
+              testIdPrefix="burden-exchange-choice"
+            />
           </section>
         ) : null}
 
@@ -899,24 +927,15 @@ export function PromptOverlay({
                 </span>
               </div>
             </div>
-            <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
-              {orderedChoices.map((choice) => {
-                const normalized = normalizeChoiceText(prompt, choice, promptText);
-                return (
-                  <button
-                    type="button"
-                    key={choice.choiceId}
-                    className="prompt-choice-card prompt-choice-card-emphasis"
-                    data-testid={`specific-reward-choice-${choice.choiceId}`}
-                    onClick={() => onSelectChoice(choice.choiceId)}
-                    disabled={busy}
-                  >
-                    <strong>{normalized.title}</strong>
-                    <small>{normalized.description}</small>
-                  </button>
-                );
-              })}
-            </div>
+            <EmphasisChoiceGrid
+              prompt={prompt}
+              orderedChoices={orderedChoices}
+              promptText={promptText}
+              compactChoices={compactChoices}
+              busy={busy}
+              onSelectChoice={onSelectChoice}
+              testIdPrefix="specific-reward-choice"
+            />
           </section>
         ) : null}
 
@@ -933,36 +952,33 @@ export function PromptOverlay({
                 {runawayBonusTargetKind ? <span className="prompt-summary-pill">{runawayBonusTargetKind}</span> : null}
               </div>
             </div>
-            <div className="prompt-choices prompt-choices-target">
-              {orderedChoices.map((choice) => {
+            <EmphasisChoiceGrid
+              prompt={prompt}
+              orderedChoices={orderedChoices}
+              promptText={promptText}
+              compactChoices={compactChoices}
+              busy={busy}
+              onSelectChoice={onSelectChoice}
+              variant="target"
+              testIdPrefix="runaway-choice"
+              renderExtra={(choice) => {
                 const takeBonus = booleanFromValue(choice.value?.["take_bonus"]);
-                const normalized = normalizeChoiceText(prompt, choice, promptText);
-                return (
-                  <button
-                    type="button"
-                    key={choice.choiceId}
-                    className="prompt-choice-card prompt-choice-card-emphasis"
-                    data-testid={`runaway-choice-${choice.choiceId}`}
-                    onClick={() => onSelectChoice(choice.choiceId)}
-                    disabled={busy}
-                  >
-                    <div className="prompt-choice-topline">
-                      <strong>{normalized.title}</strong>
-                    </div>
-                    <div className="prompt-summary-pill-row">
-                      {takeBonus !== null ? (
-                        <span className="prompt-summary-pill">{takeBonus ? "+1" : "Stop"}</span>
-                      ) : null}
-                      <span className="prompt-summary-pill">
-                        {tileLabel(runawayOneShortPos)} {"->"} {tileLabel(runawayBonusTargetPos)}
+                const pills = nonEmptyPills([
+                  takeBonus !== null ? (takeBonus ? "+1" : "Stop") : null,
+                  `${tileLabel(runawayOneShortPos)} -> ${tileLabel(runawayBonusTargetPos)}`,
+                  runawayBonusTargetKind || null,
+                ]);
+                return pills.length > 0 ? (
+                  <div className="prompt-summary-pill-row">
+                    {pills.map((pill) => (
+                      <span key={`${choice.choiceId}-${pill}`} className="prompt-summary-pill">
+                        {pill}
                       </span>
-                      {runawayBonusTargetKind ? <span className="prompt-summary-pill">{runawayBonusTargetKind}</span> : null}
-                    </div>
-                    <small>{normalized.description}</small>
-                  </button>
-                );
-              })}
-            </div>
+                    ))}
+                  </div>
+                ) : null;
+              }}
+            />
           </section>
         ) : null}
 
@@ -978,31 +994,32 @@ export function PromptOverlay({
                 </span>
               </div>
             </div>
-            <div className="prompt-choices prompt-choices-target">
-              {orderedChoices.map((choice) => {
+            <EmphasisChoiceGrid
+              prompt={prompt}
+              orderedChoices={orderedChoices}
+              promptText={promptText}
+              compactChoices={compactChoices}
+              busy={busy}
+              onSelectChoice={onSelectChoice}
+              variant="target"
+              testIdPrefix="coin-placement-choice"
+              renderExtra={(choice) => {
                 const tileIndex = asNumber(choice.value?.["tile_index"]);
-                const normalized = normalizeChoiceText(prompt, choice, promptText);
-                return (
-                  <button
-                    type="button"
-                    key={choice.choiceId}
-                    className="prompt-choice-card prompt-choice-card-emphasis"
-                    data-testid={`coin-placement-choice-${choice.choiceId}`}
-                    onClick={() => onSelectChoice(choice.choiceId)}
-                    disabled={busy}
-                  >
-                    <div className="prompt-choice-topline">
-                      <strong>{normalized.title}</strong>
-                    </div>
-                    <div className="prompt-summary-pill-row">
-                      {tileIndex !== null ? <span className="prompt-summary-pill">{tileLabel(tileIndex)}</span> : null}
-                      {currentZone ? <span className="prompt-summary-pill">{currentZone}</span> : null}
-                    </div>
-                    <small>{normalized.description}</small>
-                  </button>
-                );
-              })}
-            </div>
+                const pills = nonEmptyPills([
+                  tileIndex !== null ? tileLabel(tileIndex) : null,
+                  currentZone || null,
+                ]);
+                return pills.length > 0 ? (
+                  <div className="prompt-summary-pill-row">
+                    {pills.map((pill) => (
+                      <span key={`${choice.choiceId}-${pill}`} className="prompt-summary-pill">
+                        {pill}
+                      </span>
+                    ))}
+                  </div>
+                ) : null;
+              }}
+            />
           </section>
         ) : null}
 
@@ -1021,30 +1038,24 @@ export function PromptOverlay({
                 </span>
               </div>
             </div>
-            <div className="prompt-choices prompt-choices-target">
-              {orderedChoices.map((choice) => {
+            <EmphasisChoiceGrid
+              prompt={prompt}
+              orderedChoices={orderedChoices}
+              promptText={promptText}
+              compactChoices={compactChoices}
+              busy={busy}
+              onSelectChoice={onSelectChoice}
+              variant="target"
+              testIdPrefix="doctrine-relief-choice"
+              renderExtra={(choice) => {
                 const targetPlayerId = asNumber(choice.value?.["target_player_id"]);
-                const normalized = normalizeChoiceText(prompt, choice, promptText);
-                return (
-                  <button
-                    type="button"
-                    key={choice.choiceId}
-                    className="prompt-choice-card prompt-choice-card-emphasis"
-                    data-testid={`doctrine-relief-choice-${choice.choiceId}`}
-                    onClick={() => onSelectChoice(choice.choiceId)}
-                    disabled={busy}
-                  >
-                    <div className="prompt-choice-topline">
-                      <strong>{normalized.title}</strong>
-                    </div>
-                    <div className="prompt-summary-pill-row">
-                      {targetPlayerId !== null ? <span className="prompt-summary-pill">P{targetPlayerId}</span> : null}
-                    </div>
-                    <small>{normalized.description}</small>
-                  </button>
-                );
-              })}
-            </div>
+                return targetPlayerId !== null ? (
+                  <div className="prompt-summary-pill-row">
+                    <span className="prompt-summary-pill">P{targetPlayerId}</span>
+                  </div>
+                ) : null;
+              }}
+            />
           </section>
         ) : null}
 
@@ -1063,26 +1074,16 @@ export function PromptOverlay({
                 </span>
               </div>
             </div>
-            <div className="prompt-choices prompt-choices-reward">
-              {orderedChoices.map((choice) => {
-                const normalized = normalizeChoiceText(prompt, choice, promptText);
-                return (
-                  <button
-                    type="button"
-                    key={choice.choiceId}
-                    className="prompt-choice-card prompt-choice-card-emphasis"
-                    data-testid={`geo-bonus-choice-${choice.choiceId}`}
-                    onClick={() => onSelectChoice(choice.choiceId)}
-                    disabled={busy}
-                  >
-                    <div className="prompt-choice-topline">
-                      <strong>{normalized.title}</strong>
-                    </div>
-                    <small>{normalized.description}</small>
-                  </button>
-                );
-              })}
-            </div>
+            <EmphasisChoiceGrid
+              prompt={prompt}
+              orderedChoices={orderedChoices}
+              promptText={promptText}
+              compactChoices={compactChoices}
+              busy={busy}
+              onSelectChoice={onSelectChoice}
+              variant="reward"
+              testIdPrefix="geo-bonus-choice"
+            />
           </section>
         ) : null}
 
@@ -1103,50 +1104,30 @@ export function PromptOverlay({
                 ) : null}
               </div>
             </div>
-            <div className="prompt-choices prompt-choices-decision">
-              {orderedChoices.map((choice) => {
-                const normalized = normalizeChoiceText(prompt, choice, promptText);
-                return (
-                  <button
-                    type="button"
-                    key={choice.choiceId}
-                    className="prompt-choice-card prompt-choice-card-emphasis"
-                    data-testid={`pabal-dice-mode-choice-${choice.choiceId}`}
-                    onClick={() => onSelectChoice(choice.choiceId)}
-                    disabled={busy}
-                  >
-                    <div className="prompt-choice-topline">
-                      <strong>{normalized.title}</strong>
-                    </div>
-                    <small>{normalized.description}</small>
-                  </button>
-                );
-              })}
-            </div>
+            <EmphasisChoiceGrid
+              prompt={prompt}
+              orderedChoices={orderedChoices}
+              promptText={promptText}
+              compactChoices={compactChoices}
+              busy={busy}
+              onSelectChoice={onSelectChoice}
+              variant="decision"
+              testIdPrefix="pabal-dice-mode-choice"
+            />
           </section>
         ) : null}
 
         {!usesSpecializedSurface ? (
           <section className="prompt-section">
-            <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
-            {orderedChoices.map((choice) => {
-              const normalized = normalizeChoiceText(prompt, choice, promptText);
-              return (
-                <button
-                  type="button"
-                  key={choice.choiceId}
-                  className="prompt-choice-card prompt-choice-card-emphasis"
-                  data-testid={`generic-choice-${choice.choiceId}`}
-                  onClick={() => onSelectChoice(choice.choiceId)}
-                  disabled={busy}
-                >
-                  <strong>{normalized.title}</strong>
-                  <small>{normalized.description}</small>
-                </button>
-              );
-            })}
-              {prompt.choices.length === 0 ? <p>{promptText.choice.noChoices}</p> : null}
-            </div>
+            <EmphasisChoiceGrid
+              prompt={prompt}
+              orderedChoices={orderedChoices}
+              promptText={promptText}
+              compactChoices={compactChoices}
+              busy={busy}
+              onSelectChoice={onSelectChoice}
+              testIdPrefix="generic-choice"
+            />
           </section>
         ) : null}
 

@@ -1909,3 +1909,48 @@ Updated: 2026-04-04
   - `npm run test -- --run src/i18n/i18n.spec.ts src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/streamSelectors.spec.ts src/features/theater/coreActionScene.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts`
   - `npm run build`
   - `npm run e2e -- e2e/human_play_runtime.spec.ts`
+
+## 2026-04-07 PromptOverlay Specialized Surface Consolidation
+
+- What changed:
+  - Consolidated repeated emphasized-choice rendering in `apps/web/src/features/prompt/PromptOverlay.tsx` into shared local helpers:
+    - `nonEmptyPills`
+    - `choiceGridClass`
+    - `EmphasisChoiceGrid`
+  - Moved multiple specialized prompt surfaces onto the shared rendering path while preserving their existing test ids and context pills:
+    - `purchase_tile`
+    - `lap_reward`
+    - `active_flip`
+    - `burden_exchange`
+    - `specific_trick_reward`
+    - `runaway_step_choice`
+    - `coin_placement`
+    - `doctrine_relief`
+    - `geo_bonus`
+    - `pabal_dice_mode`
+- Why:
+  - this reduces repeated branch-local UI logic in the prompt layer and makes the remaining specialized prompts more consistent, which is directly aligned with the active prompt-surface simplification slice
+  - it also makes follow-up prompt UX changes safer because layout behavior now flows through fewer duplicated blocks
+- Validation:
+  - `npm run test -- --run src/i18n/i18n.spec.ts src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts`
+  - `npm run build`
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts`
+
+## 2026-04-07 Decision Gateway Method Spec Registry
+
+- What changed:
+  - Replaced the repeated method-name branching in `apps/server/src/services/decision_gateway.py` with a shared `DecisionMethodSpec` registry.
+  - The registry now owns, per decision method:
+    - canonical `request_type`
+    - AI `choice_id` serialization
+    - specialized `public_context` enrichment
+  - Kept the existing `decision_request_type_for_method`, `serialize_ai_choice_id`, and `build_public_context` interfaces intact so runtime callers did not need a wider migration.
+  - Extended `apps/server/tests/test_runtime_service.py` with focused contract checks for:
+    - `choose_purchase_tile`
+    - `choose_specific_trick_reward`
+    - `choose_runaway_slave_step`
+- Why:
+  - provider-local drift was still concentrated in three separate helper branches inside the decision gateway, which made it easy for a specialty decision to update one surface but miss the others
+  - a shared method-spec registry reduces that drift without prematurely forcing the larger `DecisionPort` migration
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_prompt_service.py apps/server/tests/test_stream_api.py apps/server/tests/test_runtime_contract_examples.py apps/server/tests/test_error_payload.py apps/server/tests/test_structured_log.py`

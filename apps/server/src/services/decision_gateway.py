@@ -2,28 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from dataclasses import dataclass
 from typing import Any, Callable, Literal
 
 DecisionProvider = Literal["human", "ai"]
 
-METHOD_REQUEST_TYPE_MAP = {
-    "choose_movement": "movement",
-    "choose_runaway_slave_step": "runaway_step_choice",
-    "choose_lap_reward": "lap_reward",
-    "choose_draft_card": "draft_card",
-    "choose_final_character": "final_character",
-    "choose_trick_to_use": "trick_to_use",
-    "choose_purchase_tile": "purchase_tile",
-    "choose_hidden_trick_card": "hidden_trick_card",
-    "choose_mark_target": "mark_target",
-    "choose_coin_placement_tile": "coin_placement",
-    "choose_geo_bonus": "geo_bonus",
-    "choose_doctrine_relief_target": "doctrine_relief",
-    "choose_active_flip_card": "active_flip",
-    "choose_specific_trick_reward": "specific_trick_reward",
-    "choose_burden_exchange_on_supply": "burden_exchange",
-    "choose_pabal_dice_mode": "pabal_dice_mode",
-}
+ChoiceSerializer = Callable[[Any], str]
+ContextBuilder = Callable[[tuple[Any, ...], dict[str, Any], Any, Any], dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class DecisionMethodSpec:
+    request_type: str
+    choice_serializer: ChoiceSerializer
+    public_context_builder: ContextBuilder | None = None
 
 
 def _number_or_none(value: Any) -> int | None:
@@ -48,46 +40,245 @@ def _turn_index_from_state(state: Any) -> int | None:
     return turn_index + 1
 
 
-def serialize_ai_choice_id(method_name: str, result: Any) -> str:
-    if method_name == "choose_movement":
-        use_cards = bool(getattr(result, "use_cards", False))
-        card_values = tuple(getattr(result, "card_values", ()) or ())
-        if not use_cards or not card_values:
-            return "dice"
-        return "card_" + "_".join(str(value) for value in card_values)
+def _arg_or_kw(args: tuple[Any, ...], kwargs: dict[str, Any], index: int, key: str) -> Any:
+    return args[index] if len(args) > index else kwargs.get(key)
 
-    if method_name == "choose_lap_reward":
-        choice = getattr(result, "choice", None)
-        return str(choice) if isinstance(choice, str) and choice else "blocked"
 
-    if method_name in {"choose_purchase_tile", "choose_burden_exchange_on_supply", "choose_runaway_slave_step"}:
-        return "yes" if bool(result) else "no"
-
-    if method_name in {"choose_trick_to_use", "choose_hidden_trick_card", "choose_specific_trick_reward"}:
-        if result is None:
-            return "none"
-        deck_index = getattr(result, "deck_index", None)
-        if isinstance(deck_index, int):
-            return str(deck_index)
-        return str(getattr(result, "name", result))
-
-    if method_name in {"choose_coin_placement_tile", "choose_active_flip_card", "choose_doctrine_relief_target"}:
-        return "none" if result is None else str(result)
-
-    if method_name == "choose_mark_target":
-        return "none" if result is None else str(result)
-
-    if method_name == "choose_pabal_dice_mode":
-        return str(result)
-
-    if method_name in {"choose_draft_card", "choose_final_character", "choose_geo_bonus"}:
-        return str(result)
-
+def _serialize_default_choice(result: Any) -> str:
     return "none" if result is None else str(result)
 
 
+def _serialize_movement_choice(result: Any) -> str:
+    use_cards = bool(getattr(result, "use_cards", False))
+    card_values = tuple(getattr(result, "card_values", ()) or ())
+    if not use_cards or not card_values:
+        return "dice"
+    return "card_" + "_".join(str(value) for value in card_values)
+
+
+def _serialize_lap_reward_choice(result: Any) -> str:
+    choice = getattr(result, "choice", None)
+    return str(choice) if isinstance(choice, str) and choice else "blocked"
+
+
+def _serialize_yes_no_choice(result: Any) -> str:
+    return "yes" if bool(result) else "no"
+
+
+def _serialize_trick_like_choice(result: Any) -> str:
+    if result is None:
+        return "none"
+    deck_index = getattr(result, "deck_index", None)
+    if isinstance(deck_index, int):
+        return str(deck_index)
+    return str(getattr(result, "name", result))
+
+
+def _serialize_string_choice(result: Any) -> str:
+    return str(result)
+
+
+def _build_card_choice_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    del state, player
+    cards = _arg_or_kw(args, kwargs, 2, "offered_cards") or kwargs.get("card_choices")
+    if isinstance(cards, list):
+        return {"choice_count": len(cards)}
+    return {}
+
+
+def _build_purchase_tile_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    del state, player
+    return {
+        "tile_index": _arg_or_kw(args, kwargs, 2, "pos"),
+        "cost": _arg_or_kw(args, kwargs, 4, "cost"),
+        "source": kwargs.get("source", "landing"),
+    }
+
+
+def _build_mark_target_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    del state, player
+    return {"actor_name": _arg_or_kw(args, kwargs, 2, "actor_name")}
+
+
+def _build_active_flip_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    del state, player
+    flippable_cards = _arg_or_kw(args, kwargs, 2, "flippable_cards")
+    if isinstance(flippable_cards, list):
+        return {"flip_count": len(flippable_cards)}
+    return {}
+
+
+def _build_hidden_trick_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    del state, player
+    hand = _arg_or_kw(args, kwargs, 2, "hand")
+    if isinstance(hand, list):
+        return {"hand_count": len(hand), "selection_required": True}
+    return {}
+
+
+def _build_trick_to_use_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    del state, player
+    hand = _arg_or_kw(args, kwargs, 2, "hand")
+    if isinstance(hand, list):
+        return {"hand_count": len(hand)}
+    return {}
+
+
+def _build_specific_trick_reward_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    del state, player
+    choices = _arg_or_kw(args, kwargs, 2, "choices")
+    if isinstance(choices, list):
+        return {"reward_count": len(choices)}
+    return {}
+
+
+def _build_coin_placement_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    del args, kwargs, state
+    owned_tiles = getattr(player, "visited_owned_tile_indices", None)
+    if owned_tiles is not None:
+        return {"owned_tile_count": len(list(owned_tiles))}
+    return {}
+
+
+def _build_doctrine_relief_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    del state, player
+    candidates = _arg_or_kw(args, kwargs, 2, "candidates")
+    if isinstance(candidates, list):
+        return {"candidate_count": len(candidates)}
+    return {}
+
+
+def _build_runaway_step_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    del state, player
+    return {
+        "one_short_pos": _arg_or_kw(args, kwargs, 2, "one_short_pos"),
+        "bonus_target_pos": _arg_or_kw(args, kwargs, 3, "bonus_target_pos"),
+        "bonus_target_kind": str(_arg_or_kw(args, kwargs, 4, "bonus_target_kind")),
+    }
+
+
+METHOD_SPECS: dict[str, DecisionMethodSpec] = {
+    "choose_movement": DecisionMethodSpec("movement", _serialize_movement_choice),
+    "choose_runaway_slave_step": DecisionMethodSpec(
+        "runaway_step_choice",
+        _serialize_yes_no_choice,
+        _build_runaway_step_context,
+    ),
+    "choose_lap_reward": DecisionMethodSpec("lap_reward", _serialize_lap_reward_choice),
+    "choose_draft_card": DecisionMethodSpec("draft_card", _serialize_string_choice, _build_card_choice_context),
+    "choose_final_character": DecisionMethodSpec(
+        "final_character",
+        _serialize_string_choice,
+        _build_card_choice_context,
+    ),
+    "choose_trick_to_use": DecisionMethodSpec(
+        "trick_to_use",
+        _serialize_trick_like_choice,
+        _build_trick_to_use_context,
+    ),
+    "choose_purchase_tile": DecisionMethodSpec(
+        "purchase_tile",
+        _serialize_yes_no_choice,
+        _build_purchase_tile_context,
+    ),
+    "choose_hidden_trick_card": DecisionMethodSpec(
+        "hidden_trick_card",
+        _serialize_trick_like_choice,
+        _build_hidden_trick_context,
+    ),
+    "choose_mark_target": DecisionMethodSpec("mark_target", _serialize_default_choice, _build_mark_target_context),
+    "choose_coin_placement_tile": DecisionMethodSpec(
+        "coin_placement",
+        _serialize_default_choice,
+        _build_coin_placement_context,
+    ),
+    "choose_geo_bonus": DecisionMethodSpec("geo_bonus", _serialize_string_choice),
+    "choose_doctrine_relief_target": DecisionMethodSpec(
+        "doctrine_relief",
+        _serialize_default_choice,
+        _build_doctrine_relief_context,
+    ),
+    "choose_active_flip_card": DecisionMethodSpec(
+        "active_flip",
+        _serialize_default_choice,
+        _build_active_flip_context,
+    ),
+    "choose_specific_trick_reward": DecisionMethodSpec(
+        "specific_trick_reward",
+        _serialize_trick_like_choice,
+        _build_specific_trick_reward_context,
+    ),
+    "choose_burden_exchange_on_supply": DecisionMethodSpec("burden_exchange", _serialize_yes_no_choice),
+    "choose_pabal_dice_mode": DecisionMethodSpec("pabal_dice_mode", _serialize_string_choice),
+}
+
+
+def _decision_method_spec_for_method(method_name: str) -> DecisionMethodSpec:
+    return METHOD_SPECS.get(
+        method_name,
+        DecisionMethodSpec(
+            request_type=method_name.removeprefix("choose_"),
+            choice_serializer=_serialize_default_choice,
+        ),
+    )
+
+
+def serialize_ai_choice_id(method_name: str, result: Any) -> str:
+    return _decision_method_spec_for_method(method_name).choice_serializer(result)
+
+
 def decision_request_type_for_method(method_name: str) -> str:
-    return METHOD_REQUEST_TYPE_MAP.get(method_name, method_name.removeprefix("choose_"))
+    return _decision_method_spec_for_method(method_name).request_type
 
 
 def build_public_context(method_name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -100,46 +291,9 @@ def build_public_context(method_name: str, args: tuple[Any, ...], kwargs: dict[s
         "player_position": getattr(player, "position", None),
         "player_shards": getattr(player, "shards", None),
     }
-
-    if method_name in {"choose_draft_card", "choose_final_character"}:
-        cards = args[2] if len(args) > 2 else kwargs.get("offered_cards") or kwargs.get("card_choices")
-        if isinstance(cards, list):
-            context["choice_count"] = len(cards)
-    elif method_name == "choose_purchase_tile":
-        context["tile_index"] = args[2] if len(args) > 2 else kwargs.get("pos")
-        context["cost"] = args[4] if len(args) > 4 else kwargs.get("cost")
-        context["source"] = kwargs.get("source", "landing")
-    elif method_name == "choose_mark_target":
-        context["actor_name"] = args[2] if len(args) > 2 else kwargs.get("actor_name")
-    elif method_name == "choose_active_flip_card":
-        flippable_cards = args[2] if len(args) > 2 else kwargs.get("flippable_cards")
-        if isinstance(flippable_cards, list):
-            context["flip_count"] = len(flippable_cards)
-    elif method_name == "choose_hidden_trick_card":
-        hand = args[2] if len(args) > 2 else kwargs.get("hand")
-        if isinstance(hand, list):
-            context["hand_count"] = len(hand)
-            context["selection_required"] = True
-    elif method_name == "choose_trick_to_use":
-        hand = args[2] if len(args) > 2 else kwargs.get("hand")
-        if isinstance(hand, list):
-            context["hand_count"] = len(hand)
-    elif method_name == "choose_specific_trick_reward":
-        choices = args[2] if len(args) > 2 else kwargs.get("choices")
-        if isinstance(choices, list):
-            context["reward_count"] = len(choices)
-    elif method_name == "choose_coin_placement_tile":
-        owned_tiles = getattr(player, "visited_owned_tile_indices", None)
-        if owned_tiles is not None:
-            context["owned_tile_count"] = len(list(owned_tiles))
-    elif method_name == "choose_doctrine_relief_target":
-        candidates = args[2] if len(args) > 2 else kwargs.get("candidates")
-        if isinstance(candidates, list):
-            context["candidate_count"] = len(candidates)
-    elif method_name == "choose_runaway_slave_step":
-        context["one_short_pos"] = args[2] if len(args) > 2 else kwargs.get("one_short_pos")
-        context["bonus_target_pos"] = args[3] if len(args) > 3 else kwargs.get("bonus_target_pos")
-        context["bonus_target_kind"] = str(args[4] if len(args) > 4 else kwargs.get("bonus_target_kind"))
+    spec = _decision_method_spec_for_method(method_name)
+    if spec.public_context_builder is not None:
+        context.update(spec.public_context_builder(args, kwargs, state, player))
 
     return _trim_public_context(context)
 

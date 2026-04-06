@@ -6,7 +6,11 @@ import time
 import unittest
 from unittest.mock import patch
 
-from apps.server.src.services.decision_gateway import decision_request_type_for_method
+from apps.server.src.services.decision_gateway import (
+    build_public_context,
+    decision_request_type_for_method,
+    serialize_ai_choice_id,
+)
 from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
@@ -58,6 +62,57 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(decision_request_type_for_method("choose_mark_target"), "mark_target")
         self.assertEqual(decision_request_type_for_method("choose_pabal_dice_mode"), "pabal_dice_mode")
         self.assertEqual(decision_request_type_for_method("choose_custom_branch"), "custom_branch")
+
+    def test_purchase_tile_method_spec_keeps_request_context_and_choice_in_sync(self) -> None:
+        state = type("State", (), {"rounds_completed": 1, "turn_index": 3})()
+        player = type("Player", (), {"cash": 15, "position": 8, "shards": 2})()
+
+        self.assertEqual(decision_request_type_for_method("choose_purchase_tile"), "purchase_tile")
+        self.assertEqual(serialize_ai_choice_id("choose_purchase_tile", False), "no")
+        self.assertEqual(
+            build_public_context(
+                "choose_purchase_tile",
+                (state, player, 9, "T2", 4),
+                {"source": "landing"},
+            ),
+            {
+                "round_index": 2,
+                "turn_index": 4,
+                "player_cash": 15,
+                "player_position": 8,
+                "player_shards": 2,
+                "tile_index": 9,
+                "cost": 4,
+                "source": "landing",
+            },
+        )
+
+    def test_specific_reward_and_runaway_specs_keep_specialized_contracts(self) -> None:
+        reward = type("Reward", (), {"deck_index": 102, "name": "Lucky Break"})()
+        state = type("State", (), {"rounds_completed": 5, "turn_index": 0})()
+        player = type("Player", (), {"cash": 9, "position": 22, "shards": 5})()
+
+        self.assertEqual(decision_request_type_for_method("choose_specific_trick_reward"), "specific_trick_reward")
+        self.assertEqual(serialize_ai_choice_id("choose_specific_trick_reward", reward), "102")
+        self.assertEqual(decision_request_type_for_method("choose_runaway_slave_step"), "runaway_step_choice")
+        self.assertEqual(serialize_ai_choice_id("choose_runaway_slave_step", True), "yes")
+        self.assertEqual(
+            build_public_context(
+                "choose_runaway_slave_step",
+                (state, player, 25, 26, "S"),
+                {},
+            ),
+            {
+                "round_index": 6,
+                "turn_index": 1,
+                "player_cash": 9,
+                "player_position": 22,
+                "player_shards": 5,
+                "one_short_pos": 25,
+                "bonus_target_pos": 26,
+                "bonus_target_kind": "S",
+            },
+        )
 
     def test_start_runtime_uses_async_to_thread_bridge(self) -> None:
         session = self.session_service.create_session(
