@@ -128,6 +128,8 @@ These are no longer the immediate blockers, but they are recently completed and 
   - worker health / contract-version / capability metadata is now part of the operational seam
   - auth-header and expected-worker-id validation are now part of the runtime/worker seam too
   - worker payload docs now include a production-shaped external seat example
+  - health checks can now be parameter-driven via `healthcheck_policy`
+  - remote-turn stage/spectator payoff strips now surface worker outcomes as part of the scene instead of only side diagnostics
 - Main implementation references:
   - `apps/server/src/external_ai_app.py`
   - `apps/server/src/services/external_ai_worker_service.py`

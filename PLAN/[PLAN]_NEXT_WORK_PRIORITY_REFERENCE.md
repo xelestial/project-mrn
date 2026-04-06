@@ -258,6 +258,25 @@ This is the practical next-work list after the closed slices above.
   - injected/custom sender and healthchecker seams no longer bypass identity validation
 - Regression coverage expanded:
   - worker API auth-required coverage
+  - mixed-seat browser parity now keeps worker outcome cards inside remote-turn payoff strips
+  - runtime can now require or disable health checks per participant config through `healthcheck_policy`
+
+### 2026-04-07 Progress Update (remote-turn payoff + healthcheck policy follow-up)
+
+- Remote-turn scene continuity tightened again:
+  - turn-stage scene strips now include participant-worker beats when external resolution/fallback metadata exists
+  - spectator payoff strips now keep worker status in the same payoff sequence as purchase/rent/reward outcomes
+- External-AI runtime hardening also advanced:
+  - `participants.external_ai.healthcheck_policy` is now parameter-driven:
+    - `auto`
+    - `required`
+    - `disabled`
+  - required health checks now remain active even when a custom HTTP sender seam is injected
+  - health-check cache keys now include policy/requirement shape so operational drift does not reuse stale compatibility results
+- Practical next-work list after this pass:
+  1. keep closing any remaining remote-turn scene drift only where live evidence still looks feed-like
+  2. widen longer mixed-seat E2E only when a new continuity case is missing
+  3. keep hardening external-AI rollout controls without weakening the canonical decision lifecycle
 
 ### 2026-04-07 Progress Update (remote-turn worker status continuity)
 

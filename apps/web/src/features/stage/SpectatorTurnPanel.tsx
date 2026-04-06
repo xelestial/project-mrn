@@ -164,6 +164,20 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
       tone: "effect",
     });
   }
+  if (hasWorkerStatus(model)) {
+    spotlightCards.push({
+      key: "worker",
+      title: app.spectatorFields.worker,
+      detail: valueOrDash(workerStatusDetail),
+      tone: "effect",
+    });
+    payoffBeats.push({
+      key: "worker",
+      title: app.spectatorFields.worker,
+      detail: valueOrDash(workerStatusDetail),
+      tone: "effect",
+    });
+  }
   if (hasValue(model.lapRewardSummary)) {
     spotlightCards.push({ key: "lap-reward", title: lapRewardEventLabel, detail: model.lapRewardSummary, tone: "economy" });
     payoffBeats.push({ key: "lap-reward", title: lapRewardEventLabel, detail: model.lapRewardSummary, tone: "economy" });

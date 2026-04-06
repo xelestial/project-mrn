@@ -796,6 +796,7 @@ class RuntimeServiceTests(unittest.TestCase):
                     "endpoint": "http://bot-worker.local/decide",
                     "healthcheck_ttl_ms": 10000,
                     "expected_worker_id": "worker-a",
+                    "healthcheck_policy": "auto",
                     "required_capabilities": ["choice_id_response"],
                 }
             )
@@ -804,6 +805,7 @@ class RuntimeServiceTests(unittest.TestCase):
                     "endpoint": "http://bot-worker.local/decide",
                     "healthcheck_ttl_ms": 10000,
                     "expected_worker_id": "worker-a",
+                    "healthcheck_policy": "required",
                     "required_capabilities": ["choice_id_response", "healthcheck"],
                     "required_request_types": ["purchase_tile"],
                 }
@@ -812,6 +814,76 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(payload_a["worker_id"], "worker-a")
         self.assertEqual(payload_b["worker_id"], "worker-a")
         self.assertEqual(len(urlopen_calls), 2)
+
+    def test_http_external_transport_can_require_default_healthcheck_with_custom_sender(self) -> None:
+        from apps.server.src.services.runtime_service import _EXTERNAL_AI_HEALTH_CACHE, _HttpExternalAiTransport
+
+        class _FakeAiPolicy:
+            def choose_purchase_tile(self, state, player, pos, cell, cost, *, source="landing"):  # noqa: ANN001
+                del state, player, pos, cell, cost, source
+                return False
+
+        class _FakeGateway:
+            def __init__(self) -> None:
+                self.calls: list[dict] = []
+
+            def resolve_ai_decision(self, **kwargs):  # noqa: ANN003
+                self.calls.append(kwargs)
+                return kwargs["resolver"]()
+
+        class _FakeResponse:
+            def __init__(self, payload: str) -> None:
+                self._payload = payload
+
+            def read(self) -> bytes:
+                return self._payload.encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> bool:  # noqa: ANN001
+                return False
+
+        _EXTERNAL_AI_HEALTH_CACHE.clear()
+        gateway = _FakeGateway()
+        transport = _HttpExternalAiTransport(
+            session_id="sess_http_required_health",
+            ai_fallback=_FakeAiPolicy(),
+            gateway=gateway,  # type: ignore[arg-type]
+            seat=2,
+            config={
+                "transport": "http",
+                "endpoint": "http://bot-worker.local/decide",
+                "fallback_mode": "local_ai",
+                "healthcheck_policy": "required",
+                "expected_worker_id": "worker-a",
+                "required_request_types": ["purchase_tile"],
+            },
+            sender=lambda _envelope: {
+                "choice_id": "yes",
+                "worker_id": "worker-a",
+                "supported_request_types": ["purchase_tile"],
+            },
+        )
+        state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+        player = type("Player", (), {"player_id": 1, "cash": 8, "position": 9, "shards": 1})()
+        call = build_routed_decision_call(
+            build_decision_invocation("choose_purchase_tile", (state, player, 9, "T2", 4), {"source": "landing"}),
+            fallback_policy="ai",
+        )
+
+        with patch(
+            "apps.server.src.services.runtime_service.urllib_request.urlopen",
+            return_value=_FakeResponse(
+                '{"ok": true, "worker_id": "worker-a", "worker_contract_version": "v1", "capabilities": ["choice_id_response"], "supported_request_types": ["purchase_tile"]}'
+            ),
+        ) as urlopen:
+            result = transport.resolve(call)
+
+        self.assertTrue(result)
+        self.assertEqual(gateway.calls[0]["public_context"]["external_ai_worker_id"], "worker-a")
+        self.assertEqual(gateway.calls[0]["public_context"]["external_ai_resolution_status"], "resolved_by_worker")
+        self.assertEqual(urlopen.call_count, 1)
 
     def test_external_ai_error_classifier_maps_timeout_and_known_runtime_codes(self) -> None:
         from apps.server.src.services.runtime_service import _classify_external_ai_error

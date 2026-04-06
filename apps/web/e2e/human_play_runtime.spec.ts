@@ -978,9 +978,12 @@ test("mixed participant runtime keeps worker success then fallback visible acros
   await expect(page.getByTestId("spectator-turn-worker")).toContainText("prod-bot-1");
   await expect(page.getByTestId("spectator-turn-worker")).toContainText("local fallback");
   await expect(page.getByTestId("spectator-turn-worker")).toContainText("attempt 3");
+  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Participant status");
+  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("prod-bot-1");
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("Participant status");
   await expect(page.getByTestId("turn-stage-worker-status")).toContainText("external_ai_timeout");
   await expect(page.getByTestId("turn-stage-worker-status")).toContainText("attempt 3");
+  await expect(page.getByTestId("turn-stage-scene-strip")).toContainText("Participant Status");
   await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("Bought tile 11 for 3");
 });
 

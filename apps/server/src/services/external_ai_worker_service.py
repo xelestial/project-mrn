@@ -261,6 +261,8 @@ class ExternalAiWorkerService:
                 "contract_v1",
                 "failure_code_response",
                 "worker_identity",
+                "priority_scored_choice",
+                "preferred_choice_context",
             ],
             "supported_request_types": list(self._supported_request_types),
         }

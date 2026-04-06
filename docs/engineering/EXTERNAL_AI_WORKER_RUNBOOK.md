@@ -97,6 +97,7 @@ Use `participant_client: "external_ai"` on an AI seat and provide an HTTP endpoi
         "fallback_mode": "local_ai",
         "healthcheck_path": "/health",
         "healthcheck_ttl_ms": 10000,
+        "healthcheck_policy": "required",
         "required_capabilities": ["choice_id_response", "healthcheck"],
         "required_request_types": ["movement", "purchase_tile"],
         "headers": {}
@@ -125,6 +126,8 @@ Important rules:
 - when provided, `supported_request_types` should accurately describe which canonical request types the worker can actually resolve
 - when configured, `required_request_types` must be a subset of the worker's advertised `supported_request_types`
 - when configured, worker auth and `expected_worker_id` must match on both `/health` and `/decide`
+- `healthcheck_policy=required` keeps health preflight active even when the runtime uses an injected custom sender seam
+- `healthcheck_policy=disabled` skips health preflight intentionally and should only be used for tightly controlled local/testing setups
 - the server owns timeout, retry, and fallback behavior
 - the server converts `choice_id` back into engine-native values through method-specific parsers
 

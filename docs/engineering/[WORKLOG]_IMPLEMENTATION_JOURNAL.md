@@ -28,6 +28,22 @@ Updated: 2026-04-07
   - keep trimming selector-side wording ownership
   - extend external worker operational path beyond the reference service
 
+### Entry 005
+
+- Scope: remote-turn payoff continuity + external worker healthcheck policy hardening.
+- Done:
+  - remote-turn stage/spectator strips now surface worker outcome/status inside the same payoff sequence as purchase, rent, fortune, and lap-reward beats
+  - external participant parameters now include `healthcheck_policy` with `auto|required|disabled`
+  - runtime HTTP transport can require health preflight even when a custom sender seam is injected
+  - health-check cache scoping now includes the policy/requirement shape
+  - reference worker capability metadata now advertises scored/preferred-choice behavior more explicitly
+- Validation:
+  - targeted server pytest for parameter/runtime worker transport
+  - web selector/build/e2e regression suite
+- Next:
+  - only keep polishing remote-turn visuals where live evidence still reads like a feed
+  - reserve broader worker upgrades for the next stronger-service slice
+
 ### Entry 002
 
 - Scope: selector locale ownership follow-up + timeout/fallback turn visibility.

@@ -79,6 +79,7 @@ class ParameterServiceTests(unittest.TestCase):
                         "fallback_mode": "local_ai",
                         "healthcheck_path": "/health",
                         "healthcheck_ttl_ms": 5000,
+                        "healthcheck_policy": "required",
                         "required_capabilities": ["choice_id_response", "healthcheck"],
                         "required_request_types": ["movement", "purchase_tile"],
                         "headers": {"Authorization": "Bearer token"},
@@ -105,6 +106,7 @@ class ParameterServiceTests(unittest.TestCase):
         self.assertEqual(resolved["participants"]["external_ai"]["fallback_mode"], "local_ai")
         self.assertEqual(resolved["participants"]["external_ai"]["healthcheck_path"], "/health")
         self.assertEqual(resolved["participants"]["external_ai"]["healthcheck_ttl_ms"], 5000)
+        self.assertEqual(resolved["participants"]["external_ai"]["healthcheck_policy"], "required")
         self.assertEqual(resolved["participants"]["external_ai"]["required_capabilities"], ["choice_id_response", "healthcheck"])
         self.assertEqual(resolved["participants"]["external_ai"]["required_request_types"], ["movement", "purchase_tile"])
         self.assertIn("event_labels", resolved["labels"])
@@ -120,6 +122,10 @@ class ParameterServiceTests(unittest.TestCase):
     def test_resolve_rejects_invalid_external_ai_required_request_types(self) -> None:
         with self.assertRaises(ParameterValidationError):
             self.resolver.resolve({"participants": {"external_ai": {"required_request_types": "movement"}}})
+
+    def test_resolve_rejects_invalid_external_ai_healthcheck_policy(self) -> None:
+        with self.assertRaises(ParameterValidationError):
+            self.resolver.resolve({"participants": {"external_ai": {"healthcheck_policy": "sometimes"}}})
 
     def test_resolve_rejects_blank_external_ai_identity_fields(self) -> None:
         with self.assertRaises(ParameterValidationError):

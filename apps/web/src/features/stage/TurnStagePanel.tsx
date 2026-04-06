@@ -96,6 +96,21 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
     hasMeaningfulValue(model.promptSummary)
       ? { key: "prompt", label: turnStage.fields.beat, value: model.promptSummary, tone: "effect" }
       : null,
+    hasWorkerStatus(model)
+      ? {
+          key: "worker",
+          label: turnStage.workerTitle,
+          value: valueOrDash(turnStage.workerStatusSummary(
+            model.externalAiResolutionStatus,
+            model.externalAiWorkerId,
+            model.externalAiFailureCode,
+            model.externalAiFallbackMode,
+            model.externalAiAttemptCount
+          )),
+          detail: workerStatusDetail,
+          tone: "effect",
+        }
+      : null,
     hasMeaningfulValue(model.moveSummary)
       ? { key: "move", label: turnStage.fields.move, value: model.moveSummary, tone: "move" }
       : null,
@@ -171,6 +186,14 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
   }
   if (hasOutcome(model.turnEndSummary)) {
     outcomeCards.push({ key: "turn-end-outcome", label: turnEndLabel, value: model.turnEndSummary, tone: "effect" });
+  }
+  if (hasWorkerStatus(model)) {
+    outcomeCards.push({
+      key: "worker-outcome",
+      label: turnStage.workerTitle,
+      value: workerStatusDetail,
+      tone: "effect",
+    });
   }
   const spotlightCards: SpotlightCard[] = [];
   if (hasMeaningfulValue(model.weatherName) || hasMeaningfulValue(model.weatherEffect)) {

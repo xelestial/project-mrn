@@ -639,13 +639,16 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
         )
 
     def _check_worker_health(self) -> dict[str, object] | None:
-        if self._sender is not None and self._healthchecker is None:
+        healthcheck_policy = str(self._config.get("healthcheck_policy", "auto") or "auto").strip().lower()
+        if healthcheck_policy == "disabled":
+            return None
+        if healthcheck_policy != "required" and self._sender is not None and self._healthchecker is None:
             return None
         checker = self._healthchecker or _default_external_ai_healthcheck
         payload = checker(dict(self._config))
-        if self._healthchecker is not None:
-            if not isinstance(payload, dict):
-                raise ValueError("external_ai_health_response_not_object")
+        if not isinstance(payload, dict):
+            raise ValueError("external_ai_health_response_not_object")
+        if self._healthchecker is not None or healthcheck_policy == "required":
             _validate_external_ai_health_payload(payload, self._config)
         return payload if isinstance(payload, dict) else None
 
@@ -682,6 +685,7 @@ _EXTERNAL_AI_HEALTH_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
 def _external_ai_health_cache_key(config: dict[str, object], endpoint: str, healthcheck_path: str) -> str:
     required_version = str(config.get("contract_version", "v1") or "v1").strip().lower()
     expected_worker_id = str(config.get("expected_worker_id") or "").strip()
+    healthcheck_policy = str(config.get("healthcheck_policy", "auto") or "auto").strip().lower()
     required_capabilities = sorted(
         str(item).strip()
         for item in (config.get("required_capabilities") or [])
@@ -700,6 +704,7 @@ def _external_ai_health_cache_key(config: dict[str, object], endpoint: str, heal
             healthcheck_path,
             required_version,
             expected_worker_id,
+            healthcheck_policy,
             ",".join(required_capabilities),
             ",".join(required_request_types),
             auth_header_name,
