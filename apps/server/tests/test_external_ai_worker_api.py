@@ -130,6 +130,7 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["worker_id"], "worker-api-test")
         self.assertEqual(payload["policy_mode"], "heuristic_v3_gpt")
+        self.assertEqual(payload["worker_adapter"], "reference_heuristic_v1")
         self.assertEqual(payload["decision_style"], "contract_heuristic")
         self.assertEqual(payload["supported_transports"], ["http"])
         self.assertTrue(payload["ready"])
@@ -149,9 +150,44 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         self.assertTrue(payload["ready"])
         self.assertEqual(payload["worker_contract_version"], "v1")
         self.assertEqual(payload["policy_mode"], "heuristic_v3_gpt")
+        self.assertEqual(payload["worker_adapter"], "reference_heuristic_v1")
         self.assertEqual(payload["decision_style"], "contract_heuristic")
         self.assertEqual(payload["supported_transports"], ["http"])
         self.assertIn("healthcheck", payload["capabilities"])
+
+    def test_service_can_mount_custom_worker_adapter(self) -> None:
+        class _ScriptedAdapter:
+            adapter_id = "scripted_test_v1"
+            decision_style = "scripted_contract"
+            supported_transports = ["http"]
+            supported_request_types = ["purchase_tile"]
+            capabilities = ["choice_id_response", "healthcheck", "adapter_registry_v1"]
+
+            def build_runtime_policy(self, policy_mode: str):  # noqa: ANN001
+                return type("ScriptedPolicy", (), {"policy_mode": policy_mode})()
+
+            def choose_choice_id(self, *, request_type, public_context, legal_choices):  # noqa: ANN001
+                del request_type, public_context, legal_choices
+                return "no"
+
+        service = ExternalAiWorkerService(
+            worker_id="worker-api-scripted",
+            policy_mode="scripted_mode",
+            adapter=_ScriptedAdapter(),
+        )
+        client = TestClient(create_app(service))
+
+        health = client.get("/health")
+        self.assertEqual(health.status_code, 200)
+        self.assertEqual(health.json()["worker_adapter"], "scripted_test_v1")
+        self.assertEqual(health.json()["decision_style"], "scripted_contract")
+
+        response = client.post("/decide", json=_purchase_tile_payload(cash=8, cost=4))
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["choice_id"], "no")
+        self.assertEqual(payload["worker_adapter"], "scripted_test_v1")
+        self.assertEqual(payload["decision_style"], "scripted_contract")
 
     def test_decide_handles_mark_target_contract(self) -> None:
         response = self.client.post("/decide", json=_mark_target_payload())

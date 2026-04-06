@@ -30,6 +30,7 @@ class ExternalAiDecisionResponse(BaseModel):
     choice_payload: dict | None = None
     worker_id: str = Field(..., min_length=1)
     policy_mode: str = Field(..., min_length=1)
+    worker_adapter: str = Field(..., min_length=1)
     decision_style: str = Field(..., min_length=1)
     policy_class: str = Field(..., min_length=1)
     worker_contract_version: str = Field(default="v1", min_length=1)
@@ -44,7 +45,8 @@ class ExternalAiDecisionResponse(BaseModel):
 def _service() -> ExternalAiWorkerService:
     worker_id = os.getenv("MRN_EXTERNAL_AI_WORKER_ID", "external-ai-worker")
     policy_mode = os.getenv("MRN_EXTERNAL_AI_POLICY_MODE", "heuristic_v3_gpt")
-    return ExternalAiWorkerService(worker_id=worker_id, policy_mode=policy_mode)
+    worker_adapter = os.getenv("MRN_EXTERNAL_AI_WORKER_ADAPTER", "reference_heuristic_v1")
+    return ExternalAiWorkerService(worker_id=worker_id, policy_mode=policy_mode, worker_adapter=worker_adapter)
 
 
 def create_app(service: ExternalAiWorkerService | None = None) -> FastAPI:

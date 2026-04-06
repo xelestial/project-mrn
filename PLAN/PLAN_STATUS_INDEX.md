@@ -133,9 +133,12 @@ These are no longer the immediate blockers, but they are recently completed and 
   - worker readiness can now be enforced via `require_ready`
   - total worker call attempts can now be capped via `max_attempt_count`
   - stronger worker replacements can now be gated by `required_policy_mode` / `required_decision_style`
+  - stronger worker replacements can now also be gated by `required_worker_adapter`
   - stronger worker replacements can now also be checked against advertised `supported_transports`
   - remote-turn stage/spectator payoff strips now surface worker outcomes as part of the scene instead of only side diagnostics
   - canonical current-turn models now preserve worker readiness state and bounded attempt counts for stage/spectator surfaces
+  - the reference worker now sits behind an explicit adapter seam so stronger workers/services can replace it without changing the frozen HTTP contract
+  - canonical `public_context` now preserves `external_ai_worker_adapter` alongside worker id / mode / class / decision style
 - Main implementation references:
   - `apps/server/src/external_ai_app.py`
   - `apps/server/src/services/external_ai_worker_service.py`
@@ -184,6 +187,7 @@ These are the slices that should still actively drive implementation after the r
   - keep worker readiness / attempt-limit policy parameter-driven and visible in mixed-seat regressions
   - keep decision-response readiness validation aligned with the same public-context seam as health readiness
   - keep stronger-worker metadata compatibility (`policy_mode` / `decision_style`) enforced through the same transport seam
+  - keep stronger-worker adapter compatibility (`worker_adapter`) enforced through the same transport seam
   - keep transport-compatibility validation (`supported_transports`) aligned with the same fallback diagnostics seam
 
 ## Active But Secondary Plans

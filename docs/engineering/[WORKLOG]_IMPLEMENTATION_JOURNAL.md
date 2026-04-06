@@ -2720,3 +2720,33 @@ Updated: 2026-04-07
   - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts`
   - `cd apps/web && npm run build`
   - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
+
+## 2026-04-07 Worker Adapter Seam + Localized Spectator Summary Cleanup
+
+- What changed:
+  - Server:
+    - `apps/server/src/services/external_ai_worker_service.py` now mounts the reference worker through an explicit adapter seam instead of hard-wiring the heuristic chooser directly into the service
+    - the default adapter id is now `reference_heuristic_v1`
+    - `apps/server/src/services/parameter_service.py` now accepts `required_worker_adapter` for external-AI participant defaults
+    - `apps/server/src/services/runtime_service.py` now validates worker-advertised `worker_adapter` during compatibility checks and persists `external_ai_worker_adapter` into canonical `public_context`
+    - `apps/server/src/external_ai_app.py` now exposes `worker_adapter` on both `/health` and `/decide`
+  - Web:
+    - `apps/web/src/domain/selectors/streamSelectors.ts` now preserves `externalAiWorkerAdapter` in current-turn models
+    - worker status cards in stage/spectator surfaces now render adapter provenance through locale-owned helpers, alongside:
+      - readiness
+      - attempt bounds
+      - policy mode
+      - policy class
+      - decision style
+    - `apps/web/src/features/stage/SpectatorTurnPanel.tsx` now routes more inline summary joins through locale helpers instead of component-local string assembly
+    - longer mixed-seat browser coverage now asserts adapter provenance stays visible through repeated fallback chains
+  - Docs / plan:
+    - plan/runbook/contract docs now describe the explicit worker-adapter seam and `required_worker_adapter`
+- Why:
+  - the remaining stronger-worker follow-up was no longer about mounting a worker at all, but about making that worker explicitly replaceable without changing the frozen HTTP contract
+  - in parallel, the remaining locale-ownership drift had narrowed to small spectator summary joins and worker-detail fragments
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_parameter_service.py apps/server/tests/test_runtime_service.py apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_parameter_propagation.py apps/server/tests/test_parameter_manifest_snapshot.py`
+  - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts`
+  - `cd apps/web && npm run build`
+  - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`

@@ -1138,6 +1138,7 @@ test("mixed participant runtime keeps a long worker-success to fallback chain re
               external_ai_resolution_status: "pending",
               external_ai_ready_state: "ready",
               external_ai_policy_mode: "heuristic_v3_gpt",
+              external_ai_worker_adapter: "reference_heuristic_v1",
               external_ai_policy_class: "HeuristicPolicy",
               external_ai_decision_style: "contract_heuristic",
             },
@@ -1162,6 +1163,7 @@ test("mixed participant runtime keeps a long worker-success to fallback chain re
               external_ai_attempt_count: 1,
               external_ai_attempt_limit: 2,
               external_ai_policy_mode: "heuristic_v3_gpt",
+              external_ai_worker_adapter: "reference_heuristic_v1",
               external_ai_policy_class: "HeuristicPolicy",
               external_ai_decision_style: "contract_heuristic",
             },
@@ -1207,6 +1209,7 @@ test("mixed participant runtime keeps a long worker-success to fallback chain re
               external_ai_attempt_count: 2,
               external_ai_attempt_limit: 2,
               external_ai_policy_mode: "heuristic_v3_gpt",
+              external_ai_worker_adapter: "reference_heuristic_v1",
               external_ai_policy_class: "HeuristicPolicy",
               external_ai_decision_style: "contract_heuristic",
             },
@@ -1235,6 +1238,7 @@ test("mixed participant runtime keeps a long worker-success to fallback chain re
   await expect(page.getByTestId("spectator-turn-progress")).toContainText("Decision timeout fallback");
   await expect(page.getByTestId("turn-stage-worker-status")).toContainText("attempt 2/2");
   await expect(page.getByTestId("turn-stage-worker-status")).toContainText("mode heuristic_v3_gpt");
+  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("adapter reference_heuristic_v1");
   await expect(page.getByTestId("turn-stage-worker-status")).toContainText("class HeuristicPolicy");
   await expect(page.getByTestId("turn-stage-scene-strip")).toContainText("Round Weather");
   await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("P3 paid P1 6 on tile 15");
@@ -1276,6 +1280,7 @@ test("mixed participant runtime keeps repeated fallback continuity readable acro
               external_ai_attempt_count: 2,
               external_ai_attempt_limit: 2,
               external_ai_policy_mode: "heuristic_v3_gpt",
+              external_ai_worker_adapter: "reference_heuristic_v1",
               external_ai_policy_class: "HeuristicPolicy",
               external_ai_decision_style: "contract_heuristic",
             },
@@ -1303,6 +1308,7 @@ test("mixed participant runtime keeps repeated fallback continuity readable acro
               external_ai_attempt_count: 1,
               external_ai_attempt_limit: 2,
               external_ai_policy_mode: "heuristic_v3_gpt",
+              external_ai_worker_adapter: "reference_heuristic_v1",
               external_ai_policy_class: "HeuristicPolicy",
               external_ai_decision_style: "contract_heuristic",
             },
@@ -1321,6 +1327,7 @@ test("mixed participant runtime keeps repeated fallback continuity readable acro
   await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Participant status");
   await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Fortune effect");
   await expect(page.getByTestId("turn-stage-worker-status")).toContainText("class HeuristicPolicy");
+  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("adapter reference_heuristic_v1");
   await expect(page.getByTestId("turn-stage-worker-status")).toContainText("not_ready");
   await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("Gain 1 shard.");
 });

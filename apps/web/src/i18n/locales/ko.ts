@@ -25,6 +25,11 @@ export const koLocale = {
       const visible = parts.map((part) => part.trim()).filter((part) => part && part !== "-");
       return visible.length > 0 ? visible.join(" / ") : "-";
     },
+    spectatorEconomySummary: (parts: string[]) => koLocale.app.inlineSummary(parts),
+    spectatorEffectSummary: (parts: string[]) => koLocale.app.inlineSummary(parts),
+    spectatorSpotlightSummary: (parts: string[]) => koLocale.app.inlineSummary(parts),
+    spectatorNeutralSummary: (parts: string[]) => koLocale.app.inlineSummary(parts),
+    spectatorHeadlineSummary: (headline: string, summary: string) => koLocale.app.inlineSummary([headline, summary]),
     spectatorFields: {
       weather: "현재 날씨",
       character: "현재 인물",
@@ -336,10 +341,13 @@ export const koLocale = {
       }
       return `상태 ${readyState}`;
     },
-    workerModeSummary: (policyMode?: string, policyClass?: string, decisionStyle?: string) => {
+    workerModeSummary: (policyMode?: string, workerAdapter?: string, policyClass?: string, decisionStyle?: string) => {
       const parts: string[] = [];
       if (policyMode && policyMode !== "-") {
         parts.push(`모드 ${policyMode}`);
+      }
+      if (workerAdapter && workerAdapter !== "-") {
+        parts.push(`어댑터 ${workerAdapter}`);
       }
       if (policyClass && policyClass !== "-") {
         parts.push(`클래스 ${policyClass}`);
@@ -383,6 +391,7 @@ export const koLocale = {
       attemptCount?: number | null,
       attemptLimit?: number | null,
       policyMode?: string,
+      workerAdapter?: string,
       policyClass?: string,
       decisionStyle?: string
     ) => {
@@ -402,7 +411,7 @@ export const koLocale = {
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `시도 ${attemptCount}/${attemptLimit}` : `시도 ${attemptCount}회`);
       }
-      const modeSummary = koLocale.stream.workerModeSummary(policyMode, policyClass, decisionStyle);
+      const modeSummary = koLocale.stream.workerModeSummary(policyMode, workerAdapter, policyClass, decisionStyle);
       if (modeSummary !== "-") {
         parts.push(modeSummary);
       }
@@ -417,6 +426,7 @@ export const koLocale = {
       attemptLimit?: number | null,
       readyState?: string,
       policyMode?: string,
+      workerAdapter?: string,
       policyClass?: string,
       decisionStyle?: string
     ) => {
@@ -439,7 +449,7 @@ export const koLocale = {
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `시도 ${attemptCount}/${attemptLimit}` : `시도 ${attemptCount}회`);
       }
-      const modeSummary = koLocale.stream.workerModeSummary(policyMode, policyClass, decisionStyle);
+      const modeSummary = koLocale.stream.workerModeSummary(policyMode, workerAdapter, policyClass, decisionStyle);
       if (modeSummary !== "-") {
         parts.push(modeSummary);
       }
@@ -616,6 +626,7 @@ export const koLocale = {
       attemptLimit?: number | null,
       readyState?: string,
       policyMode?: string,
+      workerAdapter?: string,
       policyClass?: string,
       decisionStyle?: string
     ) => {
@@ -639,7 +650,7 @@ export const koLocale = {
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `시도 ${attemptCount}/${attemptLimit}` : `시도 ${attemptCount}회`);
       }
-      const modeSummary = koLocale.stream.workerModeSummary(policyMode, policyClass, decisionStyle);
+      const modeSummary = koLocale.stream.workerModeSummary(policyMode, workerAdapter, policyClass, decisionStyle);
       if (modeSummary !== "-") {
         parts.push(modeSummary);
       }

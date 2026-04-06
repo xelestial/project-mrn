@@ -41,6 +41,7 @@ The reference worker is intentionally contract-driven:
 - it selects a canonical `choice_id` from `legal_choices`
 - it can return the matched `choice_payload` for debugging and inspection
 - it exposes `worker_contract_version`, `capabilities`, and `supported_request_types`
+- it exposes `worker_adapter` so the runtime can gate stronger-worker rollout against an explicit adapter id
 - it exposes `ready` so the runtime can gate rollout when participant config requires worker readiness
 - the runtime server remains responsible for timeout / retry / fallback
 
@@ -74,12 +75,18 @@ Operational seat defaults can now also require:
 
 - `require_ready`
 - `max_attempt_count`
+- `required_worker_adapter`
 - `required_policy_mode`
 - `required_policy_class`
 - `required_decision_style`
 
 When workers advertise `supported_transports`, the runtime also treats that as a compatibility guard for the active seat transport.
 
-When workers advertise `policy_mode`, `policy_class`, and `decision_style`, the runtime now also surfaces those fields into canonical decision `public_context` so stage/spectator UIs can preserve stronger-worker provenance through success and fallback paths.
+When workers advertise `worker_adapter`, `policy_mode`, `policy_class`, and `decision_style`, the runtime now also surfaces those fields into canonical decision `public_context` so stage/spectator UIs can preserve stronger-worker provenance through success and fallback paths.
+
+The bundled reference worker now sits behind an explicit adapter seam:
+
+- default adapter id: `reference_heuristic_v1`
+- replacement workers/services can keep the same frozen HTTP contract while swapping the underlying adapter implementation
 
 See `docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md` for a full local session example.

@@ -21,6 +21,7 @@ Optional flags:
 
 - `--worker-id local-bot-1`
 - `--policy-mode heuristic_v3_gpt`
+- `--worker-adapter reference_heuristic_v1`
 - `--log-level debug`
 - `--reload`
 
@@ -54,6 +55,7 @@ Expected shape:
   "ready": true,
   "policy_mode": "heuristic_v3_gpt",
   "policy_class": "HeuristicPolicy",
+  "worker_adapter": "reference_heuristic_v1",
   "decision_style": "contract_heuristic",
   "supported_transports": ["http"]
 }
@@ -103,6 +105,7 @@ Use `participant_client: "external_ai"` on an AI seat and provide an HTTP endpoi
         "max_attempt_count": 3,
         "required_capabilities": ["choice_id_response", "healthcheck"],
         "required_request_types": ["movement", "purchase_tile"],
+        "required_worker_adapter": "reference_heuristic_v1",
         "required_policy_mode": "heuristic_v3_gpt",
         "required_decision_style": "contract_heuristic",
         "headers": {}
@@ -130,6 +133,7 @@ Important rules:
 - the worker should advertise the capabilities required by the seat config
 - when provided, `supported_request_types` should accurately describe which canonical request types the worker can actually resolve
 - when configured, `required_request_types` must be a subset of the worker's advertised `supported_request_types`
+- when configured, `required_worker_adapter` must match the worker's advertised `worker_adapter`
 - when configured, `required_policy_mode` must match the worker's advertised `policy_mode`
 - when configured, `required_policy_class` must match the worker's advertised `policy_class`
 - when configured, `required_decision_style` must match the worker's advertised `decision_style`
@@ -189,4 +193,13 @@ Useful runtime status values surfaced into prompt/event `public_context`:
 - `external_ai_attempt_limit=<n>`
 - `external_ai_policy_mode=<worker-policy-mode>`
 - `external_ai_policy_class=<worker-policy-class>`
+- `external_ai_worker_adapter=<worker-adapter-id>`
 - `external_ai_decision_style=<worker-decision-style>`
+
+## Reference Adapter Seam
+
+The default local worker is no longer hard-wired directly to one heuristic implementation.
+
+- `apps/server/src/services/external_ai_worker_service.py` now mounts the reference worker through an explicit decision-adapter seam
+- the default adapter id is `reference_heuristic_v1`
+- stronger workers/services can replace that adapter while keeping the frozen HTTP request/response contract stable

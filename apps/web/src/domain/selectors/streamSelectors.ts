@@ -92,6 +92,7 @@ export type TurnStageViewModel = {
   externalAiAttemptLimit: number | null;
   externalAiReadyState: string;
   externalAiPolicyMode: string;
+  externalAiWorkerAdapter: string;
   externalAiPolicyClass: string;
   externalAiDecisionStyle: string;
   progressTrail: string[];
@@ -436,6 +437,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
       numberOrNull(publicContext?.["external_ai_attempt_count"]),
       numberOrNull(publicContext?.["external_ai_attempt_limit"]),
       asString(publicContext?.["external_ai_policy_mode"]),
+      asString(publicContext?.["external_ai_worker_adapter"]),
       asString(publicContext?.["external_ai_policy_class"]),
       asString(publicContext?.["external_ai_decision_style"])
     );
@@ -925,6 +927,7 @@ function externalAiStatusFromPayload(payload: Record<string, unknown>): {
   attemptLimit: number | null;
   readyState: string;
   policyMode: string;
+  workerAdapter: string;
   policyClass: string;
   decisionStyle: string;
 } {
@@ -938,6 +941,7 @@ function externalAiStatusFromPayload(payload: Record<string, unknown>): {
     attemptLimit: numberOrNull(publicContext?.["external_ai_attempt_limit"]),
     readyState: asString(publicContext?.["external_ai_ready_state"]),
     policyMode: asString(publicContext?.["external_ai_policy_mode"]),
+    workerAdapter: asString(publicContext?.["external_ai_worker_adapter"]),
     policyClass: asString(publicContext?.["external_ai_policy_class"]),
     decisionStyle: asString(publicContext?.["external_ai_decision_style"]),
   };
@@ -963,6 +967,7 @@ function workerSummaryFromPayload(payload: Record<string, unknown>, text: Stream
     status.attemptLimit,
     status.readyState,
     status.policyMode,
+    status.workerAdapter,
     status.policyClass,
     status.decisionStyle
   );
@@ -1034,6 +1039,7 @@ export function selectTurnStage(
     externalAiAttemptLimit: null,
     externalAiReadyState: "-",
     externalAiPolicyMode: "-",
+    externalAiWorkerAdapter: "-",
     externalAiPolicyClass: "-",
     externalAiDecisionStyle: "-",
     progressTrail: [],
@@ -1117,6 +1123,9 @@ export function selectTurnStage(
     }
     if (status.policyMode !== "-") {
       model.externalAiPolicyMode = status.policyMode;
+    }
+    if (status.workerAdapter !== "-") {
+      model.externalAiWorkerAdapter = status.workerAdapter;
     }
     if (status.policyClass !== "-") {
       model.externalAiPolicyClass = status.policyClass;

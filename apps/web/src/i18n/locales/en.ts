@@ -25,6 +25,11 @@ export const enLocale = {
       const visible = parts.map((part) => part.trim()).filter((part) => part && part !== "-");
       return visible.length > 0 ? visible.join(" / ") : "-";
     },
+    spectatorEconomySummary: (parts: string[]) => enLocale.app.inlineSummary(parts),
+    spectatorEffectSummary: (parts: string[]) => enLocale.app.inlineSummary(parts),
+    spectatorSpotlightSummary: (parts: string[]) => enLocale.app.inlineSummary(parts),
+    spectatorNeutralSummary: (parts: string[]) => enLocale.app.inlineSummary(parts),
+    spectatorHeadlineSummary: (headline: string, summary: string) => enLocale.app.inlineSummary([headline, summary]),
     spectatorFields: {
       weather: "Weather",
       character: "Current character",
@@ -331,10 +336,13 @@ export const enLocale = {
       }
       return `state ${readyState}`;
     },
-    workerModeSummary: (policyMode?: string, policyClass?: string, decisionStyle?: string) => {
+    workerModeSummary: (policyMode?: string, workerAdapter?: string, policyClass?: string, decisionStyle?: string) => {
       const parts: string[] = [];
       if (policyMode && policyMode !== "-") {
         parts.push(`mode ${policyMode}`);
+      }
+      if (workerAdapter && workerAdapter !== "-") {
+        parts.push(`adapter ${workerAdapter}`);
       }
       if (policyClass && policyClass !== "-") {
         parts.push(`class ${policyClass}`);
@@ -378,6 +386,7 @@ export const enLocale = {
       attemptCount?: number | null,
       attemptLimit?: number | null,
       policyMode?: string,
+      workerAdapter?: string,
       policyClass?: string,
       decisionStyle?: string
     ) => {
@@ -397,7 +406,7 @@ export const enLocale = {
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `attempt ${attemptCount}/${attemptLimit}` : `attempt ${attemptCount}`);
       }
-      const modeSummary = enLocale.stream.workerModeSummary(policyMode, policyClass, decisionStyle);
+      const modeSummary = enLocale.stream.workerModeSummary(policyMode, workerAdapter, policyClass, decisionStyle);
       if (modeSummary !== "-") {
         parts.push(modeSummary);
       }
@@ -412,6 +421,7 @@ export const enLocale = {
       attemptLimit?: number | null,
       readyState?: string,
       policyMode?: string,
+      workerAdapter?: string,
       policyClass?: string,
       decisionStyle?: string
     ) => {
@@ -434,7 +444,7 @@ export const enLocale = {
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `attempt ${attemptCount}/${attemptLimit}` : `attempt ${attemptCount}`);
       }
-      const modeSummary = enLocale.stream.workerModeSummary(policyMode, policyClass, decisionStyle);
+      const modeSummary = enLocale.stream.workerModeSummary(policyMode, workerAdapter, policyClass, decisionStyle);
       if (modeSummary !== "-") {
         parts.push(modeSummary);
       }
@@ -611,6 +621,7 @@ export const enLocale = {
       attemptLimit?: number | null,
       readyState?: string,
       policyMode?: string,
+      workerAdapter?: string,
       policyClass?: string,
       decisionStyle?: string
     ) => {
@@ -634,7 +645,7 @@ export const enLocale = {
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `attempt ${attemptCount}/${attemptLimit}` : `attempt ${attemptCount}`);
       }
-      const modeSummary = enLocale.stream.workerModeSummary(policyMode, policyClass, decisionStyle);
+      const modeSummary = enLocale.stream.workerModeSummary(policyMode, workerAdapter, policyClass, decisionStyle);
       if (modeSummary !== "-") {
         parts.push(modeSummary);
       }

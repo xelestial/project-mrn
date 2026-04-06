@@ -238,6 +238,32 @@ This is the practical next-work list after the closed slices above.
     - `healthcheck_ttl_ms`
     - `required_capabilities`
   - runtime HTTP transport can preflight worker health / contract-version / capability compatibility
+
+### 2026-04-07 Progress Update (worker adapter seam + localized spectator summaries)
+
+- The external-AI runtime seam is now more explicitly swappable:
+  - `apps/server/src/services/external_ai_worker_service.py` now mounts the reference worker through an explicit decision-adapter seam
+  - the default adapter is `reference_heuristic_v1`, but the runtime contract no longer assumes that the reference heuristic is the only worker implementation shape
+  - runtime participant defaults now also accept `required_worker_adapter`
+  - worker compatibility checks now validate `worker_adapter` alongside:
+    - `worker_id`
+    - `policy_mode`
+    - `policy_class`
+    - `decision_style`
+    - `supported_transports`
+- Canonical current-turn visibility also moved forward:
+  - runtime now surfaces `external_ai_worker_adapter` into canonical `public_context`
+  - stage/spectator worker cards can now preserve adapter provenance through both:
+    - worker-resolved turns
+    - local-fallback turns
+  - repeated-fallback browser coverage now asserts worker adapter / mode / class visibility across longer mixed-seat chains
+- Locale ownership also narrowed again:
+  - spectator inline summary joins now route through locale helpers instead of component-local assembly
+  - remaining selector-side summary joins keep shrinking toward locale-owned formatting
+- Therefore the practical next-work order remains:
+  1. keep trimming the last selector-owned phrasing
+  2. keep closing any remaining visual-drift evidence from real play
+  3. keep the worker seam stable while stronger workers/services replace the reference adapter
   - worker auth / identity validation now applies even when custom sender or custom healthchecker seams are injected
   - frozen external-AI examples now cover:
     - `purchase_tile`

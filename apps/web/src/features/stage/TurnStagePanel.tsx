@@ -56,6 +56,7 @@ function hasWorkerStatus(model: TurnStageViewModel): boolean {
     hasMeaningfulValue(model.externalAiResolutionStatus) ||
     model.externalAiReadyState !== "-" ||
     hasMeaningfulValue(model.externalAiPolicyMode) ||
+    hasMeaningfulValue(model.externalAiWorkerAdapter) ||
     hasMeaningfulValue(model.externalAiPolicyClass) ||
     hasMeaningfulValue(model.externalAiDecisionStyle) ||
     model.externalAiAttemptCount !== null ||
@@ -89,6 +90,7 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
       model.externalAiAttemptLimit,
       model.externalAiReadyState,
       model.externalAiPolicyMode,
+      model.externalAiWorkerAdapter,
       model.externalAiPolicyClass,
       model.externalAiDecisionStyle
     )
@@ -119,6 +121,7 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
             model.externalAiAttemptLimit,
             model.externalAiReadyState,
             model.externalAiPolicyMode,
+            model.externalAiWorkerAdapter,
             model.externalAiPolicyClass,
             model.externalAiDecisionStyle
           )),

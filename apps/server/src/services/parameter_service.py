@@ -209,6 +209,9 @@ class GameParameterResolver:
         required_policy_mode = external_ai_raw.get("required_policy_mode")
         if required_policy_mode is not None and (not isinstance(required_policy_mode, str) or not required_policy_mode.strip()):
             raise ParameterValidationError("invalid_external_ai_required_policy_mode")
+        required_worker_adapter = external_ai_raw.get("required_worker_adapter")
+        if required_worker_adapter is not None and (not isinstance(required_worker_adapter, str) or not required_worker_adapter.strip()):
+            raise ParameterValidationError("invalid_external_ai_required_worker_adapter")
         required_policy_class = external_ai_raw.get("required_policy_class")
         if required_policy_class is not None and (not isinstance(required_policy_class, str) or not required_policy_class.strip()):
             raise ParameterValidationError("invalid_external_ai_required_policy_class")
@@ -246,6 +249,7 @@ class GameParameterResolver:
                 "required_capabilities": normalized_capabilities,
                 "required_request_types": normalized_request_types,
                 "required_policy_mode": required_policy_mode.strip() if isinstance(required_policy_mode, str) else None,
+                "required_worker_adapter": required_worker_adapter.strip() if isinstance(required_worker_adapter, str) else None,
                 "required_policy_class": required_policy_class.strip() if isinstance(required_policy_class, str) else None,
                 "required_decision_style": required_decision_style.strip() if isinstance(required_decision_style, str) else None,
                 "headers": normalized_headers,

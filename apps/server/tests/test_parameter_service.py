@@ -85,6 +85,7 @@ class ParameterServiceTests(unittest.TestCase):
                         "required_capabilities": ["choice_id_response", "healthcheck"],
                         "required_request_types": ["movement", "purchase_tile"],
                         "required_policy_mode": "heuristic_v3_gpt",
+                        "required_worker_adapter": "reference_heuristic_v1",
                         "required_policy_class": "HeuristicPolicy",
                         "required_decision_style": "contract_heuristic",
                         "headers": {"Authorization": "Bearer token"},
@@ -117,6 +118,7 @@ class ParameterServiceTests(unittest.TestCase):
         self.assertEqual(resolved["participants"]["external_ai"]["required_capabilities"], ["choice_id_response", "healthcheck"])
         self.assertEqual(resolved["participants"]["external_ai"]["required_request_types"], ["movement", "purchase_tile"])
         self.assertEqual(resolved["participants"]["external_ai"]["required_policy_mode"], "heuristic_v3_gpt")
+        self.assertEqual(resolved["participants"]["external_ai"]["required_worker_adapter"], "reference_heuristic_v1")
         self.assertEqual(resolved["participants"]["external_ai"]["required_policy_class"], "HeuristicPolicy")
         self.assertEqual(resolved["participants"]["external_ai"]["required_decision_style"], "contract_heuristic")
         self.assertIn("event_labels", resolved["labels"])
@@ -144,6 +146,8 @@ class ParameterServiceTests(unittest.TestCase):
             self.resolver.resolve({"participants": {"external_ai": {"max_attempt_count": 0}}})
         with self.assertRaises(ParameterValidationError):
             self.resolver.resolve({"participants": {"external_ai": {"required_policy_mode": "  "}}})
+        with self.assertRaises(ParameterValidationError):
+            self.resolver.resolve({"participants": {"external_ai": {"required_worker_adapter": "   "}}})
         with self.assertRaises(ParameterValidationError):
             self.resolver.resolve({"participants": {"external_ai": {"required_policy_class": "   "}}})
         with self.assertRaises(ParameterValidationError):

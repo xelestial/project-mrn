@@ -63,6 +63,7 @@ function hasWorkerStatus(model: TurnStageViewModel): boolean {
     hasValue(model.externalAiResolutionStatus) ||
     model.externalAiReadyState !== "-" ||
     hasValue(model.externalAiPolicyMode) ||
+    hasValue(model.externalAiWorkerAdapter) ||
     hasValue(model.externalAiPolicyClass) ||
     hasValue(model.externalAiDecisionStyle) ||
     model.externalAiAttemptCount !== null ||
@@ -90,8 +91,8 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
   const latestActionTitle = latestAction?.label ?? "-";
   const latestActionDetail = latestAction?.detail?.trim() ? latestAction.detail : "-";
   const latestActionTone = payoffToneForEventCode(latestAction?.eventCode ?? "");
-  const economyText = app.inlineSummary([model.purchaseSummary, model.rentSummary]);
-  const effectText = app.inlineSummary([
+  const economyText = app.spectatorEconomySummary([model.purchaseSummary, model.rentSummary]);
+  const effectText = app.spectatorEffectSummary([
     model.trickSummary,
     model.fortuneResolvedSummary || model.fortuneSummary,
     model.fortuneDrawSummary,
@@ -99,7 +100,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     model.flipSummary,
     model.weatherSummary,
   ]);
-  const spotlightSummary = app.inlineSummary([
+  const spotlightSummary = app.spectatorSpotlightSummary([
     model.currentBeatDetail,
     model.turnEndSummary,
     model.fortuneDrawSummary,
@@ -119,6 +120,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     model.externalAiAttemptLimit,
     model.externalAiReadyState,
     model.externalAiPolicyMode,
+    model.externalAiWorkerAdapter,
     model.externalAiPolicyClass,
     model.externalAiDecisionStyle
   );
@@ -131,6 +133,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     model.externalAiAttemptLimit,
     model.externalAiReadyState,
     model.externalAiPolicyMode,
+    model.externalAiWorkerAdapter,
     model.externalAiPolicyClass,
     model.externalAiDecisionStyle
   );
@@ -145,7 +148,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
       ? economyText
       : latestActionTone === "effect"
         ? effectText
-        : app.inlineSummary([model.currentBeatDetail, latestActionDetail]);
+        : app.spectatorNeutralSummary([model.currentBeatDetail, latestActionDetail]);
   let persistentPayoff: PersistentPayoff | null = null;
   if (hasValue(model.rentSummary)) {
     persistentPayoff = { title: rentEventLabel, detail: model.rentSummary, tone: "economy" };
@@ -375,7 +378,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
         <article className="spectator-turn-card spectator-turn-card-hero" data-testid="spectator-turn-scene">
           <span>{app.spectatorFields.beat}</span>
           <strong>{valueOrDash(model.currentBeatLabel)}</strong>
-          <small>{valueOrDash(latestActionTitle === "-" ? spotlightSummary : app.inlineSummary([latestActionTitle, spotlightSummary]))}</small>
+          <small>{valueOrDash(latestActionTitle === "-" ? spotlightSummary : app.spectatorHeadlineSummary(latestActionTitle, spotlightSummary))}</small>
         </article>
         <article className="spectator-turn-card" data-testid="spectator-turn-weather">
           <span>{app.spectatorFields.weather}</span>

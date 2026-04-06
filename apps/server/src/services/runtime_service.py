@@ -594,6 +594,7 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
             "external_ai_attempt_count": 0,
             "external_ai_attempt_limit": effective_attempt_count,
             "external_ai_policy_mode": "-",
+            "external_ai_worker_adapter": "-",
             "external_ai_policy_class": "-",
             "external_ai_decision_style": "-",
         }
@@ -618,6 +619,9 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
                         policy_mode = str(health.get("policy_mode") or "").strip()
                         if policy_mode:
                             public_context["external_ai_policy_mode"] = policy_mode
+                        worker_adapter = str(health.get("worker_adapter") or "").strip()
+                        if worker_adapter:
+                            public_context["external_ai_worker_adapter"] = worker_adapter
                         policy_class = str(health.get("policy_class") or "").strip()
                         if policy_class:
                             public_context["external_ai_policy_class"] = policy_class
@@ -640,6 +644,9 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
                     policy_mode = str(response.get("policy_mode") or "").strip()
                     if policy_mode:
                         public_context["external_ai_policy_mode"] = policy_mode
+                    worker_adapter = str(response.get("worker_adapter") or "").strip()
+                    if worker_adapter:
+                        public_context["external_ai_worker_adapter"] = worker_adapter
                     policy_class = str(response.get("policy_class") or "").strip()
                     if policy_class:
                         public_context["external_ai_policy_class"] = policy_class
@@ -734,6 +741,7 @@ def _external_ai_health_cache_key(config: dict[str, object], endpoint: str, heal
         if isinstance(item, str) and str(item).strip()
     )
     required_policy_mode = str(config.get("required_policy_mode") or "").strip()
+    required_worker_adapter = str(config.get("required_worker_adapter") or "").strip()
     required_policy_class = str(config.get("required_policy_class") or "").strip()
     required_decision_style = str(config.get("required_decision_style") or "").strip()
     auth_header_name = str(config.get("auth_header_name", "Authorization") or "Authorization").strip()
@@ -749,6 +757,7 @@ def _external_ai_health_cache_key(config: dict[str, object], endpoint: str, heal
             ",".join(required_capabilities),
             ",".join(required_request_types),
             required_policy_mode,
+            required_worker_adapter,
             required_policy_class,
             required_decision_style,
             auth_header_name,
@@ -853,9 +862,11 @@ def _validate_external_ai_health_payload(payload: dict[str, object], config: dic
         if isinstance(item, str) and str(item).strip()
     }
     required_policy_mode = str(config.get("required_policy_mode") or "").strip()
+    required_worker_adapter = str(config.get("required_worker_adapter") or "").strip()
     required_policy_class = str(config.get("required_policy_class") or "").strip()
     required_decision_style = str(config.get("required_decision_style") or "").strip()
     actual_policy_mode = str(payload.get("policy_mode") or "").strip()
+    actual_worker_adapter = str(payload.get("worker_adapter") or "").strip()
     actual_policy_class = str(payload.get("policy_class") or "").strip()
     actual_decision_style = str(payload.get("decision_style") or "").strip()
     if required_capabilities and not required_capabilities.issubset(available_capabilities):
@@ -864,6 +875,8 @@ def _validate_external_ai_health_payload(payload: dict[str, object], config: dic
         raise RuntimeError("external_ai_missing_required_request_type")
     if required_policy_mode and actual_policy_mode != required_policy_mode:
         raise RuntimeError("external_ai_policy_mode_mismatch")
+    if required_worker_adapter and actual_worker_adapter != required_worker_adapter:
+        raise RuntimeError("external_ai_worker_adapter_mismatch")
     if required_policy_class and actual_policy_class != required_policy_class:
         raise RuntimeError("external_ai_policy_class_mismatch")
     if required_decision_style and actual_decision_style != required_decision_style:
@@ -919,6 +932,7 @@ def _classify_external_ai_error(exc: Exception) -> str:
         "external_ai_missing_required_capability",
         "external_ai_missing_required_request_type",
         "external_ai_policy_mode_mismatch",
+        "external_ai_worker_adapter_mismatch",
         "external_ai_policy_class_mismatch",
         "external_ai_decision_style_mismatch",
         "external_ai_worker_not_ready",
