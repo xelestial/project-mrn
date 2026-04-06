@@ -11,6 +11,7 @@ from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.decision_gateway import (
     DecisionGateway,
     build_public_context,
+    decision_request_type_for_method,
     serialize_ai_choice_id,
 )
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
@@ -349,24 +350,7 @@ class _ServerDecisionPolicyBridge:
     def _dispatch_ai_decision(self, method_name: str, args: tuple, kwargs: dict, ai_callable):
         player = args[1] if len(args) > 1 else kwargs.get("player")
         player_id = int(getattr(player, "player_id", -1)) + 1
-        request_type = {
-            "choose_movement": "movement",
-            "choose_runaway_slave_step": "runaway_step_choice",
-            "choose_lap_reward": "lap_reward",
-            "choose_draft_card": "draft_card",
-            "choose_final_character": "final_character",
-            "choose_trick_to_use": "trick_to_use",
-            "choose_purchase_tile": "purchase_tile",
-            "choose_hidden_trick_card": "hidden_trick_card",
-            "choose_mark_target": "mark_target",
-            "choose_coin_placement_tile": "coin_placement",
-            "choose_geo_bonus": "geo_bonus",
-            "choose_doctrine_relief_target": "doctrine_relief",
-            "choose_active_flip_card": "active_flip",
-            "choose_specific_trick_reward": "specific_trick_reward",
-            "choose_burden_exchange_on_supply": "burden_exchange",
-            "choose_pabal_dice_mode": "pabal_dice_mode",
-        }.get(method_name, method_name.removeprefix("choose_"))
+        request_type = decision_request_type_for_method(method_name)
         public_context = build_public_context(method_name, args, kwargs)
         return self._gateway.resolve_ai_decision(
             request_type=request_type,

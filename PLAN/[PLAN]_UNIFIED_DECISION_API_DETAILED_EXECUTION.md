@@ -355,3 +355,20 @@ P3 종료 조건:
   1. typed provider cleanup so bridge mapping logic is less string-heavy
   2. engine-side `DecisionPort` migration
   3. broader stream API coverage in environments with full FastAPI test support
+
+## 2026-04-06 Progress Update (canonical request-type resolver)
+
+- The runtime bridge no longer owns its own request-type mapping table.
+- `apps/server/src/services/decision_gateway.py` now owns:
+  - `METHOD_REQUEST_TYPE_MAP`
+  - `decision_request_type_for_method(...)`
+- `apps/server/src/services/runtime_service.py` now uses that shared resolver when AI-seat choices are normalized into decision lifecycle events.
+- Result:
+  - one fewer bridge-local string table
+  - lower drift risk between AI-seat request publication and the canonical gateway contract
+- Updated coverage:
+  - `apps/server/tests/test_runtime_service.py`
+- Remaining P0-1 work is now:
+  1. typed provider classes so human / AI dispatch logic is less concentrated in `_ServerDecisionPolicyBridge`
+  2. engine-side `DecisionPort` migration
+  3. broader stream API coverage in environments with full FastAPI test support

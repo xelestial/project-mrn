@@ -145,7 +145,6 @@ function movementChoices(prompt: PromptViewModel): MovementChoiceParts {
       choice.choiceId === "dice" ||
       choice.choiceId === "roll" ||
       /roll/i.test(choice.choiceId) ||
-      choice.title.includes("주사위") ||
       choice.title.toLowerCase().includes("dice");
 
     if (isRoll) {
@@ -497,24 +496,22 @@ export function PromptOverlay({
                   ? cleanDisplayText(promptText.movement.rollButton)
                   : cleanDisplayText(promptText.movement.cardGuide(movement.canUseTwoCards ? 2 : 1))}
               </p>
-            </div>
-
-            <div className="prompt-context-grid prompt-context-grid-tight">
-              <div className="prompt-context-card">
-                <strong>{promptText.context.currentPosition}</strong>
-                <span>{tileLabel(movementPosition)}</span>
-              </div>
-              <div className="prompt-context-card">
-                <strong>{promptText.context.currentWeather}</strong>
-                <span>{weatherName || "-"}</span>
-              </div>
-              <div className="prompt-context-card">
-                <strong>{promptText.context.usableCards}</strong>
-                <span>{String(movement.cardPool.length)}</span>
-              </div>
-              <div className="prompt-context-card">
-                <strong>{promptText.context.selectedCards}</strong>
-                <span>{selectedCards.length > 0 ? selectedCards.join(" + ") : promptText.context.noneSelected}</span>
+              <div className="prompt-summary-pill-row">
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentPosition}: {tileLabel(movementPosition)}
+                </span>
+                {weatherName ? (
+                  <span className="prompt-summary-pill">
+                    {promptText.context.currentWeather}: {weatherName}
+                  </span>
+                ) : null}
+                <span className="prompt-summary-pill">
+                  {promptText.context.usableCards}: {String(movement.cardPool.length)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.selectedCards}:{" "}
+                  {selectedCards.length > 0 ? selectedCards.join(" + ") : promptText.context.noneSelected}
+                </span>
               </div>
             </div>
 
@@ -537,19 +534,6 @@ export function PromptOverlay({
               >
                 {promptText.movement.cardMode}
               </button>
-            </div>
-
-            <div className="movement-status-row">
-              <span className="movement-status-pill">
-                {cleanDisplayText(movementMode === "roll" ? promptText.movement.rollMode : promptText.movement.cardMode)}
-              </span>
-              <span className="movement-status-pill">
-                {movementMode === "roll"
-                  ? cleanDisplayText(promptText.movement.rollButton)
-                  : movementSelectedChoice
-                    ? cleanDisplayText(promptText.movement.rollWithCardsButton(selectedCards))
-                    : cleanDisplayText(promptText.movement.selectCardsFirst)}
-              </span>
             </div>
 
             {movementMode === "cards" ? (
@@ -672,18 +656,17 @@ export function PromptOverlay({
 
         {isMarkTarget ? (
           <section className="prompt-section prompt-hand-stage">
-            <div className="prompt-context-grid prompt-context-grid-tight">
-              <div className="prompt-context-card">
-                <strong>{promptText.context.actorCharacter}</strong>
-                <span>{markActorName || "-"}</span>
-              </div>
-              <div className="prompt-context-card">
-                <strong>{promptText.context.selectableTargets}</strong>
-                <span>{String(markCandidateCount)}</span>
-              </div>
-              <div className="prompt-context-card">
-                <strong>{promptText.context.currentPosition}</strong>
-                <span>{tileLabel(currentTileIndex)}</span>
+            <div className="prompt-section-summary">
+              <div className="prompt-summary-pill-row">
+                <span className="prompt-summary-pill">
+                  {promptText.context.actorCharacter}: {markActorName || "-"}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.selectableTargets}: {String(markCandidateCount)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentPosition}: {tileLabel(currentTileIndex)}
+                </span>
               </div>
             </div>
             <div className={`prompt-choices prompt-choices-target ${compactChoices ? "prompt-choices-compact" : ""}`}>
@@ -724,22 +707,20 @@ export function PromptOverlay({
 
         {isPurchaseTile ? (
           <section className="prompt-section prompt-hand-stage">
-            <div className="prompt-context-grid prompt-context-grid-tight">
-              <div className="prompt-context-card">
-                <strong>{promptText.context.currentPosition}</strong>
-                <span>{tileLabel(currentTileIndex)}</span>
-              </div>
-              <div className="prompt-context-card">
-                <strong>{promptText.context.purchaseCost}</strong>
-                <span>{formatNumber(currentCost)}</span>
-              </div>
-              <div className="prompt-context-card">
-                <strong>{promptText.context.currentCash}</strong>
-                <span>{formatNumber(currentCash)}</span>
-              </div>
-              <div className="prompt-context-card">
-                <strong>{promptText.context.zone}</strong>
-                <span>{currentZone || "-"}</span>
+            <div className="prompt-section-summary">
+              <div className="prompt-summary-pill-row">
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentPosition}: {tileLabel(currentTileIndex)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.purchaseCost}: {formatNumber(currentCost)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentCash}: {formatNumber(currentCash)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.zone}: {currentZone || "-"}
+                </span>
               </div>
             </div>
             <div className="prompt-choices prompt-choices-decision">
@@ -767,18 +748,17 @@ export function PromptOverlay({
 
         {isLapReward ? (
           <section className="prompt-section prompt-hand-stage">
-            <div className="prompt-context-grid prompt-context-grid-tight">
-              <div className="prompt-context-card">
-                <strong>{promptText.context.currentCash}</strong>
-                <span>{formatNumber(currentCash)}</span>
-              </div>
-              <div className="prompt-context-card">
-                <strong>{promptText.context.currentShards}</strong>
-                <span>{numberFromContext(prompt.publicContext, "player_shards", "shards") ?? "-"}</span>
-              </div>
-              <div className="prompt-context-card">
-                <strong>{promptText.context.currentCoins}</strong>
-                <span>{numberFromContext(prompt.publicContext, "player_coins", "coins") ?? "-"}</span>
+            <div className="prompt-section-summary">
+              <div className="prompt-summary-pill-row">
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentCash}: {formatNumber(currentCash)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentShards}: {numberFromContext(prompt.publicContext, "player_shards", "shards") ?? "-"}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentCoins}: {numberFromContext(prompt.publicContext, "player_coins", "coins") ?? "-"}
+                </span>
               </div>
             </div>
             <div className="prompt-choices prompt-choices-reward">

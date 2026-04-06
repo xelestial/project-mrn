@@ -36,6 +36,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
   const latestActionDetail = latestAction?.detail?.trim() ? latestAction.detail : "-";
   const economyText = joinVisible([model.purchaseSummary, model.rentSummary]);
   const effectText = joinVisible([model.trickSummary, model.fortuneSummary]);
+  const spotlightSummary = joinVisible([model.currentBeatDetail, model.fortuneSummary, model.rentSummary, model.purchaseSummary]);
   const spotlightCards: SpotlightCard[] = [];
   if (hasValue(model.purchaseSummary)) {
     spotlightCards.push({ key: "purchase", title: app.spectatorFields.economy, detail: model.purchaseSummary, tone: "economy" });
@@ -63,6 +64,11 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
       </div>
 
       <div className="spectator-turn-grid">
+        <article className="spectator-turn-card spectator-turn-card-hero" data-testid="spectator-turn-scene">
+          <span>{app.spectatorFields.beat}</span>
+          <strong>{valueOrDash(model.currentBeatLabel)}</strong>
+          <small>{valueOrDash(spotlightSummary)}</small>
+        </article>
         <article className="spectator-turn-card" data-testid="spectator-turn-weather">
           <span>{app.spectatorFields.weather}</span>
           <strong>{valueOrDash(model.weatherName)}</strong>

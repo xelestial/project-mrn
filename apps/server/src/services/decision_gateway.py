@@ -6,6 +6,25 @@ from typing import Any, Callable, Literal
 
 DecisionProvider = Literal["human", "ai"]
 
+METHOD_REQUEST_TYPE_MAP = {
+    "choose_movement": "movement",
+    "choose_runaway_slave_step": "runaway_step_choice",
+    "choose_lap_reward": "lap_reward",
+    "choose_draft_card": "draft_card",
+    "choose_final_character": "final_character",
+    "choose_trick_to_use": "trick_to_use",
+    "choose_purchase_tile": "purchase_tile",
+    "choose_hidden_trick_card": "hidden_trick_card",
+    "choose_mark_target": "mark_target",
+    "choose_coin_placement_tile": "coin_placement",
+    "choose_geo_bonus": "geo_bonus",
+    "choose_doctrine_relief_target": "doctrine_relief",
+    "choose_active_flip_card": "active_flip",
+    "choose_specific_trick_reward": "specific_trick_reward",
+    "choose_burden_exchange_on_supply": "burden_exchange",
+    "choose_pabal_dice_mode": "pabal_dice_mode",
+}
+
 
 def _number_or_none(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
@@ -65,6 +84,10 @@ def serialize_ai_choice_id(method_name: str, result: Any) -> str:
         return str(result)
 
     return "none" if result is None else str(result)
+
+
+def decision_request_type_for_method(method_name: str) -> str:
+    return METHOD_REQUEST_TYPE_MAP.get(method_name, method_name.removeprefix("choose_"))
 
 
 def build_public_context(method_name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:

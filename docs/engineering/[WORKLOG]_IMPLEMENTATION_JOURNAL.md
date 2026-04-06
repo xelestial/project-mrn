@@ -1478,3 +1478,63 @@ Updated: 2026-04-04
 - Validation:
   - `npm run build` passed (`apps/web`)
   - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 078
+
+- Scope: P0-2 weather/fortune staging and prompt-surface simplification follow-up.
+- Done:
+  - Updated `apps/web/src/features/stage/TurnStagePanel.tsx` so live turns now expose a dedicated spotlight strip for:
+    - weather
+    - fortune
+    - purchase
+    - rent
+  - Updated `apps/web/src/features/stage/SpectatorTurnPanel.tsx` so remote-turn viewing now starts with a larger scene card instead of only small status cards.
+  - Updated `apps/web/src/features/prompt/PromptOverlay.tsx` so:
+    - movement prompt no longer uses the old context-card grid
+    - movement choices now read more like a compact game HUD
+    - roll detection no longer depends on a hardcoded Korean title check
+  - Updated `apps/web/src/App.tsx` so the raw/debug toggle no longer sits in the always-visible top command row and only appears after opening the match-top panel.
+  - Updated `apps/web/src/styles.css` to support the new spotlight / hero treatments and lighter top-command presentation.
+  - Extended browser coverage in `apps/web/e2e/human_play_runtime.spec.ts` to lock:
+    - `spectator-turn-scene`
+    - `turn-stage-spotlight-strip`
+    - hidden raw/debug toggle by default
+- Why:
+  - remote turns still felt too much like reading scattered panels instead of watching one live scene
+  - movement prompt still carried inspector-like context-card structure
+  - raw/debug controls were still too visible in the main match shell
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/features/board/boardProjection.spec.ts src/domain/text/uiText.spec.ts` passed (`29 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 079
+
+- Scope: P0-1 canonical AI/human request-type mapping follow-up.
+- Done:
+  - Added `METHOD_REQUEST_TYPE_MAP` and `decision_request_type_for_method(...)` to `apps/server/src/services/decision_gateway.py`.
+  - Updated `apps/server/src/services/runtime_service.py` so AI decision dispatch now uses the shared request-type resolver instead of a bridge-local mapping table.
+  - Added regression coverage in `apps/server/tests/test_runtime_service.py` for canonical request-type resolution.
+- Why:
+  - the runtime bridge still owned one more string-heavy mapping that could drift away from the gateway contract
+  - moving request-type normalization into the canonical decision module reduces future AI/human contract skew
+- Validation:
+  - `python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_stream_api.py` passed (`10 passed, 13 skipped`)
+
+### Entry 080
+
+- Scope: P0-2 prompt-surface flattening follow-up.
+- Done:
+  - Updated `apps/web/src/features/prompt/PromptOverlay.tsx` so:
+    - movement prompt now uses summary pills instead of the previous context-card block
+    - mark target prompt now uses summary pills instead of the previous context-card block
+    - purchase prompt now uses summary pills instead of the previous context-card block
+    - lap reward prompt now uses summary pills instead of the previous context-card block
+  - Kept the same gameplay data visible while reducing the "inspector card" look.
+- Why:
+  - even after the first prompt cleanup pass, major human-choice surfaces still looked too much like debugging cards
+  - flattening those context areas preserves information while making the prompt feel closer to a board-game HUD
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/features/board/boardProjection.spec.ts src/domain/text/uiText.spec.ts` passed (`29 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)

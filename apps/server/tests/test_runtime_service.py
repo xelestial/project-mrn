@@ -6,6 +6,7 @@ import time
 import unittest
 from unittest.mock import patch
 
+from apps.server.src.services.decision_gateway import decision_request_type_for_method
 from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
@@ -51,6 +52,11 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertGreaterEqual(len(recent), 1)
         self.assertEqual(recent[-1]["request_id"], "req_timeout_1")
         self.assertEqual(recent[-1]["choice_id"], "choice_default")
+
+    def test_decision_request_type_for_method_uses_canonical_mapping(self) -> None:
+        self.assertEqual(decision_request_type_for_method("choose_purchase_tile"), "purchase_tile")
+        self.assertEqual(decision_request_type_for_method("choose_mark_target"), "mark_target")
+        self.assertEqual(decision_request_type_for_method("choose_custom_branch"), "custom_branch")
 
     def test_start_runtime_uses_async_to_thread_bridge(self) -> None:
         session = self.session_service.create_session(

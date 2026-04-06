@@ -69,6 +69,10 @@ body {
   background: #17335f;
 }
 
+.route-tab-muted {
+  opacity: 0.82;
+}
+
 .panel {
   background: #0e1f3d;
   border: 1px solid #274679;
@@ -241,6 +245,12 @@ body {
   gap: 8px;
 }
 
+.match-command-secondary {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .connection-panel {
   display: grid;
   gap: 12px;
@@ -357,6 +367,12 @@ body {
   border-radius: 14px;
   border: 1px solid rgba(65, 101, 160, 0.72);
   background: rgba(18, 34, 66, 0.76);
+}
+
+.spectator-turn-card-hero {
+  grid-column: span 2;
+  border-color: rgba(255, 218, 119, 0.82);
+  background: linear-gradient(180deg, rgba(255, 218, 119, 0.1), rgba(18, 34, 66, 0.92));
 }
 
 .spectator-turn-card span {
@@ -916,6 +932,53 @@ body {
 
 .turn-stage-card-wide {
   grid-column: span 3;
+}
+
+.turn-stage-spotlight-strip {
+  gap: 12px;
+}
+
+.turn-stage-spotlight-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.turn-stage-spotlight-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(76, 114, 177, 0.72);
+  background: rgba(10, 22, 43, 0.82);
+}
+
+.turn-stage-spotlight-card span {
+  color: #9db5df;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.turn-stage-spotlight-card strong {
+  color: #f2f6ff;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.turn-stage-spotlight-card-move {
+  border-color: rgba(99, 179, 255, 0.82);
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.09), rgba(10, 22, 43, 0.86));
+}
+
+.turn-stage-spotlight-card-economy {
+  border-color: rgba(255, 218, 119, 0.82);
+  background: linear-gradient(180deg, rgba(255, 218, 119, 0.09), rgba(10, 22, 43, 0.86));
+}
+
+.turn-stage-spotlight-card-effect {
+  border-color: rgba(134, 239, 172, 0.82);
+  background: linear-gradient(180deg, rgba(134, 239, 172, 0.09), rgba(10, 22, 43, 0.86));
 }
 
 .turn-stage-card-top {
@@ -2281,6 +2344,15 @@ body {
   }
 
   .turn-stage-card-wide {
+    grid-column: auto;
+  }
+
+  .turn-stage-spotlight-list,
+  .spectator-turn-grid {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+
+  .spectator-turn-card-hero {
     grid-column: auto;
   }
 

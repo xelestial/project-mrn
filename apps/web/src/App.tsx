@@ -805,13 +805,17 @@ export function App() {
           <section className="panel match-command-strip">
             <div className="match-command-row">
               <strong>{topCommandSummary}</strong>
-              <div className="actions">
-                <button type="button" className="route-tab" onClick={() => setShowRawMessages((prev) => !prev)}>
-                  {showRawMessages ? app.rawHide : app.rawShow}
-                </button>
-              </div>
             </div>
-            {!matchTopCollapsed ? <ConnectionPanel status={stream.status} lastSeq={stream.lastSeq} runtime={runtime} /> : null}
+            {!matchTopCollapsed ? (
+              <>
+                <ConnectionPanel status={stream.status} lastSeq={stream.lastSeq} runtime={runtime} />
+                <div className="match-command-secondary">
+                  <button type="button" className="route-tab route-tab-muted" onClick={() => setShowRawMessages((prev) => !prev)}>
+                    {showRawMessages ? app.rawHide : app.rawShow}
+                  </button>
+                </div>
+              </>
+            ) : null}
           </section>
 
           <div className="match-layout">

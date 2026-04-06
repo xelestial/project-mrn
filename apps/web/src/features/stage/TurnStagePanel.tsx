@@ -14,6 +14,13 @@ type SceneCard = {
   tone: "move" | "economy" | "effect";
 };
 
+type SpotlightCard = {
+  key: string;
+  title: string;
+  detail: string;
+  tone: "move" | "economy" | "effect";
+};
+
 function valueOrDash(value: string): string {
   const trimmed = value.trim();
   return trimmed ? trimmed : "-";
@@ -79,6 +86,39 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
   if (hasOutcome(model.trickSummary)) {
     outcomeCards.push({ key: "trick-outcome", label: turnStage.fields.trick, value: model.trickSummary, tone: "effect" });
   }
+  const spotlightCards: SpotlightCard[] = [];
+  if (hasMeaningfulValue(model.weatherName) || hasMeaningfulValue(model.weatherEffect)) {
+    spotlightCards.push({
+      key: "weather",
+      title: turnStage.weatherTitle,
+      detail: valueOrDash(model.weatherEffect === "-" ? model.weatherName : `${model.weatherName} / ${model.weatherEffect}`),
+      tone: "effect",
+    });
+  }
+  if (hasMeaningfulValue(model.fortuneSummary)) {
+    spotlightCards.push({
+      key: "fortune",
+      title: turnStage.fields.fortune,
+      detail: model.fortuneSummary,
+      tone: "effect",
+    });
+  }
+  if (hasMeaningfulValue(model.purchaseSummary)) {
+    spotlightCards.push({
+      key: "purchase",
+      title: turnStage.fields.purchase,
+      detail: model.purchaseSummary,
+      tone: "economy",
+    });
+  }
+  if (hasMeaningfulValue(model.rentSummary)) {
+    spotlightCards.push({
+      key: "rent",
+      title: turnStage.fields.rent,
+      detail: model.rentSummary,
+      tone: "economy",
+    });
+  }
 
   return (
     <section className="panel turn-stage-panel">
@@ -119,6 +159,23 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
           <p>{valueOrDash(model.character)}</p>
           <small>{valueOrDash(characterAbilityText)}</small>
         </article>
+
+        {spotlightCards.length > 0 ? (
+          <article className="turn-stage-card turn-stage-card-wide turn-stage-spotlight-strip" data-testid="turn-stage-spotlight-strip">
+            <div className="turn-stage-card-top">
+              <strong>{turnStage.currentBeatTitle}</strong>
+              <span>{turnStage.currentBeatBadge}</span>
+            </div>
+            <div className="turn-stage-spotlight-list">
+              {spotlightCards.map((card) => (
+                <div key={card.key} className={`turn-stage-spotlight-card turn-stage-spotlight-card-${card.tone}`}>
+                  <span>{card.title}</span>
+                  <strong>{valueOrDash(card.detail)}</strong>
+                </div>
+              ))}
+            </div>
+          </article>
+        ) : null}
 
         <article className="turn-stage-card">
           <div className="turn-stage-card-top">

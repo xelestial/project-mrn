@@ -620,3 +620,43 @@ This order is chosen to stop further drift before additional feature edits.
   - true pawn interpolation or equivalent stronger route animation
   - fuller fortune / weather reveal staging as dedicated scene beats
   - continued simplification of movement / reward / target prompt surfaces
+
+## 2026-04-06 Weather / Fortune Spotlight Follow-up
+
+- The live React client now gives weather / fortune / economy outcomes a stronger in-scene presence:
+  - `TurnStagePanel` now exposes a dedicated spotlight strip above the lower summary cards
+  - `SpectatorTurnPanel` now starts with a hero scene card instead of only a flat card grid
+- The movement prompt was also flattened again:
+  - removed the old context-card block
+  - kept the same information as compact summary pills
+  - removed one remaining hardcoded Korean roll-title check from prompt choice parsing
+- The match shell now reduces debug prominence further:
+  - the raw/debug toggle no longer stays in the always-visible top command row
+  - it only appears after expanding the top runtime/connection section
+- Browser parity now explicitly locks:
+  - `spectator-turn-scene`
+  - `turn-stage-spotlight-strip`
+  - hidden raw/debug toggle by default in match mode
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - true pawn interpolation or equivalent stronger route animation
+  - fuller fortune-card / fortune-resolution staging beyond text spotlight only
+  - further simplification of remaining reward / mark prompt surfaces
+
+## 2026-04-06 Prompt Flattening Follow-up
+
+- Major human prompt surfaces now favor summary pills over small diagnostic-looking context cards:
+  - movement
+  - mark target
+  - purchase
+  - lap reward
+- The same state is still visible, but the prompt now reads more like:
+  - what matters now
+  - what you can choose now
+  rather than:
+  - a stack of context/debug panels
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - true pawn interpolation or equivalent stronger route animation
+  - fuller fortune-card / fortune-resolution staging beyond text spotlight only
+  - additional cleanup for any remaining inspector-like surfaces in non-movement prompts

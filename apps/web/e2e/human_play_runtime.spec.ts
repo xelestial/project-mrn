@@ -428,6 +428,7 @@ test("human quick start surfaces turn banner and first prompt through stable ids
   await expect(page.getByTestId("core-action-panel")).toBeVisible();
   await expect(page.getByTestId("turn-notice-banner")).toBeVisible();
   await expect(page.getByTestId("prompt-overlay")).toBeVisible();
+  await expect(page.getByText("Show raw")).toHaveCount(0);
   await expect(page.getByTestId("trick-choice-10-0")).toBeVisible();
   await expect(page.getByTestId("trick-choice-14-4")).toBeVisible();
   await expect(page.getByTestId("prompt-overlay")).toContainText("Scout Route");
@@ -495,6 +496,7 @@ test("remote turn keeps spectator continuity visible and does not open a local p
 
   await expect(page.getByTestId("turn-notice-banner")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-panel")).toBeVisible();
+  await expect(page.getByTestId("spectator-turn-scene")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-weather")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-character")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-action")).toBeVisible();
@@ -508,6 +510,7 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await expect(page.getByTestId("board-actor-banner")).toBeVisible();
   await expect(page.getByTestId("core-action-journey")).toBeVisible();
   await expect(page.getByTestId("core-action-result-card")).toBeVisible();
+  await expect(page.getByTestId("turn-stage-spotlight-strip")).toBeVisible();
   await expect(page.getByTestId("turn-stage-scene-strip")).toBeVisible();
   await expect(page.getByTestId("turn-stage-outcome-strip")).toBeVisible();
   await expect(page.getByTestId("prompt-overlay")).toHaveCount(0);
