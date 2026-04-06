@@ -105,7 +105,7 @@ export function selectActivePrompt(messages: InboundMessage[]): PromptViewModel 
       typeof promptMessage.payload["request_type"] === "string" ? String(promptMessage.payload["request_type"]) : "-",
     playerId: typeof playerId === "number" ? playerId : 0,
     timeoutMs: typeof promptMessage.payload["timeout_ms"] === "number" ? promptMessage.payload["timeout_ms"] : 30000,
-    choices: parseChoices(promptMessage.payload["choices"] ?? promptMessage.payload["legal_choices"]),
+    choices: parseChoices(promptMessage.payload["legal_choices"]),
     publicContext: isRecord(promptMessage.payload["public_context"]) ? { ...promptMessage.payload["public_context"] } : {},
   };
 }

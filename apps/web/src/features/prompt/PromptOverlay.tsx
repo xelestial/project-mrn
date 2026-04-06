@@ -319,8 +319,8 @@ function normalizeChoiceText(
   }
 
   if (prompt.requestType === "purchase_tile") {
-    const pos = asNumber(prompt.publicContext["pos"]);
-    const cost = asNumber(prompt.publicContext["cost"]);
+    const pos = asNumber(prompt.publicContext["tile_index"]);
+    const cost = asNumber(prompt.publicContext["cost"]) ?? asNumber(prompt.publicContext["tile_purchase_cost"]);
     if (choice.choiceId === "yes") {
       return {
         title: promptText.choice.buyTileTitle,
@@ -533,19 +533,24 @@ export function PromptOverlay({
   const isPabalDiceMode = prompt.requestType === "pabal_dice_mode";
   const usesSpecializedSurface = isSpecializedPromptType(prompt.requestType);
 
-  const currentTileIndex = numberFromContext(prompt.publicContext, "tile_index", "pos", "player_position");
-  const currentCash = numberFromContext(prompt.publicContext, "player_cash", "cash");
-  const currentCost = numberFromContext(prompt.publicContext, "cost", "purchase_cost");
-  const currentZone = stringFromContext(prompt.publicContext, "zone_color", "tile_zone_color");
+  const currentTileIndex = numberFromContext(prompt.publicContext, "tile_index", "player_position");
+  const currentCash = numberFromContext(prompt.publicContext, "player_cash");
+  const currentCost = numberFromContext(prompt.publicContext, "cost", "tile_purchase_cost");
+  const currentShards = numberFromContext(prompt.publicContext, "player_shards");
+  const currentCoins = numberFromContext(prompt.publicContext, "player_hand_coins");
+  const currentZone = stringFromContext(prompt.publicContext, "tile_zone");
   const weatherName = stringFromContext(prompt.publicContext, "weather_name");
-  const markActorName = stringFromContext(prompt.publicContext, "actor_name", "character_name");
+  const markActorName = stringFromContext(prompt.publicContext, "actor_name");
   const markCandidateCount = prompt.choices.filter((choice) => choice.choiceId !== "none").length;
   const doctrineCandidateCount = numberFromContext(prompt.publicContext, "candidate_count") ?? markCandidateCount;
-  const movementPosition = numberFromContext(prompt.publicContext, "player_position", "pos");
+  const movementPosition = numberFromContext(prompt.publicContext, "player_position");
   const runawayOneShortPos = numberFromContext(prompt.publicContext, "one_short_pos");
   const runawayBonusTargetPos = numberFromContext(prompt.publicContext, "bonus_target_pos");
   const runawayBonusTargetKind = stringFromContext(prompt.publicContext, "bonus_target_kind");
-  const ownedTileCount = numberFromContext(prompt.publicContext, "owned_tile_count");
+  const ownedTileIndices = Array.isArray(prompt.publicContext["owned_tile_indices"])
+    ? prompt.publicContext["owned_tile_indices"].map((item) => asNumber(item)).filter((item): item is number => item !== null)
+    : [];
+  const ownedTileCount = ownedTileIndices.length;
 
   if (collapsed) {
         return (
@@ -839,8 +844,8 @@ export function PromptOverlay({
               <div className="prompt-summary-pill-row">
                 {nonEmptyPills([
                   `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
-                  `${promptText.context.currentShards}: ${numberFromContext(prompt.publicContext, "player_shards", "shards") ?? "-"}`,
-                  `${promptText.context.currentCoins}: ${numberFromContext(prompt.publicContext, "player_coins", "coins") ?? "-"}`,
+                  `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
+                  `${promptText.context.currentCoins}: ${currentCoins ?? "-"}`,
                 ]).map((pill) => (
                   <span key={pill} className="prompt-summary-pill">
                     {pill}
@@ -896,7 +901,7 @@ export function PromptOverlay({
                   {promptText.context.currentCash}: {formatNumber(currentCash)}
                 </span>
                 <span className="prompt-summary-pill">
-                  {promptText.context.currentShards}: {numberFromContext(prompt.publicContext, "player_shards", "shards") ?? "-"}
+                  {promptText.context.currentShards}: {currentShards ?? "-"}
                 </span>
               </div>
             </div>
@@ -923,7 +928,7 @@ export function PromptOverlay({
                   {promptText.context.currentCash}: {formatNumber(currentCash)}
                 </span>
                 <span className="prompt-summary-pill">
-                  {promptText.context.currentShards}: {numberFromContext(prompt.publicContext, "player_shards", "shards") ?? "-"}
+                  {promptText.context.currentShards}: {currentShards ?? "-"}
                 </span>
               </div>
             </div>
@@ -1034,7 +1039,7 @@ export function PromptOverlay({
                   {promptText.context.currentCash}: {formatNumber(currentCash)}
                 </span>
                 <span className="prompt-summary-pill">
-                  {promptText.context.currentShards}: {numberFromContext(prompt.publicContext, "player_shards", "shards") ?? "-"}
+                  {promptText.context.currentShards}: {currentShards ?? "-"}
                 </span>
               </div>
             </div>
@@ -1067,10 +1072,10 @@ export function PromptOverlay({
                   {promptText.context.currentCash}: {formatNumber(currentCash)}
                 </span>
                 <span className="prompt-summary-pill">
-                  {promptText.context.currentShards}: {numberFromContext(prompt.publicContext, "player_shards", "shards") ?? "-"}
+                  {promptText.context.currentShards}: {currentShards ?? "-"}
                 </span>
                 <span className="prompt-summary-pill">
-                  {promptText.context.currentCoins}: {numberFromContext(prompt.publicContext, "player_coins", "coins") ?? "-"}
+                  {promptText.context.currentCoins}: {currentCoins ?? "-"}
                 </span>
               </div>
             </div>
@@ -1095,7 +1100,7 @@ export function PromptOverlay({
                   {promptText.context.currentPosition}: {tileLabel(movementPosition)}
                 </span>
                 <span className="prompt-summary-pill">
-                  {promptText.context.currentShards}: {numberFromContext(prompt.publicContext, "player_shards", "shards") ?? "-"}
+                  {promptText.context.currentShards}: {currentShards ?? "-"}
                 </span>
                 {weatherName ? (
                   <span className="prompt-summary-pill">

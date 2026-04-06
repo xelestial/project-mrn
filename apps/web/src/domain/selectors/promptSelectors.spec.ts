@@ -13,7 +13,7 @@ describe("promptSelectors", () => {
         request_type: "movement",
         player_id: 1,
         timeout_ms: 30000,
-        choices: [{ choice_id: "roll", title: "주사위 굴리기", description: "일반 이동" }],
+        legal_choices: [{ choice_id: "roll", title: "주사위 굴리기", description: "일반 이동" }],
         public_context: { player_position: 0 },
       },
     };
@@ -23,7 +23,7 @@ describe("promptSelectors", () => {
     expect(model?.publicContext.player_position).toBe(0);
   });
 
-  it("parses legal_choices fallback shape from server runtime prompts", () => {
+  it("parses canonical legal_choices shape from server runtime prompts", () => {
     const promptMessage: InboundMessage = {
       type: "prompt",
       seq: 6,
@@ -86,7 +86,7 @@ describe("promptSelectors", () => {
           request_type: "movement",
           player_id: 1,
           timeout_ms: 30000,
-          choices: [{ choice_id: "roll", title: "주사위 굴리기", description: "일반 이동" }],
+          legal_choices: [{ choice_id: "roll", title: "주사위 굴리기", description: "일반 이동" }],
         },
       },
       {
@@ -110,7 +110,7 @@ describe("promptSelectors", () => {
           request_type: "purchase_tile",
           player_id: 2,
           timeout_ms: 30000,
-          choices: [{ choice_id: "yes", title: "buy", description: "buy tile" }],
+          legal_choices: [{ choice_id: "yes", title: "buy", description: "buy tile" }],
         },
       },
       {
@@ -140,7 +140,7 @@ describe("promptSelectors", () => {
           request_type: "movement",
           player_id: 3,
           timeout_ms: 30000,
-          choices: [{ choice_id: "roll", title: "roll", description: "roll move" }],
+          legal_choices: [{ choice_id: "roll", title: "roll", description: "roll move" }],
         },
       },
       {

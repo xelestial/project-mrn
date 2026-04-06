@@ -2094,3 +2094,25 @@ Updated: 2026-04-04
   - this closes that gap and turns the engine `DecisionPort` preparation into an actually used server adapter path
 - Validation:
   - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py`
+
+## 2026-04-07 Frontend Canonical Prompt Contract Cleanup
+
+- What changed:
+  - Removed the web selector fallback to legacy prompt `choices` and now parse only canonical `legal_choices` in `apps/web/src/domain/selectors/promptSelectors.ts`.
+  - Updated prompt selector coverage in `apps/web/src/domain/selectors/promptSelectors.spec.ts` so active/unresolved prompt cases also use canonical prompt payloads.
+  - Simplified `apps/web/src/features/prompt/PromptOverlay.tsx` to prioritize the current prompt contract keys:
+    - `tile_index`
+    - `tile_zone`
+    - `tile_purchase_cost`
+    - `player_cash`
+    - `player_shards`
+    - `player_hand_coins`
+    - `owned_tile_indices`
+    - `actor_name`
+  - Reduced old prompt-surface fallback usage so the React layer now follows the same canonical request/public-context shape that the server bridge and engine seam were aligned around.
+- Why:
+  - frontend prompt parsing still tolerated older payload names that are no longer the canonical runtime contract
+  - removing those legacy branches makes the prompt surface easier to reason about and keeps the client aligned with the current server/human-policy envelope
+- Validation:
+  - `npm run test -- --run src/domain/selectors/promptSelectors.spec.ts`
+  - `npm run build`
