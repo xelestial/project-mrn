@@ -1634,7 +1634,13 @@ class GameEngine:
         rewards = []
         for _ in range(len(burdens)):
             choices = state.trick_draw_pile[-8:] if state.trick_draw_pile else []
-            pick = self.policy.choose_specific_trick_reward(state, source, list(choices)) if hasattr(self.policy, "choose_specific_trick_reward") else None
+            pick = self._request_decision(
+                "choose_specific_trick_reward",
+                state,
+                source,
+                list(choices),
+                fallback=lambda: None,
+            )
             reward_debug = self.policy.pop_debug("trick_reward", source.player_id) if hasattr(self.policy, "pop_debug") else None
             self._record_ai_decision(
                 state,
@@ -1698,7 +1704,7 @@ class GameEngine:
                 "reason": "no_eligible_target",
             })
             return
-        chosen_pid = self.policy.choose_doctrine_relief_target(state, source, candidates)
+        chosen_pid = self._request_decision("choose_doctrine_relief_target", state, source, candidates)
         relief_debug = self.policy.pop_debug("doctrine_relief", source.player_id) if hasattr(self.policy, "pop_debug") else None
         self._record_ai_decision(
             state,
@@ -1753,7 +1759,13 @@ class GameEngine:
             for card in list(p.trick_hand):
                 if not card.is_burden:
                     continue
-                accepted = getattr(self.policy, "choose_burden_exchange_on_supply", lambda s, pl, c: pl.cash >= c.burden_cost)(state, p, card)
+                accepted = self._request_decision(
+                    "choose_burden_exchange_on_supply",
+                    state,
+                    p,
+                    card,
+                    fallback=lambda: p.cash >= card.burden_cost,
+                )
                 burden_debug = self.policy.pop_debug("burden_exchange", p.player_id) if hasattr(self.policy, "pop_debug") else None
                 self._record_ai_decision(
                     state,
@@ -3024,7 +3036,7 @@ class GameEngine:
     def _place_hand_coins_if_possible(self, state: GameState, player: PlayerState) -> Optional[dict]:
         if player.hand_coins <= 0:
             return None
-        target = self.policy.choose_coin_placement_tile(state, player)
+        target = self._request_decision("choose_coin_placement_tile", state, player)
         coin_debug = self.policy.pop_debug("coin_placement", player.player_id) if hasattr(self.policy, "pop_debug") else None
         self._record_ai_decision(
             state,

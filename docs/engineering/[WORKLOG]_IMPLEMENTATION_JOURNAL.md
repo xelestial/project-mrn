@@ -2041,3 +2041,19 @@ Updated: 2026-04-04
   - with both the first and second decision waves routed through the port seam, the remaining work before later engine-side consolidation is much narrower
 - Validation:
   - `.venv311/bin/python -m pytest GPT/test_decision_port_contract.py GPT/test_draft_three_players.py GPT/test_event_effects.py`
+
+## 2026-04-07 Engine Decision Port Prep (Phase 3)
+
+- What changed:
+  - Routed the remaining engine-side specialty decision callsites through `GameEngine._request_decision(...)`:
+    - `choose_specific_trick_reward`
+    - `choose_doctrine_relief_target`
+    - `choose_burden_exchange_on_supply`
+    - `choose_coin_placement_tile`
+  - Expanded `GPT/test_decision_port_contract.py` so the injected port now verifies first-, second-, and third-wave engine decision requests.
+  - `choose_geo_bonus` remains outside this wave because there is no direct engine/effect-handler callsite left to migrate in the current engine path.
+- Why:
+  - this completes the current engine-side callsite migration waves described before a later true `DecisionPort.request(...)` consolidation
+  - at this point, the engine no longer directly calls the migrated `choose_*` methods from its core flow and instead relies on the injected request seam
+- Validation:
+  - `.venv311/bin/python -m pytest GPT/test_decision_port_contract.py GPT/test_draft_three_players.py GPT/test_event_effects.py`

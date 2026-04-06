@@ -80,6 +80,15 @@ class RecordingDecisionPort:
             return None
         if request.decision_name == "choose_runaway_slave_step":
             return False
+        if request.decision_name == "choose_specific_trick_reward":
+            return request.args[0][0] if request.args and request.args[0] else None
+        if request.decision_name == "choose_doctrine_relief_target":
+            candidates = request.args[0]
+            return candidates[0].player_id if candidates else None
+        if request.decision_name == "choose_burden_exchange_on_supply":
+            return True
+        if request.decision_name == "choose_coin_placement_tile":
+            return 3
         raise AssertionError(f"unexpected decision request: {request.decision_name}")
 
 
@@ -205,6 +214,60 @@ class DecisionPortContractTests(unittest.TestCase):
         self.assertEqual(move, 2)
         self.assertEqual(meta["runaway_choice"], "stay")
         self.assertIn("choose_runaway_slave_step", [request.decision_name for request in port.requests])
+
+    def test_baksu_transfer_routes_specific_trick_reward_through_decision_port(self) -> None:
+        port = RecordingDecisionPort()
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=False, decision_port=port)
+        state = GameState.create(DEFAULT_CONFIG)
+        source = state.players[0]
+        target = state.players[1]
+        source.trick_hand = [TrickCard(deck_index=1, name="무거운 짐", description="test")]
+        state.trick_draw_pile = [TrickCard(deck_index=2, name="보상 잔꾀", description="reward")]
+
+        engine._resolve_baksu_transfer(state, source, target)
+
+        self.assertIn("choose_specific_trick_reward", [request.decision_name for request in port.requests])
+
+    def test_doctrine_relief_routes_target_selection_through_decision_port(self) -> None:
+        port = RecordingDecisionPort()
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=False, decision_port=port)
+        state = GameState.create(DEFAULT_CONFIG)
+        source = state.players[0]
+        source.current_character = "교리 감독관"
+        source.team_id = 1
+        source.trick_hand = [TrickCard(deck_index=3, name="가벼운 짐", description="test")]
+        engine._strategy_stats = _strategy_stats(DEFAULT_CONFIG.player_count)
+
+        engine._resolve_doctrine_burden_relief(state, source)
+
+        self.assertIn("choose_doctrine_relief_target", [request.decision_name for request in port.requests])
+
+    def test_run_supply_routes_burden_exchange_through_decision_port(self) -> None:
+        port = RecordingDecisionPort()
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=False, decision_port=port)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        player.cash = 5
+        player.trick_hand = [TrickCard(deck_index=4, name="가벼운 짐", description="test")]
+        engine._strategy_stats = _strategy_stats(DEFAULT_CONFIG.player_count)
+
+        engine._run_supply(state, threshold=3)
+
+        self.assertIn("choose_burden_exchange_on_supply", [request.decision_name for request in port.requests])
+
+    def test_place_hand_coins_routes_coin_placement_through_decision_port(self) -> None:
+        port = RecordingDecisionPort()
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=False, decision_port=port)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        player.hand_coins = 2
+        engine._strategy_stats = _strategy_stats(DEFAULT_CONFIG.player_count)
+
+        placed = engine._place_hand_coins_if_possible(state, player)
+
+        self.assertIsNotNone(placed)
+        self.assertEqual(placed["target"], 3)
+        self.assertIn("choose_coin_placement_tile", [request.decision_name for request in port.requests])
 
 
 if __name__ == "__main__":
