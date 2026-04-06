@@ -656,6 +656,19 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertEqual(headers["X-Worker-Auth"], "Token worker-secret")
 
+    def test_external_ai_error_classifier_maps_timeout_and_known_runtime_codes(self) -> None:
+        from apps.server.src.services.runtime_service import _classify_external_ai_error
+
+        self.assertEqual(_classify_external_ai_error(TimeoutError()), "external_ai_timeout")
+        self.assertEqual(
+            _classify_external_ai_error(RuntimeError("external_ai_worker_identity_mismatch")),
+            "external_ai_worker_identity_mismatch",
+        )
+        self.assertEqual(
+            _classify_external_ai_error(ValueError("external_ai_response_not_object")),
+            "external_ai_response_not_object",
+        )
+
     def test_http_external_transport_reaches_real_worker_over_localhost(self) -> None:
         try:
             import uvicorn

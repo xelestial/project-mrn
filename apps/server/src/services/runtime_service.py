@@ -762,8 +762,25 @@ def _validate_external_ai_health_payload(payload: dict[str, object], config: dic
 
 def _classify_external_ai_error(exc: Exception) -> str:
     message = str(exc).strip()
-    if message:
+    if message in {
+        "external_ai_http_error",
+        "external_ai_healthcheck_failed",
+        "external_ai_worker_identity_mismatch",
+        "external_ai_contract_version_mismatch",
+        "external_ai_missing_required_capability",
+        "external_ai_missing_choice_id",
+        "external_ai_response_not_object",
+        "external_ai_health_response_not_object",
+        "external_ai_health_not_ok",
+        "external_ai_missing_endpoint",
+    }:
         return message
+    if isinstance(exc, TimeoutError):
+        return "external_ai_timeout"
+    if isinstance(exc, ValueError):
+        return message or "external_ai_value_error"
+    if isinstance(exc, RuntimeError):
+        return message or "external_ai_runtime_error"
     return exc.__class__.__name__.lower()
 
 

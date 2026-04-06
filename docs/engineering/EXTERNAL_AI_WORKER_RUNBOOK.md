@@ -149,6 +149,7 @@ When `fallback_mode` is `error`:
 Useful failure codes seen from the runtime seam:
 
 - `external_ai_http_error`
+- `external_ai_timeout`
 - `external_ai_healthcheck_failed`
 - `external_ai_worker_identity_mismatch`
 - `external_ai_contract_version_mismatch`

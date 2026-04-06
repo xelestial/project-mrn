@@ -289,6 +289,7 @@ This is the practical next-work list after the closed slices above.
     - `external_ai_failure_code`
     - `external_ai_failure_detail`
     - `external_ai_fallback_mode`
+  - failure classification now distinguishes timeout vs known runtime seam codes instead of relying only on raw exception text
   - reference worker capability metadata now includes:
     - `failure_code_response`
     - `worker_identity`
