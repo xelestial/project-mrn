@@ -2079,3 +2079,18 @@ Updated: 2026-04-04
 - Validation:
   - `.venv311/bin/python -m pytest GPT/test_decision_port_contract.py`
   - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py`
+
+## 2026-04-07 Server Engine Decision-Port Adapter Hookup
+
+- What changed:
+  - Added `build_decision_invocation_from_request(...)` in `apps/server/src/services/decision_gateway.py` so server routing can consume engine-style decision request objects directly.
+  - `_ServerDecisionPolicyBridge` now implements `request(request)` and routes the normalized request through the existing provider router.
+  - `RuntimeService._run_engine_sync(...)` now passes `decision_port=policy` when the server bridge is mounted, so the engine's injected port seam is actually exercised by the runtime path.
+  - Expanded `apps/server/tests/test_runtime_service.py` to assert:
+    - `GameEngine` receives the bridge as `decision_port`
+    - engine-style request objects are routed through the bridge's AI provider path
+- Why:
+  - the previous steps aligned shapes but had not yet connected the engine injection seam to the live server runtime
+  - this closes that gap and turns the engine `DecisionPort` preparation into an actually used server adapter path
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py`

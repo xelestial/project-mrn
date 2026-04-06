@@ -348,6 +348,14 @@ def build_decision_invocation(method_name: str, args: tuple[Any, ...], kwargs: d
     )
 
 
+def build_decision_invocation_from_request(request: Any) -> DecisionInvocation:
+    return build_decision_invocation(
+        str(getattr(request, "decision_name")),
+        tuple(getattr(request, "args", ()) or ()),
+        dict(getattr(request, "kwargs", {}) or {}),
+    )
+
+
 def prepare_decision_method_from_invocation(invocation: DecisionInvocation) -> PreparedDecisionMethod:
     spec = _decision_method_spec_for_method(invocation.method_name)
     return PreparedDecisionMethod(

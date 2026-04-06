@@ -263,9 +263,10 @@ class RuntimeServiceTests(unittest.TestCase):
         captured: dict[str, object] = {}
 
         class _FakeGameEngine:
-            def __init__(self, config, policy, rng, event_stream):  # noqa: ANN001
+            def __init__(self, config, policy, rng, event_stream, decision_port=None):  # noqa: ANN001
                 del config, rng, event_stream
                 captured["policy"] = policy
+                captured["decision_port"] = decision_port
 
             def run(self) -> None:
                 return None
@@ -280,6 +281,7 @@ class RuntimeServiceTests(unittest.TestCase):
         policy_obj = captured.get("policy")
         self.assertIsNotNone(policy_obj)
         self.assertTrue(hasattr(policy_obj, "_inner"))
+        self.assertIs(captured.get("decision_port"), policy_obj)
 
     def test_run_engine_sync_uses_ai_policy_when_all_seats_are_ai(self) -> None:
         RuntimeService._ensure_gpt_import_path()
@@ -295,9 +297,10 @@ class RuntimeServiceTests(unittest.TestCase):
         captured: dict[str, object] = {}
 
         class _FakeGameEngine:
-            def __init__(self, config, policy, rng, event_stream):  # noqa: ANN001
+            def __init__(self, config, policy, rng, event_stream, decision_port=None):  # noqa: ANN001
                 del config, rng, event_stream
                 captured["policy"] = policy
+                captured["decision_port"] = decision_port
 
             def run(self) -> None:
                 return None
@@ -312,6 +315,7 @@ class RuntimeServiceTests(unittest.TestCase):
         policy_obj = captured.get("policy")
         self.assertIsNotNone(policy_obj)
         self.assertTrue(hasattr(policy_obj, "_gateway"))
+        self.assertIs(captured.get("decision_port"), policy_obj)
 
     def test_ai_bridge_emits_requested_then_resolved_for_ai_choice(self) -> None:
         from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
@@ -1118,6 +1122,54 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertEqual(ai_policy.calls, 1)
             with self.prompt_service._lock:  # type: ignore[attr-defined]
                 self.assertEqual(len(self.prompt_service._pending), 0)  # type: ignore[attr-defined]
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_bridge_request_routes_engine_style_request_through_ai_provider(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+
+        class _FakeAiPolicy:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def choose_pabal_dice_mode(self, state, player):  # noqa: ANN001
+                del state, player
+                self.calls += 1
+                return "minus_one"
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            ai_policy = _FakeAiPolicy()
+            bridge = _ServerDecisionPolicyBridge(
+                session_id="sess_bridge_request_ai",
+                human_seats=[],
+                ai_fallback=ai_policy,
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+            )
+            state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+            player = type("Player", (), {"player_id": 1, "cash": 9, "position": 12, "shards": 8})()
+            request = type(
+                "DecisionRequest",
+                (),
+                {
+                    "decision_name": "choose_pabal_dice_mode",
+                    "args": (state, player),
+                    "kwargs": {},
+                },
+            )()
+
+            result = bridge.request(request)
+
+            self.assertEqual(result, "minus_one")
+            self.assertEqual(ai_policy.calls, 1)
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)

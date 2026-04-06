@@ -12,6 +12,7 @@ from apps.server.src.services.decision_gateway import (
     DecisionGateway,
     DecisionInvocation,
     build_decision_invocation,
+    build_decision_invocation_from_request,
     build_canonical_decision_request,
     prepare_decision_method_from_invocation,
 )
@@ -195,6 +196,7 @@ class RuntimeService:
         engine = GameEngine(
             config=self._config_factory.create(resolved),
             policy=policy,
+            decision_port=policy if hasattr(policy, "request") else None,
             rng=random.Random(seed),
             event_stream=vis_stream,
         )
@@ -341,6 +343,11 @@ class _ServerDecisionPolicyBridge:
             prompt = dict(prompt)
             prompt["prompt_instance_id"] = self._human_provider.prompt_seq
         return self._gateway.resolve_human_prompt(prompt, parser, fallback_fn)
+
+    def request(self, request):
+        invocation = build_decision_invocation_from_request(request)
+        provider = self._router.provider_for_choice(invocation)
+        return provider.call(invocation)
 
     def __getattr__(self, name: str):
         target = self._router.attribute_target(name)
