@@ -65,6 +65,9 @@ export type TurnStageViewModel = {
   landingSummary: string;
   purchaseSummary: string;
   rentSummary: string;
+  turnEndSummary: string;
+  fortuneDrawSummary: string;
+  fortuneResolvedSummary: string;
   fortuneSummary: string;
   promptSummary: string;
   latestActionLabel: string;
@@ -887,6 +890,9 @@ export function selectTurnStage(
     landingSummary: "-",
     purchaseSummary: "-",
     rentSummary: "-",
+    turnEndSummary: "-",
+    fortuneDrawSummary: "-",
+    fortuneResolvedSummary: "-",
     fortuneSummary: "-",
     promptSummary: "-",
     latestActionLabel: "-",
@@ -1009,8 +1015,29 @@ export function selectTurnStage(
       model.rentSummary = detailFromEventCode(message.payload, eventCode, text);
       continue;
     }
-    if (eventCode === "fortune_drawn" || eventCode === "fortune_resolved") {
-      model.fortuneSummary = detailFromEventCode(message.payload, eventCode, text);
+    if (eventCode === "turn_end_snapshot") {
+      const detail = detailFromEventCode(message.payload, eventCode, text);
+      model.turnEndSummary = detail;
+      updateBeat(
+        pickMessageLabel(message, text),
+        detail || "-",
+        "system",
+        focusTileIndexFromPayload(message.payload, eventCode)
+      );
+      continue;
+    }
+    if (eventCode === "fortune_drawn") {
+      const detail = detailFromEventCode(message.payload, eventCode, text);
+      model.fortuneDrawSummary = detail;
+      if (model.fortuneSummary === "-") {
+        model.fortuneSummary = detail;
+      }
+      continue;
+    }
+    if (eventCode === "fortune_resolved") {
+      const detail = detailFromEventCode(message.payload, eventCode, text);
+      model.fortuneResolvedSummary = detail;
+      model.fortuneSummary = detail;
       continue;
     }
   }

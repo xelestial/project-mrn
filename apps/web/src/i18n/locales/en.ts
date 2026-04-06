@@ -214,6 +214,7 @@ export const enLocale = {
       active_flip: "Active Flip",
       specific_trick_reward: "Specific Trick Reward",
       burden_exchange: "Burden Exchange",
+      pabal_dice_mode: "Pabal Dice Mode",
     },
   },
   promptHelper: {
@@ -235,6 +236,7 @@ export const enLocale = {
       active_flip: "Choose a card to flip, or finish flipping.",
       specific_trick_reward: "Choose the trick reward.",
       burden_exchange: "Choose the burden card to exchange.",
+      pabal_dice_mode: "Choose whether to roll three dice or reduce the roll to one die this turn.",
     },
   },
   eventLabel: {
@@ -481,6 +483,12 @@ export const enLocale = {
       draftPrompt: "Choose the character you want to use this turn.",
       finalPrompt: "Choose the final character.",
       ability: (name: string) => `${name} ability`,
+    },
+    pabal: {
+      plusOneTitle: "Roll three dice",
+      plusOneDescription: "Use the front-side courier effect and add one die this turn.",
+      minusOneTitle: "Roll one die",
+      minusOneDescription: "Use the back-side courier effect and reduce the roll to one die this turn.",
     },
     mark: {
       noneTitle: "No mark",

@@ -129,12 +129,12 @@ function booleanFromValue(value: unknown): boolean | null {
   return typeof value === "boolean" ? value : null;
 }
 
-function promptMetaLine(promptText: PromptText, playerId: number, timeoutMs: number, secondsLeft: number | null): string {
-  return promptText.requestMeta("", playerId, timeoutMs, secondsLeft);
-}
-
 function collapsedPromptChip(promptText: PromptText, label: string, secondsLeft: number | null): string {
   return promptText.collapsedChip(label, secondsLeft);
+}
+
+function promptMetaPills(playerId: number, timeoutMs: number, secondsLeft: number | null): string[] {
+  return [`Actor P${playerId}`, `${Math.ceil(timeoutMs / 1000)}s`, `${secondsLeft ?? "-"}s left`];
 }
 
 function movementChoices(prompt: PromptViewModel): MovementChoiceParts {
@@ -411,6 +411,7 @@ export function PromptOverlay({
     secondsLeft !== null && prompt.timeoutMs > 0
       ? Math.max(0, Math.min(100, (secondsLeft * 1000 * 100) / prompt.timeoutMs))
       : null;
+  const headMetaPills = promptMetaPills(prompt.playerId, prompt.timeoutMs, secondsLeft);
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {
@@ -464,6 +465,7 @@ export function PromptOverlay({
   const isCoinPlacement = prompt.requestType === "coin_placement";
   const isDoctrineRelief = prompt.requestType === "doctrine_relief";
   const isGeoBonus = prompt.requestType === "geo_bonus";
+  const isPabalDiceMode = prompt.requestType === "pabal_dice_mode";
 
   const currentTileIndex = numberFromContext(prompt.publicContext, "tile_index", "pos", "player_position");
   const currentCash = numberFromContext(prompt.publicContext, "player_cash", "cash");
@@ -502,8 +504,12 @@ export function PromptOverlay({
           <div className="prompt-head-copy">
             <h2>{promptText.headTitle(promptLabel)}</h2>
             <p className="prompt-helper">{promptHelp}</p>
-            <div className="prompt-head-meta">
-              <small>{promptMetaLine(promptText, prompt.playerId, prompt.timeoutMs, secondsLeft)}</small>
+            <div className="prompt-head-meta" data-testid="prompt-head-meta">
+              {headMetaPills.map((pill) => (
+                <span key={pill} className="prompt-head-pill">
+                  {pill}
+                </span>
+              ))}
             </div>
           </div>
           <button type="button" onClick={onToggleCollapse}>
@@ -1082,6 +1088,46 @@ export function PromptOverlay({
           </section>
         ) : null}
 
+        {isPabalDiceMode ? (
+          <section className="prompt-section prompt-hand-stage">
+            <div className="prompt-section-summary">
+              <div className="prompt-summary-pill-row">
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentPosition}: {tileLabel(movementPosition)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentShards}: {numberFromContext(prompt.publicContext, "player_shards", "shards") ?? "-"}
+                </span>
+                {weatherName ? (
+                  <span className="prompt-summary-pill">
+                    {promptText.context.currentWeather}: {weatherName}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <div className="prompt-choices prompt-choices-decision">
+              {orderedChoices.map((choice) => {
+                const normalized = normalizeChoiceText(prompt, choice, promptText);
+                return (
+                  <button
+                    type="button"
+                    key={choice.choiceId}
+                    className="prompt-choice-card prompt-choice-card-emphasis"
+                    data-testid={`pabal-dice-mode-choice-${choice.choiceId}`}
+                    onClick={() => onSelectChoice(choice.choiceId)}
+                    disabled={busy}
+                  >
+                    <div className="prompt-choice-topline">
+                      <strong>{normalized.title}</strong>
+                    </div>
+                    <small>{normalized.description}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
         {prompt.requestType !== "movement" &&
         !isLapReward &&
         prompt.requestType !== "trick_to_use" &&
@@ -1095,7 +1141,8 @@ export function PromptOverlay({
         !isRunawayChoice &&
         !isCoinPlacement &&
         !isDoctrineRelief &&
-        !isGeoBonus ? (
+        !isGeoBonus &&
+        !isPabalDiceMode ? (
           <section className="prompt-section">
             <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
             {orderedChoices.map((choice) => {

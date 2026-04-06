@@ -1947,7 +1947,7 @@ body {
   gap: 8px;
 }
 
-.prompt-head-meta small {
+.prompt-head-pill {
   display: inline-flex;
   align-items: center;
   padding: 4px 10px;
@@ -1956,6 +1956,7 @@ body {
   background: rgba(19, 44, 83, 0.72);
   color: #cfe0ff;
   font-size: 12px;
+  font-weight: 700;
   line-height: 1.45;
 }
 

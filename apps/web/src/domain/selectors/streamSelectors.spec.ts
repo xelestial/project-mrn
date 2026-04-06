@@ -646,4 +646,95 @@ describe("streamSelectors", () => {
     expect(stage.landingSummary).toContain("12");
     expect(stage.focusTileIndex).toBe(11);
   });
+
+  it("keeps fortune reveal and fortune resolution as separate turn-stage fields", () => {
+    const stage = selectTurnStage([
+      {
+        type: "event",
+        seq: 500,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 6,
+          turn_index: 4,
+          acting_player_id: 3,
+          character: "Messenger",
+        },
+      },
+      {
+        type: "event",
+        seq: 501,
+        session_id: "s1",
+        payload: {
+          event_type: "fortune_drawn",
+          round_index: 6,
+          turn_index: 4,
+          acting_player_id: 3,
+          card_name: "Blessed Dice",
+        },
+      },
+      {
+        type: "event",
+        seq: 502,
+        session_id: "s1",
+        payload: {
+          event_type: "fortune_resolved",
+          round_index: 6,
+          turn_index: 4,
+          acting_player_id: 3,
+          summary: "Dice +2",
+        },
+      },
+    ]);
+
+    expect(stage.fortuneDrawSummary).toContain("Blessed Dice");
+    expect(stage.fortuneResolvedSummary).toContain("Dice +2");
+    expect(stage.fortuneSummary).toContain("Dice +2");
+  });
+
+  it("keeps turn end snapshot as the closing beat of the current turn", () => {
+    const stage = selectTurnStage([
+      {
+        type: "event",
+        seq: 510,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 7,
+          turn_index: 1,
+          acting_player_id: 2,
+          character: "Courier",
+        },
+      },
+      {
+        type: "event",
+        seq: 511,
+        session_id: "s1",
+        payload: {
+          event_type: "player_move",
+          round_index: 7,
+          turn_index: 1,
+          acting_player_id: 2,
+          from_tile_index: 4,
+          to_tile_index: 9,
+        },
+      },
+      {
+        type: "event",
+        seq: 512,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_end_snapshot",
+          round_index: 7,
+          turn_index: 1,
+          acting_player_id: 2,
+          summary: "turn closed",
+        },
+      },
+    ]);
+
+    expect(stage.turnEndSummary).toContain("turn closed");
+    expect(stage.currentBeatLabel).not.toBe("Turn start");
+    expect(stage.progressTrail.at(-1)).toBe(stage.currentBeatLabel);
+  });
 });

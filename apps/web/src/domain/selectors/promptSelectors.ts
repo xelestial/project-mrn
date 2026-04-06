@@ -39,7 +39,12 @@ function parseChoices(raw: unknown): PromptChoiceViewModel[] {
         return null;
       }
       const value = isRecord(item["value"]) ? { ...item["value"] } : null;
-      const valueDescription = value && typeof value["card_description"] === "string" ? String(value["card_description"]) : "";
+      const valueDescription =
+        value && typeof value["card_description"] === "string"
+          ? String(value["card_description"])
+          : value && typeof value["description"] === "string"
+            ? String(value["description"])
+            : "";
       const titleRaw = item["title"] ?? item["label"];
       return {
         choiceId,

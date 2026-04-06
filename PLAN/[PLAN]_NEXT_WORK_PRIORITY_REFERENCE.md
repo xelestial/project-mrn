@@ -278,3 +278,25 @@ Implement in this order unless a blocker forces a swap:
   1. keep trimming the last remaining generic/inspector-feeling prompt states
   2. keep strengthening scene-grade continuity for fortune reveal and purchase/rent payoff transitions
   3. extend canonical decision coverage to the remaining specialty methods before full `DecisionPort` migration
+
+### 2026-04-06 Progress Update (pabal seam fixed)
+
+- `pabal_dice_mode` is now a real human prompt path, not an AI-only specialty branch.
+- Prompt choice parsing now also recognizes `value.description`, reducing future specialty prompt drift.
+- Therefore the next immediate execution order is:
+  1. continue scene-grade continuity for fortune reveal / purchase / rent / turn handoff
+  2. keep trimming the last remaining inspector-feeling prompt surfaces
+  3. move P0-1 from “missing specialty seams” to typed-provider / `DecisionPort` cleanup
+### 2026-04-06 Progress Update (prompt HUD + explicit payoff labels)
+
+- Prompt overlays now use a compact HUD-style head instead of a debug-like request sentence.
+- Turn-stage and spectator payoff cards now prefer explicit event labels for:
+  - landing resolved
+  - tile purchased
+  - rent paid
+  - fortune drawn
+  - fortune resolved
+- Therefore the next immediate execution order is:
+  1. continue scene-grade continuity for true turn handoff and payoff animation
+  2. keep trimming any still-generic prompt surface that does not yet feel game-native
+  3. after the above, keep collapsing provider drift toward the typed `DecisionPort` boundary

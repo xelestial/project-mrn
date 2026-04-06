@@ -1755,3 +1755,38 @@ Updated: 2026-04-04
   - `python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_stream_api.py` (`18 passed, 13 skipped`)
   - `npm run build`
   - `npm run e2e -- e2e/human_play_runtime.spec.ts`
+
+## 2026-04-06 Human Pabal Dice Mode Recovery
+
+- What changed:
+  - Restored a missing human decision seam by implementing `choose_pabal_dice_mode(...)` in [GPT/viewer/human_policy.py](C:/Users/SIL-EDITOR/Desktop/Workspace/project-mrn/GPT/viewer/human_policy.py).
+  - Human seats now emit a real `pabal_dice_mode` prompt instead of silently falling through to the AI branch.
+  - Added a dedicated `pabal_dice_mode` prompt surface in [apps/web/src/features/prompt/PromptOverlay.tsx](C:/Users/SIL-EDITOR/Desktop/Workspace/project-mrn/apps/web/src/features/prompt/PromptOverlay.tsx).
+  - Improved prompt choice parsing in [apps/web/src/domain/selectors/promptSelectors.ts](C:/Users/SIL-EDITOR/Desktop/Workspace/project-mrn/apps/web/src/domain/selectors/promptSelectors.ts) so `value.description` is treated as a first-class fallback description source.
+  - Added regression coverage for:
+    - AI canonical lifecycle: `choose_pabal_dice_mode`
+    - human prompt lifecycle: `choose_pabal_dice_mode`
+    - prompt selector parsing of `value.description`
+- Why:
+  - this was a real human-play gap, not just a UI polish issue: the engine had a canonical request type, but the human bridge had no corresponding method
+  - leaving it unfixed would have caused human seats to diverge from the unified decision contract exactly in a specialty ability branch
+- Validation:
+  - `npm run build`
+  - `npm run test -- --run src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts`
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts`
+  - `python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_stream_api.py` (`20 passed, 13 skipped`)
+
+## 2026-04-06 Prompt HUD + Explicit Turn Event Labels
+
+- What changed:
+  - Reworked the prompt header in `apps/web/src/features/prompt/PromptOverlay.tsx` so the top meta now reads as compact HUD pills instead of a debug-style sentence.
+  - Promoted explicit event naming in:
+    - `apps/web/src/features/stage/SpectatorTurnPanel.tsx`
+    - `apps/web/src/features/stage/TurnStagePanel.tsx`
+  - Purchase / rent / fortune reveal / fortune resolution / landing now use event-label wording where available, so the stage reads more like a live scene than a generic status board.
+  - Updated `apps/web/src/styles.css` to style the new prompt-head HUD pills.
+- Why:
+  - the decision surface still carried a little too much inspector flavor
+  - stage continuity became easier to read once payoff beats used explicit event names instead of generic field labels
+- Validation:
+  - pending local build/test pass after this patch

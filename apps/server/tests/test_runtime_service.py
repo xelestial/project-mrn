@@ -56,6 +56,7 @@ class RuntimeServiceTests(unittest.TestCase):
     def test_decision_request_type_for_method_uses_canonical_mapping(self) -> None:
         self.assertEqual(decision_request_type_for_method("choose_purchase_tile"), "purchase_tile")
         self.assertEqual(decision_request_type_for_method("choose_mark_target"), "mark_target")
+        self.assertEqual(decision_request_type_for_method("choose_pabal_dice_mode"), "pabal_dice_mode")
         self.assertEqual(decision_request_type_for_method("choose_custom_branch"), "custom_branch")
 
     def test_start_runtime_uses_async_to_thread_bridge(self) -> None:
@@ -667,6 +668,57 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_ai_bridge_keeps_pabal_dice_mode_on_canonical_decision_flow(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+
+        class _FakeAiPolicy:
+            def choose_pabal_dice_mode(self, state, player):  # noqa: ANN001
+                del state, player
+                return "minus_one"
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerDecisionPolicyBridge(
+                session_id="sess_ai_pabal_bridge_test",
+                human_seats=[],
+                ai_fallback=_FakeAiPolicy(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+            )
+
+            state = type("State", (), {"rounds_completed": 2, "turn_index": 5})()
+            player = type("Player", (), {"player_id": 0, "cash": 9, "position": 12, "shards": 8})()
+            result = bridge.choose_pabal_dice_mode(state, player)
+            self.assertEqual(result, "minus_one")
+
+            published = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot("sess_ai_pabal_bridge_test"),
+                loop,
+            ).result(timeout=2.0)
+            bridge_events = [
+                msg
+                for msg in published
+                if msg.type == "event" and msg.payload.get("player_id") == 1
+            ]
+            requested = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_requested"), None)
+            resolved = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_resolved"), None)
+            self.assertIsNotNone(requested)
+            self.assertIsNotNone(resolved)
+            self.assertLess(requested.seq, resolved.seq)
+            self.assertEqual(requested.payload.get("provider"), "ai")
+            self.assertEqual(resolved.payload.get("provider"), "ai")
+            self.assertEqual(requested.payload.get("request_type"), "pabal_dice_mode")
+            self.assertEqual(resolved.payload.get("choice_id"), "minus_one")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
     def test_human_bridge_replaces_inner_ask_with_server_prompt_flow(self) -> None:
         from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
 
@@ -747,6 +799,91 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertEqual(resolved.payload.get("choice_id"), "roll")
             self.assertEqual(requested.payload.get("provider"), "human")
             self.assertEqual(resolved.payload.get("provider"), "human")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_human_bridge_keeps_pabal_dice_mode_on_prompt_flow(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            class _FakeAiPolicy:
+                def choose_pabal_dice_mode(self, state, player):  # noqa: ANN001
+                    del state, player
+                    return "plus_one"
+
+            bridge = _ServerHumanPolicyBridge(
+                session_id="sess_human_pabal_bridge",
+                human_seats=[0],
+                ai_fallback=_FakeAiPolicy(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+            )
+
+            state = type("State", (), {"rounds_completed": 1, "turn_index": 4})()
+            player = type("Player", (), {"player_id": 0, "cash": 11, "position": 8, "shards": 8})()
+            result: dict[str, str] = {}
+
+            def _run_wait() -> None:
+                result["choice"] = bridge.choose_pabal_dice_mode(state, player)
+
+            wait_thread = threading.Thread(target=_run_wait, daemon=True)
+            wait_thread.start()
+
+            pending_prompt = None
+            for _ in range(100):
+                with self.prompt_service._lock:  # type: ignore[attr-defined]
+                    pending_prompt = next(iter(self.prompt_service._pending.values()), None)  # type: ignore[attr-defined]
+                if pending_prompt:
+                    break
+                time.sleep(0.01)
+
+            self.assertIsNotNone(pending_prompt)
+            assert pending_prompt is not None
+            self.assertEqual(pending_prompt.payload["request_type"], "pabal_dice_mode")
+            self.assertEqual(pending_prompt.payload["player_id"], 1)
+
+            decision_state = self.prompt_service.submit_decision(
+                {
+                    "request_id": pending_prompt.request_id,
+                    "player_id": 1,
+                    "choice_id": "minus_one",
+                }
+            )
+            self.assertEqual(decision_state["status"], "accepted")
+
+            wait_thread.join(timeout=2.0)
+            self.assertEqual(result.get("choice"), "minus_one")
+
+            published = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot("sess_human_pabal_bridge"),
+                loop,
+            ).result(timeout=2.0)
+            bridge_events = [
+                msg
+                for msg in published
+                if msg.type == "event"
+                and (
+                    msg.payload.get("request_type") == "pabal_dice_mode"
+                    or msg.payload.get("request_id") == pending_prompt.request_id
+                )
+            ]
+            requested = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_requested"), None)
+            resolved = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_resolved"), None)
+            self.assertIsNotNone(requested)
+            self.assertIsNotNone(resolved)
+            self.assertLess(requested.seq, resolved.seq)
+            self.assertEqual(requested.payload.get("provider"), "human")
+            self.assertEqual(resolved.payload.get("provider"), "human")
+            self.assertEqual(requested.payload.get("request_type"), "pabal_dice_mode")
+            self.assertEqual(resolved.payload.get("choice_id"), "minus_one")
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)

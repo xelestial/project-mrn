@@ -783,6 +783,59 @@ class HumanHttpPolicy:
 
         return self._ask(prompt, _parse, lambda: self._ai.choose_geo_bonus(state, player, char))
 
+    def choose_pabal_dice_mode(self, state: Any, player: Any) -> str:
+        ai_fallback = getattr(self._ai, "choose_pabal_dice_mode", None)
+        fallback_fn = (lambda: str(ai_fallback(state, player))) if callable(ai_fallback) else (lambda: "plus_one")
+        if not self._is_human_seat(player.player_id):
+            return fallback_fn()
+
+        options = [
+            {
+                "id": "plus_one",
+                "label": "Roll three dice",
+                "description": "Use the courier front-side effect and add one die this turn.",
+                "value": {"dice_mode": "plus_one"},
+            },
+            {
+                "id": "minus_one",
+                "label": "Roll one die",
+                "description": "Use the courier back-side effect and reduce the roll to one die this turn.",
+                "value": {"dice_mode": "minus_one"},
+            },
+        ]
+
+        prompt = build_prompt_envelope(
+            request_type="pabal_dice_mode",
+            player_id=player.player_id + 1,
+            legal_choices=[
+                {
+                    "choice_id": opt["id"],
+                    "label": opt["label"],
+                    "value": {
+                        "dice_mode": opt["value"]["dice_mode"],
+                        "description": opt["description"],
+                    },
+                }
+                for opt in options
+            ],
+            public_context={
+                "player_cash": player.cash,
+                "player_position": player.position,
+                "player_shards": getattr(player, "shards", 0),
+            },
+            can_pass=False,
+            timeout_ms=int(TIMEOUT_S * 1000),
+        )
+
+        def _parse(r: dict):
+            sel = extract_choice_id(r, "plus_one")
+            for opt in options:
+                if opt["id"] == sel:
+                    return opt["id"]
+            return "plus_one"
+
+        return str(self._ask(prompt, _parse, fallback_fn))
+
     def choose_doctrine_relief_target(self, state: Any, player: Any, candidates: Any) -> Any:
         if not self._is_human_seat(player.player_id):
             return self._ai.choose_doctrine_relief_target(state, player, candidates)

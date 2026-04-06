@@ -18,6 +18,7 @@ export const KNOWN_PROMPT_TYPES = [
   "active_flip",
   "specific_trick_reward",
   "burden_exchange",
+  "pabal_dice_mode",
 ] as const;
 
 type PromptTypeText = LocaleMessages["promptType"];

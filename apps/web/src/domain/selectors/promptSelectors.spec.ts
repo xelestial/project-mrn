@@ -50,6 +50,31 @@ describe("promptSelectors", () => {
     expect(model?.choices[0].description).toContain("통행료");
   });
 
+  it("uses value.description when explicit description is omitted", () => {
+    const promptMessage: InboundMessage = {
+      type: "prompt",
+      seq: 8,
+      session_id: "s1",
+      payload: {
+        request_id: "req_pabal_1",
+        request_type: "pabal_dice_mode",
+        player_id: 1,
+        timeout_ms: 300000,
+        legal_choices: [
+          {
+            choice_id: "minus_one",
+            label: "Roll one die",
+            value: { description: "Reduce the roll to one die this turn." },
+          },
+        ],
+      },
+    };
+    const model = selectActivePrompt([promptMessage]);
+    expect(model?.requestType).toBe("pabal_dice_mode");
+    expect(model?.choices[0].title).toBe("Roll one die");
+    expect(model?.choices[0].description).toBe("Reduce the roll to one die this turn.");
+  });
+
   it("returns null when accepted ack exists for same request", () => {
     const messages: InboundMessage[] = [
       {

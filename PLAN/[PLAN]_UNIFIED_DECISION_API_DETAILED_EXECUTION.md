@@ -468,3 +468,12 @@ P3 종료 조건:
 - Result:
   - the remaining branch-local drift risk is now less about untested specialty methods and more about the still-string-heavy bridge/provider structure itself
   - next P0-1 value is concentrated in typed provider cleanup and later `DecisionPort` migration
+
+## 2026-04-06 Progress Update (human pabal seam closed)
+
+- Added a real human-side implementation for `choose_pabal_dice_mode(...)` in the viewer policy bridge path.
+- Added canonical lifecycle coverage for AI `choose_pabal_dice_mode`.
+- Added canonical lifecycle coverage for human `choose_pabal_dice_mode`.
+- Result:
+  - `pabal_dice_mode` is no longer a hidden human-play divergence from the unified decision contract.
+  - Remaining P0-1 work is now less about missing specialty endpoints and more about consolidating typed provider boundaries and removing string-heavy bridge logic.
