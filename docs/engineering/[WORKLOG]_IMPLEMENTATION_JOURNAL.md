@@ -1661,3 +1661,20 @@ Updated: 2026-04-04
   - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts`
   - `npm run e2e -- e2e/human_play_runtime.spec.ts`
   - `python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_stream_api.py`
+
+## 2026-04-06 Prompt Surface / Spectator Result / Active Flip Follow-up
+
+- What changed:
+  - Moved prompt request-meta out of the footer and into the header chrome so the bottom area stays focused on feedback and the timer bar.
+  - Promoted character, mark, and generic choices onto the stronger emphasis card surface so prompts read less like inspector lists.
+  - Added a dedicated spectator result card so remote purchase/rent/fortune outcomes stay visible as a distinct payoff beat.
+  - Added backend coverage that AI `active_flip` decisions also stay on the canonical decision lifecycle.
+- Why:
+  - the previous prompt footer still felt too much like a tool panel
+  - remote-turn payoff still benefited from one more persistent result card
+  - specialty decision coverage should keep expanding before later `DecisionPort` migration
+- Validation:
+  - `npm run build`
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts`
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts`
+  - `python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_stream_api.py`

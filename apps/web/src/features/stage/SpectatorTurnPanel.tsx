@@ -230,6 +230,17 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
         </section>
       ) : null}
 
+      {latestActionTitle !== "-" && payoffSummary !== "-" ? (
+        <article
+          className={`spectator-turn-card spectator-turn-card-payoff spectator-turn-card-payoff-${latestActionTone}`}
+          data-testid="spectator-turn-result"
+        >
+          <span>{app.spectatorFields.action}</span>
+          <strong>{valueOrDash(latestActionTitle)}</strong>
+          <small>{valueOrDash(payoffSummary)}</small>
+        </article>
+      ) : null}
+
       <div className="spectator-turn-progress" data-testid="spectator-turn-progress">
         <span>{app.spectatorFields.progress}</span>
         {progress.length > 0 ? (

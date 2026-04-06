@@ -405,3 +405,13 @@ P3 종료 조건:
   1. typed provider classes so human / AI dispatch logic is less concentrated in `_ServerDecisionPolicyBridge`
   2. engine-side `DecisionPort` migration
   3. continue extending specialty-method decision coverage
+
+## 2026-04-06 Progress Update (active flip coverage)
+
+- Added explicit runtime coverage for AI `choose_active_flip_card`.
+- Specialty method guards now explicitly cover at least:
+  - `purchase_tile`
+  - `mark_target`
+  - `active_flip`
+- Result:
+  - branch-local request-type / choice-serialization drift is shrinking before typed provider cleanup starts

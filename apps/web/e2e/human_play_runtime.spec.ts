@@ -506,6 +506,7 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await expect(page.getByTestId("spectator-turn-spotlight")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-journey")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-progress")).toBeVisible();
+  await expect(page.getByTestId("spectator-turn-result")).toBeVisible();
   await expect(page.getByTestId("board-move-start-badge")).toBeVisible();
   await expect(page.getByTestId("board-move-end-badge")).toBeVisible();
   await expect(page.getByTestId("board-moving-pawn-ghost")).toBeVisible();
@@ -519,6 +520,7 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await expect(page.getByTestId("prompt-overlay")).toHaveCount(0);
   await expect(page.getByTestId("core-action-journey")).toContainText("P2");
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("Bandit");
+  await expect(page.getByTestId("spectator-turn-result")).toContainText("Tile purchased");
 });
 
 test("locale toggle persists across reload", async ({ page }) => {

@@ -1925,6 +1925,24 @@ body {
   line-height: 1.55;
 }
 
+.prompt-head-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.prompt-head-meta small {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(78, 121, 189, 0.35);
+  background: rgba(19, 44, 83, 0.72);
+  color: #cfe0ff;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .prompt-overlay h2 {
   margin: 0;
 }

@@ -218,3 +218,13 @@ Implement in this order unless a blocker forces a swap:
   1. continue trimming prompt surfaces that still feel inspector-like
   2. continue scene-grade continuity for fortune / purchase / rent / turn handoff
   3. extend canonical decision coverage to remaining specialty methods before full `DecisionPort` migration
+
+### 2026-04-06 Progress Update (spectator result + active flip)
+
+- Prompt request-meta moved into the prompt head, reducing footer inspector feel.
+- Remote turns now keep a dedicated spectator result card for the latest payoff beat.
+- AI-side canonical request coverage now also explicitly includes `active_flip`.
+- Therefore the next immediate execution order is:
+  1. finish the remaining specialty prompt simplification slices
+  2. continue scene-grade continuity for weather / fortune / purchase / rent handoff
+  3. extend canonical decision coverage to the remaining specialty methods before full `DecisionPort` migration

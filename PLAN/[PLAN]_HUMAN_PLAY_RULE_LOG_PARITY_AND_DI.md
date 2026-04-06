@@ -728,3 +728,16 @@ This order is chosen to stop further drift before additional feature edits.
   - stronger fortune/weather reveal staging as dedicated scene beats
   - purchase/rent outcome transitions that feel more animated than feed-like
   - additional simplification for mark/reward/special prompts that still read too much like inspectors
+
+## 2026-04-06 Spectator Result Follow-up
+
+- Remote-turn continuity now keeps a dedicated spectator result/payoff card in addition to:
+  - spotlight cards
+  - journey strip
+  - progress trail
+- Prompt chrome also moved request meta upward into the head area so the footer no longer reads like a debug/control bar.
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - stronger fortune/weather reveal staging as dedicated scene beats
+  - more animated purchase/rent outcome transitions
+  - final prompt simplification for a few specialty flows

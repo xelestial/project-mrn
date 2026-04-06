@@ -285,6 +285,57 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_ai_bridge_keeps_active_flip_on_canonical_decision_flow(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+
+        class _FakeAiPolicy:
+            def choose_active_flip_card(self, state, player, flippable_cards):  # noqa: ANN001
+                del state, player, flippable_cards
+                return 7
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerDecisionPolicyBridge(
+                session_id="sess_ai_flip_bridge_test",
+                human_seats=[],
+                ai_fallback=_FakeAiPolicy(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+            )
+
+            state = type("State", (), {"rounds_completed": 2, "turn_index": 0})()
+            player = type("Player", (), {"player_id": 0, "cash": 20, "position": 0, "shards": 4})()
+            result = bridge.choose_active_flip_card(state, player, [1, 7, 8])
+            self.assertEqual(result, 7)
+
+            published = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot("sess_ai_flip_bridge_test"),
+                loop,
+            ).result(timeout=2.0)
+            bridge_events = [
+                msg
+                for msg in published
+                if msg.type == "event" and msg.payload.get("player_id") == 1
+            ]
+            requested = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_requested"), None)
+            resolved = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_resolved"), None)
+            self.assertIsNotNone(requested)
+            self.assertIsNotNone(resolved)
+            self.assertLess(requested.seq, resolved.seq)
+            self.assertEqual(requested.payload.get("provider"), "ai")
+            self.assertEqual(resolved.payload.get("provider"), "ai")
+            self.assertEqual(requested.payload.get("request_type"), "active_flip")
+            self.assertEqual(resolved.payload.get("choice_id"), "7")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
     def test_human_bridge_replaces_inner_ask_with_server_prompt_flow(self) -> None:
         from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
 

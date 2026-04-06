@@ -486,6 +486,9 @@ export function PromptOverlay({
           <div className="prompt-head-copy">
             <h2>{promptText.headTitle(promptLabel)}</h2>
             <p className="prompt-helper">{promptHelp}</p>
+            <div className="prompt-head-meta">
+              <small>{promptMetaLine(promptText, prompt.playerId, prompt.timeoutMs, secondsLeft)}</small>
+            </div>
           </div>
           <button type="button" onClick={onToggleCollapse}>
             {promptText.collapse}
@@ -646,14 +649,14 @@ export function PromptOverlay({
             </div>
             <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
               {prompt.choices.map((choice) => (
-                <button
-                  type="button"
-                  key={choice.choiceId}
-                  className="prompt-choice-card"
-                  data-testid={`character-choice-${choice.choiceId}`}
-                  onClick={() => onSelectChoice(choice.choiceId)}
-                  disabled={busy}
-                >
+                  <button
+                    type="button"
+                    key={choice.choiceId}
+                    className="prompt-choice-card prompt-choice-card-emphasis"
+                    data-testid={`character-choice-${choice.choiceId}`}
+                    onClick={() => onSelectChoice(choice.choiceId)}
+                    disabled={busy}
+                  >
                   <strong>{choice.title}</strong>
                   <small>{characterAbilityText(choice, promptText)}</small>
                 </button>
@@ -684,7 +687,7 @@ export function PromptOverlay({
                   <button
                     type="button"
                     key={choice.choiceId}
-                    className="prompt-choice-card"
+                    className="prompt-choice-card prompt-choice-card-emphasis"
                     data-testid={`mark-choice-${choice.choiceId}`}
                     onClick={() => onSelectChoice(choice.choiceId)}
                     disabled={busy}
@@ -807,7 +810,7 @@ export function PromptOverlay({
                 <button
                   type="button"
                   key={choice.choiceId}
-                  className="prompt-choice-card"
+                  className="prompt-choice-card prompt-choice-card-emphasis"
                   data-testid={`generic-choice-${choice.choiceId}`}
                   onClick={() => onSelectChoice(choice.choiceId)}
                   disabled={busy}
@@ -825,7 +828,6 @@ export function PromptOverlay({
         </div>
 
         <div className="prompt-footer">
-          <p className="prompt-meta">{promptMetaLine(promptText, prompt.playerId, prompt.timeoutMs, secondsLeft)}</p>
           {feedbackMessage ? <p className="notice err">{cleanDisplayText(feedbackMessage)}</p> : null}
           {busy ? (
             <p className="notice ok">
