@@ -99,6 +99,48 @@ describe("streamSelectors", () => {
     expect(timeline[1].detail).toBe("accepted (worker ok)");
   });
 
+  it("formats canonical decision events with prompt context and worker status", () => {
+    const timeline = selectTimeline([
+      {
+        type: "event",
+        seq: 12,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_requested",
+          request_id: "req_buy_1",
+          request_type: "purchase_tile",
+          player_id: 2,
+          legal_choices: [{ choice_id: "yes" }, { choice_id: "no" }],
+          public_context: {
+            tile_index: 9,
+            external_ai_worker_id: "prod-bot-1",
+            external_ai_resolution_status: "resolved_by_worker",
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 13,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_resolved",
+          request_id: "req_buy_1",
+          player_id: 2,
+          resolution: "accepted",
+          choice_id: "yes",
+          public_context: {
+            external_ai_worker_id: "prod-bot-1",
+            external_ai_resolution_status: "resolved_by_worker",
+          },
+        },
+      },
+    ]);
+
+    expect(timeline[0].detail).toContain("외부 worker 처리 완료");
+    expect(timeline[1].detail).toContain("10번 칸");
+    expect(timeline[1].detail).toContain("선택지 2개");
+  });
+
   it("extracts situation and keeps weather persistence", () => {
     const situation = selectSituation([
       {
@@ -874,6 +916,47 @@ describe("streamSelectors", () => {
     expect(stage.externalAiWorkerId).toBe("prod-bot-1");
     expect(stage.externalAiResolutionStatus).toBe("resolved_by_worker");
     expect(stage.externalAiAttemptCount).toBe(1);
+    expect(stage.promptSummary).toContain("외부 worker 처리 완료");
+  });
+
+  it("keeps canonical request context visible inside the current turn stage decision beat", () => {
+    const stage = selectTurnStage([
+      {
+        type: "event",
+        seq: 340,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 4,
+          turn_index: 12,
+          acting_player_id: 2,
+          character: "Scholar",
+        },
+      },
+      {
+        type: "event",
+        seq: 341,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_requested",
+          round_index: 4,
+          turn_index: 12,
+          player_id: 2,
+          request_type: "purchase_tile",
+          legal_choices: [{ choice_id: "yes" }, { choice_id: "no" }],
+          public_context: {
+            tile_index: 7,
+            external_ai_worker_id: "prod-bot-1",
+            external_ai_resolution_status: "resolved_by_worker",
+          },
+        },
+      },
+    ]);
+
+    expect(stage.currentBeatKind).toBe("decision");
+    expect(stage.currentBeatDetail).toContain("8번 칸");
+    expect(stage.currentBeatDetail).toContain("선택지 2개");
+    expect(stage.currentBeatDetail).toContain("prod-bot-1");
   });
 
   it("includes landing tile position in landing summaries when available", () => {

@@ -25,6 +25,41 @@ class _TempRootSourceRegistry(RootSourceRegistry):
 
 
 class ParameterPropagationTests(unittest.TestCase):
+    def test_manifest_hash_changes_when_external_participant_parameters_change(self) -> None:
+        resolver = GameParameterResolver()
+        builder = PublicManifestBuilder()
+
+        before = builder.build_public_manifest(
+            resolver.resolve(
+                {
+                    "seed": 42,
+                    "participants": {
+                        "external_ai": {
+                            "transport": "http",
+                            "healthcheck_policy": "auto",
+                        }
+                    },
+                }
+            )
+        )
+        after = builder.build_public_manifest(
+            resolver.resolve(
+                {
+                    "seed": 42,
+                    "participants": {
+                        "external_ai": {
+                            "transport": "http",
+                            "healthcheck_policy": "required",
+                        }
+                    },
+                }
+            )
+        )
+
+        self.assertNotEqual(before["manifest_hash"], after["manifest_hash"])
+        self.assertEqual(before["participants"]["external_ai"]["healthcheck_policy"], "auto")
+        self.assertEqual(after["participants"]["external_ai"]["healthcheck_policy"], "required")
+
     def test_manifest_hash_changes_when_root_source_file_changes(self) -> None:
         resolver = GameParameterResolver()
         resolved = resolver.resolve({"seed": 42})

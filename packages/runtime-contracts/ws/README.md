@@ -20,6 +20,13 @@ Inbound (`server -> client`):
 
 Prompt payloads use canonical `legal_choices` as the primary choice list. A legacy `choices` field may still appear temporarily for compatibility, but frozen examples and new surfaces should prefer `legal_choices`.
 
+Decision lifecycle examples now also freeze external-participant metadata on `decision_requested`, including:
+
+- `legal_choices`
+- `public_context.tile_index`
+- `public_context.external_ai_worker_id`
+- `public_context.external_ai_resolution_status`
+
 Outbound (`client -> server`):
 
 - `resume`

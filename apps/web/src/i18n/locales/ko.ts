@@ -312,9 +312,30 @@ export const koLocale = {
     },
     actorDetail: (actor: string, detail: string) => `${actor} / ${detail}`,
     promptDetail: (actor: string, promptLabel: string) => `${actor} / ${promptLabel}`,
-    decisionRequestedDetail: (actor: string, promptLabel: string) => `${actor} / ${promptLabel}`,
+    decisionRequestedDetail: (
+      actor: string,
+      promptLabel: string,
+      tileDisplay?: string,
+      choiceCount?: number | null,
+      workerSummary?: string
+    ) => {
+      const parts = [actor, promptLabel];
+      if (tileDisplay && tileDisplay !== "-") {
+        parts.push(`${tileDisplay}번 칸`);
+      }
+      if (typeof choiceCount === "number" && choiceCount > 0) {
+        parts.push(`선택지 ${choiceCount}개`);
+      }
+      if (workerSummary && workerSummary !== "-") {
+        parts.push(workerSummary);
+      }
+      return parts.join(" / ");
+    },
     decisionAckDetail: (status: string, reason: string) => (reason && reason !== "-" ? `${status} (${reason})` : status),
-    decisionResolvedDetail: (resolution: string, choice: string) => (choice && choice !== "-" ? `${resolution} (${choice})` : resolution),
+    decisionResolvedDetail: (resolution: string, choice: string, workerSummary?: string) => {
+      const head = choice && choice !== "-" ? `${resolution} (${choice})` : resolution;
+      return workerSummary && workerSummary !== "-" ? `${head} / ${workerSummary}` : head;
+    },
     decisionTimeoutFallbackDetail: (
       summary: string,
       workerId?: string,

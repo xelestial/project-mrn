@@ -1,0 +1,24 @@
+{
+  "type": "event",
+  "seq": 420,
+  "session_id": "sess_external_decision_flow",
+  "server_time_ms": 1743210300000,
+  "payload": {
+    "event_type": "decision_requested",
+    "request_id": "req_turn4_purchase_tile",
+    "request_type": "purchase_tile",
+    "player_id": 2,
+    "provider": "ai",
+    "legal_choices": [
+      { "choice_id": "yes", "label": "Buy tile" },
+      { "choice_id": "no", "label": "Skip purchase", "priority": "secondary" }
+    ],
+    "public_context": {
+      "tile_index": 9,
+      "tile_purchase_cost": 4,
+      "external_ai_worker_id": "prod-bot-1",
+      "external_ai_resolution_status": "pending",
+      "participant_client": "external_ai"
+    }
+  }
+}

@@ -278,6 +278,22 @@ This is the practical next-work list after the closed slices above.
   2. widen longer mixed-seat E2E only when a new continuity case is missing
   3. keep hardening external-AI rollout controls without weakening the canonical decision lifecycle
 
+### 2026-04-07 Progress Update (canonical decision-context surfacing)
+
+- Canonical decision context is now surfaced more directly on the web:
+  - selector-side `decision_requested` detail now consumes:
+    - `public_context.tile_index`
+    - `legal_choices`
+    - external worker status summary
+  - selector-side `decision_resolved` detail now also preserves worker status summary when present
+  - current-turn stage detail therefore keeps:
+    - target tile
+    - legal choice count
+    - worker identity/status
+- Contract/reference coverage also expanded:
+  - a frozen WS example now covers `decision_requested` for an external-AI participant
+  - parameter propagation now explicitly proves participant runtime config (`healthcheck_policy`) changes the public manifest hash
+
 ### 2026-04-07 Progress Update (remote-turn worker status continuity)
 
 - Remote-turn continuity improved again around external-worker participation:

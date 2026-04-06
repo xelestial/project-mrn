@@ -44,6 +44,21 @@ Updated: 2026-04-07
   - only keep polishing remote-turn visuals where live evidence still reads like a feed
   - reserve broader worker upgrades for the next stronger-service slice
 
+### Entry 006
+
+- Scope: canonical decision-context surfacing + participant-parameter propagation proof.
+- Done:
+  - selector-side decision event detail now includes canonical tile/choice-count context and worker status through locale helpers
+  - current turn stage keeps that richer decision context inside the active beat detail
+  - added frozen WS example for an external-AI `decision_requested` event payload
+  - added propagation coverage showing external participant parameter changes alter the public manifest hash
+- Validation:
+  - targeted web selector regression
+  - targeted server contract/parameter propagation pytest
+- Next:
+  - keep any further decision-detail polishing locale-owned
+  - widen browser coverage only when a new mixed-seat continuity case appears
+
 ### Entry 002
 
 - Scope: selector locale ownership follow-up + timeout/fallback turn visibility.

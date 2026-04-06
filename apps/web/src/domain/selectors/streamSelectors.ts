@@ -405,12 +405,18 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
     const requestType = asString(payload["request_type"]);
     const pid = payload["player_id"];
     const actor = typeof pid === "number" ? `P${pid}` : "-";
-    return text.stream.decisionRequestedDetail(actor, promptLabelForType(requestType === "-" ? "" : requestType, text.promptType));
+    return text.stream.decisionRequestedDetail(
+      actor,
+      promptLabelForType(requestType === "-" ? "" : requestType, text.promptType),
+      promptTileDisplay(payload),
+      legalChoiceCount(payload),
+      workerSummaryFromPayload(payload, text)
+    );
   }
   if (eventType === "decision_resolved") {
     const resolution = asString(payload["resolution"]);
     const choice = asString(payload["choice_id"]);
-    return text.stream.decisionResolvedDetail(resolution, choice);
+    return text.stream.decisionResolvedDetail(resolution, choice, workerSummaryFromPayload(payload, text));
   }
   if (eventType === "decision_timeout_fallback") {
     const summary = asString(payload["summary"]);
@@ -913,6 +919,26 @@ function externalAiStatusFromPayload(payload: Record<string, unknown>): {
     resolutionStatus: asString(publicContext?.["external_ai_resolution_status"]),
     attemptCount: numberOrNull(publicContext?.["external_ai_attempt_count"]),
   };
+}
+
+function legalChoiceCount(payload: Record<string, unknown>): number | null {
+  return Array.isArray(payload["legal_choices"]) ? payload["legal_choices"].length : null;
+}
+
+function promptTileDisplay(payload: Record<string, unknown>): string {
+  const tileIndex = promptFocusTileIndex(payload);
+  return tileIndex === null ? "-" : String(tileIndex + 1);
+}
+
+function workerSummaryFromPayload(payload: Record<string, unknown>, text: StreamSelectorTextResources): string {
+  const status = externalAiStatusFromPayload(payload);
+  return text.turnStage.workerStatusSummary(
+    status.resolutionStatus,
+    status.workerId,
+    status.failureCode,
+    status.fallbackMode,
+    status.attemptCount
+  );
 }
 
 function promptFocusTileIndex(payload: Record<string, unknown>): number | null {

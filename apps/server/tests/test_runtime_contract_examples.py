@@ -84,6 +84,7 @@ class RuntimeContractExampleTests(unittest.TestCase):
 
         pairs = [
             ("inbound.event.schema.json", "inbound.event.parameter_manifest.json"),
+            ("inbound.event.schema.json", "inbound.event.decision_requested.external_ai.json"),
             ("inbound.prompt.schema.json", "inbound.prompt.movement.json"),
             ("inbound.decision_ack.schema.json", "inbound.decision_ack.accepted.json"),
             ("inbound.error.schema.json", "inbound.error.resume_gap_too_old.json"),

@@ -113,6 +113,7 @@ These are no longer the immediate blockers, but they are recently completed and 
   - payoff continuity now survives `turn_end_snapshot`
   - spectator and stage panels render explicit handoff/result cards
   - browser parity covers remote-turn continuity and handoff
+  - canonical decision context now stays visible inside current-turn stage details instead of collapsing to generic request labels
 - Main implementation references:
   - `apps/web/src/domain/selectors/streamSelectors.ts`
   - `apps/web/src/features/stage/SpectatorTurnPanel.tsx`
