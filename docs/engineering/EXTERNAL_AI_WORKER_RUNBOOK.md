@@ -26,6 +26,21 @@ Optional flags:
 curl http://127.0.0.1:8011/health
 ```
 
+If worker auth is enabled:
+
+```bash
+MRN_EXTERNAL_AI_AUTH_HEADER_NAME=X-Worker-Auth \
+MRN_EXTERNAL_AI_AUTH_SCHEME=Token \
+MRN_EXTERNAL_AI_AUTH_TOKEN=worker-secret \
+.venv311/bin/python tools/run_external_ai_worker.py --host 127.0.0.1 --port 8011
+```
+
+Then verify health with:
+
+```bash
+curl -H 'X-Worker-Auth: Token worker-secret' http://127.0.0.1:8011/health
+```
+
 Expected shape:
 
 ```json
@@ -68,6 +83,10 @@ Use `participant_client: "external_ai"` on an AI seat and provide an HTTP endpoi
       "external_ai": {
         "transport": "http",
         "contract_version": "v1",
+        "expected_worker_id": "local-bot-1",
+        "auth_token": "worker-secret",
+        "auth_header_name": "X-Worker-Auth",
+        "auth_scheme": "Token",
         "timeout_ms": 15000,
         "retry_count": 1,
         "backoff_ms": 250,
@@ -98,6 +117,7 @@ Important rules:
 - the worker should respond with one canonical `choice_id`
 - the worker should expose a matching `worker_contract_version`
 - the worker should advertise the capabilities required by the seat config
+- when configured, worker auth and `expected_worker_id` must match on both `/health` and `/decide`
 - the server owns timeout, retry, and fallback behavior
 - the server converts `choice_id` back into engine-native values through method-specific parsers
 

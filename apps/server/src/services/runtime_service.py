@@ -581,6 +581,7 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
                     response = self._sender(envelope) if self._sender is not None else _default_external_ai_http_sender(envelope)
                     if not isinstance(response, dict):
                         raise ValueError("external_ai_response_not_object")
+                    _validate_external_ai_identity(response, envelope.participant_config)
                     choice_id = response.get("choice_id")
                     if not isinstance(choice_id, str) or not choice_id.strip():
                         raise ValueError("external_ai_missing_choice_id")
@@ -602,7 +603,11 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
         if self._sender is not None and self._healthchecker is None:
             return
         checker = self._healthchecker or _default_external_ai_healthcheck
-        checker(dict(self._config))
+        payload = checker(dict(self._config))
+        if self._healthchecker is not None:
+            if not isinstance(payload, dict):
+                raise ValueError("external_ai_health_response_not_object")
+            _validate_external_ai_health_payload(payload, self._config)
 
 
 def _default_external_ai_http_sender(envelope: _ExternalAiDecisionEnvelope) -> dict[str, object]:
@@ -611,6 +616,7 @@ def _default_external_ai_http_sender(envelope: _ExternalAiDecisionEnvelope) -> d
         raise ValueError("external_ai_missing_endpoint")
     timeout_ms = int(envelope.participant_config.get("timeout_ms", 15000) or 15000)
     headers = {"Content-Type": "application/json"}
+    _merge_external_ai_auth_headers(headers, envelope.participant_config)
     raw_headers = envelope.participant_config.get("headers") or {}
     if isinstance(raw_headers, dict):
         for key, value in raw_headers.items():
@@ -626,6 +632,7 @@ def _default_external_ai_http_sender(envelope: _ExternalAiDecisionEnvelope) -> d
     parsed = json.loads(payload or "{}")
     if not isinstance(parsed, dict):
         raise ValueError("external_ai_response_not_object")
+    _validate_external_ai_identity(parsed, envelope.participant_config)
     return parsed
 
 
@@ -654,6 +661,7 @@ def _default_external_ai_healthcheck(config: dict[str, object]) -> dict[str, obj
     base_url = endpoint.rsplit("/", 1)[0] if "/" in endpoint[8:] else endpoint
     health_url = f"{base_url.rstrip('/')}/{healthcheck_path.lstrip('/')}"
     headers = {}
+    _merge_external_ai_auth_headers(headers, config)
     raw_headers = config.get("headers") or {}
     if isinstance(raw_headers, dict):
         for key, value in raw_headers.items():
@@ -668,20 +676,56 @@ def _default_external_ai_healthcheck(config: dict[str, object]) -> dict[str, obj
     parsed = json.loads(payload or "{}")
     if not isinstance(parsed, dict):
         raise ValueError("external_ai_health_response_not_object")
-    if parsed.get("ok") is not True:
+    _validate_external_ai_health_payload(
+        parsed,
+        {
+            **config,
+            "contract_version": required_version,
+            "required_capabilities": list(required_capabilities),
+        },
+    )
+    _EXTERNAL_AI_HEALTH_CACHE[cache_key] = (now, dict(parsed))
+    return parsed
+
+
+def _merge_external_ai_auth_headers(headers: dict[str, str], config: dict[str, object]) -> None:
+    auth_token = str(config.get("auth_token") or "").strip()
+    if not auth_token:
+        return
+    header_name = str(config.get("auth_header_name", "Authorization") or "Authorization").strip() or "Authorization"
+    auth_scheme = str(config.get("auth_scheme", "Bearer") or "Bearer").strip()
+    headers[header_name] = f"{auth_scheme} {auth_token}".strip() if auth_scheme else auth_token
+
+
+def _validate_external_ai_identity(payload: dict[str, object], config: dict[str, object]) -> None:
+    expected_worker_id = str(config.get("expected_worker_id") or "").strip()
+    if not expected_worker_id:
+        return
+    worker_id = str(payload.get("worker_id") or "").strip()
+    if worker_id != expected_worker_id:
+        raise RuntimeError("external_ai_worker_identity_mismatch")
+
+
+def _validate_external_ai_health_payload(payload: dict[str, object], config: dict[str, object]) -> None:
+    if payload.get("ok") is not True:
         raise RuntimeError("external_ai_health_not_ok")
-    worker_version = str(parsed.get("worker_contract_version") or "").strip().lower()
+    _validate_external_ai_identity(payload, config)
+    required_version = str(config.get("contract_version", "v1") or "v1").strip().lower()
+    worker_version = str(payload.get("worker_contract_version") or "").strip().lower()
     if required_version and worker_version and worker_version != required_version:
         raise RuntimeError("external_ai_contract_version_mismatch")
+    required_capabilities = {
+        str(item).strip()
+        for item in (config.get("required_capabilities") or [])
+        if isinstance(item, str) and str(item).strip()
+    }
     available_capabilities = {
         str(item).strip()
-        for item in (parsed.get("capabilities") or [])
+        for item in (payload.get("capabilities") or [])
         if isinstance(item, str) and str(item).strip()
     }
     if required_capabilities and not required_capabilities.issubset(available_capabilities):
         raise RuntimeError("external_ai_missing_required_capability")
-    _EXTERNAL_AI_HEALTH_CACHE[cache_key] = (now, dict(parsed))
-    return parsed
 
 
 class _LocalHumanDecisionClient:

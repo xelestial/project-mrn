@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 try:
     from fastapi.testclient import TestClient
@@ -89,6 +90,27 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         error = response.json()["detail"]["error"]
         self.assertEqual(error["message"], "unsupported_contract_version")
+
+    def test_auth_required_rejects_missing_or_wrong_header(self) -> None:
+        service = ExternalAiWorkerService(worker_id="worker-api-auth", policy_mode="heuristic_v3_gpt")
+        with patch.dict(
+            "os.environ",
+            {
+                "MRN_EXTERNAL_AI_AUTH_TOKEN": "worker-secret",
+                "MRN_EXTERNAL_AI_AUTH_HEADER_NAME": "X-Worker-Auth",
+                "MRN_EXTERNAL_AI_AUTH_SCHEME": "Token",
+            },
+            clear=False,
+        ):
+            client = TestClient(create_app(service))
+
+        unauthorized = client.get("/health")
+        self.assertEqual(unauthorized.status_code, 401)
+        self.assertEqual(unauthorized.json()["detail"]["error"]["code"], "EXTERNAL_AI_UNAUTHORIZED")
+
+        response = client.get("/health", headers={"X-Worker-Auth": "Token worker-secret"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["worker_id"], "worker-api-auth")
 
 
 if __name__ == "__main__":

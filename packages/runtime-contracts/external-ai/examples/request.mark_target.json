@@ -1,0 +1,36 @@
+{
+  "request_id": "sess_ext_mark_1_ext_aa11bb22",
+  "session_id": "sess_ext_mark_1",
+  "seat": 3,
+  "player_id": 3,
+  "decision_name": "choose_mark_target",
+  "request_type": "mark_target",
+  "fallback_policy": "ai",
+  "public_context": {
+    "round_index": 2,
+    "turn_index": 6,
+    "player_cash": 12,
+    "player_position": 15,
+    "player_shards": 4,
+    "actor_name": "Bandit"
+  },
+  "legal_choices": [
+    {
+      "choice_id": "1",
+      "title": "Target P1",
+      "value": {
+        "player_id": 1
+      }
+    },
+    {
+      "choice_id": "2",
+      "title": "Target P2",
+      "value": {
+        "player_id": 2
+      }
+    }
+  ],
+  "transport": "http",
+  "worker_contract_version": "v1",
+  "required_capabilities": ["choice_id_response", "healthcheck"]
+}

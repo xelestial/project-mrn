@@ -126,6 +126,7 @@ These are no longer the immediate blockers, but they are recently completed and 
   - runtime HTTP transport now has localhost end-to-end integration coverage against that worker
   - local run tooling and runbook are in place for attaching AI seats as real external participants
   - worker health / contract-version / capability metadata is now part of the operational seam
+  - auth-header and expected-worker-id validation are now part of the runtime/worker seam too
 - Main implementation references:
   - `apps/server/src/external_ai_app.py`
   - `apps/server/src/services/external_ai_worker_service.py`
@@ -170,6 +171,7 @@ These are the slices that should still actively drive implementation after the r
   - keep the web aligned to canonical request/public-context fields
   - keep the runtime/client seam stable as more capable external workers replace the reference implementation
   - keep selector-side sentence ownership moving into locale resources instead of inline formatter logic
+  - keep external-worker auth/identity/capability checks mandatory even for injected custom transports
 
 ## Active But Secondary Plans
 

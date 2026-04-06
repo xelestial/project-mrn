@@ -145,9 +145,13 @@ class RuntimeContractExampleTests(unittest.TestCase):
             ("request.schema.json", "request.purchase_tile.json"),
             ("request.schema.json", "request.movement.json"),
             ("request.schema.json", "request.lap_reward.json"),
+            ("request.schema.json", "request.mark_target.json"),
+            ("request.schema.json", "request.active_flip.json"),
             ("response.schema.json", "response.purchase_tile_yes.json"),
             ("response.schema.json", "response.movement_dice.json"),
             ("response.schema.json", "response.lap_reward_cash.json"),
+            ("response.schema.json", "response.mark_target_p1.json"),
+            ("response.schema.json", "response.active_flip_card_7.json"),
         ]
 
         for schema_name, example_name in pairs:

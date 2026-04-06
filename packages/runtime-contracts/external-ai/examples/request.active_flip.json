@@ -1,0 +1,43 @@
+{
+  "request_id": "sess_ext_flip_1_ext_cc33dd44",
+  "session_id": "sess_ext_flip_1",
+  "seat": 4,
+  "player_id": 4,
+  "decision_name": "choose_active_flip_card",
+  "request_type": "active_flip",
+  "fallback_policy": "ai",
+  "public_context": {
+    "round_index": 3,
+    "turn_index": 1,
+    "player_cash": 9,
+    "player_position": 10,
+    "player_shards": 1
+  },
+  "legal_choices": [
+    {
+      "choice_id": "7",
+      "title": "Flip card 7",
+      "value": {
+        "card_id": 7
+      }
+    },
+    {
+      "choice_id": "8",
+      "title": "Flip card 8",
+      "value": {
+        "card_id": 8
+      }
+    },
+    {
+      "choice_id": "none",
+      "title": "Stop flipping",
+      "secondary": true,
+      "value": {
+        "card_id": null
+      }
+    }
+  ],
+  "transport": "http",
+  "worker_contract_version": "v1",
+  "required_capabilities": ["choice_id_response"]
+}

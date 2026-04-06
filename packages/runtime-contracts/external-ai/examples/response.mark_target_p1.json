@@ -1,0 +1,17 @@
+{
+  "choice_id": "1",
+  "choice_payload": {
+    "choice_id": "1",
+    "title": "Target P1",
+    "value": {
+      "player_id": 1
+    }
+  },
+  "worker_id": "bot-worker-1",
+  "policy_mode": "heuristic_v3_gpt",
+  "policy_class": "HeuristicPolicy",
+  "worker_contract_version": "v1",
+  "capabilities": ["choice_id_response", "choice_payload_echo", "healthcheck", "contract_v1"],
+  "supported_request_types": ["purchase_tile", "movement", "lap_reward", "mark_target"],
+  "required_capabilities": ["choice_id_response", "healthcheck"]
+}

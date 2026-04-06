@@ -230,14 +230,37 @@ This is the practical next-work list after the closed slices above.
 - External-AI runtime hardening also moved forward:
   - participant defaults now include:
     - `contract_version`
+    - `expected_worker_id`
+    - `auth_token`
+    - `auth_header_name`
+    - `auth_scheme`
     - `healthcheck_path`
     - `healthcheck_ttl_ms`
     - `required_capabilities`
   - runtime HTTP transport can preflight worker health / contract-version / capability compatibility
+  - worker auth / identity validation now applies even when custom sender or custom healthchecker seams are injected
   - frozen external-AI examples now cover:
     - `purchase_tile`
     - `movement`
     - `lap_reward`
+    - `mark_target`
+    - `active_flip`
+
+### 2026-04-07 Progress Update (external worker identity/auth hardening + mixed-seat regression)
+
+- The external participant seam is now closer to an operational multiplayer boundary:
+  - runtime validates `expected_worker_id` on both health and decision responses
+  - auth header merge is parameter-driven via:
+    - `auth_header_name`
+    - `auth_scheme`
+    - `auth_token`
+  - the worker app now actually reads the configured auth header name instead of only `Authorization`
+  - injected/custom sender and healthchecker seams no longer bypass identity validation
+- Regression coverage expanded:
+  - worker API auth-required coverage
+  - runtime fallback on worker-identity mismatch
+  - runtime validation for custom healthchecker identity mismatch
+  - mixed-seat browser runtime with `human_http + local_ai + external_ai` descriptors
 - Therefore the next practical order becomes:
   1. continue trimming remaining selector-owned phrasing
   2. keep using browser/runtime evidence to close any leftover rule-parity visuals

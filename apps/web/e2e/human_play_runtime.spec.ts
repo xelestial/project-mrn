@@ -119,7 +119,15 @@ async function installMockRuntime(
       status: string;
       host_token: string;
       join_tokens: Record<string, string>;
-      seats?: Array<{ seat: number; seat_type: "human" | "ai"; ai_profile?: string | null; player_id?: number | null; connected?: boolean }>;
+      seats?: Array<{
+        seat: number;
+        seat_type: "human" | "ai";
+        ai_profile?: string | null;
+        player_id?: number | null;
+        connected?: boolean;
+        participant_client?: "human_http" | "local_ai" | "external_ai";
+        participant_config?: Record<string, unknown>;
+      }>;
       parameter_manifest?: ManifestRecord;
     }>;
     joinResults?: Record<string, { session_id: string; seat: number; player_id: number; session_token: string; role: "seat" }>;
@@ -130,7 +138,15 @@ async function installMockRuntime(
         status: string;
         round_index?: number;
         turn_index?: number;
-        seats?: Array<{ seat: number; seat_type: "human" | "ai"; ai_profile?: string | null; player_id?: number | null; connected?: boolean }>;
+        seats?: Array<{
+          seat: number;
+          seat_type: "human" | "ai";
+          ai_profile?: string | null;
+          player_id?: number | null;
+          connected?: boolean;
+          participant_client?: "human_http" | "local_ai" | "external_ai";
+          participant_config?: Record<string, unknown>;
+        }>;
         parameter_manifest?: ManifestRecord;
       }
     >;
@@ -592,6 +608,85 @@ test("remote turn keeps lap reward, mark, and flip effects visible through spect
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("Card flip");
   await expect(page.getByTestId("turn-stage-spotlight-strip")).toContainText("Card flip");
   await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("P3");
+});
+
+test("mixed participant seats with external ai descriptors still load match runtime cleanly", async ({ page }) => {
+  const sessionId = "sess_mixed_participants_runtime";
+  const manifest = buildManifest({
+    hash: "mixed_participants_hash",
+    topology: "ring",
+    tileCount: 40,
+    seats: [1, 2, 3],
+  });
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({ seq: 1, sessionId, payload: { event_type: "parameter_manifest", parameter_manifest: manifest } }),
+        eventMessage({ seq: 2, sessionId, payload: { event_type: "round_start", round_index: 1 } }),
+        eventMessage({
+          seq: 3,
+          sessionId,
+          payload: { event_type: "weather_reveal", weather_name: "Dry Season", effect_text: "Rent increases by 1 on red tiles." },
+        }),
+        eventMessage({
+          seq: 4,
+          sessionId,
+          payload: { event_type: "turn_start", round_index: 1, turn_index: 2, acting_player_id: 3, character: "Surveyor" },
+        }),
+        eventMessage({
+          seq: 5,
+          sessionId,
+          payload: { event_type: "decision_requested", round_index: 1, turn_index: 2, player_id: 3, request_type: "movement", provider: "ai" },
+        }),
+        eventMessage({
+          seq: 6,
+          sessionId,
+          payload: { event_type: "decision_resolved", round_index: 1, turn_index: 2, player_id: 3, request_type: "movement", resolution: "auto", choice_id: "dice", provider: "ai" },
+        }),
+        eventMessage({
+          seq: 7,
+          sessionId,
+          payload: { event_type: "dice_roll", round_index: 1, turn_index: 2, player_id: 3, dice_total: 5 },
+        }),
+      ],
+    },
+    startedSessions: {
+      [sessionId]: {
+        session_id: sessionId,
+        status: "in_progress",
+        round_index: 1,
+        turn_index: 2,
+        seats: [
+          { seat: 1, seat_type: "human", connected: true, player_id: 1, participant_client: "human_http" },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced", participant_client: "local_ai" },
+          {
+            seat: 3,
+            seat_type: "ai",
+            connected: true,
+            player_id: 3,
+            ai_profile: "balanced",
+            participant_client: "external_ai",
+            participant_config: {
+              transport: "http",
+              endpoint: "http://worker.local/decide",
+              expected_worker_id: "bot-worker-1",
+            },
+          },
+        ],
+        parameter_manifest: manifest,
+      },
+    },
+  });
+
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_runtime`);
+
+  await expect(page.getByTestId("spectator-turn-panel")).toBeVisible();
+  await expect(page.getByTestId("spectator-turn-character")).toContainText("Surveyor");
+  await expect(page.getByTestId("spectator-turn-weather")).toContainText("Dry Season");
+  await expect(page.getByTestId("turn-stage-spotlight-strip")).toContainText("Dry Season");
+  await expect(page.getByTestId("prompt-overlay")).toHaveCount(0);
 });
 
 test("locale toggle persists across reload", async ({ page }) => {

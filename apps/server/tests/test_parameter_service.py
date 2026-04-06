@@ -68,6 +68,10 @@ class ParameterServiceTests(unittest.TestCase):
                     "external_ai": {
                         "transport": "http",
                         "contract_version": "v1",
+                        "expected_worker_id": "bot-worker-1",
+                        "auth_token": "worker-secret",
+                        "auth_header_name": "X-Worker-Auth",
+                        "auth_scheme": "Token",
                         "endpoint": "http://bot-worker.local/decide",
                         "timeout_ms": 9000,
                         "retry_count": 2,
@@ -90,6 +94,10 @@ class ParameterServiceTests(unittest.TestCase):
         self.assertEqual(resolved["dice"]["max_cards_per_turn"], 1)
         self.assertEqual(resolved["participants"]["external_ai"]["transport"], "http")
         self.assertEqual(resolved["participants"]["external_ai"]["contract_version"], "v1")
+        self.assertEqual(resolved["participants"]["external_ai"]["expected_worker_id"], "bot-worker-1")
+        self.assertEqual(resolved["participants"]["external_ai"]["auth_token"], "worker-secret")
+        self.assertEqual(resolved["participants"]["external_ai"]["auth_header_name"], "X-Worker-Auth")
+        self.assertEqual(resolved["participants"]["external_ai"]["auth_scheme"], "Token")
         self.assertEqual(resolved["participants"]["external_ai"]["timeout_ms"], 9000)
         self.assertEqual(resolved["participants"]["external_ai"]["retry_count"], 2)
         self.assertEqual(resolved["participants"]["external_ai"]["backoff_ms"], 100)
@@ -106,6 +114,12 @@ class ParameterServiceTests(unittest.TestCase):
     def test_resolve_rejects_invalid_external_ai_required_capabilities(self) -> None:
         with self.assertRaises(ParameterValidationError):
             self.resolver.resolve({"participants": {"external_ai": {"required_capabilities": "choice_id_response"}}})
+
+    def test_resolve_rejects_blank_external_ai_identity_fields(self) -> None:
+        with self.assertRaises(ParameterValidationError):
+            self.resolver.resolve({"participants": {"external_ai": {"expected_worker_id": "  "}}})
+        with self.assertRaises(ParameterValidationError):
+            self.resolver.resolve({"participants": {"external_ai": {"auth_token": "  "}}})
 
     def test_manifest_hash_changes_for_dice_and_economy_updates(self) -> None:
         base = self.manifest_builder.build_public_manifest(

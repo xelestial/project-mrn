@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from apps.server.src.core.error_payload import build_error_payload
@@ -47,9 +47,32 @@ def _service() -> ExternalAiWorkerService:
 def create_app(service: ExternalAiWorkerService | None = None) -> FastAPI:
     resolved_service = service or _service()
     app = FastAPI(title="MRN External AI Worker", version="0.1.0")
+    expected_auth_header = os.getenv("MRN_EXTERNAL_AI_AUTH_HEADER_NAME", "Authorization").strip() or "Authorization"
+    expected_auth_scheme = os.getenv("MRN_EXTERNAL_AI_AUTH_SCHEME", "Bearer").strip()
+    expected_auth_token = os.getenv("MRN_EXTERNAL_AI_AUTH_TOKEN", "").strip()
+
+    def _authorize(request: Request) -> None:
+        if not expected_auth_token:
+            return
+        provided = (request.headers.get(expected_auth_header) or "").strip()
+        expected = f"{expected_auth_scheme} {expected_auth_token}".strip() if expected_auth_scheme else expected_auth_token
+        if provided != expected:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "ok": False,
+                    "data": None,
+                    "error": build_error_payload(
+                        code="EXTERNAL_AI_UNAUTHORIZED",
+                        message="missing_or_invalid_worker_auth",
+                        retryable=False,
+                    ),
+                },
+            )
 
     @app.get("/health")
-    def health() -> dict[str, object]:
+    def health(request: Request) -> dict[str, object]:
+        _authorize(request)
         metadata = resolved_service.describe()
         return {
             "ok": True,
@@ -57,7 +80,11 @@ def create_app(service: ExternalAiWorkerService | None = None) -> FastAPI:
         }
 
     @app.post("/decide", response_model=ExternalAiDecisionResponse)
-    def decide(payload: ExternalAiDecisionRequest) -> dict[str, object]:
+    def decide(
+        payload: ExternalAiDecisionRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        _authorize(request)
         try:
             return resolved_service.decide(payload.model_dump())
         except ValueError as exc:

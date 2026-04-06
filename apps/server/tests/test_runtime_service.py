@@ -541,6 +541,105 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertEqual(result, "minus_one")
 
+    def test_http_external_transport_falls_back_when_worker_identity_mismatches(self) -> None:
+        from apps.server.src.services.runtime_service import _HttpExternalAiTransport
+
+        class _FakeAiPolicy:
+            def choose_pabal_dice_mode(self, state, player):  # noqa: ANN001
+                del state, player
+                return "minus_one"
+
+        class _FakeGateway:
+            def resolve_ai_decision(self, **kwargs):  # noqa: ANN003
+                return kwargs["resolver"]()
+
+        transport = _HttpExternalAiTransport(
+            session_id="sess_http_identity_1",
+            ai_fallback=_FakeAiPolicy(),
+            gateway=_FakeGateway(),  # type: ignore[arg-type]
+            seat=2,
+            config={
+                "transport": "http",
+                "endpoint": "http://bot-worker.local/decide",
+                "fallback_mode": "local_ai",
+                "expected_worker_id": "bot-worker-1",
+            },
+            healthchecker=lambda _config: {
+                "ok": True,
+                "worker_id": "bot-worker-1",
+                "worker_contract_version": "v1",
+                "capabilities": [],
+            },
+            sender=lambda _envelope: {"choice_id": "plus_one", "worker_id": "intruder-worker"},
+        )
+        state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+        player = type("Player", (), {"player_id": 1, "cash": 5, "position": 9, "shards": 1})()
+        call = build_routed_decision_call(
+            build_decision_invocation("choose_pabal_dice_mode", (state, player), {}),
+            fallback_policy="ai",
+        )
+
+        result = transport.resolve(call)
+
+        self.assertEqual(result, "minus_one")
+
+    def test_custom_healthchecker_still_validates_worker_identity(self) -> None:
+        from apps.server.src.services.runtime_service import _HttpExternalAiTransport
+
+        class _FakeAiPolicy:
+            def choose_pabal_dice_mode(self, state, player):  # noqa: ANN001
+                del state, player
+                return "minus_one"
+
+        class _FakeGateway:
+            def resolve_ai_decision(self, **kwargs):  # noqa: ANN003
+                return kwargs["resolver"]()
+
+        transport = _HttpExternalAiTransport(
+            session_id="sess_http_identity_2",
+            ai_fallback=_FakeAiPolicy(),
+            gateway=_FakeGateway(),  # type: ignore[arg-type]
+            seat=2,
+            config={
+                "transport": "http",
+                "endpoint": "http://bot-worker.local/decide",
+                "fallback_mode": "local_ai",
+                "expected_worker_id": "bot-worker-1",
+            },
+            healthchecker=lambda _config: {
+                "ok": True,
+                "worker_id": "intruder-worker",
+                "worker_contract_version": "v1",
+                "capabilities": [],
+            },
+            sender=lambda _envelope: {"choice_id": "plus_one", "worker_id": "bot-worker-1"},
+        )
+        state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+        player = type("Player", (), {"player_id": 1, "cash": 5, "position": 9, "shards": 1})()
+        call = build_routed_decision_call(
+            build_decision_invocation("choose_pabal_dice_mode", (state, player), {}),
+            fallback_policy="ai",
+        )
+
+        result = transport.resolve(call)
+
+        self.assertEqual(result, "minus_one")
+
+    def test_auth_headers_merge_custom_header_and_scheme(self) -> None:
+        from apps.server.src.services.runtime_service import _merge_external_ai_auth_headers
+
+        headers = {"Content-Type": "application/json"}
+        _merge_external_ai_auth_headers(
+            headers,
+            {
+                "auth_token": "worker-secret",
+                "auth_header_name": "X-Worker-Auth",
+                "auth_scheme": "Token",
+            },
+        )
+
+        self.assertEqual(headers["X-Worker-Auth"], "Token worker-secret")
+
     def test_http_external_transport_reaches_real_worker_over_localhost(self) -> None:
         try:
             import uvicorn

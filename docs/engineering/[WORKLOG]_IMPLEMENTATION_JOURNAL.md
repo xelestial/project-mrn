@@ -1,7 +1,7 @@
 # [WORKLOG] Implementation Journal
 
 Status: ACTIVE  
-Updated: 2026-04-04
+Updated: 2026-04-07
 
 ## Rules
 
@@ -9,6 +9,24 @@ Updated: 2026-04-04
 - For complex logic changes, write/update plan docs first, then implement.
 
 ## 2026-04-04
+
+## 2026-04-07
+
+### Entry 001
+
+- Scope: external AI auth/identity hardening + mixed-seat regression extension.
+- Done:
+  - runtime external-AI transport now validates `expected_worker_id` even when custom sender/healthchecker seams are injected
+  - worker app now honors configured auth header name/scheme/token on both `/health` and `/decide`
+  - session/API/parameter tests now cover external participant auth/identity fields
+  - frozen external-AI examples expanded with `mark_target` and `active_flip`
+  - browser E2E now covers mixed-seat session metadata including `human_http + local_ai + external_ai`
+- Validation:
+  - server pytest suite for runtime/session/worker contract
+  - web selector/build/e2e regression suite
+- Next:
+  - keep trimming selector-side wording ownership
+  - extend external worker operational path beyond the reference service
 
 ### Entry 001
 

@@ -141,6 +141,22 @@ class GameParameterResolver:
         contract_version = str(external_ai_raw.get("contract_version", "v1")).strip().lower()
         if not contract_version:
             raise ParameterValidationError("invalid_external_ai_contract_version")
+        expected_worker_id = external_ai_raw.get("expected_worker_id")
+        if expected_worker_id is not None and (
+            not isinstance(expected_worker_id, str) or not expected_worker_id.strip()
+        ):
+            raise ParameterValidationError("invalid_external_ai_expected_worker_id")
+        auth_token = external_ai_raw.get("auth_token")
+        if auth_token is not None and (
+            not isinstance(auth_token, str) or not auth_token.strip()
+        ):
+            raise ParameterValidationError("invalid_external_ai_auth_token")
+        auth_header_name = str(external_ai_raw.get("auth_header_name", "Authorization")).strip()
+        if not auth_header_name:
+            raise ParameterValidationError("invalid_external_ai_auth_header_name")
+        auth_scheme = str(external_ai_raw.get("auth_scheme", "Bearer")).strip()
+        if not auth_scheme:
+            raise ParameterValidationError("invalid_external_ai_auth_scheme")
 
         timeout_ms = external_ai_raw.get("timeout_ms", 15000)
         if not isinstance(timeout_ms, int) or timeout_ms <= 0:
@@ -186,6 +202,10 @@ class GameParameterResolver:
             "external_ai": {
                 "transport": transport,
                 "contract_version": contract_version,
+                "expected_worker_id": expected_worker_id.strip() if isinstance(expected_worker_id, str) else None,
+                "auth_token": auth_token.strip() if isinstance(auth_token, str) else None,
+                "auth_header_name": auth_header_name,
+                "auth_scheme": auth_scheme,
                 "timeout_ms": int(timeout_ms),
                 "retry_count": int(retry_count),
                 "backoff_ms": int(backoff_ms),

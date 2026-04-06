@@ -47,13 +47,21 @@ The request envelope also carries:
 
 - `worker_contract_version`
 - `required_capabilities`
+- optional worker identity / auth expectations via seat config:
+  - `expected_worker_id`
+  - `auth_header_name`
+  - `auth_scheme`
+  - `auth_token`
 
 The server can preflight worker health and capability compatibility before decision POSTs when seat config enables the default healthcheck path.
+Injected/custom senders and healthcheckers are still validated against the same worker identity and capability expectations.
 
 Frozen examples now cover:
 
 - `purchase_tile`
 - `movement`
 - `lap_reward`
+- `mark_target`
+- `active_flip`
 
 See `docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md` for a full local session example.
