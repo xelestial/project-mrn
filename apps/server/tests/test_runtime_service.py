@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from apps.server.src.services.decision_gateway import (
     build_decision_invocation,
+    build_decision_invocation_from_request,
     build_canonical_decision_request,
     build_routed_decision_call,
     build_public_context,
@@ -2561,6 +2562,77 @@ class RuntimeServiceTests(unittest.TestCase):
 
             self.assertEqual(result, "minus_one")
             self.assertEqual(ai_policy.calls, 1)
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_build_decision_invocation_from_engine_request_restores_state_and_player_prefix(self) -> None:
+        state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+        player = type("Player", (), {"player_id": 1, "cash": 9, "position": 12, "shards": 8})()
+        request = type(
+            "DecisionRequest",
+            (),
+            {
+                "decision_name": "choose_draft_card",
+                "state": state,
+                "player": player,
+                "args": ([3, 7],),
+                "kwargs": {},
+            },
+        )()
+
+        invocation = build_decision_invocation_from_request(request)
+
+        self.assertIs(invocation.state, state)
+        self.assertIs(invocation.player, player)
+        self.assertEqual(invocation.args, (state, player, [3, 7]))
+
+    def test_bridge_request_routes_engine_style_draft_request_through_ai_provider(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+
+        class _FakeAiPolicy:
+            def __init__(self) -> None:
+                self.calls: list[tuple[object, object, list[int]]] = []
+
+            def choose_draft_card(self, state, player, offered_cards):  # noqa: ANN001
+                self.calls.append((state, player, list(offered_cards)))
+                return offered_cards[0]
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            ai_policy = _FakeAiPolicy()
+            bridge = _ServerDecisionPolicyBridge(
+                session_id="sess_bridge_request_draft_ai",
+                human_seats=[],
+                ai_fallback=ai_policy,
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+            )
+            state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+            player = type("Player", (), {"player_id": 1, "cash": 9, "position": 12, "shards": 8})()
+            request = type(
+                "DecisionRequest",
+                (),
+                {
+                    "decision_name": "choose_draft_card",
+                    "state": state,
+                    "player": player,
+                    "args": ([5, 8],),
+                    "kwargs": {},
+                    "fallback_policy": "required",
+                },
+            )()
+
+            result = bridge.request(request)
+
+            self.assertEqual(result, 5)
+            self.assertEqual(ai_policy.calls, [(state, player, [5, 8])])
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)

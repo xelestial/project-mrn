@@ -748,9 +748,24 @@ def build_decision_invocation(method_name: str, args: tuple[Any, ...], kwargs: d
 
 
 def build_decision_invocation_from_request(request: Any) -> DecisionInvocation:
+    raw_args = tuple(getattr(request, "args", ()) or ())
+    state = getattr(request, "state", None)
+    player = getattr(request, "player", None)
+    if state is not None or player is not None:
+        if len(raw_args) >= 2 and raw_args[0] is state and raw_args[1] is player:
+            args = raw_args
+        else:
+            prefix: tuple[Any, ...] = ()
+            if state is not None:
+                prefix += (state,)
+            if player is not None:
+                prefix += (player,)
+            args = prefix + raw_args
+    else:
+        args = raw_args
     return build_decision_invocation(
         str(getattr(request, "decision_name")),
-        tuple(getattr(request, "args", ()) or ()),
+        args,
         dict(getattr(request, "kwargs", {}) or {}),
     )
 
