@@ -198,6 +198,38 @@ Implement in this order unless a blocker forces a swap:
   2. keep strengthening non-local turn scene payoff for fortune / purchase / rent
   3. continue reducing human/AI branch-local decision drift before later `DecisionPort` migration
 
+### 2026-04-06 Progress Update (remaining generic prompt split)
+
+- The remaining previously-generic prompt families:
+  - `runaway_step_choice`
+  - `coin_placement`
+  - `doctrine_relief`
+  - `geo_bonus`
+  now render on dedicated emphasized live-choice surfaces instead of the generic fallback grid.
+- Backend specialty coverage now also explicitly guards:
+  - `doctrine_relief`
+  - `burden_exchange`
+- Therefore the next immediate execution order is:
+  1. finish scene-grade payoff for fortune / purchase / rent so outcomes feel like events instead of feed entries
+  2. continue trimming any still-rare generic prompt fallback surfaces
+  3. after the above, move P0-1 from seam-coverage work toward typed provider cleanup / `DecisionPort` prep
+
+### 2026-04-06 Progress Update (specialty coverage checkpoint)
+
+- Specialty decision coverage now explicitly includes:
+  - `runaway_step_choice`
+  - `coin_placement`
+  - `geo_bonus`
+  in addition to the already-covered specialty paths.
+- Scene payoff cards also now use a shared pulse treatment so purchase / rent / fortune outcomes stand out more clearly during live turns.
+- Therefore the next immediate execution order is:
+  1. continue true human-play UX work:
+     - stronger fortune reveal staging
+     - richer purchase/rent event transitions
+     - remaining prompt-surface simplification
+  2. keep reducing any residual generic fallback prompt usage
+  3. only after that, return to typed provider cleanup and later `DecisionPort` migration
+
 ### 2026-04-06 Progress Update (locale persistence checkpoint)
 
 - Locale restore is now explicitly guarded:

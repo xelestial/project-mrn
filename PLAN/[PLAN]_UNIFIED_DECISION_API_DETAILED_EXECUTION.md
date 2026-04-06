@@ -430,3 +430,41 @@ P3 종료 조건:
     - `burden_exchange`
     - `runaway_step_choice`
     - `doctrine_relief`
+
+## 2026-04-06 Progress Update (doctrine / burden coverage)
+
+- Added explicit runtime coverage for AI:
+  - `choose_doctrine_relief_target`
+  - `choose_burden_exchange_on_supply`
+- Specialty method guards now explicitly cover at least:
+  - `purchase_tile`
+  - `mark_target`
+  - `active_flip`
+  - `specific_trick_reward`
+  - `doctrine_relief`
+  - `burden_exchange`
+- Result:
+  - specialty drift risk is now narrower and concentrated mainly in the remaining uncovered seams such as:
+    - `runaway_step_choice`
+    - `coin_placement`
+    - `geo_bonus`
+
+## 2026-04-06 Progress Update (remaining specialty seams covered)
+
+- Added explicit runtime coverage for AI:
+  - `choose_runaway_slave_step`
+  - `choose_coin_placement_tile`
+  - `choose_geo_bonus`
+- Specialty method guards now explicitly cover at least:
+  - `purchase_tile`
+  - `mark_target`
+  - `active_flip`
+  - `specific_trick_reward`
+  - `doctrine_relief`
+  - `burden_exchange`
+  - `runaway_step_choice`
+  - `coin_placement`
+  - `geo_bonus`
+- Result:
+  - the remaining branch-local drift risk is now less about untested specialty methods and more about the still-string-heavy bridge/provider structure itself
+  - next P0-1 value is concentrated in typed provider cleanup and later `DecisionPort` migration

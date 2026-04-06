@@ -125,6 +125,10 @@ function formatNumber(value: number | null): string {
   return value === null ? "-" : String(value);
 }
 
+function booleanFromValue(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
 function promptMetaLine(promptText: PromptText, playerId: number, timeoutMs: number, secondsLeft: number | null): string {
   return promptText.requestMeta("", playerId, timeoutMs, secondsLeft);
 }
@@ -456,6 +460,10 @@ export function PromptOverlay({
   const isActiveFlip = prompt.requestType === "active_flip";
   const isBurdenExchange = prompt.requestType === "burden_exchange";
   const isSpecificTrickReward = prompt.requestType === "specific_trick_reward";
+  const isRunawayChoice = prompt.requestType === "runaway_step_choice";
+  const isCoinPlacement = prompt.requestType === "coin_placement";
+  const isDoctrineRelief = prompt.requestType === "doctrine_relief";
+  const isGeoBonus = prompt.requestType === "geo_bonus";
 
   const currentTileIndex = numberFromContext(prompt.publicContext, "tile_index", "pos", "player_position");
   const currentCash = numberFromContext(prompt.publicContext, "player_cash", "cash");
@@ -464,7 +472,12 @@ export function PromptOverlay({
   const weatherName = stringFromContext(prompt.publicContext, "weather_name");
   const markActorName = stringFromContext(prompt.publicContext, "actor_name", "character_name");
   const markCandidateCount = prompt.choices.filter((choice) => choice.choiceId !== "none").length;
+  const doctrineCandidateCount = numberFromContext(prompt.publicContext, "candidate_count") ?? markCandidateCount;
   const movementPosition = numberFromContext(prompt.publicContext, "player_position", "pos");
+  const runawayOneShortPos = numberFromContext(prompt.publicContext, "one_short_pos");
+  const runawayBonusTargetPos = numberFromContext(prompt.publicContext, "bonus_target_pos");
+  const runawayBonusTargetKind = stringFromContext(prompt.publicContext, "bonus_target_kind");
+  const ownedTileCount = numberFromContext(prompt.publicContext, "owned_tile_count");
 
   if (collapsed) {
         return (
@@ -676,7 +689,7 @@ export function PromptOverlay({
                   {promptText.context.actorCharacter}: {markActorName || "-"}
                 </span>
                 <span className="prompt-summary-pill">
-                  {promptText.context.selectableTargets}: {String(markCandidateCount)}
+                  {promptText.context.selectableTargets}: {String(doctrineCandidateCount)}
                 </span>
                 <span className="prompt-summary-pill">
                   {promptText.context.currentPosition}: {tileLabel(currentTileIndex)}
@@ -903,6 +916,172 @@ export function PromptOverlay({
           </section>
         ) : null}
 
+        {isRunawayChoice ? (
+          <section className="prompt-section prompt-hand-stage">
+            <div className="prompt-section-summary">
+              <div className="prompt-summary-pill-row">
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentPosition}: {tileLabel(movementPosition)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {tileLabel(runawayOneShortPos)} {"->"} {tileLabel(runawayBonusTargetPos)}
+                </span>
+                {runawayBonusTargetKind ? <span className="prompt-summary-pill">{runawayBonusTargetKind}</span> : null}
+              </div>
+            </div>
+            <div className="prompt-choices prompt-choices-target">
+              {orderedChoices.map((choice) => {
+                const takeBonus = booleanFromValue(choice.value?.["take_bonus"]);
+                const normalized = normalizeChoiceText(prompt, choice, promptText);
+                return (
+                  <button
+                    type="button"
+                    key={choice.choiceId}
+                    className="prompt-choice-card prompt-choice-card-emphasis"
+                    data-testid={`runaway-choice-${choice.choiceId}`}
+                    onClick={() => onSelectChoice(choice.choiceId)}
+                    disabled={busy}
+                  >
+                    <div className="prompt-choice-topline">
+                      <strong>{normalized.title}</strong>
+                    </div>
+                    <div className="prompt-summary-pill-row">
+                      {takeBonus !== null ? (
+                        <span className="prompt-summary-pill">{takeBonus ? "+1" : "Stop"}</span>
+                      ) : null}
+                      <span className="prompt-summary-pill">
+                        {tileLabel(runawayOneShortPos)} {"->"} {tileLabel(runawayBonusTargetPos)}
+                      </span>
+                      {runawayBonusTargetKind ? <span className="prompt-summary-pill">{runawayBonusTargetKind}</span> : null}
+                    </div>
+                    <small>{normalized.description}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        {isCoinPlacement ? (
+          <section className="prompt-section prompt-hand-stage">
+            <div className="prompt-section-summary">
+              <div className="prompt-summary-pill-row">
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentCash}: {formatNumber(currentCash)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.selectableTargets}: {formatNumber(ownedTileCount)}
+                </span>
+              </div>
+            </div>
+            <div className="prompt-choices prompt-choices-target">
+              {orderedChoices.map((choice) => {
+                const tileIndex = asNumber(choice.value?.["tile_index"]);
+                const normalized = normalizeChoiceText(prompt, choice, promptText);
+                return (
+                  <button
+                    type="button"
+                    key={choice.choiceId}
+                    className="prompt-choice-card prompt-choice-card-emphasis"
+                    data-testid={`coin-placement-choice-${choice.choiceId}`}
+                    onClick={() => onSelectChoice(choice.choiceId)}
+                    disabled={busy}
+                  >
+                    <div className="prompt-choice-topline">
+                      <strong>{normalized.title}</strong>
+                    </div>
+                    <div className="prompt-summary-pill-row">
+                      {tileIndex !== null ? <span className="prompt-summary-pill">{tileLabel(tileIndex)}</span> : null}
+                      {currentZone ? <span className="prompt-summary-pill">{currentZone}</span> : null}
+                    </div>
+                    <small>{normalized.description}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        {isDoctrineRelief ? (
+          <section className="prompt-section prompt-hand-stage">
+            <div className="prompt-section-summary">
+              <div className="prompt-summary-pill-row">
+                <span className="prompt-summary-pill">
+                  {promptText.context.selectableTargets}: {String(markCandidateCount)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentCash}: {formatNumber(currentCash)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentShards}: {numberFromContext(prompt.publicContext, "player_shards", "shards") ?? "-"}
+                </span>
+              </div>
+            </div>
+            <div className="prompt-choices prompt-choices-target">
+              {orderedChoices.map((choice) => {
+                const targetPlayerId = asNumber(choice.value?.["target_player_id"]);
+                const normalized = normalizeChoiceText(prompt, choice, promptText);
+                return (
+                  <button
+                    type="button"
+                    key={choice.choiceId}
+                    className="prompt-choice-card prompt-choice-card-emphasis"
+                    data-testid={`doctrine-relief-choice-${choice.choiceId}`}
+                    onClick={() => onSelectChoice(choice.choiceId)}
+                    disabled={busy}
+                  >
+                    <div className="prompt-choice-topline">
+                      <strong>{normalized.title}</strong>
+                    </div>
+                    <div className="prompt-summary-pill-row">
+                      {targetPlayerId !== null ? <span className="prompt-summary-pill">P{targetPlayerId}</span> : null}
+                    </div>
+                    <small>{normalized.description}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        {isGeoBonus ? (
+          <section className="prompt-section prompt-hand-stage">
+            <div className="prompt-section-summary">
+              <div className="prompt-summary-pill-row">
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentCash}: {formatNumber(currentCash)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentShards}: {numberFromContext(prompt.publicContext, "player_shards", "shards") ?? "-"}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.currentCoins}: {numberFromContext(prompt.publicContext, "player_coins", "coins") ?? "-"}
+                </span>
+              </div>
+            </div>
+            <div className="prompt-choices prompt-choices-reward">
+              {orderedChoices.map((choice) => {
+                const normalized = normalizeChoiceText(prompt, choice, promptText);
+                return (
+                  <button
+                    type="button"
+                    key={choice.choiceId}
+                    className="prompt-choice-card prompt-choice-card-emphasis"
+                    data-testid={`geo-bonus-choice-${choice.choiceId}`}
+                    onClick={() => onSelectChoice(choice.choiceId)}
+                    disabled={busy}
+                  >
+                    <div className="prompt-choice-topline">
+                      <strong>{normalized.title}</strong>
+                    </div>
+                    <small>{normalized.description}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
         {prompt.requestType !== "movement" &&
         !isLapReward &&
         prompt.requestType !== "trick_to_use" &&
@@ -912,7 +1091,11 @@ export function PromptOverlay({
         !isMarkTarget &&
         !isActiveFlip &&
         !isBurdenExchange &&
-        !isSpecificTrickReward ? (
+        !isSpecificTrickReward &&
+        !isRunawayChoice &&
+        !isCoinPlacement &&
+        !isDoctrineRelief &&
+        !isGeoBonus ? (
           <section className="prompt-section">
             <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
             {orderedChoices.map((choice) => {

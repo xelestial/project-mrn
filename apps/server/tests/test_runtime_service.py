@@ -393,6 +393,280 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_ai_bridge_keeps_doctrine_relief_on_canonical_decision_flow(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+
+        class _FakeCandidate:
+            def __init__(self, player_id: int) -> None:
+                self.player_id = player_id
+
+        class _FakeAiPolicy:
+            def choose_doctrine_relief_target(self, state, player, candidates):  # noqa: ANN001
+                del state, player, candidates
+                return 4
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerDecisionPolicyBridge(
+                session_id="sess_ai_doctrine_bridge_test",
+                human_seats=[],
+                ai_fallback=_FakeAiPolicy(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+            )
+
+            state = type("State", (), {"rounds_completed": 3, "turn_index": 1})()
+            player = type("Player", (), {"player_id": 1, "cash": 8, "position": 10, "shards": 2})()
+            candidates = [_FakeCandidate(2), _FakeCandidate(4)]
+            result = bridge.choose_doctrine_relief_target(state, player, candidates)
+            self.assertEqual(result, 4)
+
+            published = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot("sess_ai_doctrine_bridge_test"),
+                loop,
+            ).result(timeout=2.0)
+            bridge_events = [
+                msg
+                for msg in published
+                if msg.type == "event" and msg.payload.get("player_id") == 2
+            ]
+            requested = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_requested"), None)
+            resolved = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_resolved"), None)
+            self.assertIsNotNone(requested)
+            self.assertIsNotNone(resolved)
+            self.assertLess(requested.seq, resolved.seq)
+            self.assertEqual(requested.payload.get("provider"), "ai")
+            self.assertEqual(resolved.payload.get("provider"), "ai")
+            self.assertEqual(requested.payload.get("request_type"), "doctrine_relief")
+            self.assertEqual(resolved.payload.get("choice_id"), "4")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_ai_bridge_keeps_burden_exchange_on_canonical_decision_flow(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+
+        class _FakeCard:
+            burden_cost = 4
+            name = "Heavy Burden"
+
+        class _FakeAiPolicy:
+            def choose_burden_exchange_on_supply(self, state, player, card):  # noqa: ANN001
+                del state, player, card
+                return True
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerDecisionPolicyBridge(
+                session_id="sess_ai_burden_bridge_test",
+                human_seats=[],
+                ai_fallback=_FakeAiPolicy(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+            )
+
+            state = type("State", (), {"rounds_completed": 4, "turn_index": 0})()
+            player = type("Player", (), {"player_id": 2, "cash": 12, "position": 18, "shards": 3})()
+            result = bridge.choose_burden_exchange_on_supply(state, player, _FakeCard())
+            self.assertTrue(result)
+
+            published = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot("sess_ai_burden_bridge_test"),
+                loop,
+            ).result(timeout=2.0)
+            bridge_events = [
+                msg
+                for msg in published
+                if msg.type == "event" and msg.payload.get("player_id") == 3
+            ]
+            requested = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_requested"), None)
+            resolved = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_resolved"), None)
+            self.assertIsNotNone(requested)
+            self.assertIsNotNone(resolved)
+            self.assertLess(requested.seq, resolved.seq)
+            self.assertEqual(requested.payload.get("provider"), "ai")
+            self.assertEqual(resolved.payload.get("provider"), "ai")
+            self.assertEqual(requested.payload.get("request_type"), "burden_exchange")
+            self.assertEqual(resolved.payload.get("choice_id"), "yes")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_ai_bridge_keeps_runaway_step_choice_on_canonical_decision_flow(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+
+        class _FakeAiPolicy:
+            def choose_runaway_slave_step(self, state, player, one_short_pos, bonus_target_pos, bonus_target_kind):  # noqa: ANN001
+                del state, player, one_short_pos, bonus_target_pos, bonus_target_kind
+                return True
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerDecisionPolicyBridge(
+                session_id="sess_ai_runaway_bridge_test",
+                human_seats=[],
+                ai_fallback=_FakeAiPolicy(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+            )
+
+            state = type("State", (), {"rounds_completed": 5, "turn_index": 0})()
+            player = type("Player", (), {"player_id": 0, "cash": 9, "position": 22, "shards": 5})()
+            result = bridge.choose_runaway_slave_step(state, player, 25, 26, "S")
+            self.assertTrue(result)
+
+            published = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot("sess_ai_runaway_bridge_test"),
+                loop,
+            ).result(timeout=2.0)
+            bridge_events = [
+                msg
+                for msg in published
+                if msg.type == "event" and msg.payload.get("player_id") == 1
+            ]
+            requested = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_requested"), None)
+            resolved = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_resolved"), None)
+            self.assertIsNotNone(requested)
+            self.assertIsNotNone(resolved)
+            self.assertLess(requested.seq, resolved.seq)
+            self.assertEqual(requested.payload.get("provider"), "ai")
+            self.assertEqual(resolved.payload.get("provider"), "ai")
+            self.assertEqual(requested.payload.get("request_type"), "runaway_step_choice")
+            self.assertEqual(resolved.payload.get("choice_id"), "yes")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_ai_bridge_keeps_coin_placement_on_canonical_decision_flow(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+
+        class _FakeAiPolicy:
+            def choose_coin_placement_tile(self, state, player):  # noqa: ANN001
+                del state, player
+                return 18
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerDecisionPolicyBridge(
+                session_id="sess_ai_coin_bridge_test",
+                human_seats=[],
+                ai_fallback=_FakeAiPolicy(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+            )
+
+            state = type("State", (), {"rounds_completed": 5, "turn_index": 2})()
+            player = type(
+                "Player",
+                (),
+                {
+                    "player_id": 1,
+                    "cash": 14,
+                    "position": 9,
+                    "shards": 4,
+                    "visited_owned_tile_indices": [6, 18, 27],
+                },
+            )()
+            result = bridge.choose_coin_placement_tile(state, player)
+            self.assertEqual(result, 18)
+
+            published = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot("sess_ai_coin_bridge_test"),
+                loop,
+            ).result(timeout=2.0)
+            bridge_events = [
+                msg
+                for msg in published
+                if msg.type == "event" and msg.payload.get("player_id") == 2
+            ]
+            requested = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_requested"), None)
+            resolved = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_resolved"), None)
+            self.assertIsNotNone(requested)
+            self.assertIsNotNone(resolved)
+            self.assertLess(requested.seq, resolved.seq)
+            self.assertEqual(requested.payload.get("provider"), "ai")
+            self.assertEqual(resolved.payload.get("provider"), "ai")
+            self.assertEqual(requested.payload.get("request_type"), "coin_placement")
+            self.assertEqual(resolved.payload.get("choice_id"), "18")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_ai_bridge_keeps_geo_bonus_on_canonical_decision_flow(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+
+        class _FakeAiPolicy:
+            def choose_geo_bonus(self, state, player, actor_name):  # noqa: ANN001
+                del state, player, actor_name
+                return "cash"
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerDecisionPolicyBridge(
+                session_id="sess_ai_geo_bridge_test",
+                human_seats=[],
+                ai_fallback=_FakeAiPolicy(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+            )
+
+            state = type("State", (), {"rounds_completed": 6, "turn_index": 3})()
+            player = type("Player", (), {"player_id": 3, "cash": 10, "position": 30, "shards": 6})()
+            result = bridge.choose_geo_bonus(state, player, "Surveyor")
+            self.assertEqual(result, "cash")
+
+            published = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot("sess_ai_geo_bridge_test"),
+                loop,
+            ).result(timeout=2.0)
+            bridge_events = [
+                msg
+                for msg in published
+                if msg.type == "event" and msg.payload.get("player_id") == 4
+            ]
+            requested = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_requested"), None)
+            resolved = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_resolved"), None)
+            self.assertIsNotNone(requested)
+            self.assertIsNotNone(resolved)
+            self.assertLess(requested.seq, resolved.seq)
+            self.assertEqual(requested.payload.get("provider"), "ai")
+            self.assertEqual(resolved.payload.get("provider"), "ai")
+            self.assertEqual(requested.payload.get("request_type"), "geo_bonus")
+            self.assertEqual(resolved.payload.get("choice_id"), "cash")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
     def test_human_bridge_replaces_inner_ask_with_server_prompt_flow(self) -> None:
         from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
 

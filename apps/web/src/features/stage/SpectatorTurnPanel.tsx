@@ -91,6 +91,14 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     spotlightCards.push({ key: "trick", title: turnStage.fields.trick, detail: model.trickSummary, tone: "effect" });
   }
   const journeyCards: JourneyCard[] = [];
+  if (hasValue(model.weatherName) || hasValue(model.weatherEffect)) {
+    journeyCards.push({
+      key: "weather",
+      label: app.spectatorFields.weather,
+      detail: joinVisible([model.weatherName, model.weatherEffect]),
+      tone: "effect",
+    });
+  }
   if (hasValue(model.character)) {
     journeyCards.push({
       key: "character",

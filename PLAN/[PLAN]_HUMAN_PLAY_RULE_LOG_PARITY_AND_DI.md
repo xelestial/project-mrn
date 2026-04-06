@@ -765,3 +765,24 @@ This order is chosen to stop further drift before additional feature edits.
   - stronger fortune reveal staging as a dedicated scene beat, not only a summary/result card
   - more animated purchase/rent outcome transitions
   - continued reduction of inspector feel in a few remaining generic/secondary prompt states
+
+## 2026-04-06 Remaining Generic Prompt Split Follow-up
+
+- The remaining secondary prompt families no longer use the plain generic choice grid:
+  - `runaway_step_choice`
+  - `coin_placement`
+  - `doctrine_relief`
+  - `geo_bonus`
+- They now render on the same emphasized live-choice surface used by the stronger prompt types, with context pills where available.
+- Spectator remote-turn continuity now also begins with a weather beat in the journey strip, so the public flow reads more like:
+  - weather
+  - character
+  - current choice
+  - movement
+  - landing
+  - payoff
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - stronger fortune reveal staging as a dedicated scene beat, not only summary/result text
+  - richer purchase/rent payoff transitions so outcomes feel more like board-game events
+  - further simplification for any still-generic fallback prompts such as rare/late specialty paths

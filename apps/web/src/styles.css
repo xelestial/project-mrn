@@ -378,6 +378,7 @@ body {
 .spectator-turn-card-payoff {
   border-width: 2px;
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.28);
+  animation: stagePayoffPulse 1.8s ease-in-out infinite;
 }
 
 .spectator-turn-card-payoff-economy {
@@ -458,6 +459,7 @@ body {
   border-radius: 14px;
   border: 1px solid rgba(76, 114, 177, 0.72);
   background: rgba(15, 26, 49, 0.84);
+  animation: stagePayoffPulse 2.2s ease-in-out infinite;
 }
 
 .spectator-turn-spotlight-card span {
@@ -1029,6 +1031,7 @@ body {
   border-radius: 14px;
   border: 1px solid rgba(76, 114, 177, 0.72);
   background: rgba(10, 22, 43, 0.82);
+  animation: stagePayoffPulse 2.2s ease-in-out infinite;
 }
 
 .turn-stage-spotlight-card span {
@@ -1200,6 +1203,7 @@ body {
   border-radius: 12px;
   border: 1px solid rgba(60, 95, 149, 0.78);
   background: rgba(11, 24, 46, 0.76);
+  animation: stagePayoffPulse 1.8s ease-in-out infinite;
 }
 
 .turn-stage-outcome-card span {
@@ -1519,6 +1523,18 @@ body {
   }
   100% {
     transform: scale(1);
+  }
+}
+
+@keyframes stagePayoffPulse {
+  0%,
+  100% {
+    transform: translateY(0);
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.22);
+  }
+  50% {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.34);
   }
 }
 

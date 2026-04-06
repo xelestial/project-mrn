@@ -1705,3 +1705,53 @@ Updated: 2026-04-04
   - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts` passed (`29 passed`)
   - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`3 passed`)
   - `python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_stream_api.py` passed (`13 passed, 13 skipped`)
+
+## 2026-04-06 Remaining Prompt Specialization / Doctrine-Burden Coverage
+
+- What changed:
+  - Split four remaining prompt families out of the generic fallback grid in `apps/web/src/features/prompt/PromptOverlay.tsx`:
+    - `runaway_step_choice`
+    - `coin_placement`
+    - `doctrine_relief`
+    - `geo_bonus`
+  - Each now renders on the emphasized live-choice surface with summary pills/context instead of the plain generic inspector list.
+  - Added weather as the first visible spectator journey beat in `apps/web/src/features/stage/SpectatorTurnPanel.tsx` so remote turns read more clearly as:
+    - weather
+    - character
+    - current choice
+    - movement
+    - landing
+    - payoff
+  - Added backend canonical lifecycle coverage for AI:
+    - `choose_doctrine_relief_target`
+    - `choose_burden_exchange_on_supply`
+- Why:
+  - a few secondary human prompts were still falling back to the generic choice list and breaking the “game UI, not inspector UI” goal
+  - spectator continuity still benefited from one stronger “weather starts the scene” beat
+  - specialty decision drift needed to shrink further before later provider / `DecisionPort` migration
+- Validation:
+  - `npm run build`
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts`
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts`
+  - `python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_stream_api.py` (`15 passed, 13 skipped`)
+
+## 2026-04-06 Final Specialty Coverage / Payoff Animation Follow-up
+
+- What changed:
+  - Added backend canonical lifecycle coverage for the remaining specialty AI decisions:
+    - `choose_runaway_slave_step`
+    - `choose_coin_placement_tile`
+    - `choose_geo_bonus`
+  - Raised scene payoff one more step in `apps/web/src/styles.css` by adding a shared pulse animation to:
+    - spectator payoff cards
+    - spectator spotlight cards
+    - turn-stage spotlight cards
+    - turn-stage outcome cards
+  - Result: purchase / rent / fortune outcomes now read more like active scene cards than flat status blocks.
+- Why:
+  - the unified decision boundary needed the remaining specialty seams covered before larger provider cleanup
+  - human-play recovery still benefits from stronger event-card emphasis even before deeper animation/transition work
+- Validation:
+  - `python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_stream_api.py` (`18 passed, 13 skipped`)
+  - `npm run build`
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts`
