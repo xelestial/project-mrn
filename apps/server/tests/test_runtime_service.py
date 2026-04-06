@@ -944,6 +944,111 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_mixed_bridge_routes_human_seat_choice_through_human_provider(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+
+        class _FakeAiPolicy:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def choose_pabal_dice_mode(self, state, player):  # noqa: ANN001
+                del state, player
+                self.calls += 1
+                return "plus_one"
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            ai_policy = _FakeAiPolicy()
+            bridge = _ServerDecisionPolicyBridge(
+                session_id="sess_mixed_human_provider",
+                human_seats=[0],
+                ai_fallback=ai_policy,
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+            )
+
+            state = type("State", (), {"rounds_completed": 1, "turn_index": 0})()
+            player = type("Player", (), {"player_id": 0, "cash": 10, "position": 3, "shards": 4})()
+            result: dict[str, str] = {}
+
+            def _run_wait() -> None:
+                result["choice"] = bridge.choose_pabal_dice_mode(state, player)
+
+            wait_thread = threading.Thread(target=_run_wait, daemon=True)
+            wait_thread.start()
+
+            pending_prompt = None
+            for _ in range(100):
+                with self.prompt_service._lock:  # type: ignore[attr-defined]
+                    pending_prompt = next(iter(self.prompt_service._pending.values()), None)  # type: ignore[attr-defined]
+                if pending_prompt is not None:
+                    break
+                time.sleep(0.01)
+
+            self.assertIsNotNone(pending_prompt)
+            assert pending_prompt is not None
+            self.prompt_service.submit_decision(
+                {
+                    "request_id": pending_prompt.request_id,
+                    "player_id": 1,
+                    "choice_id": "minus_one",
+                }
+            )
+
+            wait_thread.join(timeout=2.0)
+            self.assertEqual(result.get("choice"), "minus_one")
+            self.assertEqual(ai_policy.calls, 0)
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_mixed_bridge_routes_non_human_seat_choice_through_ai_provider(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+
+        class _FakeAiPolicy:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def choose_pabal_dice_mode(self, state, player):  # noqa: ANN001
+                del state, player
+                self.calls += 1
+                return "minus_one"
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            ai_policy = _FakeAiPolicy()
+            bridge = _ServerDecisionPolicyBridge(
+                session_id="sess_mixed_ai_provider",
+                human_seats=[0],
+                ai_fallback=ai_policy,
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+            )
+
+            state = type("State", (), {"rounds_completed": 1, "turn_index": 1})()
+            ai_player = type("Player", (), {"player_id": 1, "cash": 9, "position": 6, "shards": 5})()
+            choice = bridge.choose_pabal_dice_mode(state, ai_player)
+
+            self.assertEqual(choice, "minus_one")
+            self.assertEqual(ai_policy.calls, 1)
+            with self.prompt_service._lock:  # type: ignore[attr-defined]
+                self.assertEqual(len(self.prompt_service._pending), 0)  # type: ignore[attr-defined]
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
     def test_human_bridge_timeout_path_emits_resolved_before_timeout_event(self) -> None:
         from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
 

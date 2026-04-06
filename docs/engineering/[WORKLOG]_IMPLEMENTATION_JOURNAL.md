@@ -1955,3 +1955,19 @@ Updated: 2026-04-04
   - a shared method-spec registry reduces that drift without prematurely forcing the larger `DecisionPort` migration
 - Validation:
   - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_prompt_service.py apps/server/tests/test_stream_api.py apps/server/tests/test_runtime_contract_examples.py apps/server/tests/test_error_payload.py apps/server/tests/test_structured_log.py`
+
+## 2026-04-07 Typed Provider Cleanup Follow-up
+
+- What changed:
+  - Split `_ServerDecisionPolicyBridge` dispatch responsibilities in `apps/server/src/services/runtime_service.py` across:
+    - `_ServerHumanDecisionProvider`
+    - `_ServerAiDecisionProvider`
+  - Kept the bridge as the engine-facing adapter, but moved provider-specific execution behind explicit provider objects instead of concentrating human/AI logic in one branchy wrapper.
+  - Added mixed-seat dispatch coverage in `apps/server/tests/test_runtime_service.py` to confirm:
+    - human-seat prompt decisions do not fall through to the AI fallback provider
+    - non-human seats still route through the AI provider even when a human provider is present
+- Why:
+  - this is the next smallest step in the plan's typed-provider cleanup track
+  - it shrinks `_ServerDecisionPolicyBridge` toward provider selection and leaves provider-specific execution in narrower units ahead of a later `DecisionPort` migration
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py`

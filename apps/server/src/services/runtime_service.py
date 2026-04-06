@@ -309,17 +309,7 @@ class _ServerDecisionPolicyBridge:
         touch_activity,
         fallback_executor,
     ) -> None:
-        self._ai = ai_fallback
         self._human_seats = frozenset(int(seat) for seat in human_seats)
-        self._inner = None
-        if human_seats:
-            from viewer.human_policy import HumanHttpPolicy
-
-            self._inner = HumanHttpPolicy(
-                human_seat=human_seats[0],
-                human_seats=human_seats,
-                ai_fallback=ai_fallback,
-            )
         self._session_id = session_id
         self._gateway = DecisionGateway(
             session_id=session_id,
@@ -329,23 +319,50 @@ class _ServerDecisionPolicyBridge:
             touch_activity=touch_activity,
             fallback_executor=fallback_executor,
         )
-        if self._inner is not None:
-            # HumanHttpPolicy methods call self._ask(...). Override that callsite so
-            # engine decisions are bridged to server PromptService/WS instead of
-            # viewer-local in-process queues.
-            self._inner._ask = self._ask  # type: ignore[method-assign]
+        self._ai_provider = _ServerAiDecisionProvider(ai_fallback=ai_fallback, gateway=self._gateway)
+        self._human_provider = _ServerHumanDecisionProvider(
+            human_seats=human_seats,
+            ai_fallback=ai_fallback,
+            gateway=self._gateway,
+        )
+        self._inner = self._human_provider.policy if self._human_provider is not None else None
 
     def _is_human_seat(self, player_id: int) -> bool:
         return player_id in self._human_seats
 
     def _ask(self, prompt: dict, parser, fallback_fn):
-        if self._inner is not None:
-            self._inner._prompt_seq += 1
+        if self._human_provider is not None:
+            self._human_provider.bump_prompt_seq()
             prompt = dict(prompt)
-            prompt["prompt_instance_id"] = self._inner._prompt_seq
+            prompt["prompt_instance_id"] = self._human_provider.prompt_seq
         return self._gateway.resolve_human_prompt(prompt, parser, fallback_fn)
 
-    def _dispatch_ai_decision(self, method_name: str, args: tuple, kwargs: dict, ai_callable):
+    def __getattr__(self, name: str):
+        target = self._human_provider.policy if self._human_provider is not None and hasattr(self._human_provider.policy, name) else self._ai_provider.policy
+        attr = getattr(target, name)
+        if not name.startswith("choose_") or not callable(attr):
+            return attr
+
+        def _wrapped(*args, **kwargs):
+            player = args[1] if len(args) > 1 else kwargs.get("player")
+            player_id = getattr(player, "player_id", None)
+            if isinstance(player_id, int) and self._is_human_seat(player_id) and self._human_provider is not None:
+                return self._human_provider.call(name, *args, **kwargs)
+            return self._ai_provider.call(name, *args, **kwargs)
+
+        return _wrapped
+
+
+_ServerHumanPolicyBridge = _ServerDecisionPolicyBridge
+
+
+class _ServerAiDecisionProvider:
+    def __init__(self, *, ai_fallback, gateway: DecisionGateway) -> None:
+        self.policy = ai_fallback
+        self._gateway = gateway
+
+    def call(self, method_name: str, *args, **kwargs):
+        ai_callable = getattr(self.policy, method_name)
         player = args[1] if len(args) > 1 else kwargs.get("player")
         player_id = int(getattr(player, "player_id", -1)) + 1
         decision_method = prepare_decision_method(method_name, args, kwargs)
@@ -357,24 +374,39 @@ class _ServerDecisionPolicyBridge:
             choice_serializer=decision_method.choice_serializer,
         )
 
-    def __getattr__(self, name: str):
-        target = self._inner if self._inner is not None and hasattr(self._inner, name) else self._ai
-        attr = getattr(target, name)
-        if not name.startswith("choose_") or not callable(attr):
-            return attr
 
-        def _wrapped(*args, **kwargs):
-            player = args[1] if len(args) > 1 else kwargs.get("player")
-            player_id = getattr(player, "player_id", None)
-            if isinstance(player_id, int) and self._is_human_seat(player_id) and self._inner is not None:
-                return attr(*args, **kwargs)
-            ai_attr = getattr(self._ai, name)
-            return self._dispatch_ai_decision(name, args, kwargs, ai_attr)
+class _ServerHumanDecisionProvider:
+    def __init__(self, *, human_seats: list[int], ai_fallback, gateway: DecisionGateway) -> None:
+        if not human_seats:
+            self.policy = None
+            return
+        from viewer.human_policy import HumanHttpPolicy
 
-        return _wrapped
+        self.policy = HumanHttpPolicy(
+            human_seat=human_seats[0],
+            human_seats=human_seats,
+            ai_fallback=ai_fallback,
+        )
+        self.policy._ask = self._ask  # type: ignore[method-assign]
+        self._gateway = gateway
 
+    @property
+    def prompt_seq(self) -> int:
+        if self.policy is None:
+            return 0
+        return int(getattr(self.policy, "_prompt_seq", 0))
 
-_ServerHumanPolicyBridge = _ServerDecisionPolicyBridge
+    def bump_prompt_seq(self) -> None:
+        if self.policy is not None:
+            self.policy._prompt_seq += 1  # type: ignore[attr-defined]
+
+    def _ask(self, prompt: dict, parser, fallback_fn):
+        return self._gateway.resolve_human_prompt(prompt, parser, fallback_fn)
+
+    def call(self, method_name: str, *args, **kwargs):
+        if self.policy is None:
+            raise AttributeError(method_name)
+        return getattr(self.policy, method_name)(*args, **kwargs)
 
 
 class _FanoutVisEventStream:
