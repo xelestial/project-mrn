@@ -2026,3 +2026,18 @@ Updated: 2026-04-04
 - Validation:
   - `.venv311/bin/python -m pytest GPT/test_decision_port_contract.py GPT/test_draft_three_players.py GPT/test_event_effects.py`
   - note: `.venv311/bin/python -m pytest GPT/test_policy_hooks.py` still has an unrelated existing failure in `RuleScriptTests.test_default_rule_scripts_loaded` (`engine.rule_scripts.scripts == {}`), so it was not used as the gating pass for this slice
+
+## 2026-04-07 Engine Decision Port Prep (Phase 2)
+
+- What changed:
+  - Routed the next engine decision slice through `GameEngine._request_decision(...)` as well:
+    - `choose_mark_target`
+    - `choose_lap_reward`
+    - `choose_active_flip_card`
+    - `choose_runaway_slave_step`
+  - Extended `GPT/test_decision_port_contract.py` so the injected port now verifies both PR-05 and PR-06 style engine request emission.
+- Why:
+  - this keeps the engine migration moving in the plan's intended order without jumping straight to a fully rewritten `DecisionPort` API
+  - with both the first and second decision waves routed through the port seam, the remaining work before later engine-side consolidation is much narrower
+- Validation:
+  - `.venv311/bin/python -m pytest GPT/test_decision_port_contract.py GPT/test_draft_three_players.py GPT/test_event_effects.py`

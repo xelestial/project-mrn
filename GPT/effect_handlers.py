@@ -551,7 +551,7 @@ class EngineEffectHandlers:
         remaining_cards = list(flippable_cards)
         flipped_events: list[dict] = []
         while remaining_cards:
-            chosen_card = engine.policy.choose_active_flip_card(state, owner, list(remaining_cards))
+            chosen_card = engine._request_decision("choose_active_flip_card", state, owner, list(remaining_cards))
             flip_debug = engine.policy.pop_debug("marker_flip", owner.player_id) if hasattr(engine.policy, "pop_debug") else None
             if chosen_card is None:
                 if not flipped_events:
@@ -641,7 +641,7 @@ class EngineEffectHandlers:
                 outcome = engine._pay_or_bankrupt(state, player, 2, None)
                 return {"choice": "blocked_by_weather", "cash_penalty": 2, **outcome}
             return {"choice": "blocked"}
-        decision = engine.policy.choose_lap_reward(state, player)
+        decision = engine._request_decision("choose_lap_reward", state, player)
         lap_debug = engine.policy.pop_debug("lap_reward", player.player_id) if hasattr(engine.policy, "pop_debug") else None
         stats = engine._strategy_stats[player.player_id]
         rules = state.config.rules.lap_reward

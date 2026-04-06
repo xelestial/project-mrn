@@ -1048,7 +1048,7 @@ class GameEngine:
         is_front_face = self._is_character_front_face(player)
 
         def _resolve_mark_target() -> tuple[Optional[str], dict | None]:
-            requested = self.policy.choose_mark_target(state, player, char)
+            requested = self._request_decision("choose_mark_target", state, player, char)
             target, coerced = self._coerce_mark_target_character(state, player, requested)
             mark_debug_local = self.policy.pop_debug("mark_target", player.player_id) if hasattr(self.policy, "pop_debug") else None
             if mark_debug_local is not None and coerced:
@@ -1129,7 +1129,7 @@ class GameEngine:
         is_front_face = self._is_character_front_face(player)
 
         def _resolve_mark_target() -> tuple[Optional[str], dict | None]:
-            requested = self.policy.choose_mark_target(state, player, char)
+            requested = self._request_decision("choose_mark_target", state, player, char)
             target, coerced = self._coerce_mark_target_character(state, player, requested)
             mark_debug_local = self.policy.pop_debug("mark_target", player.player_id) if hasattr(self.policy, "pop_debug") else None
             if mark_debug_local is not None and coerced:
@@ -2040,18 +2040,17 @@ class GameEngine:
             target_pos = (one_short_pos + 1) % board_len
             target_kind = state.board[target_pos]
             if target_kind in {CellKind.F1, CellKind.F2, CellKind.S}:
-                chooser = getattr(self.policy, "choose_runaway_slave_step", None)
-                choose_bonus = True
-                if callable(chooser):
-                    choose_bonus = bool(
-                        chooser(
-                            state,
-                            player,
-                            one_short_pos,
-                            target_pos,
-                            target_kind,
-                        )
+                choose_bonus = bool(
+                    self._request_decision(
+                        "choose_runaway_slave_step",
+                        state,
+                        player,
+                        one_short_pos,
+                        target_pos,
+                        target_kind,
+                        fallback=lambda: True,
                     )
+                )
                 if choose_bonus:
                     move += 1
                     runaway_choice = "take_bonus"

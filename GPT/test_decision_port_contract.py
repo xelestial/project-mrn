@@ -4,8 +4,8 @@ import random
 import unittest
 from unittest.mock import patch
 
-from ai_policy import MovementDecision
-from config import DEFAULT_CONFIG
+from ai_policy import LapRewardDecision, MovementDecision
+from config import DEFAULT_CONFIG, CellKind
 from engine import DecisionRequest, GameEngine
 from state import GameState
 from test_event_effects import DummyPolicy
@@ -71,6 +71,14 @@ class RecordingDecisionPort:
         if request.decision_name == "choose_trick_to_use":
             return request.args[0][0] if request.args and request.args[0] else None
         if request.decision_name == "choose_purchase_tile":
+            return False
+        if request.decision_name == "choose_mark_target":
+            return "선비"
+        if request.decision_name == "choose_lap_reward":
+            return LapRewardDecision("cash")
+        if request.decision_name == "choose_active_flip_card":
+            return None
+        if request.decision_name == "choose_runaway_slave_step":
             return False
         raise AssertionError(f"unexpected decision request: {request.decision_name}")
 
@@ -139,6 +147,64 @@ class DecisionPortContractTests(unittest.TestCase):
         purchase_request = next(request for request in port.requests if request.decision_name == "choose_purchase_tile")
         self.assertEqual(purchase_request.kwargs["source"], "landing_purchase")
         self.assertEqual(purchase_request.args[0], land_pos)
+
+    def test_apply_character_start_routes_mark_target_through_decision_port(self) -> None:
+        port = RecordingDecisionPort()
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=False, decision_port=port)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        player.current_character = "아전"
+        engine._strategy_stats = _strategy_stats(DEFAULT_CONFIG.player_count)
+
+        with patch.object(engine, "_character_card_no", return_value=2), patch.object(
+            engine, "_is_character_front_face", return_value=True
+        ), patch.object(engine, "_coerce_mark_target_character", return_value=("선비", False)), patch.object(
+            engine, "_queue_mark", return_value=None
+        ), patch.object(engine, "_find_player_by_character", return_value=None):
+            engine._apply_character_start(state, player)
+
+        self.assertIn("choose_mark_target", [request.decision_name for request in port.requests])
+
+    def test_apply_lap_reward_routes_through_decision_port(self) -> None:
+        port = RecordingDecisionPort()
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=False, decision_port=port)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        engine._strategy_stats = _strategy_stats(DEFAULT_CONFIG.player_count)
+
+        result = engine._apply_lap_reward(state, player)
+
+        self.assertEqual(result["choice"], "cash")
+        self.assertIn("choose_lap_reward", [request.decision_name for request in port.requests])
+
+    def test_handle_marker_flip_routes_active_flip_through_decision_port(self) -> None:
+        port = RecordingDecisionPort()
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=False, decision_port=port)
+        state = GameState.create(DEFAULT_CONFIG)
+        state.pending_marker_flip_owner_id = 0
+        owner = state.players[0]
+        owner.current_character = "아전"
+        engine._strategy_stats = _strategy_stats(DEFAULT_CONFIG.player_count)
+
+        result = engine.effect_handlers.handle_marker_flip(state)
+
+        self.assertEqual(result["event"], "marker_flip_skip")
+        self.assertIn("choose_active_flip_card", [request.decision_name for request in port.requests])
+
+    def test_resolve_move_routes_runaway_step_choice_through_decision_port(self) -> None:
+        port = RecordingDecisionPort()
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=False, decision_port=port)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        player.current_character = "탈출 노비"
+        target_pos = next(i for i, cell in enumerate(state.board) if cell in {CellKind.F1, CellKind.F2, CellKind.S})
+        player.position = (target_pos - 3) % len(state.board)
+
+        move, meta = engine._resolve_move(state, player, MovementDecision(True, (1, 1)))
+
+        self.assertEqual(move, 2)
+        self.assertEqual(meta["runaway_choice"], "stay")
+        self.assertIn("choose_runaway_slave_step", [request.decision_name for request in port.requests])
 
 
 if __name__ == "__main__":
