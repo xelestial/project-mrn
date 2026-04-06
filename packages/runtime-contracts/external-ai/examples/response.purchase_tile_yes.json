@@ -1,4 +1,13 @@
 {
   "choice_id": "yes",
-  "worker_id": "bot-worker-1"
+  "choice_payload": {
+    "choice_id": "yes",
+    "title": "Buy tile",
+    "value": {
+      "purchased": true
+    }
+  },
+  "worker_id": "bot-worker-1",
+  "policy_mode": "heuristic_v3_gpt",
+  "policy_class": "HeuristicPolicy"
 }

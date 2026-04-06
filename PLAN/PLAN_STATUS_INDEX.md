@@ -118,6 +118,19 @@ These are no longer the immediate blockers, but they are recently completed and 
   - `apps/web/src/features/stage/SpectatorTurnPanel.tsx`
   - `apps/web/src/features/stage/TurnStagePanel.tsx`
 
+### E. External AI worker/service mounting
+- Status:
+  - closed for the current open-participant slice
+- What was finished:
+  - a reference external AI worker now exists as a real HTTP service
+  - runtime HTTP transport now has localhost end-to-end integration coverage against that worker
+  - local run tooling and runbook are in place for attaching AI seats as real external participants
+- Main implementation references:
+  - `apps/server/src/external_ai_app.py`
+  - `apps/server/src/services/external_ai_worker_service.py`
+  - `apps/server/tests/test_external_ai_worker_api.py`
+  - `docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md`
+
 ## Carry-Forward Work
 
 These are the slices that should still actively drive implementation after the recently-closed work above.
@@ -149,11 +162,11 @@ These are the slices that should still actively drive implementation after the r
   - canonical lifecycle coverage is much stronger, but the remaining value is now concentrated in:
     - final bridge/router simplification
     - canonical request consumption on the web
-    - follow-on contract/schema closure
+    - external worker hardening beyond the reference service
 - Expected direction:
   - keep shrinking residual human/AI branch-local logic
   - keep the web aligned to canonical request/public-context fields
-  - close the remaining gap between engine/server canonical requests and shared contract artifacts
+  - keep the runtime/client seam stable as more capable external workers replace the reference implementation
 
 ## Active But Secondary Plans
 

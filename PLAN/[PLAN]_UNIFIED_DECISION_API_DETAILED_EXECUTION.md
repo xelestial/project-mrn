@@ -572,3 +572,23 @@ P3 종료 조건:
   - `packages/runtime-contracts/external-ai/examples/response.purchase_tile_yes.json`
 - Result:
   - the next step is now integration work against a real worker/service, not more server-internal seam invention
+
+## 2026-04-07 Progress Update (real external worker mount)
+
+- Added a reference external AI worker service:
+  - `apps/server/src/services/external_ai_worker_service.py`
+  - contract-driven selection from canonical `legal_choices`
+  - response includes canonical `choice_id` plus matched `choice_payload`
+- Added a runnable worker app:
+  - `apps/server/src/external_ai_app.py`
+  - endpoints:
+    - `GET /health`
+    - `POST /decide`
+- Added local run tooling and operator docs:
+  - `tools/run_external_ai_worker.py`
+  - `docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md`
+- Added integration coverage that uses the real HTTP path:
+  - worker API contract tests
+  - runtime transport localhost round-trip against the worker app
+- Result:
+  - `external_ai` seats can now participate through a real HTTP worker in local/runtime integration, not only through a seam or placeholder adapter

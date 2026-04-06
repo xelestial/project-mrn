@@ -2245,3 +2245,27 @@ Updated: 2026-04-04
   - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_parameter_service.py apps/server/tests/test_session_service.py apps/server/tests/test_sessions_api.py apps/server/tests/test_runtime_contract_examples.py`
   - `.venv311/bin/python -m pytest apps/server/tests/test_parameter_manifest_snapshot.py apps/server/tests/test_parameter_propagation.py apps/server/tests/test_prompt_service.py apps/server/tests/test_stream_api.py GPT/test_decision_port_contract.py GPT/test_draft_three_players.py GPT/test_event_effects.py`
   - `.venv311/bin/python -m py_compile apps/server/src/services/decision_gateway.py apps/server/src/services/runtime_service.py apps/server/src/services/parameter_service.py apps/server/src/services/session_service.py`
+
+## 2026-04-07 External AI Worker Mount
+
+- What changed:
+  - Added a reference worker service at `apps/server/src/services/external_ai_worker_service.py`
+    - it consumes canonical external-AI request envelopes
+    - it chooses one `choice_id` from `legal_choices`
+    - it returns the matched `choice_payload` for easier inspection/debugging
+    - it stays connected to the existing policy vocabulary through `PolicyFactory`
+  - Added a runnable FastAPI worker app at `apps/server/src/external_ai_app.py`
+    - `GET /health`
+    - `POST /decide`
+  - Added local developer tooling and documentation:
+    - `tools/run_external_ai_worker.py`
+    - `docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md`
+  - Added worker-level and real transport-level regression coverage:
+    - `apps/server/tests/test_external_ai_worker_api.py`
+    - localhost HTTP round-trip coverage in `apps/server/tests/test_runtime_service.py`
+  - Refreshed the frozen response example because worker responses now include `choice_payload` plus policy metadata.
+- Why:
+  - the previous slice proved the HTTP seam and frozen artifacts, but a real multiplayer-like participant model still needed an actual worker process/service to answer over HTTP
+  - this closes that gap for local/runtime integration and makes `external_ai` a live participant path instead of a future-only placeholder
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_runtime_service.py apps/server/tests/test_runtime_contract_examples.py`

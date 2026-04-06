@@ -158,9 +158,9 @@ These are finished enough that they should not be reopened unless regression evi
 
 This is the practical next-work list after the closed slices above.
 
-1. mount a real external AI worker/service against the frozen HTTP contract
-2. continue selector-generated locale ownership reduction
-3. use regression evidence to close any remaining rule-parity visual gaps
+1. continue selector-generated locale ownership reduction
+2. use regression evidence to close any remaining rule-parity visual gaps
+3. harden the external-AI participant path beyond the reference worker
 
 ### 2026-04-07 Progress Update (DecisionPort + frontend canonical prompt checkpoint)
 
@@ -193,9 +193,25 @@ This is the practical next-work list after the closed slices above.
        - choice-id parsers back into engine-native results
        - retry / backoff / fallback policy
   4. the next immediate execution order is therefore:
-     - connect a real external worker/service to the frozen HTTP contract
+     - the reference external worker/service is now mounted against the frozen HTTP contract
      - continue trimming selector-owned phrasing
      - only then widen parameter/profile expansion
+
+### 2026-04-07 Progress Update (external AI worker mount)
+
+- The frozen external-AI contract is now exercised by a real worker service, not only by server-local seams:
+  - `apps/server/src/external_ai_app.py` exposes `/health` and `/decide`
+  - `apps/server/src/services/external_ai_worker_service.py` selects canonical `choice_id` values from `legal_choices`
+  - worker responses now also include matched `choice_payload` metadata for debugging/inspection
+  - `tools/run_external_ai_worker.py` is the local runner for dev/test
+  - `docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md` documents startup, health checks, and session payload wiring
+- Regression coverage now includes:
+  - worker API contract tests
+  - real localhost HTTP round-trip from runtime transport to worker app
+- Therefore the practical next-work list becomes:
+  1. continue selector-generated locale ownership reduction
+  2. keep closing rule-parity visual gaps where replay/live evidence shows drift
+  3. harden external-AI auth/retry/worker capability only after the current P0 UI/runtime queue is calmer
 
 ## 2026-04-05 Concrete Next Steps
 
