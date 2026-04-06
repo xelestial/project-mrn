@@ -607,6 +607,7 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
                             public_context["external_ai_ready_state"] = ready_state
                         if bool(self._config.get("require_ready", False)) and health.get("ready") is not True:
                             raise RuntimeError("external_ai_worker_not_ready")
+                        _validate_external_ai_transport_support(health, envelope.transport)
                         _validate_external_ai_request_type_support(health, envelope.request_type)
                         worker_id = str(health.get("worker_id") or "").strip()
                         if worker_id:
@@ -618,6 +619,7 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
                     if ready_state is not None:
                         public_context["external_ai_ready_state"] = ready_state
                     _validate_external_ai_response_payload(response, envelope.participant_config)
+                    _validate_external_ai_transport_support(response, envelope.transport)
                     _validate_external_ai_request_type_support(response, envelope.request_type)
                     _validate_external_ai_identity(response, envelope.participant_config)
                     worker_id = str(response.get("worker_id") or "").strip()
@@ -867,6 +869,19 @@ def _validate_external_ai_request_type_support(payload: dict[str, object], reque
         raise RuntimeError("external_ai_missing_request_type_support")
 
 
+def _validate_external_ai_transport_support(payload: dict[str, object], transport_name: str) -> None:
+    supported_transports = payload.get("supported_transports")
+    if not isinstance(supported_transports, list):
+        return
+    supported = {
+        str(item).strip()
+        for item in supported_transports
+        if isinstance(item, str) and str(item).strip()
+    }
+    if supported and transport_name not in supported:
+        raise RuntimeError("external_ai_missing_transport_support")
+
+
 def _classify_external_ai_error(exc: Exception) -> str:
     message = str(exc).strip()
     if message in {
@@ -880,6 +895,7 @@ def _classify_external_ai_error(exc: Exception) -> str:
         "external_ai_decision_style_mismatch",
         "external_ai_worker_not_ready",
         "external_ai_missing_request_type_support",
+        "external_ai_missing_transport_support",
         "external_ai_missing_choice_id",
         "external_ai_response_not_object",
         "external_ai_health_response_not_object",

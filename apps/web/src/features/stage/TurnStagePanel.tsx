@@ -75,7 +75,7 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
     turnStage.progressTitle;
   const actorHeadline =
     model.actor !== "-" ? turnStage.actorHeadline(model.actor) : turnStage.actorWaiting;
-  const roundTurn = `R${model.round ?? "-"} / T${model.turn ?? "-"}`;
+  const roundTurn = turnStage.roundTurnLabel(model.round, model.turn);
   const workerStatusDetail = valueOrDash(
     stream.workerStatusDetail(
       turnStage.workerStatusLabel(model.externalAiResolutionStatus),
@@ -109,7 +109,9 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
             model.externalAiWorkerId,
             model.externalAiFailureCode,
             model.externalAiFallbackMode,
-            model.externalAiAttemptCount
+            model.externalAiAttemptCount,
+            model.externalAiAttemptLimit,
+            model.externalAiReadyState
           )),
           detail: workerStatusDetail,
           tone: "effect",
@@ -399,8 +401,8 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
         {sceneCards.length > 0 ? (
           <article className="turn-stage-card turn-stage-card-wide turn-stage-scene-strip" data-testid="turn-stage-scene-strip">
             <div className="turn-stage-card-top">
-              <strong>{turnStage.currentBeatTitle}</strong>
-              <span>{turnStage.currentBeatBadge}</span>
+              <strong>{turnStage.sceneSequenceTitle}</strong>
+              <span>{turnStage.sceneSequenceBadge}</span>
             </div>
             <div className="turn-stage-scene-list">
               {sceneCards.map((card, index) => (
@@ -418,8 +420,8 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
         {outcomeCards.length > 0 ? (
           <article className="turn-stage-card turn-stage-card-wide turn-stage-outcome-strip" data-testid="turn-stage-outcome-strip">
             <div className="turn-stage-card-top">
-              <strong>{turnStage.cardEffectTitle}</strong>
-              <span>{turnStage.cardEffectBadge}</span>
+              <strong>{turnStage.resultSequenceTitle}</strong>
+              <span>{turnStage.resultSequenceBadge}</span>
             </div>
             <div className="turn-stage-outcome-list">
               {outcomeCards.map((card) => (

@@ -112,7 +112,9 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     model.externalAiWorkerId,
     model.externalAiFailureCode,
     model.externalAiFallbackMode,
-    model.externalAiAttemptCount
+    model.externalAiAttemptCount,
+    model.externalAiAttemptLimit,
+    model.externalAiReadyState
   );
   const workerStatusDetail = stream.workerStatusDetail(
     turnStage.workerStatusLabel(model.externalAiResolutionStatus),

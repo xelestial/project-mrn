@@ -2654,3 +2654,26 @@ Updated: 2026-04-07
   - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts`
   - `cd apps/web && npm run build`
   - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
+
+## 2026-04-07 Turn-Scene Polish + Transport Compatibility Guard
+
+- What changed:
+  - Web:
+    - `apps/web/src/features/stage/TurnStagePanel.tsx` now gives the scene strip and result strip dedicated headings instead of reusing generic beat/effect headers
+    - `apps/web/src/features/stage/SpectatorTurnPanel.tsx` now keeps worker summary cards aligned with full attempt-limit / ready-state detail and payoff headers aligned to the actual payoff tone
+    - browser coverage now includes a longer mixed-seat chain where:
+      - one external worker turn resolves successfully
+      - fortune resolves
+      - the next external worker turn falls back locally
+      - weather/payoff/handoff continuity stays readable
+  - Server:
+    - `apps/server/src/services/runtime_service.py` now validates worker-advertised `supported_transports` when the worker exposes that metadata
+    - transport mismatch now surfaces as `external_ai_missing_transport_support` and follows the canonical local-fallback diagnostics path
+- Why:
+  - after the previous slices, the remaining visual drift was mostly about semantic framing rather than missing data
+  - on the worker side, the next practical stronger-service guardrail was to ensure the runtime only accepts workers that explicitly advertise compatibility with the selected transport
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_parameter_service.py apps/server/tests/test_runtime_service.py`
+  - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts`
+  - `cd apps/web && npm run build`
+  - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`

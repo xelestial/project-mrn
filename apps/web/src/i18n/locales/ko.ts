@@ -535,6 +535,10 @@ export const koLocale = {
     cardEffectBadge: "잔꾀 / 운수",
     currentBeatTitle: "현재 단계",
     currentBeatBadge: "단계",
+    sceneSequenceTitle: "이번 턴 장면",
+    sceneSequenceBadge: "장면",
+    resultSequenceTitle: "이번 턴 결과",
+    resultSequenceBadge: "결과",
     progressTitle: "턴 흐름",
     progressBadge: "흐름",
     workerTitle: "참가자 상태",
@@ -599,6 +603,7 @@ export const koLocale = {
     },
     weatherSummaryLine: (weatherName: string, weatherEffect: string) =>
       weatherEffect && weatherEffect !== "-" ? `${weatherName} / ${weatherEffect}` : weatherName,
+    roundTurnLabel: (round: number | null, turn: number | null) => `R${round ?? "-"} / T${turn ?? "-"}`,
     turnStartDetail: (actor: string) => `${actor} / 턴 시작`,
     sequenceIndex: (index: number, total: number) => `${index}/${total}`,
     sequenceBeat: {

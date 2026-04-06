@@ -77,4 +77,6 @@ Operational seat defaults can now also require:
 - `required_policy_mode`
 - `required_decision_style`
 
+When workers advertise `supported_transports`, the runtime also treats that as a compatibility guard for the active seat transport.
+
 See `docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md` for a full local session example.

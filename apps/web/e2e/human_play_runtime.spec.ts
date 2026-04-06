@@ -1098,6 +1098,137 @@ test("mixed participant runtime keeps worker-not-ready fallback and weather cont
   await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("P3 paid P1 5 on tile 13");
 });
 
+test("mixed participant runtime keeps a long worker-success to fallback chain readable", async ({ page }) => {
+  const sessionId = "sess_mixed_long_chain_runtime";
+  const manifest = buildManifest({
+    hash: "mixed_long_chain_hash",
+    topology: "ring",
+    tileCount: 36,
+    seats: [1, 2, 3],
+  });
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({ seq: 1, sessionId, payload: { event_type: "parameter_manifest", parameter_manifest: manifest } }),
+        eventMessage({ seq: 2, sessionId, payload: { event_type: "round_start", round_index: 5 } }),
+        eventMessage({
+          seq: 3,
+          sessionId,
+          payload: { event_type: "weather_reveal", round_index: 5, turn_index: 2, weather_name: "Cold Front", effect_text: "No lap cash. Pay 2 cash to bank." },
+        }),
+        eventMessage({
+          seq: 4,
+          sessionId,
+          payload: { event_type: "turn_start", round_index: 5, turn_index: 2, acting_player_id: 2, character: "Bandit" },
+        }),
+        eventMessage({
+          seq: 5,
+          sessionId,
+          payload: {
+            event_type: "decision_requested",
+            round_index: 5,
+            turn_index: 2,
+            player_id: 2,
+            request_type: "movement",
+            provider: "ai",
+            public_context: {
+              external_ai_worker_id: "prod-bot-3",
+              external_ai_resolution_status: "pending",
+              external_ai_ready_state: "ready",
+            },
+            legal_choices: [{ choice_id: "dice", label: "Roll dice" }],
+          },
+        }),
+        eventMessage({
+          seq: 6,
+          sessionId,
+          payload: {
+            event_type: "decision_resolved",
+            round_index: 5,
+            turn_index: 2,
+            player_id: 2,
+            resolution: "auto",
+            choice_id: "dice",
+            provider: "ai",
+            public_context: {
+              external_ai_worker_id: "prod-bot-3",
+              external_ai_resolution_status: "resolved_by_worker",
+              external_ai_ready_state: "ready",
+              external_ai_attempt_count: 1,
+              external_ai_attempt_limit: 2,
+            },
+          },
+        }),
+        eventMessage({
+          seq: 7,
+          sessionId,
+          payload: { event_type: "fortune_drawn", round_index: 5, turn_index: 2, player_id: 2, card_name: "Lucky Wind" },
+        }),
+        eventMessage({
+          seq: 8,
+          sessionId,
+          payload: { event_type: "fortune_resolved", round_index: 5, turn_index: 2, player_id: 2, summary: "Gain 2 cash." },
+        }),
+        eventMessage({
+          seq: 9,
+          sessionId,
+          payload: { event_type: "turn_end_snapshot", round_index: 5, turn_index: 2, player_id: 2, summary: "P2 fortune turn closed" },
+        }),
+        eventMessage({
+          seq: 10,
+          sessionId,
+          payload: { event_type: "turn_start", round_index: 5, turn_index: 3, acting_player_id: 3, character: "Surveyor" },
+        }),
+        eventMessage({
+          seq: 11,
+          sessionId,
+          payload: {
+            event_type: "decision_timeout_fallback",
+            round_index: 5,
+            turn_index: 3,
+            player_id: 3,
+            summary: "defaulted to local AI",
+            provider: "ai",
+            public_context: {
+              tile_index: 14,
+              external_ai_worker_id: "prod-bot-4",
+              external_ai_failure_code: "external_ai_timeout",
+              external_ai_fallback_mode: "local_ai",
+              external_ai_resolution_status: "resolved_by_local_fallback",
+              external_ai_ready_state: "ready",
+              external_ai_attempt_count: 2,
+              external_ai_attempt_limit: 2,
+            },
+          },
+        }),
+        eventMessage({
+          seq: 12,
+          sessionId,
+          payload: { event_type: "rent_paid", round_index: 5, turn_index: 3, player_id: 3, payer_player_id: 3, owner_player_id: 1, tile_index: 14, final_amount: 6 },
+        }),
+        eventMessage({
+          seq: 13,
+          sessionId,
+          payload: { event_type: "turn_end_snapshot", round_index: 5, turn_index: 3, player_id: 3, summary: "P3 fallback turn closed" },
+        }),
+      ],
+    },
+  });
+
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_long_chain_runtime`);
+
+  await expect(page.getByTestId("spectator-turn-weather")).toContainText("Cold Front");
+  await expect(page.getByTestId("spectator-turn-scene")).toContainText("P3 fallback turn closed");
+  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("P3 paid P1 6 on tile 15");
+  await expect(page.getByTestId("spectator-turn-journey")).toContainText("Participant status");
+  await expect(page.getByTestId("spectator-turn-progress")).toContainText("Decision timeout fallback");
+  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("attempt 2/2");
+  await expect(page.getByTestId("turn-stage-scene-strip")).toContainText("Round Weather");
+  await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("P3 paid P1 6 on tile 15");
+});
+
 test("locale toggle persists across reload", async ({ page }) => {
   await page.goto("/#/lobby");
 

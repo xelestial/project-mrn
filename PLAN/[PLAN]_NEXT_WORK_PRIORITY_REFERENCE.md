@@ -323,6 +323,24 @@ This is the practical next-work list after the closed slices above.
   1. evidence-backed visual drift cleanup
   2. any last selector-local phrasing that still surfaces in review
   3. stronger external workers replacing the reference implementation without reopening contract drift
+
+### 2026-04-07 Progress Update (visual drift polish + transport-compatibility seam)
+
+- Remote-turn UI polish advanced again:
+  - turn-stage scene/result strips now have dedicated scene/result labels instead of reusing generic current-beat/card-effect headers
+  - spectator payoff headers now stay aligned to the actual payoff tone
+  - mixed-seat browser coverage now includes a longer chain where:
+    - one turn resolves by worker
+    - fortune resolves
+    - the next turn falls back locally
+    - weather/payoff/handoff continuity remain readable
+- Stronger-worker runtime compatibility also tightened:
+  - runtime now validates worker-advertised `supported_transports` against the seat transport when the worker exposes that metadata
+  - transport mismatch now resolves through the same canonical fallback diagnostics path as other compatibility failures
+- Therefore the remaining carry-forward is narrower still:
+  1. only evidence-backed visual drift that still appears in play
+  2. any final selector-local phrasing remnants
+  3. actual replacement of the reference worker with a stronger external worker/service on the stabilized seam
   - mixed-seat browser parity now keeps worker outcome cards inside remote-turn payoff strips
   - runtime can now require or disable health checks per participant config through `healthcheck_policy`
 

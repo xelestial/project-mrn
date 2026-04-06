@@ -530,6 +530,10 @@ export const enLocale = {
     cardEffectBadge: "Trick / Fortune",
     currentBeatTitle: "Current Beat",
     currentBeatBadge: "Beat",
+    sceneSequenceTitle: "Turn Scene",
+    sceneSequenceBadge: "Scene",
+    resultSequenceTitle: "Turn Results",
+    resultSequenceBadge: "Results",
     progressTitle: "Turn Flow",
     progressBadge: "Flow",
     workerTitle: "Participant Status",
@@ -594,6 +598,7 @@ export const enLocale = {
     },
     weatherSummaryLine: (weatherName: string, weatherEffect: string) =>
       weatherEffect && weatherEffect !== "-" ? `${weatherName} / ${weatherEffect}` : weatherName,
+    roundTurnLabel: (round: number | null, turn: number | null) => `R${round ?? "-"} / T${turn ?? "-"}`,
     turnStartDetail: (actor: string) => `${actor} / turn start`,
     sequenceIndex: (index: number, total: number) => `${index}/${total}`,
     sequenceBeat: {

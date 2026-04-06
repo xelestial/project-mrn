@@ -132,6 +132,7 @@ Important rules:
 - when configured, `required_request_types` must be a subset of the worker's advertised `supported_request_types`
 - when configured, `required_policy_mode` must match the worker's advertised `policy_mode`
 - when configured, `required_decision_style` must match the worker's advertised `decision_style`
+- when provided, `supported_transports` must include the seat transport currently in use
 - when configured, worker auth and `expected_worker_id` must match on both `/health` and `/decide`
 - `healthcheck_policy=required` keeps health preflight active even when the runtime uses an injected custom sender seam
 - `healthcheck_policy=disabled` skips health preflight intentionally and should only be used for tightly controlled local/testing setups
@@ -173,6 +174,7 @@ Useful failure codes seen from the runtime seam:
 - `external_ai_missing_required_request_type`
 - `external_ai_policy_mode_mismatch`
 - `external_ai_decision_style_mismatch`
+- `external_ai_missing_transport_support`
 - `external_ai_worker_not_ready`
 - `external_ai_missing_choice_id`
 
