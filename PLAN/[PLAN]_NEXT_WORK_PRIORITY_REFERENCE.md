@@ -272,6 +272,8 @@ This is the practical next-work list after the closed slices above.
   - `priority_score_v1`
 - Participant defaults can now also select stronger-worker compatibility through a parameter-level preset:
   - `worker_profile=priority_scored`
+- A local real-play checklist now exists for the stronger external-worker path:
+  - `docs/engineering/HUMAN_EXTERNAL_AI_PLAYTEST_CHECKLIST.md`
 - The stronger scored adapter path now proves that the frozen HTTP contract can stay stable while worker provenance changes:
   - different `worker_adapter`
   - different `policy_class`

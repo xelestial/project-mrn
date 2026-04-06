@@ -141,6 +141,7 @@ These are no longer the immediate blockers, but they are recently completed and 
   - canonical `public_context` now preserves `external_ai_worker_adapter` alongside worker id / mode / class / decision style
   - the worker seam now has a built-in stronger scored adapter (`priority_score_v1`) that exercises the same contract with distinct adapter/class/style metadata
   - participant defaults can now use `worker_profile` to expand stronger-worker compatibility requirements without repeating every low-level gate
+  - local playtest guidance now exists for human + local AI + external AI runs on the stronger-worker path
 - Main implementation references:
   - `apps/server/src/external_ai_app.py`
   - `apps/server/src/services/external_ai_worker_service.py`

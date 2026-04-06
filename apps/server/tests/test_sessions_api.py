@@ -79,6 +79,31 @@ def _external_ai_payload() -> dict:
     }
 
 
+def _priority_scored_external_ai_payload() -> dict:
+    return {
+        "seats": [
+            {
+                "seat": 1,
+                "seat_type": "ai",
+                "ai_profile": "balanced",
+                "participant_client": "external_ai",
+                "participant_config": {"endpoint": "http://priority-worker.local/seat-1"},
+            },
+            {"seat": 2, "seat_type": "human"},
+        ],
+        "config": {
+            "seed": 42,
+            "seat_limits": {"min": 1, "max": 2, "allowed": [1, 2]},
+            "participants": {
+                "external_ai": {
+                    "transport": "http",
+                    "worker_profile": "priority_scored",
+                }
+            },
+        },
+    }
+
+
 def _three_ai_payload() -> dict:
     return {
         "seats": [
@@ -175,6 +200,18 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(ai_seat["participant_config"]["required_capabilities"], ["choice_id_response", "healthcheck"])
         self.assertEqual(ai_seat["participant_config"]["headers"]["Authorization"], "Bearer test-token")
         self.assertEqual(ai_seat["participant_config"]["endpoint"], "http://bot-worker.local/seat-1")
+
+    def test_create_session_exposes_worker_profile_driven_external_defaults(self) -> None:
+        created = self.client.post("/api/v1/sessions", json=_priority_scored_external_ai_payload())
+        self.assertEqual(created.status_code, 200)
+        data = created.json()["data"]
+        ai_seat = next(seat for seat in data["seats"] if seat["seat"] == 1)
+        self.assertEqual(ai_seat["participant_client"], "external_ai")
+        self.assertEqual(ai_seat["participant_config"]["worker_profile"], "priority_scored")
+        self.assertEqual(ai_seat["participant_config"]["required_worker_adapter"], "priority_score_v1")
+        self.assertEqual(ai_seat["participant_config"]["required_policy_class"], "PriorityScoredPolicy")
+        self.assertEqual(ai_seat["participant_config"]["required_decision_style"], "priority_scored_contract")
+        self.assertIn("priority_scored_choice", ai_seat["participant_config"]["required_capabilities"])
 
     def test_get_missing_session_returns_normalized_error_category(self) -> None:
         missing = self.client.get("/api/v1/sessions/sess_missing_404")

@@ -2798,3 +2798,22 @@ Updated: 2026-04-07
   - that reduces manual config drift when swapping from the reference worker to a stronger worker/service
 - Validation:
   - `.venv311/bin/python -m pytest apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_runtime_service.py apps/server/tests/test_parameter_service.py apps/server/tests/test_parameter_propagation.py`
+
+## 2026-04-07 Session/API Worker Profiles + Real Playtest Checklist
+
+- What changed:
+  - Session/API:
+    - external-AI seats now have regression coverage showing that `worker_profile=priority_scored` survives through:
+      - session creation
+      - seat normalization
+      - API response payloads
+  - Docs:
+    - `docs/engineering/HUMAN_EXTERNAL_AI_PLAYTEST_CHECKLIST.md` now captures the recommended local playtest path for:
+      - human seats
+      - local AI seats
+      - external AI seats
+      - stronger worker profile runs
+- Why:
+  - after closing the stronger-worker seam and localhost transport checks, the next practical value was to make real playtests reproducible from the same parameter/runtime contract
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_session_service.py apps/server/tests/test_sessions_api.py`

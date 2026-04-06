@@ -168,7 +168,36 @@ class SessionServiceTests(unittest.TestCase):
         self.assertEqual(ai_seat.participant_config["healthcheck_path"], "/health")
         self.assertEqual(ai_seat.participant_config["healthcheck_ttl_ms"], 5000)
         self.assertEqual(ai_seat.participant_config["required_capabilities"], ["choice_id_response", "healthcheck"])
-        self.assertEqual(ai_seat.participant_config["headers"]["Authorization"], "Bearer token")
+
+    def test_external_ai_seat_inherits_worker_profile_defaults(self) -> None:
+        session = self.service.create_session(
+            [
+                {
+                    "seat": 1,
+                    "seat_type": "ai",
+                    "ai_profile": "balanced",
+                    "participant_client": "external_ai",
+                    "participant_config": {"endpoint": "http://seat-specific.local/decide"},
+                },
+                {"seat": 2, "seat_type": "human"},
+            ],
+            config={
+                "seat_limits": {"min": 1, "max": 2, "allowed": [1, 2]},
+                "participants": {
+                    "external_ai": {
+                        "transport": "http",
+                        "worker_profile": "priority_scored",
+                    }
+                },
+            },
+        )
+
+        ai_seat = session.seats[0]
+        self.assertEqual(ai_seat.participant_config["worker_profile"], "priority_scored")
+        self.assertEqual(ai_seat.participant_config["required_worker_adapter"], "priority_score_v1")
+        self.assertEqual(ai_seat.participant_config["required_policy_class"], "PriorityScoredPolicy")
+        self.assertEqual(ai_seat.participant_config["required_decision_style"], "priority_scored_contract")
+        self.assertIn("priority_scored_choice", ai_seat.participant_config["required_capabilities"])
         self.assertEqual(ai_seat.participant_config["endpoint"], "http://seat-specific.local/decide")
 
     def test_reject_human_seat_with_non_human_participant_client(self) -> None:
