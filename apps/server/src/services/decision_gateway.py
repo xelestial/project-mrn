@@ -256,6 +256,77 @@ class DecisionGateway:
         self._request_seq += 1
         return f"{self._session_id}_req_{self._request_seq}_{uuid.uuid4().hex[:6]}"
 
+    def _publish_decision_requested(
+        self,
+        *,
+        request_id: str,
+        player_id: int,
+        request_type: str,
+        fallback_policy: str,
+        provider: DecisionProvider,
+        public_context: dict[str, Any],
+    ) -> None:
+        self.publish(
+            "event",
+            build_decision_requested_payload(
+                request_id=request_id,
+                player_id=player_id,
+                request_type=request_type,
+                fallback_policy=fallback_policy,
+                provider=provider,
+                round_index=public_context.get("round_index"),
+                turn_index=public_context.get("turn_index"),
+            ),
+        )
+
+    def _publish_decision_resolved(
+        self,
+        *,
+        request_id: str,
+        player_id: int,
+        resolution: str,
+        choice_id: str | None,
+        provider: DecisionProvider,
+        public_context: dict[str, Any],
+    ) -> None:
+        self.publish(
+            "event",
+            build_decision_resolved_payload(
+                request_id=request_id,
+                player_id=player_id,
+                resolution=resolution,
+                choice_id=choice_id,
+                provider=provider,
+                round_index=public_context.get("round_index"),
+                turn_index=public_context.get("turn_index"),
+            ),
+        )
+
+    def _publish_decision_timeout_fallback(
+        self,
+        *,
+        request_id: str,
+        player_id: int,
+        fallback_policy: str,
+        fallback_execution: str | None,
+        fallback_choice_id: str | None,
+        provider: DecisionProvider,
+        public_context: dict[str, Any],
+    ) -> None:
+        self.publish(
+            "event",
+            build_decision_timeout_fallback_payload(
+                request_id=request_id,
+                player_id=player_id,
+                fallback_policy=fallback_policy,
+                fallback_execution=fallback_execution,
+                fallback_choice_id=fallback_choice_id,
+                provider=provider,
+                round_index=public_context.get("round_index"),
+                turn_index=public_context.get("turn_index"),
+            ),
+        )
+
     def resolve_human_prompt(self, prompt: dict, parser, fallback_fn):
         envelope = dict(prompt)
         request_id = str(envelope.get("request_id") or self.next_request_id())
@@ -275,17 +346,13 @@ class DecisionGateway:
             self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
 
         self.publish("prompt", {**envelope, "provider": "human"})
-        self.publish(
-            "event",
-            build_decision_requested_payload(
-                request_id=request_id,
-                player_id=player_id,
-                request_type=str(envelope.get("request_type", "")),
-                fallback_policy=fallback_policy,
-                provider="human",
-                round_index=public_context.get("round_index"),
-                turn_index=public_context.get("turn_index"),
-            ),
+        self._publish_decision_requested(
+            request_id=request_id,
+            player_id=player_id,
+            request_type=str(envelope.get("request_type", "")),
+            fallback_policy=fallback_policy,
+            provider="human",
+            public_context=public_context,
         )
         self._touch_activity(self._session_id)
         response = self._prompt_service.wait_for_decision(request_id=request_id, timeout_ms=timeout_ms)
@@ -314,61 +381,45 @@ class DecisionGateway:
                     provider="human",
                 ),
             )
-            self.publish(
-                "event",
-                build_decision_resolved_payload(
-                    request_id=request_id,
-                    player_id=player_id,
-                    resolution="timeout_fallback",
-                    choice_id=fallback_result.get("choice_id"),
-                    provider="human",
-                    round_index=public_context.get("round_index"),
-                    turn_index=public_context.get("turn_index"),
-                ),
+            self._publish_decision_resolved(
+                request_id=request_id,
+                player_id=player_id,
+                resolution="timeout_fallback",
+                choice_id=fallback_result.get("choice_id"),
+                provider="human",
+                public_context=public_context,
             )
-            self.publish(
-                "event",
-                build_decision_timeout_fallback_payload(
-                    request_id=request_id,
-                    player_id=player_id,
-                    fallback_policy=fallback_policy,
-                    fallback_execution=fallback_result.get("status"),
-                    fallback_choice_id=fallback_result.get("choice_id"),
-                    provider="human",
-                    round_index=public_context.get("round_index"),
-                    turn_index=public_context.get("turn_index"),
-                ),
+            self._publish_decision_timeout_fallback(
+                request_id=request_id,
+                player_id=player_id,
+                fallback_policy=fallback_policy,
+                fallback_execution=fallback_result.get("status"),
+                fallback_choice_id=fallback_result.get("choice_id"),
+                provider="human",
+                public_context=public_context,
             )
             return fallback_fn()
 
         try:
             parsed = parser(response)
         except Exception:
-            self.publish(
-                "event",
-                build_decision_resolved_payload(
-                    request_id=request_id,
-                    player_id=player_id,
-                    resolution="parser_error_fallback",
-                    choice_id=str(response.get("choice_id", "")),
-                    provider="human",
-                    round_index=public_context.get("round_index"),
-                    turn_index=public_context.get("turn_index"),
-                ),
+            self._publish_decision_resolved(
+                request_id=request_id,
+                player_id=player_id,
+                resolution="parser_error_fallback",
+                choice_id=str(response.get("choice_id", "")),
+                provider="human",
+                public_context=public_context,
             )
             return fallback_fn()
 
-        self.publish(
-            "event",
-            build_decision_resolved_payload(
-                request_id=request_id,
-                player_id=int(response.get("player_id", player_id)),
-                resolution="accepted",
-                choice_id=str(response.get("choice_id", "")),
-                provider="human",
-                round_index=public_context.get("round_index"),
-                turn_index=public_context.get("turn_index"),
-            ),
+        self._publish_decision_resolved(
+            request_id=request_id,
+            player_id=int(response.get("player_id", player_id)),
+            resolution="accepted",
+            choice_id=str(response.get("choice_id", "")),
+            provider="human",
+            public_context=public_context,
         )
         return parsed
 
@@ -382,30 +433,22 @@ class DecisionGateway:
         choice_serializer: Callable[[Any], str],
     ) -> Any:
         request_id = self.next_request_id()
-        self.publish(
-            "event",
-            build_decision_requested_payload(
-                request_id=request_id,
-                player_id=player_id,
-                request_type=request_type,
-                fallback_policy="ai",
-                provider="ai",
-                round_index=public_context.get("round_index"),
-                turn_index=public_context.get("turn_index"),
-            ),
+        self._publish_decision_requested(
+            request_id=request_id,
+            player_id=player_id,
+            request_type=request_type,
+            fallback_policy="ai",
+            provider="ai",
+            public_context=public_context,
         )
         result = resolver()
-        self.publish(
-            "event",
-            build_decision_resolved_payload(
-                request_id=request_id,
-                player_id=player_id,
-                resolution="accepted",
-                choice_id=choice_serializer(result),
-                provider="ai",
-                round_index=public_context.get("round_index"),
-                turn_index=public_context.get("turn_index"),
-            ),
+        self._publish_decision_resolved(
+            request_id=request_id,
+            player_id=player_id,
+            resolution="accepted",
+            choice_id=choice_serializer(result),
+            provider="ai",
+            public_context=public_context,
         )
         return result
 

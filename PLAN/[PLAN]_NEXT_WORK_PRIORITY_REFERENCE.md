@@ -180,3 +180,20 @@ Implement in this order unless a blocker forces a swap:
   1. theatrical fortune / purchase / rent staging after movement completes
   2. stronger pawn/path animation on top of the new path-step groundwork
   3. continued local prompt simplification on the locale-safe foundation
+
+### 2026-04-06 Progress Update (current checkpoint)
+
+- The board now also renders a transient ghost-pawn travel overlay between move start and move end.
+- Prompt surface wording is now further detached from component ownership:
+  - collapsed prompt chip text
+  - prompt footer request-meta text
+  - purchase prompt description text
+  now come from locale resources.
+- `DecisionGateway` now also centralizes repeated lifecycle publish paths for:
+  - `decision_requested`
+  - `decision_resolved`
+  - `decision_timeout_fallback`
+- Therefore the next immediate execution order is:
+  1. continue prompt-surface cleanup until remaining live prompts feel game-native instead of inspector-like
+  2. keep strengthening non-local turn scene payoff for fortune / purchase / rent
+  3. continue reducing human/AI branch-local decision drift before later `DecisionPort` migration

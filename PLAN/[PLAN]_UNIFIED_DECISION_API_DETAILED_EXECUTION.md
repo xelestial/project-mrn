@@ -372,3 +372,21 @@ P3 종료 조건:
   1. typed provider classes so human / AI dispatch logic is less concentrated in `_ServerDecisionPolicyBridge`
   2. engine-side `DecisionPort` migration
   3. broader stream API coverage in environments with full FastAPI test support
+
+## 2026-04-06 Progress Update (gateway lifecycle helper convergence)
+
+- `DecisionGateway` now also centralizes the repeated publish steps for:
+  - `decision_requested`
+  - `decision_resolved`
+  - `decision_timeout_fallback`
+- This means human and AI flows now share:
+  - canonical payload builders
+  - canonical request-type mapping
+  - canonical lifecycle publish helpers
+- Result:
+  - one fewer source of branch-local lifecycle drift inside the gateway itself
+  - narrower remaining work before a future typed `DecisionPort` migration
+- Remaining P0-1 work is now:
+  1. typed provider classes so human / AI dispatch logic is less concentrated in `_ServerDecisionPolicyBridge`
+  2. engine-side `DecisionPort` migration
+  3. broader stream API coverage in environments with full FastAPI test support

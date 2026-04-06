@@ -448,11 +448,11 @@ export const enLocale = {
       usable: "Usable",
       unavailable: "Unavailable now",
     },
-    collapsedChip: (label: string, secondsLeft: number | null) => `Decision: ${label} • ${secondsLeft ?? "-"}s left`,
+    collapsedChip: (label: string, secondsLeft: number | null) => `Decision: ${label} / ${secondsLeft ?? "-"}s left`,
     headTitle: (label: string) => `Decision: ${label}`,
     collapse: "Collapse",
     requestMeta: (_requestId: string, playerId: number, timeoutMs: number, secondsLeft: number | null) =>
-      `Actor P${playerId} • limit ${Math.ceil(timeoutMs / 1000)}s • ${secondsLeft ?? "-"}s left`,
+      `Actor P${playerId} / limit ${Math.ceil(timeoutMs / 1000)}s / ${secondsLeft ?? "-"}s left`,
     context: {
       currentPosition: "Current position",
       usableCards: "Usable cards",
@@ -505,7 +505,7 @@ export const enLocale = {
       coinReward: (amount: number) => `Points +${amount}`,
       buyTileTitle: "Buy tile",
       buyTile: (pos: number | null, cost: number | null) =>
-        pos !== null && cost !== null ? `Tile ${pos + 1} • cost ${cost}` : "Buy the tile you landed on.",
+        pos !== null && cost !== null ? `Tile ${pos + 1} / cost ${cost}` : "Buy the tile you landed on.",
       skipPurchaseTitle: "Skip purchase",
       skipPurchase: "End the current turn without buying.",
       endFlip: "Finish flipping",

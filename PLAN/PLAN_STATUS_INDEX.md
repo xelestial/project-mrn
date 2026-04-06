@@ -155,7 +155,7 @@ When choosing the next task, follow this order:
 8. `PLAN/[PLAN]_BILINGUAL_STRING_RESOURCE_ARCHITECTURE.md`
 9. `PLAN/[PLAN]_PARAMETER_DRIVEN_RUNTIME_DECOUPLING.md`
 
-## 2026-04-05 Execution Focus
+## 2026-04-06 Execution Focus
 
 The current implementation focus is:
 
@@ -164,5 +164,16 @@ The current implementation focus is:
 3. string/resource externalization and encoding safety
 4. rule parity closure
 5. parameter-driven decoupling follow-up
+
+### Current checkpoint note
+
+- Board move continuity now includes:
+  - start badge
+  - path-step trail
+  - transient ghost-pawn travel overlay
+- Prompt locale ownership moved further out of the component layer for collapsed/meta/purchase wording.
+- Unified decision contract work also advanced:
+  - canonical request-type mapping is shared
+  - canonical lifecycle publish helpers are now shared inside `DecisionGateway`
 
 Everything else is currently supporting context, not the main queue.

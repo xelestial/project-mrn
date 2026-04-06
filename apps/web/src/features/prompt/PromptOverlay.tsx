@@ -114,18 +114,12 @@ function formatNumber(value: number | null): string {
   return value === null ? "-" : String(value);
 }
 
-function playerLabel(playerId: number): string {
-  return `P${playerId}`;
+function promptMetaLine(promptText: PromptText, playerId: number, timeoutMs: number, secondsLeft: number | null): string {
+  return promptText.requestMeta("", playerId, timeoutMs, secondsLeft);
 }
 
-function promptMetaLine(playerId: number, timeoutMs: number, secondsLeft: number | null): string {
-  const totalSeconds = Math.ceil(timeoutMs / 1000);
-  const remaining = secondsLeft ?? "-";
-  return `${playerLabel(playerId)} / ${totalSeconds}s / ${remaining}s left`;
-}
-
-function collapsedPromptChip(label: string, secondsLeft: number | null): string {
-  return `Decision: ${label} / ${secondsLeft ?? "-"}s left`;
+function collapsedPromptChip(promptText: PromptText, label: string, secondsLeft: number | null): string {
+  return promptText.collapsedChip(label, secondsLeft);
 }
 
 function movementChoices(prompt: PromptViewModel): MovementChoiceParts {
@@ -299,7 +293,7 @@ function normalizeChoiceText(
     if (choice.choiceId === "yes") {
       return {
         title: promptText.choice.buyTileTitle,
-        description: pos !== null && cost !== null ? `Tile ${pos + 1} / cost ${cost}` : "Buy the tile you landed on.",
+        description: promptText.choice.buyTile(pos, cost),
       };
     }
     if (choice.choiceId === "no") {
@@ -460,7 +454,7 @@ export function PromptOverlay({
   if (collapsed) {
         return (
           <button type="button" className="prompt-floating-chip" onClick={onToggleCollapse}>
-            {collapsedPromptChip(promptLabel, secondsLeft)}
+            {collapsedPromptChip(promptText, promptLabel, secondsLeft)}
           </button>
         );
   }
@@ -817,7 +811,7 @@ export function PromptOverlay({
         </div>
 
         <div className="prompt-footer">
-          <p className="prompt-meta">{promptMetaLine(prompt.playerId, prompt.timeoutMs, secondsLeft)}</p>
+          <p className="prompt-meta">{promptMetaLine(promptText, prompt.playerId, prompt.timeoutMs, secondsLeft)}</p>
           {feedbackMessage ? <p className="notice err">{cleanDisplayText(feedbackMessage)}</p> : null}
           {busy ? (
             <p className="notice ok">

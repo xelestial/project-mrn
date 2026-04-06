@@ -1553,3 +1553,47 @@ Updated: 2026-04-04
   - `npm run build` passed (`apps/web`)
   - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/features/board/boardProjection.spec.ts src/domain/text/uiText.spec.ts` passed
   - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed
+
+### Entry 082
+
+- Scope: P0-4 prompt locale-boundary cleanup follow-up.
+- Done:
+  - Updated `apps/web/src/features/prompt/PromptOverlay.tsx` so collapsed prompt chip text and footer request-meta text now come from locale resources instead of component-local string assembly.
+  - Cleaned the English locale wording in `apps/web/src/i18n/locales/en.ts` for prompt collapse/meta lines so the default English mode no longer carries mojibake bullets in those surfaces.
+  - Removed one leftover unused local helper after the locale-boundary handoff.
+- Why:
+  - prompt chrome still had a few direct user-facing literals inside the component, which breaks the bilingual/string-separation goal and makes encoding regressions easier to reintroduce
+  - the user explicitly asked for clean KO/EN switching and stronger protection against string corruption
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/features/board/boardProjection.spec.ts src/domain/text/uiText.spec.ts` passed
+
+### Entry 083
+
+- Scope: P0-4 prompt choice-text locale cleanup extension.
+- Done:
+  - Updated `apps/web/src/features/prompt/PromptOverlay.tsx` so purchase-choice description text now also comes from locale resources instead of a component-local English fallback.
+  - Normalized the English locale prompt wording in `apps/web/src/i18n/locales/en.ts` for:
+    - collapsed chip
+    - request meta
+    - purchase choice description
+- Why:
+  - even after the first locale-boundary cleanup, purchase prompt wording still had one direct component-owned sentence
+  - the default English mode still carried mojibake separators in a few prompt-facing strings
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/features/board/boardProjection.spec.ts src/domain/text/uiText.spec.ts` passed
+
+### Entry 084
+
+- Scope: P0-1 decision gateway lifecycle helper cleanup.
+- Done:
+  - Updated `apps/server/src/services/decision_gateway.py` so human and AI resolution paths now share internal helper methods for:
+    - requested event publishing
+    - resolved event publishing
+    - timeout fallback event publishing
+- Why:
+  - even after canonical payload builders were introduced, the gateway still repeated nearly identical publish blocks in multiple branches
+  - centralizing those publish paths lowers drift risk while continuing the "AI and human share one decision contract" track
+- Validation:
+  - `python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_stream_api.py` passed

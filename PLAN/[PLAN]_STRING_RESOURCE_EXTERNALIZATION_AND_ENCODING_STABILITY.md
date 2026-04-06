@@ -338,3 +338,16 @@ Update mandatory principles so future work must:
   1. continue extracting any leftover inline visible phrases from stage/theater/board helpers
   2. split `uiText.ts` by feature once navigation cost starts slowing implementation
   3. keep browser/selectors/tests tied to canonical resource ownership so mojibake or wording drift cannot quietly return
+
+## 2026-04-06 Prompt Locale-Boundary Follow-up
+
+- Prompt chrome moved one step further away from component-owned wording:
+  - collapsed prompt chip text now comes from locale resources
+  - footer request-meta text now comes from locale resources
+- Purchase prompt description text also now comes from locale resources instead of a component-local fallback sentence.
+- English prompt resource wording was also normalized so the current default English mode no longer exposes mojibake separators in these prompt surfaces.
+- This plan is still not complete.
+- Remaining follow-up remains:
+  1. continue extracting any leftover inline visible phrases from prompt/stage/theater helpers
+  2. split `uiText.ts` by feature once navigation cost starts slowing implementation
+  3. add broader locale-focused browser assertions once more prompt surfaces are fully resource-owned
