@@ -1,7 +1,7 @@
 # [PLAN] String Resource Externalization And Encoding Stability
 
 Status: ACTIVE  
-Updated: 2026-04-05  
+Updated: 2026-04-07  
 Owner: GPT
 
 ## Progress Snapshot
@@ -68,6 +68,10 @@ Owner: GPT
    Current note:
    - `streamSelectors.ts` now has a locale-aware text injection path and no longer has to rely on the Korean bridge at runtime when called from `App.tsx`
    - remaining work is to keep shrinking selector-owned phrasing, not to rebuild the injection path itself
+   - prompt-side canonical contract cleanup also advanced:
+     - `promptSelectors.ts` now consumes canonical `legal_choices`
+     - `PromptOverlay.tsx` now prefers canonical prompt `public_context` keys
+     - next string/resource work is to keep these canonical prompt fields locale-safe without letting selectors/components regain wording ownership
 
 2. `uiText.ts` still exists as a Korean compatibility bridge and should shrink over time instead of regaining ownership.
 3. Some non-UI/internal fallback strings still remain in runtime-facing handlers and should be normalized next.
@@ -77,7 +81,7 @@ Owner: GPT
 
 1. Finish moving selector-generated visible summaries behind locale-aware phrase helpers/catalog keys.
 2. Reduce `uiText.ts` to a temporary compatibility bridge only.
-3. Add resource-focused tests for selector-resource coupling and locale switching.
+3. Add resource-focused tests for selector-resource coupling, canonical prompt resource use, and locale switching.
 4. Continue P0-2 live human-play UI recovery on top of the locale foundation.
 5. Treat any newly discovered inline Korean/English display string as a regression and move it into catalog ownership before further UI layering.
 

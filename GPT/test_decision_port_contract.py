@@ -175,6 +175,44 @@ class DecisionPortContractTests(unittest.TestCase):
         self.assertEqual(request.public_context["player_position"], player.position)
         self.assertEqual(request.public_context["player_cash"], player.cash)
 
+    def test_engine_allows_injected_decision_request_factory(self) -> None:
+        port = RecordingDecisionPort()
+
+        def _factory(decision_name, state, player, args, kwargs, fallback, engine_obj):  # noqa: ANN001
+            del fallback
+            return DecisionRequest(
+                decision_name=decision_name,
+                request_type="movement",
+                state=state,
+                player=player,
+                player_id=player.player_id,
+                round_index=state.rounds_completed + 1,
+                turn_index=state.turn_index + 1,
+                public_context={"origin": "custom_factory", "engine_class": engine_obj.__class__.__name__},
+                fallback_policy="external_client",
+                args=args,
+                kwargs=kwargs,
+            )
+
+        engine = GameEngine(
+            DEFAULT_CONFIG,
+            DummyPolicy(),
+            rng=random.Random(0),
+            enable_logging=False,
+            decision_port=port,
+            decision_request_factory=_factory,
+        )
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+
+        result = engine._request_decision("choose_movement", state, player)
+
+        self.assertEqual(result, MovementDecision(False, ()))
+        request = port.requests[-1]
+        self.assertEqual(request.fallback_policy, "external_client")
+        self.assertEqual(request.public_context["origin"], "custom_factory")
+        self.assertEqual(request.public_context["engine_class"], "GameEngine")
+
     def test_apply_character_start_routes_mark_target_through_decision_port(self) -> None:
         port = RecordingDecisionPort()
         engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=False, decision_port=port)

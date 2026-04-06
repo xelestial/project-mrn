@@ -1,7 +1,7 @@
 # PLAN Status Index
 
 Status: ACTIVE  
-Updated: 2026-04-06  
+Updated: 2026-04-07  
 Owner: GPT
 
 ## Purpose
@@ -146,10 +146,14 @@ These are the slices that should still actively drive implementation after the r
 - Status:
   - active
 - Why it remains:
-  - canonical lifecycle coverage is much stronger, but typed provider cleanup and `DecisionPort` prep are still pending
+  - canonical lifecycle coverage is much stronger, but the remaining value is now concentrated in:
+    - final bridge/router simplification
+    - canonical request consumption on the web
+    - follow-on contract/schema closure
 - Expected direction:
-  - continue shrinking human/AI branch-local logic
-  - move toward typed provider cleanup before later `DecisionPort` migration
+  - keep shrinking residual human/AI branch-local logic
+  - keep the web aligned to canonical request/public-context fields
+  - close the remaining gap between engine/server canonical requests and shared contract artifacts
 
 ## Active But Secondary Plans
 
@@ -236,29 +240,41 @@ When choosing the next task, follow this order:
 8. `PLAN/[PLAN]_BILINGUAL_STRING_RESOURCE_ARCHITECTURE.md`
 9. `PLAN/[PLAN]_PARAMETER_DRIVEN_RUNTIME_DECOUPLING.md`
 
-## 2026-04-06 Execution Focus
+## 2026-04-07 Execution Focus
 
 The current implementation focus is:
 
-1. selector/resource locale detachment
-2. human-play runtime continuity and prompt correctness
+1. human-play runtime continuity and prompt correctness
+2. canonical decision request consumption across engine/server/web
 3. string/resource externalization and encoding safety
 4. rule parity closure
 5. parameter-driven decoupling follow-up
 
 ### Current checkpoint note
 
-- Board move continuity now includes:
-  - start badge
-  - path-step trail
-  - transient ghost-pawn travel overlay
-- Prompt locale ownership moved further out of the component layer for collapsed/meta/purchase wording.
-- Unified decision contract work also advanced:
-  - canonical request-type mapping is shared
-  - canonical lifecycle publish helpers are now shared inside `DecisionGateway`
+- Unified decision contract work has advanced substantially:
+  - runtime bridge/provider responsibilities were split
+  - engine `choose_*` waves now route through an injected `DecisionPort`
+  - engine/server decision request metadata is aligned around:
+    - `request_type`
+    - `player_id`
+    - `round_index`
+    - `turn_index`
+    - `public_context`
+    - `fallback_policy`
+  - the server bridge now consumes engine-style requests directly
+- Web prompt consumption also advanced:
+  - `promptSelectors.ts` now reads canonical `legal_choices`
+  - `PromptOverlay.tsx` now prefers canonical prompt `public_context` keys
+  - turn-stage prompt focus can derive from `legal_choices[].value.tile_index`
 - Recently closed slices:
   - prompt specialization lock
   - specialty seam recovery for `pabal_dice_mode`
   - turn-handoff payoff continuity
+- Active carry-forward after this checkpoint:
+  1. scene-grade remote-turn payoff polish for fortune / purchase / rent
+  2. remaining specialized prompt simplification and game-native prompt presentation
+  3. shared-contract closure for canonical decision request artifacts and frontend-facing prompt coverage
+  4. open-participant structure so AI can remain a local client adapter now and an external API participant later
 
 Everything else is currently supporting context, not the main queue.

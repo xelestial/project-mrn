@@ -1,7 +1,7 @@
 # [PLAN] Next Work Priority Reference
 
 Status: ACTIVE  
-Updated: 2026-04-06  
+Updated: 2026-04-07  
 Owner: GPT
 
 ## Purpose
@@ -37,7 +37,12 @@ Current focus:
 - continue after the runtime-wrapper unification slice:
   - AI seats already emit canonical decision lifecycle events at the server boundary
   - timeout/ack stream paths now share canonical payload builders too
-  - next step is engine-side `DecisionPort` migration and typed provider cleanup
+  - engine `choose_*` waves now run through the injected `DecisionPort`
+  - the server bridge now accepts engine-style canonical requests directly
+  - the current next step is to close the remaining contract/consumer gap:
+    - frontend canonical prompt consumption beyond the overlay
+    - shared schema/example closure
+    - residual bridge/router simplification
 
 ### P0-2. Human Play Runtime Recovery
 
@@ -82,6 +87,7 @@ Current focus:
 - keep locale resources outside components
 - reduce remaining `uiText.ts` compatibility-bridge ownership
 - move selector-visible wording toward locale-aware boundaries
+- keep canonical prompt/public-context field usage aligned with locale-safe boundaries
 
 ## P1. Stabilization
 
@@ -154,7 +160,36 @@ This is the practical next-work list after the closed slices above.
 
 1. scene-grade payoff for fortune / purchase / rent
 2. simplify specialized prompt layouts until they feel game-native
-3. keep reducing provider-local drift before typed `DecisionPort` cleanup
+3. close remaining canonical decision contract gaps across web selectors / shared artifacts
+
+### 2026-04-07 Progress Update (DecisionPort + frontend canonical prompt checkpoint)
+
+- Server/runtime work advanced from “prep” into a live path:
+  - runtime human/AI dispatch was split into local decision-client adapters
+  - bridge routing was thinned behind a decision-client router
+  - engine `DecisionPort` injection is now exercised by the server runtime path
+  - engine/server requests are aligned around canonical metadata:
+    - `request_type`
+    - `player_id`
+    - `round_index`
+    - `turn_index`
+    - `public_context`
+    - `fallback_policy`
+  - engine `DecisionRequest` creation is now also injectable, which opens the seam for non-default client adapters
+- Web prompt consumption also moved closer to the canonical contract:
+  - `promptSelectors.ts` now parses only `legal_choices`
+  - `PromptOverlay.tsx` now prefers canonical prompt `public_context` keys
+  - `selectTurnStage(...)` can derive prompt focus from `legal_choices[].value.tile_index`
+- Therefore the next immediate execution order is:
+  1. continue non-local turn scene polish for fortune reveal and purchase/rent payoff transitions
+  2. keep simplifying remaining specialized prompt layouts and reduce inspector-like chrome
+  3. close the remaining unified-decision contract gaps:
+     - shared schema/example artifacts
+     - wider frontend prompt/selector coverage
+     - any still-string-heavy bridge/router seams
+  4. move the runtime toward the open-participant model:
+     - local AI stays as a decision-client adapter
+     - external AI client can later mount on the same seam
 
 ## 2026-04-05 Concrete Next Steps
 

@@ -80,10 +80,12 @@ class GameEngine:
         enable_logging: bool = False,
         event_stream: VisEventStream | None = None,
         decision_port: DecisionPort | None = None,
+        decision_request_factory: Callable[..., DecisionRequest] | None = None,
     ):
         self.config = config
         self.policy = policy
         self.decision_port = decision_port or DecisionPort(policy)
+        self._decision_request_factory = decision_request_factory or self._default_decision_request_factory
         self.rng = rng or random.Random()
         if hasattr(self.policy, "set_rng"):
             self.policy.set_rng(self.rng)
@@ -137,6 +139,27 @@ class GameEngine:
         fallback: Callable[[], Any] | None = None,
         **kwargs: Any,
     ) -> DecisionRequest:
+        return self._decision_request_factory(
+            decision_name,
+            state,
+            player,
+            tuple(args),
+            dict(kwargs),
+            fallback,
+            self,
+        )
+
+    def _default_decision_request_factory(
+        self,
+        decision_name: str,
+        state: GameState,
+        player: PlayerState,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        fallback: Callable[[], Any] | None,
+        engine: GameEngine,
+    ) -> DecisionRequest:
+        del engine
         request_type = self._decision_request_type(decision_name)
         public_context = self._decision_public_context(decision_name, state, player, args, kwargs)
         return DecisionRequest(
@@ -150,10 +173,9 @@ class GameEngine:
             public_context=public_context,
             fallback_policy="engine_default" if fallback is not None else "required",
             args=args,
-            kwargs=dict(kwargs),
+            kwargs=kwargs,
             fallback=fallback,
         )
-
     def _decision_request_type(self, decision_name: str) -> str:
         request_type_map = {
             "choose_movement": "movement",

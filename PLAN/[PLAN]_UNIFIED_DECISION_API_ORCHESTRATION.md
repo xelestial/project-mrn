@@ -1,7 +1,7 @@
 # [PLAN] Unified Decision API Orchestration (AI + Human)
 
 Status: ACTIVE  
-Updated: 2026-04-04  
+Updated: 2026-04-07  
 Owner: GPT
 
 Detailed execution: [PLAN/[PLAN]_UNIFIED_DECISION_API_DETAILED_EXECUTION.md](/C:/Users/SIL-EDITOR/Desktop/Workspace/project-mrn/PLAN/[PLAN]_UNIFIED_DECISION_API_DETAILED_EXECUTION.md)
@@ -14,6 +14,10 @@ Detailed execution: [PLAN/[PLAN]_UNIFIED_DECISION_API_DETAILED_EXECUTION.md](/C:
 - 모든 결정은 `DecisionRequest -> DecisionResponse`로 처리
 - 인간/AI는 라우팅만 다르고 계약은 동일
 - 엔진은 “누가 결정했는지”를 모르고 결과만 소비
+- 장기 목표는 인간/AI를 모두 “동일한 멀티플레이 참가자”처럼 다루는 것이다:
+  - AI도 API-like decision client로 참여
+  - 서버 내부 로컬 AI는 외부 AI client의 compatibility adapter로만 존재
+  - 엔진 인터페이스는 개방형 DI를 전제로 request 생성/전달 경계를 고정
 
 ---
 
@@ -48,6 +52,15 @@ Detailed execution: [PLAN/[PLAN]_UNIFIED_DECISION_API_DETAILED_EXECUTION.md](/C:
   - `AiDecisionProvider`
   - `FallbackDecisionProvider`
 
+3a. `DecisionClient` interface (follow-on, now preferred direction)
+- `resolve(call) -> response`
+- 인간/AI를 모두 “정규화된 decision call을 받는 참가자 클라이언트”로 취급
+- 초기 구현:
+  - local human client adapter
+  - local AI client adapter
+- 후속 구현:
+  - external AI client / worker / service adapter
+
 4. `DecisionLedger` (new)
 - `decision_requested`, `decision_resolved`, `decision_timeout_fallback`를 순서 보존으로 기록
 - 로그/리플레이/감사 공통 소스
@@ -58,6 +71,15 @@ Detailed execution: [PLAN/[PLAN]_UNIFIED_DECISION_API_DETAILED_EXECUTION.md](/C:
 - `DecisionPort.request(request: DecisionRequest) -> DecisionResponse`
 
 즉, `policy.choose_*` 직접 접근을 점진 제거하고 `DecisionPort`를 통한 호출로 치환한다.
+
+또한 엔진은 request 생성까지 닫힌 구조로 두지 않는다.
+- `DecisionRequest` 생성 방식도 주입 가능해야 한다.
+- 이유:
+  - local bridge
+  - external AI client
+  - replay/simulation harness
+  - testing adapters
+  가 동일한 엔진 경계를 공유할 수 있어야 하기 때문
 
 ---
 
@@ -162,6 +184,12 @@ Detailed execution: [PLAN/[PLAN]_UNIFIED_DECISION_API_DETAILED_EXECUTION.md](/C:
 - 타임아웃/fallback 회귀 테스트
 - 1 human + 3 AI 장기 플레이 테스트
 
+## P4 - Open Participant Model
+- server human/AI routing을 “provider branch”가 아니라 “decision client registry”로 수렴
+- local AI는 서버 내부 특례가 아니라 local client adapter로 유지
+- 외부 AI client도 동일 contract로 연결 가능하게 경계 고정
+- engine request builder / adapter DI 확대
+
 ---
 
 ## 8) Test Plan
@@ -204,3 +232,4 @@ Detailed execution: [PLAN/[PLAN]_UNIFIED_DECISION_API_DETAILED_EXECUTION.md](/C:
 - 엔진이 resolver 타입(human/ai)을 직접 분기하지 않음
 - 결정 관련 로그가 순서적으로 재현 가능
 - 기존 룰 플로우(드래프트/지목/운세/날씨/이동/구매/턴 종료)가 unified path에서 동일 동작
+- AI가 구조적으로도 “같은 멀티플레이 참가자”처럼 연결될 수 있는 decision client seam이 고정됨

@@ -2121,3 +2121,28 @@ Updated: 2026-04-04
     - then `legal_choices[].value.tile_index`
   - Added `coin_placement` turn-stage coverage in `apps/web/src/domain/selectors/streamSelectors.spec.ts`.
   - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts`
+
+## 2026-04-07 Open-Participant Decision Client Prep
+
+- What changed:
+  - Reframed runtime human/AI execution from provider-style branching toward decision-client adapters:
+    - `_LocalHumanDecisionClient`
+    - `_LocalAiDecisionClient`
+    - `_ServerDecisionClientRouter`
+    - `_ServerDecisionClientFactory`
+  - Added `RoutedDecisionCall` in `apps/server/src/services/decision_gateway.py` so both local clients consume the same normalized call object:
+    - invocation
+    - canonical request
+    - choice serializer
+  - Updated `_ServerDecisionPolicyBridge` so both `request(...)` and legacy `choose_*` wrappers route through the normalized decision-client seam.
+  - Opened server-side DI one step further so client creation itself can be injected through a decision-client factory.
+  - Extended `GPT/engine.py` with `decision_request_factory=...` injection so request construction is also open to adapters and not hard-wired to one server-local path.
+  - Added coverage in:
+    - `apps/server/tests/test_runtime_service.py`
+    - `GPT/test_decision_port_contract.py`
+- Why:
+  - the next architectural target is not merely “AI and human use similar contracts”, but “AI can be treated like the same kind of multiplayer participant”
+  - local AI still exists today, but it should already look like a client adapter at the server boundary so a later external AI client can mount on the same seam
+  - opening request construction DI on the engine side keeps the engine boundary compatible with multiple participant adapters instead of only the current default builder
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py GPT/test_decision_port_contract.py`

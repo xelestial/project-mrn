@@ -48,6 +48,13 @@ class CanonicalDecisionRequest:
     kwargs: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class RoutedDecisionCall:
+    invocation: DecisionInvocation
+    request: CanonicalDecisionRequest
+    choice_serializer: ChoiceSerializer
+
+
 def _number_or_none(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
@@ -382,6 +389,29 @@ def build_canonical_decision_request(
         fallback_policy=fallback_policy,
         args=invocation.args,
         kwargs=dict(invocation.kwargs),
+    )
+
+
+def build_routed_decision_call(
+    invocation: DecisionInvocation,
+    *,
+    fallback_policy: str = "ai",
+) -> RoutedDecisionCall:
+    prepared = prepare_decision_method_from_invocation(invocation)
+    return RoutedDecisionCall(
+        invocation=invocation,
+        request=CanonicalDecisionRequest(
+            decision_name=invocation.method_name,
+            request_type=prepared.request_type,
+            player_id=invocation.player_id,
+            round_index=prepared.public_context.get("round_index"),
+            turn_index=prepared.public_context.get("turn_index"),
+            public_context=dict(prepared.public_context),
+            fallback_policy=fallback_policy,
+            args=invocation.args,
+            kwargs=dict(invocation.kwargs),
+        ),
+        choice_serializer=prepared.choice_serializer,
     )
 
 

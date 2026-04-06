@@ -9,6 +9,7 @@ from unittest.mock import patch
 from apps.server.src.services.decision_gateway import (
     build_decision_invocation,
     build_canonical_decision_request,
+    build_routed_decision_call,
     build_public_context,
     decision_request_type_for_method,
     serialize_ai_choice_id,
@@ -116,41 +117,49 @@ class RuntimeServiceTests(unittest.TestCase):
             },
         )
 
-    def test_decision_provider_router_prefers_human_policy_attributes_and_human_seats(self) -> None:
-        from apps.server.src.services.runtime_service import _ServerDecisionProviderRouter
+    def test_decision_client_router_prefers_human_policy_attributes_and_human_seats(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerDecisionClientRouter
 
-        class _FakeHumanProvider:
+        class _FakeHumanClient:
             def __init__(self) -> None:
                 self.policy = type("HumanPolicy", (), {"human_only_attr": "human"})()
 
-            def call(self, invocation):  # noqa: ANN001
-                return ("human", invocation.method_name, invocation.args, invocation.kwargs)
+            def resolve(self, call):  # noqa: ANN001
+                return ("human", call.invocation.method_name, call.invocation.args, call.invocation.kwargs)
 
         class _FakeAiPolicy:
             ai_only_attr = "ai"
 
-        class _FakeAiProvider:
+        class _FakeAiClient:
             def __init__(self) -> None:
                 self.policy = _FakeAiPolicy()
 
-            def call(self, invocation):  # noqa: ANN001
-                return ("ai", invocation.method_name, invocation.args, invocation.kwargs)
+            def resolve(self, call):  # noqa: ANN001
+                return ("ai", call.invocation.method_name, call.invocation.args, call.invocation.kwargs)
 
-        router = _ServerDecisionProviderRouter(
+        router = _ServerDecisionClientRouter(
             human_seats=[0],
-            human_provider=_FakeHumanProvider(),
-            ai_provider=_FakeAiProvider(),
+            human_client=_FakeHumanClient(),
+            ai_client=_FakeAiClient(),
         )
 
         human_player = type("Player", (), {"player_id": 0})()
         ai_player = type("Player", (), {"player_id": 1})()
+        human_call = build_routed_decision_call(
+            build_decision_invocation("choose_pabal_dice_mode", (object(), human_player), {}),
+            fallback_policy="human_timeout",
+        )
+        ai_call = build_routed_decision_call(
+            build_decision_invocation("choose_pabal_dice_mode", (object(), ai_player), {}),
+            fallback_policy="ai",
+        )
 
         self.assertEqual(getattr(router.attribute_target("human_only_attr"), "human_only_attr"), "human")
         self.assertEqual(getattr(router.attribute_target("ai_only_attr"), "ai_only_attr"), "ai")
-        human_invocation = build_decision_invocation("choose_pabal_dice_mode", (object(), human_player), {})
-        ai_invocation = build_decision_invocation("choose_pabal_dice_mode", (object(), ai_player), {})
-        self.assertEqual(router.provider_for_choice(human_invocation).__class__.__name__, "_FakeHumanProvider")
-        self.assertEqual(router.provider_for_choice(ai_invocation).__class__.__name__, "_FakeAiProvider")
+        self.assertEqual(router.client_for_call(human_call).__class__.__name__, "_FakeHumanClient")
+        self.assertEqual(router.client_for_call(ai_call).__class__.__name__, "_FakeAiClient")
+        self.assertEqual(human_call.request.fallback_policy, "human_timeout")
+        self.assertEqual(ai_call.request.fallback_policy, "ai")
 
     def test_build_decision_invocation_captures_method_and_player_identity(self) -> None:
         player = type("Player", (), {"player_id": 2, "cash": 11})()
@@ -187,6 +196,61 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(request.public_context["tile_index"], 9)
         self.assertEqual(request.public_context["cost"], 4)
         self.assertEqual(request.fallback_policy, "ai")
+
+    def test_bridge_allows_injected_decision_client_factory(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+
+        class _FakeClient:
+            def __init__(self, label: str) -> None:
+                self.label = label
+                self.policy = type("Policy", (), {})()
+                self.calls: list[str] = []
+
+            def resolve(self, call):  # noqa: ANN001
+                self.calls.append(call.request.request_type)
+                return self.label
+
+        class _FakeFactory:
+            def __init__(self) -> None:
+                self.ai_client = _FakeClient("ai-client")
+                self.human_client = _FakeClient("human-client")
+
+            def create_ai_client(self, *, ai_fallback, gateway):  # noqa: ANN001
+                del ai_fallback, gateway
+                return self.ai_client
+
+            def create_human_client(self, *, human_seats, ai_fallback, gateway):  # noqa: ANN001
+                del human_seats, ai_fallback, gateway
+                return self.human_client
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            factory = _FakeFactory()
+            bridge = _ServerDecisionPolicyBridge(
+                session_id="sess_bridge_client_factory",
+                human_seats=[],
+                ai_fallback=object(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+                client_factory=factory,
+            )
+            state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+            player = type("Player", (), {"player_id": 1, "cash": 5, "position": 2, "shards": 1})()
+
+            result = bridge.choose_pabal_dice_mode(state, player)
+
+            self.assertEqual(result, "ai-client")
+            self.assertEqual(factory.ai_client.calls, ["pabal_dice_mode"])
+            self.assertEqual(factory.human_client.calls, [])
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
 
     def test_start_runtime_uses_async_to_thread_bridge(self) -> None:
         session = self.session_service.create_session(

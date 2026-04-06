@@ -13,8 +13,7 @@ from apps.server.src.services.decision_gateway import (
     DecisionInvocation,
     build_decision_invocation,
     build_decision_invocation_from_request,
-    build_canonical_decision_request,
-    prepare_decision_method_from_invocation,
+    build_routed_decision_call,
 )
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
 
@@ -29,11 +28,13 @@ class RuntimeService:
         prompt_service=None,
         config_factory: EngineConfigFactory | None = None,
         watchdog_timeout_ms: int = 45000,
+        decision_client_factory=None,
     ) -> None:
         self._session_service = session_service
         self._stream_service = stream_service
         self._prompt_service = prompt_service
         self._config_factory = config_factory or EngineConfigFactory()
+        self._decision_client_factory = decision_client_factory or _ServerDecisionClientFactory()
         self._runtime_tasks: dict[str, asyncio.Task] = {}
         self._watchdogs: dict[str, asyncio.Task] = {}
         self._status: dict[str, dict] = {}
@@ -191,6 +192,7 @@ class RuntimeService:
                 loop=loop,
                 touch_activity=self._touch_activity,
                 fallback_executor=self.execute_prompt_fallback,
+                client_factory=self._decision_client_factory,
             )
         vis_stream = _FanoutVisEventStream(loop, self._stream_service, session_id, self._touch_activity)
         engine = GameEngine(
@@ -313,6 +315,7 @@ class _ServerDecisionPolicyBridge:
         loop: asyncio.AbstractEventLoop,
         touch_activity,
         fallback_executor,
+        client_factory=None,
     ) -> None:
         self._human_seats = frozenset(int(seat) for seat in human_seats)
         self._session_id = session_id
@@ -324,41 +327,48 @@ class _ServerDecisionPolicyBridge:
             touch_activity=touch_activity,
             fallback_executor=fallback_executor,
         )
-        self._ai_provider = _ServerAiDecisionProvider(ai_fallback=ai_fallback, gateway=self._gateway)
-        self._human_provider = _ServerHumanDecisionProvider(
+        factory = client_factory or _ServerDecisionClientFactory()
+        self._ai_client = factory.create_ai_client(ai_fallback=ai_fallback, gateway=self._gateway)
+        self._human_client = factory.create_human_client(
             human_seats=human_seats,
             ai_fallback=ai_fallback,
             gateway=self._gateway,
         )
-        self._router = _ServerDecisionProviderRouter(
+        self._router = _ServerDecisionClientRouter(
             human_seats=human_seats,
-            human_provider=self._human_provider,
-            ai_provider=self._ai_provider,
+            human_client=self._human_client,
+            ai_client=self._ai_client,
         )
-        self._inner = self._human_provider.policy if self._human_provider is not None else None
+        self._inner = self._human_client.policy if self._human_client is not None else None
 
     def _ask(self, prompt: dict, parser, fallback_fn):
-        if self._human_provider is not None:
-            self._human_provider.bump_prompt_seq()
+        if self._human_client is not None:
+            self._human_client.bump_prompt_seq()
             prompt = dict(prompt)
-            prompt["prompt_instance_id"] = self._human_provider.prompt_seq
+            prompt["prompt_instance_id"] = self._human_client.prompt_seq
         return self._gateway.resolve_human_prompt(prompt, parser, fallback_fn)
 
     def request(self, request):
         invocation = build_decision_invocation_from_request(request)
-        provider = self._router.provider_for_choice(invocation)
-        return provider.call(invocation)
+        fallback_policy = str(getattr(request, "fallback_policy", "required") or "required")
+        call = build_routed_decision_call(invocation, fallback_policy=fallback_policy)
+        client = self._router.client_for_call(call)
+        return client.resolve(call)
 
     def __getattr__(self, name: str):
         target = self._router.attribute_target(name)
-        attr = getattr(target, name)
-        if not name.startswith("choose_") or not callable(attr):
-            return attr
+        if hasattr(target, name):
+            attr = getattr(target, name)
+            if not name.startswith("choose_") or not callable(attr):
+                return attr
+        elif not name.startswith("choose_"):
+            raise AttributeError(name)
 
         def _wrapped(*args, **kwargs):
             invocation = build_decision_invocation(name, args, kwargs)
-            provider = self._router.provider_for_choice(invocation)
-            return provider.call(invocation)
+            call = build_routed_decision_call(invocation, fallback_policy="ai")
+            client = self._router.client_for_call(call)
+            return client.resolve(call)
 
         return _wrapped
 
@@ -366,25 +376,25 @@ class _ServerDecisionPolicyBridge:
 _ServerHumanPolicyBridge = _ServerDecisionPolicyBridge
 
 
-class _ServerAiDecisionProvider:
+class _LocalAiDecisionClient:
     def __init__(self, *, ai_fallback, gateway: DecisionGateway) -> None:
         self.policy = ai_fallback
         self._gateway = gateway
 
-    def call(self, invocation: DecisionInvocation):
-        ai_callable = getattr(self.policy, invocation.method_name)
-        request = build_canonical_decision_request(invocation, fallback_policy="ai")
+    def resolve(self, call):
+        ai_callable = getattr(self.policy, call.invocation.method_name)
+        request = call.request
         player_id = int(request.player_id if request.player_id is not None else -1) + 1
         return self._gateway.resolve_ai_decision(
             request_type=request.request_type,
             player_id=player_id,
             public_context=request.public_context,
-            resolver=lambda: ai_callable(*invocation.args, **invocation.kwargs),
-            choice_serializer=prepare_decision_method_from_invocation(invocation).choice_serializer,
+            resolver=lambda: ai_callable(*call.invocation.args, **call.invocation.kwargs),
+            choice_serializer=call.choice_serializer,
         )
 
 
-class _ServerHumanDecisionProvider:
+class _LocalHumanDecisionClient:
     def __init__(self, *, human_seats: list[int], ai_fallback, gateway: DecisionGateway) -> None:
         if not human_seats:
             self.policy = None
@@ -412,39 +422,51 @@ class _ServerHumanDecisionProvider:
     def _ask(self, prompt: dict, parser, fallback_fn):
         return self._gateway.resolve_human_prompt(prompt, parser, fallback_fn)
 
-    def call(self, invocation: DecisionInvocation):
+    def resolve(self, call):
         if self.policy is None:
-            raise AttributeError(invocation.method_name)
-        return getattr(self.policy, invocation.method_name)(*invocation.args, **invocation.kwargs)
+            raise AttributeError(call.invocation.method_name)
+        return getattr(self.policy, call.invocation.method_name)(*call.invocation.args, **call.invocation.kwargs)
 
 
-class _ServerDecisionProviderRouter:
+class _ServerDecisionClientRouter:
     def __init__(
         self,
         *,
         human_seats: list[int],
-        human_provider: _ServerHumanDecisionProvider,
-        ai_provider: _ServerAiDecisionProvider,
+        human_client: _LocalHumanDecisionClient,
+        ai_client: _LocalAiDecisionClient,
     ) -> None:
         self._human_seats = frozenset(int(seat) for seat in human_seats)
-        self._human_provider = human_provider
-        self._ai_provider = ai_provider
+        self._human_client = human_client
+        self._ai_client = ai_client
 
     def attribute_target(self, name: str):
-        human_policy = self._human_provider.policy
+        human_policy = self._human_client.policy
         if human_policy is not None and hasattr(human_policy, name):
             return human_policy
-        return self._ai_provider.policy
+        return self._ai_client.policy
 
-    def provider_for_choice(self, invocation: DecisionInvocation):
-        player_id = invocation.player_id
+    def client_for_call(self, call):
+        player_id = call.request.player_id
         if (
             isinstance(player_id, int)
             and player_id in self._human_seats
-            and self._human_provider.policy is not None
+            and self._human_client.policy is not None
         ):
-            return self._human_provider
-        return self._ai_provider
+            return self._human_client
+        return self._ai_client
+
+
+class _ServerDecisionClientFactory:
+    def create_ai_client(self, *, ai_fallback, gateway: DecisionGateway):
+        return _LocalAiDecisionClient(ai_fallback=ai_fallback, gateway=gateway)
+
+    def create_human_client(self, *, human_seats: list[int], ai_fallback, gateway: DecisionGateway):
+        return _LocalHumanDecisionClient(
+            human_seats=human_seats,
+            ai_fallback=ai_fallback,
+            gateway=gateway,
+        )
 
 
 class _FanoutVisEventStream:
