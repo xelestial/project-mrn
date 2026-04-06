@@ -206,6 +206,12 @@ class GameParameterResolver:
             if not isinstance(item, str) or not item.strip():
                 raise ParameterValidationError("invalid_external_ai_required_request_types")
             normalized_request_types.append(item.strip())
+        required_policy_mode = external_ai_raw.get("required_policy_mode")
+        if required_policy_mode is not None and (not isinstance(required_policy_mode, str) or not required_policy_mode.strip()):
+            raise ParameterValidationError("invalid_external_ai_required_policy_mode")
+        required_decision_style = external_ai_raw.get("required_decision_style")
+        if required_decision_style is not None and (not isinstance(required_decision_style, str) or not required_decision_style.strip()):
+            raise ParameterValidationError("invalid_external_ai_required_decision_style")
 
         headers = external_ai_raw.get("headers") or {}
         if not isinstance(headers, dict):
@@ -236,6 +242,8 @@ class GameParameterResolver:
                 "endpoint": endpoint.strip() if isinstance(endpoint, str) and endpoint.strip() else None,
                 "required_capabilities": normalized_capabilities,
                 "required_request_types": normalized_request_types,
+                "required_policy_mode": required_policy_mode.strip() if isinstance(required_policy_mode, str) else None,
+                "required_decision_style": required_decision_style.strip() if isinstance(required_decision_style, str) else None,
                 "headers": normalized_headers,
             }
         }

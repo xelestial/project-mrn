@@ -21,6 +21,10 @@ export const koLocale = {
     spectatorTitle: (playerId: number) => `P${playerId}의 진행 중`,
     spectatorDescription: "다른 플레이어가 행동하는 동안 공개된 진행 흐름을 계속 보여줍니다.",
     spectatorHeadline: "관전자 패널",
+    inlineSummary: (parts: string[]) => {
+      const visible = parts.map((part) => part.trim()).filter((part) => part && part !== "-");
+      return visible.length > 0 ? visible.join(" / ") : "-";
+    },
     spectatorFields: {
       weather: "현재 날씨",
       character: "현재 인물",
@@ -299,6 +303,18 @@ export const koLocale = {
     landingResultAt: (summary: string, tileDisplay: string) => `${summary} / ${tileDisplay}번 칸`,
     diceCard: (cards: string) => `주사위 카드 ${cards}`,
     diceRoll: (dice: string) => `주사위 ${dice}`,
+    diceTotalSummary: (cardText: string, diceText: string, total: string | number) => {
+      if (cardText && diceText) {
+        return `${cardText} + ${diceText} = ${total}`;
+      }
+      if (cardText) {
+        return `${cardText} = ${total}`;
+      }
+      if (diceText) {
+        return `${diceText} = ${total}`;
+      }
+      return String(total);
+    },
     landing: {
       purchaseSkip: "구매 없이 턴 종료",
       purchase: "토지 구매",
@@ -404,6 +420,7 @@ export const koLocale = {
     fortuneDrawn: (cardName: string) => `운수 공개 / ${cardName}`,
     fortuneResolved: (summary: string) => `운수 처리 / ${summary}`,
     lapRewardChosen: (actor: string, reward: string) => `${actor} / ${reward}`,
+    lapRewardBundle: (parts: string[]) => koLocale.app.inlineSummary(parts),
     bankruptcy: (pid: unknown) => `P${pid} 파산`,
     winner: (winner: number) => `승자 P${winner}`,
     gameEndDefault: "게임 종료",

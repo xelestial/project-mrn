@@ -132,6 +132,7 @@ These are no longer the immediate blockers, but they are recently completed and 
   - health checks can now be parameter-driven via `healthcheck_policy`
   - worker readiness can now be enforced via `require_ready`
   - total worker call attempts can now be capped via `max_attempt_count`
+  - stronger worker replacements can now be gated by `required_policy_mode` / `required_decision_style`
   - remote-turn stage/spectator payoff strips now surface worker outcomes as part of the scene instead of only side diagnostics
   - canonical current-turn models now preserve worker readiness state and bounded attempt counts for stage/spectator surfaces
 - Main implementation references:
@@ -181,6 +182,7 @@ These are the slices that should still actively drive implementation after the r
   - keep external-worker auth/identity/capability checks mandatory even for injected custom transports
   - keep worker readiness / attempt-limit policy parameter-driven and visible in mixed-seat regressions
   - keep decision-response readiness validation aligned with the same public-context seam as health readiness
+  - keep stronger-worker metadata compatibility (`policy_mode` / `decision_style`) enforced through the same transport seam
 
 ## Active But Secondary Plans
 

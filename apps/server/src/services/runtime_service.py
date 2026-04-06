@@ -710,6 +710,8 @@ def _external_ai_health_cache_key(config: dict[str, object], endpoint: str, heal
         for item in (config.get("required_request_types") or [])
         if isinstance(item, str) and str(item).strip()
     )
+    required_policy_mode = str(config.get("required_policy_mode") or "").strip()
+    required_decision_style = str(config.get("required_decision_style") or "").strip()
     auth_header_name = str(config.get("auth_header_name", "Authorization") or "Authorization").strip()
     auth_scheme = str(config.get("auth_scheme", "Bearer") or "Bearer").strip()
     return "|".join(
@@ -722,6 +724,8 @@ def _external_ai_health_cache_key(config: dict[str, object], endpoint: str, heal
             require_ready,
             ",".join(required_capabilities),
             ",".join(required_request_types),
+            required_policy_mode,
+            required_decision_style,
             auth_header_name,
             auth_scheme,
         ]
@@ -823,10 +827,18 @@ def _validate_external_ai_health_payload(payload: dict[str, object], config: dic
         for item in (payload.get("supported_request_types") or [])
         if isinstance(item, str) and str(item).strip()
     }
+    required_policy_mode = str(config.get("required_policy_mode") or "").strip()
+    required_decision_style = str(config.get("required_decision_style") or "").strip()
+    actual_policy_mode = str(payload.get("policy_mode") or "").strip()
+    actual_decision_style = str(payload.get("decision_style") or "").strip()
     if required_capabilities and not required_capabilities.issubset(available_capabilities):
         raise RuntimeError("external_ai_missing_required_capability")
     if required_request_types and not required_request_types.issubset(available_request_types):
         raise RuntimeError("external_ai_missing_required_request_type")
+    if required_policy_mode and actual_policy_mode != required_policy_mode:
+        raise RuntimeError("external_ai_policy_mode_mismatch")
+    if required_decision_style and actual_decision_style != required_decision_style:
+        raise RuntimeError("external_ai_decision_style_mismatch")
 
 
 def _external_ai_ready_state_value(payload: dict[str, object]) -> str | None:
@@ -864,6 +876,8 @@ def _classify_external_ai_error(exc: Exception) -> str:
         "external_ai_contract_version_mismatch",
         "external_ai_missing_required_capability",
         "external_ai_missing_required_request_type",
+        "external_ai_policy_mode_mismatch",
+        "external_ai_decision_style_mismatch",
         "external_ai_worker_not_ready",
         "external_ai_missing_request_type_support",
         "external_ai_missing_choice_id",

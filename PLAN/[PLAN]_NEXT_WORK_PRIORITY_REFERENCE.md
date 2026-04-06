@@ -307,6 +307,22 @@ This is the practical next-work list after the closed slices above.
   1. finish any last selector-owned sentence seams that still show up in evidence
   2. close only evidence-backed remote-turn/rule-parity visual drift
   3. keep the stronger-worker seam stable beyond the reference implementation
+
+### 2026-04-07 Progress Update (stronger-worker metadata seam)
+
+- The external worker contract is now stricter about replacement-quality metadata:
+  - external-AI participant defaults can now require:
+    - `required_policy_mode`
+    - `required_decision_style`
+  - runtime validates those fields against worker metadata before treating the seat as compatible
+  - mismatch cases now fall back through the same canonical public-context seam as other worker failures
+- Selector/component locale ownership also moved a little further:
+  - spectator inline summaries now route through locale helpers instead of component-local join logic
+  - dice totals and lap-reward bundle text now route through locale helpers instead of selector-local string assembly
+- Therefore the remaining practical carry-forward is now mostly:
+  1. evidence-backed visual drift cleanup
+  2. any last selector-local phrasing that still surfaces in review
+  3. stronger external workers replacing the reference implementation without reopening contract drift
   - mixed-seat browser parity now keeps worker outcome cards inside remote-turn payoff strips
   - runtime can now require or disable health checks per participant config through `healthcheck_policy`
 

@@ -74,5 +74,7 @@ Operational seat defaults can now also require:
 
 - `require_ready`
 - `max_attempt_count`
+- `required_policy_mode`
+- `required_decision_style`
 
 See `docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md` for a full local session example.

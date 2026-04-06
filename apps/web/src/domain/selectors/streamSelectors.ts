@@ -245,18 +245,10 @@ function summarizeDiceRoll(payload: Record<string, unknown>, streamText: StreamS
         : [];
   const dice = Array.isArray(payload["dice_values"]) ? payload["dice_values"] : Array.isArray(payload["dice"]) ? payload["dice"] : [];
   const total = payload["total_move"] ?? payload["total"] ?? payload["move"] ?? "?";
+  const totalDisplay = typeof total === "number" || typeof total === "string" ? total : "?";
   const cardText = cards.length > 0 ? streamText.diceCard(cards.join("+")) : "";
   const diceText = dice.length > 0 ? streamText.diceRoll(dice.join("+")) : "";
-  if (cardText && diceText) {
-    return `${cardText} + ${diceText} = ${total}`;
-  }
-  if (cardText) {
-    return `${cardText} = ${total}`;
-  }
-  if (diceText) {
-    return `${diceText} = ${total}`;
-  }
-  return String(total);
+  return streamText.diceTotalSummary(cardText, diceText, totalDisplay);
 }
 
 function summarizeLandingResult(raw: string, streamText: StreamSelectorTextResources["stream"]): string {
@@ -466,7 +458,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
         parts.push(text.stream.lapReward.coins(coins));
       }
       if (parts.length > 0) {
-        return text.stream.lapRewardChosen(actorFromPayload(payload), parts.join(" / "));
+        return text.stream.lapRewardChosen(actorFromPayload(payload), text.stream.lapRewardBundle(parts));
       }
     }
     const choice = asString(payload["choice"] ?? payload["reward"] ?? payload["summary"]);

@@ -21,6 +21,10 @@ export const enLocale = {
     spectatorTitle: (playerId: number) => `P${playerId} in progress`,
     spectatorDescription: "Shows the public flow while another player is acting.",
     spectatorHeadline: "Spectator Panel",
+    inlineSummary: (parts: string[]) => {
+      const visible = parts.map((part) => part.trim()).filter((part) => part && part !== "-");
+      return visible.length > 0 ? visible.join(" / ") : "-";
+    },
     spectatorFields: {
       weather: "Weather",
       character: "Current character",
@@ -294,6 +298,18 @@ export const enLocale = {
     landingResultAt: (summary: string, tileDisplay: string) => `${summary} / tile ${tileDisplay}`,
     diceCard: (cards: string) => `Dice card ${cards}`,
     diceRoll: (dice: string) => `Dice ${dice}`,
+    diceTotalSummary: (cardText: string, diceText: string, total: string | number) => {
+      if (cardText && diceText) {
+        return `${cardText} + ${diceText} = ${total}`;
+      }
+      if (cardText) {
+        return `${cardText} = ${total}`;
+      }
+      if (diceText) {
+        return `${diceText} = ${total}`;
+      }
+      return String(total);
+    },
     landing: {
       purchaseSkip: "Skip purchase",
       purchase: "Purchase tile",
@@ -399,6 +415,7 @@ export const enLocale = {
     fortuneDrawn: (cardName: string) => `Fortune card: ${cardName}`,
     fortuneResolved: (summary: string) => `Fortune effect: ${summary}`,
     lapRewardChosen: (actor: string, reward: string) => `${actor} / ${reward}`,
+    lapRewardBundle: (parts: string[]) => enLocale.app.inlineSummary(parts),
     bankruptcy: (pid: unknown) => `P${pid} bankrupt`,
     winner: (winner: number) => `Winner P${winner}`,
     gameEndDefault: "Game end",

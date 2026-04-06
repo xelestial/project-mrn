@@ -12,11 +12,6 @@ function valueOrDash(value: string): string {
   return trimmed ? trimmed : "-";
 }
 
-function joinVisible(parts: string[]): string {
-  const visible = parts.map((part) => part.trim()).filter((part) => part && part !== "-");
-  return visible.length > 0 ? visible.join(" / ") : "-";
-}
-
 function hasValue(value: string): boolean {
   return value.trim() !== "" && value.trim() !== "-";
 }
@@ -92,8 +87,8 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
   const latestActionTitle = latestAction?.label ?? "-";
   const latestActionDetail = latestAction?.detail?.trim() ? latestAction.detail : "-";
   const latestActionTone = payoffToneForEventCode(latestAction?.eventCode ?? "");
-  const economyText = joinVisible([model.purchaseSummary, model.rentSummary]);
-  const effectText = joinVisible([
+  const economyText = app.inlineSummary([model.purchaseSummary, model.rentSummary]);
+  const effectText = app.inlineSummary([
     model.trickSummary,
     model.fortuneResolvedSummary || model.fortuneSummary,
     model.fortuneDrawSummary,
@@ -101,7 +96,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     model.flipSummary,
     model.weatherSummary,
   ]);
-  const spotlightSummary = joinVisible([
+  const spotlightSummary = app.inlineSummary([
     model.currentBeatDetail,
     model.turnEndSummary,
     model.fortuneDrawSummary,
@@ -139,7 +134,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
       ? economyText
       : latestActionTone === "effect"
         ? effectText
-        : joinVisible([model.currentBeatDetail, latestActionDetail]);
+        : app.inlineSummary([model.currentBeatDetail, latestActionDetail]);
   let persistentPayoff: PersistentPayoff | null = null;
   if (hasValue(model.rentSummary)) {
     persistentPayoff = { title: rentEventLabel, detail: model.rentSummary, tone: "economy" };
@@ -369,7 +364,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
         <article className="spectator-turn-card spectator-turn-card-hero" data-testid="spectator-turn-scene">
           <span>{app.spectatorFields.beat}</span>
           <strong>{valueOrDash(model.currentBeatLabel)}</strong>
-          <small>{valueOrDash(latestActionTitle === "-" ? spotlightSummary : `${latestActionTitle} / ${spotlightSummary}`)}</small>
+          <small>{valueOrDash(latestActionTitle === "-" ? spotlightSummary : app.inlineSummary([latestActionTitle, spotlightSummary]))}</small>
         </article>
         <article className="spectator-turn-card" data-testid="spectator-turn-weather">
           <span>{app.spectatorFields.weather}</span>
@@ -447,7 +442,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
       {payoffBeats.length > 0 ? (
         <section className="core-action-payoff-sequence spectator-turn-payoff-sequence" data-testid="spectator-turn-payoff-sequence">
           <div className="core-action-journey-head">
-            <strong>{app.spectatorFields.effect}</strong>
+            <strong>{payoffTitle}</strong>
             <small>{valueOrDash(latestActionTitle)}</small>
           </div>
           <div className="core-action-payoff-strip">

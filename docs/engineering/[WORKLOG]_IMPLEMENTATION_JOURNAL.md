@@ -2626,3 +2626,31 @@ Updated: 2026-04-07
   - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts`
   - `cd apps/web && npm run build`
   - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
+
+## 2026-04-07 Stronger Worker Metadata Gating + Spectator Summary Cleanup
+
+- What changed:
+  - Web:
+    - `apps/web/src/features/stage/SpectatorTurnPanel.tsx` now routes spectator inline summaries through locale helpers instead of component-local join logic
+    - spectator payoff sequence headers now use the actual payoff tone/title rather than always reading as a generic effect strip
+    - `apps/web/src/domain/selectors/streamSelectors.ts` now routes:
+      - dice total summaries
+      - lap-reward bundle summaries
+      through locale helpers instead of selector-local string assembly
+  - Server:
+    - `apps/server/src/services/parameter_service.py` now accepts stronger-worker compatibility requirements:
+      - `required_policy_mode`
+      - `required_decision_style`
+    - `apps/server/src/services/runtime_service.py` now validates those fields against worker metadata as part of health/compatibility checks
+    - mismatch cases now resolve through the same fallback diagnostics seam as other worker incompatibilities
+  - Docs / plan:
+    - external worker contract docs and runbook now describe stronger-worker metadata requirements
+    - execution plans now record that stronger worker replacements can be gated on `policy_mode` / `decision_style`
+- Why:
+  - the remaining locale-ownership drift had narrowed to small but repeated join logic around spectator summaries and selector-side composed strings
+  - in parallel, the next practical stronger-worker seam was not “new transport” work but “replacement compatibility” work, so requiring explicit worker policy metadata was the cleanest next guardrail
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_parameter_service.py apps/server/tests/test_runtime_service.py`
+  - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+  - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
