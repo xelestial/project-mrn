@@ -102,6 +102,24 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
   for (const [index, tileIndex] of (lastMove?.pathTileIndices ?? []).entries()) {
     recentPathSteps.set(tileIndex, index + 1);
   }
+  const fromPosition =
+    lastMove?.fromTileIndex !== null && lastMove?.fromTileIndex !== undefined
+      ? projectTilePosition(lastMove.fromTileIndex, tiles.length, normalizedTopology)
+      : null;
+  const toPosition =
+    lastMove?.toTileIndex !== null && lastMove?.toTileIndex !== undefined
+      ? projectTilePosition(lastMove.toTileIndex, tiles.length, normalizedTopology)
+      : null;
+  const movingPawnStyle =
+    movedPlayerId !== null && fromPosition && toPosition
+      ? ({
+          "--board-move-from-x": `${((fromPosition.col - 0.5) / grid.cols) * 100}%`,
+          "--board-move-from-y": `${((fromPosition.row - 0.5) / grid.rows) * 100}%`,
+          "--board-move-to-x": `${((toPosition.col - 0.5) / grid.cols) * 100}%`,
+          "--board-move-to-y": `${((toPosition.row - 0.5) / grid.rows) * 100}%`,
+          "--board-move-player-color": playerColor(movedPlayerId),
+        } as CSSProperties)
+      : null;
 
   if (tiles.length === 0) {
     return (
@@ -137,6 +155,16 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
       ) : null}
       <div className="board-scroll">
         <div className={`board-ring ${normalizedTopology === "line" ? "board-ring-line" : "board-ring-ring"}`} style={boardStyle}>
+          {movingPawnStyle ? (
+            <div
+              className="board-moving-pawn-ghost"
+              data-testid="board-moving-pawn-ghost"
+              style={movingPawnStyle}
+              aria-hidden="true"
+            >
+              {movedPlayerId}
+            </div>
+          ) : null}
           {tiles.map((tile) => {
             const isMoveFrom = lastMove?.fromTileIndex === tile.tileIndex;
             const isMoveTo = lastMove?.toTileIndex === tile.tileIndex;

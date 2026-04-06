@@ -506,6 +506,7 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await expect(page.getByTestId("spectator-turn-progress")).toBeVisible();
   await expect(page.getByTestId("board-move-start-badge")).toBeVisible();
   await expect(page.getByTestId("board-move-end-badge")).toBeVisible();
+  await expect(page.getByTestId("board-moving-pawn-ghost")).toBeVisible();
   await expect(page.getByTestId("board-path-step-3")).toBeVisible();
   await expect(page.getByTestId("board-actor-banner")).toBeVisible();
   await expect(page.getByTestId("core-action-journey")).toBeVisible();

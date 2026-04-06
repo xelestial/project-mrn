@@ -660,3 +660,19 @@ This order is chosen to stop further drift before additional feature edits.
   - true pawn interpolation or equivalent stronger route animation
   - fuller fortune-card / fortune-resolution staging beyond text spotlight only
   - additional cleanup for any remaining inspector-like surfaces in non-movement prompts
+
+## 2026-04-06 Ghost-Pawn Travel Follow-up
+
+- The board now renders a transient ghost pawn travel overlay between the latest move start and move end.
+- This sits on top of:
+  - move-start badge
+  - move-end badge
+  - intermediate path-step badges
+  so remote turns now read more like a moving piece and less like only a highlighted log snapshot.
+- Browser parity now explicitly locks:
+  - `board-moving-pawn-ghost`
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - richer per-step pawn interpolation instead of one start-to-end travel ghost only
+  - stronger fortune / rent / purchase payoff cards and transitions
+  - continued simplification of the remaining prompt surfaces so they read like live game UI instead of selection inspectors

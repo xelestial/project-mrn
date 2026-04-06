@@ -476,6 +476,8 @@ body {
 .board-ring {
   --board-grid-cols: 11;
   --board-grid-rows: 11;
+  position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: repeat(var(--board-grid-cols), minmax(0, 1fr));
   grid-template-rows: repeat(var(--board-grid-rows), minmax(0, 1fr));
@@ -498,6 +500,40 @@ body {
 .board-move-summary {
   margin: 6px 0 10px;
   color: #ffda77;
+}
+
+.board-moving-pawn-ghost {
+  position: absolute;
+  left: var(--board-move-to-x);
+  top: var(--board-move-to-y);
+  z-index: 6;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(233, 241, 255, 0.96);
+  background: var(--board-move-player-color, #ffda77);
+  color: #061329;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 4px rgba(255, 255, 255, 0.12),
+    0 12px 24px rgba(0, 0, 0, 0.28);
+  transform: translate(-50%, -50%);
+  animation: boardMovingPawnTravel 1.05s cubic-bezier(0.2, 0.82, 0.24, 1) both;
+}
+
+.board-moving-pawn-ghost::after {
+  content: "";
+  position: absolute;
+  inset: -10px;
+  border-radius: inherit;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 72%);
+  z-index: -1;
 }
 
 .board-focus-summary {
@@ -843,6 +879,28 @@ body {
   50% {
     transform: scale(1.08);
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.24), 0 0 16px rgba(147, 197, 253, 0.2);
+  }
+}
+
+@keyframes boardMovingPawnTravel {
+  0% {
+    left: var(--board-move-from-x);
+    top: var(--board-move-from-y);
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.74);
+  }
+  12% {
+    opacity: 1;
+  }
+  46% {
+    opacity: 0.98;
+    transform: translate(-50%, -58%) scale(1.02);
+  }
+  100% {
+    left: var(--board-move-to-x);
+    top: var(--board-move-to-y);
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1);
   }
 }
 

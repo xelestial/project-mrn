@@ -1538,3 +1538,18 @@ Updated: 2026-04-04
   - `npm run build` passed (`apps/web`)
   - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/features/board/boardProjection.spec.ts src/domain/text/uiText.spec.ts` passed (`29 passed`)
   - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+### Entry 081
+
+- Scope: P0-2 board pawn-travel scene follow-up.
+- Done:
+  - Completed the in-flight board movement treatment in `apps/web/src/features/board/BoardPanel.tsx` by keeping the transient ghost pawn overlay wired to the latest move origin/destination coordinates.
+  - Updated `apps/web/src/styles.css` so the board now renders a short-lived ghost pawn travel animation between move start and move end instead of relying on static badges alone.
+  - Extended browser parity in `apps/web/e2e/human_play_runtime.spec.ts` to lock `board-moving-pawn-ghost`.
+- Why:
+  - recent path badges and tile pulses improved readability, but the board still lacked an obvious "piece moved here" moment
+  - a lightweight ghost pawn animation adds scene continuity without needing full per-step interpolation yet
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/features/board/boardProjection.spec.ts src/domain/text/uiText.spec.ts` passed
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed
