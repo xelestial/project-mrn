@@ -614,6 +614,52 @@ describe("streamSelectors", () => {
     expect(rentStage.promptSummary).not.toBe("-");
   });
 
+  it("derives prompt focus tile from canonical legal_choices when public_context omits tile_index", () => {
+    const stage = selectTurnStage([
+      {
+        type: "event",
+        seq: 320,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 4,
+          turn_index: 10,
+          acting_player_id: 2,
+          character: "Scholar",
+        },
+      },
+      {
+        type: "prompt",
+        seq: 321,
+        session_id: "s1",
+        payload: {
+          request_id: "req_coin_1",
+          request_type: "coin_placement",
+          player_id: 2,
+          legal_choices: [
+            {
+              choice_id: "11",
+              label: "11번 칸",
+              value: { tile_index: 11 },
+            },
+            {
+              choice_id: "17",
+              label: "17번 칸",
+              value: { tile_index: 17 },
+            },
+          ],
+          public_context: {
+            owned_tile_indices: [11, 17],
+          },
+        },
+      },
+    ]);
+
+    expect(stage.currentBeatKind).toBe("decision");
+    expect(stage.focusTileIndex).toBe(11);
+    expect(stage.promptSummary).toContain("승점 배치");
+  });
+
   it("includes landing tile position in landing summaries when available", () => {
     const stage = selectTurnStage([
       {

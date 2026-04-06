@@ -2116,3 +2116,8 @@ Updated: 2026-04-04
 - Validation:
   - `npm run test -- --run src/domain/selectors/promptSelectors.spec.ts`
   - `npm run build`
+  - Updated `apps/web/src/domain/selectors/streamSelectors.ts` so turn-stage prompt focus uses canonical prompt data:
+    - first `public_context.tile_index`
+    - then `legal_choices[].value.tile_index`
+  - Added `coin_placement` turn-stage coverage in `apps/web/src/domain/selectors/streamSelectors.spec.ts`.
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts`

@@ -868,6 +868,28 @@ function detailFromEventCode(
   return pickMessageDetail(stub, text);
 }
 
+function promptFocusTileIndex(payload: Record<string, unknown>): number | null {
+  const publicContext = isRecord(payload["public_context"]) ? payload["public_context"] : null;
+  const contextTileIndex = numberOrNull(publicContext?.["tile_index"]);
+  if (contextTileIndex !== null) {
+    return contextTileIndex;
+  }
+
+  const legalChoices = Array.isArray(payload["legal_choices"]) ? payload["legal_choices"] : [];
+  for (const choice of legalChoices) {
+    if (!isRecord(choice)) {
+      continue;
+    }
+    const value = isRecord(choice["value"]) ? choice["value"] : null;
+    const choiceTileIndex = numberOrNull(value?.["tile_index"]);
+    if (choiceTileIndex !== null) {
+      return choiceTileIndex;
+    }
+  }
+
+  return null;
+}
+
 export function selectTurnStage(
   messages: InboundMessage[],
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
@@ -965,8 +987,7 @@ export function selectTurnStage(
         model.currentBeatKind = "decision";
         model.currentBeatLabel = promptLabelForType(requestType, text.promptType);
         model.currentBeatDetail = model.promptSummary;
-        const publicContext = isRecord(message.payload["public_context"]) ? message.payload["public_context"] : null;
-        const promptTileIndex = numberOrNull(message.payload["tile_index"] ?? publicContext?.["tile_index"]);
+        const promptTileIndex = promptFocusTileIndex(message.payload);
         if (promptTileIndex !== null) {
           model.focusTileIndex = promptTileIndex;
         }
