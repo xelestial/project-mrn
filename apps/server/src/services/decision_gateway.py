@@ -25,6 +25,16 @@ class PreparedDecisionMethod:
     choice_serializer: ChoiceSerializer
 
 
+@dataclass(frozen=True)
+class DecisionInvocation:
+    method_name: str
+    args: tuple[Any, ...]
+    kwargs: dict[str, Any]
+    state: Any
+    player: Any
+    player_id: int | None
+
+
 def _number_or_none(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
@@ -306,10 +316,30 @@ def build_public_context(method_name: str, args: tuple[Any, ...], kwargs: dict[s
 
 
 def prepare_decision_method(method_name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> PreparedDecisionMethod:
-    spec = _decision_method_spec_for_method(method_name)
+    invocation = build_decision_invocation(method_name, args, kwargs)
+    return prepare_decision_method_from_invocation(invocation)
+
+
+def build_decision_invocation(method_name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> DecisionInvocation:
+    state = args[0] if len(args) > 0 else kwargs.get("state")
+    player = args[1] if len(args) > 1 else kwargs.get("player")
+    raw_player_id = getattr(player, "player_id", None)
+    player_id = raw_player_id if isinstance(raw_player_id, int) else None
+    return DecisionInvocation(
+        method_name=method_name,
+        args=args,
+        kwargs=dict(kwargs),
+        state=state,
+        player=player,
+        player_id=player_id,
+    )
+
+
+def prepare_decision_method_from_invocation(invocation: DecisionInvocation) -> PreparedDecisionMethod:
+    spec = _decision_method_spec_for_method(invocation.method_name)
     return PreparedDecisionMethod(
         request_type=spec.request_type,
-        public_context=build_public_context(method_name, args, kwargs),
+        public_context=build_public_context(invocation.method_name, invocation.args, invocation.kwargs),
         choice_serializer=spec.choice_serializer,
     )
 

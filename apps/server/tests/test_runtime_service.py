@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from apps.server.src.services.decision_gateway import (
+    build_decision_invocation,
     build_public_context,
     decision_request_type_for_method,
     serialize_ai_choice_id,
@@ -121,8 +122,8 @@ class RuntimeServiceTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.policy = type("HumanPolicy", (), {"human_only_attr": "human"})()
 
-            def call(self, method_name: str, *args, **kwargs):  # noqa: ANN001
-                return ("human", method_name, args, kwargs)
+            def call(self, invocation):  # noqa: ANN001
+                return ("human", invocation.method_name, invocation.args, invocation.kwargs)
 
         class _FakeAiPolicy:
             ai_only_attr = "ai"
@@ -131,8 +132,8 @@ class RuntimeServiceTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.policy = _FakeAiPolicy()
 
-            def call(self, method_name: str, *args, **kwargs):  # noqa: ANN001
-                return ("ai", method_name, args, kwargs)
+            def call(self, invocation):  # noqa: ANN001
+                return ("ai", invocation.method_name, invocation.args, invocation.kwargs)
 
         router = _ServerDecisionProviderRouter(
             human_seats=[0],
@@ -145,8 +146,26 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertEqual(getattr(router.attribute_target("human_only_attr"), "human_only_attr"), "human")
         self.assertEqual(getattr(router.attribute_target("ai_only_attr"), "ai_only_attr"), "ai")
-        self.assertEqual(router.provider_for_choice((object(), human_player), {}).__class__.__name__, "_FakeHumanProvider")
-        self.assertEqual(router.provider_for_choice((object(), ai_player), {}).__class__.__name__, "_FakeAiProvider")
+        human_invocation = build_decision_invocation("choose_pabal_dice_mode", (object(), human_player), {})
+        ai_invocation = build_decision_invocation("choose_pabal_dice_mode", (object(), ai_player), {})
+        self.assertEqual(router.provider_for_choice(human_invocation).__class__.__name__, "_FakeHumanProvider")
+        self.assertEqual(router.provider_for_choice(ai_invocation).__class__.__name__, "_FakeAiProvider")
+
+    def test_build_decision_invocation_captures_method_and_player_identity(self) -> None:
+        player = type("Player", (), {"player_id": 2, "cash": 11})()
+        state = type("State", (), {"rounds_completed": 1})()
+
+        invocation = build_decision_invocation(
+            "choose_purchase_tile",
+            (state, player, 9, "T2", 4),
+            {"source": "landing"},
+        )
+
+        self.assertEqual(invocation.method_name, "choose_purchase_tile")
+        self.assertEqual(invocation.player_id, 2)
+        self.assertIs(invocation.player, player)
+        self.assertEqual(invocation.args[2], 9)
+        self.assertEqual(invocation.kwargs["source"], "landing")
 
     def test_start_runtime_uses_async_to_thread_bridge(self) -> None:
         session = self.session_service.create_session(

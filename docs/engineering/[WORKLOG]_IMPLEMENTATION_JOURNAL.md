@@ -1988,3 +1988,21 @@ Updated: 2026-04-04
   - moving the routing judgment out of the bridge keeps the remaining dynamic surface thinner and makes the eventual `DecisionPort` migration boundary easier to see
 - Validation:
   - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py`
+
+## 2026-04-07 Decision Invocation Prep Layer
+
+- What changed:
+  - Added `DecisionInvocation` plus `build_decision_invocation(...)` in `apps/server/src/services/decision_gateway.py`.
+  - Updated runtime routing/provider execution so a normalized invocation object now carries:
+    - `method_name`
+    - raw `args` / `kwargs`
+    - resolved `state`
+    - resolved `player`
+    - normalized `player_id`
+  - Added `prepare_decision_method_from_invocation(...)` so provider execution no longer needs to re-thread raw method name and argument tuples through multiple helpers.
+  - Extended `apps/server/tests/test_runtime_service.py` with focused invocation coverage.
+- Why:
+  - this is a small prep step toward a later engine-side `DecisionPort` migration
+  - the engine still calls `choose_*`, but the server boundary now treats each decision as an explicit normalized invocation rather than a loose `(method_name, args, kwargs)` bundle
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py`

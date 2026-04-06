@@ -10,7 +10,9 @@ from apps.server.src.domain.session_models import SeatType, SessionStatus
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.decision_gateway import (
     DecisionGateway,
-    prepare_decision_method,
+    DecisionInvocation,
+    build_decision_invocation,
+    prepare_decision_method_from_invocation,
 )
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
 
@@ -346,8 +348,9 @@ class _ServerDecisionPolicyBridge:
             return attr
 
         def _wrapped(*args, **kwargs):
-            provider = self._router.provider_for_choice(args, kwargs)
-            return provider.call(name, *args, **kwargs)
+            invocation = build_decision_invocation(name, args, kwargs)
+            provider = self._router.provider_for_choice(invocation)
+            return provider.call(invocation)
 
         return _wrapped
 
@@ -360,16 +363,15 @@ class _ServerAiDecisionProvider:
         self.policy = ai_fallback
         self._gateway = gateway
 
-    def call(self, method_name: str, *args, **kwargs):
-        ai_callable = getattr(self.policy, method_name)
-        player = args[1] if len(args) > 1 else kwargs.get("player")
-        player_id = int(getattr(player, "player_id", -1)) + 1
-        decision_method = prepare_decision_method(method_name, args, kwargs)
+    def call(self, invocation: DecisionInvocation):
+        ai_callable = getattr(self.policy, invocation.method_name)
+        player_id = int(invocation.player_id if invocation.player_id is not None else -1) + 1
+        decision_method = prepare_decision_method_from_invocation(invocation)
         return self._gateway.resolve_ai_decision(
             request_type=decision_method.request_type,
             player_id=player_id,
             public_context=decision_method.public_context,
-            resolver=lambda: ai_callable(*args, **kwargs),
+            resolver=lambda: ai_callable(*invocation.args, **invocation.kwargs),
             choice_serializer=decision_method.choice_serializer,
         )
 
@@ -402,10 +404,10 @@ class _ServerHumanDecisionProvider:
     def _ask(self, prompt: dict, parser, fallback_fn):
         return self._gateway.resolve_human_prompt(prompt, parser, fallback_fn)
 
-    def call(self, method_name: str, *args, **kwargs):
+    def call(self, invocation: DecisionInvocation):
         if self.policy is None:
-            raise AttributeError(method_name)
-        return getattr(self.policy, method_name)(*args, **kwargs)
+            raise AttributeError(invocation.method_name)
+        return getattr(self.policy, invocation.method_name)(*invocation.args, **invocation.kwargs)
 
 
 class _ServerDecisionProviderRouter:
@@ -426,9 +428,8 @@ class _ServerDecisionProviderRouter:
             return human_policy
         return self._ai_provider.policy
 
-    def provider_for_choice(self, args: tuple, kwargs: dict):
-        player = args[1] if len(args) > 1 else kwargs.get("player")
-        player_id = getattr(player, "player_id", None)
+    def provider_for_choice(self, invocation: DecisionInvocation):
+        player_id = invocation.player_id
         if (
             isinstance(player_id, int)
             and player_id in self._human_seats
