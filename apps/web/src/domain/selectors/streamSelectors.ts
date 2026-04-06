@@ -84,6 +84,10 @@ export type TurnStageViewModel = {
   latestActionDetail: string;
   currentBeatLabel: string;
   currentBeatDetail: string;
+  externalAiWorkerId: string;
+  externalAiFailureCode: string;
+  externalAiFallbackMode: string;
+  externalAiResolutionStatus: string;
   progressTrail: string[];
 };
 
@@ -888,6 +892,26 @@ function detailFromEventCode(
   return pickMessageDetail(stub, text);
 }
 
+function externalAiPublicContext(payload: Record<string, unknown>): Record<string, unknown> | null {
+  const publicContext = payload["public_context"];
+  return isRecord(publicContext) ? publicContext : null;
+}
+
+function externalAiStatusFromPayload(payload: Record<string, unknown>): {
+  workerId: string;
+  failureCode: string;
+  fallbackMode: string;
+  resolutionStatus: string;
+} {
+  const publicContext = externalAiPublicContext(payload);
+  return {
+    workerId: asString(publicContext?.["external_ai_worker_id"]),
+    failureCode: asString(publicContext?.["external_ai_failure_code"]),
+    fallbackMode: asString(publicContext?.["external_ai_fallback_mode"]),
+    resolutionStatus: asString(publicContext?.["external_ai_resolution_status"]),
+  };
+}
+
 function promptFocusTileIndex(payload: Record<string, unknown>): number | null {
   const publicContext = isRecord(payload["public_context"]) ? payload["public_context"] : null;
   const contextTileIndex = numberOrNull(publicContext?.["tile_index"]);
@@ -946,6 +970,10 @@ export function selectTurnStage(
     latestActionDetail: "-",
     currentBeatLabel: "-",
     currentBeatDetail: "-",
+    externalAiWorkerId: "-",
+    externalAiFailureCode: "-",
+    externalAiFallbackMode: "-",
+    externalAiResolutionStatus: "-",
     progressTrail: [],
   };
 
@@ -1002,6 +1030,22 @@ export function selectTurnStage(
     trail.push(label);
   };
 
+  const updateExternalAiStatus = (payload: Record<string, unknown>) => {
+    const status = externalAiStatusFromPayload(payload);
+    if (status.workerId !== "-") {
+      model.externalAiWorkerId = status.workerId;
+    }
+    if (status.failureCode !== "-") {
+      model.externalAiFailureCode = status.failureCode;
+    }
+    if (status.fallbackMode !== "-") {
+      model.externalAiFallbackMode = status.fallbackMode;
+    }
+    if (status.resolutionStatus !== "-") {
+      model.externalAiResolutionStatus = status.resolutionStatus;
+    }
+  };
+
   for (let i = turnStartIndex + 1; i < messages.length; i += 1) {
     const message = messages[i];
     if (message.type === "prompt") {
@@ -1055,6 +1099,7 @@ export function selectTurnStage(
       continue;
     }
     if (eventCode === "decision_requested") {
+      updateExternalAiStatus(message.payload);
       const detail = detailFromEventCode(message.payload, eventCode, text);
       model.promptSummary = detail;
       updateBeat(
@@ -1066,6 +1111,7 @@ export function selectTurnStage(
       continue;
     }
     if (eventCode === "decision_resolved") {
+      updateExternalAiStatus(message.payload);
       const detail = detailFromEventCode(message.payload, eventCode, text);
       model.promptSummary = detail;
       updateBeat(
@@ -1077,6 +1123,7 @@ export function selectTurnStage(
       continue;
     }
     if (eventCode === "decision_timeout_fallback") {
+      updateExternalAiStatus(message.payload);
       const detail = detailFromEventCode(message.payload, eventCode, text);
       model.promptSummary = detail;
       updateBeat(

@@ -48,6 +48,15 @@ function hasOutcome(summary: string): boolean {
   return hasMeaningfulValue(summary);
 }
 
+function hasWorkerStatus(model: TurnStageViewModel): boolean {
+  return (
+    hasMeaningfulValue(model.externalAiWorkerId) ||
+    hasMeaningfulValue(model.externalAiFailureCode) ||
+    hasMeaningfulValue(model.externalAiFallbackMode) ||
+    hasMeaningfulValue(model.externalAiResolutionStatus)
+  );
+}
+
 export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnStagePanelProps) {
   const { turnStage, eventLabel } = useI18n();
   const landingEventLabel = eventLabel.events.landing_resolved ?? turnStage.fields.landing;
@@ -258,6 +267,27 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
           <p>{valueOrDash(model.character)}</p>
           <small>{valueOrDash(characterAbilityText)}</small>
         </article>
+
+        {hasWorkerStatus(model) ? (
+          <article className="turn-stage-card turn-stage-card-worker" data-testid="turn-stage-worker-status">
+            <div className="turn-stage-card-top">
+              <strong>{turnStage.workerTitle}</strong>
+              <span>{turnStage.workerBadge}</span>
+            </div>
+            <p>{valueOrDash(turnStage.workerStatusLabel(model.externalAiResolutionStatus))}</p>
+            <small>
+              {valueOrDash(
+                [
+                  hasMeaningfulValue(model.externalAiWorkerId) ? `worker ${model.externalAiWorkerId}` : "",
+                  hasMeaningfulValue(model.externalAiFailureCode) ? `failure ${model.externalAiFailureCode}` : "",
+                  hasMeaningfulValue(model.externalAiFallbackMode) ? `fallback ${model.externalAiFallbackMode}` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" / ")
+              )}
+            </small>
+          </article>
+        ) : null}
 
         {spotlightCards.length > 0 ? (
           <article className="turn-stage-card turn-stage-card-wide turn-stage-spotlight-strip" data-testid="turn-stage-spotlight-strip">

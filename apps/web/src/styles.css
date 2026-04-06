@@ -396,6 +396,11 @@ body {
   background: linear-gradient(180deg, rgba(96, 165, 250, 0.12), rgba(18, 34, 66, 0.92));
 }
 
+.spectator-turn-card-worker {
+  border-color: rgba(196, 181, 253, 0.82);
+  background: linear-gradient(180deg, rgba(196, 181, 253, 0.12), rgba(18, 34, 66, 0.92));
+}
+
 .spectator-turn-payoff-sequence {
   margin-top: 12px;
 }
@@ -1012,6 +1017,11 @@ body {
 
 .turn-stage-card-weather {
   border-color: #5d84c0;
+}
+
+.turn-stage-card-worker {
+  border-color: rgba(196, 181, 253, 0.82);
+  background: linear-gradient(180deg, rgba(196, 181, 253, 0.1), rgba(8, 19, 39, 0.94));
 }
 
 .turn-stage-card-wide {

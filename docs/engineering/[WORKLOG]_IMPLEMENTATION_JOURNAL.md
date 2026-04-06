@@ -2439,3 +2439,31 @@ Updated: 2026-04-07
 - Validation:
   - `cd apps/web && npm run test -- --run src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/i18n/defaultText.spec.ts src/i18n/i18n.spec.ts`
   - `cd apps/web && npm run build`
+
+## 2026-04-07 Worker Status Cards + Request-Type Hardening
+
+- What changed:
+  - Web:
+    - `apps/web/src/domain/selectors/streamSelectors.ts` now keeps explicit external worker fields in the turn-stage model:
+      - `external_ai_worker_id`
+      - `external_ai_failure_code`
+      - `external_ai_fallback_mode`
+      - `external_ai_resolution_status`
+    - `apps/web/src/features/stage/TurnStagePanel.tsx`
+    - `apps/web/src/features/stage/SpectatorTurnPanel.tsx`
+    now render dedicated participant-status cards when an external AI seat is visible
+    - browser coverage now includes a consecutive-turn mixed-seat case where:
+      - one turn resolves by worker
+      - the next turn falls back locally
+  - Server:
+    - `apps/server/src/services/runtime_service.py` now validates `supported_request_types` from worker health/response payloads when present
+    - runtime public context now also records `external_ai_attempt_count`
+    - `apps/server/src/services/external_ai_worker_service.py` now prefers usable non-secondary trick/character choices and supports richer contextual preferences
+- Why:
+  - the previous slices exposed worker diagnostics in raw prompt/event detail, but the UI still needed a first-class multiplayer-style participant status surface
+  - operationally, workers also needed request-type compatibility checks in addition to contract/capability checks
+- Validation:
+  - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/selectors/promptSelectors.spec.ts src/domain/text/uiText.spec.ts src/i18n/defaultText.spec.ts src/i18n/i18n.spec.ts`
+  - `cd apps/web && npm run build`
+  - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
+  - `.venv311/bin/python -m pytest apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_runtime_service.py`

@@ -60,6 +60,15 @@ function payoffToneForEventCode(eventCode: string): PayoffTone {
   return "neutral";
 }
 
+function hasWorkerStatus(model: TurnStageViewModel): boolean {
+  return (
+    hasValue(model.externalAiWorkerId) ||
+    hasValue(model.externalAiFailureCode) ||
+    hasValue(model.externalAiFallbackMode) ||
+    hasValue(model.externalAiResolutionStatus)
+  );
+}
+
 export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: SpectatorTurnPanelProps) {
   const { app, turnStage, eventLabel } = useI18n();
   const purchaseEventLabel = eventLabel.events.tile_purchased ?? turnStage.fields.purchase;
@@ -214,6 +223,19 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
       tone: "decision",
     });
   }
+  if (hasWorkerStatus(model)) {
+    journeyCards.push({
+      key: "worker",
+      label: app.spectatorFields.worker,
+      detail: joinVisible([
+        turnStage.workerStatusLabel(model.externalAiResolutionStatus),
+        hasValue(model.externalAiWorkerId) ? `worker ${model.externalAiWorkerId}` : "",
+        hasValue(model.externalAiFailureCode) ? `failure ${model.externalAiFailureCode}` : "",
+        hasValue(model.externalAiFallbackMode) ? `fallback ${model.externalAiFallbackMode}` : "",
+      ]),
+      tone: "decision",
+    });
+  }
   if (hasValue(model.moveSummary)) {
     journeyCards.push({
       key: "move",
@@ -355,6 +377,23 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
           <strong>{valueOrDash(model.promptSummary)}</strong>
           <small>{valueOrDash(model.currentBeatDetail)}</small>
         </article>
+        {hasWorkerStatus(model) ? (
+          <article className="spectator-turn-card spectator-turn-card-worker" data-testid="spectator-turn-worker">
+            <span>{app.spectatorFields.worker}</span>
+            <strong>{valueOrDash(turnStage.workerStatusLabel(model.externalAiResolutionStatus))}</strong>
+            <small>
+              {valueOrDash(
+                [
+                  hasValue(model.externalAiWorkerId) ? `worker ${model.externalAiWorkerId}` : "",
+                  hasValue(model.externalAiFailureCode) ? `failure ${model.externalAiFailureCode}` : "",
+                  hasValue(model.externalAiFallbackMode) ? `fallback ${model.externalAiFallbackMode}` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" / ")
+              )}
+            </small>
+          </article>
+        ) : null}
         <article className="spectator-turn-card" data-testid="spectator-turn-move">
           <span>{app.spectatorFields.move}</span>
           <strong>{valueOrDash(model.moveSummary)}</strong>

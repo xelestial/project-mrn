@@ -79,14 +79,34 @@ class ExternalAiWorkerService:
         if len(ids) == 1:
             return ids[0]
 
+        def is_secondary(choice_id: str) -> bool:
+            choice = by_id.get(choice_id) or {}
+            return bool(choice.get("secondary") is True or choice.get("priority") in {"secondary", "passive"})
+
+        def is_usable(choice_id: str) -> bool:
+            choice = by_id.get(choice_id) or {}
+            value = choice.get("value")
+            if isinstance(value, dict) and "is_usable" in value:
+                return bool(value.get("is_usable"))
+            return True
+
         def first_non_secondary() -> str:
             for choice_id in ids:
-                if choice_id not in {"none", "no"}:
+                if choice_id not in {"none", "no"} and not is_secondary(choice_id):
                     return choice_id
             return ids[0]
 
+        def first_usable_non_secondary() -> str:
+            for choice_id in ids:
+                if choice_id not in {"none", "no"} and not is_secondary(choice_id) and is_usable(choice_id):
+                    return choice_id
+            return first_non_secondary()
+
         if request_type == "movement":
             return "dice" if "dice" in by_id else first_non_secondary()
+
+        if request_type in {"draft_card", "final_character", "hidden_trick_card", "trick_to_use"}:
+            return first_usable_non_secondary()
 
         if request_type == "purchase_tile":
             cost = _as_int(public_context.get("cost")) or _as_int(public_context.get("tile_purchase_cost")) or 0

@@ -121,6 +121,7 @@ Important rules:
 - the worker should respond with one canonical `choice_id`
 - the worker should expose a matching `worker_contract_version`
 - the worker should advertise the capabilities required by the seat config
+- when provided, `supported_request_types` should accurately describe which canonical request types the worker can actually resolve
 - when configured, worker auth and `expected_worker_id` must match on both `/health` and `/decide`
 - the server owns timeout, retry, and fallback behavior
 - the server converts `choice_id` back into engine-native values through method-specific parsers
@@ -161,3 +162,4 @@ Useful runtime status values surfaced into prompt/event `public_context`:
 - `external_ai_resolution_status=resolved_by_worker`
 - `external_ai_resolution_status=worker_failed`
 - `external_ai_resolution_status=resolved_by_local_fallback`
+- `external_ai_attempt_count=<n>`

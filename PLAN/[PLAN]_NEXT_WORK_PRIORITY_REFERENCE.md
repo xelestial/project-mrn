@@ -345,6 +345,26 @@ This is the practical next-work list after the closed slices above.
   2. keep simplifying prompt surfaces where specialized layouts still duplicate each other materially
   3. leave deeper worker/runtime work for slices that actually need transport/ops changes
 
+### 2026-04-07 Progress Update (worker status surfaced as participant UI)
+
+- external worker state is no longer only embedded inside fallback text:
+  - turn stage now has a dedicated participant-status card
+  - spectator panel now has a dedicated participant-status card
+  - the turn-stage model keeps normalized worker fields directly
+- runtime hardening also moved one step forward:
+  - worker health/response payloads now validate `supported_request_types` when present
+  - public context now records `external_ai_attempt_count`
+- browser parity now explicitly covers a consecutive mixed-seat scenario where:
+  1. one external-AI turn resolves by worker
+  2. the next external-AI turn falls back locally
+- Therefore the next practical order narrows to:
+  1. visual drift closure only where remote-turn sequencing still feels less than scene-grade
+  2. stronger worker/runtime ops hardening:
+     - auth
+     - health gating
+     - richer deployment behavior
+  3. higher-quality external worker behavior beyond the current heuristic baseline
+
 ## 2026-04-05 Concrete Next Steps
 
 1. Keep `apps/web/src/i18n/` as the source of truth and remove new direct ownership from:

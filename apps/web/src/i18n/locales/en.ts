@@ -27,6 +27,7 @@ export const enLocale = {
       beat: "Beat",
       action: "Public action",
       prompt: "Current choice",
+      worker: "Participant status",
       move: "Latest move",
       landing: "Landing",
       economy: "Economy",
@@ -458,6 +459,8 @@ export const enLocale = {
     currentBeatBadge: "Beat",
     progressTitle: "Turn Flow",
     progressBadge: "Flow",
+    workerTitle: "Participant Status",
+    workerBadge: "worker",
     fields: {
       dice: "Dice",
       move: "Move",
@@ -470,6 +473,18 @@ export const enLocale = {
     },
     promptIdle: "No active prompt",
     progressEmpty: "No turn progress yet.",
+    workerStatusLabel: (status: string) => {
+      if (status === "resolved_by_worker") {
+        return "Resolved by external worker";
+      }
+      if (status === "worker_failed") {
+        return "External worker failed";
+      }
+      if (status === "resolved_by_local_fallback") {
+        return "Resolved by local fallback";
+      }
+      return status || "-";
+    },
     turnStartDetail: (actor: string) => `${actor} / turn start`,
     sequenceIndex: (index: number, total: number) => `${index}/${total}`,
     sequenceBeat: {

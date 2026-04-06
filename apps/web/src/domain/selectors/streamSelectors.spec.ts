@@ -827,6 +827,10 @@ describe("streamSelectors", () => {
     expect(stage.promptSummary).toContain("prod-bot-1");
     expect(stage.currentBeatKind).toBe("system");
     expect(stage.focusTileIndex).toBe(9);
+    expect(stage.externalAiWorkerId).toBe("prod-bot-1");
+    expect(stage.externalAiFailureCode).toBe("external_ai_timeout");
+    expect(stage.externalAiFallbackMode).toBe("local_ai");
+    expect(stage.externalAiResolutionStatus).toBe("-");
     expect(stage.progressTrail).toContain("시간 초과 기본 처리");
   });
 

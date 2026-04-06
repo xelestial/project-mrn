@@ -459,6 +459,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual([choice["choice_id"] for choice in sender_calls[0].legal_choices], ["yes", "no"])
         self.assertEqual(gateway.calls[0]["public_context"]["participant_transport"], "http")
         self.assertEqual(gateway.calls[0]["public_context"]["external_ai_resolution_status"], "resolved_by_worker")
+        self.assertEqual(gateway.calls[0]["public_context"]["external_ai_attempt_count"], 1)
 
     def test_http_external_transport_retries_then_falls_back_to_local_ai(self) -> None:
         from apps.server.src.services.runtime_service import _HttpExternalAiTransport
@@ -512,6 +513,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(gateway.calls[0]["public_context"]["external_ai_failure_code"], "worker unavailable")
         self.assertEqual(gateway.calls[0]["public_context"]["external_ai_fallback_mode"], "local_ai")
         self.assertEqual(gateway.calls[0]["public_context"]["external_ai_resolution_status"], "resolved_by_local_fallback")
+        self.assertEqual(gateway.calls[0]["public_context"]["external_ai_attempt_count"], 3)
 
     def test_http_external_transport_falls_back_when_healthcheck_misses_required_capability(self) -> None:
         from apps.server.src.services.runtime_service import _HttpExternalAiTransport
@@ -557,6 +559,57 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(
             gateway.calls[0]["public_context"]["external_ai_failure_code"],
             "external_ai_missing_required_capability",
+        )
+        self.assertEqual(gateway.calls[0]["public_context"]["external_ai_resolution_status"], "resolved_by_local_fallback")
+
+    def test_http_external_transport_falls_back_when_worker_lacks_request_type_support(self) -> None:
+        from apps.server.src.services.runtime_service import _HttpExternalAiTransport
+
+        class _FakeAiPolicy:
+            def choose_purchase_tile(self, state, player, pos, cell, cost, *, source="landing"):  # noqa: ANN001
+                del state, player, pos, cell, cost, source
+                return False
+
+        class _FakeGateway:
+            def __init__(self) -> None:
+                self.calls: list[dict] = []
+
+            def resolve_ai_decision(self, **kwargs):  # noqa: ANN003
+                self.calls.append(kwargs)
+                return kwargs["resolver"]()
+
+        gateway = _FakeGateway()
+        transport = _HttpExternalAiTransport(
+            session_id="sess_http_request_type_1",
+            ai_fallback=_FakeAiPolicy(),
+            gateway=gateway,  # type: ignore[arg-type]
+            seat=2,
+            config={
+                "transport": "http",
+                "endpoint": "http://bot-worker.local/decide",
+                "fallback_mode": "local_ai",
+            },
+            healthchecker=lambda _config: {
+                "ok": True,
+                "worker_contract_version": "v1",
+                "capabilities": ["choice_id_response"],
+                "supported_request_types": ["movement"],
+            },
+            sender=lambda _envelope: {"choice_id": "yes"},
+        )
+        state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+        player = type("Player", (), {"player_id": 1, "cash": 8, "position": 9, "shards": 1})()
+        call = build_routed_decision_call(
+            build_decision_invocation("choose_purchase_tile", (state, player, 9, "T2", 4), {"source": "landing"}),
+            fallback_policy="ai",
+        )
+
+        result = transport.resolve(call)
+
+        self.assertFalse(result)
+        self.assertEqual(
+            gateway.calls[0]["public_context"]["external_ai_failure_code"],
+            "external_ai_missing_request_type_support",
         )
         self.assertEqual(gateway.calls[0]["public_context"]["external_ai_resolution_status"], "resolved_by_local_fallback")
 

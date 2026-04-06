@@ -735,6 +735,7 @@ test("remote timeout fallback stays visible in spectator and stage flow", async 
               external_ai_worker_id: "prod-bot-1",
               external_ai_failure_code: "external_ai_timeout",
               external_ai_fallback_mode: "local_ai",
+              external_ai_resolution_status: "resolved_by_local_fallback",
             },
           },
         }),
@@ -747,6 +748,8 @@ test("remote timeout fallback stays visible in spectator and stage flow", async 
   await expect(page.getByTestId("spectator-turn-panel")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("Timeout fallback");
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("prod-bot-1");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("local fallback");
+  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("local_ai");
   await expect(page.getByTestId("turn-stage-scene-strip")).toContainText("Timeout fallback / defaulted to local AI");
 });
 
@@ -803,6 +806,7 @@ test("mixed participant runtime keeps timeout and payoff continuity through hand
               external_ai_worker_id: "prod-bot-1",
               external_ai_failure_code: "external_ai_timeout",
               external_ai_fallback_mode: "local_ai",
+              external_ai_resolution_status: "resolved_by_local_fallback",
             },
           },
         }),
@@ -851,9 +855,130 @@ test("mixed participant runtime keeps timeout and payoff continuity through hand
   await expect(page.getByTestId("spectator-turn-panel")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("Timeout fallback");
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("prod-bot-1");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("prod-bot-1");
+  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("local fallback");
   await expect(page.getByTestId("spectator-turn-result")).toContainText("Bought tile 9 for 4");
   await expect(page.getByTestId("spectator-turn-handoff")).toContainText("P3 turn closed");
   await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("Bought tile 9 for 4");
+});
+
+test("mixed participant runtime keeps worker success then fallback visible across consecutive turns", async ({ page }) => {
+  const sessionId = "sess_mixed_worker_handoff_runtime";
+  const manifest = buildManifest({
+    hash: "mixed_worker_handoff_hash",
+    topology: "ring",
+    tileCount: 32,
+    seats: [1, 2, 3],
+  });
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({ seq: 1, sessionId, payload: { event_type: "parameter_manifest", parameter_manifest: manifest } }),
+        eventMessage({ seq: 2, sessionId, payload: { event_type: "round_start", round_index: 3 } }),
+        eventMessage({
+          seq: 3,
+          sessionId,
+          payload: { event_type: "turn_start", round_index: 3, turn_index: 6, acting_player_id: 2, character: "Scholar" },
+        }),
+        eventMessage({
+          seq: 4,
+          sessionId,
+          payload: {
+            event_type: "decision_requested",
+            round_index: 3,
+            turn_index: 6,
+            player_id: 2,
+            request_type: "lap_reward",
+            provider: "ai",
+            public_context: {
+              external_ai_worker_id: "prod-bot-1",
+              external_ai_resolution_status: "resolved_by_worker",
+            },
+          },
+        }),
+        eventMessage({
+          seq: 5,
+          sessionId,
+          payload: {
+            event_type: "decision_resolved",
+            round_index: 3,
+            turn_index: 6,
+            player_id: 2,
+            provider: "ai",
+            resolution: "accepted",
+            choice_id: "coins",
+            public_context: {
+              external_ai_worker_id: "prod-bot-1",
+              external_ai_resolution_status: "resolved_by_worker",
+            },
+          },
+        }),
+        eventMessage({
+          seq: 6,
+          sessionId,
+          payload: { event_type: "lap_reward_chosen", round_index: 3, turn_index: 6, player_id: 2, choice: "coins", amount: 2 },
+        }),
+        eventMessage({
+          seq: 7,
+          sessionId,
+          payload: { event_type: "turn_end_snapshot", round_index: 3, turn_index: 6, player_id: 2, summary: "P2 handoff" },
+        }),
+        eventMessage({
+          seq: 8,
+          sessionId,
+          payload: { event_type: "turn_start", round_index: 3, turn_index: 7, acting_player_id: 3, character: "Bandit" },
+        }),
+        eventMessage({
+          seq: 9,
+          sessionId,
+          payload: {
+            event_type: "decision_timeout_fallback",
+            round_index: 3,
+            turn_index: 7,
+            player_id: 3,
+            provider: "ai",
+            summary: "defaulted to local AI",
+            public_context: {
+              tile_index: 10,
+              external_ai_worker_id: "prod-bot-1",
+              external_ai_failure_code: "external_ai_timeout",
+              external_ai_fallback_mode: "local_ai",
+              external_ai_resolution_status: "resolved_by_local_fallback",
+            },
+          },
+        }),
+        eventMessage({
+          seq: 10,
+          sessionId,
+          payload: { event_type: "tile_purchased", round_index: 3, turn_index: 7, player_id: 3, tile_index: 10, cost: 3 },
+        }),
+      ],
+    },
+    startedSessions: {
+      [sessionId]: {
+        session_id: sessionId,
+        status: "in_progress",
+        round_index: 3,
+        turn_index: 7,
+        seats: [
+          { seat: 1, seat_type: "human", connected: true, player_id: 1, participant_client: "human_http" },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced", participant_client: "external_ai" },
+          { seat: 3, seat_type: "ai", connected: true, player_id: 3, ai_profile: "balanced", participant_client: "external_ai" },
+        ],
+        parameter_manifest: manifest,
+      },
+    },
+  });
+
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_worker_handoff_runtime`);
+
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("prod-bot-1");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("local fallback");
+  await expect(page.getByTestId("spectator-turn-journey")).toContainText("Participant status");
+  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("external_ai_timeout");
+  await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("Bought tile 11 for 3");
 });
 
 test("locale toggle persists across reload", async ({ page }) => {

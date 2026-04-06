@@ -588,20 +588,24 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
         diagnostics: dict[str, object] = {
             "external_ai_transport_mode": "http",
             "external_ai_resolution_status": "pending",
+            "external_ai_attempt_count": 0,
         }
 
         def _resolve_via_sender(public_context: dict[str, object]):
             last_error: Exception | None = None
             for attempt in range(retry_count + 1):
                 try:
+                    public_context["external_ai_attempt_count"] = attempt + 1
                     health = self._check_worker_health()
                     if isinstance(health, dict):
+                        _validate_external_ai_request_type_support(health, envelope.request_type)
                         worker_id = str(health.get("worker_id") or "").strip()
                         if worker_id:
                             public_context["external_ai_worker_id"] = worker_id
                     response = self._sender(envelope) if self._sender is not None else _default_external_ai_http_sender(envelope)
                     if not isinstance(response, dict):
                         raise ValueError("external_ai_response_not_object")
+                    _validate_external_ai_request_type_support(response, envelope.request_type)
                     _validate_external_ai_identity(response, envelope.participant_config)
                     worker_id = str(response.get("worker_id") or "").strip()
                     if worker_id:
@@ -764,6 +768,19 @@ def _validate_external_ai_health_payload(payload: dict[str, object], config: dic
         raise RuntimeError("external_ai_missing_required_capability")
 
 
+def _validate_external_ai_request_type_support(payload: dict[str, object], request_type: str) -> None:
+    supported_request_types = payload.get("supported_request_types")
+    if not isinstance(supported_request_types, list):
+        return
+    supported = {
+        str(item).strip()
+        for item in supported_request_types
+        if isinstance(item, str) and str(item).strip()
+    }
+    if supported and request_type not in supported:
+        raise RuntimeError("external_ai_missing_request_type_support")
+
+
 def _classify_external_ai_error(exc: Exception) -> str:
     message = str(exc).strip()
     if message in {
@@ -772,6 +789,7 @@ def _classify_external_ai_error(exc: Exception) -> str:
         "external_ai_worker_identity_mismatch",
         "external_ai_contract_version_mismatch",
         "external_ai_missing_required_capability",
+        "external_ai_missing_request_type_support",
         "external_ai_missing_choice_id",
         "external_ai_response_not_object",
         "external_ai_health_response_not_object",

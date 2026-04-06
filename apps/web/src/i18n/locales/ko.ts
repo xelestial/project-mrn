@@ -27,6 +27,7 @@ export const koLocale = {
       beat: "현재 단계",
       action: "공개 행동",
       prompt: "현재 선택",
+      worker: "참가자 상태",
       move: "최근 이동",
       landing: "도착 처리",
       economy: "경제 처리",
@@ -463,6 +464,8 @@ export const koLocale = {
     currentBeatBadge: "단계",
     progressTitle: "턴 흐름",
     progressBadge: "흐름",
+    workerTitle: "참가자 상태",
+    workerBadge: "worker",
     fields: {
       dice: "주사위",
       move: "이동",
@@ -475,6 +478,18 @@ export const koLocale = {
     },
     promptIdle: "선택 요청 없음",
     progressEmpty: "아직 이번 턴의 진행 기록이 없습니다.",
+    workerStatusLabel: (status: string) => {
+      if (status === "resolved_by_worker") {
+        return "외부 worker 처리 완료";
+      }
+      if (status === "worker_failed") {
+        return "외부 worker 실패";
+      }
+      if (status === "resolved_by_local_fallback") {
+        return "로컬 폴백 처리";
+      }
+      return status || "-";
+    },
     turnStartDetail: (actor: string) => `${actor} / 턴 시작`,
     sequenceIndex: (index: number, total: number) => `${index}/${total}`,
     sequenceBeat: {
