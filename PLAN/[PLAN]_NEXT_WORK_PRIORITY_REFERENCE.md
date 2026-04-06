@@ -300,6 +300,19 @@ This is the practical next-work list after the closed slices above.
   2. keep using browser/runtime evidence to close any leftover rule-parity visuals
   3. only after that, widen external-AI auth / richer worker implementation work
 
+### 2026-04-07 Progress Update (default-text shim closure)
+
+- `uiText.ts` is now effectively a compatibility export surface, not the primary regression target:
+  - the primary default-text regression coverage now lives under `apps/web/src/i18n/defaultText.spec.ts`
+  - `apps/web/src/domain/text/uiText.spec.ts` now only checks that the shim re-exports the default catalogs
+- selector text ownership moved one step further toward locale resources:
+  - `decision_ack` detail is now locale-owned
+  - generic runtime `error` detail is now locale-owned
+- Therefore the next practical order narrows again:
+  1. keep removing any remaining selector-local summary/detail joins
+  2. finish prompt surface simplification only where it still leaks meta-heavy framing
+  3. keep worker/runtime hardening focused on true operational gaps, not text-layer cleanup
+
 ## 2026-04-05 Concrete Next Steps
 
 1. Keep `apps/web/src/i18n/` as the source of truth and remove new direct ownership from:

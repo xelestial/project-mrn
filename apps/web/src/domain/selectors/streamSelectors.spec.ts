@@ -79,6 +79,26 @@ describe("streamSelectors", () => {
     expect(timeline[0].label).toBe("선택 응답");
   });
 
+  it("formats decision ack and runtime errors through locale helpers", () => {
+    const timeline = selectTimeline([
+      {
+        type: "decision_ack",
+        seq: 10,
+        session_id: "s1",
+        payload: { status: "accepted", reason: "worker ok" },
+      },
+      {
+        type: "error",
+        seq: 11,
+        session_id: "s1",
+        payload: { code: "EXTERNAL_AI_TIMEOUT", message: "worker timeout" },
+      },
+    ]);
+
+    expect(timeline[0].detail).toBe("EXTERNAL_AI_TIMEOUT: worker timeout");
+    expect(timeline[1].detail).toBe("accepted (worker ok)");
+  });
+
   it("extracts situation and keeps weather persistence", () => {
     const situation = selectSituation([
       {

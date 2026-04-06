@@ -307,9 +307,11 @@ export const enLocale = {
     actorDetail: (actor: string, detail: string) => `${actor} / ${detail}`,
     promptDetail: (actor: string, promptLabel: string) => `${actor} / ${promptLabel}`,
     decisionRequestedDetail: (actor: string, promptLabel: string) => `${actor} / ${promptLabel}`,
+    decisionAckDetail: (status: string, reason: string) => (reason && reason !== "-" ? `${status} (${reason})` : status),
     decisionResolvedDetail: (resolution: string, choice: string) => (choice && choice !== "-" ? `${resolution} (${choice})` : resolution),
     decisionTimeoutFallbackDetail: (summary: string) => (summary && summary !== "-" ? `Timeout fallback / ${summary}` : "Timeout fallback"),
     weatherDetail: (weather: string, effect: string) => (effect && effect !== "-" ? `${weather} / ${effect}` : weather),
+    errorDetail: (code: string, message: string) => (code && code !== "-" ? `${code}: ${message}` : message),
     stalledWarning: (text: string) => `Runtime warning: ${text}`,
     tilePurchased: (tileDisplay: string, cost: unknown) => `Bought tile ${tileDisplay} for ${cost}`,
     markerTransferred: (from: unknown, to: unknown, flipped?: unknown) =>

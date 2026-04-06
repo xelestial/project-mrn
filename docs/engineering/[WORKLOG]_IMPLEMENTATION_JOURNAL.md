@@ -2370,3 +2370,27 @@ Updated: 2026-04-07
   - `.venv311/bin/python -m pytest apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_runtime_service.py apps/server/tests/test_runtime_contract_examples.py apps/server/tests/test_parameter_service.py apps/server/tests/test_session_service.py apps/server/tests/test_sessions_api.py`
   - `.venv311/bin/python -m pytest apps/server/tests/test_parameter_manifest_snapshot.py apps/server/tests/test_parameter_propagation.py apps/server/tests/test_prompt_service.py apps/server/tests/test_stream_api.py GPT/test_decision_port_contract.py GPT/test_draft_three_players.py GPT/test_event_effects.py`
   - `.venv311/bin/python -m py_compile apps/server/src/services/runtime_service.py apps/server/src/services/parameter_service.py apps/server/src/services/external_ai_worker_service.py apps/server/src/external_ai_app.py`
+
+## 2026-04-07 Default Text Shim + Locale Detail Closure
+
+- What changed:
+  - Web default-text ownership moved one step further away from the old compatibility bridge:
+    - added `apps/web/src/i18n/defaultText.spec.ts` as the primary default-text regression surface
+    - reduced `apps/web/src/domain/text/uiText.spec.ts` to shim-level compatibility checks only
+  - selector-owned phrasing shrank again:
+    - `apps/web/src/domain/selectors/streamSelectors.ts` now routes:
+      - decision-ack detail
+      - generic error detail
+      through locale helpers instead of selector-local string assembly
+    - locale catalogs now own those formats in:
+      - `apps/web/src/i18n/locales/ko.ts`
+      - `apps/web/src/i18n/locales/en.ts`
+  - regression coverage now explicitly fixes those seams:
+    - `apps/web/src/domain/selectors/streamSelectors.spec.ts`
+    - `apps/web/src/i18n/defaultText.spec.ts`
+- Why:
+  - the previous slices already removed most direct `uiText` callers, so the next useful cleanup was to make `uiText` truly a compatibility shim and keep selector detail formatting locale-owned
+- Validation:
+  - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/i18n/defaultText.spec.ts src/i18n/i18n.spec.ts`
+  - `cd apps/web && npm run test -- --run src/domain/labels/eventLabelCatalog.spec.ts src/domain/labels/promptTypeCatalog.spec.ts src/domain/labels/promptHelperCatalog.spec.ts`
+  - `cd apps/web && npm run build`

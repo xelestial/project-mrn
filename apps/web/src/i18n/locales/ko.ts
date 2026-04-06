@@ -312,9 +312,11 @@ export const koLocale = {
     actorDetail: (actor: string, detail: string) => `${actor} / ${detail}`,
     promptDetail: (actor: string, promptLabel: string) => `${actor} / ${promptLabel}`,
     decisionRequestedDetail: (actor: string, promptLabel: string) => `${actor} / ${promptLabel}`,
+    decisionAckDetail: (status: string, reason: string) => (reason && reason !== "-" ? `${status} (${reason})` : status),
     decisionResolvedDetail: (resolution: string, choice: string) => (choice && choice !== "-" ? `${resolution} (${choice})` : resolution),
     decisionTimeoutFallbackDetail: (summary: string) => (summary && summary !== "-" ? `시간 초과 기본 처리 / ${summary}` : "시간 초과 기본 처리"),
     weatherDetail: (weather: string, effect: string) => (effect && effect !== "-" ? `${weather} / ${effect}` : weather),
+    errorDetail: (code: string, message: string) => (code && code !== "-" ? `${code}: ${message}` : message),
     stalledWarning: (text: string) => `런타임 경고: ${text}`,
     tilePurchased: (tileDisplay: string, cost: unknown) => `${tileDisplay}번 칸 구매 / 비용 ${cost}`,
     markerTransferred: (from: unknown, to: unknown, flipped?: unknown) =>

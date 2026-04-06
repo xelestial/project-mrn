@@ -338,7 +338,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
   if (message.type === "decision_ack") {
     const status = asString(message.payload["status"]);
     const reason = asString(message.payload["reason"]);
-    return reason !== "-" ? `${status} (${reason})` : status;
+    return text.stream.decisionAckDetail(status, reason);
   }
   if (message.type === "error") {
     const code = asString(message.payload["code"]);
@@ -346,7 +346,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
     if (code === "RUNTIME_STALLED_WARN") {
       return text.stream.stalledWarning(errorText);
     }
-    return code !== "-" ? `${code}: ${errorText}` : errorText;
+    return text.stream.errorDetail(code, errorText);
   }
 
   const payload = message.payload;
