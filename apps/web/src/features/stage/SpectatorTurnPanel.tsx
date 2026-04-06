@@ -67,6 +67,11 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
   const fortuneDrawEventLabel = eventLabel.events.fortune_drawn ?? turnStage.fields.fortune;
   const fortuneResolvedEventLabel = eventLabel.events.fortune_resolved ?? app.spectatorFields.effect;
   const landingEventLabel = eventLabel.events.landing_resolved ?? app.spectatorFields.landing;
+  const lapRewardEventLabel = eventLabel.events.lap_reward_chosen ?? app.spectatorFields.economy;
+  const markEventLabel =
+    (eventLabel.events as Record<string, string>)["mark_resolved"] ??
+    app.spectatorFields.effect;
+  const flipEventLabel = eventLabel.events.marker_flip ?? app.spectatorFields.effect;
   const turnEndLabel =
     (eventLabel.events as Record<string, string>)["turn_end_snapshot"] ??
     app.spectatorFields.progress;
@@ -76,7 +81,14 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
   const latestActionDetail = latestAction?.detail?.trim() ? latestAction.detail : "-";
   const latestActionTone = payoffToneForEventCode(latestAction?.eventCode ?? "");
   const economyText = joinVisible([model.purchaseSummary, model.rentSummary]);
-  const effectText = joinVisible([model.trickSummary, model.fortuneResolvedSummary || model.fortuneSummary, model.fortuneDrawSummary]);
+  const effectText = joinVisible([
+    model.trickSummary,
+    model.fortuneResolvedSummary || model.fortuneSummary,
+    model.fortuneDrawSummary,
+    model.markSummary,
+    model.flipSummary,
+    model.weatherSummary,
+  ]);
   const spotlightSummary = joinVisible([
     model.currentBeatDetail,
     model.turnEndSummary,
@@ -84,6 +96,9 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     model.fortuneResolvedSummary || model.fortuneSummary,
     model.rentSummary,
     model.purchaseSummary,
+    model.lapRewardSummary,
+    model.markSummary,
+    model.flipSummary,
   ]);
   const payoffTitle =
     latestActionTone === "economy"
@@ -102,6 +117,8 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     persistentPayoff = { title: rentEventLabel, detail: model.rentSummary, tone: "economy" };
   } else if (hasValue(model.purchaseSummary)) {
     persistentPayoff = { title: purchaseEventLabel, detail: model.purchaseSummary, tone: "economy" };
+  } else if (hasValue(model.lapRewardSummary)) {
+    persistentPayoff = { title: lapRewardEventLabel, detail: model.lapRewardSummary, tone: "economy" };
   } else if (hasValue(model.fortuneResolvedSummary || model.fortuneSummary)) {
     persistentPayoff = {
       title: fortuneResolvedEventLabel,
@@ -119,9 +136,13 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     spotlightCards.push({
       key: "weather",
       title: app.spectatorFields.weather,
-      detail: joinVisible([model.weatherName, model.weatherEffect]),
+      detail: valueOrDash(model.weatherSummary),
       tone: "effect",
     });
+  }
+  if (hasValue(model.lapRewardSummary)) {
+    spotlightCards.push({ key: "lap-reward", title: lapRewardEventLabel, detail: model.lapRewardSummary, tone: "economy" });
+    payoffBeats.push({ key: "lap-reward", title: lapRewardEventLabel, detail: model.lapRewardSummary, tone: "economy" });
   }
   if (hasValue(model.purchaseSummary)) {
     spotlightCards.push({ key: "purchase", title: purchaseEventLabel, detail: model.purchaseSummary, tone: "economy" });
@@ -152,6 +173,14 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
   if (hasValue(model.trickSummary)) {
     spotlightCards.push({ key: "trick", title: turnStage.fields.trick, detail: model.trickSummary, tone: "effect" });
   }
+  if (hasValue(model.markSummary)) {
+    spotlightCards.push({ key: "mark", title: markEventLabel, detail: model.markSummary, tone: "effect" });
+    payoffBeats.push({ key: "mark", title: markEventLabel, detail: model.markSummary, tone: "effect" });
+  }
+  if (hasValue(model.flipSummary)) {
+    spotlightCards.push({ key: "flip", title: flipEventLabel, detail: model.flipSummary, tone: "effect" });
+    payoffBeats.push({ key: "flip", title: flipEventLabel, detail: model.flipSummary, tone: "effect" });
+  }
   if (hasValue(model.turnEndSummary)) {
     spotlightCards.push({
       key: "turn-end",
@@ -165,7 +194,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     journeyCards.push({
       key: "weather",
       label: app.spectatorFields.weather,
-      detail: joinVisible([model.weatherName, model.weatherEffect]),
+      detail: valueOrDash(model.weatherSummary),
       tone: "effect",
     });
   }
@@ -217,6 +246,14 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
       tone: "economy",
     });
   }
+  if (hasValue(model.lapRewardSummary)) {
+    journeyCards.push({
+      key: "lap-reward",
+      label: lapRewardEventLabel,
+      detail: model.lapRewardSummary,
+      tone: "economy",
+    });
+  }
   if (hasValue(model.fortuneDrawSummary)) {
     journeyCards.push({
       key: "fortune-draw",
@@ -238,6 +275,22 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
       key: "turn-end",
       label: turnEndLabel,
       detail: model.turnEndSummary,
+      tone: "effect",
+    });
+  }
+  if (hasValue(model.markSummary)) {
+    journeyCards.push({
+      key: "mark",
+      label: markEventLabel,
+      detail: model.markSummary,
+      tone: "effect",
+    });
+  }
+  if (hasValue(model.flipSummary)) {
+    journeyCards.push({
+      key: "flip",
+      label: flipEventLabel,
+      detail: model.flipSummary,
       tone: "effect",
     });
   }

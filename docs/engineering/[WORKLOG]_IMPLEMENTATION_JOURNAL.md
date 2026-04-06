@@ -2269,3 +2269,54 @@ Updated: 2026-04-04
   - this closes that gap for local/runtime integration and makes `external_ai` a live participant path instead of a future-only placeholder
 - Validation:
   - `.venv311/bin/python -m pytest apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_runtime_service.py apps/server/tests/test_runtime_contract_examples.py`
+
+## 2026-04-07 Selector / Effect Visibility / Worker Hardening Pass
+
+- What changed:
+  - Web selector and prompt cleanup:
+    - `apps/web/src/domain/selectors/promptSelectors.ts` now marks canonical secondary choices explicitly
+    - `apps/web/src/domain/selectors/streamSelectors.ts` moved more detail composition into locale resources for:
+      - decision-requested detail
+      - decision-resolved detail
+      - weather detail
+      - marker-flip detail
+    - `apps/web/src/features/prompt/PromptOverlay.tsx` now uses compact prompt head metadata for specialized prompt surfaces
+  - Rule-parity visual closure:
+    - `apps/web/src/features/stage/TurnStagePanel.tsx`
+    - `apps/web/src/features/stage/SpectatorTurnPanel.tsx`
+    - these now preserve and render:
+      - weather summary
+      - lap reward summary
+      - mark summary
+      - flip summary
+  - External AI hardening:
+    - `apps/server/src/services/parameter_service.py` now resolves:
+      - `contract_version`
+      - `healthcheck_path`
+      - `healthcheck_ttl_ms`
+      - `required_capabilities`
+    - `apps/server/src/services/runtime_service.py` now preflights worker health/capability compatibility for HTTP participants
+    - `apps/server/src/services/external_ai_worker_service.py` now publishes:
+      - contract version
+      - capability tags
+      - supported request types
+  - Frozen contract expansion:
+    - added external-AI examples for:
+      - movement
+      - lap reward
+  - Browser/runtime coverage:
+    - added a Playwright remote-turn effect continuity case
+- Why:
+  - the previous slice mounted the worker, but the system still needed:
+    - stronger worker compatibility checks
+    - broader frozen artifacts
+    - more complete remote-turn effect visibility
+    - less selector-owned phrase assembly
+- Validation:
+  - `cd apps/web && npm run test -- --run src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run test -- --run src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts src/features/theater/coreActionScene.spec.ts src/features/board/boardProjection.spec.ts`
+  - `cd apps/web && npm run build`
+  - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
+  - `.venv311/bin/python -m pytest apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_runtime_service.py apps/server/tests/test_runtime_contract_examples.py apps/server/tests/test_parameter_service.py apps/server/tests/test_session_service.py apps/server/tests/test_sessions_api.py`
+  - `.venv311/bin/python -m pytest apps/server/tests/test_parameter_manifest_snapshot.py apps/server/tests/test_parameter_propagation.py apps/server/tests/test_prompt_service.py apps/server/tests/test_stream_api.py GPT/test_decision_port_contract.py GPT/test_draft_three_players.py GPT/test_event_effects.py`
+  - `.venv311/bin/python -m py_compile apps/server/src/services/runtime_service.py apps/server/src/services/parameter_service.py apps/server/src/services/external_ai_worker_service.py apps/server/src/external_ai_app.py`

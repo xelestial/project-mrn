@@ -540,6 +540,60 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await expect(page.getByTestId("turn-stage-handoff-card")).toContainText("P2 turn closed");
 });
 
+test("remote turn keeps lap reward, mark, and flip effects visible through spectator and stage panels", async ({ page }) => {
+  const sessionId = "sess_remote_turn_effect_runtime";
+  const manifest = buildManifest({
+    hash: "remote_turn_effect_hash",
+    topology: "ring",
+    tileCount: 40,
+    seats: [1, 2, 3, 4],
+  });
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({ seq: 1, sessionId, payload: { event_type: "parameter_manifest", parameter_manifest: manifest } }),
+        eventMessage({ seq: 2, sessionId, payload: { event_type: "round_start", round_index: 2 } }),
+        eventMessage({
+          seq: 3,
+          sessionId,
+          payload: { event_type: "weather_reveal", round_index: 2, turn_index: 4, weather_name: "Cold Front", effect_text: "No lap cash. Pay 2 cash to bank." },
+        }),
+        eventMessage({
+          seq: 4,
+          sessionId,
+          payload: { event_type: "turn_start", round_index: 2, turn_index: 4, acting_player_id: 3, character: "Courier" },
+        }),
+        eventMessage({
+          seq: 5,
+          sessionId,
+          payload: { event_type: "lap_reward_chosen", round_index: 2, turn_index: 4, acting_player_id: 3, amount: { cash: 6 } },
+        }),
+        eventMessage({
+          seq: 6,
+          sessionId,
+          payload: { event_type: "mark_resolved", round_index: 2, turn_index: 4, source_player_id: 3, target_player_id: 1 },
+        }),
+        eventMessage({
+          seq: 7,
+          sessionId,
+          payload: { event_type: "marker_flip", round_index: 2, turn_index: 4, from_character: "Courier", to_character: "Bandit" },
+        }),
+      ],
+    },
+  });
+
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_remote_effect_runtime`);
+
+  await expect(page.getByTestId("spectator-turn-spotlight")).toContainText("Cold Front");
+  await expect(page.getByTestId("spectator-turn-spotlight")).toContainText("P3");
+  await expect(page.getByTestId("spectator-turn-spotlight")).toContainText("Courier");
+  await expect(page.getByTestId("spectator-turn-journey")).toContainText("Card flip");
+  await expect(page.getByTestId("turn-stage-spotlight-strip")).toContainText("Card flip");
+  await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("P3");
+});
+
 test("locale toggle persists across reload", async ({ page }) => {
   await page.goto("/#/lobby");
 

@@ -1,0 +1,37 @@
+{
+  "request_id": "sess_ext_3_ext_lap01",
+  "session_id": "sess_ext_3",
+  "seat": 1,
+  "player_id": 1,
+  "decision_name": "choose_lap_reward",
+  "request_type": "lap_reward",
+  "fallback_policy": "ai",
+  "public_context": {
+    "round_index": 4,
+    "turn_index": 7,
+    "player_cash": 23,
+    "player_position": 0,
+    "player_shards": 4
+  },
+  "legal_choices": [
+    {
+      "choice_id": "cash",
+      "title": "Cash reward",
+      "value": {
+        "choice": "cash",
+        "cash_units": 6
+      }
+    },
+    {
+      "choice_id": "shards",
+      "title": "Shard reward",
+      "value": {
+        "choice": "shards",
+        "shard_units": 2
+      }
+    }
+  ],
+  "transport": "http",
+  "worker_contract_version": "v1",
+  "required_capabilities": ["choice_id_response"]
+}

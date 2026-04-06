@@ -67,10 +67,14 @@ Use `participant_client: "external_ai"` on an AI seat and provide an HTTP endpoi
     "participants": {
       "external_ai": {
         "transport": "http",
+        "contract_version": "v1",
         "timeout_ms": 15000,
         "retry_count": 1,
         "backoff_ms": 250,
         "fallback_mode": "local_ai",
+        "healthcheck_path": "/health",
+        "healthcheck_ttl_ms": 10000,
+        "required_capabilities": ["choice_id_response", "healthcheck"],
         "headers": {}
       }
     }
@@ -92,6 +96,8 @@ Important rules:
 
 - `legal_choices` is authoritative
 - the worker should respond with one canonical `choice_id`
+- the worker should expose a matching `worker_contract_version`
+- the worker should advertise the capabilities required by the seat config
 - the server owns timeout, retry, and fallback behavior
 - the server converts `choice_id` back into engine-native values through method-specific parsers
 

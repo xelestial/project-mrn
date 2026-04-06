@@ -305,10 +305,14 @@ export const enLocale = {
       interval: (interval: string) => `interval ${interval}`,
     },
     promptDetail: (actor: string, promptLabel: string) => `${actor} / ${promptLabel}`,
+    decisionRequestedDetail: (actor: string, promptLabel: string) => `${actor} / ${promptLabel}`,
+    decisionResolvedDetail: (resolution: string, choice: string) => (choice && choice !== "-" ? `${resolution} (${choice})` : resolution),
+    weatherDetail: (weather: string, effect: string) => (effect && effect !== "-" ? `${weather} / ${effect}` : weather),
     stalledWarning: (text: string) => `Runtime warning: ${text}`,
     tilePurchased: (tileDisplay: string, cost: unknown) => `Bought tile ${tileDisplay} for ${cost}`,
     markerTransferred: (from: unknown, to: unknown, flipped?: unknown) =>
       typeof flipped === "number" ? `[Marker] P${from} -> P${to} (flip P${flipped})` : `[Marker] P${from} -> P${to}`,
+    markerFlipDetail: (from: string, to: string) => `${from} -> ${to}`,
     rentPaid: (payer: unknown, owner: unknown, amount: unknown, tileDisplay: string) =>
       `P${payer} paid P${owner} ${amount} on tile ${tileDisplay}`,
     fortuneDrawn: (cardName: string) => `Fortune card: ${cardName}`,
@@ -444,10 +448,14 @@ export const enLocale = {
     turnStartDetail: (actor: string) => `${actor} / turn start`,
     sequenceIndex: (index: number, total: number) => `${index}/${total}`,
     sequenceBeat: {
+      weather: "Apply the weather for this turn",
       purchase: "Purchase check after landing",
       rent: "Rent settlement on an owned tile",
       fortuneDraw: "Reveal the fortune card",
       fortuneResolved: "Apply the fortune effect",
+      lapReward: "Resolve the completed-lap reward",
+      mark: "Resolve the mark target effect",
+      flip: "Flip the current active card",
     },
   },
   prompt: {
@@ -469,6 +477,7 @@ export const enLocale = {
       `Limit ${Math.ceil(timeoutMs / 1000)}s`,
       `${secondsLeft ?? "-"}s left`,
     ],
+    requestCompactMetaPills: (playerId: number, secondsLeft: number | null) => [`P${playerId}`, `${secondsLeft ?? "-"}s left`],
     requestMeta: (_requestId: string, playerId: number, timeoutMs: number, secondsLeft: number | null) =>
       `Actor P${playerId} / limit ${Math.ceil(timeoutMs / 1000)}s / ${secondsLeft ?? "-"}s left`,
     context: {

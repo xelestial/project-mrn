@@ -36,5 +36,7 @@
       }
     }
   ],
-  "transport": "http"
+  "transport": "http",
+  "worker_contract_version": "v1",
+  "required_capabilities": ["choice_id_response", "healthcheck"]
 }

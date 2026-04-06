@@ -31,6 +31,24 @@ class ExternalAiWorkerService:
         self._worker_id = str(worker_id).strip() or "external-ai-worker"
         self._policy_mode = str(policy_mode).strip() or "heuristic_v3_gpt"
         self._runtime_policy = self._create_runtime_policy(self._policy_mode)
+        self._supported_request_types = [
+            "movement",
+            "runaway_step_choice",
+            "lap_reward",
+            "draft_card",
+            "final_character",
+            "trick_to_use",
+            "purchase_tile",
+            "hidden_trick_card",
+            "mark_target",
+            "coin_placement",
+            "geo_bonus",
+            "doctrine_relief",
+            "active_flip",
+            "specific_trick_reward",
+            "burden_exchange",
+            "pabal_dice_mode",
+        ]
 
     @property
     def worker_id(self) -> str:
@@ -128,14 +146,25 @@ class ExternalAiWorkerService:
             "worker_id": self._worker_id,
             "policy_mode": self._policy_mode,
             "policy_class": type(self._runtime_policy).__name__,
+            "worker_contract_version": "v1",
             "decision_style": "contract_heuristic",
             "supported_transports": ["http"],
+            "capabilities": ["choice_id_response", "choice_payload_echo", "healthcheck", "contract_v1"],
+            "supported_request_types": list(self._supported_request_types),
         }
 
     def decide(self, request_payload: dict[str, Any]) -> dict[str, Any]:
         request_type = str(request_payload.get("request_type") or "").strip()
         if not request_type:
             raise ValueError("missing_request_type")
+        required_capabilities = request_payload.get("required_capabilities") or []
+        if not isinstance(required_capabilities, list):
+            raise ValueError("invalid_required_capabilities")
+        contract_version = str(request_payload.get("worker_contract_version") or "v1").strip().lower()
+        if contract_version != "v1":
+            raise ValueError("unsupported_contract_version")
+        if request_type not in self._supported_request_types:
+            raise ValueError("unsupported_request_type")
         public_context = dict(request_payload.get("public_context") or {})
         legal_choices = list(request_payload.get("legal_choices") or [])
         choice_id = self.choose_choice_id(
@@ -143,10 +172,15 @@ class ExternalAiWorkerService:
             public_context=public_context,
             legal_choices=legal_choices,
         )
+        metadata = self.describe()
         return {
             "choice_id": choice_id,
             "choice_payload": self._choice_payload(choice_id, legal_choices),
             "worker_id": self._worker_id,
             "policy_mode": self._policy_mode,
             "policy_class": type(self._runtime_policy).__name__,
+            "worker_contract_version": metadata["worker_contract_version"],
+            "capabilities": metadata["capabilities"],
+            "supported_request_types": metadata["supported_request_types"],
+            "required_capabilities": list(required_capabilities),
         }

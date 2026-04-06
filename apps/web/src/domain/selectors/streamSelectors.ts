@@ -69,6 +69,11 @@ export type TurnStageViewModel = {
   fortuneDrawSummary: string;
   fortuneResolvedSummary: string;
   fortuneSummary: string;
+  lapRewardSummary: string;
+  markSummary: string;
+  flipSummary: string;
+  weatherSummary: string;
+  effectSummary: string;
   promptSummary: string;
   latestActionLabel: string;
   latestActionDetail: string;
@@ -381,21 +386,18 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
         : effectsSummary !== "-" && effectsSummary !== weather
           ? effectsSummary
           : weatherEffectFallbackText(weather, text.stream);
-    return effect !== "-" ? `${weather} / ${effect}` : weather;
+    return text.stream.weatherDetail(weather, effect);
   }
   if (eventType === "decision_requested") {
     const requestType = asString(payload["request_type"]);
     const pid = payload["player_id"];
     const actor = typeof pid === "number" ? `P${pid}` : "-";
-    return `${actor} / ${promptLabelForType(requestType === "-" ? "" : requestType, text.promptType)}`;
+    return text.stream.decisionRequestedDetail(actor, promptLabelForType(requestType === "-" ? "" : requestType, text.promptType));
   }
   if (eventType === "decision_resolved") {
     const resolution = asString(payload["resolution"]);
     const choice = asString(payload["choice_id"]);
-    if (choice !== "-") {
-      return `${resolution} (${choice})`;
-    }
-    return resolution;
+    return text.stream.decisionResolvedDetail(resolution, choice);
   }
   if (eventType === "landing_resolved") {
     const raw = asString(payload["result_type"] ?? payload["result_code"] ?? payload["result"] ?? text.stream.landing.default);
@@ -431,7 +433,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
         parts.push(text.stream.lapReward.coins(coins));
       }
       if (parts.length > 0) {
-        return `${actorFromPayload(payload)} / ${parts.join(" / ")}`;
+        return text.stream.decisionRequestedDetail(actorFromPayload(payload), parts.join(" / "));
       }
     }
     const choice = asString(payload["choice"] ?? payload["reward"] ?? payload["summary"]);
@@ -461,7 +463,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
     const from = asString(payload["from_character"] ?? payload["from"]);
     const to = asString(payload["to_character"] ?? payload["to"]);
     if (from !== "-" && to !== "-") {
-      return `${from} -> ${to}`;
+      return text.stream.markerFlipDetail(from, to);
     }
     return text.stream.markerFlip;
   }
@@ -916,6 +918,11 @@ export function selectTurnStage(
     fortuneDrawSummary: "-",
     fortuneResolvedSummary: "-",
     fortuneSummary: "-",
+    lapRewardSummary: "-",
+    markSummary: "-",
+    flipSummary: "-",
+    weatherSummary: weather.name === "-" ? "-" : text.stream.weatherDetail(weather.name, weather.effect),
+    effectSummary: "-",
     promptSummary: "-",
     latestActionLabel: "-",
     latestActionDetail: "-",
@@ -1014,6 +1021,7 @@ export function selectTurnStage(
     }
     if (eventCode === "trick_used") {
       model.trickSummary = detailFromEventCode(message.payload, eventCode, text);
+      model.effectSummary = model.trickSummary;
       continue;
     }
     if (eventCode === "dice_roll") {
@@ -1047,18 +1055,44 @@ export function selectTurnStage(
       );
       continue;
     }
+    if (eventCode === "weather_reveal") {
+      const detail = detailFromEventCode(message.payload, eventCode, text);
+      model.weatherSummary = detail;
+      model.effectSummary = detail;
+      continue;
+    }
     if (eventCode === "fortune_drawn") {
       const detail = detailFromEventCode(message.payload, eventCode, text);
       model.fortuneDrawSummary = detail;
       if (model.fortuneSummary === "-") {
         model.fortuneSummary = detail;
       }
+      model.effectSummary = detail;
       continue;
     }
     if (eventCode === "fortune_resolved") {
       const detail = detailFromEventCode(message.payload, eventCode, text);
       model.fortuneResolvedSummary = detail;
       model.fortuneSummary = detail;
+      model.effectSummary = detail;
+      continue;
+    }
+    if (eventCode === "lap_reward_chosen") {
+      const detail = detailFromEventCode(message.payload, eventCode, text);
+      model.lapRewardSummary = detail;
+      model.effectSummary = detail;
+      continue;
+    }
+    if (eventCode === "mark_resolved") {
+      const detail = detailFromEventCode(message.payload, eventCode, text);
+      model.markSummary = detail;
+      model.effectSummary = detail;
+      continue;
+    }
+    if (eventCode === "marker_flip") {
+      const detail = detailFromEventCode(message.payload, eventCode, text);
+      model.flipSummary = detail;
+      model.effectSummary = detail;
       continue;
     }
   }

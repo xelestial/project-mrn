@@ -67,11 +67,15 @@ class ParameterServiceTests(unittest.TestCase):
                 "participants": {
                     "external_ai": {
                         "transport": "http",
+                        "contract_version": "v1",
                         "endpoint": "http://bot-worker.local/decide",
                         "timeout_ms": 9000,
                         "retry_count": 2,
                         "backoff_ms": 100,
                         "fallback_mode": "local_ai",
+                        "healthcheck_path": "/health",
+                        "healthcheck_ttl_ms": 5000,
+                        "required_capabilities": ["choice_id_response", "healthcheck"],
                         "headers": {"Authorization": "Bearer token"},
                     }
                 },
@@ -85,15 +89,23 @@ class ParameterServiceTests(unittest.TestCase):
         self.assertEqual(resolved["dice"]["values"], [2, 4, 8])
         self.assertEqual(resolved["dice"]["max_cards_per_turn"], 1)
         self.assertEqual(resolved["participants"]["external_ai"]["transport"], "http")
+        self.assertEqual(resolved["participants"]["external_ai"]["contract_version"], "v1")
         self.assertEqual(resolved["participants"]["external_ai"]["timeout_ms"], 9000)
         self.assertEqual(resolved["participants"]["external_ai"]["retry_count"], 2)
         self.assertEqual(resolved["participants"]["external_ai"]["backoff_ms"], 100)
         self.assertEqual(resolved["participants"]["external_ai"]["fallback_mode"], "local_ai")
+        self.assertEqual(resolved["participants"]["external_ai"]["healthcheck_path"], "/health")
+        self.assertEqual(resolved["participants"]["external_ai"]["healthcheck_ttl_ms"], 5000)
+        self.assertEqual(resolved["participants"]["external_ai"]["required_capabilities"], ["choice_id_response", "healthcheck"])
         self.assertIn("event_labels", resolved["labels"])
 
     def test_resolve_rejects_invalid_external_ai_transport(self) -> None:
         with self.assertRaises(ParameterValidationError):
             self.resolver.resolve({"participants": {"external_ai": {"transport": "grpc"}}})
+
+    def test_resolve_rejects_invalid_external_ai_required_capabilities(self) -> None:
+        with self.assertRaises(ParameterValidationError):
+            self.resolver.resolve({"participants": {"external_ai": {"required_capabilities": "choice_id_response"}}})
 
     def test_manifest_hash_changes_for_dice_and_economy_updates(self) -> None:
         base = self.manifest_builder.build_public_manifest(

@@ -55,6 +55,9 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
   const rentEventLabel = eventLabel.events.rent_paid ?? turnStage.fields.rent;
   const fortuneDrawEventLabel = eventLabel.events.fortune_drawn ?? turnStage.fields.fortune;
   const fortuneResolvedEventLabel = eventLabel.events.fortune_resolved ?? turnStage.cardEffectTitle;
+  const markResolvedEventLabel =
+    (eventLabel.events as Record<string, string>)["mark_resolved"] ??
+    turnStage.fields.beat;
   const turnEndLabel =
     (eventLabel.events as Record<string, string>)["turn_end_snapshot"] ??
     turnStage.progressTitle;
@@ -66,10 +69,8 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
       ? {
           key: "weather",
           label: turnStage.weatherTitle,
-          value:
-            model.weatherEffect !== "-" && model.weatherEffect.trim()
-              ? `${valueOrDash(model.weatherName)} / ${valueOrDash(model.weatherEffect)}`
-              : valueOrDash(model.weatherName),
+          value: valueOrDash(model.weatherSummary),
+          detail: turnStage.sequenceBeat.weather,
           tone: "effect",
         }
       : null,
@@ -91,6 +92,9 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
     hasMeaningfulValue(model.turnEndSummary)
       ? { key: "turn-end", label: turnEndLabel, value: model.turnEndSummary, tone: "effect" }
       : null,
+    hasMeaningfulValue(model.lapRewardSummary)
+      ? { key: "lap-reward", label: eventLabel.events.lap_reward_chosen ?? turnStage.fields.beat, value: model.lapRewardSummary, detail: turnStage.sequenceBeat.lapReward, tone: "economy" }
+      : null,
     hasMeaningfulValue(model.fortuneDrawSummary)
       ? { key: "fortune-draw", label: fortuneDrawEventLabel, value: model.fortuneDrawSummary, detail: turnStage.sequenceBeat.fortuneDraw, tone: "effect" }
       : null,
@@ -102,6 +106,12 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
           detail: turnStage.sequenceBeat.fortuneResolved,
           tone: "effect",
         }
+      : null,
+    hasMeaningfulValue(model.markSummary)
+      ? { key: "mark", label: markResolvedEventLabel, value: model.markSummary, detail: turnStage.sequenceBeat.mark, tone: "effect" }
+      : null,
+    hasMeaningfulValue(model.flipSummary)
+      ? { key: "flip", label: eventLabel.events.marker_flip ?? turnStage.cardEffectTitle, value: model.flipSummary, detail: turnStage.sequenceBeat.flip, tone: "effect" }
       : null,
   ];
   const sceneCards = sceneCardCandidates.filter(isSceneCard);
@@ -119,6 +129,15 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
       value: model.fortuneResolvedSummary || model.fortuneSummary,
       tone: "effect",
     });
+  }
+  if (hasOutcome(model.lapRewardSummary)) {
+    outcomeCards.push({ key: "lap-reward-outcome", label: eventLabel.events.lap_reward_chosen ?? turnStage.fields.beat, value: model.lapRewardSummary, tone: "economy" });
+  }
+  if (hasOutcome(model.markSummary)) {
+    outcomeCards.push({ key: "mark-outcome", label: markResolvedEventLabel, value: model.markSummary, tone: "effect" });
+  }
+  if (hasOutcome(model.flipSummary)) {
+    outcomeCards.push({ key: "flip-outcome", label: eventLabel.events.marker_flip ?? turnStage.cardEffectTitle, value: model.flipSummary, tone: "effect" });
   }
   if (!hasOutcome(model.fortuneResolvedSummary || model.fortuneSummary) && hasOutcome(model.weatherEffect)) {
     outcomeCards.push({
@@ -141,6 +160,14 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
       title: turnStage.weatherTitle,
       detail: valueOrDash(model.weatherEffect === "-" ? model.weatherName : `${model.weatherName} / ${model.weatherEffect}`),
       tone: "effect",
+    });
+  }
+  if (hasMeaningfulValue(model.lapRewardSummary)) {
+    spotlightCards.push({
+      key: "lap-reward",
+      title: eventLabel.events.lap_reward_chosen ?? turnStage.fields.beat,
+      detail: model.lapRewardSummary,
+      tone: "economy",
     });
   }
   if (hasMeaningfulValue(model.fortuneDrawSummary)) {
@@ -173,6 +200,22 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
       title: rentEventLabel,
       detail: model.rentSummary,
       tone: "economy",
+    });
+  }
+  if (hasMeaningfulValue(model.markSummary)) {
+    spotlightCards.push({
+      key: "mark",
+      title: markResolvedEventLabel,
+      detail: model.markSummary,
+      tone: "effect",
+    });
+  }
+  if (hasMeaningfulValue(model.flipSummary)) {
+    spotlightCards.push({
+      key: "flip",
+      title: eventLabel.events.marker_flip ?? turnStage.cardEffectTitle,
+      detail: model.flipSummary,
+      tone: "effect",
     });
   }
 
@@ -267,6 +310,9 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
             <span>{turnStage.cardEffectBadge}</span>
           </div>
           {stageLine(turnStage.fields.trick, model.trickSummary)}
+          {stageLine(eventLabel.events.lap_reward_chosen ?? turnStage.fields.beat, model.lapRewardSummary)}
+          {stageLine(markResolvedEventLabel, model.markSummary)}
+          {stageLine(eventLabel.events.marker_flip ?? turnStage.cardEffectTitle, model.flipSummary)}
           {stageLine(fortuneDrawEventLabel, model.fortuneDrawSummary)}
           {stageLine(fortuneResolvedEventLabel, model.fortuneResolvedSummary || model.fortuneSummary)}
           {stageLine(turnEndLabel, model.turnEndSummary)}

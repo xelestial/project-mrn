@@ -310,10 +310,14 @@ export const koLocale = {
       interval: (interval: string) => `간격 ${interval}`,
     },
     promptDetail: (actor: string, promptLabel: string) => `${actor} / ${promptLabel}`,
+    decisionRequestedDetail: (actor: string, promptLabel: string) => `${actor} / ${promptLabel}`,
+    decisionResolvedDetail: (resolution: string, choice: string) => (choice && choice !== "-" ? `${resolution} (${choice})` : resolution),
+    weatherDetail: (weather: string, effect: string) => (effect && effect !== "-" ? `${weather} / ${effect}` : weather),
     stalledWarning: (text: string) => `런타임 경고: ${text}`,
     tilePurchased: (tileDisplay: string, cost: unknown) => `${tileDisplay}번 칸 구매 / 비용 ${cost}`,
     markerTransferred: (from: unknown, to: unknown, flipped?: unknown) =>
       typeof flipped === "number" ? `[징표] P${from} -> P${to} (플립 P${flipped})` : `[징표] P${from} -> P${to}`,
+    markerFlipDetail: (from: string, to: string) => `${from} -> ${to}`,
     rentPaid: (payer: unknown, owner: unknown, amount: unknown, tileDisplay: string) =>
       `P${payer} -> P${owner} / ${amount}냥 / ${tileDisplay}번 칸`,
     fortuneDrawn: (cardName: string) => `운수 공개 / ${cardName}`,
@@ -449,10 +453,14 @@ export const koLocale = {
     turnStartDetail: (actor: string) => `${actor} / 턴 시작`,
     sequenceIndex: (index: number, total: number) => `${index}/${total}`,
     sequenceBeat: {
+      weather: "이번 턴 날씨 효과 반영",
       purchase: "도착 직후 구매 판단",
       rent: "상대 소유 칸 렌트 정산",
       fortuneDraw: "운수 카드 공개",
       fortuneResolved: "운수 효과 반영",
+      lapReward: "완주 보상 처리",
+      mark: "지목 대상 효과 처리",
+      flip: "현재 액티브 카드 뒤집기",
     },
   },
   prompt: {
@@ -474,6 +482,7 @@ export const koLocale = {
       `제한 ${Math.ceil(timeoutMs / 1000)}초`,
       `남은 시간 ${secondsLeft ?? "-"}초`,
     ],
+    requestCompactMetaPills: (playerId: number, secondsLeft: number | null) => [`P${playerId}`, `남은 ${secondsLeft ?? "-"}초`],
     requestMeta: (requestId: string, playerId: number, timeoutMs: number, secondsLeft: number | null) =>
       `요청 ID ${requestId} / 행동자 P${playerId} / 제한 시간 ${Math.ceil(timeoutMs / 1000)}초 / 남은 시간 ${secondsLeft ?? "-"}초`,
     context: {

@@ -138,6 +138,9 @@ class GameParameterResolver:
         transport = str(external_ai_raw.get("transport", "loopback")).strip().lower()
         if transport not in {"loopback", "http"}:
             raise ParameterValidationError("invalid_external_ai_transport")
+        contract_version = str(external_ai_raw.get("contract_version", "v1")).strip().lower()
+        if not contract_version:
+            raise ParameterValidationError("invalid_external_ai_contract_version")
 
         timeout_ms = external_ai_raw.get("timeout_ms", 15000)
         if not isinstance(timeout_ms, int) or timeout_ms <= 0:
@@ -151,10 +154,24 @@ class GameParameterResolver:
         fallback_mode = str(external_ai_raw.get("fallback_mode", "local_ai")).strip().lower()
         if fallback_mode not in {"local_ai", "error"}:
             raise ParameterValidationError("invalid_external_ai_fallback_mode")
+        healthcheck_path = str(external_ai_raw.get("healthcheck_path", "/health")).strip()
+        if not healthcheck_path:
+            raise ParameterValidationError("invalid_external_ai_healthcheck_path")
+        healthcheck_ttl_ms = external_ai_raw.get("healthcheck_ttl_ms", 10000)
+        if not isinstance(healthcheck_ttl_ms, int) or healthcheck_ttl_ms < 0:
+            raise ParameterValidationError("invalid_external_ai_healthcheck_ttl")
 
         endpoint = external_ai_raw.get("endpoint")
         if endpoint is not None and not isinstance(endpoint, str):
             raise ParameterValidationError("invalid_external_ai_endpoint")
+        required_capabilities = external_ai_raw.get("required_capabilities") or []
+        if not isinstance(required_capabilities, list):
+            raise ParameterValidationError("invalid_external_ai_required_capabilities")
+        normalized_capabilities: list[str] = []
+        for item in required_capabilities:
+            if not isinstance(item, str) or not item.strip():
+                raise ParameterValidationError("invalid_external_ai_required_capabilities")
+            normalized_capabilities.append(item.strip())
 
         headers = external_ai_raw.get("headers") or {}
         if not isinstance(headers, dict):
@@ -168,11 +185,15 @@ class GameParameterResolver:
         return {
             "external_ai": {
                 "transport": transport,
+                "contract_version": contract_version,
                 "timeout_ms": int(timeout_ms),
                 "retry_count": int(retry_count),
                 "backoff_ms": int(backoff_ms),
                 "fallback_mode": fallback_mode,
+                "healthcheck_path": healthcheck_path,
+                "healthcheck_ttl_ms": int(healthcheck_ttl_ms),
                 "endpoint": endpoint.strip() if isinstance(endpoint, str) and endpoint.strip() else None,
+                "required_capabilities": normalized_capabilities,
                 "headers": normalized_headers,
             }
         }

@@ -426,6 +426,8 @@ class _ExternalAiDecisionEnvelope:
     public_context: dict[str, object]
     legal_choices: list[dict[str, object]]
     transport: str
+    worker_contract_version: str
+    required_capabilities: list[str]
     participant_config: dict[str, object]
 
     def to_payload(self) -> dict[str, object]:
@@ -440,6 +442,8 @@ class _ExternalAiDecisionEnvelope:
             "public_context": dict(self.public_context),
             "legal_choices": list(self.legal_choices),
             "transport": self.transport,
+            "worker_contract_version": self.worker_contract_version,
+            "required_capabilities": list(self.required_capabilities),
         }
 
 
@@ -464,6 +468,13 @@ class _ExternalAiTransportBase:
     def _build_envelope(self, call) -> _ExternalAiDecisionEnvelope:
         request = call.request
         player_id = int(request.player_id if request.player_id is not None else -1) + 1
+        contract_version = str(self._config.get("contract_version", "v1") or "v1").strip().lower()
+        raw_capabilities = self._config.get("required_capabilities") or []
+        required_capabilities = [
+            str(capability).strip()
+            for capability in raw_capabilities
+            if isinstance(capability, str) and str(capability).strip()
+        ]
         return _ExternalAiDecisionEnvelope(
             request_id=f"{self._session_id}_ext_{uuid.uuid4().hex[:10]}",
             session_id=self._session_id,
@@ -475,6 +486,8 @@ class _ExternalAiTransportBase:
             public_context=dict(request.public_context),
             legal_choices=[dict(choice) for choice in getattr(call, "legal_choices", [])],
             transport=self._transport_name,
+            worker_contract_version=contract_version,
+            required_capabilities=required_capabilities,
             participant_config=dict(self._config),
         )
 
@@ -530,7 +543,17 @@ class _ExternalAiDecisionClient:
 class _HttpExternalAiTransport(_ExternalAiTransportBase):
     """HTTP-shaped external-AI transport seam with an injectable sender."""
 
-    def __init__(self, *, session_id: str, ai_fallback, gateway: DecisionGateway, seat: int, config: dict[str, object] | None = None, sender=None) -> None:
+    def __init__(
+        self,
+        *,
+        session_id: str,
+        ai_fallback,
+        gateway: DecisionGateway,
+        seat: int,
+        config: dict[str, object] | None = None,
+        sender=None,
+        healthchecker=None,
+    ) -> None:
         super().__init__(
             session_id=session_id,
             ai_fallback=ai_fallback,
@@ -540,6 +563,7 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
             transport_name="http",
         )
         self._sender = sender
+        self._healthchecker = healthchecker
 
     def resolve(self, call):
         ai_callable = getattr(self.policy, call.invocation.method_name)
@@ -553,6 +577,7 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
             last_error: Exception | None = None
             for attempt in range(retry_count + 1):
                 try:
+                    self._check_worker_health()
                     response = self._sender(envelope) if self._sender is not None else _default_external_ai_http_sender(envelope)
                     if not isinstance(response, dict):
                         raise ValueError("external_ai_response_not_object")
@@ -572,6 +597,12 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
             raise last_error or RuntimeError("external_ai_transport_failed")
 
         return self._publish(call, resolver=_resolve_via_sender)
+
+    def _check_worker_health(self) -> None:
+        if self._sender is not None and self._healthchecker is None:
+            return
+        checker = self._healthchecker or _default_external_ai_healthcheck
+        checker(dict(self._config))
 
 
 def _default_external_ai_http_sender(envelope: _ExternalAiDecisionEnvelope) -> dict[str, object]:
@@ -595,6 +626,61 @@ def _default_external_ai_http_sender(envelope: _ExternalAiDecisionEnvelope) -> d
     parsed = json.loads(payload or "{}")
     if not isinstance(parsed, dict):
         raise ValueError("external_ai_response_not_object")
+    return parsed
+
+
+_EXTERNAL_AI_HEALTH_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
+
+
+def _default_external_ai_healthcheck(config: dict[str, object]) -> dict[str, object]:
+    endpoint = str(config.get("endpoint") or "").strip()
+    if not endpoint:
+        raise ValueError("external_ai_missing_endpoint")
+    healthcheck_path = str(config.get("healthcheck_path", "/health") or "/health").strip() or "/health"
+    timeout_ms = int(config.get("timeout_ms", 15000) or 15000)
+    ttl_ms = max(0, int(config.get("healthcheck_ttl_ms", 10000) or 0))
+    required_version = str(config.get("contract_version", "v1") or "v1").strip().lower()
+    required_capabilities = {
+        str(item).strip()
+        for item in (config.get("required_capabilities") or [])
+        if isinstance(item, str) and str(item).strip()
+    }
+    cache_key = f"{endpoint}|{healthcheck_path}"
+    now = time.time() * 1000.0
+    cached = _EXTERNAL_AI_HEALTH_CACHE.get(cache_key)
+    if cached is not None and ttl_ms > 0 and now - cached[0] <= ttl_ms:
+        return dict(cached[1])
+
+    base_url = endpoint.rsplit("/", 1)[0] if "/" in endpoint[8:] else endpoint
+    health_url = f"{base_url.rstrip('/')}/{healthcheck_path.lstrip('/')}"
+    headers = {}
+    raw_headers = config.get("headers") or {}
+    if isinstance(raw_headers, dict):
+        for key, value in raw_headers.items():
+            if isinstance(key, str) and isinstance(value, str):
+                headers[key] = value
+    request = urllib_request.Request(health_url, headers=headers, method="GET")
+    try:
+        with urllib_request.urlopen(request, timeout=max(0.001, timeout_ms / 1000.0)) as response:
+            payload = response.read().decode("utf-8")
+    except urllib_error.URLError as exc:
+        raise RuntimeError("external_ai_healthcheck_failed") from exc
+    parsed = json.loads(payload or "{}")
+    if not isinstance(parsed, dict):
+        raise ValueError("external_ai_health_response_not_object")
+    if parsed.get("ok") is not True:
+        raise RuntimeError("external_ai_health_not_ok")
+    worker_version = str(parsed.get("worker_contract_version") or "").strip().lower()
+    if required_version and worker_version and worker_version != required_version:
+        raise RuntimeError("external_ai_contract_version_mismatch")
+    available_capabilities = {
+        str(item).strip()
+        for item in (parsed.get("capabilities") or [])
+        if isinstance(item, str) and str(item).strip()
+    }
+    if required_capabilities and not required_capabilities.issubset(available_capabilities):
+        raise RuntimeError("external_ai_missing_required_capability")
+    _EXTERNAL_AI_HEALTH_CACHE[cache_key] = (now, dict(parsed))
     return parsed
 
 
@@ -678,8 +764,9 @@ class _ServerDecisionClientRouter:
 
 
 class _ServerDecisionClientFactory:
-    def __init__(self, *, external_ai_sender=None) -> None:
+    def __init__(self, *, external_ai_sender=None, external_ai_healthchecker=None) -> None:
         self._external_ai_sender = external_ai_sender
+        self._external_ai_healthchecker = external_ai_healthchecker
 
     def create_ai_client(self, *, ai_fallback, gateway: DecisionGateway):
         return _LocalAiDecisionClient(ai_fallback=ai_fallback, gateway=gateway)
@@ -732,6 +819,7 @@ class _ServerDecisionClientFactory:
                 seat=seat,
                 config=config,
                 sender=self._external_ai_sender,
+                healthchecker=self._external_ai_healthchecker,
             )
         return _LoopbackExternalAiTransport(
             session_id=session_id,

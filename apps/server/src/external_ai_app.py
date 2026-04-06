@@ -21,6 +21,8 @@ class ExternalAiDecisionRequest(BaseModel):
     public_context: dict = Field(default_factory=dict)
     legal_choices: list[dict] = Field(default_factory=list)
     transport: str = Field(..., min_length=1)
+    worker_contract_version: str = Field(default="v1", min_length=1)
+    required_capabilities: list[str] = Field(default_factory=list)
 
 
 class ExternalAiDecisionResponse(BaseModel):
@@ -29,6 +31,10 @@ class ExternalAiDecisionResponse(BaseModel):
     worker_id: str = Field(..., min_length=1)
     policy_mode: str = Field(..., min_length=1)
     policy_class: str = Field(..., min_length=1)
+    worker_contract_version: str = Field(default="v1", min_length=1)
+    capabilities: list[str] = Field(default_factory=list)
+    supported_request_types: list[str] = Field(default_factory=list)
+    required_capabilities: list[str] = Field(default_factory=list)
 
 
 @lru_cache(maxsize=1)

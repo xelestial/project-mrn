@@ -48,6 +48,7 @@ describe("promptSelectors", () => {
     expect(model?.choices[0].choiceId).toBe("deck_12");
     expect(model?.choices[0].title).toBe("건강 검진");
     expect(model?.choices[0].description).toContain("통행료");
+    expect(model?.choices[0].secondary).toBe(false);
   });
 
   it("uses value.description when explicit description is omitted", () => {
@@ -73,6 +74,27 @@ describe("promptSelectors", () => {
     expect(model?.requestType).toBe("pabal_dice_mode");
     expect(model?.choices[0].title).toBe("Roll one die");
     expect(model?.choices[0].description).toBe("Reduce the roll to one die this turn.");
+  });
+
+  it("marks passive canonical choices as secondary", () => {
+    const promptMessage: InboundMessage = {
+      type: "prompt",
+      seq: 9,
+      session_id: "s1",
+      payload: {
+        request_id: "req_purchase_1",
+        request_type: "purchase_tile",
+        player_id: 2,
+        timeout_ms: 30000,
+        legal_choices: [
+          { choice_id: "yes", title: "Buy", description: "Buy the tile." },
+          { choice_id: "no", title: "Skip", description: "Do not buy this tile." },
+        ],
+      },
+    };
+    const model = selectActivePrompt([promptMessage]);
+    expect(model?.choices[0].secondary).toBe(false);
+    expect(model?.choices[1].secondary).toBe(true);
   });
 
   it("returns null when accepted ack exists for same request", () => {

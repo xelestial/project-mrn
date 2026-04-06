@@ -60,10 +60,14 @@ def _external_ai_payload() -> dict:
             "participants": {
                 "external_ai": {
                     "transport": "http",
+                    "contract_version": "v1",
                     "timeout_ms": 9000,
                     "retry_count": 2,
                     "backoff_ms": 100,
                     "fallback_mode": "local_ai",
+                    "healthcheck_path": "/health",
+                    "healthcheck_ttl_ms": 5000,
+                    "required_capabilities": ["choice_id_response", "healthcheck"],
                     "headers": {"Authorization": "Bearer test-token"},
                 }
             },
@@ -153,10 +157,14 @@ class SessionsApiTests(unittest.TestCase):
         ai_seat = next(seat for seat in data["seats"] if seat["seat"] == 1)
         self.assertEqual(ai_seat["participant_client"], "external_ai")
         self.assertEqual(ai_seat["participant_config"]["transport"], "http")
+        self.assertEqual(ai_seat["participant_config"]["contract_version"], "v1")
         self.assertEqual(ai_seat["participant_config"]["timeout_ms"], 9000)
         self.assertEqual(ai_seat["participant_config"]["retry_count"], 2)
         self.assertEqual(ai_seat["participant_config"]["backoff_ms"], 100)
         self.assertEqual(ai_seat["participant_config"]["fallback_mode"], "local_ai")
+        self.assertEqual(ai_seat["participant_config"]["healthcheck_path"], "/health")
+        self.assertEqual(ai_seat["participant_config"]["healthcheck_ttl_ms"], 5000)
+        self.assertEqual(ai_seat["participant_config"]["required_capabilities"], ["choice_id_response", "healthcheck"])
         self.assertEqual(ai_seat["participant_config"]["headers"]["Authorization"], "Bearer test-token")
         self.assertEqual(ai_seat["participant_config"]["endpoint"], "http://bot-worker.local/seat-1")
 

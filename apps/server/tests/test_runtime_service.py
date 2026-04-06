@@ -433,7 +433,14 @@ class RuntimeServiceTests(unittest.TestCase):
             ai_fallback=_FakeAiPolicy(),
             gateway=gateway,  # type: ignore[arg-type]
             seat=2,
-            config={"transport": "http", "endpoint": "http://bot-worker.local/decide", "timeout_ms": 9000},
+            config={
+                "transport": "http",
+                "endpoint": "http://bot-worker.local/decide",
+                "timeout_ms": 9000,
+                "contract_version": "v1",
+                "required_capabilities": ["choice_id_response"],
+            },
+            healthchecker=lambda _config: {"ok": True, "worker_contract_version": "v1", "capabilities": ["choice_id_response"]},
             sender=lambda envelope: sender_calls.append(envelope) or {"choice_id": "yes"},
         )
         state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
@@ -447,6 +454,8 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertTrue(result)
         self.assertEqual(sender_calls[0].request_type, "purchase_tile")
+        self.assertEqual(sender_calls[0].worker_contract_version, "v1")
+        self.assertEqual(sender_calls[0].required_capabilities, ["choice_id_response"])
         self.assertEqual([choice["choice_id"] for choice in sender_calls[0].legal_choices], ["yes", "no"])
         self.assertEqual(gateway.calls[0]["public_context"]["participant_transport"], "http")
 
@@ -480,6 +489,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 "backoff_ms": 0,
                 "fallback_mode": "local_ai",
             },
+            healthchecker=lambda _config: {"ok": True, "worker_contract_version": "v1", "capabilities": []},
             sender=_failing_sender,
         )
         state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
@@ -493,6 +503,43 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertEqual(result, "minus_one")
         self.assertEqual(len(attempts), 3)
+
+    def test_http_external_transport_falls_back_when_healthcheck_misses_required_capability(self) -> None:
+        from apps.server.src.services.runtime_service import _HttpExternalAiTransport
+
+        class _FakeAiPolicy:
+            def choose_pabal_dice_mode(self, state, player):  # noqa: ANN001
+                del state, player
+                return "minus_one"
+
+        class _FakeGateway:
+            def resolve_ai_decision(self, **kwargs):  # noqa: ANN003
+                return kwargs["resolver"]()
+
+        transport = _HttpExternalAiTransport(
+            session_id="sess_http_health_1",
+            ai_fallback=_FakeAiPolicy(),
+            gateway=_FakeGateway(),  # type: ignore[arg-type]
+            seat=2,
+            config={
+                "transport": "http",
+                "endpoint": "http://bot-worker.local/decide",
+                "fallback_mode": "local_ai",
+                "required_capabilities": ["choice_payload_echo"],
+            },
+            healthchecker=lambda _config: (_ for _ in ()).throw(RuntimeError("external_ai_missing_required_capability")),
+            sender=lambda _envelope: {"choice_id": "plus_one"},
+        )
+        state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+        player = type("Player", (), {"player_id": 1, "cash": 5, "position": 9, "shards": 1})()
+        call = build_routed_decision_call(
+            build_decision_invocation("choose_pabal_dice_mode", (state, player), {}),
+            fallback_policy="ai",
+        )
+
+        result = transport.resolve(call)
+
+        self.assertEqual(result, "minus_one")
 
     def test_http_external_transport_reaches_real_worker_over_localhost(self) -> None:
         try:

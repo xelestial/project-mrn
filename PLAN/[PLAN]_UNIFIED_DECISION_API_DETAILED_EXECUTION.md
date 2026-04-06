@@ -592,3 +592,28 @@ P3 종료 조건:
   - runtime transport localhost round-trip against the worker app
 - Result:
   - `external_ai` seats can now participate through a real HTTP worker in local/runtime integration, not only through a seam or placeholder adapter
+
+## 2026-04-07 Progress Update (worker hardening + broader frozen examples)
+
+- Hardened the external worker seam beyond the initial mount:
+  - request envelopes now carry:
+    - `worker_contract_version`
+    - `required_capabilities`
+  - worker health and decision responses now expose:
+    - `worker_contract_version`
+    - `capabilities`
+    - `supported_request_types`
+  - runtime HTTP transport can preflight worker health and capability compatibility before sending decisions
+- Expanded frozen artifacts:
+  - request examples:
+    - `request.purchase_tile.json`
+    - `request.movement.json`
+    - `request.lap_reward.json`
+  - response examples:
+    - `response.purchase_tile_yes.json`
+    - `response.movement_dice.json`
+    - `response.lap_reward_cash.json`
+- Web consumer alignment also improved in the same slice:
+  - stream selectors now push more sentence ownership into locale resources
+  - prompt selectors now expose canonical secondary-choice state instead of making the overlay infer all passive choices by raw ids alone
+  - turn-stage / spectator surfaces now retain lap-reward / mark / flip / weather summaries as first-class turn effects

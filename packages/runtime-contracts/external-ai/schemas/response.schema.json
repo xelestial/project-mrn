@@ -4,7 +4,9 @@
   "title": "ExternalAiDecisionResponse",
   "type": "object",
   "required": [
-    "choice_id"
+    "choice_id",
+    "worker_contract_version",
+    "capabilities"
   ],
   "properties": {
     "choice_id": { "type": "string", "minLength": 1 },
@@ -12,7 +14,22 @@
       "type": "object",
       "additionalProperties": true
     },
-    "worker_id": { "type": "string" }
+    "worker_id": { "type": "string" },
+    "policy_mode": { "type": "string" },
+    "policy_class": { "type": "string" },
+    "worker_contract_version": { "type": "string", "minLength": 1 },
+    "capabilities": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "supported_request_types": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "required_capabilities": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
   },
   "additionalProperties": true
 }

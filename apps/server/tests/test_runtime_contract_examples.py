@@ -143,7 +143,11 @@ class RuntimeContractExampleTests(unittest.TestCase):
 
         pairs = [
             ("request.schema.json", "request.purchase_tile.json"),
+            ("request.schema.json", "request.movement.json"),
+            ("request.schema.json", "request.lap_reward.json"),
             ("response.schema.json", "response.purchase_tile_yes.json"),
+            ("response.schema.json", "response.movement_dice.json"),
+            ("response.schema.json", "response.lap_reward_cash.json"),
         ]
 
         for schema_name, example_name in pairs:

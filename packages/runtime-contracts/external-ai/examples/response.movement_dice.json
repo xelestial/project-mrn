@@ -1,0 +1,18 @@
+{
+  "choice_id": "dice",
+  "choice_payload": {
+    "choice_id": "dice",
+    "title": "Roll dice",
+    "value": {
+      "use_cards": false,
+      "card_values": []
+    }
+  },
+  "worker_id": "bot-worker-1",
+  "policy_mode": "heuristic_v3_gpt",
+  "policy_class": "HeuristicPolicy",
+  "worker_contract_version": "v1",
+  "capabilities": ["choice_id_response", "healthcheck"],
+  "supported_request_types": ["movement", "purchase_tile", "lap_reward"],
+  "required_capabilities": ["choice_id_response"]
+}

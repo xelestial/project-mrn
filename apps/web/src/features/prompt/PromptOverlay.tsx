@@ -154,7 +154,7 @@ function choiceGridClass(variant: ChoiceGridVariant, compactChoices: boolean): s
 }
 
 function isSecondaryChoice(choice: PromptChoiceViewModel): boolean {
-  return choice.choiceId === "none" || choice.choiceId === "no";
+  return choice.secondary;
 }
 
 function movementChoices(prompt: PromptViewModel): MovementChoiceParts {
@@ -489,11 +489,14 @@ export function PromptOverlay({
 
   const promptLabel = promptLabelForType(prompt.requestType, promptType);
   const promptHelp = promptHelperForType(prompt.requestType, promptHelper);
+  const usesSpecializedSurface = isSpecializedPromptType(prompt.requestType);
   const promptTimeRatio =
     secondsLeft !== null && prompt.timeoutMs > 0
       ? Math.max(0, Math.min(100, (secondsLeft * 1000 * 100) / prompt.timeoutMs))
       : null;
-  const headMetaPills = promptText.requestMetaPills(prompt.playerId, prompt.timeoutMs, secondsLeft);
+  const headMetaPills = usesSpecializedSurface
+    ? promptText.requestCompactMetaPills(prompt.playerId, secondsLeft)
+    : promptText.requestMetaPills(prompt.playerId, prompt.timeoutMs, secondsLeft);
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {
@@ -548,7 +551,6 @@ export function PromptOverlay({
   const isDoctrineRelief = prompt.requestType === "doctrine_relief";
   const isGeoBonus = prompt.requestType === "geo_bonus";
   const isPabalDiceMode = prompt.requestType === "pabal_dice_mode";
-  const usesSpecializedSurface = isSpecializedPromptType(prompt.requestType);
 
   const currentTileIndex = numberFromContext(prompt.publicContext, "tile_index", "player_position");
   const currentCash = numberFromContext(prompt.publicContext, "player_cash");

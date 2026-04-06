@@ -213,6 +213,36 @@ This is the practical next-work list after the closed slices above.
   2. keep closing rule-parity visual gaps where replay/live evidence shows drift
   3. harden external-AI auth/retry/worker capability only after the current P0 UI/runtime queue is calmer
 
+### 2026-04-07 Progress Update (selector + effect-visibility + worker hardening pass)
+
+- Web/runtime parity advanced again:
+  - selector-side stream formatting moved a little further into locale resources:
+    - decision-requested detail
+    - decision-resolved detail
+    - weather detail
+    - marker-flip detail
+  - prompt selectors now mark canonical secondary choices explicitly, so prompt surfaces do not have to infer passive/skip state only from raw `choice_id`
+  - turn-stage and spectator surfaces now preserve:
+    - weather summary
+    - lap reward summary
+    - mark resolution summary
+    - active flip summary
+- External-AI runtime hardening also moved forward:
+  - participant defaults now include:
+    - `contract_version`
+    - `healthcheck_path`
+    - `healthcheck_ttl_ms`
+    - `required_capabilities`
+  - runtime HTTP transport can preflight worker health / contract-version / capability compatibility
+  - frozen external-AI examples now cover:
+    - `purchase_tile`
+    - `movement`
+    - `lap_reward`
+- Therefore the next practical order becomes:
+  1. continue trimming remaining selector-owned phrasing
+  2. keep using browser/runtime evidence to close any leftover rule-parity visuals
+  3. only after that, widen external-AI auth / richer worker implementation work
+
 ## 2026-04-05 Concrete Next Steps
 
 1. Keep `apps/web/src/i18n/` as the source of truth and remove new direct ownership from:

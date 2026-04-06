@@ -614,6 +614,77 @@ describe("streamSelectors", () => {
     expect(rentStage.promptSummary).not.toBe("-");
   });
 
+  it("captures lap reward, mark, and flip summaries in the current turn stage", () => {
+    const stage = selectTurnStage([
+      {
+        type: "event",
+        seq: 700,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 8,
+          turn_index: 2,
+          acting_player_id: 2,
+          character: "Bandit",
+        },
+      },
+      {
+        type: "event",
+        seq: 701,
+        session_id: "s1",
+        payload: {
+          event_type: "weather_reveal",
+          round_index: 8,
+          turn_index: 2,
+          weather_name: "Cold Front",
+          effect_text: "No lap cash. Pay 2 cash to bank.",
+        },
+      },
+      {
+        type: "event",
+        seq: 702,
+        session_id: "s1",
+        payload: {
+          event_type: "lap_reward_chosen",
+          round_index: 8,
+          turn_index: 2,
+          acting_player_id: 2,
+          amount: { cash: 6 },
+        },
+      },
+      {
+        type: "event",
+        seq: 703,
+        session_id: "s1",
+        payload: {
+          event_type: "mark_resolved",
+          round_index: 8,
+          turn_index: 2,
+          source_player_id: 2,
+          target_player_id: 4,
+        },
+      },
+      {
+        type: "event",
+        seq: 704,
+        session_id: "s1",
+        payload: {
+          event_type: "marker_flip",
+          round_index: 8,
+          turn_index: 2,
+          from_character: "Courier",
+          to_character: "Bandit",
+        },
+      },
+    ]);
+
+    expect(stage.weatherSummary).toContain("Cold Front");
+    expect(stage.lapRewardSummary).toContain("P2");
+    expect(stage.markSummary).toContain("P2");
+    expect(stage.flipSummary).toContain("Courier");
+    expect(stage.effectSummary).toContain("Courier");
+  });
+
   it("derives prompt focus tile from canonical legal_choices when public_context omits tile_index", () => {
     const stage = selectTurnStage([
       {

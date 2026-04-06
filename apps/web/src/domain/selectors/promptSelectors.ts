@@ -5,6 +5,7 @@ export type PromptChoiceViewModel = {
   title: string;
   description: string;
   value: Record<string, unknown> | null;
+  secondary: boolean;
 };
 
 export type PromptViewModel = {
@@ -46,12 +47,21 @@ function parseChoices(raw: unknown): PromptChoiceViewModel[] {
             ? String(value["description"])
             : "";
       const titleRaw = item["title"] ?? item["label"];
+      const explicitSecondary = item["secondary"];
+      const priority = item["priority"];
+      const secondary =
+        explicitSecondary === true ||
+        priority === "secondary" ||
+        priority === "passive" ||
+        choiceId === "none" ||
+        choiceId === "no";
       return {
         choiceId,
         title: typeof titleRaw === "string" && titleRaw.trim() ? String(titleRaw) : choiceId,
         description:
           typeof item["description"] === "string" && item["description"].trim() ? String(item["description"]) : valueDescription,
         value,
+        secondary,
       };
     })
     .filter((item): item is PromptChoiceViewModel => item !== null);

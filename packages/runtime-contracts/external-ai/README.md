@@ -40,6 +40,20 @@ The reference worker is intentionally contract-driven:
 - it consumes the frozen HTTP request envelope
 - it selects a canonical `choice_id` from `legal_choices`
 - it can return the matched `choice_payload` for debugging and inspection
+- it exposes `worker_contract_version`, `capabilities`, and `supported_request_types`
 - the runtime server remains responsible for timeout / retry / fallback
+
+The request envelope also carries:
+
+- `worker_contract_version`
+- `required_capabilities`
+
+The server can preflight worker health and capability compatibility before decision POSTs when seat config enables the default healthcheck path.
+
+Frozen examples now cover:
+
+- `purchase_tile`
+- `movement`
+- `lap_reward`
 
 See `docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md` for a full local session example.

@@ -120,11 +120,12 @@ These are no longer the immediate blockers, but they are recently completed and 
 
 ### E. External AI worker/service mounting
 - Status:
-  - closed for the current open-participant slice
+  - closed for the initial open-participant slice
 - What was finished:
   - a reference external AI worker now exists as a real HTTP service
   - runtime HTTP transport now has localhost end-to-end integration coverage against that worker
   - local run tooling and runbook are in place for attaching AI seats as real external participants
+  - worker health / contract-version / capability metadata is now part of the operational seam
 - Main implementation references:
   - `apps/server/src/external_ai_app.py`
   - `apps/server/src/services/external_ai_worker_service.py`
@@ -144,6 +145,7 @@ These are the slices that should still actively drive implementation after the r
   - stronger fortune reveal staging
   - richer purchase/rent transitions
   - better payoff emphasis during remote turns
+  - keep lap reward / mark / flip / weather continuity equally visible
 
 ### 2. Specialized prompt simplification
 - Status:
@@ -167,6 +169,7 @@ These are the slices that should still actively drive implementation after the r
   - keep shrinking residual human/AI branch-local logic
   - keep the web aligned to canonical request/public-context fields
   - keep the runtime/client seam stable as more capable external workers replace the reference implementation
+  - keep selector-side sentence ownership moving into locale resources instead of inline formatter logic
 
 ## Active But Secondary Plans
 
