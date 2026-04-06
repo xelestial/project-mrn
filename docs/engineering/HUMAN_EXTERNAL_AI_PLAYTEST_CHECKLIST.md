@@ -25,6 +25,7 @@ The preferred stronger worker path is:
   --port 8011 \
   --worker-id local-priority-bot \
   --policy-mode heuristic_v3_gpt \
+  --worker-profile priority_scored \
   --worker-adapter priority_score_v1
 ```
 

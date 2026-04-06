@@ -84,6 +84,27 @@ def _best_scored_usable_non_secondary_choice_id(by_id: dict[str, dict[str, Any]]
     return candidates[0][1]
 
 
+WORKER_PROFILE_TO_ADAPTER_ID: dict[str, str] = {
+    "reference_heuristic": "reference_heuristic_v1",
+    "priority_scored": "priority_score_v1",
+}
+
+
+def _normalize_worker_profile(worker_profile: str | None) -> str | None:
+    if worker_profile is None:
+        return None
+    normalized = str(worker_profile).strip().lower()
+    return normalized or None
+
+
+def worker_profile_for_adapter_id(adapter_id: str | None) -> str | None:
+    normalized_adapter = str(adapter_id or "").strip().lower()
+    for profile, mapped_adapter in WORKER_PROFILE_TO_ADAPTER_ID.items():
+        if normalized_adapter == mapped_adapter:
+            return profile
+    return None
+
+
 class ReferenceHeuristicDecisionAdapter:
     adapter_id = "reference_heuristic_v1"
     decision_style = "contract_heuristic"
@@ -374,13 +395,24 @@ class ExternalAiWorkerService:
         *,
         worker_id: str = "external-ai-worker",
         policy_mode: str = "heuristic_v3_gpt",
-        worker_adapter: str = ReferenceHeuristicDecisionAdapter.adapter_id,
+        worker_profile: str | None = None,
+        worker_adapter: str | None = ReferenceHeuristicDecisionAdapter.adapter_id,
         adapter=None,
     ) -> None:
         self._worker_id = str(worker_id).strip() or "external-ai-worker"
         self._policy_mode = str(policy_mode).strip() or "heuristic_v3_gpt"
-        self._adapter = adapter or build_external_ai_decision_adapter(worker_adapter)
-        self._worker_adapter = str(getattr(self._adapter, "adapter_id", worker_adapter)).strip() or worker_adapter
+        normalized_profile = _normalize_worker_profile(worker_profile)
+        if normalized_profile is not None and normalized_profile not in WORKER_PROFILE_TO_ADAPTER_ID:
+            raise ValueError("unsupported_worker_profile")
+        resolved_worker_adapter = worker_adapter
+        if normalized_profile is not None and worker_adapter in {None, "", ReferenceHeuristicDecisionAdapter.adapter_id}:
+            resolved_worker_adapter = WORKER_PROFILE_TO_ADAPTER_ID[normalized_profile]
+        self._adapter = adapter or build_external_ai_decision_adapter(resolved_worker_adapter)
+        self._worker_adapter = str(getattr(self._adapter, "adapter_id", resolved_worker_adapter)).strip() or str(resolved_worker_adapter)
+        inferred_profile = worker_profile_for_adapter_id(self._worker_adapter)
+        if normalized_profile is not None and inferred_profile is not None and normalized_profile != inferred_profile:
+            raise ValueError("worker_profile_adapter_mismatch")
+        self._worker_profile = normalized_profile or inferred_profile or "custom"
         self._runtime_policy = self._adapter.build_runtime_policy(self._policy_mode)
 
     @property
@@ -394,6 +426,10 @@ class ExternalAiWorkerService:
     @property
     def worker_adapter(self) -> str:
         return self._worker_adapter
+
+    @property
+    def worker_profile(self) -> str:
+        return self._worker_profile
 
     def choose_choice_id(
         self,
@@ -422,6 +458,7 @@ class ExternalAiWorkerService:
             "policy_mode": self._policy_mode,
             "policy_class": type(self._runtime_policy).__name__,
             "worker_contract_version": "v1",
+            "worker_profile": self._worker_profile,
             "worker_adapter": self._worker_adapter,
             "decision_style": str(getattr(self._adapter, "decision_style", "contract_heuristic")),
             "supported_transports": list(getattr(self._adapter, "supported_transports", ["http"])),
@@ -455,6 +492,7 @@ class ExternalAiWorkerService:
             "choice_payload": self._choice_payload(choice_id, legal_choices),
             "worker_id": self._worker_id,
             "policy_mode": self._policy_mode,
+            "worker_profile": self._worker_profile,
             "worker_adapter": self._worker_adapter,
             "policy_class": type(self._runtime_policy).__name__,
             "worker_contract_version": metadata["worker_contract_version"],

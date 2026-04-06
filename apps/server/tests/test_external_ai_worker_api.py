@@ -130,6 +130,7 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["worker_id"], "worker-api-test")
         self.assertEqual(payload["policy_mode"], "heuristic_v3_gpt")
+        self.assertEqual(payload["worker_profile"], "reference_heuristic")
         self.assertEqual(payload["worker_adapter"], "reference_heuristic_v1")
         self.assertEqual(payload["decision_style"], "contract_heuristic")
         self.assertEqual(payload["supported_transports"], ["http"])
@@ -150,6 +151,7 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         self.assertTrue(payload["ready"])
         self.assertEqual(payload["worker_contract_version"], "v1")
         self.assertEqual(payload["policy_mode"], "heuristic_v3_gpt")
+        self.assertEqual(payload["worker_profile"], "reference_heuristic")
         self.assertEqual(payload["worker_adapter"], "reference_heuristic_v1")
         self.assertEqual(payload["decision_style"], "contract_heuristic")
         self.assertEqual(payload["supported_transports"], ["http"])
@@ -179,6 +181,7 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
 
         health = client.get("/health")
         self.assertEqual(health.status_code, 200)
+        self.assertEqual(health.json()["worker_profile"], "custom")
         self.assertEqual(health.json()["worker_adapter"], "scripted_test_v1")
         self.assertEqual(health.json()["decision_style"], "scripted_contract")
 
@@ -186,6 +189,7 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["choice_id"], "no")
+        self.assertEqual(payload["worker_profile"], "custom")
         self.assertEqual(payload["worker_adapter"], "scripted_test_v1")
         self.assertEqual(payload["decision_style"], "scripted_contract")
 
@@ -193,12 +197,14 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         service = ExternalAiWorkerService(
             worker_id="worker-api-priority",
             policy_mode="heuristic_v3_gpt",
+            worker_profile="priority_scored",
             worker_adapter="priority_score_v1",
         )
         client = TestClient(create_app(service))
 
         health = client.get("/health")
         self.assertEqual(health.status_code, 200)
+        self.assertEqual(health.json()["worker_profile"], "priority_scored")
         self.assertEqual(health.json()["worker_adapter"], "priority_score_v1")
         self.assertEqual(health.json()["decision_style"], "priority_scored_contract")
         self.assertEqual(health.json()["policy_class"], "PriorityScoredPolicy")
@@ -207,6 +213,7 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["choice_id"], "102")
+        self.assertEqual(payload["worker_profile"], "priority_scored")
         self.assertEqual(payload["worker_adapter"], "priority_score_v1")
         self.assertEqual(payload["decision_style"], "priority_scored_contract")
         self.assertEqual(payload["policy_class"], "PriorityScoredPolicy")

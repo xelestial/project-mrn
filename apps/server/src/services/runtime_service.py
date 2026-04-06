@@ -593,6 +593,7 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
             "external_ai_ready_state": "-",
             "external_ai_attempt_count": 0,
             "external_ai_attempt_limit": effective_attempt_count,
+            "external_ai_worker_profile": "-",
             "external_ai_policy_mode": "-",
             "external_ai_worker_adapter": "-",
             "external_ai_policy_class": "-",
@@ -616,6 +617,9 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
                         worker_id = str(health.get("worker_id") or "").strip()
                         if worker_id:
                             public_context["external_ai_worker_id"] = worker_id
+                        worker_profile = str(health.get("worker_profile") or "").strip()
+                        if worker_profile:
+                            public_context["external_ai_worker_profile"] = worker_profile
                         policy_mode = str(health.get("policy_mode") or "").strip()
                         if policy_mode:
                             public_context["external_ai_policy_mode"] = policy_mode
@@ -641,6 +645,9 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
                     worker_id = str(response.get("worker_id") or "").strip()
                     if worker_id:
                         public_context["external_ai_worker_id"] = worker_id
+                    worker_profile = str(response.get("worker_profile") or "").strip()
+                    if worker_profile:
+                        public_context["external_ai_worker_profile"] = worker_profile
                     policy_mode = str(response.get("policy_mode") or "").strip()
                     if policy_mode:
                         public_context["external_ai_policy_mode"] = policy_mode

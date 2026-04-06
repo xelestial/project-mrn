@@ -21,6 +21,7 @@ Optional flags:
 
 - `--worker-id local-bot-1`
 - `--policy-mode heuristic_v3_gpt`
+- `--worker-profile priority_scored`
 - `--worker-adapter reference_heuristic_v1`
 - `--log-level debug`
 - `--reload`
@@ -58,6 +59,7 @@ Expected shape:
   "ok": true,
   "worker_id": "external-ai-worker",
   "ready": true,
+  "worker_profile": "reference_heuristic",
   "policy_mode": "heuristic_v3_gpt",
   "policy_class": "HeuristicPolicy",
   "worker_adapter": "reference_heuristic_v1",
@@ -72,6 +74,7 @@ To run the stronger scored reference adapter locally:
 .venv311/bin/python tools/run_external_ai_worker.py \
   --host 127.0.0.1 \
   --port 8011 \
+  --worker-profile priority_scored \
   --worker-adapter priority_score_v1
 ```
 
@@ -228,6 +231,7 @@ Useful runtime status values surfaced into prompt/event `public_context`:
 - `external_ai_attempt_count=<n>`
 - `external_ai_attempt_limit=<n>`
 - `external_ai_policy_mode=<worker-policy-mode>`
+- `external_ai_worker_profile=<worker-profile>`
 - `external_ai_policy_class=<worker-policy-class>`
 - `external_ai_worker_adapter=<worker-adapter-id>`
 - `external_ai_decision_style=<worker-decision-style>`

@@ -698,6 +698,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 "ok": True,
                 "ready": True,
                 "worker_id": "bot-worker-1",
+                "worker_profile": "reference_heuristic",
                 "worker_contract_version": "v1",
                 "capabilities": ["choice_id_response"],
                 "supported_request_types": ["pabal_dice_mode"],
@@ -865,6 +866,7 @@ class RuntimeServiceTests(unittest.TestCase):
             sender=lambda _envelope: {
                 "choice_id": "plus_one",
                 "worker_id": "bot-worker-1",
+                "worker_profile": "reference_heuristic",
                 "policy_mode": "heuristic_v3_gpt",
                 "worker_adapter": "reference_heuristic_v1",
                 "policy_class": "HeuristicPolicy",
@@ -883,6 +885,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertEqual(result, "plus_one")
         public_context = gateway.calls[0]["public_context"]
+        self.assertEqual(public_context["external_ai_worker_profile"], "reference_heuristic")
         self.assertEqual(public_context["external_ai_policy_mode"], "heuristic_v3_gpt")
         self.assertEqual(public_context["external_ai_worker_adapter"], "reference_heuristic_v1")
         self.assertEqual(public_context["external_ai_policy_class"], "HeuristicPolicy")
@@ -923,6 +926,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 "ok": True,
                 "ready": True,
                 "worker_id": "bot-worker-2",
+                "worker_profile": "priority_scored",
                 "worker_contract_version": "v1",
                 "capabilities": ["choice_id_response", "priority_scored_choice"],
                 "supported_request_types": ["pabal_dice_mode"],
@@ -935,6 +939,7 @@ class RuntimeServiceTests(unittest.TestCase):
             sender=lambda _envelope: {
                 "choice_id": "plus_one",
                 "worker_id": "bot-worker-2",
+                "worker_profile": "priority_scored",
                 "policy_mode": "heuristic_v3_gpt",
                 "worker_adapter": "priority_score_v1",
                 "policy_class": "PriorityScoredPolicy",
@@ -954,6 +959,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertEqual(result, "plus_one")
         public_context = gateway.calls[0]["public_context"]
+        self.assertEqual(public_context["external_ai_worker_profile"], "priority_scored")
         self.assertEqual(public_context["external_ai_worker_adapter"], "priority_score_v1")
         self.assertEqual(public_context["external_ai_policy_class"], "PriorityScoredPolicy")
         self.assertEqual(public_context["external_ai_decision_style"], "priority_scored_contract")
@@ -1479,6 +1485,7 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertTrue(result)
             self.assertEqual(gateway.calls[0]["public_context"]["participant_transport"], "http")
             self.assertEqual(gateway.calls[0]["public_context"]["participant_client"], "external_ai")
+            self.assertEqual(gateway.calls[0]["public_context"]["external_ai_worker_profile"], "reference_heuristic")
         finally:
             server.should_exit = True
             thread.join(timeout=5.0)
@@ -1518,6 +1525,7 @@ class RuntimeServiceTests(unittest.TestCase):
         worker = ExternalAiWorkerService(
             worker_id="worker-http-priority-test",
             policy_mode="heuristic_v3_gpt",
+            worker_profile="priority_scored",
             worker_adapter="priority_score_v1",
         )
         app = create_app(worker)
@@ -1562,6 +1570,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
             self.assertEqual(result, "plus_one")
             public_context = gateway.calls[0]["public_context"]
+            self.assertEqual(public_context["external_ai_worker_profile"], "priority_scored")
             self.assertEqual(public_context["external_ai_worker_adapter"], "priority_score_v1")
             self.assertEqual(public_context["external_ai_policy_class"], "PriorityScoredPolicy")
             self.assertEqual(public_context["external_ai_decision_style"], "priority_scored_contract")
