@@ -491,7 +491,14 @@ class _ExternalAiTransportBase:
             participant_config=dict(self._config),
         )
 
-    def _publish(self, call, resolver):
+    def _publish(
+        self,
+        call,
+        resolver,
+        public_context_patch: dict[str, object] | None = None,
+        *,
+        pass_public_context: bool = False,
+    ):
         request = call.request
         public_context = dict(request.public_context)
         public_context.setdefault("participant_client", ParticipantClientType.EXTERNAL_AI.value)
@@ -499,12 +506,18 @@ class _ExternalAiTransportBase:
         public_context.setdefault("participant_transport", self._transport_name)
         if self._config:
             public_context.setdefault("participant_config", dict(self._config))
+        if public_context_patch:
+            public_context.update(public_context_patch)
+        if pass_public_context:
+            wrapped_resolver = lambda: resolver(public_context)
+        else:
+            wrapped_resolver = resolver
         player_id = int(request.player_id if request.player_id is not None else -1) + 1
         return self._gateway.resolve_ai_decision(
             request_type=request.request_type,
             player_id=player_id,
             public_context=public_context,
-            resolver=resolver,
+            resolver=wrapped_resolver,
             choice_serializer=call.choice_serializer,
         )
 
@@ -572,16 +585,26 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
         retry_count = max(0, int(self._config.get("retry_count", 1) or 0))
         backoff_ms = max(0, int(self._config.get("backoff_ms", 250) or 0))
         fallback_mode = str(self._config.get("fallback_mode", "local_ai") or "local_ai").strip().lower()
+        diagnostics: dict[str, object] = {
+            "external_ai_transport_mode": "http",
+        }
 
-        def _resolve_via_sender():
+        def _resolve_via_sender(public_context: dict[str, object]):
             last_error: Exception | None = None
             for attempt in range(retry_count + 1):
                 try:
-                    self._check_worker_health()
+                    health = self._check_worker_health()
+                    if isinstance(health, dict):
+                        worker_id = str(health.get("worker_id") or "").strip()
+                        if worker_id:
+                            public_context["external_ai_worker_id"] = worker_id
                     response = self._sender(envelope) if self._sender is not None else _default_external_ai_http_sender(envelope)
                     if not isinstance(response, dict):
                         raise ValueError("external_ai_response_not_object")
                     _validate_external_ai_identity(response, envelope.participant_config)
+                    worker_id = str(response.get("worker_id") or "").strip()
+                    if worker_id:
+                        public_context["external_ai_worker_id"] = worker_id
                     choice_id = response.get("choice_id")
                     if not isinstance(choice_id, str) or not choice_id.strip():
                         raise ValueError("external_ai_missing_choice_id")
@@ -590,24 +613,33 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
                     return choice_id.strip()
                 except Exception as exc:
                     last_error = exc
+                    public_context["external_ai_failure_code"] = _classify_external_ai_error(exc)
+                    public_context["external_ai_failure_detail"] = str(exc)
                     if attempt < retry_count and backoff_ms > 0:
                         time.sleep(backoff_ms / 1000.0)
                         continue
             if fallback_mode == "local_ai":
+                public_context["external_ai_fallback_mode"] = "local_ai"
                 return ai_callable(*call.invocation.args, **call.invocation.kwargs)
             raise last_error or RuntimeError("external_ai_transport_failed")
 
-        return self._publish(call, resolver=_resolve_via_sender)
+        return self._publish(
+            call,
+            resolver=_resolve_via_sender,
+            public_context_patch=diagnostics,
+            pass_public_context=True,
+        )
 
-    def _check_worker_health(self) -> None:
+    def _check_worker_health(self) -> dict[str, object] | None:
         if self._sender is not None and self._healthchecker is None:
-            return
+            return None
         checker = self._healthchecker or _default_external_ai_healthcheck
         payload = checker(dict(self._config))
         if self._healthchecker is not None:
             if not isinstance(payload, dict):
                 raise ValueError("external_ai_health_response_not_object")
             _validate_external_ai_health_payload(payload, self._config)
+        return payload if isinstance(payload, dict) else None
 
 
 def _default_external_ai_http_sender(envelope: _ExternalAiDecisionEnvelope) -> dict[str, object]:
@@ -726,6 +758,13 @@ def _validate_external_ai_health_payload(payload: dict[str, object], config: dic
     }
     if required_capabilities and not required_capabilities.issubset(available_capabilities):
         raise RuntimeError("external_ai_missing_required_capability")
+
+
+def _classify_external_ai_error(exc: Exception) -> str:
+    message = str(exc).strip()
+    if message:
+        return message
+    return exc.__class__.__name__.lower()
 
 
 class _LocalHumanDecisionClient:

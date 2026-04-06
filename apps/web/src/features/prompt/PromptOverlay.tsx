@@ -494,9 +494,7 @@ export function PromptOverlay({
     secondsLeft !== null && prompt.timeoutMs > 0
       ? Math.max(0, Math.min(100, (secondsLeft * 1000 * 100) / prompt.timeoutMs))
       : null;
-  const headMetaPills = usesSpecializedSurface
-    ? promptText.requestCompactMetaPills(prompt.playerId, secondsLeft)
-    : promptText.requestMetaPills(prompt.playerId, prompt.timeoutMs, secondsLeft);
+  const headMetaPills = promptText.requestCompactMetaPills(prompt.playerId, secondsLeft).slice(0, 2);
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {

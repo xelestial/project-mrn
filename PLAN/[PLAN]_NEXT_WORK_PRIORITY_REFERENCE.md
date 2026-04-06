@@ -276,6 +276,24 @@ This is the practical next-work list after the closed slices above.
   - selector unit coverage for timeout fallback detail rendering
   - selector unit coverage for timeout fallback persistence in turn stage
   - browser E2E coverage for remote timeout fallback visibility
+
+### 2026-04-07 Progress Update (default-text bridge reduction + external worker ops follow-up)
+
+- Web:
+  - label/selector defaults now read from `i18n/defaultText.ts` instead of importing the older `uiText.ts` bridge directly
+  - `uiText.ts` remains as a compatibility shim rather than the primary default-text source
+  - prompt head chrome now always uses the compact pill set to keep the surface less inspector-like
+- Server:
+  - external HTTP transport now records worker diagnostics into canonical public context:
+    - `external_ai_worker_id`
+    - `external_ai_failure_code`
+    - `external_ai_failure_detail`
+    - `external_ai_fallback_mode`
+  - reference worker capability metadata now includes:
+    - `failure_code_response`
+    - `worker_identity`
+- Ops/docs:
+  - added a production-shaped external worker session payload example
 - Therefore the next practical order becomes:
   1. continue trimming remaining selector-owned phrasing
   2. keep using browser/runtime evidence to close any leftover rule-parity visuals

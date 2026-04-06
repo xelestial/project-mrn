@@ -1,5 +1,5 @@
 import type { LocaleMessages } from "../../i18n/types";
-import { PROMPT_TYPE_TEXT } from "../text/uiText";
+import { DEFAULT_PROMPT_TYPE_TEXT } from "../../i18n/defaultText";
 
 export const KNOWN_PROMPT_TYPES = [
   "movement",
@@ -23,7 +23,7 @@ export const KNOWN_PROMPT_TYPES = [
 
 type PromptTypeText = LocaleMessages["promptType"];
 
-export function promptLabelForType(requestType: string, promptTypeText: PromptTypeText = PROMPT_TYPE_TEXT): string {
+export function promptLabelForType(requestType: string, promptTypeText: PromptTypeText = DEFAULT_PROMPT_TYPE_TEXT): string {
   if (!requestType.trim()) {
     return promptTypeText.generic;
   }

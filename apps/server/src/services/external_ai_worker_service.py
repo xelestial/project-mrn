@@ -132,6 +132,35 @@ class ExternalAiWorkerService:
                 return "take_bonus"
             return first_non_secondary()
 
+        if request_type == "mark_target":
+            preferred_target = _as_int(public_context.get("preferred_target_player_id"))
+            if preferred_target is not None:
+                preferred_choice_id = str(preferred_target)
+                if preferred_choice_id in by_id:
+                    return preferred_choice_id
+            for choice_id in ids:
+                if choice_id not in {"none", "no"}:
+                    return choice_id
+            return first_non_secondary()
+
+        if request_type == "coin_placement":
+            owned_tile_indices = public_context.get("owned_tile_indices")
+            if isinstance(owned_tile_indices, list):
+                for tile_index in owned_tile_indices:
+                    normalized = _as_int(tile_index)
+                    if normalized is None:
+                        continue
+                    choice_id = str(normalized)
+                    if choice_id in by_id:
+                        return choice_id
+            return first_non_secondary()
+
+        if request_type == "active_flip":
+            for choice_id in ids:
+                if choice_id not in {"none", "no"}:
+                    return choice_id
+            return first_non_secondary()
+
         return first_non_secondary()
 
     @staticmethod
@@ -149,7 +178,14 @@ class ExternalAiWorkerService:
             "worker_contract_version": "v1",
             "decision_style": "contract_heuristic",
             "supported_transports": ["http"],
-            "capabilities": ["choice_id_response", "choice_payload_echo", "healthcheck", "contract_v1"],
+            "capabilities": [
+                "choice_id_response",
+                "choice_payload_echo",
+                "healthcheck",
+                "contract_v1",
+                "failure_code_response",
+                "worker_identity",
+            ],
             "supported_request_types": list(self._supported_request_types),
         }
 

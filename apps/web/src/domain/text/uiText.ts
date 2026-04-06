@@ -1,16 +1,32 @@
-import { koLocale } from "../../i18n/locales/ko";
+import {
+  DEFAULT_APP_TEXT,
+  DEFAULT_BOARD_TEXT,
+  DEFAULT_CONNECTION_TEXT,
+  DEFAULT_EVENT_LABEL_TEXT,
+  DEFAULT_LOBBY_TEXT,
+  DEFAULT_PLAYERS_TEXT,
+  DEFAULT_PROMPT_HELPER_TEXT,
+  DEFAULT_PROMPT_TEXT,
+  DEFAULT_PROMPT_TYPE_TEXT,
+  DEFAULT_SITUATION_TEXT,
+  DEFAULT_STREAM_TEXT,
+  DEFAULT_THEATER_TEXT,
+  DEFAULT_TIMELINE_TEXT,
+  DEFAULT_TURN_STAGE_TEXT,
+} from "../../i18n/defaultText";
 
-export const APP_TEXT = koLocale.app;
-export const LOBBY_TEXT = koLocale.lobby;
-export const CONNECTION_TEXT = koLocale.connection;
-export const BOARD_TEXT = koLocale.board;
-export const PLAYERS_TEXT = koLocale.players;
-export const TIMELINE_TEXT = koLocale.timeline;
-export const SITUATION_TEXT = koLocale.situation;
-export const PROMPT_TYPE_TEXT = koLocale.promptType;
-export const PROMPT_HELPER_TEXT = koLocale.promptHelper;
-export const EVENT_LABEL_TEXT = koLocale.eventLabel;
-export const STREAM_TEXT = koLocale.stream;
-export const THEATER_TEXT = koLocale.theater;
-export const TURN_STAGE_TEXT = koLocale.turnStage;
-export const PROMPT_TEXT = koLocale.prompt;
+// Compatibility shim for older callers that still import default KO text catalogs.
+export const APP_TEXT = DEFAULT_APP_TEXT;
+export const LOBBY_TEXT = DEFAULT_LOBBY_TEXT;
+export const CONNECTION_TEXT = DEFAULT_CONNECTION_TEXT;
+export const BOARD_TEXT = DEFAULT_BOARD_TEXT;
+export const PLAYERS_TEXT = DEFAULT_PLAYERS_TEXT;
+export const TIMELINE_TEXT = DEFAULT_TIMELINE_TEXT;
+export const SITUATION_TEXT = DEFAULT_SITUATION_TEXT;
+export const PROMPT_TYPE_TEXT = DEFAULT_PROMPT_TYPE_TEXT;
+export const PROMPT_HELPER_TEXT = DEFAULT_PROMPT_HELPER_TEXT;
+export const EVENT_LABEL_TEXT = DEFAULT_EVENT_LABEL_TEXT;
+export const STREAM_TEXT = DEFAULT_STREAM_TEXT;
+export const THEATER_TEXT = DEFAULT_THEATER_TEXT;
+export const TURN_STAGE_TEXT = DEFAULT_TURN_STAGE_TEXT;
+export const PROMPT_TEXT = DEFAULT_PROMPT_TEXT;

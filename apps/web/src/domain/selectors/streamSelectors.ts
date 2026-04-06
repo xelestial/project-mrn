@@ -1,9 +1,14 @@
 import type { InboundMessage } from "../../core/contracts/stream";
+import {
+  DEFAULT_EVENT_LABEL_TEXT,
+  DEFAULT_PROMPT_TYPE_TEXT,
+  DEFAULT_STREAM_TEXT,
+  DEFAULT_TURN_STAGE_TEXT,
+} from "../../i18n/defaultText";
 import type { LocaleMessages } from "../../i18n/types";
 import { eventLabelForCode, nonEventLabelForMessageType } from "../labels/eventLabelCatalog";
 import { toneForEventCode } from "../labels/eventToneCatalog";
 import { promptLabelForType } from "../labels/promptTypeCatalog";
-import { EVENT_LABEL_TEXT, PROMPT_TYPE_TEXT, STREAM_TEXT, TURN_STAGE_TEXT } from "../text/uiText";
 
 export type TimelineItem = {
   seq: number;
@@ -139,10 +144,10 @@ export type ParameterManifestViewModel = {
 export type StreamSelectorTextResources = Pick<LocaleMessages, "eventLabel" | "promptType" | "stream" | "turnStage">;
 
 const DEFAULT_STREAM_SELECTOR_TEXT: StreamSelectorTextResources = {
-  eventLabel: EVENT_LABEL_TEXT,
-  promptType: PROMPT_TYPE_TEXT,
-  stream: STREAM_TEXT,
-  turnStage: TURN_STAGE_TEXT,
+  eventLabel: DEFAULT_EVENT_LABEL_TEXT,
+  promptType: DEFAULT_PROMPT_TYPE_TEXT,
+  stream: DEFAULT_STREAM_TEXT,
+  turnStage: DEFAULT_TURN_STAGE_TEXT,
 };
 
 function asString(value: unknown): string {

@@ -39,6 +39,26 @@ def _purchase_tile_payload(*, cash: int = 8, cost: int = 4) -> dict[str, object]
     }
 
 
+def _mark_target_payload() -> dict[str, object]:
+    return {
+        "request_id": "req_worker_mark_1",
+        "session_id": "sess_worker_mark_1",
+        "seat": 1,
+        "player_id": 1,
+        "decision_name": "choose_mark_target",
+        "request_type": "mark_target",
+        "fallback_policy": "local_ai",
+        "public_context": {
+            "actor_name": "Bandit",
+        },
+        "legal_choices": [
+            {"choice_id": "2", "title": "Target P2", "value": {"target_player_id": 2}},
+            {"choice_id": "3", "title": "Target P3", "value": {"target_player_id": 3}},
+        ],
+        "transport": "http",
+    }
+
+
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi is not installed in this environment")
 class ExternalAiWorkerApiTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -57,6 +77,7 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         self.assertEqual(payload["supported_transports"], ["http"])
         self.assertEqual(payload["worker_contract_version"], "v1")
         self.assertIn("choice_id_response", payload["capabilities"])
+        self.assertIn("worker_identity", payload["capabilities"])
         self.assertIn("purchase_tile", payload["supported_request_types"])
 
     def test_decide_returns_choice_id_and_choice_payload(self) -> None:
@@ -69,6 +90,14 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         self.assertEqual(payload["worker_id"], "worker-api-test")
         self.assertEqual(payload["worker_contract_version"], "v1")
         self.assertIn("healthcheck", payload["capabilities"])
+
+    def test_decide_handles_mark_target_contract(self) -> None:
+        response = self.client.post("/decide", json=_mark_target_payload())
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["choice_id"], "2")
+        self.assertEqual(payload["choice_payload"]["value"]["target_player_id"], 2)
 
     def test_decide_rejects_requests_without_legal_choices(self) -> None:
         payload = _purchase_tile_payload()

@@ -468,7 +468,11 @@ class RuntimeServiceTests(unittest.TestCase):
                 return "minus_one"
 
         class _FakeGateway:
+            def __init__(self) -> None:
+                self.calls: list[dict] = []
+
             def resolve_ai_decision(self, **kwargs):  # noqa: ANN003
+                self.calls.append(kwargs)
                 return kwargs["resolver"]()
 
         attempts: list[int] = []
@@ -477,10 +481,11 @@ class RuntimeServiceTests(unittest.TestCase):
             attempts.append(envelope.seat)
             raise RuntimeError("worker unavailable")
 
+        gateway = _FakeGateway()
         transport = _HttpExternalAiTransport(
             session_id="sess_http_2",
             ai_fallback=_FakeAiPolicy(),
-            gateway=_FakeGateway(),  # type: ignore[arg-type]
+            gateway=gateway,  # type: ignore[arg-type]
             seat=3,
             config={
                 "transport": "http",
@@ -503,6 +508,8 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertEqual(result, "minus_one")
         self.assertEqual(len(attempts), 3)
+        self.assertEqual(gateway.calls[0]["public_context"]["external_ai_failure_code"], "worker unavailable")
+        self.assertEqual(gateway.calls[0]["public_context"]["external_ai_fallback_mode"], "local_ai")
 
     def test_http_external_transport_falls_back_when_healthcheck_misses_required_capability(self) -> None:
         from apps.server.src.services.runtime_service import _HttpExternalAiTransport
@@ -513,13 +520,18 @@ class RuntimeServiceTests(unittest.TestCase):
                 return "minus_one"
 
         class _FakeGateway:
+            def __init__(self) -> None:
+                self.calls: list[dict] = []
+
             def resolve_ai_decision(self, **kwargs):  # noqa: ANN003
+                self.calls.append(kwargs)
                 return kwargs["resolver"]()
 
+        gateway = _FakeGateway()
         transport = _HttpExternalAiTransport(
             session_id="sess_http_health_1",
             ai_fallback=_FakeAiPolicy(),
-            gateway=_FakeGateway(),  # type: ignore[arg-type]
+            gateway=gateway,  # type: ignore[arg-type]
             seat=2,
             config={
                 "transport": "http",
@@ -540,6 +552,10 @@ class RuntimeServiceTests(unittest.TestCase):
         result = transport.resolve(call)
 
         self.assertEqual(result, "minus_one")
+        self.assertEqual(
+            gateway.calls[0]["public_context"]["external_ai_failure_code"],
+            "external_ai_missing_required_capability",
+        )
 
     def test_http_external_transport_falls_back_when_worker_identity_mismatches(self) -> None:
         from apps.server.src.services.runtime_service import _HttpExternalAiTransport

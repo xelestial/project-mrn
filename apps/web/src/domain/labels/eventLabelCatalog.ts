@@ -1,9 +1,9 @@
 import type { LocaleMessages } from "../../i18n/types";
-import { EVENT_LABEL_TEXT } from "../text/uiText";
+import { DEFAULT_EVENT_LABEL_TEXT } from "../../i18n/defaultText";
 
 type EventLabelText = LocaleMessages["eventLabel"];
 
-export function eventLabelForCode(eventCode: string, eventLabelText: EventLabelText = EVENT_LABEL_TEXT): string {
+export function eventLabelForCode(eventCode: string, eventLabelText: EventLabelText = DEFAULT_EVENT_LABEL_TEXT): string {
   if (!eventCode.trim()) {
     return eventLabelText.genericEvent;
   }
@@ -12,7 +12,7 @@ export function eventLabelForCode(eventCode: string, eventLabelText: EventLabelT
 
 export function nonEventLabelForMessageType(
   messageType: string,
-  eventLabelText: EventLabelText = EVENT_LABEL_TEXT
+  eventLabelText: EventLabelText = DEFAULT_EVENT_LABEL_TEXT
 ): string {
   if (!messageType.trim()) {
     return eventLabelText.genericMessage;

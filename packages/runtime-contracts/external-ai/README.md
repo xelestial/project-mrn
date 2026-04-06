@@ -64,4 +64,9 @@ Frozen examples now cover:
 - `mark_target`
 - `active_flip`
 
+Reference worker capabilities now also advertise:
+
+- `failure_code_response`
+- `worker_identity`
+
 See `docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md` for a full local session example.

@@ -44,6 +44,22 @@ Updated: 2026-04-07
   - continue shrinking the remaining `uiText.ts` compatibility bridge
   - keep closing visual parity gaps only where replay/live evidence still drifts
 
+### Entry 003
+
+- Scope: default-text bridge reduction + external worker hardening follow-up.
+- Done:
+  - introduced `apps/web/src/i18n/defaultText.ts` so label/selector defaults no longer depend on `uiText.ts` as the primary source
+  - kept `uiText.ts` as a smaller compatibility shim
+  - simplified prompt header chrome to always use compact meta pills
+  - external HTTP transport now surfaces worker diagnostic metadata into canonical public context on fallback paths
+  - reference worker heuristics now explicitly cover `mark_target`, `coin_placement`, and `active_flip`
+  - added a production-shaped external worker session payload example and deployment checklist
+- Validation:
+  - targeted web and server regression suites
+- Next:
+  - continue shrinking the remaining bridge callers
+  - replace or extend the reference worker with a stronger policy/service implementation
+
 ### Entry 001
 
 - Scope: policy guardrail hard-fix and mandatory reading stabilization.

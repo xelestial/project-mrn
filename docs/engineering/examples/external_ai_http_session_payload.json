@@ -1,0 +1,53 @@
+{
+  "seats": [
+    {
+      "seat": 1,
+      "seat_type": "human"
+    },
+    {
+      "seat": 2,
+      "seat_type": "ai",
+      "ai_profile": "balanced",
+      "participant_client": "external_ai",
+      "participant_config": {
+        "transport": "http",
+        "endpoint": "https://worker.example.com/decide"
+      }
+    },
+    {
+      "seat": 3,
+      "seat_type": "ai",
+      "ai_profile": "balanced",
+      "participant_client": "local_ai"
+    }
+  ],
+  "config": {
+    "seed": 42,
+    "seat_limits": { "min": 1, "max": 3, "allowed": [1, 2, 3] },
+    "participants": {
+      "external_ai": {
+        "transport": "http",
+        "contract_version": "v1",
+        "expected_worker_id": "prod-bot-1",
+        "auth_token": "worker-secret",
+        "auth_header_name": "X-Worker-Auth",
+        "auth_scheme": "Token",
+        "timeout_ms": 15000,
+        "retry_count": 1,
+        "backoff_ms": 250,
+        "fallback_mode": "local_ai",
+        "healthcheck_path": "/health",
+        "healthcheck_ttl_ms": 10000,
+        "required_capabilities": [
+          "choice_id_response",
+          "choice_payload_echo",
+          "worker_identity",
+          "healthcheck"
+        ],
+        "headers": {
+          "X-Worker-Environment": "production"
+        }
+      }
+    }
+  }
+}

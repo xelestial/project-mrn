@@ -127,6 +127,7 @@ These are no longer the immediate blockers, but they are recently completed and 
   - local run tooling and runbook are in place for attaching AI seats as real external participants
   - worker health / contract-version / capability metadata is now part of the operational seam
   - auth-header and expected-worker-id validation are now part of the runtime/worker seam too
+  - worker payload docs now include a production-shaped external seat example
 - Main implementation references:
   - `apps/server/src/external_ai_app.py`
   - `apps/server/src/services/external_ai_worker_service.py`

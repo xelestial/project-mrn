@@ -7,6 +7,10 @@ Updated: 2026-04-07
 
 This runbook explains how to run the reference external AI worker locally and attach it to a session as a real HTTP participant.
 
+For a production-shaped session payload example, see:
+
+- `docs/engineering/examples/external_ai_http_session_payload.json`
+
 ## Start the Worker
 
 ```bash
@@ -121,6 +125,14 @@ Important rules:
 - the server owns timeout, retry, and fallback behavior
 - the server converts `choice_id` back into engine-native values through method-specific parsers
 
+## Deployment Checklist
+
+- assign a stable `worker_id` and mirror it in `expected_worker_id`
+- require a non-empty auth token on both `/health` and `/decide`
+- expose the health endpoint on the same worker deployment as `/decide`
+- advertise required capabilities before attaching the seat in production
+- keep `fallback_mode=local_ai` for the first production rollout unless explicit hard-fail behavior is desired
+
 ## Failure Behavior
 
 When `participant_config.fallback_mode` is `local_ai`:
@@ -133,3 +145,12 @@ When `fallback_mode` is `error`:
 
 - the transport raises after retry exhaustion
 - runtime error handling remains server-owned
+
+Useful failure codes seen from the runtime seam:
+
+- `external_ai_http_error`
+- `external_ai_healthcheck_failed`
+- `external_ai_worker_identity_mismatch`
+- `external_ai_contract_version_mismatch`
+- `external_ai_missing_required_capability`
+- `external_ai_missing_choice_id`

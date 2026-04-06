@@ -744,6 +744,106 @@ test("remote timeout fallback stays visible in spectator and stage flow", async 
   await expect(page.getByTestId("turn-stage-scene-strip")).toContainText("Timeout fallback / defaulted to local AI");
 });
 
+test("mixed participant runtime keeps timeout and payoff continuity through handoff", async ({ page }) => {
+  const sessionId = "sess_mixed_continuity_runtime";
+  const manifest = buildManifest({
+    hash: "mixed_continuity_hash",
+    topology: "ring",
+    tileCount: 40,
+    seats: [1, 2, 3],
+  });
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({ seq: 1, sessionId, payload: { event_type: "parameter_manifest", parameter_manifest: manifest } }),
+        eventMessage({ seq: 2, sessionId, payload: { event_type: "round_start", round_index: 2 } }),
+        eventMessage({
+          seq: 3,
+          sessionId,
+          payload: { event_type: "weather_reveal", weather_name: "Cold Front", effect_text: "No lap cash. Pay 2 cash to bank." },
+        }),
+        eventMessage({
+          seq: 4,
+          sessionId,
+          payload: { event_type: "turn_start", round_index: 2, turn_index: 5, acting_player_id: 3, character: "Bandit" },
+        }),
+        eventMessage({
+          seq: 5,
+          sessionId,
+          payload: {
+            event_type: "decision_requested",
+            round_index: 2,
+            turn_index: 5,
+            player_id: 3,
+            request_type: "purchase_tile",
+            provider: "ai",
+            public_context: { tile_index: 8 },
+          },
+        }),
+        eventMessage({
+          seq: 6,
+          sessionId,
+          payload: {
+            event_type: "decision_timeout_fallback",
+            round_index: 2,
+            turn_index: 5,
+            player_id: 3,
+            provider: "ai",
+            summary: "defaulted to local AI",
+            public_context: { tile_index: 8 },
+          },
+        }),
+        eventMessage({
+          seq: 7,
+          sessionId,
+          payload: { event_type: "tile_purchased", round_index: 2, turn_index: 5, player_id: 3, tile_index: 8, cost: 4 },
+        }),
+        eventMessage({
+          seq: 8,
+          sessionId,
+          payload: { event_type: "turn_end_snapshot", round_index: 2, turn_index: 5, player_id: 3, summary: "P3 turn closed" },
+        }),
+      ],
+    },
+    startedSessions: {
+      [sessionId]: {
+        session_id: sessionId,
+        status: "in_progress",
+        round_index: 2,
+        turn_index: 5,
+        seats: [
+          { seat: 1, seat_type: "human", connected: true, player_id: 1, participant_client: "human_http" },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced", participant_client: "local_ai" },
+          {
+            seat: 3,
+            seat_type: "ai",
+            connected: true,
+            player_id: 3,
+            ai_profile: "balanced",
+            participant_client: "external_ai",
+            participant_config: {
+              transport: "http",
+              endpoint: "http://worker.local/decide",
+              expected_worker_id: "prod-bot-1",
+            },
+          },
+        ],
+        parameter_manifest: manifest,
+      },
+    },
+  });
+
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_continuity_runtime`);
+
+  await expect(page.getByTestId("spectator-turn-panel")).toBeVisible();
+  await expect(page.getByTestId("spectator-turn-journey")).toContainText("Timeout fallback");
+  await expect(page.getByTestId("spectator-turn-result")).toContainText("Bought tile 9 for 4");
+  await expect(page.getByTestId("spectator-turn-handoff")).toContainText("P3 turn closed");
+  await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("Bought tile 9 for 4");
+});
+
 test("locale toggle persists across reload", async ({ page }) => {
   await page.goto("/#/lobby");
 
