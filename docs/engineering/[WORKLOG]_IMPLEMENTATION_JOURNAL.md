@@ -1830,3 +1830,22 @@ Updated: 2026-04-04
   - `cmd /c npm run build`
   - `cmd /c npm run test -- --run src/features/prompt/promptSurfaceCatalog.spec.ts src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts`
   - `cmd /c npm run e2e -- e2e/human_play_runtime.spec.ts`
+
+## 2026-04-06 Plan / Status Documentation Cleanup
+
+- What changed:
+  - Reclassified recently finished slices versus active carry-forward work in:
+    - `PLAN/PLAN_STATUS_INDEX.md`
+    - `PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
+  - Explicitly marked the following as closed for the current slice:
+    - prompt specialization lock
+    - `pabal_dice_mode` human seam repair
+    - turn-handoff payoff continuity
+  - Explicitly carried forward the next three active slices:
+    - fortune / purchase / rent scene payoff
+    - specialized prompt simplification
+    - provider-local drift reduction before typed `DecisionPort` cleanup
+- Why:
+  - the execution documents had become append-heavy, making it harder to tell what was already done versus what should actually drive the next coding slice
+- Validation:
+  - documentation-only update

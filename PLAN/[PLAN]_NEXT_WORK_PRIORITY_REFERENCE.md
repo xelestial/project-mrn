@@ -1,7 +1,7 @@
 # [PLAN] Next Work Priority Reference
 
 Status: ACTIVE  
-Updated: 2026-04-05  
+Updated: 2026-04-06  
 Owner: GPT
 
 ## Purpose
@@ -138,6 +138,23 @@ Implement in this order unless a blocker forces a swap:
 3. non-local turn theater continuity
 4. rule-parity visual fixes
 5. parameter/contract decoupling follow-up
+
+## Current Closed Slices
+
+These are finished enough that they should not be reopened unless regression evidence appears.
+
+1. known prompt types are locked to specialized prompt surfaces
+2. `pabal_dice_mode` is now a real human prompt seam
+3. payoff continuity survives `turn_end_snapshot`
+4. spectator/stage handoff visibility is in browser regression coverage
+
+## Current Carry-Forward Order
+
+This is the practical next-work list after the closed slices above.
+
+1. scene-grade payoff for fortune / purchase / rent
+2. simplify specialized prompt layouts until they feel game-native
+3. keep reducing provider-local drift before typed `DecisionPort` cleanup
 
 ## 2026-04-05 Concrete Next Steps
 
@@ -330,3 +347,16 @@ Implement in this order unless a blocker forces a swap:
   1. continue scene-beat polish for fortune reveal and payoff transitions
   2. keep simplifying the specialized prompt layouts themselves
   3. keep shrinking provider-local drift before typed `DecisionPort` cleanup
+
+### 2026-04-06 Documentation Alignment Checkpoint
+
+- Closed and carry-forward work were reclassified so the current board is easier to read at a glance.
+- Use the following interpretation from now on:
+  1. closed:
+     - prompt specialization lock
+     - `pabal_dice_mode` seam repair
+     - payoff continuity across turn-end
+  2. still active:
+     - fortune / purchase / rent scene payoff
+     - specialized prompt simplification
+     - provider-local drift reduction before typed `DecisionPort` cleanup

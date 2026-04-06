@@ -1,7 +1,7 @@
 # PLAN Status Index
 
 Status: ACTIVE  
-Updated: 2026-04-05  
+Updated: 2026-04-06  
 Owner: GPT
 
 ## Purpose
@@ -69,6 +69,87 @@ These are the plans that should actively shape implementation order right now.
 - `PLAN/[PLAN]_PARAMETER_DRIVEN_RUNTIME_DECOUPLING.md`
 - Role:
   - keep engine / server / web resilient to ruleset / parameter changes
+
+## Closed Recently
+
+These are no longer the immediate blockers, but they are recently completed and should be treated as closed slices unless a regression reopens them.
+
+### A. Prompt specialization lock
+- Status:
+  - closed for the current slice
+- What was finished:
+  - all known prompt types are now explicitly bound to specialized prompt surfaces
+  - the generic prompt grid is now reserved for unknown / future request types only
+- Main implementation references:
+  - `apps/web/src/features/prompt/PromptOverlay.tsx`
+  - `apps/web/src/features/prompt/promptSurfaceCatalog.ts`
+  - `apps/web/src/features/prompt/promptSurfaceCatalog.spec.ts`
+
+### B. Prompt/selector locale seam stabilization
+- Status:
+  - partially closed as a stabilization slice
+- What was finished:
+  - locale restore survives reload
+  - prompt collapsed/meta/purchase wording moved further out of direct component ownership
+  - selector-side locale injection path is active
+- Remaining follow-up:
+  - broader selector/key decoupling still remains active under P0-4 / P1-3
+
+### C. Human specialty prompt seam recovery
+- Status:
+  - closed for the current seam-repair slice
+- What was finished:
+  - `pabal_dice_mode` now works as a real human prompt path
+  - specialty prompt browser/runtime regressions were extended
+- Main implementation references:
+  - `GPT/viewer/human_policy.py`
+  - `apps/server/tests/test_runtime_service.py`
+  - `apps/web/e2e/human_play_runtime.spec.ts`
+
+### D. Turn-handoff visibility recovery
+- Status:
+  - closed for the current UI continuity slice
+- What was finished:
+  - payoff continuity now survives `turn_end_snapshot`
+  - spectator and stage panels render explicit handoff/result cards
+  - browser parity covers remote-turn continuity and handoff
+- Main implementation references:
+  - `apps/web/src/domain/selectors/streamSelectors.ts`
+  - `apps/web/src/features/stage/SpectatorTurnPanel.tsx`
+  - `apps/web/src/features/stage/TurnStagePanel.tsx`
+
+## Carry-Forward Work
+
+These are the slices that should still actively drive implementation after the recently-closed work above.
+
+### 1. Fortune / purchase / rent scene payoff
+- Status:
+  - active
+- Why it remains:
+  - payoff cards are present, but the scene still needs to feel more like live gameplay than a feed
+- Expected direction:
+  - stronger fortune reveal staging
+  - richer purchase/rent transitions
+  - better payoff emphasis during remote turns
+
+### 2. Specialized prompt simplification
+- Status:
+  - active
+- Why it remains:
+  - known prompt types are specialized now, but some layouts still feel inspector-like
+- Expected direction:
+  - simplify choice cards further
+  - keep passive/skip options visually secondary
+  - continue reducing request-meta noise
+
+### 3. Provider/decision drift reduction
+- Status:
+  - active
+- Why it remains:
+  - canonical lifecycle coverage is much stronger, but typed provider cleanup and `DecisionPort` prep are still pending
+- Expected direction:
+  - continue shrinking human/AI branch-local logic
+  - move toward typed provider cleanup before later `DecisionPort` migration
 
 ## Active But Secondary Plans
 
@@ -175,5 +256,9 @@ The current implementation focus is:
 - Unified decision contract work also advanced:
   - canonical request-type mapping is shared
   - canonical lifecycle publish helpers are now shared inside `DecisionGateway`
+- Recently closed slices:
+  - prompt specialization lock
+  - specialty seam recovery for `pabal_dice_mode`
+  - turn-handoff payoff continuity
 
 Everything else is currently supporting context, not the main queue.
