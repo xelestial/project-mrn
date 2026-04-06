@@ -35,6 +35,19 @@ class DecisionInvocation:
     player_id: int | None
 
 
+@dataclass(frozen=True)
+class CanonicalDecisionRequest:
+    decision_name: str
+    request_type: str
+    player_id: int | None
+    round_index: int | None
+    turn_index: int | None
+    public_context: dict[str, Any]
+    fallback_policy: str
+    args: tuple[Any, ...]
+    kwargs: dict[str, Any]
+
+
 def _number_or_none(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
@@ -341,6 +354,26 @@ def prepare_decision_method_from_invocation(invocation: DecisionInvocation) -> P
         request_type=spec.request_type,
         public_context=build_public_context(invocation.method_name, invocation.args, invocation.kwargs),
         choice_serializer=spec.choice_serializer,
+    )
+
+
+def build_canonical_decision_request(
+    invocation: DecisionInvocation,
+    *,
+    fallback_policy: str = "ai",
+) -> CanonicalDecisionRequest:
+    prepared = prepare_decision_method_from_invocation(invocation)
+    public_context = dict(prepared.public_context)
+    return CanonicalDecisionRequest(
+        decision_name=invocation.method_name,
+        request_type=prepared.request_type,
+        player_id=invocation.player_id,
+        round_index=public_context.get("round_index"),
+        turn_index=public_context.get("turn_index"),
+        public_context=public_context,
+        fallback_policy=fallback_policy,
+        args=invocation.args,
+        kwargs=dict(invocation.kwargs),
     )
 
 

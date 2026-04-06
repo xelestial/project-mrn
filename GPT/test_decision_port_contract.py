@@ -154,8 +154,26 @@ class DecisionPortContractTests(unittest.TestCase):
 
         self.assertEqual(result["type"], "PURCHASE_SKIP_POLICY")
         purchase_request = next(request for request in port.requests if request.decision_name == "choose_purchase_tile")
+        self.assertEqual(purchase_request.request_type, "purchase_tile")
+        self.assertEqual(purchase_request.player_id, player.player_id)
+        self.assertEqual(purchase_request.public_context["tile_index"], land_pos)
+        self.assertEqual(purchase_request.fallback_policy, "engine_default")
         self.assertEqual(purchase_request.kwargs["source"], "landing_purchase")
         self.assertEqual(purchase_request.args[0], land_pos)
+
+    def test_decision_request_carries_canonical_context_fields(self) -> None:
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=False)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+
+        request = engine._build_decision_request("choose_movement", state, player)
+
+        self.assertEqual(request.request_type, "movement")
+        self.assertEqual(request.player_id, 0)
+        self.assertEqual(request.round_index, 1)
+        self.assertEqual(request.turn_index, 1)
+        self.assertEqual(request.public_context["player_position"], player.position)
+        self.assertEqual(request.public_context["player_cash"], player.cash)
 
     def test_apply_character_start_routes_mark_target_through_decision_port(self) -> None:
         port = RecordingDecisionPort()

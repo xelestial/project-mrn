@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from apps.server.src.services.decision_gateway import (
     build_decision_invocation,
+    build_canonical_decision_request,
     build_public_context,
     decision_request_type_for_method,
     serialize_ai_choice_id,
@@ -166,6 +167,26 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertIs(invocation.player, player)
         self.assertEqual(invocation.args[2], 9)
         self.assertEqual(invocation.kwargs["source"], "landing")
+
+    def test_build_canonical_decision_request_aligns_request_metadata(self) -> None:
+        player = type("Player", (), {"player_id": 2, "cash": 11, "position": 8, "shards": 3})()
+        state = type("State", (), {"rounds_completed": 1, "turn_index": 3})()
+        invocation = build_decision_invocation(
+            "choose_purchase_tile",
+            (state, player, 9, "T2", 4),
+            {"source": "landing"},
+        )
+
+        request = build_canonical_decision_request(invocation, fallback_policy="ai")
+
+        self.assertEqual(request.decision_name, "choose_purchase_tile")
+        self.assertEqual(request.request_type, "purchase_tile")
+        self.assertEqual(request.player_id, 2)
+        self.assertEqual(request.round_index, 2)
+        self.assertEqual(request.turn_index, 4)
+        self.assertEqual(request.public_context["tile_index"], 9)
+        self.assertEqual(request.public_context["cost"], 4)
+        self.assertEqual(request.fallback_policy, "ai")
 
     def test_start_runtime_uses_async_to_thread_bridge(self) -> None:
         session = self.session_service.create_session(

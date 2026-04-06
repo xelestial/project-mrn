@@ -12,6 +12,7 @@ from apps.server.src.services.decision_gateway import (
     DecisionGateway,
     DecisionInvocation,
     build_decision_invocation,
+    build_canonical_decision_request,
     prepare_decision_method_from_invocation,
 )
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
@@ -365,14 +366,14 @@ class _ServerAiDecisionProvider:
 
     def call(self, invocation: DecisionInvocation):
         ai_callable = getattr(self.policy, invocation.method_name)
-        player_id = int(invocation.player_id if invocation.player_id is not None else -1) + 1
-        decision_method = prepare_decision_method_from_invocation(invocation)
+        request = build_canonical_decision_request(invocation, fallback_policy="ai")
+        player_id = int(request.player_id if request.player_id is not None else -1) + 1
         return self._gateway.resolve_ai_decision(
-            request_type=decision_method.request_type,
+            request_type=request.request_type,
             player_id=player_id,
-            public_context=decision_method.public_context,
+            public_context=request.public_context,
             resolver=lambda: ai_callable(*invocation.args, **invocation.kwargs),
-            choice_serializer=decision_method.choice_serializer,
+            choice_serializer=prepare_decision_method_from_invocation(invocation).choice_serializer,
         )
 
 

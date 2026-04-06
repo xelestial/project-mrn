@@ -45,8 +45,14 @@ class GameResult:
 @dataclass(slots=True)
 class DecisionRequest:
     decision_name: str
+    request_type: str
     state: GameState
     player: PlayerState
+    player_id: int
+    round_index: int | None
+    turn_index: int | None
+    public_context: dict[str, Any] = field(default_factory=dict)
+    fallback_policy: str = "engine_default"
     args: tuple[Any, ...] = ()
     kwargs: dict[str, Any] = field(default_factory=dict)
     fallback: Callable[[], Any] | None = None
@@ -112,16 +118,94 @@ class GameEngine:
         fallback: Callable[[], Any] | None = None,
         **kwargs: Any,
     ) -> Any:
-        return self.decision_port.request(
-            DecisionRequest(
-                decision_name=decision_name,
-                state=state,
-                player=player,
-                args=args,
-                kwargs=dict(kwargs),
-                fallback=fallback,
-            )
+        request = self._build_decision_request(
+            decision_name,
+            state,
+            player,
+            *args,
+            fallback=fallback,
+            **kwargs,
         )
+        return self.decision_port.request(request)
+
+    def _build_decision_request(
+        self,
+        decision_name: str,
+        state: GameState,
+        player: PlayerState,
+        *args: Any,
+        fallback: Callable[[], Any] | None = None,
+        **kwargs: Any,
+    ) -> DecisionRequest:
+        request_type = self._decision_request_type(decision_name)
+        public_context = self._decision_public_context(decision_name, state, player, args, kwargs)
+        return DecisionRequest(
+            decision_name=decision_name,
+            request_type=request_type,
+            state=state,
+            player=player,
+            player_id=player.player_id,
+            round_index=state.rounds_completed + 1 if hasattr(state, "rounds_completed") else None,
+            turn_index=state.turn_index + 1 if hasattr(state, "turn_index") else None,
+            public_context=public_context,
+            fallback_policy="engine_default" if fallback is not None else "required",
+            args=args,
+            kwargs=dict(kwargs),
+            fallback=fallback,
+        )
+
+    def _decision_request_type(self, decision_name: str) -> str:
+        request_type_map = {
+            "choose_movement": "movement",
+            "choose_runaway_slave_step": "runaway_step_choice",
+            "choose_purchase_tile": "purchase_tile",
+            "choose_coin_placement_tile": "coin_placement",
+            "choose_doctrine_relief_target": "doctrine_relief",
+            "choose_active_flip_card": "active_flip",
+            "choose_burden_exchange_on_supply": "burden_exchange",
+        }
+        return request_type_map.get(decision_name, decision_name.removeprefix("choose_"))
+
+    def _decision_public_context(
+        self,
+        decision_name: str,
+        state: GameState,
+        player: PlayerState,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        context: dict[str, Any] = {
+            "round_index": state.rounds_completed + 1 if hasattr(state, "rounds_completed") else None,
+            "turn_index": state.turn_index + 1 if hasattr(state, "turn_index") else None,
+            "player_position": getattr(player, "position", None),
+            "player_cash": getattr(player, "cash", None),
+            "player_shards": getattr(player, "shards", None),
+        }
+        if decision_name in {"choose_draft_card", "choose_final_character"} and args:
+            context["choice_count"] = len(args[0]) if isinstance(args[0], list) else None
+        elif decision_name == "choose_purchase_tile" and len(args) >= 3:
+            context["tile_index"] = args[0]
+            context["cost"] = args[2]
+            context["source"] = kwargs.get("source", "landing")
+        elif decision_name == "choose_mark_target" and args:
+            context["actor_name"] = args[0]
+        elif decision_name == "choose_trick_to_use" and args:
+            context["hand_count"] = len(args[0]) if isinstance(args[0], list) else None
+        elif decision_name == "choose_active_flip_card" and args:
+            context["flip_count"] = len(args[0]) if isinstance(args[0], list) else None
+        elif decision_name == "choose_runaway_slave_step" and len(args) >= 3:
+            context["one_short_pos"] = args[0]
+            context["bonus_target_pos"] = args[1]
+            context["bonus_target_kind"] = str(args[2])
+        elif decision_name == "choose_specific_trick_reward" and args:
+            context["reward_count"] = len(args[0]) if isinstance(args[0], list) else None
+        elif decision_name == "choose_doctrine_relief_target" and args:
+            context["candidate_count"] = len(args[0]) if isinstance(args[0], list) else None
+        elif decision_name == "choose_coin_placement_tile":
+            owned_tiles = getattr(player, "visited_owned_tile_indices", None)
+            if owned_tiles is not None:
+                context["owned_tile_count"] = len(list(owned_tiles))
+        return {key: value for key, value in context.items() if value is not None}
 
     def run(self) -> GameResult:
         self._action_log = []

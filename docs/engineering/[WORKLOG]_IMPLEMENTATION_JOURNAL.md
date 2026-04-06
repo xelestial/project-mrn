@@ -2057,3 +2057,25 @@ Updated: 2026-04-04
   - at this point, the engine no longer directly calls the migrated `choose_*` methods from its core flow and instead relies on the injected request seam
 - Validation:
   - `.venv311/bin/python -m pytest GPT/test_decision_port_contract.py GPT/test_draft_three_players.py GPT/test_event_effects.py`
+
+## 2026-04-07 Canonical Decision Request Alignment
+
+- What changed:
+  - Added `CanonicalDecisionRequest` plus `build_canonical_decision_request(...)` in `apps/server/src/services/decision_gateway.py`.
+  - Updated the server AI provider path to consume canonical request metadata before publishing decision lifecycle events.
+  - Expanded `GPT/engine.py`'s injected `DecisionRequest` so it now carries canonical request-shaped metadata:
+    - `request_type`
+    - `player_id`
+    - `round_index`
+    - `turn_index`
+    - `public_context`
+    - `fallback_policy`
+  - Added coverage on both sides:
+    - `GPT/test_decision_port_contract.py`
+    - `apps/server/tests/test_runtime_service.py`
+- Why:
+  - server `DecisionInvocation` and engine `DecisionRequest` were structurally close but still named and shaped differently in ways that would complicate the next real adapter step
+  - aligning the metadata shape now makes the later engine-to-server decision adapter much more mechanical
+- Validation:
+  - `.venv311/bin/python -m pytest GPT/test_decision_port_contract.py`
+  - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py`
