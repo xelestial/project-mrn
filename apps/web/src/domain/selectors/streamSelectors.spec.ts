@@ -409,6 +409,24 @@ describe("streamSelectors", () => {
     expect(alerts[2].severity).toBe("warning");
   });
 
+  it("formats timeout fallback details through locale resources", () => {
+    const timeline = selectTimeline([
+      {
+        type: "event",
+        seq: 95,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_timeout_fallback",
+          player_id: 2,
+          summary: "defaulted to local AI",
+        },
+      },
+    ]);
+
+    expect(timeline[0].detail).toContain("시간 초과 기본 처리");
+    expect(timeline[0].detail).toContain("defaulted to local AI");
+  });
+
   it("builds core action feed and marks local actor entries", () => {
     const feed = selectCoreActionFeed(
       [
@@ -729,6 +747,54 @@ describe("streamSelectors", () => {
     expect(stage.currentBeatKind).toBe("decision");
     expect(stage.focusTileIndex).toBe(11);
     expect(stage.promptSummary).toContain("승점 배치");
+  });
+
+  it("keeps timeout fallback visible in the current turn stage", () => {
+    const stage = selectTurnStage([
+      {
+        type: "event",
+        seq: 330,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 4,
+          turn_index: 11,
+          acting_player_id: 2,
+          character: "Scholar",
+        },
+      },
+      {
+        type: "event",
+        seq: 331,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_requested",
+          round_index: 4,
+          turn_index: 11,
+          player_id: 2,
+          request_type: "purchase_tile",
+          public_context: { tile_index: 9 },
+        },
+      },
+      {
+        type: "event",
+        seq: 332,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_timeout_fallback",
+          round_index: 4,
+          turn_index: 11,
+          player_id: 2,
+          summary: "defaulted to local AI",
+          public_context: { tile_index: 9 },
+        },
+      },
+    ]);
+
+    expect(stage.promptSummary).toContain("시간 초과 기본 처리");
+    expect(stage.currentBeatKind).toBe("system");
+    expect(stage.focusTileIndex).toBe(9);
+    expect(stage.progressTrail).toContain("시간 초과 기본 처리");
   });
 
   it("includes landing tile position in landing summaries when available", () => {

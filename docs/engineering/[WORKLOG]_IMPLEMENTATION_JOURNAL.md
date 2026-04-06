@@ -28,6 +28,22 @@ Updated: 2026-04-07
   - keep trimming selector-side wording ownership
   - extend external worker operational path beyond the reference service
 
+### Entry 002
+
+- Scope: selector locale ownership follow-up + timeout/fallback turn visibility.
+- Done:
+  - moved more actor-prefixed stream phrasing into locale helpers
+  - made `decision_timeout_fallback` detail formatting locale-owned
+  - kept `decision_requested` / `decision_resolved` / `decision_timeout_fallback` visible inside current-turn stage/spectator summaries
+  - added selector regression and browser E2E coverage for remote timeout fallback continuity
+- Validation:
+  - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/selectors/promptSelectors.spec.ts src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts`
+  - `cd apps/web && npm run build`
+  - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
+- Next:
+  - continue shrinking the remaining `uiText.ts` compatibility bridge
+  - keep closing visual parity gaps only where replay/live evidence still drifts
+
 ### Entry 001
 
 - Scope: policy guardrail hard-fix and mandatory reading stabilization.

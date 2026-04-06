@@ -689,6 +689,61 @@ test("mixed participant seats with external ai descriptors still load match runt
   await expect(page.getByTestId("prompt-overlay")).toHaveCount(0);
 });
 
+test("remote timeout fallback stays visible in spectator and stage flow", async ({ page }) => {
+  const sessionId = "sess_remote_timeout_runtime";
+  const manifest = buildManifest({
+    hash: "remote_timeout_hash",
+    topology: "ring",
+    tileCount: 40,
+    seats: [1, 2, 3],
+  });
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({ seq: 1, sessionId, payload: { event_type: "parameter_manifest", parameter_manifest: manifest } }),
+        eventMessage({ seq: 2, sessionId, payload: { event_type: "round_start", round_index: 1 } }),
+        eventMessage({
+          seq: 3,
+          sessionId,
+          payload: { event_type: "turn_start", round_index: 1, turn_index: 4, acting_player_id: 2, character: "Bandit" },
+        }),
+        eventMessage({
+          seq: 4,
+          sessionId,
+          payload: {
+            event_type: "decision_requested",
+            round_index: 1,
+            turn_index: 4,
+            player_id: 2,
+            request_type: "purchase_tile",
+            public_context: { tile_index: 11 },
+          },
+        }),
+        eventMessage({
+          seq: 5,
+          sessionId,
+          payload: {
+            event_type: "decision_timeout_fallback",
+            round_index: 1,
+            turn_index: 4,
+            player_id: 2,
+            summary: "defaulted to local AI",
+            public_context: { tile_index: 11 },
+          },
+        }),
+      ],
+    },
+  });
+
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_remote_timeout_runtime`);
+
+  await expect(page.getByTestId("spectator-turn-panel")).toBeVisible();
+  await expect(page.getByTestId("spectator-turn-journey")).toContainText("Timeout fallback");
+  await expect(page.getByTestId("turn-stage-scene-strip")).toContainText("Timeout fallback / defaulted to local AI");
+});
+
 test("locale toggle persists across reload", async ({ page }) => {
   await page.goto("/#/lobby");
 

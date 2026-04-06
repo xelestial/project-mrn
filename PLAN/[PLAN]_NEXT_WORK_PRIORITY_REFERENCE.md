@@ -261,6 +261,21 @@ This is the practical next-work list after the closed slices above.
   - runtime fallback on worker-identity mismatch
   - runtime validation for custom healthchecker identity mismatch
   - mixed-seat browser runtime with `human_http + local_ai + external_ai` descriptors
+
+### 2026-04-07 Progress Update (selector locale ownership + timeout visibility)
+
+- Selector-side text ownership moved another step toward locale resources:
+  - actor-prefixed stream details now go through locale helpers instead of selector-local string joins
+  - timeout fallback detail formatting is now locale-owned too
+- Current-turn visibility also improved:
+  - `decision_requested`
+  - `decision_resolved`
+  - `decision_timeout_fallback`
+  now persist into the turn-stage/spectator flow for the current turn instead of being effectively overlay-only context
+- Regression coverage expanded:
+  - selector unit coverage for timeout fallback detail rendering
+  - selector unit coverage for timeout fallback persistence in turn stage
+  - browser E2E coverage for remote timeout fallback visibility
 - Therefore the next practical order becomes:
   1. continue trimming remaining selector-owned phrasing
   2. keep using browser/runtime evidence to close any leftover rule-parity visuals

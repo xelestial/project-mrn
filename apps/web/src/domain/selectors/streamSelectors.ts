@@ -358,7 +358,10 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
   if (eventType === "tile_purchased") {
     const tile = numberOrNull(payload["tile_index"]);
     const cost = payload["cost"] ?? payload["purchase_cost"] ?? "?";
-    return `${actorFromPayload(payload)} / ${text.stream.tilePurchased(tile === null ? "?" : String(tile + 1), cost)}`;
+    return text.stream.actorDetail(
+      actorFromPayload(payload),
+      text.stream.tilePurchased(tile === null ? "?" : String(tile + 1), cost)
+    );
   }
   if (eventType === "rent_paid") {
     const payer = payload["payer_player_id"] ?? payload["payer"] ?? "?";
@@ -399,6 +402,10 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
     const choice = asString(payload["choice_id"]);
     return text.stream.decisionResolvedDetail(resolution, choice);
   }
+  if (eventType === "decision_timeout_fallback") {
+    const summary = asString(payload["summary"]);
+    return text.stream.decisionTimeoutFallbackDetail(summary);
+  }
   if (eventType === "landing_resolved") {
     const raw = asString(payload["result_type"] ?? payload["result_code"] ?? payload["result"] ?? text.stream.landing.default);
     const summary = summarizeLandingResult(raw, text.stream);
@@ -433,15 +440,15 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
         parts.push(text.stream.lapReward.coins(coins));
       }
       if (parts.length > 0) {
-        return text.stream.decisionRequestedDetail(actorFromPayload(payload), parts.join(" / "));
+        return text.stream.lapRewardChosen(actorFromPayload(payload), parts.join(" / "));
       }
     }
     const choice = asString(payload["choice"] ?? payload["reward"] ?? payload["summary"]);
     const amount = payload["amount"] ?? payload["cash_amount"] ?? payload["value"];
     if (typeof amount === "number") {
-      return `${actorFromPayload(payload)} / ${choice} (${amount})`;
+      return text.stream.lapRewardChosen(actorFromPayload(payload), `${choice} (${amount})`);
     }
-    return `${actorFromPayload(payload)} / ${choice}`;
+    return text.stream.lapRewardChosen(actorFromPayload(payload), choice);
   }
   if (eventType === "parameter_manifest") {
     const manifest = manifestRecordFromPayload(payload);
@@ -478,11 +485,11 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
   }
   if (eventType === "fortune_drawn") {
     const cardName = asString(payload["card_name"] ?? payload["card"] ?? payload["summary"]);
-    return `${actorFromPayload(payload)} / ${text.stream.fortuneDrawn(cardName)}`;
+    return text.stream.actorDetail(actorFromPayload(payload), text.stream.fortuneDrawn(cardName));
   }
   if (eventType === "fortune_resolved") {
     const summary = asString(payload["summary"] ?? payload["resolution"] ?? payload["card_name"]);
-    return `${actorFromPayload(payload)} / ${text.stream.fortuneResolved(summary)}`;
+    return text.stream.actorDetail(actorFromPayload(payload), text.stream.fortuneResolved(summary));
   }
 
   const summary = payload["summary"];
@@ -1034,6 +1041,39 @@ export function selectTurnStage(
     }
     if (eventCode === "landing_resolved") {
       model.landingSummary = detailFromEventCode(message.payload, eventCode, text);
+      continue;
+    }
+    if (eventCode === "decision_requested") {
+      const detail = detailFromEventCode(message.payload, eventCode, text);
+      model.promptSummary = detail;
+      updateBeat(
+        pickMessageLabel(message, text),
+        detail || "-",
+        "decision",
+        promptFocusTileIndex({ public_context: message.payload["public_context"], legal_choices: message.payload["legal_choices"] })
+      );
+      continue;
+    }
+    if (eventCode === "decision_resolved") {
+      const detail = detailFromEventCode(message.payload, eventCode, text);
+      model.promptSummary = detail;
+      updateBeat(
+        pickMessageLabel(message, text),
+        detail || "-",
+        "decision",
+        promptFocusTileIndex({ public_context: message.payload["public_context"], legal_choices: message.payload["legal_choices"] })
+      );
+      continue;
+    }
+    if (eventCode === "decision_timeout_fallback") {
+      const detail = detailFromEventCode(message.payload, eventCode, text);
+      model.promptSummary = detail;
+      updateBeat(
+        pickMessageLabel(message, text),
+        detail || "-",
+        "system",
+        promptFocusTileIndex({ public_context: message.payload["public_context"], legal_choices: message.payload["legal_choices"] })
+      );
       continue;
     }
     if (eventCode === "tile_purchased") {
