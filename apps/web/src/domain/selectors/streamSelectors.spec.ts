@@ -834,6 +834,43 @@ describe("streamSelectors", () => {
     expect(stage.progressTrail).toContain("시간 초과 기본 처리");
   });
 
+  it("captures external worker success status from decision_resolved events", () => {
+    const stage = selectTurnStage([
+      {
+        type: "event",
+        seq: 330,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 4,
+          turn_index: 10,
+          acting_player_id: 2,
+          character: "Scholar",
+        },
+      },
+      {
+        type: "event",
+        seq: 331,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_resolved",
+          round_index: 4,
+          turn_index: 10,
+          player_id: 2,
+          resolution: "accepted",
+          choice_id: "coins",
+          public_context: {
+            external_ai_worker_id: "prod-bot-1",
+            external_ai_resolution_status: "resolved_by_worker",
+          },
+        },
+      },
+    ]);
+
+    expect(stage.externalAiWorkerId).toBe("prod-bot-1");
+    expect(stage.externalAiResolutionStatus).toBe("resolved_by_worker");
+  });
+
   it("includes landing tile position in landing summaries when available", () => {
     const stage = selectTurnStage([
       {

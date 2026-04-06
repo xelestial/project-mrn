@@ -258,6 +258,16 @@ This is the practical next-work list after the closed slices above.
   - injected/custom sender and healthchecker seams no longer bypass identity validation
 - Regression coverage expanded:
   - worker API auth-required coverage
+
+### 2026-04-07 Progress Update (remote-turn worker status continuity)
+
+- Remote-turn continuity improved again around external-worker participation:
+  - current-turn stage/spectator models now preserve external-worker status not only from timeout fallback payloads, but also from normal `decision_resolved` payloads
+  - stage/spectator surfaces now keep a dedicated participant-status block visible across consecutive worker-success and local-fallback turns
+  - the runtime seam now records attempt counts so repeated worker retries remain inspectable in canonical `public_context`
+- Practical meaning:
+  - remote turns read more like multiplayer participant turns than opaque replay rows
+  - mixed-seat playtests can now verify worker success and fallback continuity across adjacent turns without relying only on event-feed details
   - runtime fallback on worker-identity mismatch
   - runtime validation for custom healthchecker identity mismatch
   - mixed-seat browser runtime with `human_http + local_ai + external_ai` descriptors

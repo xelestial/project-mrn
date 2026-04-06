@@ -60,6 +60,20 @@ Updated: 2026-04-07
   - continue shrinking the remaining bridge callers
   - replace or extend the reference worker with a stronger policy/service implementation
 
+### Entry 004
+
+- Scope: remote-turn worker status continuity + mixed-seat regression hardening.
+- Done:
+  - current-turn stage/spectator selectors now preserve external-worker status from `decision_resolved` as well as timeout-fallback payloads
+  - mixed-seat browser coverage now keeps worker-success then local-fallback continuity visible across adjacent turns
+  - runtime transport diagnostics now expose external worker attempt counts for retry visibility
+- Validation:
+  - targeted selector regression
+  - mixed-seat browser E2E
+- Next:
+  - keep trimming the remaining selector-owned wording
+  - use live/replay evidence only for the last remote-turn visual polish gaps
+
 ### Entry 001
 
 - Scope: policy guardrail hard-fix and mandatory reading stabilization.
