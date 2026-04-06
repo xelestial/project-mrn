@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import sys
+import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.domain.session_models import ParticipantClientType, SeatConfig, SeatType, SessionStatus
@@ -411,6 +416,7 @@ class _LocalAiDecisionClient:
 
 @dataclass(frozen=True)
 class _ExternalAiDecisionEnvelope:
+    request_id: str
     session_id: str
     seat: int
     player_id: int
@@ -418,8 +424,23 @@ class _ExternalAiDecisionEnvelope:
     request_type: str
     fallback_policy: str
     public_context: dict[str, object]
+    legal_choices: list[dict[str, object]]
     transport: str
     participant_config: dict[str, object]
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "request_id": self.request_id,
+            "session_id": self.session_id,
+            "seat": self.seat,
+            "player_id": self.player_id,
+            "decision_name": self.method_name,
+            "request_type": self.request_type,
+            "fallback_policy": self.fallback_policy,
+            "public_context": dict(self.public_context),
+            "legal_choices": list(self.legal_choices),
+            "transport": self.transport,
+        }
 
 
 class _ExternalAiTransportBase:
@@ -444,6 +465,7 @@ class _ExternalAiTransportBase:
         request = call.request
         player_id = int(request.player_id if request.player_id is not None else -1) + 1
         return _ExternalAiDecisionEnvelope(
+            request_id=f"{self._session_id}_ext_{uuid.uuid4().hex[:10]}",
             session_id=self._session_id,
             seat=self._seat,
             player_id=player_id,
@@ -451,6 +473,7 @@ class _ExternalAiTransportBase:
             request_type=request.request_type,
             fallback_policy=request.fallback_policy,
             public_context=dict(request.public_context),
+            legal_choices=[dict(choice) for choice in getattr(call, "legal_choices", [])],
             transport=self._transport_name,
             participant_config=dict(self._config),
         )
@@ -521,13 +544,58 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
     def resolve(self, call):
         ai_callable = getattr(self.policy, call.invocation.method_name)
         envelope = self._build_envelope(call)
+        parser = getattr(call, "choice_parser", None)
+        retry_count = max(0, int(self._config.get("retry_count", 1) or 0))
+        backoff_ms = max(0, int(self._config.get("backoff_ms", 250) or 0))
+        fallback_mode = str(self._config.get("fallback_mode", "local_ai") or "local_ai").strip().lower()
 
         def _resolve_via_sender():
-            if self._sender is not None:
-                return self._sender(envelope)
-            return ai_callable(*call.invocation.args, **call.invocation.kwargs)
+            last_error: Exception | None = None
+            for attempt in range(retry_count + 1):
+                try:
+                    response = self._sender(envelope) if self._sender is not None else _default_external_ai_http_sender(envelope)
+                    if not isinstance(response, dict):
+                        raise ValueError("external_ai_response_not_object")
+                    choice_id = response.get("choice_id")
+                    if not isinstance(choice_id, str) or not choice_id.strip():
+                        raise ValueError("external_ai_missing_choice_id")
+                    if callable(parser):
+                        return parser(choice_id.strip(), call.invocation.args, call.invocation.kwargs, call.invocation.state, call.invocation.player)
+                    return choice_id.strip()
+                except Exception as exc:
+                    last_error = exc
+                    if attempt < retry_count and backoff_ms > 0:
+                        time.sleep(backoff_ms / 1000.0)
+                        continue
+            if fallback_mode == "local_ai":
+                return ai_callable(*call.invocation.args, **call.invocation.kwargs)
+            raise last_error or RuntimeError("external_ai_transport_failed")
 
         return self._publish(call, resolver=_resolve_via_sender)
+
+
+def _default_external_ai_http_sender(envelope: _ExternalAiDecisionEnvelope) -> dict[str, object]:
+    endpoint = str(envelope.participant_config.get("endpoint") or "").strip()
+    if not endpoint:
+        raise ValueError("external_ai_missing_endpoint")
+    timeout_ms = int(envelope.participant_config.get("timeout_ms", 15000) or 15000)
+    headers = {"Content-Type": "application/json"}
+    raw_headers = envelope.participant_config.get("headers") or {}
+    if isinstance(raw_headers, dict):
+        for key, value in raw_headers.items():
+            if isinstance(key, str) and isinstance(value, str):
+                headers[key] = value
+    body = json.dumps(envelope.to_payload()).encode("utf-8")
+    request = urllib_request.Request(endpoint, data=body, headers=headers, method="POST")
+    try:
+        with urllib_request.urlopen(request, timeout=max(0.001, timeout_ms / 1000.0)) as response:
+            payload = response.read().decode("utf-8")
+    except urllib_error.URLError as exc:
+        raise RuntimeError("external_ai_http_error") from exc
+    parsed = json.loads(payload or "{}")
+    if not isinstance(parsed, dict):
+        raise ValueError("external_ai_response_not_object")
+    return parsed
 
 
 class _LocalHumanDecisionClient:

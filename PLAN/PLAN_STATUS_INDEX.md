@@ -272,7 +272,7 @@ The current implementation focus is:
   - specialty seam recovery for `pabal_dice_mode`
   - turn-handoff payoff continuity
 - Active carry-forward after this checkpoint:
-  1. replace the new external-AI HTTP seam with a real worker/service transport
+  1. mount a real external AI worker/service against the now-live HTTP transport contract
   2. continue locale ownership reduction in selector-generated summaries
   3. keep closing rule-parity visuals around mark/flip/weather persistence where regression evidence appears
   4. only after that, continue lower-priority parameter/profile expansion

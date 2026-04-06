@@ -158,7 +158,7 @@ These are finished enough that they should not be reopened unless regression evi
 
 This is the practical next-work list after the closed slices above.
 
-1. promote the new external-AI HTTP seam into a real worker/service transport
+1. mount a real external AI worker/service against the frozen HTTP contract
 2. continue selector-generated locale ownership reduction
 3. use regression evidence to close any remaining rule-parity visual gaps
 
@@ -187,8 +187,13 @@ This is the practical next-work list after the closed slices above.
      - seat descriptors preserve participant intent
      - resolved participant defaults flow into session/runtime state
      - runtime can branch between loopback and http-shaped external-AI transports
+     - http transport now has:
+       - frozen request/response artifacts
+       - canonical legal choices
+       - choice-id parsers back into engine-native results
+       - retry / backoff / fallback policy
   4. the next immediate execution order is therefore:
-     - mount a real external worker/service transport behind the HTTP seam
+     - connect a real external worker/service to the frozen HTTP contract
      - continue trimming selector-owned phrasing
      - only then widen parameter/profile expansion
 

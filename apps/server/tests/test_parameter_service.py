@@ -69,6 +69,9 @@ class ParameterServiceTests(unittest.TestCase):
                         "transport": "http",
                         "endpoint": "http://bot-worker.local/decide",
                         "timeout_ms": 9000,
+                        "retry_count": 2,
+                        "backoff_ms": 100,
+                        "fallback_mode": "local_ai",
                         "headers": {"Authorization": "Bearer token"},
                     }
                 },
@@ -83,6 +86,9 @@ class ParameterServiceTests(unittest.TestCase):
         self.assertEqual(resolved["dice"]["max_cards_per_turn"], 1)
         self.assertEqual(resolved["participants"]["external_ai"]["transport"], "http")
         self.assertEqual(resolved["participants"]["external_ai"]["timeout_ms"], 9000)
+        self.assertEqual(resolved["participants"]["external_ai"]["retry_count"], 2)
+        self.assertEqual(resolved["participants"]["external_ai"]["backoff_ms"], 100)
+        self.assertEqual(resolved["participants"]["external_ai"]["fallback_mode"], "local_ai")
         self.assertIn("event_labels", resolved["labels"])
 
     def test_resolve_rejects_invalid_external_ai_transport(self) -> None:

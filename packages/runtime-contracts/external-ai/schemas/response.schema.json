@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "runtime-contracts/external-ai/response.schema.json",
+  "title": "ExternalAiDecisionResponse",
+  "type": "object",
+  "required": [
+    "choice_id"
+  ],
+  "properties": {
+    "choice_id": { "type": "string", "minLength": 1 },
+    "choice_payload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "worker_id": { "type": "string" }
+  },
+  "additionalProperties": true
+}

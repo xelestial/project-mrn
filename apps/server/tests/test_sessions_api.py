@@ -61,6 +61,9 @@ def _external_ai_payload() -> dict:
                 "external_ai": {
                     "transport": "http",
                     "timeout_ms": 9000,
+                    "retry_count": 2,
+                    "backoff_ms": 100,
+                    "fallback_mode": "local_ai",
                     "headers": {"Authorization": "Bearer test-token"},
                 }
             },
@@ -151,6 +154,9 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(ai_seat["participant_client"], "external_ai")
         self.assertEqual(ai_seat["participant_config"]["transport"], "http")
         self.assertEqual(ai_seat["participant_config"]["timeout_ms"], 9000)
+        self.assertEqual(ai_seat["participant_config"]["retry_count"], 2)
+        self.assertEqual(ai_seat["participant_config"]["backoff_ms"], 100)
+        self.assertEqual(ai_seat["participant_config"]["fallback_mode"], "local_ai")
         self.assertEqual(ai_seat["participant_config"]["headers"]["Authorization"], "Bearer test-token")
         self.assertEqual(ai_seat["participant_config"]["endpoint"], "http://bot-worker.local/seat-1")
 

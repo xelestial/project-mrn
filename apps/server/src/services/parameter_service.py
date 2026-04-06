@@ -142,6 +142,15 @@ class GameParameterResolver:
         timeout_ms = external_ai_raw.get("timeout_ms", 15000)
         if not isinstance(timeout_ms, int) or timeout_ms <= 0:
             raise ParameterValidationError("invalid_external_ai_timeout")
+        retry_count = external_ai_raw.get("retry_count", 1)
+        if not isinstance(retry_count, int) or retry_count < 0:
+            raise ParameterValidationError("invalid_external_ai_retry_count")
+        backoff_ms = external_ai_raw.get("backoff_ms", 250)
+        if not isinstance(backoff_ms, int) or backoff_ms < 0:
+            raise ParameterValidationError("invalid_external_ai_backoff_ms")
+        fallback_mode = str(external_ai_raw.get("fallback_mode", "local_ai")).strip().lower()
+        if fallback_mode not in {"local_ai", "error"}:
+            raise ParameterValidationError("invalid_external_ai_fallback_mode")
 
         endpoint = external_ai_raw.get("endpoint")
         if endpoint is not None and not isinstance(endpoint, str):
@@ -160,6 +169,9 @@ class GameParameterResolver:
             "external_ai": {
                 "transport": transport,
                 "timeout_ms": int(timeout_ms),
+                "retry_count": int(retry_count),
+                "backoff_ms": int(backoff_ms),
+                "fallback_mode": fallback_mode,
                 "endpoint": endpoint.strip() if isinstance(endpoint, str) and endpoint.strip() else None,
                 "headers": normalized_headers,
             }

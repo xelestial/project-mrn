@@ -1,0 +1,40 @@
+{
+  "request_id": "sess_ext_1_ext_ab12cd34",
+  "session_id": "sess_ext_1",
+  "seat": 2,
+  "player_id": 2,
+  "decision_name": "choose_purchase_tile",
+  "request_type": "purchase_tile",
+  "fallback_policy": "ai",
+  "public_context": {
+    "round_index": 2,
+    "turn_index": 4,
+    "player_cash": 11,
+    "player_position": 8,
+    "player_shards": 3,
+    "tile_index": 9,
+    "cost": 4,
+    "source": "landing"
+  },
+  "legal_choices": [
+    {
+      "choice_id": "yes",
+      "title": "Buy tile 9",
+      "value": {
+        "buy": true,
+        "tile_index": 9,
+        "cost": 4
+      }
+    },
+    {
+      "choice_id": "no",
+      "title": "Skip purchase",
+      "value": {
+        "buy": false,
+        "tile_index": 9,
+        "cost": 4
+      }
+    }
+  ],
+  "transport": "http"
+}

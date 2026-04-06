@@ -2209,3 +2209,39 @@ Updated: 2026-04-04
   - `npm run e2e -- e2e/human_play_runtime.spec.ts`
   - `.venv311/bin/python -m pytest apps/server/tests/test_parameter_service.py apps/server/tests/test_session_service.py apps/server/tests/test_sessions_api.py apps/server/tests/test_runtime_service.py apps/server/tests/test_runtime_contract_examples.py`
   - `.venv311/bin/python -m pytest apps/server/tests/test_parameter_manifest_snapshot.py apps/server/tests/test_parameter_propagation.py apps/server/tests/test_prompt_service.py apps/server/tests/test_stream_api.py GPT/test_decision_port_contract.py GPT/test_draft_three_players.py GPT/test_event_effects.py`
+
+## 2026-04-07 External AI HTTP Transport Realization
+
+- What changed:
+  - Extended `apps/server/src/services/decision_gateway.py` so canonical decision calls now also carry:
+    - `legal_choices`
+    - per-method external choice parsers
+  - Added method-specific legal-choice builders and response parsers for the current open-participant decision surface, so an external worker can answer with canonical `choice_id` values while the engine still receives native decision results.
+  - Upgraded `apps/server/src/services/runtime_service.py` external AI transport from a seam-only placeholder into a real transport path:
+    - stdlib HTTP POST sender
+    - retry / backoff support
+    - seat-level timeout config
+    - `fallback_mode` handling
+    - transport-aware external decision envelope
+  - Added a frozen external AI contract artifact set under:
+    - `packages/runtime-contracts/external-ai/README.md`
+    - `packages/runtime-contracts/external-ai/schemas/request.schema.json`
+    - `packages/runtime-contracts/external-ai/schemas/response.schema.json`
+    - `packages/runtime-contracts/external-ai/examples/request.purchase_tile.json`
+    - `packages/runtime-contracts/external-ai/examples/response.purchase_tile_yes.json`
+  - Expanded participant default parameterization:
+    - `retry_count`
+    - `backoff_ms`
+    - `fallback_mode`
+  - Refreshed `tools/parameter_manifest_snapshot.json` because participant-default manifest shape changed again.
+- Why:
+  - the runtime had already opened an HTTP-shaped seam, but external AI still could not truly participate as a client because the server lacked:
+    - canonical legal choices for workers
+    - response parsing back into engine-native values
+    - frozen request/response artifacts
+    - operational retry/timeout/fallback policy
+  - this closes the structural gap between “AI can eventually be external” and “AI can now be treated like a real external participant contract”
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_parameter_service.py apps/server/tests/test_session_service.py apps/server/tests/test_sessions_api.py apps/server/tests/test_runtime_contract_examples.py`
+  - `.venv311/bin/python -m pytest apps/server/tests/test_parameter_manifest_snapshot.py apps/server/tests/test_parameter_propagation.py apps/server/tests/test_prompt_service.py apps/server/tests/test_stream_api.py GPT/test_decision_port_contract.py GPT/test_draft_three_players.py GPT/test_event_effects.py`
+  - `.venv311/bin/python -m py_compile apps/server/src/services/decision_gateway.py apps/server/src/services/runtime_service.py apps/server/src/services/parameter_service.py apps/server/src/services/session_service.py`

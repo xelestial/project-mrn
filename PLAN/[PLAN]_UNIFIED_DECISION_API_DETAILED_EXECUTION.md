@@ -552,3 +552,23 @@ P3 종료 조건:
 - Result:
   - engine/server/web/shared artifacts now agree more closely on the canonical prompt surface
   - the remaining work is no longer “design a transport seam”, but “mount a real worker/service behind the HTTP seam”
+
+## 2026-04-07 Progress Update (external AI HTTP contract realized)
+
+- The external-AI HTTP path now has real runtime behavior:
+  - canonical `legal_choices` are produced server-side for current request types
+  - external workers respond with canonical `choice_id`
+  - server-side parsers convert those responses back into engine-native results
+  - HTTP transport supports:
+    - endpoint
+    - timeout
+    - retry count
+    - backoff
+    - fallback mode
+- Frozen transport artifacts now exist outside the WS contract tree:
+  - `packages/runtime-contracts/external-ai/schemas/request.schema.json`
+  - `packages/runtime-contracts/external-ai/schemas/response.schema.json`
+  - `packages/runtime-contracts/external-ai/examples/request.purchase_tile.json`
+  - `packages/runtime-contracts/external-ai/examples/response.purchase_tile_yes.json`
+- Result:
+  - the next step is now integration work against a real worker/service, not more server-internal seam invention

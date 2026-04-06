@@ -342,6 +342,18 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(request.public_context["cost"], 4)
         self.assertEqual(request.fallback_policy, "ai")
 
+    def test_routed_decision_call_exposes_legal_choices_for_external_clients(self) -> None:
+        state = type("State", (), {"rounds_completed": 1, "turn_index": 3})()
+        player = type("Player", (), {"player_id": 2, "cash": 11, "position": 8, "shards": 3})()
+
+        call = build_routed_decision_call(
+            build_decision_invocation("choose_purchase_tile", (state, player, 9, "T2", 4), {"source": "landing"}),
+            fallback_policy="ai",
+        )
+
+        self.assertEqual(call.request.request_type, "purchase_tile")
+        self.assertEqual([choice["choice_id"] for choice in call.legal_choices], ["yes", "no"])
+
     def test_bridge_allows_injected_decision_client_factory(self) -> None:
         from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
 
@@ -396,6 +408,90 @@ class RuntimeServiceTests(unittest.TestCase):
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
             loop.close()
+
+    def test_http_external_transport_sends_envelope_and_parses_choice_id(self) -> None:
+        from apps.server.src.services.runtime_service import _HttpExternalAiTransport
+
+        class _FakeAiPolicy:
+            def choose_purchase_tile(self, state, player, pos, cell, cost, *, source="landing"):  # noqa: ANN001
+                del state, player, pos, cell, cost, source
+                return False
+
+        class _FakeGateway:
+            def __init__(self) -> None:
+                self.calls: list[dict] = []
+
+            def resolve_ai_decision(self, **kwargs):  # noqa: ANN003
+                self.calls.append(kwargs)
+                return kwargs["resolver"]()
+
+        sender_calls: list[object] = []
+        gateway = _FakeGateway()
+        transport = _HttpExternalAiTransport(
+            session_id="sess_http_1",
+            ai_fallback=_FakeAiPolicy(),
+            gateway=gateway,  # type: ignore[arg-type]
+            seat=2,
+            config={"transport": "http", "endpoint": "http://bot-worker.local/decide", "timeout_ms": 9000},
+            sender=lambda envelope: sender_calls.append(envelope) or {"choice_id": "yes"},
+        )
+        state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+        player = type("Player", (), {"player_id": 1, "cash": 5, "position": 9, "shards": 1})()
+        call = build_routed_decision_call(
+            build_decision_invocation("choose_purchase_tile", (state, player, 9, "T2", 4), {"source": "landing"}),
+            fallback_policy="ai",
+        )
+
+        result = transport.resolve(call)
+
+        self.assertTrue(result)
+        self.assertEqual(sender_calls[0].request_type, "purchase_tile")
+        self.assertEqual([choice["choice_id"] for choice in sender_calls[0].legal_choices], ["yes", "no"])
+        self.assertEqual(gateway.calls[0]["public_context"]["participant_transport"], "http")
+
+    def test_http_external_transport_retries_then_falls_back_to_local_ai(self) -> None:
+        from apps.server.src.services.runtime_service import _HttpExternalAiTransport
+
+        class _FakeAiPolicy:
+            def choose_pabal_dice_mode(self, state, player):  # noqa: ANN001
+                del state, player
+                return "minus_one"
+
+        class _FakeGateway:
+            def resolve_ai_decision(self, **kwargs):  # noqa: ANN003
+                return kwargs["resolver"]()
+
+        attempts: list[int] = []
+
+        def _failing_sender(envelope):  # noqa: ANN001
+            attempts.append(envelope.seat)
+            raise RuntimeError("worker unavailable")
+
+        transport = _HttpExternalAiTransport(
+            session_id="sess_http_2",
+            ai_fallback=_FakeAiPolicy(),
+            gateway=_FakeGateway(),  # type: ignore[arg-type]
+            seat=3,
+            config={
+                "transport": "http",
+                "endpoint": "http://bot-worker.local/decide",
+                "retry_count": 2,
+                "backoff_ms": 0,
+                "fallback_mode": "local_ai",
+            },
+            sender=_failing_sender,
+        )
+        state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+        player = type("Player", (), {"player_id": 2, "cash": 5, "position": 9, "shards": 1})()
+        call = build_routed_decision_call(
+            build_decision_invocation("choose_pabal_dice_mode", (state, player), {}),
+            fallback_policy="ai",
+        )
+
+        result = transport.resolve(call)
+
+        self.assertEqual(result, "minus_one")
+        self.assertEqual(len(attempts), 3)
 
     def test_start_runtime_uses_async_to_thread_bridge(self) -> None:
         session = self.session_service.create_session(

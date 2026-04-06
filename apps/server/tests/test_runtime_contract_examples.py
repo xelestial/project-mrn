@@ -136,6 +136,21 @@ class RuntimeContractExampleTests(unittest.TestCase):
                 f"{filename}: expected event order {expected_order!r}, got {event_types!r}"
             )
 
+    def test_external_ai_examples_match_frozen_schemas(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "external-ai"
+        schemas = root / "schemas"
+        examples = root / "examples"
+
+        pairs = [
+            ("request.schema.json", "request.purchase_tile.json"),
+            ("response.schema.json", "response.purchase_tile_yes.json"),
+        ]
+
+        for schema_name, example_name in pairs:
+            schema = _load_json(schemas / schema_name)
+            example = _load_json(examples / example_name)
+            _validate_subset(example, schema, path=f"$<{example_name}>")
+
 
 if __name__ == "__main__":
     unittest.main()

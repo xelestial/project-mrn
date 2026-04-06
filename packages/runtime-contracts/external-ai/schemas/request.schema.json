@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "runtime-contracts/external-ai/request.schema.json",
+  "title": "ExternalAiDecisionRequest",
+  "type": "object",
+  "required": [
+    "request_id",
+    "session_id",
+    "seat",
+    "player_id",
+    "decision_name",
+    "request_type",
+    "fallback_policy",
+    "public_context",
+    "legal_choices",
+    "transport"
+  ],
+  "properties": {
+    "request_id": { "type": "string", "minLength": 1 },
+    "session_id": { "type": "string", "minLength": 1 },
+    "seat": { "type": "integer", "minimum": 1 },
+    "player_id": { "type": "integer", "minimum": 1 },
+    "decision_name": { "type": "string", "minLength": 1 },
+    "request_type": { "type": "string", "minLength": 1 },
+    "fallback_policy": { "type": "string", "minLength": 1 },
+    "public_context": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "legal_choices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["choice_id"],
+        "properties": {
+          "choice_id": { "type": "string", "minLength": 1 },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "value": { "type": ["object", "boolean", "number", "string", "null"], "additionalProperties": true }
+        },
+        "additionalProperties": true
+      }
+    },
+    "transport": {
+      "type": "string",
+      "enum": ["http", "loopback"]
+    }
+  },
+  "additionalProperties": true
+}
