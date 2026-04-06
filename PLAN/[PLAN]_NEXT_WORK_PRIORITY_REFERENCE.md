@@ -208,3 +208,13 @@ Implement in this order unless a blocker forces a swap:
   1. continue prompt-surface cleanup until remaining live prompts feel game-native instead of inspector-like
   2. keep strengthening non-local turn scene payoff for fortune / purchase / rent and turn-to-turn handoff
   3. continue reducing human/AI branch-local decision drift before later `DecisionPort` migration
+
+### 2026-04-06 Progress Update (spectator journey + mark drift)
+
+- Remote turns now also expose a dedicated spectator journey strip, not only payoff and spotlight cards.
+- Prompt display order now keeps passive `none`/skip-style entries behind actionable options where applicable.
+- AI-side canonical request coverage now explicitly includes `mark_target`.
+- Therefore the next immediate execution order is:
+  1. continue trimming prompt surfaces that still feel inspector-like
+  2. continue scene-grade continuity for fortune / purchase / rent / turn handoff
+  3. extend canonical decision coverage to remaining specialty methods before full `DecisionPort` migration

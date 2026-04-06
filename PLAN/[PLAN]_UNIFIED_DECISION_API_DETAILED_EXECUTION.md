@@ -390,3 +390,18 @@ P3 종료 조건:
   1. typed provider classes so human / AI dispatch logic is less concentrated in `_ServerDecisionPolicyBridge`
   2. engine-side `DecisionPort` migration
   3. broader stream API coverage in environments with full FastAPI test support
+
+## 2026-04-06 Progress Update (specialty method drift guard)
+
+- Added explicit runtime coverage for AI `choose_mark_target`.
+- This now guards another specialty decision seam so AI-side canonical publication is verified for:
+  - request type: `mark_target`
+  - lifecycle:
+    - `decision_requested`
+    - `decision_resolved`
+- Result:
+  - branch-local drift risk is lower for non-movement, non-purchase decisions too
+- Remaining P0-1 work is now:
+  1. typed provider classes so human / AI dispatch logic is less concentrated in `_ServerDecisionPolicyBridge`
+  2. engine-side `DecisionPort` migration
+  3. continue extending specialty-method decision coverage

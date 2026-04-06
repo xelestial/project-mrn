@@ -712,3 +712,19 @@ This order is chosen to stop further drift before additional feature edits.
   - fuller fortune/weather reveal staging as dedicated scene beats, not only summary cards
   - purchase/rent outcome transitions that feel more like board-game events than feed entries
   - more reduction of inspector feel in mark/reward/special prompts
+
+## 2026-04-06 Spectator Journey Follow-up
+
+- Remote-turn continuity now also includes a dedicated spectator journey strip.
+- The strip currently sequences:
+  - character
+  - current prompt/choice beat
+  - movement
+  - landing
+  - economy/effect payoff
+- Prompt display order also now pushes passive `none`/skip-style entries to the end so action-first reading is preserved.
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - stronger fortune/weather reveal staging as dedicated scene beats
+  - purchase/rent outcome transitions that feel more animated than feed-like
+  - additional simplification for mark/reward/special prompts that still read too much like inspectors

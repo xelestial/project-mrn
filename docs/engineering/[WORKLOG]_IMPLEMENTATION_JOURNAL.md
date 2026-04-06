@@ -1637,3 +1637,27 @@ Updated: 2026-04-04
   - `npm run build` passed (`apps/web`)
   - `npm run test -- --run src/i18n/i18n.spec.ts src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts` passed (`32 passed`)
   - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`3 passed`)
+
+## 2026-04-06 Prompt / Spectator / Decision Drift Follow-up
+
+- What changed:
+  - Reordered `none` / pass-style options to the end of display order in mark and generic prompt surfaces so primary actions appear first.
+  - Added a dedicated spectator journey strip that now reads remote turns as:
+    - current character
+    - current choice beat
+    - movement
+    - landing
+    - economy/effect payoff
+  - Added backend coverage that AI `mark_target` decisions also emit the canonical:
+    - `decision_requested`
+    - `decision_resolved`
+    lifecycle with the `mark_target` request type.
+- Why:
+  - prompt surfaces were still front-loading passive choices and reading more like inspectors than live game choices
+  - spectator continuity still needed one stronger scene-oriented strip in addition to spotlight/payoff cards
+  - the unified decision plan needed one more specialty-method guard beyond purchase/movement paths
+- Validation:
+  - `npm run build`
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts`
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts`
+  - `python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_stream_api.py`

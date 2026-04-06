@@ -28,6 +28,13 @@ type SpotlightCard = {
   tone: "economy" | "effect";
 };
 
+type JourneyCard = {
+  key: string;
+  label: string;
+  detail: string;
+  tone: "move" | "economy" | "effect" | "decision";
+};
+
 type PayoffTone = "economy" | "effect" | "neutral";
 
 function payoffToneForEventCode(eventCode: string): PayoffTone {
@@ -74,6 +81,54 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
   }
   if (hasValue(model.trickSummary)) {
     spotlightCards.push({ key: "trick", title: turnStage.fields.trick, detail: model.trickSummary, tone: "effect" });
+  }
+  const journeyCards: JourneyCard[] = [];
+  if (hasValue(model.character)) {
+    journeyCards.push({
+      key: "character",
+      label: app.spectatorFields.character,
+      detail: model.character,
+      tone: "decision",
+    });
+  }
+  if (hasValue(model.promptSummary)) {
+    journeyCards.push({
+      key: "prompt",
+      label: app.spectatorFields.prompt,
+      detail: model.promptSummary,
+      tone: "decision",
+    });
+  }
+  if (hasValue(model.moveSummary)) {
+    journeyCards.push({
+      key: "move",
+      label: app.spectatorFields.move,
+      detail: model.moveSummary,
+      tone: "move",
+    });
+  }
+  if (hasValue(model.landingSummary)) {
+    journeyCards.push({
+      key: "landing",
+      label: app.spectatorFields.landing,
+      detail: model.landingSummary,
+      tone: "effect",
+    });
+  }
+  if (hasValue(economyText)) {
+    journeyCards.push({
+      key: "economy",
+      label: app.spectatorFields.economy,
+      detail: economyText,
+      tone: "economy",
+    });
+  } else if (hasValue(effectText)) {
+    journeyCards.push({
+      key: "effect",
+      label: app.spectatorFields.effect,
+      detail: effectText,
+      tone: "effect",
+    });
   }
 
   return (
@@ -155,6 +210,24 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
             </article>
           ))}
         </div>
+      ) : null}
+
+      {journeyCards.length > 0 ? (
+        <section className="core-action-journey spectator-turn-journey" data-testid="spectator-turn-journey">
+          <div className="core-action-journey-head">
+            <strong>{turnStage.progressTitle}</strong>
+            <small>{valueOrDash(latestActionTitle)}</small>
+          </div>
+          <div className="core-action-journey-strip">
+            {journeyCards.map((card, index) => (
+              <article key={card.key} className={`core-action-journey-step core-action-journey-step-${card.tone}`}>
+                <span className="core-action-journey-index">{`0${index + 1}`}</span>
+                <strong>{card.label}</strong>
+                <small>{valueOrDash(card.detail)}</small>
+              </article>
+            ))}
+          </div>
+        </section>
       ) : null}
 
       <div className="spectator-turn-progress" data-testid="spectator-turn-progress">

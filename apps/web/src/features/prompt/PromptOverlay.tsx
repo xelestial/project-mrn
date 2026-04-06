@@ -57,6 +57,17 @@ function cleanDisplayText(value: string): string {
   return trimmed;
 }
 
+function sortChoicesForDisplay(choices: PromptChoiceViewModel[]): PromptChoiceViewModel[] {
+  return [...choices].sort((left, right) => {
+    const leftIsPass = left.choiceId === "none";
+    const rightIsPass = right.choiceId === "none";
+    if (leftIsPass === rightIsPass) {
+      return 0;
+    }
+    return leftIsPass ? 1 : -1;
+  });
+}
+
 function choiceDescription(choice: PromptChoiceViewModel, promptText: PromptText): string {
   const text = choice.description.trim();
   return text ? cleanDisplayText(text) : promptText.noChoiceDescription;
@@ -359,6 +370,7 @@ export function PromptOverlay({
     }
     return buildHandChoiceCards(prompt, promptText);
   }, [prompt, promptText]);
+  const orderedChoices = useMemo(() => (prompt ? sortChoicesForDisplay(prompt.choices) : []), [prompt]);
 
   useEffect(() => {
     if (!prompt) {
@@ -666,7 +678,7 @@ export function PromptOverlay({
               </div>
             </div>
             <div className={`prompt-choices prompt-choices-target ${compactChoices ? "prompt-choices-compact" : ""}`}>
-              {prompt.choices.map((choice) => {
+              {orderedChoices.map((choice) => {
                 const target = markChoiceTarget(choice);
                 return (
                   <button
@@ -720,7 +732,7 @@ export function PromptOverlay({
               </div>
             </div>
             <div className="prompt-choices prompt-choices-decision">
-              {prompt.choices.map((choice) => {
+              {orderedChoices.map((choice) => {
                 const normalized = normalizeChoiceText(prompt, choice, promptText);
                 return (
                   <button
@@ -789,7 +801,7 @@ export function PromptOverlay({
         !isMarkTarget ? (
           <section className="prompt-section">
             <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
-            {prompt.choices.map((choice) => {
+            {orderedChoices.map((choice) => {
               const normalized = normalizeChoiceText(prompt, choice, promptText);
               return (
                 <button
