@@ -61,6 +61,15 @@ Expected shape:
 }
 ```
 
+To run the stronger scored reference adapter locally:
+
+```bash
+.venv311/bin/python tools/run_external_ai_worker.py \
+  --host 127.0.0.1 \
+  --port 8011 \
+  --worker-adapter priority_score_v1
+```
+
 ## Attach a Seat to the Worker
 
 Use `participant_client: "external_ai"` on an AI seat and provide an HTTP endpoint.
@@ -202,4 +211,5 @@ The default local worker is no longer hard-wired directly to one heuristic imple
 
 - `apps/server/src/services/external_ai_worker_service.py` now mounts the reference worker through an explicit decision-adapter seam
 - the default adapter id is `reference_heuristic_v1`
+- a built-in stronger scored adapter is also available as `priority_score_v1`
 - stronger workers/services can replace that adapter while keeping the frozen HTTP request/response contract stable

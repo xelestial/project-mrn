@@ -189,6 +189,28 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         self.assertEqual(payload["worker_adapter"], "scripted_test_v1")
         self.assertEqual(payload["decision_style"], "scripted_contract")
 
+    def test_service_can_mount_priority_scored_adapter(self) -> None:
+        service = ExternalAiWorkerService(
+            worker_id="worker-api-priority",
+            policy_mode="heuristic_v3_gpt",
+            worker_adapter="priority_score_v1",
+        )
+        client = TestClient(create_app(service))
+
+        health = client.get("/health")
+        self.assertEqual(health.status_code, 200)
+        self.assertEqual(health.json()["worker_adapter"], "priority_score_v1")
+        self.assertEqual(health.json()["decision_style"], "priority_scored_contract")
+        self.assertEqual(health.json()["policy_class"], "PriorityScoredPolicy")
+
+        response = client.post("/decide", json=_priority_scored_reward_payload())
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["choice_id"], "102")
+        self.assertEqual(payload["worker_adapter"], "priority_score_v1")
+        self.assertEqual(payload["decision_style"], "priority_scored_contract")
+        self.assertEqual(payload["policy_class"], "PriorityScoredPolicy")
+
     def test_decide_handles_mark_target_contract(self) -> None:
         response = self.client.post("/decide", json=_mark_target_payload())
 

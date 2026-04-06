@@ -264,6 +264,26 @@ This is the practical next-work list after the closed slices above.
   1. keep trimming the last selector-owned phrasing
   2. keep closing any remaining visual-drift evidence from real play
   3. keep the worker seam stable while stronger workers/services replace the reference adapter
+
+### 2026-04-07 Progress Update (stronger scored adapter + longer mixed-seat proof)
+
+- The worker-replacement seam is now exercised by more than one built-in adapter shape:
+  - `reference_heuristic_v1`
+  - `priority_score_v1`
+- The stronger scored adapter path now proves that the frozen HTTP contract can stay stable while worker provenance changes:
+  - different `worker_adapter`
+  - different `policy_class`
+  - different `decision_style`
+- Runtime/browser visibility also moved forward:
+  - canonical `public_context` keeps scored-adapter provenance through worker-success and local-fallback turns
+  - selector-side weather-effect list joins moved one step further into locale helpers
+  - longer mixed-seat browser coverage now asserts scored-adapter visibility through:
+    - worker-resolved turns
+    - consecutive fallback turns
+- Therefore the practical next-work order narrows again:
+  1. only evidence-backed visual drift that still appears in real play
+  2. only the last selector-local phrasing fragments that are still worth moving
+  3. then replace the built-in stronger adapter with a real external worker/service when ready
   - worker auth / identity validation now applies even when custom sender or custom healthchecker seams are injected
   - frozen external-AI examples now cover:
     - `purchase_tile`

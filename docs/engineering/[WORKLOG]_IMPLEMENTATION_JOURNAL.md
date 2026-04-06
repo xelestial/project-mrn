@@ -2750,3 +2750,32 @@ Updated: 2026-04-07
   - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts`
   - `cd apps/web && npm run build`
   - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
+
+## 2026-04-07 Stronger Scored Adapter + Final Mixed-Seat Coverage
+
+- What changed:
+  - Server:
+    - `apps/server/src/services/external_ai_worker_service.py` now exposes a second built-in adapter:
+      - `priority_score_v1`
+    - that stronger adapter keeps the frozen HTTP contract but advertises different worker provenance:
+      - `worker_adapter`
+      - `policy_class`
+      - `decision_style`
+    - `tools/run_external_ai_worker.py` now accepts `--worker-adapter` so local runs can switch adapters without code changes
+    - runtime/API coverage now locks the stronger adapter path in addition to the default reference heuristic path
+  - Web:
+    - `apps/web/src/domain/selectors/streamSelectors.ts` moved remaining weather-effect list joins behind locale helpers
+    - selector/stage/browser coverage now proves that stronger worker provenance stays visible through:
+      - worker-resolved turns
+      - local-fallback turns
+      - longer mixed-seat chains
+  - Docs / plan:
+    - runbook / contract docs now describe `priority_score_v1` as the built-in stronger adapter path
+- Why:
+  - the next useful closure step after opening the adapter seam was to prove that the seam supports more than one real adapter shape
+  - that makes the eventual swap from built-in reference worker to stronger external service much more mechanical
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_runtime_service.py apps/server/tests/test_parameter_service.py`
+  - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts`
+  - `cd apps/web && npm run build`
+  - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`

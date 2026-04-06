@@ -399,7 +399,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
     const effects = Array.isArray(payload["effects"])
       ? payload["effects"].filter((item): item is string => typeof item === "string" && item.trim().length > 0)
       : [];
-    const effectsSummary = effects.length > 0 ? effects.join(", ") : "-";
+    const effectsSummary = text.stream.effectsList(effects);
     const explicitEffect = asString(payload["weather_effect"] ?? payload["effect_text"] ?? payload["effect"] ?? payload["description"]);
     const effect =
       explicitEffect !== "-"
@@ -757,12 +757,9 @@ function findPersistedWeather(
     }
     const weather = payload["weather_name"] ?? payload["weather"] ?? payload["card"];
     const effects = payload["effects"];
-    const effectsSummary =
-      Array.isArray(effects) && effects.length > 0 && typeof effects[0] === "string" && effects[0].trim()
-        ? effects
-            .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-            .join(", ")
-        : "-";
+    const effectsSummary = Array.isArray(effects)
+      ? text.stream.effectsList(effects.filter((item): item is string => typeof item === "string" && item.trim().length > 0))
+      : "-";
     let weatherEffect =
       effectsSummary !== "-"
         ? effectsSummary

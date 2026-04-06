@@ -353,6 +353,10 @@ export const enLocale = {
       return parts.length > 0 ? parts.join(" / ") : "-";
     },
     actorDetail: (actor: string, detail: string) => `${actor} / ${detail}`,
+    effectsList: (parts: string[]) => {
+      const visible = parts.filter((part) => part && part.trim() && part.trim() !== "-");
+      return visible.length > 0 ? visible.join(", ") : "-";
+    },
     promptDetail: (actor: string, promptLabel: string) => `${actor} / ${promptLabel}`,
     decisionRequestedDetail: (
       actor: string,

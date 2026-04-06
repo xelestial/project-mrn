@@ -87,6 +87,7 @@ When workers advertise `worker_adapter`, `policy_mode`, `policy_class`, and `dec
 The bundled reference worker now sits behind an explicit adapter seam:
 
 - default adapter id: `reference_heuristic_v1`
+- stronger scored adapter id: `priority_score_v1`
 - replacement workers/services can keep the same frozen HTTP contract while swapping the underlying adapter implementation
 
 See `docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md` for a full local session example.

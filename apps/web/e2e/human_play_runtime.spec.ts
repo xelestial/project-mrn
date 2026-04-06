@@ -895,6 +895,10 @@ test("mixed participant runtime keeps worker success then fallback visible acros
             public_context: {
               external_ai_worker_id: "prod-bot-1",
               external_ai_resolution_status: "resolved_by_worker",
+              external_ai_policy_mode: "heuristic_v3_gpt",
+              external_ai_worker_adapter: "priority_score_v1",
+              external_ai_policy_class: "PriorityScoredPolicy",
+              external_ai_decision_style: "priority_scored_contract",
             },
           },
         }),
@@ -912,6 +916,13 @@ test("mixed participant runtime keeps worker success then fallback visible acros
             public_context: {
               external_ai_worker_id: "prod-bot-1",
               external_ai_resolution_status: "resolved_by_worker",
+              external_ai_ready_state: "ready",
+              external_ai_attempt_count: 1,
+              external_ai_attempt_limit: 1,
+              external_ai_policy_mode: "heuristic_v3_gpt",
+              external_ai_worker_adapter: "priority_score_v1",
+              external_ai_policy_class: "PriorityScoredPolicy",
+              external_ai_decision_style: "priority_scored_contract",
             },
           },
         }),
@@ -947,6 +958,10 @@ test("mixed participant runtime keeps worker success then fallback visible acros
               external_ai_fallback_mode: "local_ai",
               external_ai_resolution_status: "resolved_by_local_fallback",
               external_ai_attempt_count: 3,
+              external_ai_policy_mode: "heuristic_v3_gpt",
+              external_ai_worker_adapter: "priority_score_v1",
+              external_ai_policy_class: "PriorityScoredPolicy",
+              external_ai_decision_style: "priority_scored_contract",
             },
           },
         }),
@@ -980,9 +995,12 @@ test("mixed participant runtime keeps worker success then fallback visible acros
   await expect(page.getByTestId("spectator-turn-worker")).toContainText("attempt 3");
   await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Participant status");
   await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("prod-bot-1");
+  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("priority_score_v1");
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("Participant status");
   await expect(page.getByTestId("turn-stage-worker-status")).toContainText("external_ai_timeout");
   await expect(page.getByTestId("turn-stage-worker-status")).toContainText("attempt 3");
+  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("priority_score_v1");
+  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("PriorityScoredPolicy");
   await expect(page.getByTestId("turn-stage-scene-strip")).toContainText("Participant Status");
   await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("Bought tile 11 for 3");
 });

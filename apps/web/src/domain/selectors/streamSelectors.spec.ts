@@ -940,9 +940,9 @@ describe("streamSelectors", () => {
             external_ai_attempt_limit: 2,
             external_ai_ready_state: "ready",
             external_ai_policy_mode: "heuristic_v3_gpt",
-            external_ai_worker_adapter: "reference_heuristic_v1",
-            external_ai_policy_class: "HeuristicPolicy",
-            external_ai_decision_style: "contract_heuristic",
+            external_ai_worker_adapter: "priority_score_v1",
+            external_ai_policy_class: "PriorityScoredPolicy",
+            external_ai_decision_style: "priority_scored_contract",
           },
         },
       },
@@ -954,13 +954,13 @@ describe("streamSelectors", () => {
     expect(stage.externalAiAttemptLimit).toBe(2);
     expect(stage.externalAiReadyState).toBe("ready");
     expect(stage.externalAiPolicyMode).toBe("heuristic_v3_gpt");
-    expect(stage.externalAiWorkerAdapter).toBe("reference_heuristic_v1");
-    expect(stage.externalAiPolicyClass).toBe("HeuristicPolicy");
-    expect(stage.externalAiDecisionStyle).toBe("contract_heuristic");
+    expect(stage.externalAiWorkerAdapter).toBe("priority_score_v1");
+    expect(stage.externalAiPolicyClass).toBe("PriorityScoredPolicy");
+    expect(stage.externalAiDecisionStyle).toBe("priority_scored_contract");
     expect(stage.promptSummary).toContain("외부 worker 처리 완료");
     expect(stage.promptSummary).toContain("상태 준비됨");
-    expect(stage.promptSummary).toContain("어댑터 reference_heuristic_v1");
-    expect(stage.promptSummary).toContain("클래스 HeuristicPolicy");
+    expect(stage.promptSummary).toContain("어댑터 priority_score_v1");
+    expect(stage.promptSummary).toContain("클래스 PriorityScoredPolicy");
   });
 
   it("keeps canonical request context visible inside the current turn stage decision beat", () => {

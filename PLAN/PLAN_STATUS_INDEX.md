@@ -139,6 +139,7 @@ These are no longer the immediate blockers, but they are recently completed and 
   - canonical current-turn models now preserve worker readiness state and bounded attempt counts for stage/spectator surfaces
   - the reference worker now sits behind an explicit adapter seam so stronger workers/services can replace it without changing the frozen HTTP contract
   - canonical `public_context` now preserves `external_ai_worker_adapter` alongside worker id / mode / class / decision style
+  - the worker seam now has a built-in stronger scored adapter (`priority_score_v1`) that exercises the same contract with distinct adapter/class/style metadata
 - Main implementation references:
   - `apps/server/src/external_ai_app.py`
   - `apps/server/src/services/external_ai_worker_service.py`
@@ -188,6 +189,7 @@ These are the slices that should still actively drive implementation after the r
   - keep decision-response readiness validation aligned with the same public-context seam as health readiness
   - keep stronger-worker metadata compatibility (`policy_mode` / `decision_style`) enforced through the same transport seam
   - keep stronger-worker adapter compatibility (`worker_adapter`) enforced through the same transport seam
+  - keep stronger scored adapters visible end-to-end in stage/spectator/E2E coverage before swapping to a real external service
   - keep transport-compatibility validation (`supported_transports`) aligned with the same fallback diagnostics seam
 
 ## Active But Secondary Plans
