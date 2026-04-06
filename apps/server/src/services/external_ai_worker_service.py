@@ -90,6 +90,24 @@ class ExternalAiWorkerService:
                 return bool(value.get("is_usable"))
             return True
 
+        def priority_score(choice_id: str) -> float | None:
+            choice = by_id.get(choice_id) or {}
+            raw = choice.get("priority_score")
+            if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+                return float(raw)
+            value = choice.get("value")
+            if isinstance(value, dict):
+                nested = value.get("priority_score")
+                if isinstance(nested, (int, float)) and not isinstance(nested, bool):
+                    return float(nested)
+            return None
+
+        def preferred_choice_id_from_context() -> str | None:
+            preferred = public_context.get("preferred_choice_id")
+            if isinstance(preferred, str) and preferred.strip() and preferred.strip() in by_id:
+                return preferred.strip()
+            return None
+
         def first_non_secondary() -> str:
             for choice_id in ids:
                 if choice_id not in {"none", "no"} and not is_secondary(choice_id):
@@ -102,11 +120,28 @@ class ExternalAiWorkerService:
                     return choice_id
             return first_non_secondary()
 
+        def best_scored_usable_non_secondary() -> str | None:
+            candidates: list[tuple[float, str]] = []
+            for choice_id in ids:
+                if choice_id in {"none", "no"} or is_secondary(choice_id) or not is_usable(choice_id):
+                    continue
+                score = priority_score(choice_id)
+                if score is not None:
+                    candidates.append((score, choice_id))
+            if not candidates:
+                return None
+            candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+            return candidates[0][1]
+
+        preferred_choice_id = preferred_choice_id_from_context()
+        if preferred_choice_id is not None:
+            return preferred_choice_id
+
         if request_type == "movement":
             return "dice" if "dice" in by_id else first_non_secondary()
 
         if request_type in {"draft_card", "final_character", "hidden_trick_card", "trick_to_use"}:
-            return first_usable_non_secondary()
+            return best_scored_usable_non_secondary() or first_usable_non_secondary()
 
         if request_type == "purchase_tile":
             cost = _as_int(public_context.get("cost")) or _as_int(public_context.get("tile_purchase_cost")) or 0
@@ -118,12 +153,18 @@ class ExternalAiWorkerService:
             return first_non_secondary()
 
         if request_type == "lap_reward":
+            scored = best_scored_usable_non_secondary()
+            if scored is not None:
+                return scored
             for preferred in ("coins", "shards", "cash"):
                 if preferred in by_id:
                     return preferred
             return first_non_secondary()
 
         if request_type == "geo_bonus":
+            scored = best_scored_usable_non_secondary()
+            if scored is not None:
+                return scored
             for preferred in ("coins", "shards", "cash"):
                 if preferred in by_id:
                     return preferred
@@ -158,6 +199,9 @@ class ExternalAiWorkerService:
                 preferred_choice_id = str(preferred_target)
                 if preferred_choice_id in by_id:
                     return preferred_choice_id
+            scored = best_scored_usable_non_secondary()
+            if scored is not None:
+                return scored
             for choice_id in ids:
                 if choice_id not in {"none", "no"}:
                     return choice_id
@@ -185,13 +229,13 @@ class ExternalAiWorkerService:
             preferred_reward = _as_int(public_context.get("preferred_reward_id"))
             if preferred_reward is not None and str(preferred_reward) in by_id:
                 return str(preferred_reward)
-            return first_non_secondary()
+            return best_scored_usable_non_secondary() or first_non_secondary()
 
         if request_type == "doctrine_relief":
             preferred_target = _as_int(public_context.get("preferred_target_player_id"))
             if preferred_target is not None and str(preferred_target) in by_id:
                 return str(preferred_target)
-            return first_non_secondary()
+            return best_scored_usable_non_secondary() or first_non_secondary()
 
         return first_non_secondary()
 

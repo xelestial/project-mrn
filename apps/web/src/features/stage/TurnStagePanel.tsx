@@ -279,7 +279,10 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
         </article>
 
         {hasWorkerStatus(model) ? (
-          <article className="turn-stage-card turn-stage-card-worker" data-testid="turn-stage-worker-status">
+          <article
+            className={`turn-stage-card turn-stage-card-worker turn-stage-card-worker-${model.externalAiResolutionStatus || "idle"}`}
+            data-testid="turn-stage-worker-status"
+          >
             <div className="turn-stage-card-top">
               <strong>{turnStage.workerTitle}</strong>
               <span>{turnStage.workerBadge}</span>

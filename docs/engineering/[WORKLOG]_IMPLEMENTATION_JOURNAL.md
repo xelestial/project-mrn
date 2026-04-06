@@ -2500,3 +2500,23 @@ Updated: 2026-04-07
   - `cd apps/web && npm run build`
   - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
   - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_external_ai_worker_api.py`
+
+## 2026-04-07 Prompt Section Reuse + Required Request-Type Hardening
+
+- What changed:
+  - Web:
+    - `apps/web/src/features/prompt/PromptOverlay.tsx` now routes repeated specialized decision sections through a shared `DecisionChoiceSection`
+    - worker participant cards on stage/spectator now get status-specific tone classes so success vs fallback reads more like a live multiplayer handoff
+  - Server:
+    - `apps/server/src/services/parameter_service.py` now accepts normalized `required_request_types` under external-AI participant defaults
+    - `apps/server/src/services/runtime_service.py` validates those request types during worker health checks and includes them in health-cache scoping
+    - `apps/server/src/services/external_ai_worker_service.py` now prefers explicit `preferred_choice_id` and `priority_score` hints when present
+    - `tools/parameter_manifest_snapshot.json` was refreshed after the parameter shape change
+- Why:
+  - the prompt surface still had too much repeated section scaffolding even after specialization
+  - the external worker seam already checked capability/version/identity, and the next useful hardening step was to make request-type support declarative and parameter-driven
+- Validation:
+  - `cd apps/web && npm run test -- --run src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/streamSelectors.spec.ts src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts`
+  - `cd apps/web && npm run build`
+  - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
+  - `.venv311/bin/python -m pytest apps/server/tests/test_parameter_service.py apps/server/tests/test_runtime_service.py apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_parameter_propagation.py apps/server/tests/test_parameter_manifest_snapshot.py`

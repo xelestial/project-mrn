@@ -189,6 +189,15 @@ class GameParameterResolver:
                 raise ParameterValidationError("invalid_external_ai_required_capabilities")
             normalized_capabilities.append(item.strip())
 
+        required_request_types = external_ai_raw.get("required_request_types") or []
+        if not isinstance(required_request_types, list):
+            raise ParameterValidationError("invalid_external_ai_required_request_types")
+        normalized_request_types: list[str] = []
+        for item in required_request_types:
+            if not isinstance(item, str) or not item.strip():
+                raise ParameterValidationError("invalid_external_ai_required_request_types")
+            normalized_request_types.append(item.strip())
+
         headers = external_ai_raw.get("headers") or {}
         if not isinstance(headers, dict):
             raise ParameterValidationError("invalid_external_ai_headers")
@@ -214,6 +223,7 @@ class GameParameterResolver:
                 "healthcheck_ttl_ms": int(healthcheck_ttl_ms),
                 "endpoint": endpoint.strip() if isinstance(endpoint, str) and endpoint.strip() else None,
                 "required_capabilities": normalized_capabilities,
+                "required_request_types": normalized_request_types,
                 "headers": normalized_headers,
             }
         }

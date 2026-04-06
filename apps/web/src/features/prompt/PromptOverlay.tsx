@@ -471,6 +471,51 @@ function ChoiceSection({ summaryPills = [], children }: ChoiceSectionProps) {
   );
 }
 
+type DecisionChoiceSectionProps = {
+  prompt: PromptViewModel;
+  orderedChoices: PromptChoiceViewModel[];
+  promptText: PromptText;
+  compactChoices: boolean;
+  busy: boolean;
+  onSelectChoice: (choiceId: string) => void;
+  testIdPrefix: string;
+  summaryPills?: SummaryPillValue[];
+  variant?: ChoiceGridVariant;
+  renderExtra?: (choice: PromptChoiceViewModel) => ReactNode;
+  collapseSecondaryChoices?: boolean;
+};
+
+function DecisionChoiceSection({
+  prompt,
+  orderedChoices,
+  promptText,
+  compactChoices,
+  busy,
+  onSelectChoice,
+  testIdPrefix,
+  summaryPills = [],
+  variant = "default",
+  renderExtra,
+  collapseSecondaryChoices = true,
+}: DecisionChoiceSectionProps) {
+  return (
+    <ChoiceSection summaryPills={summaryPills}>
+      <EmphasisChoiceGrid
+        prompt={prompt}
+        orderedChoices={orderedChoices}
+        promptText={promptText}
+        compactChoices={compactChoices}
+        busy={busy}
+        onSelectChoice={onSelectChoice}
+        variant={variant}
+        testIdPrefix={testIdPrefix}
+        renderExtra={renderExtra}
+        collapseSecondaryChoices={collapseSecondaryChoices}
+      />
+    </ChoiceSection>
+  );
+}
+
 export function PromptOverlay({
   prompt,
   collapsed,
@@ -871,274 +916,220 @@ export function PromptOverlay({
         ) : null}
 
         {isPurchaseTile ? (
-          <ChoiceSection
+          <DecisionChoiceSection
+            prompt={prompt}
+            orderedChoices={orderedChoices}
+            promptText={promptText}
+            compactChoices={compactChoices}
+            busy={busy}
+            onSelectChoice={onSelectChoice}
+            testIdPrefix="purchase-choice"
+            variant="decision"
             summaryPills={[
               `${promptText.context.currentPosition}: ${tileLabel(currentTileIndex)}`,
               `${promptText.context.purchaseCost}: ${formatNumber(currentCost)}`,
               `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
               currentZone ? `${promptText.context.zone}: ${currentZone}` : null,
             ]}
-          >
-            <EmphasisChoiceGrid
-              prompt={prompt}
-              orderedChoices={orderedChoices}
-              promptText={promptText}
-              compactChoices={compactChoices}
-              busy={busy}
-              onSelectChoice={onSelectChoice}
-              variant="decision"
-              testIdPrefix="purchase-choice"
-            />
-          </ChoiceSection>
+          />
         ) : null}
 
         {isLapReward ? (
-          <ChoiceSection
+          <DecisionChoiceSection
+            prompt={prompt}
+            orderedChoices={prompt.choices}
+            promptText={promptText}
+            compactChoices={compactChoices}
+            busy={busy}
+            onSelectChoice={onSelectChoice}
+            testIdPrefix="lap-reward-choice"
+            variant="reward"
             summaryPills={[
               `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
               `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
               `${promptText.context.currentCoins}: ${currentCoins ?? "-"}`,
             ]}
-          >
-            <EmphasisChoiceGrid
-              prompt={prompt}
-              orderedChoices={prompt.choices}
-              promptText={promptText}
-              compactChoices={compactChoices}
-              busy={busy}
-              onSelectChoice={onSelectChoice}
-              variant="reward"
-              testIdPrefix="lap-reward-choice"
-            />
-          </ChoiceSection>
+          />
         ) : null}
 
         {isActiveFlip ? (
-          <ChoiceSection
+          <DecisionChoiceSection
+            prompt={prompt}
+            orderedChoices={orderedChoices}
+            promptText={promptText}
+            compactChoices={compactChoices}
+            busy={busy}
+            onSelectChoice={onSelectChoice}
+            testIdPrefix="active-flip-choice"
             summaryPills={[
               `${promptText.context.currentPosition}: ${tileLabel(currentTileIndex)}`,
               `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
               `${promptText.context.usableCards}: ${String(prompt.choices.filter((choice) => choice.choiceId !== "none").length)}`,
             ]}
-          >
-            <EmphasisChoiceGrid
-              prompt={prompt}
-              orderedChoices={orderedChoices}
-              promptText={promptText}
-              compactChoices={compactChoices}
-              busy={busy}
-              onSelectChoice={onSelectChoice}
-              testIdPrefix="active-flip-choice"
-            />
-          </ChoiceSection>
+          />
         ) : null}
 
         {isBurdenExchange ? (
-          <ChoiceSection
+          <DecisionChoiceSection
+            prompt={prompt}
+            orderedChoices={orderedChoices}
+            promptText={promptText}
+            compactChoices={compactChoices}
+            busy={busy}
+            onSelectChoice={onSelectChoice}
+            testIdPrefix="burden-exchange-choice"
             summaryPills={[
               `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
               `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
             ]}
-          >
-            <EmphasisChoiceGrid
-              prompt={prompt}
-              orderedChoices={orderedChoices}
-              promptText={promptText}
-              compactChoices={compactChoices}
-              busy={busy}
-              onSelectChoice={onSelectChoice}
-              testIdPrefix="burden-exchange-choice"
-            />
-          </ChoiceSection>
+          />
         ) : null}
 
         {isSpecificTrickReward ? (
-          <section className="prompt-section prompt-hand-stage">
-            <div className="prompt-section-summary">
-              <div className="prompt-summary-pill-row">
-                <span className="prompt-summary-pill">
-                  {promptText.context.usableCards}: {String(prompt.choices.filter((choice) => choice.choiceId !== "none").length)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentCash}: {formatNumber(currentCash)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentShards}: {currentShards ?? "-"}
-                </span>
-              </div>
-            </div>
-            <EmphasisChoiceGrid
-              prompt={prompt}
-              orderedChoices={orderedChoices}
-              promptText={promptText}
-              compactChoices={compactChoices}
-              busy={busy}
-              onSelectChoice={onSelectChoice}
-              testIdPrefix="specific-reward-choice"
-            />
-          </section>
+          <DecisionChoiceSection
+            prompt={prompt}
+            orderedChoices={orderedChoices}
+            promptText={promptText}
+            compactChoices={compactChoices}
+            busy={busy}
+            onSelectChoice={onSelectChoice}
+            testIdPrefix="specific-reward-choice"
+            summaryPills={[
+              `${promptText.context.usableCards}: ${String(prompt.choices.filter((choice) => choice.choiceId !== "none").length)}`,
+              `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
+              `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
+            ]}
+          />
         ) : null}
 
         {isRunawayChoice ? (
-          <section className="prompt-section prompt-hand-stage">
-            <div className="prompt-section-summary">
-              <div className="prompt-summary-pill-row">
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentPosition}: {tileLabel(movementPosition)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {tileLabel(runawayOneShortPos)} {"->"} {tileLabel(runawayBonusTargetPos)}
-                </span>
-                {runawayBonusTargetKind ? <span className="prompt-summary-pill">{runawayBonusTargetKind}</span> : null}
-              </div>
-            </div>
-            <EmphasisChoiceGrid
-              prompt={prompt}
-              orderedChoices={orderedChoices}
-              promptText={promptText}
-              compactChoices={compactChoices}
-              busy={busy}
-              onSelectChoice={onSelectChoice}
-              variant="target"
-              testIdPrefix="runaway-choice"
-              renderExtra={(choice) => {
-                const takeBonus = booleanFromValue(choice.value?.["take_bonus"]);
-                const pills = nonEmptyPills([
-                  takeBonus !== null ? (takeBonus ? "+1" : "Stop") : null,
-                  `${tileLabel(runawayOneShortPos)} -> ${tileLabel(runawayBonusTargetPos)}`,
-                  runawayBonusTargetKind || null,
-                ]);
-                return pills.length > 0 ? (
-                  <div className="prompt-summary-pill-row">
-                    {pills.map((pill) => (
-                      <span key={`${choice.choiceId}-${pill}`} className="prompt-summary-pill">
-                        {pill}
-                      </span>
-                    ))}
-                  </div>
-                ) : null;
-              }}
-            />
-          </section>
+          <DecisionChoiceSection
+            prompt={prompt}
+            orderedChoices={orderedChoices}
+            promptText={promptText}
+            compactChoices={compactChoices}
+            busy={busy}
+            onSelectChoice={onSelectChoice}
+            variant="target"
+            testIdPrefix="runaway-choice"
+            summaryPills={[
+              `${promptText.context.currentPosition}: ${tileLabel(movementPosition)}`,
+              `${tileLabel(runawayOneShortPos)} -> ${tileLabel(runawayBonusTargetPos)}`,
+              runawayBonusTargetKind || null,
+            ]}
+            renderExtra={(choice) => {
+              const takeBonus = booleanFromValue(choice.value?.["take_bonus"]);
+              const pills = nonEmptyPills([
+                takeBonus !== null ? (takeBonus ? "+1" : "Stop") : null,
+                `${tileLabel(runawayOneShortPos)} -> ${tileLabel(runawayBonusTargetPos)}`,
+                runawayBonusTargetKind || null,
+              ]);
+              return pills.length > 0 ? (
+                <div className="prompt-summary-pill-row">
+                  {pills.map((pill) => (
+                    <span key={`${choice.choiceId}-${pill}`} className="prompt-summary-pill">
+                      {pill}
+                    </span>
+                  ))}
+                </div>
+              ) : null;
+            }}
+          />
         ) : null}
 
         {isCoinPlacement ? (
-          <section className="prompt-section prompt-hand-stage">
-            <div className="prompt-section-summary">
-              <div className="prompt-summary-pill-row">
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentCash}: {formatNumber(currentCash)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.selectableTargets}: {formatNumber(ownedTileCount)}
-                </span>
-              </div>
-            </div>
-            <EmphasisChoiceGrid
-              prompt={prompt}
-              orderedChoices={orderedChoices}
-              promptText={promptText}
-              compactChoices={compactChoices}
-              busy={busy}
-              onSelectChoice={onSelectChoice}
-              variant="target"
-              testIdPrefix="coin-placement-choice"
-              renderExtra={(choice) => {
-                const tileIndex = asNumber(choice.value?.["tile_index"]);
-                const pills = nonEmptyPills([
-                  tileIndex !== null ? tileLabel(tileIndex) : null,
-                  currentZone || null,
-                ]);
-                return pills.length > 0 ? (
-                  <div className="prompt-summary-pill-row">
-                    {pills.map((pill) => (
-                      <span key={`${choice.choiceId}-${pill}`} className="prompt-summary-pill">
-                        {pill}
-                      </span>
-                    ))}
-                  </div>
-                ) : null;
-              }}
-            />
-          </section>
+          <DecisionChoiceSection
+            prompt={prompt}
+            orderedChoices={orderedChoices}
+            promptText={promptText}
+            compactChoices={compactChoices}
+            busy={busy}
+            onSelectChoice={onSelectChoice}
+            variant="target"
+            testIdPrefix="coin-placement-choice"
+            summaryPills={[
+              `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
+              `${promptText.context.selectableTargets}: ${formatNumber(ownedTileCount)}`,
+            ]}
+            renderExtra={(choice) => {
+              const tileIndex = asNumber(choice.value?.["tile_index"]);
+              const pills = nonEmptyPills([
+                tileIndex !== null ? tileLabel(tileIndex) : null,
+                currentZone || null,
+              ]);
+              return pills.length > 0 ? (
+                <div className="prompt-summary-pill-row">
+                  {pills.map((pill) => (
+                    <span key={`${choice.choiceId}-${pill}`} className="prompt-summary-pill">
+                      {pill}
+                    </span>
+                  ))}
+                </div>
+              ) : null;
+            }}
+          />
         ) : null}
 
         {isDoctrineRelief ? (
-          <section className="prompt-section prompt-hand-stage">
-            <div className="prompt-section-summary">
-              <div className="prompt-summary-pill-row">
-                <span className="prompt-summary-pill">
-                  {promptText.context.selectableTargets}: {String(markCandidateCount)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentCash}: {formatNumber(currentCash)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentShards}: {currentShards ?? "-"}
-                </span>
-              </div>
-            </div>
-            <EmphasisChoiceGrid
-              prompt={prompt}
-              orderedChoices={orderedChoices}
-              promptText={promptText}
-              compactChoices={compactChoices}
-              busy={busy}
-              onSelectChoice={onSelectChoice}
-              variant="target"
-              testIdPrefix="doctrine-relief-choice"
-              renderExtra={(choice) => {
-                const targetPlayerId = asNumber(choice.value?.["target_player_id"]);
-                return targetPlayerId !== null ? (
-                  <div className="prompt-summary-pill-row">
-                    <span className="prompt-summary-pill">P{targetPlayerId}</span>
-                  </div>
-                ) : null;
-              }}
-            />
-          </section>
+          <DecisionChoiceSection
+            prompt={prompt}
+            orderedChoices={orderedChoices}
+            promptText={promptText}
+            compactChoices={compactChoices}
+            busy={busy}
+            onSelectChoice={onSelectChoice}
+            variant="target"
+            testIdPrefix="doctrine-relief-choice"
+            summaryPills={[
+              `${promptText.context.selectableTargets}: ${String(markCandidateCount)}`,
+              `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
+              `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
+            ]}
+            renderExtra={(choice) => {
+              const targetPlayerId = asNumber(choice.value?.["target_player_id"]);
+              return targetPlayerId !== null ? (
+                <div className="prompt-summary-pill-row">
+                  <span className="prompt-summary-pill">P{targetPlayerId}</span>
+                </div>
+              ) : null;
+            }}
+          />
         ) : null}
 
         {isGeoBonus ? (
-          <ChoiceSection
+          <DecisionChoiceSection
+            prompt={prompt}
+            orderedChoices={orderedChoices}
+            promptText={promptText}
+            compactChoices={compactChoices}
+            busy={busy}
+            onSelectChoice={onSelectChoice}
+            variant="reward"
+            testIdPrefix="geo-bonus-choice"
             summaryPills={[
               `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
               `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
               `${promptText.context.currentCoins}: ${currentCoins ?? "-"}`,
             ]}
-          >
-            <EmphasisChoiceGrid
-              prompt={prompt}
-              orderedChoices={orderedChoices}
-              promptText={promptText}
-              compactChoices={compactChoices}
-              busy={busy}
-              onSelectChoice={onSelectChoice}
-              variant="reward"
-              testIdPrefix="geo-bonus-choice"
-            />
-          </ChoiceSection>
+          />
         ) : null}
 
         {isPabalDiceMode ? (
-          <ChoiceSection
+          <DecisionChoiceSection
+            prompt={prompt}
+            orderedChoices={orderedChoices}
+            promptText={promptText}
+            compactChoices={compactChoices}
+            busy={busy}
+            onSelectChoice={onSelectChoice}
+            variant="decision"
+            testIdPrefix="pabal-dice-mode-choice"
             summaryPills={[
               `${promptText.context.currentPosition}: ${tileLabel(movementPosition)}`,
               `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
               weatherName ? `${promptText.context.currentWeather}: ${weatherName}` : null,
             ]}
-          >
-            <EmphasisChoiceGrid
-              prompt={prompt}
-              orderedChoices={orderedChoices}
-              promptText={promptText}
-              compactChoices={compactChoices}
-              busy={busy}
-              onSelectChoice={onSelectChoice}
-              variant="decision"
-              testIdPrefix="pabal-dice-mode-choice"
-            />
-          </ChoiceSection>
+          />
         ) : null}
 
         {!usesSpecializedSurface ? (

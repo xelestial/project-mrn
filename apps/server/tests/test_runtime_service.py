@@ -562,6 +562,58 @@ class RuntimeServiceTests(unittest.TestCase):
         )
         self.assertEqual(gateway.calls[0]["public_context"]["external_ai_resolution_status"], "resolved_by_local_fallback")
 
+    def test_http_external_transport_falls_back_when_healthcheck_misses_required_request_type(self) -> None:
+        from apps.server.src.services.runtime_service import _HttpExternalAiTransport
+
+        class _FakeAiPolicy:
+            def choose_pabal_dice_mode(self, state, player):  # noqa: ANN001
+                del state, player
+                return "minus_one"
+
+        class _FakeGateway:
+            def __init__(self) -> None:
+                self.calls: list[dict] = []
+
+            def resolve_ai_decision(self, **kwargs):  # noqa: ANN003
+                self.calls.append(kwargs)
+                return kwargs["resolver"]()
+
+        gateway = _FakeGateway()
+        transport = _HttpExternalAiTransport(
+            session_id="sess_http_health_2",
+            ai_fallback=_FakeAiPolicy(),
+            gateway=gateway,  # type: ignore[arg-type]
+            seat=2,
+            config={
+                "transport": "http",
+                "endpoint": "http://bot-worker.local/decide",
+                "fallback_mode": "local_ai",
+                "required_request_types": ["pabal_dice_mode"],
+            },
+            healthchecker=lambda _config: {
+                "ok": True,
+                "worker_contract_version": "v1",
+                "capabilities": ["choice_id_response"],
+                "supported_request_types": ["movement"],
+            },
+            sender=lambda _envelope: {"choice_id": "plus_one"},
+        )
+        state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+        player = type("Player", (), {"player_id": 1, "cash": 5, "position": 9, "shards": 1})()
+        call = build_routed_decision_call(
+            build_decision_invocation("choose_pabal_dice_mode", (state, player), {}),
+            fallback_policy="ai",
+        )
+
+        result = transport.resolve(call)
+
+        self.assertEqual(result, "minus_one")
+        self.assertEqual(
+            gateway.calls[0]["public_context"]["external_ai_failure_code"],
+            "external_ai_missing_required_request_type",
+        )
+        self.assertEqual(gateway.calls[0]["public_context"]["external_ai_resolution_status"], "resolved_by_local_fallback")
+
     def test_http_external_transport_falls_back_when_worker_lacks_request_type_support(self) -> None:
         from apps.server.src.services.runtime_service import _HttpExternalAiTransport
 
@@ -734,7 +786,7 @@ class RuntimeServiceTests(unittest.TestCase):
             del timeout
             urlopen_calls.append(request.full_url)
             return _FakeResponse(
-                '{"ok": true, "worker_id": "worker-a", "worker_contract_version": "v1", "capabilities": ["choice_id_response", "healthcheck"]}'
+                '{"ok": true, "worker_id": "worker-a", "worker_contract_version": "v1", "capabilities": ["choice_id_response", "healthcheck"], "supported_request_types": ["movement", "purchase_tile"]}'
             )
 
         _EXTERNAL_AI_HEALTH_CACHE.clear()
@@ -753,6 +805,7 @@ class RuntimeServiceTests(unittest.TestCase):
                     "healthcheck_ttl_ms": 10000,
                     "expected_worker_id": "worker-a",
                     "required_capabilities": ["choice_id_response", "healthcheck"],
+                    "required_request_types": ["purchase_tile"],
                 }
             )
 
@@ -767,6 +820,10 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(
             _classify_external_ai_error(RuntimeError("external_ai_worker_identity_mismatch")),
             "external_ai_worker_identity_mismatch",
+        )
+        self.assertEqual(
+            _classify_external_ai_error(RuntimeError("external_ai_missing_required_request_type")),
+            "external_ai_missing_required_request_type",
         )
         self.assertEqual(
             _classify_external_ai_error(ValueError("external_ai_response_not_object")),

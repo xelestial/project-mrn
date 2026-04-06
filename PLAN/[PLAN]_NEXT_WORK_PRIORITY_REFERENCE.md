@@ -277,6 +277,16 @@ This is the practical next-work list after the closed slices above.
 - Runtime hardening also advanced:
   - external worker health-cache reuse is now keyed by worker requirements, not only endpoint/path
   - this reduces the chance that one seat configuration reuses stale health metadata from a different worker-identity/capability requirement set
+
+### 2026-04-07 Progress Update (prompt cleanup + required request-type hardening)
+
+- Prompt cleanup advanced without changing the canonical request contract:
+  - specialized prompt decision sections now reuse a common decision-choice wrapper instead of duplicating section/grid scaffolding
+  - passive / skip choices remain visually secondary while known prompt types keep their game-specific summaries
+- External-worker hardening also moved one step closer to production-shaped participant config:
+  - participant defaults can now declare `required_request_types`
+  - worker health validation now checks those required request types against advertised `supported_request_types`
+  - the reference worker now also respects explicit `preferred_choice_id` and score-like payload hints such as `priority_score`
   - runtime fallback on worker-identity mismatch
   - runtime validation for custom healthchecker identity mismatch
   - mixed-seat browser runtime with `human_http + local_ai + external_ai` descriptors

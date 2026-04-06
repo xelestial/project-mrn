@@ -388,7 +388,10 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
           <small>{valueOrDash(model.currentBeatDetail)}</small>
         </article>
         {hasWorkerStatus(model) ? (
-          <article className="spectator-turn-card spectator-turn-card-worker" data-testid="spectator-turn-worker">
+          <article
+            className={`spectator-turn-card spectator-turn-card-worker spectator-turn-card-worker-${model.externalAiResolutionStatus || "idle"}`}
+            data-testid="spectator-turn-worker"
+          >
             <span>{app.spectatorFields.worker}</span>
             <strong>{valueOrDash(turnStage.workerStatusLabel(model.externalAiResolutionStatus))}</strong>
             <small>{valueOrDash(workerStatusDetail)}</small>

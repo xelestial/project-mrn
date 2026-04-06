@@ -79,6 +79,24 @@ def _specific_trick_reward_payload() -> dict[str, object]:
     }
 
 
+def _priority_scored_reward_payload() -> dict[str, object]:
+    return {
+        "request_id": "req_worker_reward_2",
+        "session_id": "sess_worker_reward_2",
+        "seat": 1,
+        "player_id": 1,
+        "decision_name": "choose_specific_trick_reward",
+        "request_type": "specific_trick_reward",
+        "fallback_policy": "local_ai",
+        "public_context": {},
+        "legal_choices": [
+            {"choice_id": "101", "title": "Reward 101", "value": {"reward_id": 101, "priority_score": 1}},
+            {"choice_id": "102", "title": "Reward 102", "value": {"reward_id": 102, "priority_score": 5}},
+        ],
+        "transport": "http",
+    }
+
+
 def _trick_to_use_payload() -> dict[str, object]:
     return {
         "request_id": "req_worker_trick_1",
@@ -145,6 +163,13 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["choice_id"], "102")
         self.assertEqual(payload["choice_payload"]["value"]["reward_id"], 102)
+
+    def test_decide_prefers_priority_scored_reward_when_context_is_absent(self) -> None:
+        response = self.client.post("/decide", json=_priority_scored_reward_payload())
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["choice_id"], "102")
 
     def test_decide_prefers_usable_non_secondary_trick(self) -> None:
         response = self.client.post("/decide", json=_trick_to_use_payload())

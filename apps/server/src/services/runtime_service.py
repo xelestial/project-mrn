@@ -687,6 +687,11 @@ def _external_ai_health_cache_key(config: dict[str, object], endpoint: str, heal
         for item in (config.get("required_capabilities") or [])
         if isinstance(item, str) and str(item).strip()
     )
+    required_request_types = sorted(
+        str(item).strip()
+        for item in (config.get("required_request_types") or [])
+        if isinstance(item, str) and str(item).strip()
+    )
     auth_header_name = str(config.get("auth_header_name", "Authorization") or "Authorization").strip()
     auth_scheme = str(config.get("auth_scheme", "Bearer") or "Bearer").strip()
     return "|".join(
@@ -696,6 +701,7 @@ def _external_ai_health_cache_key(config: dict[str, object], endpoint: str, heal
             required_version,
             expected_worker_id,
             ",".join(required_capabilities),
+            ",".join(required_request_types),
             auth_header_name,
             auth_scheme,
         ]
@@ -782,13 +788,25 @@ def _validate_external_ai_health_payload(payload: dict[str, object], config: dic
         for item in (config.get("required_capabilities") or [])
         if isinstance(item, str) and str(item).strip()
     }
+    required_request_types = {
+        str(item).strip()
+        for item in (config.get("required_request_types") or [])
+        if isinstance(item, str) and str(item).strip()
+    }
     available_capabilities = {
         str(item).strip()
         for item in (payload.get("capabilities") or [])
         if isinstance(item, str) and str(item).strip()
     }
+    available_request_types = {
+        str(item).strip()
+        for item in (payload.get("supported_request_types") or [])
+        if isinstance(item, str) and str(item).strip()
+    }
     if required_capabilities and not required_capabilities.issubset(available_capabilities):
         raise RuntimeError("external_ai_missing_required_capability")
+    if required_request_types and not required_request_types.issubset(available_request_types):
+        raise RuntimeError("external_ai_missing_required_request_type")
 
 
 def _validate_external_ai_request_type_support(payload: dict[str, object], request_type: str) -> None:
@@ -812,6 +830,7 @@ def _classify_external_ai_error(exc: Exception) -> str:
         "external_ai_worker_identity_mismatch",
         "external_ai_contract_version_mismatch",
         "external_ai_missing_required_capability",
+        "external_ai_missing_required_request_type",
         "external_ai_missing_request_type_support",
         "external_ai_missing_choice_id",
         "external_ai_response_not_object",

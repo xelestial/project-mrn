@@ -401,6 +401,17 @@ body {
   background: linear-gradient(180deg, rgba(196, 181, 253, 0.12), rgba(18, 34, 66, 0.92));
 }
 
+.spectator-turn-card-worker-resolved_by_worker {
+  border-color: rgba(134, 239, 172, 0.88);
+  background: linear-gradient(180deg, rgba(134, 239, 172, 0.14), rgba(18, 34, 66, 0.92));
+}
+
+.spectator-turn-card-worker-resolved_by_local_fallback,
+.spectator-turn-card-worker-worker_failed {
+  border-color: rgba(255, 218, 119, 0.88);
+  background: linear-gradient(180deg, rgba(255, 218, 119, 0.14), rgba(18, 34, 66, 0.92));
+}
+
 .spectator-turn-payoff-sequence {
   margin-top: 12px;
 }
@@ -1022,6 +1033,17 @@ body {
 .turn-stage-card-worker {
   border-color: rgba(196, 181, 253, 0.82);
   background: linear-gradient(180deg, rgba(196, 181, 253, 0.1), rgba(8, 19, 39, 0.94));
+}
+
+.turn-stage-card-worker-resolved_by_worker {
+  border-color: rgba(134, 239, 172, 0.88);
+  background: linear-gradient(180deg, rgba(134, 239, 172, 0.12), rgba(8, 19, 39, 0.94));
+}
+
+.turn-stage-card-worker-resolved_by_local_fallback,
+.turn-stage-card-worker-worker_failed {
+  border-color: rgba(255, 218, 119, 0.88);
+  background: linear-gradient(180deg, rgba(255, 218, 119, 0.14), rgba(8, 19, 39, 0.94));
 }
 
 .turn-stage-card-wide {
