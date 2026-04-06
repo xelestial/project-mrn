@@ -26,6 +26,38 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
 }
 
+function stringOrEmpty(value: unknown): string {
+  return typeof value === "string" && value.trim() ? String(value) : "";
+}
+
+function isSecondaryChoiceRecord(choiceId: string, item: Record<string, unknown>): boolean {
+  const explicitSecondary = item["secondary"];
+  const priority = item["priority"];
+  return (
+    explicitSecondary === true ||
+    priority === "secondary" ||
+    priority === "passive" ||
+    choiceId === "none" ||
+    choiceId === "no"
+  );
+}
+
+function choiceValueRecord(item: Record<string, unknown>): Record<string, unknown> | null {
+  return isRecord(item["value"]) ? { ...item["value"] } : null;
+}
+
+function choiceDescriptionText(item: Record<string, unknown>, value: Record<string, unknown> | null): string {
+  const explicitDescription = stringOrEmpty(item["description"]);
+  if (explicitDescription) {
+    return explicitDescription;
+  }
+  const cardDescription = stringOrEmpty(value?.["card_description"]);
+  if (cardDescription) {
+    return cardDescription;
+  }
+  return stringOrEmpty(value?.["description"]);
+}
+
 function parseChoices(raw: unknown): PromptChoiceViewModel[] {
   if (!Array.isArray(raw)) {
     return [];
@@ -39,29 +71,14 @@ function parseChoices(raw: unknown): PromptChoiceViewModel[] {
       if (typeof choiceId !== "string" || !choiceId.trim()) {
         return null;
       }
-      const value = isRecord(item["value"]) ? { ...item["value"] } : null;
-      const valueDescription =
-        value && typeof value["card_description"] === "string"
-          ? String(value["card_description"])
-          : value && typeof value["description"] === "string"
-            ? String(value["description"])
-            : "";
-      const titleRaw = item["title"] ?? item["label"];
-      const explicitSecondary = item["secondary"];
-      const priority = item["priority"];
-      const secondary =
-        explicitSecondary === true ||
-        priority === "secondary" ||
-        priority === "passive" ||
-        choiceId === "none" ||
-        choiceId === "no";
+      const value = choiceValueRecord(item);
+      const title = stringOrEmpty(item["title"] ?? item["label"]) || choiceId;
       return {
         choiceId,
-        title: typeof titleRaw === "string" && titleRaw.trim() ? String(titleRaw) : choiceId,
-        description:
-          typeof item["description"] === "string" && item["description"].trim() ? String(item["description"]) : valueDescription,
+        title,
+        description: choiceDescriptionText(item, value),
         value,
-        secondary,
+        secondary: isSecondaryChoiceRecord(choiceId, item),
       };
     })
     .filter((item): item is PromptChoiceViewModel => item !== null);

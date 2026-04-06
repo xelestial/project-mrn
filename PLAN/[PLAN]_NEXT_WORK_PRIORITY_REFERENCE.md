@@ -332,6 +332,19 @@ This is the practical next-work list after the closed slices above.
      - health gating
      - stronger worker behavior
 
+### 2026-04-07 Progress Update (selector parsing + prompt section dedup)
+
+- selector-side prompt parsing is now more explicitly normalized:
+  - choice title extraction
+  - choice description extraction
+  - secondary-choice inference
+  all live behind smaller helper functions instead of one large inline branch
+- specialized prompt surfaces now share a lighter common section wrapper for repeated summary-pill + grid layouts
+- Therefore the next practical order narrows again:
+  1. finish only the remaining selector-local summary/detail joins that still leak phrase ownership
+  2. keep simplifying prompt surfaces where specialized layouts still duplicate each other materially
+  3. leave deeper worker/runtime work for slices that actually need transport/ops changes
+
 ## 2026-04-05 Concrete Next Steps
 
 1. Keep `apps/web/src/i18n/` as the source of truth and remove new direct ownership from:

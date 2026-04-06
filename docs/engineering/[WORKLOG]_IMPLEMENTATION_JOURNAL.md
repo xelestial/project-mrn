@@ -2427,3 +2427,15 @@ Updated: 2026-04-07
   - `cd apps/web && npm run build`
   - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
   - `.venv311/bin/python -m pytest apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_runtime_service.py`
+
+## 2026-04-07 Selector / Prompt Simplification Follow-up
+
+- What changed:
+  - `apps/web/src/domain/selectors/promptSelectors.ts` now centralizes canonical choice parsing through smaller helpers instead of redoing title/description/secondary inference inline
+  - `apps/web/src/features/prompt/PromptOverlay.tsx` now reuses a shared `ChoiceSection` / `SummaryPills` wrapper for repeated specialized prompt layouts
+  - generic fallback choices now continue to use the lighter collapsed-secondary treatment while repeated section chrome is reduced
+- Why:
+  - the next PLAN slice after locale-ownership cleanup was to finish trimming selector-owned parsing noise and remove the remaining repetitive prompt-section scaffolding
+- Validation:
+  - `cd apps/web && npm run test -- --run src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/i18n/defaultText.spec.ts src/i18n/i18n.spec.ts`
+  - `cd apps/web && npm run build`

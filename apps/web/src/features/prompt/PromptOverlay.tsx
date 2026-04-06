@@ -39,6 +39,7 @@ type HandChoiceCard = {
 };
 
 type ChoiceGridVariant = "default" | "target" | "decision" | "reward";
+type SummaryPillValue = string | null | undefined;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
@@ -140,6 +141,22 @@ function nonEmptyPills(values: Array<string | null | undefined>): string[] {
   return values
     .map((value) => (typeof value === "string" ? value.trim() : ""))
     .filter((value) => value.length > 0 && value !== "-");
+}
+
+function SummaryPills({ values }: { values: SummaryPillValue[] }) {
+  const pills = nonEmptyPills(values);
+  if (pills.length === 0) {
+    return null;
+  }
+  return (
+    <div className="prompt-summary-pill-row">
+      {pills.map((pill) => (
+        <span key={pill} className="prompt-summary-pill">
+          {pill}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 function choiceGridClass(variant: ChoiceGridVariant, compactChoices: boolean): string {
@@ -435,6 +452,22 @@ function EmphasisChoiceGrid({
       ) : null}
       {orderedChoices.length === 0 ? <p>{promptText.choice.noChoices}</p> : null}
     </>
+  );
+}
+
+type ChoiceSectionProps = {
+  summaryPills?: SummaryPillValue[];
+  children: ReactNode;
+};
+
+function ChoiceSection({ summaryPills = [], children }: ChoiceSectionProps) {
+  return (
+    <section className="prompt-section prompt-hand-stage">
+      <div className="prompt-section-summary">
+        <SummaryPills values={summaryPills} />
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -838,21 +871,14 @@ export function PromptOverlay({
         ) : null}
 
         {isPurchaseTile ? (
-          <section className="prompt-section prompt-hand-stage">
-            <div className="prompt-section-summary">
-              <div className="prompt-summary-pill-row">
-                {nonEmptyPills([
-                  `${promptText.context.currentPosition}: ${tileLabel(currentTileIndex)}`,
-                  `${promptText.context.purchaseCost}: ${formatNumber(currentCost)}`,
-                  `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
-                  currentZone ? `${promptText.context.zone}: ${currentZone}` : null,
-                ]).map((pill) => (
-                  <span key={pill} className="prompt-summary-pill">
-                    {pill}
-                  </span>
-                ))}
-              </div>
-            </div>
+          <ChoiceSection
+            summaryPills={[
+              `${promptText.context.currentPosition}: ${tileLabel(currentTileIndex)}`,
+              `${promptText.context.purchaseCost}: ${formatNumber(currentCost)}`,
+              `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
+              currentZone ? `${promptText.context.zone}: ${currentZone}` : null,
+            ]}
+          >
             <EmphasisChoiceGrid
               prompt={prompt}
               orderedChoices={orderedChoices}
@@ -863,24 +889,17 @@ export function PromptOverlay({
               variant="decision"
               testIdPrefix="purchase-choice"
             />
-          </section>
+          </ChoiceSection>
         ) : null}
 
         {isLapReward ? (
-          <section className="prompt-section prompt-hand-stage">
-            <div className="prompt-section-summary">
-              <div className="prompt-summary-pill-row">
-                {nonEmptyPills([
-                  `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
-                  `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
-                  `${promptText.context.currentCoins}: ${currentCoins ?? "-"}`,
-                ]).map((pill) => (
-                  <span key={pill} className="prompt-summary-pill">
-                    {pill}
-                  </span>
-                ))}
-              </div>
-            </div>
+          <ChoiceSection
+            summaryPills={[
+              `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
+              `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
+              `${promptText.context.currentCoins}: ${currentCoins ?? "-"}`,
+            ]}
+          >
             <EmphasisChoiceGrid
               prompt={prompt}
               orderedChoices={prompt.choices}
@@ -891,24 +910,17 @@ export function PromptOverlay({
               variant="reward"
               testIdPrefix="lap-reward-choice"
             />
-          </section>
+          </ChoiceSection>
         ) : null}
 
         {isActiveFlip ? (
-          <section className="prompt-section prompt-hand-stage">
-            <div className="prompt-section-summary">
-              <div className="prompt-summary-pill-row">
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentPosition}: {tileLabel(currentTileIndex)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentCash}: {formatNumber(currentCash)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.usableCards}: {String(prompt.choices.filter((choice) => choice.choiceId !== "none").length)}
-                </span>
-              </div>
-            </div>
+          <ChoiceSection
+            summaryPills={[
+              `${promptText.context.currentPosition}: ${tileLabel(currentTileIndex)}`,
+              `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
+              `${promptText.context.usableCards}: ${String(prompt.choices.filter((choice) => choice.choiceId !== "none").length)}`,
+            ]}
+          >
             <EmphasisChoiceGrid
               prompt={prompt}
               orderedChoices={orderedChoices}
@@ -918,21 +930,16 @@ export function PromptOverlay({
               onSelectChoice={onSelectChoice}
               testIdPrefix="active-flip-choice"
             />
-          </section>
+          </ChoiceSection>
         ) : null}
 
         {isBurdenExchange ? (
-          <section className="prompt-section prompt-hand-stage">
-            <div className="prompt-section-summary">
-              <div className="prompt-summary-pill-row">
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentCash}: {formatNumber(currentCash)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentShards}: {currentShards ?? "-"}
-                </span>
-              </div>
-            </div>
+          <ChoiceSection
+            summaryPills={[
+              `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
+              `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
+            ]}
+          >
             <EmphasisChoiceGrid
               prompt={prompt}
               orderedChoices={orderedChoices}
@@ -942,7 +949,7 @@ export function PromptOverlay({
               onSelectChoice={onSelectChoice}
               testIdPrefix="burden-exchange-choice"
             />
-          </section>
+          </ChoiceSection>
         ) : null}
 
         {isSpecificTrickReward ? (
@@ -1093,20 +1100,13 @@ export function PromptOverlay({
         ) : null}
 
         {isGeoBonus ? (
-          <section className="prompt-section prompt-hand-stage">
-            <div className="prompt-section-summary">
-              <div className="prompt-summary-pill-row">
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentCash}: {formatNumber(currentCash)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentShards}: {currentShards ?? "-"}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentCoins}: {currentCoins ?? "-"}
-                </span>
-              </div>
-            </div>
+          <ChoiceSection
+            summaryPills={[
+              `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
+              `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
+              `${promptText.context.currentCoins}: ${currentCoins ?? "-"}`,
+            ]}
+          >
             <EmphasisChoiceGrid
               prompt={prompt}
               orderedChoices={orderedChoices}
@@ -1117,26 +1117,17 @@ export function PromptOverlay({
               variant="reward"
               testIdPrefix="geo-bonus-choice"
             />
-          </section>
+          </ChoiceSection>
         ) : null}
 
         {isPabalDiceMode ? (
-          <section className="prompt-section prompt-hand-stage">
-            <div className="prompt-section-summary">
-              <div className="prompt-summary-pill-row">
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentPosition}: {tileLabel(movementPosition)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentShards}: {currentShards ?? "-"}
-                </span>
-                {weatherName ? (
-                  <span className="prompt-summary-pill">
-                    {promptText.context.currentWeather}: {weatherName}
-                  </span>
-                ) : null}
-              </div>
-            </div>
+          <ChoiceSection
+            summaryPills={[
+              `${promptText.context.currentPosition}: ${tileLabel(movementPosition)}`,
+              `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
+              weatherName ? `${promptText.context.currentWeather}: ${weatherName}` : null,
+            ]}
+          >
             <EmphasisChoiceGrid
               prompt={prompt}
               orderedChoices={orderedChoices}
@@ -1147,7 +1138,7 @@ export function PromptOverlay({
               variant="decision"
               testIdPrefix="pabal-dice-mode-choice"
             />
-          </section>
+          </ChoiceSection>
         ) : null}
 
         {!usesSpecializedSurface ? (
