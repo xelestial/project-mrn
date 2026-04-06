@@ -745,6 +745,7 @@ export function App() {
           <button
             type="button"
             className={locale === "ko" ? "route-tab route-tab-active" : "route-tab"}
+            data-testid="locale-switch-ko"
             onClick={() => setLocale("ko")}
           >
             {app.localeKo}
@@ -752,6 +753,7 @@ export function App() {
           <button
             type="button"
             className={locale === "en" ? "route-tab route-tab-active" : "route-tab"}
+            data-testid="locale-switch-en"
             onClick={() => setLocale("en")}
           >
             {app.localeEn}

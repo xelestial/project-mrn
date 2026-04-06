@@ -28,27 +28,52 @@ type SpotlightCard = {
   tone: "economy" | "effect";
 };
 
+type PayoffTone = "economy" | "effect" | "neutral";
+
+function payoffToneForEventCode(eventCode: string): PayoffTone {
+  if (eventCode === "tile_purchased" || eventCode === "rent_paid" || eventCode === "lap_reward_chosen") {
+    return "economy";
+  }
+  if (eventCode === "fortune_drawn" || eventCode === "fortune_resolved" || eventCode === "trick_used") {
+    return "effect";
+  }
+  return "neutral";
+}
+
 export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: SpectatorTurnPanelProps) {
-  const { app } = useI18n();
+  const { app, turnStage } = useI18n();
   const title = actorPlayerId === null ? app.spectatorHeadline : app.spectatorTitle(actorPlayerId);
   const progress = model.progressTrail.filter((item) => item.trim());
   const latestActionTitle = latestAction?.label ?? "-";
   const latestActionDetail = latestAction?.detail?.trim() ? latestAction.detail : "-";
+  const latestActionTone = payoffToneForEventCode(latestAction?.eventCode ?? "");
   const economyText = joinVisible([model.purchaseSummary, model.rentSummary]);
   const effectText = joinVisible([model.trickSummary, model.fortuneSummary]);
   const spotlightSummary = joinVisible([model.currentBeatDetail, model.fortuneSummary, model.rentSummary, model.purchaseSummary]);
+  const payoffTitle =
+    latestActionTone === "economy"
+      ? app.spectatorFields.economy
+      : latestActionTone === "effect"
+        ? app.spectatorFields.effect
+        : app.spectatorFields.beat;
+  const payoffSummary =
+    latestActionTone === "economy"
+      ? economyText
+      : latestActionTone === "effect"
+        ? effectText
+        : joinVisible([model.currentBeatDetail, latestActionDetail]);
   const spotlightCards: SpotlightCard[] = [];
   if (hasValue(model.purchaseSummary)) {
-    spotlightCards.push({ key: "purchase", title: app.spectatorFields.economy, detail: model.purchaseSummary, tone: "economy" });
+    spotlightCards.push({ key: "purchase", title: turnStage.fields.purchase, detail: model.purchaseSummary, tone: "economy" });
   }
   if (hasValue(model.rentSummary)) {
-    spotlightCards.push({ key: "rent", title: app.spectatorFields.economy, detail: model.rentSummary, tone: "economy" });
+    spotlightCards.push({ key: "rent", title: turnStage.fields.rent, detail: model.rentSummary, tone: "economy" });
   }
   if (hasValue(model.fortuneSummary)) {
-    spotlightCards.push({ key: "fortune", title: app.spectatorFields.effect, detail: model.fortuneSummary, tone: "effect" });
+    spotlightCards.push({ key: "fortune", title: turnStage.fields.fortune, detail: model.fortuneSummary, tone: "effect" });
   }
   if (hasValue(model.trickSummary)) {
-    spotlightCards.push({ key: "trick", title: app.spectatorFields.effect, detail: model.trickSummary, tone: "effect" });
+    spotlightCards.push({ key: "trick", title: turnStage.fields.trick, detail: model.trickSummary, tone: "effect" });
   }
 
   return (
@@ -67,7 +92,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
         <article className="spectator-turn-card spectator-turn-card-hero" data-testid="spectator-turn-scene">
           <span>{app.spectatorFields.beat}</span>
           <strong>{valueOrDash(model.currentBeatLabel)}</strong>
-          <small>{valueOrDash(spotlightSummary)}</small>
+          <small>{valueOrDash(latestActionTitle === "-" ? spotlightSummary : `${latestActionTitle} / ${spotlightSummary}`)}</small>
         </article>
         <article className="spectator-turn-card" data-testid="spectator-turn-weather">
           <span>{app.spectatorFields.weather}</span>
@@ -88,9 +113,20 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
           <strong>{valueOrDash(latestActionTitle)}</strong>
           <small>{valueOrDash(latestActionDetail)}</small>
         </article>
+        {latestActionTitle !== "-" ? (
+          <article
+            className={`spectator-turn-card spectator-turn-card-payoff spectator-turn-card-payoff-${latestActionTone}`}
+            data-testid="spectator-turn-payoff"
+          >
+            <span>{payoffTitle}</span>
+            <strong>{valueOrDash(payoffSummary)}</strong>
+            <small>{valueOrDash(latestActionTitle)}</small>
+          </article>
+        ) : null}
         <article className="spectator-turn-card" data-testid="spectator-turn-prompt">
           <span>{app.spectatorFields.prompt}</span>
           <strong>{valueOrDash(model.promptSummary)}</strong>
+          <small>{valueOrDash(model.currentBeatDetail)}</small>
         </article>
         <article className="spectator-turn-card" data-testid="spectator-turn-move">
           <span>{app.spectatorFields.move}</span>

@@ -676,3 +676,39 @@ This order is chosen to stop further drift before additional feature edits.
   - richer per-step pawn interpolation instead of one start-to-end travel ghost only
   - stronger fortune / rent / purchase payoff cards and transitions
   - continued simplification of the remaining prompt surfaces so they read like live game UI instead of selection inspectors
+
+## 2026-04-06 Payoff / Prompt Follow-up
+
+- Remote-turn scene payoff was raised another step:
+  - spectator spotlight cards now label outcomes specifically as:
+    - purchase
+    - rent
+    - fortune
+    - trick
+    instead of collapsing them into generic economy/effect buckets
+  - the spectator hero scene card now combines:
+    - latest public action headline
+    - current beat detail
+    so other-player turns read more like a continuing scene
+- Movement prompt clutter was reduced again:
+  - current-position and weather remain visible
+  - selected-card state only appears when the player is actually in card-selection mode
+  - the generic usable-card count moved out of the always-on summary row
+- Canonical event summaries were also strengthened for live UX:
+  - tile purchase details now include the acting player
+  - lap reward details now include the acting player
+  - fortune draw / resolution details now include the acting player
+- This improves P0-2, but it still does not finish it.
+- Remaining visible parity work still includes:
+  - fuller fortune/weather reveal staging as dedicated scene beats, not only summary cards
+  - purchase/rent outcome transitions that feel more like board-game events than feed entries
+  - more reduction of inspector feel in mark/reward/special prompts
+
+## 2026-04-06 Human-Playable Guardrail Follow-up
+
+- Spectator payoff is now part of the protected browser contract, not just an incidental card in the panel.
+- Locale switching persistence is now also protected because live human-play verification needs stable bilingual switching without reload drift.
+- Remaining visible parity work still includes:
+  - fuller fortune/weather reveal staging as dedicated scene beats, not only summary cards
+  - purchase/rent outcome transitions that feel more like board-game events than feed entries
+  - more reduction of inspector feel in mark/reward/special prompts

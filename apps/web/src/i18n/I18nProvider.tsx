@@ -12,15 +12,18 @@ export type I18nContextValue = {
 
 export const I18nContext = createContext<I18nContextValue | null>(null);
 
+export function resolveLocaleFromStoredValue(stored: string | null): LocaleCode {
+  if (stored === "ko" || stored === "en") {
+    return stored;
+  }
+  return DEFAULT_LOCALE;
+}
+
 function resolveInitialLocale(): LocaleCode {
   if (typeof window === "undefined") {
     return DEFAULT_LOCALE;
   }
-  const stored = window.localStorage.getItem(STORAGE_KEY);
-  if (stored === "en") {
-    return "en";
-  }
-  return DEFAULT_LOCALE;
+  return resolveLocaleFromStoredValue(window.localStorage.getItem(STORAGE_KEY));
 }
 
 export function I18nProvider({ children }: { children: ReactNode }) {

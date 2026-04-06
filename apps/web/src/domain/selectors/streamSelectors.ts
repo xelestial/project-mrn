@@ -350,7 +350,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
   if (eventType === "tile_purchased") {
     const tile = numberOrNull(payload["tile_index"]);
     const cost = payload["cost"] ?? payload["purchase_cost"] ?? "?";
-    return text.stream.tilePurchased(tile === null ? "?" : String(tile + 1), cost);
+    return `${actorFromPayload(payload)} / ${text.stream.tilePurchased(tile === null ? "?" : String(tile + 1), cost)}`;
   }
   if (eventType === "rent_paid") {
     const payer = payload["payer_player_id"] ?? payload["payer"] ?? "?";
@@ -428,15 +428,15 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
         parts.push(text.stream.lapReward.coins(coins));
       }
       if (parts.length > 0) {
-        return parts.join(" / ");
+        return `${actorFromPayload(payload)} / ${parts.join(" / ")}`;
       }
     }
     const choice = asString(payload["choice"] ?? payload["reward"] ?? payload["summary"]);
     const amount = payload["amount"] ?? payload["cash_amount"] ?? payload["value"];
     if (typeof amount === "number") {
-      return `${choice} (${amount})`;
+      return `${actorFromPayload(payload)} / ${choice} (${amount})`;
     }
-    return choice;
+    return `${actorFromPayload(payload)} / ${choice}`;
   }
   if (eventType === "parameter_manifest") {
     const manifest = manifestRecordFromPayload(payload);
@@ -473,11 +473,11 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
   }
   if (eventType === "fortune_drawn") {
     const cardName = asString(payload["card_name"] ?? payload["card"] ?? payload["summary"]);
-    return text.stream.fortuneDrawn(cardName);
+    return `${actorFromPayload(payload)} / ${text.stream.fortuneDrawn(cardName)}`;
   }
   if (eventType === "fortune_resolved") {
     const summary = asString(payload["summary"] ?? payload["resolution"] ?? payload["card_name"]);
-    return text.stream.fortuneResolved(summary);
+    return `${actorFromPayload(payload)} / ${text.stream.fortuneResolved(summary)}`;
   }
 
   const summary = payload["summary"];

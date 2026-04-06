@@ -499,13 +499,12 @@ export function PromptOverlay({
                     {promptText.context.currentWeather}: {weatherName}
                   </span>
                 ) : null}
-                <span className="prompt-summary-pill">
-                  {promptText.context.usableCards}: {String(movement.cardPool.length)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.selectedCards}:{" "}
-                  {selectedCards.length > 0 ? selectedCards.join(" + ") : promptText.context.noneSelected}
-                </span>
+                {movementMode === "cards" ? (
+                  <span className="prompt-summary-pill">
+                    {promptText.context.selectedCards}:{" "}
+                    {selectedCards.length > 0 ? selectedCards.join(" + ") : promptText.context.noneSelected}
+                  </span>
+                ) : null}
               </div>
             </div>
 
@@ -532,6 +531,9 @@ export function PromptOverlay({
 
             {movementMode === "cards" ? (
               <div className="dice-chip-row">
+                <small className="prompt-choice-footnote">
+                  {promptText.context.usableCards}: {String(movement.cardPool.length)}
+                </small>
                 <div className="dice-chip-list">
                   {movement.cardPool.map((card) => (
                     <button

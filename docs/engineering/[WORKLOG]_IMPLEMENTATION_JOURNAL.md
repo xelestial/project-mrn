@@ -1597,3 +1597,43 @@ Updated: 2026-04-04
   - centralizing those publish paths lowers drift risk while continuing the "AI and human share one decision contract" track
 - Validation:
   - `python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_stream_api.py` passed
+
+### Entry 085
+
+- Scope: P0-2 remote-turn scene payoff and prompt simplification follow-up.
+- Done:
+  - Updated `apps/web/src/features/prompt/PromptOverlay.tsx` so the movement prompt now hides non-essential summary pills during normal dice mode and only surfaces selected-card state when the player is actually using dice cards.
+  - Updated `apps/web/src/features/stage/SpectatorTurnPanel.tsx` so spectator spotlight cards now use specific turn-stage labels (`purchase / rent / fortune / trick`) instead of generic `economy / effect` buckets, and the hero scene card now carries the latest public action headline together with the current beat summary.
+  - Updated `apps/web/src/domain/selectors/streamSelectors.ts` so:
+    - tile purchase details now carry the acting player prefix
+    - lap reward details now carry the acting player prefix
+    - fortune draw / fortune resolution details now carry the acting player prefix
+  - Re-stabilized `apps/web/src/i18n/locales/en.ts` after a broken legacy locale fragment in the board/weather fallback area was surfaced by build/e2e.
+  - Normalized the English wording for:
+    - tile purchase detail
+    - rent detail
+    - fortune draw / fortune resolution detail
+    - movement prompt button text
+- Why:
+  - other-player turns still needed stronger "something just happened" payoff instead of flat status summaries
+  - the movement prompt still exposed more bookkeeping than was useful during live play
+  - build/e2e caught a legacy corrupted English locale fragment, so the string-stability track needed another hardening pass
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts` passed (`29 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`2 passed`)
+
+## 2026-04-06 Locale Restore Follow-up
+
+- What changed:
+  - Exported `resolveLocaleFromStoredValue(...)` from `apps/web/src/i18n/I18nProvider.tsx` so locale restore behavior is explicit and testable.
+  - Fixed the restore path so both `ko` and `en` survive reloads instead of only recognizing stored English.
+  - Replaced the broken legacy `apps/web/src/i18n/i18n.spec.ts` content with a clean UTF-8 spec that asserts English default plus bidirectional locale restore.
+  - Extended `apps/web/e2e/human_play_runtime.spec.ts` so remote-turn continuity now also requires the spectator payoff card.
+- Why:
+  - the bilingual string architecture is not complete if locale switching silently resets after refresh
+  - the human-play UI contract should protect the spectator payoff surface that was just added
+- Validation:
+  - `npm run build` passed (`apps/web`)
+  - `npm run test -- --run src/i18n/i18n.spec.ts src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts` passed (`32 passed`)
+  - `npm run e2e -- e2e/human_play_runtime.spec.ts` passed (`3 passed`)

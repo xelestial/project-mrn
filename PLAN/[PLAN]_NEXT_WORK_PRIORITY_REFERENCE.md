@@ -197,3 +197,14 @@ Implement in this order unless a blocker forces a swap:
   1. continue prompt-surface cleanup until remaining live prompts feel game-native instead of inspector-like
   2. keep strengthening non-local turn scene payoff for fortune / purchase / rent
   3. continue reducing human/AI branch-local decision drift before later `DecisionPort` migration
+
+### 2026-04-06 Progress Update (locale persistence checkpoint)
+
+- Locale restore is now explicitly guarded:
+  - both `ko` and `en` survive reload
+  - invalid stored values fall back to the default locale
+  - locale buttons have stable ids and browser coverage
+- Therefore the next immediate execution order remains:
+  1. continue prompt-surface cleanup until remaining live prompts feel game-native instead of inspector-like
+  2. keep strengthening non-local turn scene payoff for fortune / purchase / rent and turn-to-turn handoff
+  3. continue reducing human/AI branch-local decision drift before later `DecisionPort` migration

@@ -351,3 +351,28 @@ Update mandatory principles so future work must:
   1. continue extracting any leftover inline visible phrases from prompt/stage/theater helpers
   2. split `uiText.ts` by feature once navigation cost starts slowing implementation
   3. add broader locale-focused browser assertions once more prompt surfaces are fully resource-owned
+
+## 2026-04-06 English Locale Recovery Follow-up
+
+- The English locale file contained an old corrupted fragment in:
+  - board zone-color fallback keys
+  - weather fallback name keys
+- That fragment is now treated as an active regression class, not harmless dead text, because:
+  - Vite/dev build can fail on it
+  - browser parity can stall before any human-play UI renders
+- Current stabilization outcome:
+  - English movement prompt wording was normalized again
+  - English purchase / rent / fortune scene wording was normalized again
+  - the broken legacy board-locale fragment was removed so build/e2e return to a stable baseline
+- Remaining follow-up remains:
+  1. keep eliminating any legacy mojibake fragments from locale files even when they appear outside currently visible UI
+  2. keep browser smoke coverage on human-play flows so locale corruption fails early
+  3. continue moving prompt/stage/theater wording out of component assembly and into locale-owned resources
+
+## 2026-04-06 Locale Restore Validation
+
+- Locale persistence is now part of the guarded string-stability surface:
+  - `ko` must restore after reload
+  - `en` must restore after reload
+  - invalid stored values must safely fall back to the default locale
+- This is now covered through a direct unit seam (`resolveLocaleFromStoredValue(...)`) instead of relying only on manual browser verification.
