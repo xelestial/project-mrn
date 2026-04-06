@@ -60,6 +60,22 @@ Implemented baseline:
 - root-source propagation verification is now added:
   - source file delta changes `source_fingerprints` + `manifest_hash`
   - session bootstrap manifest reflects source-change hash (`apps/server/tests/test_parameter_propagation.py`)
+- external-AI participant/runtime defaults are now also parameter-driven enough for worker replacement:
+  - `healthcheck_policy`
+  - `require_ready`
+  - `max_attempt_count`
+  - `required_request_types`
+  - `required_worker_adapter`
+  - `required_policy_mode`
+  - `required_policy_class`
+  - `required_decision_style`
+  - `worker_profile`
+- `worker_profile=priority_scored` now expands stronger-worker compatibility requirements without repeating every low-level gate
+- local session/API/runtime/playtest coverage now proves those worker-profile defaults survive through:
+  - parameter resolution
+  - session normalization
+  - runtime compatibility checks
+  - localhost HTTP worker round-trips
 
 ## Why This Is Needed (Current Audit)
 

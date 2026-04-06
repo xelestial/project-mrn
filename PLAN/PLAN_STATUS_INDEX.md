@@ -150,49 +150,41 @@ These are no longer the immediate blockers, but they are recently completed and 
 
 ## Carry-Forward Work
 
-These are the slices that should still actively drive implementation after the recently-closed work above.
+These are the slices that may still reopen, but they are no longer broad implementation queues inside this repository.
 
-### 1. Fortune / purchase / rent scene payoff
+### 1. Evidence-only human-play visual drift cleanup
 - Status:
-  - active
-- Why it remains:
-  - payoff cards are present, but the scene still needs to feel more like live gameplay than a feed
-- Expected direction:
-  - stronger fortune reveal staging
-  - richer purchase/rent transitions
-  - better payoff emphasis during remote turns
-  - keep lap reward / mark / flip / weather continuity equally visible
+  - evidence-only
+- What is already closed enough:
+  - fortune / purchase / rent / lap reward / mark / flip / weather continuity now survives mixed-seat stage and spectator flows
+  - worker success/fallback metadata now appears inside the same remote-turn payoff sequence instead of a detached diagnostics block
+- Reopen only if:
+  - a real playtest shows a specific feed-like or rule-confusing moment that is not already covered
 
-### 2. Specialized prompt simplification
+### 2. Locale/resource residue cleanup
 - Status:
-  - active
-- Why it remains:
-  - known prompt types are specialized now, but some layouts still feel inspector-like
-- Expected direction:
-  - simplify choice cards further
-  - keep passive/skip options visually secondary
-  - continue reducing request-meta noise
+  - evidence-only
+- What is already closed enough:
+  - major selector/component sentence ownership was moved behind locale helpers or resource catalogs
+  - `uiText.ts` is now a compatibility shim rather than the primary source of visible copy
+- Reopen only if:
+  - a newly discovered selector-local phrase or inline user-facing string appears in review or playtest evidence
 
-### 3. Provider/decision drift reduction
+### 3. Stronger external-worker replacement
 - Status:
-  - active
-- Why it remains:
-  - canonical lifecycle coverage is much stronger, but the remaining value is now concentrated in:
-    - final bridge/router simplification
-    - canonical request consumption on the web
-    - external worker hardening beyond the reference service
-- Expected direction:
-  - keep shrinking residual human/AI branch-local logic
-  - keep the web aligned to canonical request/public-context fields
-  - keep the runtime/client seam stable as more capable external workers replace the reference implementation
-  - keep selector-side sentence ownership moving into locale resources instead of inline formatter logic
-  - keep external-worker auth/identity/capability checks mandatory even for injected custom transports
-  - keep worker readiness / attempt-limit policy parameter-driven and visible in mixed-seat regressions
-  - keep decision-response readiness validation aligned with the same public-context seam as health readiness
-  - keep stronger-worker metadata compatibility (`policy_mode` / `decision_style`) enforced through the same transport seam
-  - keep stronger-worker adapter compatibility (`worker_adapter`) enforced through the same transport seam
-  - keep stronger scored adapters visible end-to-end in stage/spectator/E2E coverage before swapping to a real external service
-  - keep transport-compatibility validation (`supported_transports`) aligned with the same fallback diagnostics seam
+  - operational follow-up
+- What is already closed enough:
+  - the runtime/worker HTTP seam is mounted, authenticated, parameter-driven, and localhost-tested
+  - stronger worker presets now exist through:
+    - `worker_profile`
+    - `required_worker_adapter`
+    - `required_policy_mode`
+    - `required_policy_class`
+    - `required_decision_style`
+  - built-in stronger scored adapters are already exercised end-to-end
+- Remaining value:
+  - attach a real deployed external worker/service to the stabilized seam
+  - treat any follow-up repo edits as rollout support, not a fresh architecture phase
 
 ## Active But Secondary Plans
 
@@ -283,11 +275,10 @@ When choosing the next task, follow this order:
 
 The current implementation focus is:
 
-1. human-play runtime continuity and prompt correctness
-2. canonical decision request consumption across engine/server/web
-3. string/resource externalization and encoding safety
-4. rule parity closure
-5. parameter-driven decoupling follow-up
+1. keep the repo-side multiplayer runtime/playtest path stable
+2. use real playtests to collect any remaining evidence before reopening UI polish
+3. keep worker replacement/configuration parameter-driven
+4. avoid reopening closed slices without concrete regression evidence
 
 ### Current checkpoint note
 
@@ -312,10 +303,14 @@ The current implementation focus is:
   - turn-handoff payoff continuity
   - external worker compatibility now also surfaces replacement metadata (`policy_mode` / `decision_style`) into the same canonical public-context seam
   - stronger worker replacement metadata now also supports explicit `policy_class` gating through the same health/fallback seam
-- Active carry-forward after this checkpoint:
-  1. mount a real external AI worker/service against the now-live HTTP transport contract
-  2. continue locale ownership reduction in selector-generated summaries
-  3. keep closing rule-parity visuals around mark/flip/weather persistence where regression evidence appears
-  4. only after that, continue lower-priority parameter/profile expansion
+- Current practical state after this checkpoint:
+  1. repo-side worker/runtime/prompt/selector carry-forward is closed enough for local human/local-AI/external-AI playtests
+  2. the next meaningful step is operational:
+     - attach a real stronger external worker/service endpoint
+     - run live playtests
+  3. any further code work should be evidence-driven:
+     - visual drift found in playtests
+     - locale residue found in review
+     - rollout support needed for a stronger deployed worker
 
 Everything else is currently supporting context, not the main queue.

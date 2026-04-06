@@ -139,11 +139,10 @@ Status:
 
 Implement in this order unless a blocker forces a swap:
 
-1. selector/resource locale detachment
-2. prompt surface cleanup on top of the locale foundation
-3. non-local turn theater continuity
-4. rule-parity visual fixes
-5. parameter/contract decoupling follow-up
+1. attach a real stronger external worker/service to the stabilized HTTP seam
+2. run human + local AI + external AI playtests and collect concrete evidence
+3. reopen visual drift or locale cleanup only when that evidence shows a gap
+4. otherwise preserve the now-closed repo-side seams and avoid churn
 
 ## Current Closed Slices
 
@@ -158,9 +157,9 @@ These are finished enough that they should not be reopened unless regression evi
 
 This is the practical next-work list after the closed slices above.
 
-1. continue selector-generated locale ownership reduction
-2. use regression evidence to close any remaining rule-parity visual gaps
-3. harden the external-AI participant path beyond the reference worker
+1. real stronger external worker/service hookup
+2. real mixed-seat playtests
+3. evidence-only visual or locale cleanup if the playtests reveal a gap
 
 ### 2026-04-07 Progress Update (DecisionPort + frontend canonical prompt checkpoint)
 
@@ -258,12 +257,36 @@ This is the practical next-work list after the closed slices above.
     - local-fallback turns
   - repeated-fallback browser coverage now asserts worker adapter / mode / class visibility across longer mixed-seat chains
 - Locale ownership also narrowed again:
-  - spectator inline summary joins now route through locale helpers instead of component-local assembly
-  - remaining selector-side summary joins keep shrinking toward locale-owned formatting
-- Therefore the practical next-work order remains:
-  1. keep trimming the last selector-owned phrasing
-  2. keep closing any remaining visual-drift evidence from real play
-  3. keep the worker seam stable while stronger workers/services replace the reference adapter
+  - spectator and current-turn summaries now keep routing worker/status phrasing through locale helpers instead of component-local join logic
+
+### 2026-04-07 Progress Update (repo-side carry-forward closure checkpoint)
+
+- The remaining repo-side carry-forward is now considered closed enough for this phase:
+  - selector-side locale ownership was reduced to small evidence-only residue
+  - specialized prompt cleanup is complete enough that prompt surfaces are no longer the main blocker
+  - remote-turn stage/spectator continuity now preserves:
+    - worker id
+    - worker profile
+    - worker adapter
+    - policy mode
+    - policy class
+    - decision style
+    - readiness
+    - bounded attempt counts
+  - stronger-worker presets now flow from participant parameters into:
+    - worker startup
+    - health metadata
+    - decision metadata
+    - canonical `public_context`
+  - local playtest guidance now exists for:
+    - human seats
+    - local AI seats
+    - external AI seats
+    - stronger worker profiles
+- Therefore the practical next work is no longer broad repo cleanup:
+  1. attach a real stronger external worker/service endpoint
+  2. run live playtests
+  3. only reopen visual/locale cleanup on concrete evidence
 
 ### 2026-04-07 Progress Update (stronger scored adapter + longer mixed-seat proof)
 

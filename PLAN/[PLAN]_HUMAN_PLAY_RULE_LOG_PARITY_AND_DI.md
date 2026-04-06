@@ -218,8 +218,25 @@ This order is chosen to stop further drift before additional feature edits.
   - choice density differs by prompt type instead of one uniform card wall
 - Turn-theater readability was raised:
   - theater panel is now labeled in player-facing Korean
-  - latest core/public action is surfaced as a hero card
-  - lane cards have clearer hierarchy and emphasis
+
+## 2026-04-07 Current Slice Closure Note
+
+- Repo-side human-play parity work is now closed enough for the current slice:
+  - mixed-seat browser/runtime coverage now keeps:
+    - local prompt visibility
+    - remote-turn spectator continuity
+    - weather / fortune / purchase / rent / lap-reward visibility
+    - external worker success/fallback continuity
+    - readiness / attempt-limit / worker provenance visibility
+  - current-turn stage and spectator panels now keep external-worker status inside the same scene/payoff flow rather than a detached debug lane
+  - canonical decision context is now surfaced through selector/stage rendering strongly enough for local playtests
+- Remaining work for this plan is now split:
+  1. evidence-only UI drift cleanup if a real playtest shows a specific narrative problem
+  2. future architecture work for behavior-provider DI around mark/weather/fortune
+- That second item is intentionally not a blocker for the current playable mixed-seat runtime slice.
+- Current visible state already includes:
+  - latest core/public action surfaced as a hero card
+  - lane cards with clearer hierarchy and emphasis
 - Stage summary readability was also raised:
   - current actor turn summary is now a hero card
   - weather remains visible in its own card

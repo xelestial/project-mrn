@@ -2817,3 +2817,20 @@ Updated: 2026-04-07
   - after closing the stronger-worker seam and localhost transport checks, the next practical value was to make real playtests reproducible from the same parameter/runtime contract
 - Validation:
   - `.venv311/bin/python -m pytest apps/server/tests/test_session_service.py apps/server/tests/test_sessions_api.py`
+
+## 2026-04-07 Repo-Side Closure Reclassification
+
+- What changed:
+  - Reclassified the remaining internal plan queue from "active implementation" to:
+    - operational stronger-worker hookup
+    - evidence-only visual drift cleanup
+    - evidence-only locale residue cleanup
+  - Updated execution docs to reflect that:
+    - stronger worker presets now reach real worker startup/runtime metadata
+    - mixed-seat local playtests are the next meaningful gate
+    - selector/prompt/stage carry-forward inside the repo is closed enough unless new evidence reopens it
+- Why:
+  - the remaining value is no longer broad code churn inside the repo
+  - the next practical step is attaching a real stronger endpoint and collecting playtest evidence
+- Validation:
+  - doc/status refresh only
