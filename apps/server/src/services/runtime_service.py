@@ -408,11 +408,11 @@ class _LocalAiDecisionClient:
         )
 
 
-class _ExternalAiDecisionClientPlaceholder:
-    """Compatibility adapter for future external AI participants.
+class _LoopbackExternalAiTransport:
+    """Default external-AI transport adapter.
 
-    Current implementation still resolves through the local AI gateway path,
-    but preserves an explicit client boundary and seat-specific descriptor/config.
+    This keeps the contract on an explicit transport seam while still using the
+    configured local AI fallback policy until a real remote worker/service is mounted.
     """
 
     def __init__(self, *, ai_fallback, gateway: DecisionGateway, seat: int, config: dict[str, object] | None = None) -> None:
@@ -437,6 +437,15 @@ class _ExternalAiDecisionClientPlaceholder:
             resolver=lambda: ai_callable(*call.invocation.args, **call.invocation.kwargs),
             choice_serializer=call.choice_serializer,
         )
+
+
+class _ExternalAiDecisionClient:
+    def __init__(self, *, transport: _LoopbackExternalAiTransport) -> None:
+        self.policy = getattr(transport, "policy", None)
+        self._transport = transport
+
+    def resolve(self, call):
+        return self._transport.resolve(call)
 
 
 class _LocalHumanDecisionClient:
@@ -540,15 +549,31 @@ class _ServerDecisionClientFactory:
                 clients[player_id] = human_client
                 continue
             if participant_client == ParticipantClientType.EXTERNAL_AI:
-                clients[player_id] = _ExternalAiDecisionClientPlaceholder(
+                transport = self.create_external_ai_transport(
                     ai_fallback=ai_fallback,
                     gateway=gateway,
                     seat=seat.seat,
                     config=seat.participant_config,
                 )
+                clients[player_id] = _ExternalAiDecisionClient(transport=transport)
                 continue
             clients[player_id] = default_ai_client
         return clients
+
+    def create_external_ai_transport(
+        self,
+        *,
+        ai_fallback,
+        gateway: DecisionGateway,
+        seat: int,
+        config: dict[str, object] | None = None,
+    ):
+        return _LoopbackExternalAiTransport(
+            ai_fallback=ai_fallback,
+            gateway=gateway,
+            seat=seat,
+            config=config,
+        )
 
 
 class _FanoutVisEventStream:

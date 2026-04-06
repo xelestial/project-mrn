@@ -532,7 +532,7 @@ P3 종료 조건:
 - Current runtime behavior:
   - `human_http` -> local human decision client
   - `local_ai` -> local AI decision client
-  - `external_ai` -> explicit external-AI placeholder client adapter
+  - `external_ai` -> explicit external-AI client adapter with a default loopback transport
 - Result:
   - the open-participant model is now represented in persisted session state, not only in internal runtime wiring
-  - the next real step is no longer “invent a place to put external AI”, but “replace the placeholder adapter with a real external worker/client implementation”
+  - the next real step is no longer “invent a place to put external AI”, but “replace the default loopback transport with a real external worker/client implementation”

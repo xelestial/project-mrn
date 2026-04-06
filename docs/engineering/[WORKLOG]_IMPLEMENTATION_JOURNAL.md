@@ -2161,11 +2161,14 @@ Updated: 2026-04-04
   - Session HTTP payloads now expose participant descriptors in create/public/start responses.
   - Runtime client selection now uses seat-level participant descriptors:
     - local AI seats route to the local AI decision client
-    - `external_ai` seats route to an `_ExternalAiDecisionClientPlaceholder`
-  - The external AI placeholder still resolves through the local gateway today, but it preserves:
+    - `external_ai` seats route to an explicit external-AI client adapter
+  - Added a default loopback external-AI transport seam:
+    - `_ExternalAiDecisionClient`
+    - `_LoopbackExternalAiTransport`
+  - The default transport still resolves through the local gateway today, but it preserves:
     - explicit participant boundary
     - seat-specific config
-    - a dedicated upgrade seam for future real external workers/services
+    - transport-level upgrade seam for future real external workers/services
 - Why:
   - the architecture goal is no longer just “AI and humans share similar decision events”; it is “AI can participate through the same kind of open multiplayer boundary”
   - seat descriptors are the smallest stable way to carry that participant intent from session creation through runtime routing

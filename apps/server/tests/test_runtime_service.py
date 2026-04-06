@@ -202,7 +202,11 @@ class RuntimeServiceTests(unittest.TestCase):
 
     def test_client_factory_builds_external_ai_placeholder_per_seat_descriptor(self) -> None:
         from apps.server.src.domain.session_models import ParticipantClientType, SeatConfig, SeatType
-        from apps.server.src.services.runtime_service import _ExternalAiDecisionClientPlaceholder, _ServerDecisionClientFactory
+        from apps.server.src.services.runtime_service import (
+            _ExternalAiDecisionClient,
+            _LoopbackExternalAiTransport,
+            _ServerDecisionClientFactory,
+        )
 
         gateway = object()
         human_client = object()
@@ -228,8 +232,46 @@ class RuntimeServiceTests(unittest.TestCase):
         )
 
         self.assertIs(participants[1], human_client)
-        self.assertIsInstance(participants[0], _ExternalAiDecisionClientPlaceholder)
-        self.assertEqual(participants[0]._config["endpoint"], "local://bot-worker-1")
+        self.assertIsInstance(participants[0], _ExternalAiDecisionClient)
+        self.assertIsInstance(participants[0]._transport, _LoopbackExternalAiTransport)
+        self.assertEqual(participants[0]._transport._config["endpoint"], "local://bot-worker-1")
+
+    def test_external_ai_transport_enriches_public_context_with_participant_metadata(self) -> None:
+        from apps.server.src.services.runtime_service import _LoopbackExternalAiTransport
+
+        class _FakeAiPolicy:
+            def choose_pabal_dice_mode(self, state, player):  # noqa: ANN001
+                del state, player
+                return "minus_one"
+
+        class _FakeGateway:
+            def __init__(self) -> None:
+                self.calls: list[dict] = []
+
+            def resolve_ai_decision(self, **kwargs):  # noqa: ANN003
+                self.calls.append(kwargs)
+                return "minus_one"
+
+        gateway = _FakeGateway()
+        transport = _LoopbackExternalAiTransport(
+            ai_fallback=_FakeAiPolicy(),
+            gateway=gateway,  # type: ignore[arg-type]
+            seat=3,
+            config={"endpoint": "local://bot-worker-3"},
+        )
+        state = type("State", (), {"rounds_completed": 0, "turn_index": 0})()
+        player = type("Player", (), {"player_id": 2, "cash": 5, "position": 9, "shards": 1})()
+        call = build_routed_decision_call(
+            build_decision_invocation("choose_pabal_dice_mode", (state, player), {}),
+            fallback_policy="ai",
+        )
+
+        result = transport.resolve(call)
+
+        self.assertEqual(result, "minus_one")
+        self.assertEqual(gateway.calls[0]["public_context"]["participant_client"], "external_ai")
+        self.assertEqual(gateway.calls[0]["public_context"]["participant_seat"], 3)
+        self.assertEqual(gateway.calls[0]["public_context"]["participant_config"]["endpoint"], "local://bot-worker-3")
 
     def test_build_decision_invocation_captures_method_and_player_identity(self) -> None:
         player = type("Player", (), {"player_id": 2, "cash": 11})()
