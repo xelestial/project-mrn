@@ -987,7 +987,16 @@ class EngineEffectHandlers:
         shard_cost = 0
         if player.cash < cost:
             return {'type': 'PURCHASE_FAIL', 'tile_kind': cell.name, 'cost': cost, 'shard_cost': shard_cost, 'bankrupt': False, 'skipped': True}
-        wants_purchase = getattr(engine.policy, 'choose_purchase_tile', lambda *args, **kwargs: True)(state, player, pos, cell, cost, source='landing_purchase')
+        wants_purchase = engine._request_decision(
+            "choose_purchase_tile",
+            state,
+            player,
+            pos,
+            cell,
+            cost,
+            source="landing_purchase",
+            fallback=lambda: True,
+        )
         purchase_debug = engine.policy.pop_debug("purchase_decision", player.player_id) if hasattr(engine.policy, "pop_debug") else None
         if not wants_purchase:
             engine._record_ai_decision(

@@ -5,7 +5,7 @@ import inspect
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Callable, List, Optional
 import math
 
 from ai_policy import BasePolicy, MovementDecision
@@ -42,6 +42,29 @@ class GameResult:
     bankruptcy_events: List[dict] = field(default_factory=list)
 
 
+@dataclass(slots=True)
+class DecisionRequest:
+    decision_name: str
+    state: GameState
+    player: PlayerState
+    args: tuple[Any, ...] = ()
+    kwargs: dict[str, Any] = field(default_factory=dict)
+    fallback: Callable[[], Any] | None = None
+
+
+class DecisionPort:
+    def __init__(self, policy: BasePolicy) -> None:
+        self._policy = policy
+
+    def request(self, request: DecisionRequest) -> Any:
+        decision_fn = getattr(self._policy, request.decision_name, None)
+        if decision_fn is None:
+            if request.fallback is not None:
+                return request.fallback()
+            raise AttributeError(request.decision_name)
+        return decision_fn(request.state, request.player, *request.args, **request.kwargs)
+
+
 class GameEngine:
     def __init__(
         self,
@@ -50,9 +73,11 @@ class GameEngine:
         rng: random.Random | None = None,
         enable_logging: bool = False,
         event_stream: VisEventStream | None = None,
+        decision_port: DecisionPort | None = None,
     ):
         self.config = config
         self.policy = policy
+        self.decision_port = decision_port or DecisionPort(policy)
         self.rng = rng or random.Random()
         if hasattr(self.policy, "set_rng"):
             self.policy.set_rng(self.rng)
@@ -77,6 +102,26 @@ class GameEngine:
             decision_log_hook = PolicyDecisionLogHook(self)
             self.policy.register_policy_hook("policy.before_decision", decision_log_hook.before_decision)
             self.policy.register_policy_hook("policy.after_decision", decision_log_hook.after_decision)
+
+    def _request_decision(
+        self,
+        decision_name: str,
+        state: GameState,
+        player: PlayerState,
+        *args: Any,
+        fallback: Callable[[], Any] | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        return self.decision_port.request(
+            DecisionRequest(
+                decision_name=decision_name,
+                state=state,
+                player=player,
+                args=args,
+                kwargs=dict(kwargs),
+                fallback=fallback,
+            )
+        )
 
     def run(self) -> GameResult:
         self._action_log = []
@@ -598,7 +643,7 @@ class GameEngine:
 
             pool = list(phase1_pool)
             for pid in clockwise:
-                pick = self.policy.choose_draft_card(state, state.players[pid], list(pool))
+                pick = self._request_decision("choose_draft_card", state, state.players[pid], list(pool))
                 state.players[pid].drafted_cards.append(pick)
                 draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
                 self._record_ai_decision(
@@ -615,7 +660,7 @@ class GameEngine:
 
             second_pool = list(reserve_pool) + list(pool)
             last_pid = clockwise[-1]
-            pick = self.policy.choose_draft_card(state, state.players[last_pid], list(second_pool))
+            pick = self._request_decision("choose_draft_card", state, state.players[last_pid], list(second_pool))
             state.players[last_pid].drafted_cards.append(pick)
             draft_debug = self.policy.pop_debug("draft_card", last_pid) if hasattr(self.policy, "pop_debug") else None
             self._record_ai_decision(
@@ -631,7 +676,7 @@ class GameEngine:
             second_pool.remove(pick)
 
             for pid in reverse[1:]:
-                pick = self.policy.choose_draft_card(state, state.players[pid], list(second_pool))
+                pick = self._request_decision("choose_draft_card", state, state.players[pid], list(second_pool))
                 state.players[pid].drafted_cards.append(pick)
                 draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
                 self._record_ai_decision(
@@ -657,7 +702,7 @@ class GameEngine:
 
             pool = list(first_pool)
             for pid in clockwise:
-                pick = self.policy.choose_draft_card(state, state.players[pid], list(pool))
+                pick = self._request_decision("choose_draft_card", state, state.players[pid], list(pool))
                 state.players[pid].drafted_cards.append(pick)
                 draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
                 self._record_ai_decision(
@@ -693,7 +738,7 @@ class GameEngine:
                 self._strategy_stats[p.player_id]["character"] = ""
                 self._strategy_stats[p.player_id]["draft_cards"] = []
                 continue
-            chosen = self.policy.choose_final_character(state, p, list(p.drafted_cards))
+            chosen = self._request_decision("choose_final_character", state, p, list(p.drafted_cards))
             final_debug = self.policy.pop_debug("final_character", p.player_id) if hasattr(self.policy, "pop_debug") else None
             self._record_ai_decision(
                 state,
@@ -794,7 +839,7 @@ class GameEngine:
             public_tricks=player.public_trick_names(),
             hidden_trick_count=player.hidden_trick_count(),
         )
-        decision = self.policy.choose_movement(state, player)
+        decision = self._request_decision("choose_movement", state, player)
         movement_debug = self.policy.pop_debug("movement_decision", player.player_id) if hasattr(self.policy, "pop_debug") else None
         self._record_ai_decision(
             state,
@@ -1788,7 +1833,16 @@ class GameEngine:
             return None
         if shard_cost > 0 and player.shards < shard_cost:
             return None
-        if not getattr(self.policy, "choose_purchase_tile", lambda *args, **kwargs: True)(state, player, idx, state.board[idx], cost, source="adjacent_extra"):
+        if not self._request_decision(
+            "choose_purchase_tile",
+            state,
+            player,
+            idx,
+            state.board[idx],
+            cost,
+            source="adjacent_extra",
+            fallback=lambda: True,
+        ):
             return None
         player.cash -= cost
         if shard_cost > 0:
@@ -1841,7 +1895,7 @@ class GameEngine:
         def choose_and_apply(hand: list[TrickCard], phase: str) -> bool:
             if not hand:
                 return False
-            card = self.policy.choose_trick_to_use(state, player, list(hand))
+            card = self._request_decision("choose_trick_to_use", state, player, list(hand), fallback=lambda: None)
             debug = self.policy.pop_debug("trick_use", player.player_id) if hasattr(self.policy, "pop_debug") else None
             self._record_ai_decision(
                 state,
@@ -2869,7 +2923,16 @@ class GameEngine:
             return None
         if shard_cost > 0 and player.shards < shard_cost:
             return None
-        if not getattr(self.policy, "choose_purchase_tile", lambda *args, **kwargs: True)(state, player, idx, state.board[idx], cost, source="matchmaker_adjacent"):
+        if not self._request_decision(
+            "choose_purchase_tile",
+            state,
+            player,
+            idx,
+            state.board[idx],
+            cost,
+            source="matchmaker_adjacent",
+            fallback=lambda: True,
+        ):
             return None
         player.cash -= cost
         if shard_cost > 0:
@@ -2910,8 +2973,15 @@ class GameEngine:
         cost = int(base_cost * multiplier)
         if player.cash < cost:
             return None
-        if not getattr(self.policy, "choose_purchase_tile", lambda *args, **kwargs: True)(
-            state, player, idx, state.board[idx], cost, source="matchmaker_adjacent"
+        if not self._request_decision(
+            "choose_purchase_tile",
+            state,
+            player,
+            idx,
+            state.board[idx],
+            cost,
+            source="matchmaker_adjacent",
+            fallback=lambda: True,
         ):
             return None
         player.cash -= cost

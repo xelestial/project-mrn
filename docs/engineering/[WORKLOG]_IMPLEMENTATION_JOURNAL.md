@@ -2006,3 +2006,23 @@ Updated: 2026-04-04
   - the engine still calls `choose_*`, but the server boundary now treats each decision as an explicit normalized invocation rather than a loose `(method_name, args, kwargs)` bundle
 - Validation:
   - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py`
+
+## 2026-04-07 Engine Decision Port Prep (Phase 1)
+
+- What changed:
+  - Added `DecisionRequest` and `DecisionPort` injection support to `GPT/engine.py`.
+  - `GameEngine` now accepts an optional `decision_port=...` and otherwise wraps the legacy policy with the default port adapter.
+  - Routed the PR-05 first-wave engine decision callsites through the injected port:
+    - `choose_draft_card`
+    - `choose_final_character`
+    - `choose_movement`
+    - `choose_trick_to_use`
+    - `choose_purchase_tile`
+  - Updated `GPT/effect_handlers.py` so landing purchase decisions also go through the engine decision port instead of calling policy methods directly.
+  - Added `GPT/test_decision_port_contract.py` to verify those first-wave engine requests are emitted through the port.
+- Why:
+  - this creates the real engine-side injection seam promised by the plan without forcing the full `DecisionPort.request(...)` migration in one jump
+  - the server/runtime cleanup from earlier is now matched by an engine boundary that can accept a future unified decision adapter
+- Validation:
+  - `.venv311/bin/python -m pytest GPT/test_decision_port_contract.py GPT/test_draft_three_players.py GPT/test_event_effects.py`
+  - note: `.venv311/bin/python -m pytest GPT/test_policy_hooks.py` still has an unrelated existing failure in `RuleScriptTests.test_default_rule_scripts_loaded` (`engine.rule_scripts.scripts == {}`), so it was not used as the gating pass for this slice
