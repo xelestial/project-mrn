@@ -75,10 +75,11 @@ Operational seat defaults can now also require:
 - `require_ready`
 - `max_attempt_count`
 - `required_policy_mode`
+- `required_policy_class`
 - `required_decision_style`
 
 When workers advertise `supported_transports`, the runtime also treats that as a compatibility guard for the active seat transport.
 
-When workers advertise `policy_mode` and `decision_style`, the runtime now also surfaces those fields into canonical decision `public_context` so stage/spectator UIs can preserve stronger-worker provenance through success and fallback paths.
+When workers advertise `policy_mode`, `policy_class`, and `decision_style`, the runtime now also surfaces those fields into canonical decision `public_context` so stage/spectator UIs can preserve stronger-worker provenance through success and fallback paths.
 
 See `docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md` for a full local session example.

@@ -331,10 +331,13 @@ export const enLocale = {
       }
       return `state ${readyState}`;
     },
-    workerModeSummary: (policyMode?: string, decisionStyle?: string) => {
+    workerModeSummary: (policyMode?: string, policyClass?: string, decisionStyle?: string) => {
       const parts: string[] = [];
       if (policyMode && policyMode !== "-") {
         parts.push(`mode ${policyMode}`);
+      }
+      if (policyClass && policyClass !== "-") {
+        parts.push(`class ${policyClass}`);
       }
       if (decisionStyle && decisionStyle !== "-") {
         parts.push(`style ${decisionStyle}`);
@@ -375,6 +378,7 @@ export const enLocale = {
       attemptCount?: number | null,
       attemptLimit?: number | null,
       policyMode?: string,
+      policyClass?: string,
       decisionStyle?: string
     ) => {
       const parts = ["Timeout fallback"];
@@ -393,7 +397,7 @@ export const enLocale = {
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `attempt ${attemptCount}/${attemptLimit}` : `attempt ${attemptCount}`);
       }
-      const modeSummary = enLocale.stream.workerModeSummary(policyMode, decisionStyle);
+      const modeSummary = enLocale.stream.workerModeSummary(policyMode, policyClass, decisionStyle);
       if (modeSummary !== "-") {
         parts.push(modeSummary);
       }
@@ -408,6 +412,7 @@ export const enLocale = {
       attemptLimit?: number | null,
       readyState?: string,
       policyMode?: string,
+      policyClass?: string,
       decisionStyle?: string
     ) => {
       const parts: string[] = [];
@@ -429,7 +434,7 @@ export const enLocale = {
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `attempt ${attemptCount}/${attemptLimit}` : `attempt ${attemptCount}`);
       }
-      const modeSummary = enLocale.stream.workerModeSummary(policyMode, decisionStyle);
+      const modeSummary = enLocale.stream.workerModeSummary(policyMode, policyClass, decisionStyle);
       if (modeSummary !== "-") {
         parts.push(modeSummary);
       }
@@ -606,6 +611,7 @@ export const enLocale = {
       attemptLimit?: number | null,
       readyState?: string,
       policyMode?: string,
+      policyClass?: string,
       decisionStyle?: string
     ) => {
       const parts: string[] = [];
@@ -628,7 +634,7 @@ export const enLocale = {
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `attempt ${attemptCount}/${attemptLimit}` : `attempt ${attemptCount}`);
       }
-      const modeSummary = enLocale.stream.workerModeSummary(policyMode, decisionStyle);
+      const modeSummary = enLocale.stream.workerModeSummary(policyMode, policyClass, decisionStyle);
       if (modeSummary !== "-") {
         parts.push(modeSummary);
       }

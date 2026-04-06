@@ -92,6 +92,7 @@ export type TurnStageViewModel = {
   externalAiAttemptLimit: number | null;
   externalAiReadyState: string;
   externalAiPolicyMode: string;
+  externalAiPolicyClass: string;
   externalAiDecisionStyle: string;
   progressTrail: string[];
 };
@@ -435,6 +436,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
       numberOrNull(publicContext?.["external_ai_attempt_count"]),
       numberOrNull(publicContext?.["external_ai_attempt_limit"]),
       asString(publicContext?.["external_ai_policy_mode"]),
+      asString(publicContext?.["external_ai_policy_class"]),
       asString(publicContext?.["external_ai_decision_style"])
     );
   }
@@ -923,6 +925,7 @@ function externalAiStatusFromPayload(payload: Record<string, unknown>): {
   attemptLimit: number | null;
   readyState: string;
   policyMode: string;
+  policyClass: string;
   decisionStyle: string;
 } {
   const publicContext = externalAiPublicContext(payload);
@@ -935,6 +938,7 @@ function externalAiStatusFromPayload(payload: Record<string, unknown>): {
     attemptLimit: numberOrNull(publicContext?.["external_ai_attempt_limit"]),
     readyState: asString(publicContext?.["external_ai_ready_state"]),
     policyMode: asString(publicContext?.["external_ai_policy_mode"]),
+    policyClass: asString(publicContext?.["external_ai_policy_class"]),
     decisionStyle: asString(publicContext?.["external_ai_decision_style"]),
   };
 }
@@ -959,6 +963,7 @@ function workerSummaryFromPayload(payload: Record<string, unknown>, text: Stream
     status.attemptLimit,
     status.readyState,
     status.policyMode,
+    status.policyClass,
     status.decisionStyle
   );
 }
@@ -1029,6 +1034,7 @@ export function selectTurnStage(
     externalAiAttemptLimit: null,
     externalAiReadyState: "-",
     externalAiPolicyMode: "-",
+    externalAiPolicyClass: "-",
     externalAiDecisionStyle: "-",
     progressTrail: [],
   };
@@ -1111,6 +1117,9 @@ export function selectTurnStage(
     }
     if (status.policyMode !== "-") {
       model.externalAiPolicyMode = status.policyMode;
+    }
+    if (status.policyClass !== "-") {
+      model.externalAiPolicyClass = status.policyClass;
     }
     if (status.decisionStyle !== "-") {
       model.externalAiDecisionStyle = status.decisionStyle;

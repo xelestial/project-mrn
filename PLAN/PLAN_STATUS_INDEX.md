@@ -303,6 +303,7 @@ The current implementation focus is:
   - specialty seam recovery for `pabal_dice_mode`
   - turn-handoff payoff continuity
   - external worker compatibility now also surfaces replacement metadata (`policy_mode` / `decision_style`) into the same canonical public-context seam
+  - stronger worker replacement metadata now also supports explicit `policy_class` gating through the same health/fallback seam
 - Active carry-forward after this checkpoint:
   1. mount a real external AI worker/service against the now-live HTTP transport contract
   2. continue locale ownership reduction in selector-generated summaries

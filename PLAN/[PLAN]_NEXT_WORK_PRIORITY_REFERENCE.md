@@ -721,6 +721,7 @@ This is the practical next-work list after the closed slices above.
 
 - Selector-stage surfaces now keep external worker metadata readable through the same localized status seam:
   - `external_ai_policy_mode`
+  - `external_ai_policy_class`
   - `external_ai_decision_style`
   - `external_ai_ready_state`
   - `external_ai_attempt_count` / `external_ai_attempt_limit`
@@ -733,3 +734,19 @@ This is the practical next-work list after the closed slices above.
   1. only adjust remaining visual drift when new evidence appears
   2. keep shrinking any final selector-local phrasing remnants
   3. use the surfaced worker metadata seam when replacing the reference worker with a stronger service
+
+### 2026-04-07 Progress Update (policy-class gating + repeated fallback chain)
+
+- The stronger-worker seam now supports explicit `required_policy_class` gating in the same compatibility path as:
+  - `required_policy_mode`
+  - `required_decision_style`
+  - `supported_transports`
+- Runtime now surfaces worker provenance through:
+  - `external_ai_policy_mode`
+  - `external_ai_policy_class`
+  - `external_ai_decision_style`
+- Browser regression now includes a repeated-fallback mixed-seat chain so weather/payoff continuity stays locked even when two consecutive external-worker turns resolve via local fallback.
+- Therefore the next immediate execution order is:
+  1. treat remaining visual drift as evidence-only cleanup, not broad redesign
+  2. treat selector locale ownership as final small-join cleanup
+  3. move from reference worker hardening to an actually stronger worker/service swap on the now-complete metadata seam

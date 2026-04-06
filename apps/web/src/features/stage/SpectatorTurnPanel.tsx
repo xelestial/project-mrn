@@ -63,6 +63,7 @@ function hasWorkerStatus(model: TurnStageViewModel): boolean {
     hasValue(model.externalAiResolutionStatus) ||
     model.externalAiReadyState !== "-" ||
     hasValue(model.externalAiPolicyMode) ||
+    hasValue(model.externalAiPolicyClass) ||
     hasValue(model.externalAiDecisionStyle) ||
     model.externalAiAttemptCount !== null ||
     model.externalAiAttemptLimit !== null
@@ -118,6 +119,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     model.externalAiAttemptLimit,
     model.externalAiReadyState,
     model.externalAiPolicyMode,
+    model.externalAiPolicyClass,
     model.externalAiDecisionStyle
   );
   const workerStatusDetail = stream.workerStatusDetail(
@@ -129,6 +131,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     model.externalAiAttemptLimit,
     model.externalAiReadyState,
     model.externalAiPolicyMode,
+    model.externalAiPolicyClass,
     model.externalAiDecisionStyle
   );
   const payoffTitle =

@@ -336,10 +336,13 @@ export const koLocale = {
       }
       return `상태 ${readyState}`;
     },
-    workerModeSummary: (policyMode?: string, decisionStyle?: string) => {
+    workerModeSummary: (policyMode?: string, policyClass?: string, decisionStyle?: string) => {
       const parts: string[] = [];
       if (policyMode && policyMode !== "-") {
         parts.push(`모드 ${policyMode}`);
+      }
+      if (policyClass && policyClass !== "-") {
+        parts.push(`클래스 ${policyClass}`);
       }
       if (decisionStyle && decisionStyle !== "-") {
         parts.push(`스타일 ${decisionStyle}`);
@@ -380,6 +383,7 @@ export const koLocale = {
       attemptCount?: number | null,
       attemptLimit?: number | null,
       policyMode?: string,
+      policyClass?: string,
       decisionStyle?: string
     ) => {
       const parts = ["시간 초과 기본 처리"];
@@ -398,7 +402,7 @@ export const koLocale = {
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `시도 ${attemptCount}/${attemptLimit}` : `시도 ${attemptCount}회`);
       }
-      const modeSummary = koLocale.stream.workerModeSummary(policyMode, decisionStyle);
+      const modeSummary = koLocale.stream.workerModeSummary(policyMode, policyClass, decisionStyle);
       if (modeSummary !== "-") {
         parts.push(modeSummary);
       }
@@ -413,6 +417,7 @@ export const koLocale = {
       attemptLimit?: number | null,
       readyState?: string,
       policyMode?: string,
+      policyClass?: string,
       decisionStyle?: string
     ) => {
       const parts: string[] = [];
@@ -434,7 +439,7 @@ export const koLocale = {
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `시도 ${attemptCount}/${attemptLimit}` : `시도 ${attemptCount}회`);
       }
-      const modeSummary = koLocale.stream.workerModeSummary(policyMode, decisionStyle);
+      const modeSummary = koLocale.stream.workerModeSummary(policyMode, policyClass, decisionStyle);
       if (modeSummary !== "-") {
         parts.push(modeSummary);
       }
@@ -611,6 +616,7 @@ export const koLocale = {
       attemptLimit?: number | null,
       readyState?: string,
       policyMode?: string,
+      policyClass?: string,
       decisionStyle?: string
     ) => {
       const parts: string[] = [];
@@ -633,7 +639,7 @@ export const koLocale = {
       if (typeof attemptCount === "number" && attemptCount > 0) {
         parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `시도 ${attemptCount}/${attemptLimit}` : `시도 ${attemptCount}회`);
       }
-      const modeSummary = koLocale.stream.workerModeSummary(policyMode, decisionStyle);
+      const modeSummary = koLocale.stream.workerModeSummary(policyMode, policyClass, decisionStyle);
       if (modeSummary !== "-") {
         parts.push(modeSummary);
       }

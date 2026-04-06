@@ -1138,6 +1138,7 @@ test("mixed participant runtime keeps a long worker-success to fallback chain re
               external_ai_resolution_status: "pending",
               external_ai_ready_state: "ready",
               external_ai_policy_mode: "heuristic_v3_gpt",
+              external_ai_policy_class: "HeuristicPolicy",
               external_ai_decision_style: "contract_heuristic",
             },
             legal_choices: [{ choice_id: "dice", label: "Roll dice" }],
@@ -1161,6 +1162,7 @@ test("mixed participant runtime keeps a long worker-success to fallback chain re
               external_ai_attempt_count: 1,
               external_ai_attempt_limit: 2,
               external_ai_policy_mode: "heuristic_v3_gpt",
+              external_ai_policy_class: "HeuristicPolicy",
               external_ai_decision_style: "contract_heuristic",
             },
           },
@@ -1205,6 +1207,7 @@ test("mixed participant runtime keeps a long worker-success to fallback chain re
               external_ai_attempt_count: 2,
               external_ai_attempt_limit: 2,
               external_ai_policy_mode: "heuristic_v3_gpt",
+              external_ai_policy_class: "HeuristicPolicy",
               external_ai_decision_style: "contract_heuristic",
             },
           },
@@ -1232,8 +1235,94 @@ test("mixed participant runtime keeps a long worker-success to fallback chain re
   await expect(page.getByTestId("spectator-turn-progress")).toContainText("Decision timeout fallback");
   await expect(page.getByTestId("turn-stage-worker-status")).toContainText("attempt 2/2");
   await expect(page.getByTestId("turn-stage-worker-status")).toContainText("mode heuristic_v3_gpt");
+  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("class HeuristicPolicy");
   await expect(page.getByTestId("turn-stage-scene-strip")).toContainText("Round Weather");
   await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("P3 paid P1 6 on tile 15");
+});
+
+test("mixed participant runtime keeps repeated fallback continuity readable across longer chains", async ({ page }) => {
+  const sessionId = "sess_mixed_repeated_fallback_chain";
+  const manifest = buildManifest({
+    hash: "mixed_repeated_fallback_hash",
+    topology: "ring",
+    tileCount: 40,
+    seats: [1, 2, 3],
+  });
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({ seq: 1, sessionId, payload: { event_type: "parameter_manifest", parameter_manifest: manifest } }),
+        eventMessage({ seq: 2, sessionId, payload: { event_type: "round_start", round_index: 6 } }),
+        eventMessage({ seq: 3, sessionId, payload: { event_type: "weather_reveal", round_index: 6, turn_index: 1, weather_name: "Monsoon", effect_text: "Rent +1 on flooded tiles." } }),
+        eventMessage({ seq: 4, sessionId, payload: { event_type: "turn_start", round_index: 6, turn_index: 1, acting_player_id: 2, character: "Broker" } }),
+        eventMessage({
+          seq: 5,
+          sessionId,
+          payload: {
+            event_type: "decision_timeout_fallback",
+            round_index: 6,
+            turn_index: 1,
+            player_id: 2,
+            summary: "defaulted to local AI",
+            public_context: {
+              tile_index: 10,
+              external_ai_worker_id: "prod-bot-8",
+              external_ai_failure_code: "external_ai_timeout",
+              external_ai_fallback_mode: "local_ai",
+              external_ai_resolution_status: "resolved_by_local_fallback",
+              external_ai_ready_state: "ready",
+              external_ai_attempt_count: 2,
+              external_ai_attempt_limit: 2,
+              external_ai_policy_mode: "heuristic_v3_gpt",
+              external_ai_policy_class: "HeuristicPolicy",
+              external_ai_decision_style: "contract_heuristic",
+            },
+          },
+        }),
+        eventMessage({ seq: 6, sessionId, payload: { event_type: "tile_purchased", round_index: 6, turn_index: 1, player_id: 2, tile_index: 10, cost: 4 } }),
+        eventMessage({ seq: 7, sessionId, payload: { event_type: "turn_end_snapshot", round_index: 6, turn_index: 1, player_id: 2, summary: "P2 fallback purchase closed" } }),
+        eventMessage({ seq: 8, sessionId, payload: { event_type: "turn_start", round_index: 6, turn_index: 2, acting_player_id: 3, character: "Oracle" } }),
+        eventMessage({
+          seq: 9,
+          sessionId,
+          payload: {
+            event_type: "decision_timeout_fallback",
+            round_index: 6,
+            turn_index: 2,
+            player_id: 3,
+            summary: "defaulted to local AI",
+            public_context: {
+              tile_index: 18,
+              external_ai_worker_id: "prod-bot-9",
+              external_ai_failure_code: "external_ai_worker_not_ready",
+              external_ai_fallback_mode: "local_ai",
+              external_ai_resolution_status: "resolved_by_local_fallback",
+              external_ai_ready_state: "not_ready",
+              external_ai_attempt_count: 1,
+              external_ai_attempt_limit: 2,
+              external_ai_policy_mode: "heuristic_v3_gpt",
+              external_ai_policy_class: "HeuristicPolicy",
+              external_ai_decision_style: "contract_heuristic",
+            },
+          },
+        }),
+        eventMessage({ seq: 10, sessionId, payload: { event_type: "fortune_resolved", round_index: 6, turn_index: 2, player_id: 3, summary: "Gain 1 shard." } }),
+        eventMessage({ seq: 11, sessionId, payload: { event_type: "turn_end_snapshot", round_index: 6, turn_index: 2, player_id: 3, summary: "P3 fallback fortune closed" } }),
+      ],
+    },
+  });
+
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_repeated_fallback_chain`);
+
+  await expect(page.getByTestId("spectator-turn-weather")).toContainText("Monsoon");
+  await expect(page.getByTestId("spectator-turn-scene")).toContainText("P3 fallback fortune closed");
+  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Participant status");
+  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Fortune effect");
+  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("class HeuristicPolicy");
+  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("not_ready");
+  await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("Gain 1 shard.");
 });
 
 test("locale toggle persists across reload", async ({ page }) => {

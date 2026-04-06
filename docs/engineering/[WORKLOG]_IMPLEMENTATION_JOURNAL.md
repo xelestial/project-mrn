@@ -2697,3 +2697,26 @@ Updated: 2026-04-07
   - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts`
   - `cd apps/web && npm run build`
   - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
+
+## 2026-04-07 Policy-Class Gating + Repeated Fallback Coverage
+
+- What changed:
+  - Server:
+    - `apps/server/src/services/parameter_service.py` now accepts `required_policy_class` for external AI participant defaults
+    - `apps/server/src/services/runtime_service.py` now validates worker-advertised `policy_class` alongside:
+      - `policy_mode`
+      - `decision_style`
+      - `supported_transports`
+    - the runtime now also surfaces `external_ai_policy_class` into canonical decision `public_context`
+  - Web:
+    - `apps/web/src/domain/selectors/streamSelectors.ts` now keeps `external_ai_policy_class` in the current-turn model
+    - stage/spectator worker summaries now render class provenance through locale-owned worker summary helpers
+    - browser coverage now includes a repeated-fallback mixed-seat chain with weather + payoff continuity preserved across two consecutive fallback turns
+- Why:
+  - stronger worker replacement readiness needed one more explicit compatibility guard beyond worker id, mode, and decision style
+  - the remaining playtest risk was no longer “missing data” but “does continuity stay readable when fallbacks repeat”
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_parameter_service.py apps/server/tests/test_runtime_service.py apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_parameter_propagation.py apps/server/tests/test_parameter_manifest_snapshot.py`
+  - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts`
+  - `cd apps/web && npm run build`
+  - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
