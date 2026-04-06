@@ -2394,3 +2394,36 @@ Updated: 2026-04-07
   - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/i18n/defaultText.spec.ts src/i18n/i18n.spec.ts`
   - `cd apps/web && npm run test -- --run src/domain/labels/eventLabelCatalog.spec.ts src/domain/labels/promptTypeCatalog.spec.ts src/domain/labels/promptHelperCatalog.spec.ts`
   - `cd apps/web && npm run build`
+
+## 2026-04-07 External Worker Status Surfacing + Generic Prompt Collapse
+
+- What changed:
+  - Web:
+    - `apps/web/src/domain/selectors/streamSelectors.ts` now carries external worker diagnostics into timeout-fallback phrasing:
+      - `external_ai_worker_id`
+      - `external_ai_failure_code`
+      - `external_ai_fallback_mode`
+    - locale catalogs now own the richer timeout-fallback format in:
+      - `apps/web/src/i18n/locales/ko.ts`
+      - `apps/web/src/i18n/locales/en.ts`
+    - `apps/web/src/features/prompt/PromptOverlay.tsx` now collapses secondary generic choices under a compact disclosure instead of always rendering them at full weight
+  - Server:
+    - `apps/server/src/services/runtime_service.py` now writes `external_ai_resolution_status` into canonical public context so downstream UI/stream consumers can distinguish:
+      - worker success
+      - worker failure
+      - local fallback resolution
+    - `apps/server/src/services/external_ai_worker_service.py` now handles additional contextual preferences for:
+      - `specific_trick_reward`
+      - `doctrine_relief`
+  - Coverage:
+    - worker/runtime tests now assert surfaced resolution status
+    - browser E2E now checks worker-id visibility in timeout fallback continuity
+- Why:
+  - the multiplayer-like runtime structure was already in place, but fallback behavior still read too much like an opaque internal error instead of a visible participant handoff
+  - generic prompt surfaces also still gave too much visual weight to passive/secondary choices
+- Validation:
+  - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/i18n/defaultText.spec.ts src/i18n/i18n.spec.ts`
+  - `cd apps/web && npm run test -- --run src/domain/labels/eventLabelCatalog.spec.ts src/domain/labels/promptTypeCatalog.spec.ts src/domain/labels/promptHelperCatalog.spec.ts`
+  - `cd apps/web && npm run build`
+  - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
+  - `.venv311/bin/python -m pytest apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_runtime_service.py`

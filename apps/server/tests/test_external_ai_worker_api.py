@@ -59,6 +59,26 @@ def _mark_target_payload() -> dict[str, object]:
     }
 
 
+def _specific_trick_reward_payload() -> dict[str, object]:
+    return {
+        "request_id": "req_worker_reward_1",
+        "session_id": "sess_worker_reward_1",
+        "seat": 1,
+        "player_id": 1,
+        "decision_name": "choose_specific_trick_reward",
+        "request_type": "specific_trick_reward",
+        "fallback_policy": "local_ai",
+        "public_context": {
+            "preferred_reward_id": 102,
+        },
+        "legal_choices": [
+            {"choice_id": "101", "title": "Reward 101", "value": {"reward_id": 101}},
+            {"choice_id": "102", "title": "Reward 102", "value": {"reward_id": 102}},
+        ],
+        "transport": "http",
+    }
+
+
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi is not installed in this environment")
 class ExternalAiWorkerApiTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -98,6 +118,14 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["choice_id"], "2")
         self.assertEqual(payload["choice_payload"]["value"]["target_player_id"], 2)
+
+    def test_decide_prefers_contextual_specific_trick_reward(self) -> None:
+        response = self.client.post("/decide", json=_specific_trick_reward_payload())
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["choice_id"], "102")
+        self.assertEqual(payload["choice_payload"]["value"]["reward_id"], 102)
 
     def test_decide_rejects_requests_without_legal_choices(self) -> None:
         payload = _purchase_tile_payload()

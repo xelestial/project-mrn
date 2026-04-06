@@ -161,6 +161,18 @@ class ExternalAiWorkerService:
                     return choice_id
             return first_non_secondary()
 
+        if request_type == "specific_trick_reward":
+            preferred_reward = _as_int(public_context.get("preferred_reward_id"))
+            if preferred_reward is not None and str(preferred_reward) in by_id:
+                return str(preferred_reward)
+            return first_non_secondary()
+
+        if request_type == "doctrine_relief":
+            preferred_target = _as_int(public_context.get("preferred_target_player_id"))
+            if preferred_target is not None and str(preferred_target) in by_id:
+                return str(preferred_target)
+            return first_non_secondary()
+
         return first_non_secondary()
 
     @staticmethod

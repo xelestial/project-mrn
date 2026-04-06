@@ -313,6 +313,25 @@ This is the practical next-work list after the closed slices above.
   2. finish prompt surface simplification only where it still leaks meta-heavy framing
   3. keep worker/runtime hardening focused on true operational gaps, not text-layer cleanup
 
+### 2026-04-07 Progress Update (external worker status surfacing)
+
+- timeout fallback rendering now exposes external worker runtime context instead of only a generic summary:
+  - `external_ai_worker_id`
+  - `external_ai_failure_code`
+  - `external_ai_fallback_mode`
+- runtime transport also now records a normalized `external_ai_resolution_status` into canonical public context so downstream consumers can distinguish:
+  - resolved by worker
+  - worker failed
+  - resolved by local fallback
+- generic prompt fallback surfaces now collapse secondary choices under a lighter disclosure instead of giving them equal visual weight
+- Therefore the next practical order narrows further:
+  1. finish the remaining selector-local joins only where they still block locale ownership
+  2. keep prompt simplification focused on leftover generic/specialized duplication rather than headline chrome
+  3. keep pushing external worker hardening toward real operational concerns:
+     - auth
+     - health gating
+     - stronger worker behavior
+
 ## 2026-04-05 Concrete Next Steps
 
 1. Keep `apps/web/src/i18n/` as the source of truth and remove new direct ownership from:

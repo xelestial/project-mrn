@@ -409,7 +409,13 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
   }
   if (eventType === "decision_timeout_fallback") {
     const summary = asString(payload["summary"]);
-    return text.stream.decisionTimeoutFallbackDetail(summary);
+    const publicContext = isRecord(payload["public_context"]) ? payload["public_context"] : null;
+    return text.stream.decisionTimeoutFallbackDetail(
+      summary,
+      asString(publicContext?.["external_ai_worker_id"]),
+      asString(publicContext?.["external_ai_failure_code"]),
+      asString(publicContext?.["external_ai_fallback_mode"])
+    );
   }
   if (eventType === "landing_resolved") {
     const raw = asString(payload["result_type"] ?? payload["result_code"] ?? payload["result"] ?? text.stream.landing.default);

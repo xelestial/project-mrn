@@ -314,7 +314,27 @@ export const koLocale = {
     decisionRequestedDetail: (actor: string, promptLabel: string) => `${actor} / ${promptLabel}`,
     decisionAckDetail: (status: string, reason: string) => (reason && reason !== "-" ? `${status} (${reason})` : status),
     decisionResolvedDetail: (resolution: string, choice: string) => (choice && choice !== "-" ? `${resolution} (${choice})` : resolution),
-    decisionTimeoutFallbackDetail: (summary: string) => (summary && summary !== "-" ? `시간 초과 기본 처리 / ${summary}` : "시간 초과 기본 처리"),
+    decisionTimeoutFallbackDetail: (
+      summary: string,
+      workerId?: string,
+      failureCode?: string,
+      fallbackMode?: string
+    ) => {
+      const parts = ["시간 초과 기본 처리"];
+      if (summary && summary !== "-") {
+        parts.push(summary);
+      }
+      if (workerId && workerId !== "-") {
+        parts.push(`worker ${workerId}`);
+      }
+      if (failureCode && failureCode !== "-") {
+        parts.push(`실패 ${failureCode}`);
+      }
+      if (fallbackMode && fallbackMode !== "-") {
+        parts.push(`폴백 ${fallbackMode}`);
+      }
+      return parts.join(" / ");
+    },
     weatherDetail: (weather: string, effect: string) => (effect && effect !== "-" ? `${weather} / ${effect}` : weather),
     errorDetail: (code: string, message: string) => (code && code !== "-" ? `${code}: ${message}` : message),
     stalledWarning: (text: string) => `런타임 경고: ${text}`,

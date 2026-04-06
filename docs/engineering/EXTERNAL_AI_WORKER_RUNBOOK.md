@@ -155,3 +155,9 @@ Useful failure codes seen from the runtime seam:
 - `external_ai_contract_version_mismatch`
 - `external_ai_missing_required_capability`
 - `external_ai_missing_choice_id`
+
+Useful runtime status values surfaced into prompt/event `public_context`:
+
+- `external_ai_resolution_status=resolved_by_worker`
+- `external_ai_resolution_status=worker_failed`
+- `external_ai_resolution_status=resolved_by_local_fallback`

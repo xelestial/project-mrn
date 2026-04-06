@@ -439,12 +439,19 @@ describe("streamSelectors", () => {
           event_type: "decision_timeout_fallback",
           player_id: 2,
           summary: "defaulted to local AI",
+          public_context: {
+            external_ai_worker_id: "prod-bot-1",
+            external_ai_failure_code: "external_ai_timeout",
+            external_ai_fallback_mode: "local_ai",
+          },
         },
       },
     ]);
 
     expect(timeline[0].detail).toContain("시간 초과 기본 처리");
     expect(timeline[0].detail).toContain("defaulted to local AI");
+    expect(timeline[0].detail).toContain("prod-bot-1");
+    expect(timeline[0].detail).toContain("external_ai_timeout");
   });
 
   it("builds core action feed and marks local actor entries", () => {
@@ -806,12 +813,18 @@ describe("streamSelectors", () => {
           turn_index: 11,
           player_id: 2,
           summary: "defaulted to local AI",
-          public_context: { tile_index: 9 },
+          public_context: {
+            tile_index: 9,
+            external_ai_worker_id: "prod-bot-1",
+            external_ai_failure_code: "external_ai_timeout",
+            external_ai_fallback_mode: "local_ai",
+          },
         },
       },
     ]);
 
     expect(stage.promptSummary).toContain("시간 초과 기본 처리");
+    expect(stage.promptSummary).toContain("prod-bot-1");
     expect(stage.currentBeatKind).toBe("system");
     expect(stage.focusTileIndex).toBe(9);
     expect(stage.progressTrail).toContain("시간 초과 기본 처리");

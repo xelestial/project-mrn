@@ -458,6 +458,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(sender_calls[0].required_capabilities, ["choice_id_response"])
         self.assertEqual([choice["choice_id"] for choice in sender_calls[0].legal_choices], ["yes", "no"])
         self.assertEqual(gateway.calls[0]["public_context"]["participant_transport"], "http")
+        self.assertEqual(gateway.calls[0]["public_context"]["external_ai_resolution_status"], "resolved_by_worker")
 
     def test_http_external_transport_retries_then_falls_back_to_local_ai(self) -> None:
         from apps.server.src.services.runtime_service import _HttpExternalAiTransport
@@ -510,6 +511,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(len(attempts), 3)
         self.assertEqual(gateway.calls[0]["public_context"]["external_ai_failure_code"], "worker unavailable")
         self.assertEqual(gateway.calls[0]["public_context"]["external_ai_fallback_mode"], "local_ai")
+        self.assertEqual(gateway.calls[0]["public_context"]["external_ai_resolution_status"], "resolved_by_local_fallback")
 
     def test_http_external_transport_falls_back_when_healthcheck_misses_required_capability(self) -> None:
         from apps.server.src.services.runtime_service import _HttpExternalAiTransport
@@ -556,6 +558,7 @@ class RuntimeServiceTests(unittest.TestCase):
             gateway.calls[0]["public_context"]["external_ai_failure_code"],
             "external_ai_missing_required_capability",
         )
+        self.assertEqual(gateway.calls[0]["public_context"]["external_ai_resolution_status"], "resolved_by_local_fallback")
 
     def test_http_external_transport_falls_back_when_worker_identity_mismatches(self) -> None:
         from apps.server.src.services.runtime_service import _HttpExternalAiTransport

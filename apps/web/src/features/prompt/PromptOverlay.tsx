@@ -375,6 +375,7 @@ type EmphasisChoiceGridProps = {
   variant?: ChoiceGridVariant;
   testIdPrefix: string;
   renderExtra?: (choice: PromptChoiceViewModel) => ReactNode;
+  collapseSecondaryChoices?: boolean;
 };
 
 function EmphasisChoiceGrid({
@@ -387,41 +388,51 @@ function EmphasisChoiceGrid({
   variant = "default",
   testIdPrefix,
   renderExtra,
+  collapseSecondaryChoices = false,
 }: EmphasisChoiceGridProps) {
   const primaryChoices = orderedChoices.filter((choice) => !isSecondaryChoice(choice));
   const secondaryChoices = orderedChoices.filter((choice) => isSecondaryChoice(choice));
-  const groups = [primaryChoices, secondaryChoices].filter((group) => group.length > 0);
+  const groups = [primaryChoices].filter((group) => group.length > 0);
+
+  const renderGroup = (group: PromptChoiceViewModel[], groupIndex: number) => (
+    <div
+      key={`${testIdPrefix}-${groupIndex}`}
+      className={`${choiceGridClass(variant, compactChoices)} ${groupIndex > 0 ? "prompt-choices-secondary" : ""}`}
+    >
+      {group.map((choice) => {
+        const normalized = normalizeChoiceText(prompt, choice, promptText);
+        const secondary = isSecondaryChoice(choice);
+        return (
+          <button
+            type="button"
+            key={choice.choiceId}
+            className={`prompt-choice-card prompt-choice-card-emphasis ${secondary ? "prompt-choice-card-secondary" : ""}`}
+            data-testid={`${testIdPrefix}-${choice.choiceId}`}
+            onClick={() => onSelectChoice(choice.choiceId)}
+            disabled={busy}
+          >
+            <div className="prompt-choice-topline">
+              <strong>{normalized.title}</strong>
+              {secondary ? <span className="prompt-choice-badge">{promptText.secondaryChoiceBadge}</span> : null}
+            </div>
+            {renderExtra ? renderExtra(choice) : null}
+            <small>{normalized.description}</small>
+          </button>
+        );
+      })}
+    </div>
+  );
 
   return (
     <>
-      {groups.map((group, groupIndex) => (
-        <div
-          key={`${testIdPrefix}-${groupIndex}`}
-          className={`${choiceGridClass(variant, compactChoices)} ${groupIndex > 0 ? "prompt-choices-secondary" : ""}`}
-        >
-          {group.map((choice) => {
-            const normalized = normalizeChoiceText(prompt, choice, promptText);
-            const secondary = isSecondaryChoice(choice);
-            return (
-              <button
-                type="button"
-                key={choice.choiceId}
-                className={`prompt-choice-card prompt-choice-card-emphasis ${secondary ? "prompt-choice-card-secondary" : ""}`}
-                data-testid={`${testIdPrefix}-${choice.choiceId}`}
-                onClick={() => onSelectChoice(choice.choiceId)}
-                disabled={busy}
-              >
-                <div className="prompt-choice-topline">
-                  <strong>{normalized.title}</strong>
-                  {secondary ? <span className="prompt-choice-badge">{promptText.secondaryChoiceBadge}</span> : null}
-                </div>
-                {renderExtra ? renderExtra(choice) : null}
-                <small>{normalized.description}</small>
-              </button>
-            );
-          })}
-        </div>
-      ))}
+      {groups.map(renderGroup)}
+      {secondaryChoices.length > 0 && !collapseSecondaryChoices ? renderGroup(secondaryChoices, 1) : null}
+      {secondaryChoices.length > 0 && collapseSecondaryChoices ? (
+        <details className="prompt-choice-secondary-group">
+          <summary>{promptText.secondaryChoiceBadge}</summary>
+          {renderGroup(secondaryChoices, 1)}
+        </details>
+      ) : null}
       {orderedChoices.length === 0 ? <p>{promptText.choice.noChoices}</p> : null}
     </>
   );
@@ -1149,6 +1160,7 @@ export function PromptOverlay({
               busy={busy}
               onSelectChoice={onSelectChoice}
               testIdPrefix="generic-choice"
+              collapseSecondaryChoices
             />
           </section>
         ) : null}

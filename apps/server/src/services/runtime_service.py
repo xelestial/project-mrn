@@ -587,6 +587,7 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
         fallback_mode = str(self._config.get("fallback_mode", "local_ai") or "local_ai").strip().lower()
         diagnostics: dict[str, object] = {
             "external_ai_transport_mode": "http",
+            "external_ai_resolution_status": "pending",
         }
 
         def _resolve_via_sender(public_context: dict[str, object]):
@@ -608,6 +609,7 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
                     choice_id = response.get("choice_id")
                     if not isinstance(choice_id, str) or not choice_id.strip():
                         raise ValueError("external_ai_missing_choice_id")
+                    public_context["external_ai_resolution_status"] = "resolved_by_worker"
                     if callable(parser):
                         return parser(choice_id.strip(), call.invocation.args, call.invocation.kwargs, call.invocation.state, call.invocation.player)
                     return choice_id.strip()
@@ -615,11 +617,13 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
                     last_error = exc
                     public_context["external_ai_failure_code"] = _classify_external_ai_error(exc)
                     public_context["external_ai_failure_detail"] = str(exc)
+                    public_context["external_ai_resolution_status"] = "worker_failed"
                     if attempt < retry_count and backoff_ms > 0:
                         time.sleep(backoff_ms / 1000.0)
                         continue
             if fallback_mode == "local_ai":
                 public_context["external_ai_fallback_mode"] = "local_ai"
+                public_context["external_ai_resolution_status"] = "resolved_by_local_fallback"
                 return ai_callable(*call.invocation.args, **call.invocation.kwargs)
             raise last_error or RuntimeError("external_ai_transport_failed")
 

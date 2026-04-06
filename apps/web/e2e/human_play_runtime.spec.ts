@@ -730,7 +730,12 @@ test("remote timeout fallback stays visible in spectator and stage flow", async 
             turn_index: 4,
             player_id: 2,
             summary: "defaulted to local AI",
-            public_context: { tile_index: 11 },
+            public_context: {
+              tile_index: 11,
+              external_ai_worker_id: "prod-bot-1",
+              external_ai_failure_code: "external_ai_timeout",
+              external_ai_fallback_mode: "local_ai",
+            },
           },
         }),
       ],
@@ -741,6 +746,7 @@ test("remote timeout fallback stays visible in spectator and stage flow", async 
 
   await expect(page.getByTestId("spectator-turn-panel")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("Timeout fallback");
+  await expect(page.getByTestId("spectator-turn-journey")).toContainText("prod-bot-1");
   await expect(page.getByTestId("turn-stage-scene-strip")).toContainText("Timeout fallback / defaulted to local AI");
 });
 
@@ -792,7 +798,12 @@ test("mixed participant runtime keeps timeout and payoff continuity through hand
             player_id: 3,
             provider: "ai",
             summary: "defaulted to local AI",
-            public_context: { tile_index: 8 },
+            public_context: {
+              tile_index: 8,
+              external_ai_worker_id: "prod-bot-1",
+              external_ai_failure_code: "external_ai_timeout",
+              external_ai_fallback_mode: "local_ai",
+            },
           },
         }),
         eventMessage({
@@ -839,6 +850,7 @@ test("mixed participant runtime keeps timeout and payoff continuity through hand
 
   await expect(page.getByTestId("spectator-turn-panel")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("Timeout fallback");
+  await expect(page.getByTestId("spectator-turn-journey")).toContainText("prod-bot-1");
   await expect(page.getByTestId("spectator-turn-result")).toContainText("Bought tile 9 for 4");
   await expect(page.getByTestId("spectator-turn-handoff")).toContainText("P3 turn closed");
   await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("Bought tile 9 for 4");

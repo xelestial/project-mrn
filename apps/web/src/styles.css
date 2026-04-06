@@ -2091,6 +2091,23 @@ body {
   margin-top: 10px;
 }
 
+.prompt-choice-secondary-group {
+  display: grid;
+  gap: 10px;
+}
+
+.prompt-choice-secondary-group summary {
+  cursor: pointer;
+  color: #cfe0ff;
+  font-size: 12px;
+  font-weight: 700;
+  list-style: none;
+}
+
+.prompt-choice-secondary-group summary::-webkit-details-marker {
+  display: none;
+}
+
 .prompt-choice-card {
   display: grid;
   gap: 6px;
