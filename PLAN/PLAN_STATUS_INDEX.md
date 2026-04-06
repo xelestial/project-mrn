@@ -133,6 +133,7 @@ These are no longer the immediate blockers, but they are recently completed and 
   - worker readiness can now be enforced via `require_ready`
   - total worker call attempts can now be capped via `max_attempt_count`
   - remote-turn stage/spectator payoff strips now surface worker outcomes as part of the scene instead of only side diagnostics
+  - canonical current-turn models now preserve worker readiness state and bounded attempt counts for stage/spectator surfaces
 - Main implementation references:
   - `apps/server/src/external_ai_app.py`
   - `apps/server/src/services/external_ai_worker_service.py`
@@ -179,6 +180,7 @@ These are the slices that should still actively drive implementation after the r
   - keep selector-side sentence ownership moving into locale resources instead of inline formatter logic
   - keep external-worker auth/identity/capability checks mandatory even for injected custom transports
   - keep worker readiness / attempt-limit policy parameter-driven and visible in mixed-seat regressions
+  - keep decision-response readiness validation aligned with the same public-context seam as health readiness
 
 ## Active But Secondary Plans
 

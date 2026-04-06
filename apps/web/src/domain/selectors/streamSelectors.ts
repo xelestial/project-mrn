@@ -89,6 +89,8 @@ export type TurnStageViewModel = {
   externalAiFallbackMode: string;
   externalAiResolutionStatus: string;
   externalAiAttemptCount: number | null;
+  externalAiAttemptLimit: number | null;
+  externalAiReadyState: string;
   progressTrail: string[];
 };
 
@@ -425,7 +427,9 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
       summary,
       asString(publicContext?.["external_ai_worker_id"]),
       asString(publicContext?.["external_ai_failure_code"]),
-      asString(publicContext?.["external_ai_fallback_mode"])
+      asString(publicContext?.["external_ai_fallback_mode"]),
+      numberOrNull(publicContext?.["external_ai_attempt_count"]),
+      numberOrNull(publicContext?.["external_ai_attempt_limit"])
     );
   }
   if (eventType === "landing_resolved") {
@@ -910,6 +914,8 @@ function externalAiStatusFromPayload(payload: Record<string, unknown>): {
   fallbackMode: string;
   resolutionStatus: string;
   attemptCount: number | null;
+  attemptLimit: number | null;
+  readyState: string;
 } {
   const publicContext = externalAiPublicContext(payload);
   return {
@@ -918,6 +924,8 @@ function externalAiStatusFromPayload(payload: Record<string, unknown>): {
     fallbackMode: asString(publicContext?.["external_ai_fallback_mode"]),
     resolutionStatus: asString(publicContext?.["external_ai_resolution_status"]),
     attemptCount: numberOrNull(publicContext?.["external_ai_attempt_count"]),
+    attemptLimit: numberOrNull(publicContext?.["external_ai_attempt_limit"]),
+    readyState: asString(publicContext?.["external_ai_ready_state"]),
   };
 }
 
@@ -937,7 +945,9 @@ function workerSummaryFromPayload(payload: Record<string, unknown>, text: Stream
     status.workerId,
     status.failureCode,
     status.fallbackMode,
-    status.attemptCount
+    status.attemptCount,
+    status.attemptLimit,
+    status.readyState
   );
 }
 
@@ -1004,6 +1014,8 @@ export function selectTurnStage(
     externalAiFallbackMode: "-",
     externalAiResolutionStatus: "-",
     externalAiAttemptCount: null,
+    externalAiAttemptLimit: null,
+    externalAiReadyState: "-",
     progressTrail: [],
   };
 
@@ -1076,6 +1088,12 @@ export function selectTurnStage(
     }
     if (status.attemptCount !== null) {
       model.externalAiAttemptCount = status.attemptCount;
+    }
+    if (status.attemptLimit !== null) {
+      model.externalAiAttemptLimit = status.attemptLimit;
+    }
+    if (status.readyState !== "-") {
+      model.externalAiReadyState = status.readyState;
     }
   };
 

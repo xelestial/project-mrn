@@ -284,6 +284,29 @@ This is the practical next-work list after the closed slices above.
   1. use evidence to close any remaining remote-turn/rule-parity visual drift
   2. keep selector-side wording locale-owned
   3. harden stronger external workers on top of the now-parameterized readiness/attempt seam
+
+### 2026-04-07 Progress Update (selector locale finish-up + worker readiness surfacing)
+
+- Selector/stage/runtime parity tightened again:
+  - timeout-fallback stream detail now carries attempt-limit phrasing through locale helpers instead of selector-local formatting
+  - current-turn stage models now preserve:
+    - `external_ai_attempt_limit`
+    - `external_ai_ready_state`
+  - stage/spectator worker cards now render:
+    - readiness state
+    - bounded attempt counts (`current/limit`)
+  - turn-stage weather spotlight formatting moved behind locale helpers too
+- External worker runtime hardening also advanced:
+  - runtime now records worker readiness state into canonical `public_context`
+  - `require_ready=true` now also rejects decision responses that explicitly report `ready=false`
+  - mixed-seat browser coverage now locks:
+    - worker-not-ready fallback continuity
+    - readiness visibility
+    - bounded attempt visibility
+- Therefore the remaining practical carry-forward is narrower:
+  1. finish any last selector-owned sentence seams that still show up in evidence
+  2. close only evidence-backed remote-turn/rule-parity visual drift
+  3. keep the stronger-worker seam stable beyond the reference implementation
   - mixed-seat browser parity now keeps worker outcome cards inside remote-turn payoff strips
   - runtime can now require or disable health checks per participant config through `healthcheck_policy`
 

@@ -1026,6 +1026,7 @@ test("mixed participant runtime keeps worker-not-ready fallback and weather cont
               tile_index: 12,
               external_ai_worker_id: "prod-bot-2",
               external_ai_resolution_status: "pending",
+              external_ai_ready_state: "not_ready",
             },
             legal_choices: [
               { choice_id: "yes", label: "Buy tile" },
@@ -1050,6 +1051,8 @@ test("mixed participant runtime keeps worker-not-ready fallback and weather cont
               external_ai_fallback_mode: "local_ai",
               external_ai_resolution_status: "resolved_by_local_fallback",
               external_ai_attempt_count: 1,
+              external_ai_attempt_limit: 3,
+              external_ai_ready_state: "not_ready",
             },
           },
         }),
@@ -1085,10 +1088,12 @@ test("mixed participant runtime keeps worker-not-ready fallback and weather cont
 
   await expect(page.getByTestId("spectator-turn-weather")).toContainText("Dry Season");
   await expect(page.getByTestId("spectator-turn-worker")).toContainText("external_ai_worker_not_ready");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("attempt 1");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("state not_ready");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("attempt 1/3");
   await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Participant status");
   await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("P3 paid P1 5 on tile 13");
   await expect(page.getByTestId("turn-stage-worker-status")).toContainText("external_ai_worker_not_ready");
+  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("state not_ready");
   await expect(page.getByTestId("turn-stage-scene-strip")).toContainText("Dry Season");
   await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("P3 paid P1 5 on tile 13");
 });

@@ -335,7 +335,9 @@ export const enLocale = {
       summary: string,
       workerId?: string,
       failureCode?: string,
-      fallbackMode?: string
+      fallbackMode?: string,
+      attemptCount?: number | null,
+      attemptLimit?: number | null
     ) => {
       const parts = ["Timeout fallback"];
       if (summary && summary !== "-") {
@@ -350,6 +352,9 @@ export const enLocale = {
       if (fallbackMode && fallbackMode !== "-") {
         parts.push(`fallback ${fallbackMode}`);
       }
+      if (typeof attemptCount === "number" && attemptCount > 0) {
+        parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `attempt ${attemptCount}/${attemptLimit}` : `attempt ${attemptCount}`);
+      }
       return parts.join(" / ");
     },
     workerStatusDetail: (
@@ -357,11 +362,16 @@ export const enLocale = {
       workerId?: string,
       failureCode?: string,
       fallbackMode?: string,
-      attemptCount?: number | null
+      attemptCount?: number | null,
+      attemptLimit?: number | null,
+      readyState?: string
     ) => {
       const parts: string[] = [];
       if (workerLabel && workerLabel !== "-") {
         parts.push(workerLabel);
+      }
+      if (readyState && readyState !== "-") {
+        parts.push(readyState === "ready" ? "state ready" : readyState === "not_ready" ? "state not_ready" : `state ${readyState}`);
       }
       if (workerId && workerId !== "-") {
         parts.push(`worker ${workerId}`);
@@ -373,7 +383,7 @@ export const enLocale = {
         parts.push(`fallback ${fallbackMode}`);
       }
       if (typeof attemptCount === "number" && attemptCount > 0) {
-        parts.push(`attempt ${attemptCount}`);
+        parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `attempt ${attemptCount}/${attemptLimit}` : `attempt ${attemptCount}`);
       }
       return parts.length > 0 ? parts.join(" / ") : "-";
     },
@@ -520,6 +530,9 @@ export const enLocale = {
     promptIdle: "No active prompt",
     progressEmpty: "No turn progress yet.",
     workerStatusLabel: (status: string) => {
+      if (status === "pending") {
+        return "External worker pending";
+      }
       if (status === "resolved_by_worker") {
         return "Resolved by external worker";
       }
@@ -536,12 +549,17 @@ export const enLocale = {
       workerId?: string,
       failureCode?: string,
       fallbackMode?: string,
-      attemptCount?: number | null
+      attemptCount?: number | null,
+      attemptLimit?: number | null,
+      readyState?: string
     ) => {
       const parts: string[] = [];
       const label = status && status !== "-" ? enLocale.turnStage.workerStatusLabel(status) : "";
       if (label) {
         parts.push(label);
+      }
+      if (readyState && readyState !== "-") {
+        parts.push(readyState === "ready" ? "state ready" : readyState === "not_ready" ? "state not_ready" : `state ${readyState}`);
       }
       if (workerId && workerId !== "-") {
         parts.push(`worker ${workerId}`);
@@ -553,10 +571,12 @@ export const enLocale = {
         parts.push(`fallback ${fallbackMode}`);
       }
       if (typeof attemptCount === "number" && attemptCount > 0) {
-        parts.push(`attempt ${attemptCount}`);
+        parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `attempt ${attemptCount}/${attemptLimit}` : `attempt ${attemptCount}`);
       }
       return parts.length > 0 ? parts.join(" / ") : "-";
     },
+    weatherSummaryLine: (weatherName: string, weatherEffect: string) =>
+      weatherEffect && weatherEffect !== "-" ? `${weatherName} / ${weatherEffect}` : weatherName,
     turnStartDetail: (actor: string) => `${actor} / turn start`,
     sequenceIndex: (index: number, total: number) => `${index}/${total}`,
     sequenceBeat: {

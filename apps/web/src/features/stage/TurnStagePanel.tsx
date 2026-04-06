@@ -54,7 +54,9 @@ function hasWorkerStatus(model: TurnStageViewModel): boolean {
     hasMeaningfulValue(model.externalAiFailureCode) ||
     hasMeaningfulValue(model.externalAiFallbackMode) ||
     hasMeaningfulValue(model.externalAiResolutionStatus) ||
-    model.externalAiAttemptCount !== null
+    model.externalAiReadyState !== "-" ||
+    model.externalAiAttemptCount !== null ||
+    model.externalAiAttemptLimit !== null
   );
 }
 
@@ -76,11 +78,13 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
   const roundTurn = `R${model.round ?? "-"} / T${model.turn ?? "-"}`;
   const workerStatusDetail = valueOrDash(
     stream.workerStatusDetail(
-      "",
+      turnStage.workerStatusLabel(model.externalAiResolutionStatus),
       model.externalAiWorkerId,
       model.externalAiFailureCode,
       model.externalAiFallbackMode,
-      model.externalAiAttemptCount
+      model.externalAiAttemptCount,
+      model.externalAiAttemptLimit,
+      model.externalAiReadyState
     )
   );
   const sceneCardCandidates: Array<SceneCard | null> = [
@@ -200,7 +204,7 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
     spotlightCards.push({
       key: "weather",
       title: turnStage.weatherTitle,
-      detail: valueOrDash(model.weatherEffect === "-" ? model.weatherName : `${model.weatherName} / ${model.weatherEffect}`),
+      detail: valueOrDash(turnStage.weatherSummaryLine(model.weatherName, model.weatherEffect)),
       tone: "effect",
     });
   }

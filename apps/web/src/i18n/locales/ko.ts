@@ -340,7 +340,9 @@ export const koLocale = {
       summary: string,
       workerId?: string,
       failureCode?: string,
-      fallbackMode?: string
+      fallbackMode?: string,
+      attemptCount?: number | null,
+      attemptLimit?: number | null
     ) => {
       const parts = ["시간 초과 기본 처리"];
       if (summary && summary !== "-") {
@@ -355,6 +357,9 @@ export const koLocale = {
       if (fallbackMode && fallbackMode !== "-") {
         parts.push(`폴백 ${fallbackMode}`);
       }
+      if (typeof attemptCount === "number" && attemptCount > 0) {
+        parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `시도 ${attemptCount}/${attemptLimit}` : `시도 ${attemptCount}회`);
+      }
       return parts.join(" / ");
     },
     workerStatusDetail: (
@@ -362,11 +367,16 @@ export const koLocale = {
       workerId?: string,
       failureCode?: string,
       fallbackMode?: string,
-      attemptCount?: number | null
+      attemptCount?: number | null,
+      attemptLimit?: number | null,
+      readyState?: string
     ) => {
       const parts: string[] = [];
       if (workerLabel && workerLabel !== "-") {
         parts.push(workerLabel);
+      }
+      if (readyState && readyState !== "-") {
+        parts.push(readyState === "ready" ? "상태 ready" : readyState === "not_ready" ? "상태 not_ready" : `상태 ${readyState}`);
       }
       if (workerId && workerId !== "-") {
         parts.push(`worker ${workerId}`);
@@ -378,7 +388,7 @@ export const koLocale = {
         parts.push(`폴백 ${fallbackMode}`);
       }
       if (typeof attemptCount === "number" && attemptCount > 0) {
-        parts.push(`시도 ${attemptCount}회`);
+        parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `시도 ${attemptCount}/${attemptLimit}` : `시도 ${attemptCount}회`);
       }
       return parts.length > 0 ? parts.join(" / ") : "-";
     },
@@ -525,6 +535,9 @@ export const koLocale = {
     promptIdle: "선택 요청 없음",
     progressEmpty: "아직 이번 턴의 진행 기록이 없습니다.",
     workerStatusLabel: (status: string) => {
+      if (status === "pending") {
+        return "외부 worker 대기 중";
+      }
       if (status === "resolved_by_worker") {
         return "외부 worker 처리 완료";
       }
@@ -541,12 +554,17 @@ export const koLocale = {
       workerId?: string,
       failureCode?: string,
       fallbackMode?: string,
-      attemptCount?: number | null
+      attemptCount?: number | null,
+      attemptLimit?: number | null,
+      readyState?: string
     ) => {
       const parts: string[] = [];
       const label = status && status !== "-" ? koLocale.turnStage.workerStatusLabel(status) : "";
       if (label) {
         parts.push(label);
+      }
+      if (readyState && readyState !== "-") {
+        parts.push(readyState === "ready" ? "상태 ready" : readyState === "not_ready" ? "상태 not_ready" : `상태 ${readyState}`);
       }
       if (workerId && workerId !== "-") {
         parts.push(`worker ${workerId}`);
@@ -558,10 +576,12 @@ export const koLocale = {
         parts.push(`폴백 ${fallbackMode}`);
       }
       if (typeof attemptCount === "number" && attemptCount > 0) {
-        parts.push(`시도 ${attemptCount}회`);
+        parts.push(typeof attemptLimit === "number" && attemptLimit > 0 ? `시도 ${attemptCount}/${attemptLimit}` : `시도 ${attemptCount}회`);
       }
       return parts.length > 0 ? parts.join(" / ") : "-";
     },
+    weatherSummaryLine: (weatherName: string, weatherEffect: string) =>
+      weatherEffect && weatherEffect !== "-" ? `${weatherName} / ${weatherEffect}` : weatherName,
     turnStartDetail: (actor: string) => `${actor} / 턴 시작`,
     sequenceIndex: (index: number, total: number) => `${index}/${total}`,
     sequenceBeat: {

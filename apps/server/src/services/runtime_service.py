@@ -590,6 +590,7 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
         diagnostics: dict[str, object] = {
             "external_ai_transport_mode": "http",
             "external_ai_resolution_status": "pending",
+            "external_ai_ready_state": "-",
             "external_ai_attempt_count": 0,
             "external_ai_attempt_limit": effective_attempt_count,
         }
@@ -601,6 +602,11 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
                     public_context["external_ai_attempt_count"] = attempt + 1
                     health = self._check_worker_health()
                     if isinstance(health, dict):
+                        ready_state = _external_ai_ready_state_value(health)
+                        if ready_state is not None:
+                            public_context["external_ai_ready_state"] = ready_state
+                        if bool(self._config.get("require_ready", False)) and health.get("ready") is not True:
+                            raise RuntimeError("external_ai_worker_not_ready")
                         _validate_external_ai_request_type_support(health, envelope.request_type)
                         worker_id = str(health.get("worker_id") or "").strip()
                         if worker_id:
@@ -608,6 +614,10 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
                     response = self._sender(envelope) if self._sender is not None else _default_external_ai_http_sender(envelope)
                     if not isinstance(response, dict):
                         raise ValueError("external_ai_response_not_object")
+                    ready_state = _external_ai_ready_state_value(response)
+                    if ready_state is not None:
+                        public_context["external_ai_ready_state"] = ready_state
+                    _validate_external_ai_response_payload(response, envelope.participant_config)
                     _validate_external_ai_request_type_support(response, envelope.request_type)
                     _validate_external_ai_identity(response, envelope.participant_config)
                     worker_id = str(response.get("worker_id") or "").strip()
@@ -789,8 +799,6 @@ def _validate_external_ai_health_payload(payload: dict[str, object], config: dic
     if payload.get("ok") is not True:
         raise RuntimeError("external_ai_health_not_ok")
     _validate_external_ai_identity(payload, config)
-    if bool(config.get("require_ready", False)) and payload.get("ready") is not True:
-        raise RuntimeError("external_ai_worker_not_ready")
     required_version = str(config.get("contract_version", "v1") or "v1").strip().lower()
     worker_version = str(payload.get("worker_contract_version") or "").strip().lower()
     if required_version and worker_version and worker_version != required_version:
@@ -819,6 +827,19 @@ def _validate_external_ai_health_payload(payload: dict[str, object], config: dic
         raise RuntimeError("external_ai_missing_required_capability")
     if required_request_types and not required_request_types.issubset(available_request_types):
         raise RuntimeError("external_ai_missing_required_request_type")
+
+
+def _external_ai_ready_state_value(payload: dict[str, object]) -> str | None:
+    ready = payload.get("ready")
+    if isinstance(ready, bool):
+        return "ready" if ready else "not_ready"
+    return None
+
+
+def _validate_external_ai_response_payload(payload: dict[str, object], config: dict[str, object]) -> None:
+    _validate_external_ai_identity(payload, config)
+    if bool(config.get("require_ready", False)) and payload.get("ready") is False:
+        raise RuntimeError("external_ai_worker_not_ready")
 
 
 def _validate_external_ai_request_type_support(payload: dict[str, object], request_type: str) -> None:

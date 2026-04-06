@@ -115,6 +115,7 @@ describe("streamSelectors", () => {
             tile_index: 9,
             external_ai_worker_id: "prod-bot-1",
             external_ai_resolution_status: "resolved_by_worker",
+            external_ai_ready_state: "ready",
           },
         },
       },
@@ -131,12 +132,14 @@ describe("streamSelectors", () => {
           public_context: {
             external_ai_worker_id: "prod-bot-1",
             external_ai_resolution_status: "resolved_by_worker",
+            external_ai_ready_state: "ready",
           },
         },
       },
     ]);
 
     expect(timeline[0].detail).toContain("외부 worker 처리 완료");
+    expect(timeline[0].detail).toContain("상태 ready");
     expect(timeline[1].detail).toContain("10번 칸");
     expect(timeline[1].detail).toContain("선택지 2개");
   });
@@ -486,6 +489,7 @@ describe("streamSelectors", () => {
             external_ai_failure_code: "external_ai_timeout",
             external_ai_fallback_mode: "local_ai",
             external_ai_attempt_count: 3,
+            external_ai_attempt_limit: 4,
           },
         },
       },
@@ -495,6 +499,7 @@ describe("streamSelectors", () => {
     expect(timeline[0].detail).toContain("defaulted to local AI");
     expect(timeline[0].detail).toContain("prod-bot-1");
     expect(timeline[0].detail).toContain("external_ai_timeout");
+    expect(timeline[0].detail).toContain("시도 3/4");
   });
 
   it("builds core action feed and marks local actor entries", () => {
@@ -862,6 +867,8 @@ describe("streamSelectors", () => {
             external_ai_failure_code: "external_ai_timeout",
             external_ai_fallback_mode: "local_ai",
             external_ai_attempt_count: 3,
+            external_ai_attempt_limit: 4,
+            external_ai_ready_state: "not_ready",
           },
         },
       },
@@ -875,8 +882,11 @@ describe("streamSelectors", () => {
     expect(stage.externalAiFailureCode).toBe("external_ai_timeout");
     expect(stage.externalAiFallbackMode).toBe("local_ai");
     expect(stage.externalAiAttemptCount).toBe(3);
+    expect(stage.externalAiAttemptLimit).toBe(4);
+    expect(stage.externalAiReadyState).toBe("not_ready");
     expect(stage.externalAiResolutionStatus).toBe("-");
     expect(stage.progressTrail).toContain("시간 초과 기본 처리");
+    expect(stage.promptSummary).toContain("시도 3/4");
   });
 
   it("captures external worker success status from decision_resolved events", () => {
@@ -908,6 +918,8 @@ describe("streamSelectors", () => {
             external_ai_worker_id: "prod-bot-1",
             external_ai_resolution_status: "resolved_by_worker",
             external_ai_attempt_count: 1,
+            external_ai_attempt_limit: 2,
+            external_ai_ready_state: "ready",
           },
         },
       },
@@ -916,7 +928,10 @@ describe("streamSelectors", () => {
     expect(stage.externalAiWorkerId).toBe("prod-bot-1");
     expect(stage.externalAiResolutionStatus).toBe("resolved_by_worker");
     expect(stage.externalAiAttemptCount).toBe(1);
+    expect(stage.externalAiAttemptLimit).toBe(2);
+    expect(stage.externalAiReadyState).toBe("ready");
     expect(stage.promptSummary).toContain("외부 worker 처리 완료");
+    expect(stage.promptSummary).toContain("상태 ready");
   });
 
   it("keeps canonical request context visible inside the current turn stage decision beat", () => {

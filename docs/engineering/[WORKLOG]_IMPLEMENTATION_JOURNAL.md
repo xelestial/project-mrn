@@ -2592,3 +2592,37 @@ Updated: 2026-04-07
   - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts`
   - `cd apps/web && npm run build`
   - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
+
+## 2026-04-07 Worker Readiness Surfacing + Locale-Owned Stage Detail
+
+- What changed:
+  - Web:
+    - `apps/web/src/domain/selectors/streamSelectors.ts` now preserves:
+      - `external_ai_attempt_limit`
+      - `external_ai_ready_state`
+    - timeout-fallback timeline/stage detail now renders bounded attempt phrasing through locale helpers instead of selector-owned string assembly
+    - `apps/web/src/features/stage/TurnStagePanel.tsx` and `apps/web/src/features/stage/SpectatorTurnPanel.tsx` now show:
+      - readiness state
+      - `attempt/limit`
+      inside worker status cards
+    - turn-stage weather spotlight formatting now also routes through locale helpers
+  - Server:
+    - `apps/server/src/services/runtime_service.py` now records readiness state into canonical `public_context`
+    - `require_ready=true` now rejects both:
+      - health payloads that are reachable but not ready
+      - decision responses that explicitly report `ready=false`
+    - runtime coverage now locks those cases, including response-level not-ready fallback
+  - Browser regression:
+    - `apps/web/e2e/human_play_runtime.spec.ts` now checks that a worker-not-ready fallback still keeps:
+      - weather continuity
+      - readiness visibility
+      - bounded attempt visibility
+      - payoff continuity
+- Why:
+  - after the previous worker hardening slice, the remaining gap was that readiness/attempt constraints were operationally real but not consistently visible at the same canonical UI surface
+  - the next useful closure step was to make stage/spectator read the same bounded readiness seam that runtime already enforces
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_parameter_service.py`
+  - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts src/i18n/i18n.spec.ts src/domain/text/uiText.spec.ts`
+  - `cd apps/web && npm run build`
+  - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
