@@ -5,6 +5,7 @@ import { promptHelperForType } from "../../domain/labels/promptHelperCatalog";
 import { promptLabelForType } from "../../domain/labels/promptTypeCatalog";
 import type { LocaleMessages } from "../../i18n/types";
 import { useI18n } from "../../i18n/useI18n";
+import { isSpecializedPromptType } from "./promptSurfaceCatalog";
 
 type PromptOverlayProps = {
   prompt: PromptViewModel | null;
@@ -466,6 +467,7 @@ export function PromptOverlay({
   const isDoctrineRelief = prompt.requestType === "doctrine_relief";
   const isGeoBonus = prompt.requestType === "geo_bonus";
   const isPabalDiceMode = prompt.requestType === "pabal_dice_mode";
+  const usesSpecializedSurface = isSpecializedPromptType(prompt.requestType);
 
   const currentTileIndex = numberFromContext(prompt.publicContext, "tile_index", "pos", "player_position");
   const currentCash = numberFromContext(prompt.publicContext, "player_cash", "cash");
@@ -1128,21 +1130,7 @@ export function PromptOverlay({
           </section>
         ) : null}
 
-        {prompt.requestType !== "movement" &&
-        !isLapReward &&
-        prompt.requestType !== "trick_to_use" &&
-        prompt.requestType !== "hidden_trick_card" &&
-        !isPurchaseTile &&
-        !isCharacterPick &&
-        !isMarkTarget &&
-        !isActiveFlip &&
-        !isBurdenExchange &&
-        !isSpecificTrickReward &&
-        !isRunawayChoice &&
-        !isCoinPlacement &&
-        !isDoctrineRelief &&
-        !isGeoBonus &&
-        !isPabalDiceMode ? (
+        {!usesSpecializedSurface ? (
           <section className="prompt-section">
             <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
             {orderedChoices.map((choice) => {

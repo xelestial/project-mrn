@@ -320,3 +320,13 @@ Implement in this order unless a blocker forces a swap:
   1. continue scene-beat polish for fortune reveal and payoff transitions
   2. finish trimming the remaining generic prompt surfaces
   3. keep shrinking provider-local drift before typed `DecisionPort` cleanup
+
+### 2026-04-06 Progress Update (specialized prompt coverage locked)
+
+- Known prompt types are now explicitly locked to specialized prompt surfaces.
+- The generic prompt grid now represents only unknown / future request types.
+- Build, focused Vitest coverage, and human-play browser regression all passed after the lock was added.
+- Therefore the next immediate execution order is:
+  1. continue scene-beat polish for fortune reveal and payoff transitions
+  2. keep simplifying the specialized prompt layouts themselves
+  3. keep shrinking provider-local drift before typed `DecisionPort` cleanup

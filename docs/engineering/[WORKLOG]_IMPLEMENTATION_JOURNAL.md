@@ -1817,3 +1817,16 @@ Updated: 2026-04-04
   - the previous UI dropped the payoff card as soon as turn-end arrived, which weakened scene continuity and broke the browser regression added for handoff.
 - Validation:
   - pending local build/test pass after this patch
+
+## 2026-04-06 Prompt Surface Coverage Lock
+
+- What changed:
+  - Added `apps/web/src/features/prompt/promptSurfaceCatalog.ts` as the canonical list of prompt types that must render on specialized UI surfaces.
+  - Updated `PromptOverlay.tsx` so the generic fallback path now explicitly means "unknown request type" instead of silently covering known request types.
+  - Added `apps/web/src/features/prompt/promptSurfaceCatalog.spec.ts` to assert that every `KNOWN_PROMPT_TYPES` entry is covered by a specialized prompt surface.
+- Why:
+  - this is a direct regression guard against the old problem where a known human choice path could quietly fall back to a generic inspector-like list
+- Validation:
+  - `cmd /c npm run build`
+  - `cmd /c npm run test -- --run src/features/prompt/promptSurfaceCatalog.spec.ts src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/streamSelectors.spec.ts src/domain/text/uiText.spec.ts src/features/board/boardProjection.spec.ts`
+  - `cmd /c npm run e2e -- e2e/human_play_runtime.spec.ts`
