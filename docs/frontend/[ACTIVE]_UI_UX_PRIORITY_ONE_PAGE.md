@@ -37,6 +37,8 @@ Why:
 1. keep the board visually first-class
 2. reduce duplicate turn/spectator/status surfaces
 3. keep current actor resources always readable
+4. keep the top line compact: weather + four-player status only
+5. merge "preparing" copy into the main decision surface instead of showing a second waiting panel
 
 ### P2. Evidence-Driven Dramatic Layer
 
@@ -54,6 +56,9 @@ Why:
 - prompt reason/context expansion
 - board-first layout tuning
 - duplicate panel reduction
+- compact top rail with weather + P1-P4
+- remove the right-side detail drawer from the main play view
+- show dice result and movement as distinct visible beats
 
 ### Stage Later
 
@@ -76,3 +81,54 @@ Why:
 4. enlarge and simplify board-first layout
 5. run playtests
 6. reopen heavier redesign items only if playtest evidence demands it
+
+## File-Level Entry Points
+
+Start here without reading other documents:
+
+### 1. Actor visibility (P0)
+- `apps/web/src/features/players/PlayersPanel.tsx`
+  - missing: `currentActorPlayerId` prop — no visual indication of whose turn it is
+  - fix: add prop, apply `.player-card-active` CSS class when `player.id === currentActorPlayerId`
+- `apps/web/src/App.tsx`
+  - missing: `currentActorId` not passed to `PlayersPanel`
+  - fix: pass `currentActorId={currentActorId}` at the `<PlayersPanel>` call site
+- `apps/web/src/styles.css`
+  - missing: `.player-card-active` style
+  - fix: add border/background highlight rule
+
+### 2. My-turn blank state (P0)
+- `apps/web/src/App.tsx`
+  - condition: `isMyTurn && !actionablePrompt && !promptBusy`
+  - currently: nothing renders in the action zone
+  - fix: render a waiting indicator ("처리 중…" spinner) in this gap
+
+### 3. Prompt labeling (P0)
+- `apps/web/src/features/stage/TurnStagePanel.tsx` — line ~359
+  - bug: `stageLine(turnStage.fields.trick, model.promptSummary)` — non-trick prompts shown under "잔꾀" label
+  - fix: show `model.trickSummary` under "잔꾀"; show `model.promptSummary` under a separate `turnStage.fields.decision` label
+  - trick-related types (keep under 잔꾀): `trick_to_use`, `hidden_trick_card`, `trick_tile_target`
+
+### 4. Prompt reason visibility (P0)
+- `apps/web/src/features/prompt/PromptOverlay.tsx`
+  - currently: no explanation of why the prompt appeared
+  - fix spec: `docs/frontend/[PROPOSAL]_UI_UX_COMMERCIAL_REDESIGN.md` — Zone D (PromptPanel) + `buildPromptContext()`
+
+### 5. Duplicate panel reduction (P1)
+- `apps/web/src/App.tsx`
+  - bug: `TurnStagePanel` and `SpectatorTurnPanel` rendered simultaneously
+  - fix: `isMyTurn ? <TurnStagePanel /> : <SpectatorTurnPanel />`
+  - note: both panels are slated for full replacement in the commercial redesign — this is a minimal patch until then
+
+### 6. Token input state bug (trivial)
+- `apps/web/src/App.tsx` — `onUseSession` handler
+  - bug: calls `setTokenInput("")` then immediately reads `tokenInput.trim()` (React async state)
+  - fix: capture value before clearing — `const token = tokenInput.trim(); setTokenInput(""); ... buildMatchHash(id, token || undefined)`
+
+## Reference Documents
+
+Use only when the above entry points are insufficient:
+
+- `docs/frontend/[PROPOSAL]_UI_UX_ISSUE_FIX_PLAN.md` — full bug list with cause/fix/priority
+- `docs/frontend/[PROPOSAL]_UI_UX_COMMERCIAL_REDESIGN.md` — full redesign spec (Zone A–I)
+- `docs/frontend/[PROPOSAL]_UI_UX_DETAILED_SPEC.md` — pixel math and CSS specs

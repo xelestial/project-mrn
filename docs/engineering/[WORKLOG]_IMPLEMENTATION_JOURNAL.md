@@ -2899,3 +2899,25 @@ Updated: 2026-04-07
   - `.venv311/bin/python -m pytest GPT/test_human_policy_prompt_payloads.py GPT/test_event_effects.py apps/server/tests/test_runtime_service.py`
   - `cd apps/web && npm run test -- --run src/domain/labels/promptTypeCatalog.spec.ts src/features/prompt/promptSurfaceCatalog.spec.ts src/domain/selectors/streamSelectors.spec.ts`
   - `cd apps/web && npm run build`
+
+## 2026-04-07 Match Topline Simplification + Shared Movement Tempo
+
+- What changed:
+  - Web:
+    - simplified the board overlay top line into:
+      - compact weather card on the left
+      - P1-P4 status strip on the right
+    - removed the extra right-side detail drawer from the main match view
+    - removed the duplicate scene/preparing block above the decision area so waiting text now lives in the main decision surface
+  - Runtime:
+    - `dice_roll` and `player_move` now linger for both human and AI turns instead of only spectator/AI pacing
+    - this makes:
+      - dice result
+      - final movement value
+      - actual movement
+      visible as separate beats
+- Why:
+  - the previous layout wasted space with duplicated turn narration and a leftover side drawer
+  - dice and movement still felt like instant jumps, especially on human turns, because only non-human turns were delayed
+- Validation:
+  - `cd apps/web && npm run build`

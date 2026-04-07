@@ -17,8 +17,6 @@ import {
 import { BoardPanel } from "./features/board/BoardPanel";
 import { LobbyView, type LobbySeatType } from "./features/lobby/LobbyView";
 import { PromptOverlay } from "./features/prompt/PromptOverlay";
-import { SpectatorTurnPanel } from "./features/stage/SpectatorTurnPanel";
-import { TurnStagePanel } from "./features/stage/TurnStagePanel";
 import { CoreActionPanel } from "./features/theater/CoreActionPanel";
 import { useGameStream } from "./hooks/useGameStream";
 import { useI18n } from "./i18n/useI18n";
@@ -234,11 +232,20 @@ export function App() {
         ? `${actorLabel} (${actorCharacterText})`
         : actorLabel
       : "-";
+  const boardTurnOverlayDetail = hasReadableValue(turnStage.diceSummary)
+    ? turnStage.diceSummary
+    : hasReadableValue(turnStage.moveSummary)
+      ? turnStage.moveSummary
+      : hasReadableValue(turnStage.currentBeatDetail)
+        ? turnStage.currentBeatDetail
+        : hasReadableValue(turnStage.currentBeatLabel)
+          ? turnStage.currentBeatLabel
+          : "";
   const boardTurnOverlay =
-    !isMyTurn && currentActorId !== null && currentActorText !== "-"
+    currentActorId !== null && currentActorText !== "-"
       ? {
           text: app.turnBanner(currentActorText),
-          detail: turnStage.currentBeatLabel !== "-" ? turnStage.currentBeatLabel : turnStage.currentBeatDetail,
+          detail: boardTurnOverlayDetail,
         }
       : null;
 
@@ -289,7 +296,6 @@ export function App() {
   const characterAbilityLabels = characterAbilityLabelsFromManifestLabels(sessionManifest?.labels);
   const activeCharacterAbility =
     turnStage.character && turnStage.character !== "-" ? characterAbilityLabels[turnStage.character] ?? "-" : "-";
-  const actorSnapshot = snapshot?.players.find((player) => player.playerId === currentActorId) ?? null;
   const tableSceneTitle = hasReadableValue(turnStage.currentBeatLabel)
     ? turnStage.currentBeatLabel
     : isMyTurn
@@ -302,6 +308,18 @@ export function App() {
       : latestCoreAction?.detail ?? "-";
   const tableSceneSupport = hasReadableValue(activeCharacterAbility) ? activeCharacterAbility : turnStageText.promptIdle;
   const currentPromptLabel = actionablePrompt ? promptLabelForType(actionablePrompt.requestType) : null;
+  const decisionWaitingTitle = currentPromptLabel && currentPromptLabel !== "-" ? currentPromptLabel : tableSceneTitle;
+  const decisionWaitingLines = Array.from(
+    new Set(
+      [
+        tableSceneDetail,
+        hasReadableValue(turnStage.diceSummary) ? turnStage.diceSummary : null,
+        hasReadableValue(turnStage.moveSummary) ? turnStage.moveSummary : null,
+        hasReadableValue(turnStage.landingSummary) ? turnStage.landingSummary : null,
+        hasReadableValue(tableSceneSupport) ? tableSceneSupport : null,
+      ].filter((value): value is string => hasReadableValue(value))
+    )
+  );
 
   useEffect(() => {
     const onHashChange = () => {
@@ -1059,19 +1077,6 @@ export function App() {
                     </div>
                   </section>
 
-                  <div className="match-table-overlay-row">
-                    <article className="match-table-scene-card">
-                      <div className="match-table-card-head">
-                        <strong>{isMyTurn ? app.myTurnWaitingTitle : app.spectatorHeadline}</strong>
-                        <span>{turnStageText.roundTurnLabel(turnStage.round, turnStage.turn)}</span>
-                      </div>
-                      <h3>{tableSceneTitle}</h3>
-                      <p>{tableSceneDetail}</p>
-                      {currentPromptLabel ? <small className="match-table-scene-accent">{currentPromptLabel}</small> : null}
-                      <small>{tableSceneSupport}</small>
-                    </article>
-                  </div>
-
                   {passivePrompt ? (
                     <section className="panel passive-prompt-card match-table-passive" data-testid="passive-prompt-card">
                       <div className="passive-prompt-head">
@@ -1097,8 +1102,10 @@ export function App() {
                       <section className="panel waiting-panel match-table-waiting" data-testid="my-turn-waiting-panel">
                         <div className="waiting-panel-head">
                           <div>
-                            <h2>{app.myTurnWaitingTitle}</h2>
-                            <p>{app.myTurnWaitingDescription(turnStage.currentBeatLabel, turnStage.currentBeatDetail)}</p>
+                            <h2>{decisionWaitingTitle}</h2>
+                            {decisionWaitingLines.map((line) => (
+                              <p key={line}>{line}</p>
+                            ))}
                           </div>
                           <span className="spinner" aria-hidden="true" />
                         </div>
@@ -1124,17 +1131,6 @@ export function App() {
             />
 
             <CoreActionPanel items={coreActionFeed} latest={latestCoreAction} />
-
-            <details className="panel match-detail-drawer" open={!isMyTurn}>
-              <summary>{app.rawMessages} · {isMyTurn ? turnStageText.title : app.spectatorHeadline}</summary>
-              <div className="match-detail-grid">
-                {isMyTurn ? (
-                  <TurnStagePanel model={turnStage} characterAbilityText={activeCharacterAbility} isMyTurn={isMyTurn} />
-                ) : (
-                  <SpectatorTurnPanel actorPlayerId={currentActorId} model={turnStage} latestAction={latestCoreAction} />
-                )}
-              </div>
-            </details>
           </section>
 
         </>

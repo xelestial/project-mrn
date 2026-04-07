@@ -1170,8 +1170,9 @@ class _FanoutVisEventStream:
             self._loop,
         )
         fut.result()
-        if self._should_delay_after_event(payload):
-            time.sleep(self._spectator_event_delay_ms / 1000.0)
+        delay_seconds = self._delay_seconds_after_event(payload)
+        if delay_seconds > 0:
+            time.sleep(delay_seconds)
 
     @property
     def events(self) -> list:
@@ -1183,9 +1184,9 @@ class _FanoutVisEventStream:
     def __len__(self) -> int:
         return len(self._events)
 
-    def _should_delay_after_event(self, payload: dict[str, object]) -> bool:
+    def _delay_seconds_after_event(self, payload: dict[str, object]) -> float:
         if self._spectator_event_delay_ms <= 0:
-            return False
+            return 0.0
         event_type = str(payload.get("event_type") or "").strip()
         if event_type not in {
             "turn_start",
@@ -1205,12 +1206,16 @@ class _FanoutVisEventStream:
             "trick_used",
             "turn_end_snapshot",
         }:
-            return False
+            return 0.0
+        # Always linger a bit on dice results and the actual move so both
+        # human and AI turns read like visible motion instead of instant jumps.
+        if event_type in {"dice_roll", "player_move"}:
+            return max(self._spectator_event_delay_ms, 900) / 1000.0
         actor = payload.get("acting_player_id")
         if not isinstance(actor, int):
             actor = payload.get("player_id")
         if not isinstance(actor, int):
             actor = payload.get("player")
         if not isinstance(actor, int):
-            return False
-        return actor not in self._human_player_ids
+            return 0.0
+        return self._spectator_event_delay_ms / 1000.0 if actor not in self._human_player_ids else 0.0
