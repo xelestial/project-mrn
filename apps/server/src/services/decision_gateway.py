@@ -217,12 +217,59 @@ def _build_purchase_tile_context(
     state: Any,
     player: Any,
 ) -> dict[str, Any]:
-    del state, player
-    return {
-        "tile_index": _arg_or_kw(args, kwargs, 2, "pos"),
+    pos = _arg_or_kw(args, kwargs, 2, "pos")
+    cell = _arg_or_kw(args, kwargs, 3, "cell")
+    tile = None
+    if isinstance(pos, int):
+        try:
+            tiles = getattr(state, "tiles", None)
+            if tiles is not None and 0 <= pos < len(tiles):
+                tile = tiles[pos]
+        except Exception:
+            tile = None
+    zone = getattr(tile, "zone_color", None) if tile is not None else None
+    purchase_cost = getattr(tile, "purchase_cost", None) if tile is not None else getattr(cell, "purchase_cost", None)
+    rent_cost = getattr(tile, "rent_cost", None) if tile is not None else getattr(cell, "rent_cost", None)
+    score_coins = getattr(tile, "score_coins", None) if tile is not None else None
+    tile_kind = getattr(getattr(tile, "kind", None), "name", None) if tile is not None else getattr(cell, "name", None)
+    candidate_tiles: list[int] = []
+    if kwargs.get("source") == "matchmaker_adjacent" and isinstance(pos, int):
+        try:
+            block_ids = list(getattr(state, "block_ids", []) or [])
+            board = list(getattr(state, "board", []) or [])
+            tile_owner = list(getattr(state, "tile_owner", []) or [])
+            block_id = block_ids[pos]
+            for idx, bid in enumerate(block_ids):
+                if idx == pos or bid != block_id:
+                    continue
+                if idx >= len(board) or idx >= len(tile_owner):
+                    continue
+                if abs(idx - pos) != 1:
+                    continue
+                if tile_owner[idx] is not None:
+                    continue
+                cell_kind = getattr(board[idx], "name", str(board[idx]))
+                if cell_kind not in {"T2", "T3"}:
+                    continue
+                candidate_tiles.append(int(idx))
+        except Exception:
+            candidate_tiles = []
+    context = {
+        "tile_index": pos,
         "cost": _arg_or_kw(args, kwargs, 4, "cost"),
         "source": kwargs.get("source", "landing"),
+        "tile_zone": zone,
+        "tile_kind": tile_kind,
+        "tile_purchase_cost": purchase_cost,
+        "tile_rent_cost": rent_cost,
+        "tile_score_coins": score_coins,
+        "player_cash": getattr(player, "cash", None),
+        "player_shards": getattr(player, "shards", None),
+        "player_position": getattr(player, "position", None),
     }
+    if candidate_tiles:
+        context["candidate_tiles"] = candidate_tiles
+    return context
 
 
 def _build_burden_exchange_context(

@@ -25,6 +25,7 @@ Current goal:
 - make the game readable
 - make current turn / remote turn / prompt cause obvious
 - keep the board as the primary surface
+- keep multi-target prompts visible on the board instead of collapsing them to one tile
 
 ### 2. Real playtests
 
@@ -36,6 +37,7 @@ Current goal:
 
 - run human + local AI + external AI sessions
 - collect concrete evidence instead of reopening broad old plans
+- use the checklist and smoke-check the stronger worker before browser playtests
 
 ### 3. Stronger external worker rollout support
 
@@ -47,6 +49,7 @@ Current goal:
 
 - attach a real stronger worker endpoint to the already-stabilized seam
 - keep repo edits limited to rollout support and concrete regressions
+- verify endpoint compatibility with `tools/check_external_ai_endpoint.py` before session attachment
 
 ## Closed Enough
 

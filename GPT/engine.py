@@ -3130,58 +3130,22 @@ class GameEngine:
         if not candidates:
             return None
         candidates.sort(key=lambda i: (state.config.rules.economy.purchase_cost_for(state, i), i))
-        idx = candidates[0]
-        cost = state.config.rules.economy.purchase_cost_for(state, idx)
-        shard_cost = 1 if player.current_character == "중매꾼" else 0
-        if player.cash < cost:
-            return None
-        if shard_cost > 0 and player.shards < shard_cost:
-            return None
-        if not self._request_decision(
-            "choose_purchase_tile",
-            state,
-            player,
-            idx,
-            state.board[idx],
-            cost,
-            source="matchmaker_adjacent",
-            fallback=lambda: True,
-        ):
-            return None
-        player.cash -= cost
-        if shard_cost > 0:
-            player.shards -= shard_cost
-        state.tile_owner[idx] = player.player_id
-        player.tiles_owned += 1
-        player.first_purchase_turn_by_tile[idx] = player.turns_taken
-        self._emit_vis(
-            "tile_purchased",
-            Phase.ECONOMY,
-            player.player_id + 1,
-            state,
-            player_id=player.player_id + 1,
-            tile_index=idx,
-            cost=cost,
-            purchase_source="matchmaker_adjacent",
-        )
-        return idx
-
-    def _matchmaker_buy_adjacent(self, state: GameState, player: PlayerState, pos: int) -> Optional[int]:
-        block_id = state.block_ids[pos]
-        if block_id < 0 or state.board[pos] not in (CellKind.T2, CellKind.T3):
-            return None
-        candidates: list[int] = []
-        for idx, bid in enumerate(state.block_ids):
-            if bid != block_id or idx == pos:
-                continue
-            if state.board[idx] not in (CellKind.T2, CellKind.T3) or state.tile_owner[idx] is not None:
-                continue
-            if abs(idx - pos) == 1:
-                candidates.append(idx)
-        if not candidates:
-            return None
-        candidates.sort(key=lambda i: (state.config.rules.economy.purchase_cost_for(state, i), i))
-        idx = candidates[0]
+        default_idx = candidates[0]
+        idx = default_idx
+        if len(candidates) > 1:
+            selected_idx = self._request_decision(
+                "choose_trick_tile_target",
+                state,
+                player,
+                "인접 토지 추가 구매",
+                list(candidates),
+                "adjacent_purchase",
+                fallback=lambda: default_idx,
+            )
+            if selected_idx is None:
+                return None
+            if selected_idx in candidates:
+                idx = selected_idx
         base_cost = state.config.rules.economy.purchase_cost_for(state, idx)
         multiplier = 1 if player.shards >= 8 else 2
         cost = int(base_cost * multiplier)

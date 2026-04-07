@@ -1,4 +1,4 @@
-﻿import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+﻿import { CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { mergeSessionManifest } from "./domain/manifest/manifestRehydrate";
 import {
   characterAbilityLabelsFromManifestLabels,
@@ -16,7 +16,6 @@ import {
 } from "./domain/selectors/streamSelectors";
 import { BoardPanel } from "./features/board/BoardPanel";
 import { LobbyView, type LobbySeatType } from "./features/lobby/LobbyView";
-import { PlayersPanel } from "./features/players/PlayersPanel";
 import { PromptOverlay } from "./features/prompt/PromptOverlay";
 import { SpectatorTurnPanel } from "./features/stage/SpectatorTurnPanel";
 import { TurnStagePanel } from "./features/stage/TurnStagePanel";
@@ -156,6 +155,15 @@ function shouldHideCharacterForPrompt(requestType: string): boolean {
   return requestType === "draft_card" || requestType === "final_character";
 }
 
+function hasReadableValue(value: string | null | undefined): boolean {
+  return typeof value === "string" && value.trim() !== "" && value.trim() !== "-";
+}
+
+function playerColor(playerId: number): string {
+  const palette = ["#f97316", "#38bdf8", "#a78bfa", "#34d399", "#f472b6", "#facc15"];
+  return palette[(Math.max(1, playerId) - 1) % palette.length];
+}
+
 export function App() {
   const { app, eventLabel, promptType, stream: streamText, turnStage: turnStageText, locale, setLocale } = useI18n();
   const [route, setRoute] = useState<ViewRoute>(() => parseHashState(window.location.hash).route);
@@ -243,6 +251,26 @@ export function App() {
   const promptSecondsLeft =
     promptExpiresAtMs === null ? null : Math.max(0, Math.ceil((promptExpiresAtMs - nowMs) / 1000));
 
+  const visibleSeatIds = useMemo(() => {
+    const fromManifest = (sessionManifest?.seats?.allowed ?? []).filter((seat): seat is number => Number.isFinite(seat));
+    if (fromManifest.length > 0) {
+      return Array.from(new Set(fromManifest)).sort((a, b) => a - b);
+    }
+    const fromSnapshot = (snapshot?.players ?? []).map((player) => player.playerId);
+    if (fromSnapshot.length > 0) {
+      return Array.from(new Set(fromSnapshot)).sort((a, b) => a - b);
+    }
+    return [1, 2, 3, 4];
+  }, [sessionManifest?.seats?.allowed, snapshot?.players]);
+
+  const playersById = useMemo(() => {
+    const map = new Map<number, NonNullable<typeof snapshot>["players"][number]>();
+    for (const player of snapshot?.players ?? []) {
+      map.set(player.playerId, player);
+    }
+    return map;
+  }, [snapshot?.players]);
+
   const joinSeatOptions = (sessionManifest?.seats?.allowed ?? [])
     .slice()
     .sort((a, b) => a - b)
@@ -261,6 +289,19 @@ export function App() {
   const characterAbilityLabels = characterAbilityLabelsFromManifestLabels(sessionManifest?.labels);
   const activeCharacterAbility =
     turnStage.character && turnStage.character !== "-" ? characterAbilityLabels[turnStage.character] ?? "-" : "-";
+  const actorSnapshot = snapshot?.players.find((player) => player.playerId === currentActorId) ?? null;
+  const tableSceneTitle = hasReadableValue(turnStage.currentBeatLabel)
+    ? turnStage.currentBeatLabel
+    : isMyTurn
+      ? app.myTurnWaitingTitle
+      : app.spectatorHeadline;
+  const tableSceneDetail = hasReadableValue(turnStage.currentBeatDetail)
+    ? turnStage.currentBeatDetail
+    : hasReadableValue(turnStage.promptSummary)
+      ? turnStage.promptSummary
+      : latestCoreAction?.detail ?? "-";
+  const tableSceneSupport = hasReadableValue(activeCharacterAbility) ? activeCharacterAbility : turnStageText.promptIdle;
+  const currentPromptLabel = actionablePrompt ? promptLabelForType(actionablePrompt.requestType) : null;
 
   useEffect(() => {
     const onHashChange = () => {
@@ -830,7 +871,6 @@ export function App() {
     setPromptBusy(true);
   };
 
-  const headerPlayers = snapshot?.players ?? [];
   const myStatusLabel = isMyTurn ? turnStageText.myTurn : turnStageText.observing;
 
   return (
@@ -876,26 +916,14 @@ export function App() {
         <header className="match-global-bar">
           <div className="match-global-left">
             <strong>{sessionId ? `Session ${sessionId}` : app.topSummaryEmpty}</strong>
-            <small>{runtime.status}</small>
-          </div>
-          <div className="match-global-players" data-testid="match-global-players">
-            {headerPlayers.map((player) => (
-              <button
-                type="button"
-                key={`header-player-${player.playerId}`}
-                className={`match-global-player-chip ${player.playerId === currentActorId ? "is-actor" : ""} ${
-                  effectivePlayerId === player.playerId ? "is-me" : ""
-                } ${player.alive ? "" : "is-out"}`}
-              >
-                <span className="match-global-player-dot" />
-                <span>{`P${player.playerId}`}</span>
-                <small>{player.character && player.character !== "-" ? player.character : "?"}</small>
-              </button>
-            ))}
+            <small>{`${runtime.status} · ${currentActorText !== "-" ? currentActorText : app.topSummaryEmpty}`}</small>
           </div>
           <div className="match-global-right">
             <span className={`match-global-status ${isMyTurn ? "match-global-status-my-turn" : ""}`}>{myStatusLabel}</span>
             <div className="match-global-actions">
+              <button type="button" className="route-tab" onClick={() => navigateRoute("lobby")}>
+                {app.routeLobby}
+              </button>
               <button
                 type="button"
                 className={locale === "ko" ? "route-tab route-tab-active" : "route-tab"}
@@ -972,31 +1000,101 @@ export function App() {
               <small>{turnBanner.detail}</small>
             </div>
           ) : null}
+          <section className="match-table-layout">
+            <BoardPanel
+              snapshot={snapshot}
+              manifestTiles={manifestTiles}
+              boardTopology={boardTopology}
+              tileKindLabels={tileKindLabels}
+              lastMove={lastMove}
+              stageFocus={turnStage}
+              weather={turnStage}
+              turnBanner={boardTurnOverlay}
+              showTurnOverlay={currentActorId !== null}
+              minimalHeader
+              overlayContent={
+                <div className="match-table-overlay">
+                  <section className="match-table-topline">
+                    <article className="match-table-weather-bar" data-testid="board-weather-summary">
+                      <div className="match-table-card-head">
+                        <strong>{turnStageText.weatherTitle}</strong>
+                        <span>{turnStageText.weatherBadge}</span>
+                      </div>
+                      <h4>{turnStage.weatherName}</h4>
+                      <p>{turnStage.weatherEffect}</p>
+                    </article>
 
-          <div className="match-layout">
-            <div className="match-board-zone">
-              <BoardPanel
-                snapshot={snapshot}
-                manifestTiles={manifestTiles}
-                boardTopology={boardTopology}
-                tileKindLabels={tileKindLabels}
-                lastMove={lastMove}
-                stageFocus={turnStage}
-                weather={turnStage}
-                turnBanner={boardTurnOverlay}
-                showTurnOverlay={currentActorId !== null}
-              />
-              <CoreActionPanel items={coreActionFeed} latest={latestCoreAction} />
-            </div>
+                    <div className="match-table-player-strip" data-testid="match-player-strip">
+                      {visibleSeatIds.map((playerId) => {
+                        const player = playersById.get(playerId) ?? null;
+                        const characterLabel = player?.character && player.character !== "-" ? player.character : app.topSummaryEmpty;
+                        const displayName = player?.displayName && player.displayName !== "-" ? player.displayName : `Player ${playerId}`;
+                        const isCurrentActor = playerId === currentActorId;
+                        const isLocalPlayer = playerId === effectivePlayerId;
+                        return (
+                          <article
+                            key={playerId}
+                            className={`match-table-player-card ${isCurrentActor ? "match-table-player-card-actor" : ""} ${
+                              isLocalPlayer ? "match-table-player-card-local" : ""
+                            }`}
+                            style={{ "--player-accent": playerColor(playerId) } as CSSProperties}
+                          >
+                            <div className="match-table-player-head">
+                              <strong>{`P${playerId}`}</strong>
+                              <span>{displayName}</span>
+                            </div>
+                            <p className="match-table-player-character">{characterLabel}</p>
+                            <div className="match-table-player-stats">
+                              <small>{`현금 ${player?.cash ?? "-"}`}</small>
+                              <small>{`조각 ${player?.shards ?? "-"}`}</small>
+                              <small>{`토지 ${player?.ownedTileCount ?? "-"}`}</small>
+                              <small>{`잔꾀 ${player?.hiddenTrickCount ?? "-"}`}</small>
+                              <small>{`손승점 ${player?.handCoins ?? "-"}`}</small>
+                              <small>{`배치승점 ${player?.placedCoins ?? "-"}`}</small>
+                              <small>{`총점 ${player?.totalScore ?? "-"}`}</small>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </section>
 
-            <div className="match-side-zone">
-              <PlayersPanel snapshot={snapshot} currentActorPlayerId={currentActorId} />
-              <div className="match-action-zone">
-                {isMyTurn ? (
-                  <>
-                    <TurnStagePanel model={turnStage} characterAbilityText={activeCharacterAbility} isMyTurn={isMyTurn} />
+                  <div className="match-table-overlay-row">
+                    <article className="match-table-scene-card">
+                      <div className="match-table-card-head">
+                        <strong>{isMyTurn ? app.myTurnWaitingTitle : app.spectatorHeadline}</strong>
+                        <span>{turnStageText.roundTurnLabel(turnStage.round, turnStage.turn)}</span>
+                      </div>
+                      <h3>{tableSceneTitle}</h3>
+                      <p>{tableSceneDetail}</p>
+                      {currentPromptLabel ? <small className="match-table-scene-accent">{currentPromptLabel}</small> : null}
+                      <small>{tableSceneSupport}</small>
+                    </article>
+                  </div>
+
+                  {passivePrompt ? (
+                    <section className="panel passive-prompt-card match-table-passive" data-testid="passive-prompt-card">
+                      <div className="passive-prompt-head">
+                        <div>
+                          <h2>{app.passivePromptTitle}</h2>
+                          <p>
+                            {app.passivePromptSummary(
+                              passivePrompt.playerId,
+                              promptLabelForType(passivePrompt.requestType),
+                              promptSecondsLeft
+                            )}
+                          </p>
+                        </div>
+                        <div className="passive-prompt-badge">
+                          <span className="spinner" aria-hidden="true" />
+                        </div>
+                      </div>
+                    </section>
+                  ) : null}
+
+                  <div className="match-table-prompt-wrap">
                     {waitingForMyPrompt ? (
-                      <section className="panel waiting-panel" data-testid="my-turn-waiting-panel">
+                      <section className="panel waiting-panel match-table-waiting" data-testid="my-turn-waiting-panel">
                         <div className="waiting-panel-head">
                           <div>
                             <h2>{app.myTurnWaitingTitle}</h2>
@@ -1006,43 +1104,38 @@ export function App() {
                         </div>
                       </section>
                     ) : null}
-                  </>
+                    {actionablePrompt ? (
+                      <div className="match-table-prompt-shell">
+                        <PromptOverlay
+                          prompt={actionablePrompt}
+                          collapsed={promptCollapsed}
+                          busy={promptBusy}
+                          secondsLeft={promptSecondsLeft}
+                          feedbackMessage={promptFeedback}
+                          compactChoices={compactDensity}
+                          onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
+                          onSelectChoice={onSelectPromptChoice}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              }
+            />
+
+            <CoreActionPanel items={coreActionFeed} latest={latestCoreAction} />
+
+            <details className="panel match-detail-drawer" open={!isMyTurn}>
+              <summary>{app.rawMessages} · {isMyTurn ? turnStageText.title : app.spectatorHeadline}</summary>
+              <div className="match-detail-grid">
+                {isMyTurn ? (
+                  <TurnStagePanel model={turnStage} characterAbilityText={activeCharacterAbility} isMyTurn={isMyTurn} />
                 ) : (
                   <SpectatorTurnPanel actorPlayerId={currentActorId} model={turnStage} latestAction={latestCoreAction} />
                 )}
-
-                {passivePrompt ? (
-                  <section className="panel passive-prompt-card" data-testid="passive-prompt-card">
-                    <div className="passive-prompt-head">
-                      <div>
-                        <h2>{app.passivePromptTitle}</h2>
-                        <p>
-                          {app.passivePromptSummary(
-                            passivePrompt.playerId,
-                            promptLabelForType(passivePrompt.requestType),
-                            promptSecondsLeft
-                          )}
-                        </p>
-                      </div>
-                      <div className="passive-prompt-badge">
-                        <span className="spinner" aria-hidden="true" />
-                      </div>
-                    </div>
-                  </section>
-                ) : null}
-                <PromptOverlay
-                  prompt={actionablePrompt}
-                  collapsed={promptCollapsed}
-                  busy={promptBusy}
-                  secondsLeft={promptSecondsLeft}
-                  feedbackMessage={promptFeedback}
-                  compactChoices={compactDensity}
-                  onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
-                  onSelectChoice={onSelectPromptChoice}
-                />
               </div>
-            </div>
-          </div>
+            </details>
+          </section>
 
         </>
       )}

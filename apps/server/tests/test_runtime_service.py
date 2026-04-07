@@ -240,6 +240,46 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(context["candidate_tiles"], [4, 9, 12])
         self.assertEqual(context["target_scope"], "other_owned_highest")
 
+    def test_matchmaker_purchase_context_exposes_tile_metadata_and_adjacent_candidates(self) -> None:
+        Tile = lambda zone, cost, rent, score: type(
+            "Tile",
+            (),
+            {
+                "zone_color": zone,
+                "purchase_cost": cost,
+                "rent_cost": rent,
+                "score_coins": score,
+                "kind": type("Kind", (), {"name": "T3"})(),
+            },
+        )()
+        state = type(
+            "State",
+            (),
+            {
+                "rounds_completed": 2,
+                "turn_index": 1,
+                "tiles": [Tile("red", 3, 3, 1), Tile("red", 3, 3, 1), Tile("red", 3, 3, 1)],
+                "block_ids": [1, 1, 1],
+                "board": [type("Kind", (), {"name": "T3"})(), type("Kind", (), {"name": "T3"})(), type("Kind", (), {"name": "T3"})()],
+                "tile_owner": [None, None, None],
+            },
+        )()
+        player = type("Player", (), {"cash": 14, "position": 1, "shards": 2})()
+
+        context = build_public_context(
+            "choose_purchase_tile",
+            (state, player, 1, state.board[1], 6),
+            {"source": "matchmaker_adjacent"},
+        )
+
+        self.assertEqual(context["tile_index"], 1)
+        self.assertEqual(context["tile_zone"], "red")
+        self.assertEqual(context["tile_kind"], "T3")
+        self.assertEqual(context["tile_purchase_cost"], 3)
+        self.assertEqual(context["tile_rent_cost"], 3)
+        self.assertEqual(context["tile_score_coins"], 1)
+        self.assertEqual(context["candidate_tiles"], [0, 2])
+
     def test_decision_client_router_prefers_human_policy_attributes_and_human_seats(self) -> None:
         from apps.server.src.services.runtime_service import _ServerDecisionClientRouter
 

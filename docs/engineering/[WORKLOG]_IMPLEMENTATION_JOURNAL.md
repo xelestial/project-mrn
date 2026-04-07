@@ -12,6 +12,26 @@ Updated: 2026-04-07
 
 ## 2026-04-07
 
+### Entry 009
+
+- Scope: board-target visibility recovery + stronger-worker smoke-check hardening.
+- Done:
+  - purchase and trick tile targeting can now surface multiple candidate tiles through selector-derived board focus
+  - board tiles now show secondary candidate highlights instead of collapsing every multi-target prompt to one tile
+  - matchmaker adjacent-buy flow now requests a real tile choice when two adjacent land tiles are available instead of auto-picking the first candidate
+  - purchase prompt context now exposes richer tile metadata and adjacent candidate tiles
+  - added `tools/check_external_ai_endpoint.py` to verify worker readiness, adapter/profile compatibility, supported request types, and a real `/decide` round-trip
+  - updated worker runbook and human playtest checklist with the stronger-worker smoke-check step
+- Validation:
+  - `cd apps/web && npm run test -- --run src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+  - `cd apps/web && npm run e2e -- e2e/human_play_runtime.spec.ts`
+  - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py GPT/test_rule_fixes.py`
+  - `.venv311/bin/python tools/check_external_ai_endpoint.py --base-url http://127.0.0.1:8011 --require-ready --require-profile priority_scored --require-adapter priority_score_v1 --require-policy-class PriorityScoredPolicy --require-decision-style priority_scored_contract --require-request-type movement --require-request-type purchase_tile`
+- Next:
+  - use real playtest evidence to decide which tile-target and movement reveals still need visual upgrades
+  - keep stronger external worker changes rollout-oriented rather than reopening broad architecture work
+
 ### Entry 001
 
 - Scope: external AI auth/identity hardening + mixed-seat regression extension.

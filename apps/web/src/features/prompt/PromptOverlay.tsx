@@ -710,6 +710,7 @@ export function PromptOverlay({
   const targetTiles = Array.isArray(prompt.publicContext["candidate_tiles"])
     ? prompt.publicContext["candidate_tiles"].map((item) => asNumber(item)).filter((item): item is number => item !== null)
     : [];
+  const landingTileIndex = numberFromContext(prompt.publicContext, "player_position", "landing_tile_index");
 
   if (collapsed) {
     return (
@@ -1013,7 +1014,26 @@ export function PromptOverlay({
               `${promptText.context.purchaseCost}: ${formatNumber(currentCost)}`,
               `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
               currentZone ? `${promptText.context.zone}: ${currentZone}` : null,
+              targetTiles.length > 0 ? `${promptText.context.targetTiles}: ${targetTiles.map((tile) => tileLabel(tile)).join(", ")}` : null,
             ]}
+            renderExtra={(choice) => {
+              const choiceTileIndex = asNumber(choice.value?.["tile_index"]) ?? currentTileIndex;
+              const pills = nonEmptyPills([
+                choiceTileIndex !== null ? tileLabel(choiceTileIndex) : null,
+                landingTileIndex !== null && landingTileIndex !== choiceTileIndex
+                  ? `${promptText.context.currentPosition}: ${tileLabel(landingTileIndex)}`
+                  : null,
+              ]);
+              return pills.length > 0 ? (
+                <div className="prompt-summary-pill-row">
+                  {pills.map((pill) => (
+                    <span key={`${choice.choiceId}-${pill}`} className="prompt-summary-pill">
+                      {pill}
+                    </span>
+                  ))}
+                </div>
+              ) : null;
+            }}
           />
         ) : null}
 

@@ -1,6 +1,7 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { LastMoveViewModel, SnapshotViewModel, TurnStageViewModel } from "../../domain/selectors/streamSelectors";
 import { useI18n } from "../../i18n/useI18n";
+import pawnPieceUrl from "../../assets/pawn-piece.svg";
 import { DEFAULT_RING_TILE_COUNT, boardGridForTileCount, projectTilePosition } from "./boardProjection";
 
 type BoardPanelProps = {
@@ -17,13 +18,15 @@ type BoardPanelProps = {
   boardTopology?: string;
   tileKindLabels?: Record<string, string>;
   lastMove: LastMoveViewModel | null;
-  stageFocus: Pick<TurnStageViewModel, "focusTileIndex" | "currentBeatKind" | "currentBeatLabel" | "currentBeatDetail" | "actorPlayerId">;
+  stageFocus: Pick<TurnStageViewModel, "focusTileIndex" | "focusTileIndices" | "currentBeatKind" | "currentBeatLabel" | "currentBeatDetail" | "actorPlayerId">;
   weather: Pick<TurnStageViewModel, "weatherName" | "weatherEffect">;
   turnBanner: {
     text: string;
     detail: string;
   } | null;
   showTurnOverlay: boolean;
+  minimalHeader?: boolean;
+  overlayContent?: ReactNode;
 };
 
 type BoardText = ReturnType<typeof useI18n>["board"];
@@ -80,6 +83,8 @@ export function BoardPanel({
   weather,
   turnBanner,
   showTurnOverlay,
+  minimalHeader = false,
+  overlayContent = null,
 }: BoardPanelProps) {
   const { board } = useI18n();
   const tiles = (snapshot?.tiles && snapshot.tiles.length > 0 ? snapshot.tiles : manifestTiles ?? []).slice();
@@ -156,28 +161,37 @@ export function BoardPanel({
   }
 
   return (
-    <section className="panel board-panel">
-      <h2>{board.title}</h2>
-      {snapshot ? (
-        <p>{board.roundTurnMarker(snapshot.round, snapshot.turn, snapshot.markerOwnerPlayerId, endTimeRemaining)}</p>
+    <section className={`panel board-panel ${minimalHeader ? "board-panel-minimal" : ""}`}>
+      {minimalHeader ? (
+        <div className="board-meta-bar">
+          <strong>{snapshot ? board.roundTurnMarker(snapshot.round, snapshot.turn, snapshot.markerOwnerPlayerId, endTimeRemaining) : board.manifestBoard}</strong>
+          {lastMove ? <small>{board.lastMove(lastMove.playerId, lastMove.fromTileIndex, lastMove.toTileIndex)}</small> : null}
+        </div>
       ) : (
-        <p>{board.manifestBoard}</p>
+        <>
+          <h2>{board.title}</h2>
+          {snapshot ? (
+            <p>{board.roundTurnMarker(snapshot.round, snapshot.turn, snapshot.markerOwnerPlayerId, endTimeRemaining)}</p>
+          ) : (
+            <p>{board.manifestBoard}</p>
+          )}
+          {weather.weatherName !== "-" ? (
+            <p className="board-weather-summary" data-testid="board-weather-summary">
+              <strong>{weather.weatherName}</strong>
+              <span>{weather.weatherEffect}</span>
+            </p>
+          ) : null}
+          {stageFocus.currentBeatLabel !== "-" ? (
+            <p className={`board-focus-summary board-focus-summary-${stageFocus.currentBeatKind}`} data-testid="board-focus-summary">
+              <strong>{stageFocus.currentBeatLabel}</strong>
+              <span>{stageFocus.currentBeatDetail}</span>
+            </p>
+          ) : null}
+          {lastMove ? (
+            <p className="board-move-summary">{board.lastMove(lastMove.playerId, lastMove.fromTileIndex, lastMove.toTileIndex)}</p>
+          ) : null}
+        </>
       )}
-      {weather.weatherName !== "-" ? (
-        <p className="board-weather-summary" data-testid="board-weather-summary">
-          <strong>{weather.weatherName}</strong>
-          <span>{weather.weatherEffect}</span>
-        </p>
-      ) : null}
-      {stageFocus.currentBeatLabel !== "-" ? (
-        <p className={`board-focus-summary board-focus-summary-${stageFocus.currentBeatKind}`} data-testid="board-focus-summary">
-          <strong>{stageFocus.currentBeatLabel}</strong>
-          <span>{stageFocus.currentBeatDetail}</span>
-        </p>
-      ) : null}
-      {lastMove ? (
-        <p className="board-move-summary">{board.lastMove(lastMove.playerId, lastMove.fromTileIndex, lastMove.toTileIndex)}</p>
-      ) : null}
       <div className="board-scroll">
         <div className={`board-ring ${normalizedTopology === "line" ? "board-ring-line" : "board-ring-ring"}`} style={boardStyle}>
           {movingPawnStyle ? (
@@ -196,6 +210,7 @@ export function BoardPanel({
             const pathStep = recentPathSteps.get(tile.tileIndex) ?? null;
             const isMoveTrail = pathStep !== null && !isMoveFrom && !isMoveTo;
             const isStageFocus = stageFocus.focusTileIndex === tile.tileIndex;
+            const isStageCandidate = stageFocus.focusTileIndices.includes(tile.tileIndex) && !isStageFocus;
             const position = projectTilePosition(tile.tileIndex, tiles.length, normalizedTopology);
             const ownerPlayerId = tile.ownerPlayerId ?? null;
             const tilePawns = tile.pawnPlayerIds.length > 0 ? tile.pawnPlayerIds : pawnFallback.get(tile.tileIndex) ?? [];
@@ -213,7 +228,7 @@ export function BoardPanel({
                   isFortune ? "tile-fortune" : ""
                 } ${isMoveTrail ? "tile-move-trail" : ""} ${
                   pathStep !== null ? "tile-move-has-path" : ""
-                } ${isFinish ? "tile-finish" : ""}`}
+                } ${isFinish ? "tile-finish" : ""} ${isStageCandidate ? "tile-stage-candidate" : ""}`}
                 data-focus-kind={isStageFocus ? stageFocus.currentBeatKind : undefined}
                 style={{
                   gridRow: position.row,
@@ -221,6 +236,7 @@ export function BoardPanel({
                 }}
               >
                 {isStageFocus ? <div className={`tile-stage-focus tile-stage-focus-${stageFocus.currentBeatKind}`} /> : null}
+                {isStageCandidate ? <div className={`tile-stage-candidate-ring tile-stage-candidate-ring-${stageFocus.currentBeatKind}`} /> : null}
                 {isMoveFrom ? (
                   <div className="tile-corner-badge tile-corner-badge-from" data-testid="board-move-start-badge">
                     {board.moveStartTag}
@@ -274,10 +290,16 @@ export function BoardPanel({
                           className={`pawn-token ${isMoveTo ? "pawn-arrived" : ""} ${
                             isStageFocus && stageFocus.actorPlayerId === id ? "pawn-active-turn" : ""
                           }`}
-                          style={{ backgroundColor: playerColor(id) }}
+                          style={
+                            {
+                              "--pawn-player-color": playerColor(id),
+                              "--pawn-piece-url": `url(${pawnPieceUrl})`,
+                            } as CSSProperties
+                          }
                           title={`P${id}`}
                         >
-                          {id}
+                          <span className="pawn-token-piece" aria-hidden="true" />
+                          <span className="pawn-token-label">{id}</span>
                         </span>
                       ))
                     ) : (
@@ -298,6 +320,7 @@ export function BoardPanel({
             {boardOverlayDetail ? <p>{boardOverlayDetail}</p> : null}
           </div>
         ) : null}
+        {overlayContent ? <div className="board-overlay-content">{overlayContent}</div> : null}
       </div>
     </section>
   );

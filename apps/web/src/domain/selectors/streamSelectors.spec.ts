@@ -923,6 +923,7 @@ describe("streamSelectors", () => {
 
     expect(stage.currentBeatKind).toBe("decision");
     expect(stage.focusTileIndex).toBe(11);
+    expect(stage.focusTileIndices).toEqual([11, 17]);
     expect(stage.promptSummary).toContain("승점 배치");
   });
 
@@ -1296,6 +1297,7 @@ describe("streamSelectors", () => {
     ]);
 
     expect(stage.focusTileIndex).toBe(4);
+    expect(stage.focusTileIndices).toEqual([4, 7]);
     expect(stage.currentBeatKind).toBe("decision");
   });
 });

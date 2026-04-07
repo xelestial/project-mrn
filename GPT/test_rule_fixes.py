@@ -33,6 +33,9 @@ class DummyPolicy(BasePolicy):
     def choose_geo_bonus(self, state, player, actor_name):
         return "cash"
 
+    def choose_trick_tile_target(self, state, player, card_name, candidate_tiles, target_scope="any"):
+        return candidate_tiles[0] if candidate_tiles else None
+
 
 class TargetPolicy(DummyPolicy):
     def __init__(self, target_name=None):
@@ -405,6 +408,32 @@ class RuleFixTests(unittest.TestCase):
         self.assertEqual(result.get("shard_cost"), 0)
         self.assertEqual(player.shards, 0)
         self.assertEqual(len(result.get("adjacent_bought", [])), 1)
+
+    def test_matchmaker_middle_land_allows_selecting_between_adjacent_tiles(self):
+        class AdjacentChoicePolicy(DummyPolicy):
+            def choose_trick_tile_target(self, state, player, card_name, candidate_tiles, target_scope="any"):
+                self.recorded_candidates = list(candidate_tiles)
+                return candidate_tiles[-1]
+
+            def choose_purchase_tile(self, state, player, pos, cell, cost, source=None):
+                return True
+
+        policy = AdjacentChoicePolicy()
+        engine = GameEngine(DEFAULT_CONFIG, policy, rng=random.Random(0), enable_logging=True)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        player.current_character = "중매꾼"
+        player.cash = 20
+        player.shards = 0
+        middle = first_three_land_block_positions(state)[1]
+        left, _, right = first_three_land_block_positions(state)
+        player.position = middle
+
+        result = engine._resolve_landing(state, player)
+
+        self.assertEqual(policy.recorded_candidates, [left, right])
+        self.assertEqual(result["type"], "PURCHASE")
+        self.assertEqual(result.get("adjacent_bought"), [right])
 
     def test_builder_gets_free_landing_purchase_without_spending_shards(self):
         engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True)

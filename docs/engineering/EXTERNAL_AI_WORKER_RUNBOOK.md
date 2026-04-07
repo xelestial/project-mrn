@@ -37,6 +37,30 @@ Worker presets:
 curl http://127.0.0.1:8011/health
 ```
 
+For a stronger-worker compatibility smoke check, run:
+
+```bash
+.venv311/bin/python tools/check_external_ai_endpoint.py \
+  --base-url http://127.0.0.1:8011 \
+  --require-ready \
+  --require-profile priority_scored \
+  --require-adapter priority_score_v1 \
+  --require-policy-class PriorityScoredPolicy \
+  --require-decision-style priority_scored_contract \
+  --require-request-type movement \
+  --require-request-type purchase_tile
+```
+
+If worker auth is enabled, pass the auth header values too:
+
+```bash
+.venv311/bin/python tools/check_external_ai_endpoint.py \
+  --base-url http://127.0.0.1:8011 \
+  --auth-header X-Worker-Auth \
+  --auth-value 'Token worker-secret' \
+  --require-ready
+```
+
 If worker auth is enabled:
 
 ```bash
@@ -182,6 +206,7 @@ Important rules:
 - `healthcheck_policy=disabled` skips health preflight intentionally and should only be used for tightly controlled local/testing setups
 - `require_ready=true` also requires `/health` to advertise `ready: true`
 - `max_attempt_count` caps total worker call attempts even if `retry_count` is set higher
+- `tools/check_external_ai_endpoint.py` should pass before attaching a stronger worker to a real playtest
 - the server owns timeout, retry, and fallback behavior
 - the server converts `choice_id` back into engine-native values through method-specific parsers
 

@@ -35,7 +35,21 @@ The preferred stronger worker path is:
 .venv311/bin/python -m uvicorn apps.server.src.app:app --host 127.0.0.1 --port 8001
 ```
 
-3. Start the web app:
+3. Smoke-check the worker contract before opening the web app:
+
+```bash
+.venv311/bin/python tools/check_external_ai_endpoint.py \
+  --base-url http://127.0.0.1:8011 \
+  --require-ready \
+  --require-profile priority_scored \
+  --require-adapter priority_score_v1 \
+  --require-policy-class PriorityScoredPolicy \
+  --require-decision-style priority_scored_contract \
+  --require-request-type movement \
+  --require-request-type purchase_tile
+```
+
+4. Start the web app:
 
 ```bash
 cd apps/web

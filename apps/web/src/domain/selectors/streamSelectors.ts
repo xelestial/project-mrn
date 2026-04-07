@@ -64,6 +64,7 @@ export type TurnStageViewModel = {
   weatherEffect: string;
   currentBeatKind: "move" | "economy" | "effect" | "decision" | "system";
   focusTileIndex: number | null;
+  focusTileIndices: number[];
   diceSummary: string;
   moveSummary: string;
   trickSummary: string;
@@ -120,6 +121,9 @@ export type PlayerViewModel = {
   position: number;
   cash: number;
   shards: number;
+  handCoins: number;
+  placedCoins: number;
+  totalScore: number;
   hiddenTrickCount: number;
   ownedTileCount: number;
 };
@@ -1009,13 +1013,25 @@ function workerSummaryFromPayload(payload: Record<string, unknown>, text: Stream
 }
 
 function promptFocusTileIndex(payload: Record<string, unknown>): number | null {
+  const tileIndices = promptFocusTileIndices(payload);
+  return tileIndices[0] ?? null;
+}
+
+function promptFocusTileIndices(payload: Record<string, unknown>): number[] {
   const publicContext = isRecord(payload["public_context"]) ? payload["public_context"] : null;
   const contextTileIndex = numberOrNull(publicContext?.["tile_index"]);
+  const contextCandidateTiles = Array.isArray(publicContext?.["candidate_tiles"])
+    ? publicContext["candidate_tiles"].map((item) => numberOrNull(item)).filter((item): item is number => item !== null)
+    : [];
+  if (contextTileIndex !== null && contextCandidateTiles.length > 0) {
+    return [contextTileIndex, ...contextCandidateTiles.filter((item) => item !== contextTileIndex)];
+  }
   if (contextTileIndex !== null) {
-    return contextTileIndex;
+    return [contextTileIndex];
   }
 
   const legalChoices = Array.isArray(payload["legal_choices"]) ? payload["legal_choices"] : [];
+  const fromChoices: number[] = [];
   for (const choice of legalChoices) {
     if (!isRecord(choice)) {
       continue;
@@ -1023,11 +1039,15 @@ function promptFocusTileIndex(payload: Record<string, unknown>): number | null {
     const value = isRecord(choice["value"]) ? choice["value"] : null;
     const choiceTileIndex = numberOrNull(value?.["tile_index"]);
     if (choiceTileIndex !== null) {
-      return choiceTileIndex;
+      fromChoices.push(choiceTileIndex);
     }
   }
 
-  return null;
+  if (fromChoices.length > 0) {
+    return [...new Set(fromChoices)];
+  }
+
+  return contextCandidateTiles;
 }
 
 function updateActorStatusFromContext(model: TurnStageViewModel, payload: Record<string, unknown>) {
@@ -1112,6 +1132,7 @@ export function selectTurnStage(
     weatherEffect: weather.effect,
     currentBeatKind: "system",
     focusTileIndex: null,
+    focusTileIndices: [],
     diceSummary: "-",
     moveSummary: "-",
     trickSummary: "-",
@@ -1200,6 +1221,7 @@ export function selectTurnStage(
     model.currentBeatKind = kind;
     if (focusTileIndex !== null) {
       model.focusTileIndex = focusTileIndex;
+      model.focusTileIndices = [focusTileIndex];
     }
     model.currentBeatLabel = label;
     model.currentBeatDetail = detail || "-";
@@ -1262,8 +1284,12 @@ export function selectTurnStage(
         model.currentBeatLabel = promptLabelForType(requestType, text.promptType);
         model.currentBeatDetail = model.promptSummary;
         const promptTileIndex = promptFocusTileIndex(message.payload);
+        const promptTileIndices = promptFocusTileIndices(message.payload);
         if (promptTileIndex !== null) {
           model.focusTileIndex = promptTileIndex;
+        }
+        if (promptTileIndices.length > 0) {
+          model.focusTileIndices = promptTileIndices;
         }
       }
       continue;
@@ -1316,6 +1342,13 @@ export function selectTurnStage(
         "decision",
         promptFocusTileIndex({ public_context: message.payload["public_context"], legal_choices: message.payload["legal_choices"] })
       );
+      const promptTileIndices = promptFocusTileIndices({
+        public_context: message.payload["public_context"],
+        legal_choices: message.payload["legal_choices"],
+      });
+      if (promptTileIndices.length > 0) {
+        model.focusTileIndices = promptTileIndices;
+      }
       continue;
     }
     if (eventCode === "decision_resolved") {
@@ -1331,6 +1364,13 @@ export function selectTurnStage(
         "decision",
         promptFocusTileIndex({ public_context: message.payload["public_context"], legal_choices: message.payload["legal_choices"] })
       );
+      const promptTileIndices = promptFocusTileIndices({
+        public_context: message.payload["public_context"],
+        legal_choices: message.payload["legal_choices"],
+      });
+      if (promptTileIndices.length > 0) {
+        model.focusTileIndices = promptTileIndices;
+      }
       continue;
     }
     if (eventCode === "decision_timeout_fallback") {
@@ -1346,6 +1386,13 @@ export function selectTurnStage(
         "system",
         promptFocusTileIndex({ public_context: message.payload["public_context"], legal_choices: message.payload["legal_choices"] })
       );
+      const promptTileIndices = promptFocusTileIndices({
+        public_context: message.payload["public_context"],
+        legal_choices: message.payload["legal_choices"],
+      });
+      if (promptTileIndices.length > 0) {
+        model.focusTileIndices = promptTileIndices;
+      }
       continue;
     }
     if (eventCode === "tile_purchased") {
@@ -1454,6 +1501,29 @@ function toPlayerViewModel(raw: unknown): PlayerViewModel | null {
     position: typeof raw["position"] === "number" ? raw["position"] : 0,
     cash: typeof raw["cash"] === "number" ? raw["cash"] : 0,
     shards: typeof raw["shards"] === "number" ? raw["shards"] : 0,
+    handCoins:
+      typeof raw["hand_coins"] === "number"
+        ? raw["hand_coins"]
+        : typeof raw["hand_score_coins"] === "number"
+          ? raw["hand_score_coins"]
+          : 0,
+    placedCoins:
+      typeof raw["placed_score_coins"] === "number"
+        ? raw["placed_score_coins"]
+        : typeof raw["score_coins_placed"] === "number"
+          ? raw["score_coins_placed"]
+          : 0,
+    totalScore:
+      typeof raw["score"] === "number"
+        ? raw["score"]
+        : typeof raw["total_score"] === "number"
+          ? raw["total_score"]
+          : (typeof raw["hand_coins"] === "number" ? raw["hand_coins"] : 0) +
+            (typeof raw["placed_score_coins"] === "number"
+              ? raw["placed_score_coins"]
+              : typeof raw["score_coins_placed"] === "number"
+                ? raw["score_coins_placed"]
+                : 0),
     hiddenTrickCount: typeof raw["hidden_trick_count"] === "number" ? raw["hidden_trick_count"] : 0,
     ownedTileCount: typeof raw["owned_tile_count"] === "number" ? raw["owned_tile_count"] : 0,
   };
