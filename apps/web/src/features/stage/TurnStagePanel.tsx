@@ -48,6 +48,17 @@ function hasOutcome(summary: string): boolean {
   return hasMeaningfulValue(summary);
 }
 
+function hasActorStatus(model: TurnStageViewModel): boolean {
+  return (
+    model.actorCash !== null ||
+    model.actorShards !== null ||
+    model.actorHandCoins !== null ||
+    model.actorPlacedCoins !== null ||
+    model.actorTotalScore !== null ||
+    model.actorOwnedTileCount !== null
+  );
+}
+
 function hasWorkerStatus(model: TurnStageViewModel): boolean {
   return (
     hasMeaningfulValue(model.externalAiWorkerId) ||
@@ -318,6 +329,21 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
           <p>{valueOrDash(model.character)}</p>
           <small>{valueOrDash(characterAbilityText)}</small>
         </article>
+
+        {hasActorStatus(model) ? (
+          <article className="turn-stage-card" data-testid="turn-stage-actor-status">
+            <div className="turn-stage-card-top">
+              <strong>{turnStage.actorStatusTitle}</strong>
+              <span>{turnStage.actorStatusBadge}</span>
+            </div>
+            {stageLine(turnStage.fields.cash, valueOrDash(model.actorCash === null ? "-" : String(model.actorCash)))}
+            {stageLine(turnStage.fields.shards, valueOrDash(model.actorShards === null ? "-" : String(model.actorShards)))}
+            {stageLine(turnStage.fields.handCoins, valueOrDash(model.actorHandCoins === null ? "-" : String(model.actorHandCoins)))}
+            {stageLine(turnStage.fields.placedCoins, valueOrDash(model.actorPlacedCoins === null ? "-" : String(model.actorPlacedCoins)))}
+            {stageLine(turnStage.fields.totalScore, valueOrDash(model.actorTotalScore === null ? "-" : String(model.actorTotalScore)))}
+            {stageLine(turnStage.fields.ownedTiles, valueOrDash(model.actorOwnedTileCount === null ? "-" : String(model.actorOwnedTileCount)))}
+          </article>
+        ) : null}
 
         {hasWorkerStatus(model) ? (
           <article

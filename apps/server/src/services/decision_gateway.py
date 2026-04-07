@@ -103,8 +103,12 @@ def _serialize_movement_choice(result: Any) -> str:
 
 
 def _serialize_lap_reward_choice(result: Any) -> str:
-    choice = getattr(result, "choice", None)
-    return str(choice) if isinstance(choice, str) and choice else "blocked"
+    cash_units = int(getattr(result, "cash_units", 0) or 0)
+    shard_units = int(getattr(result, "shard_units", 0) or 0)
+    coin_units = int(getattr(result, "coin_units", 0) or 0)
+    if cash_units <= 0 and shard_units <= 0 and coin_units <= 0:
+        return "blocked"
+    return f"cash-{cash_units}_shards-{shard_units}_coins-{coin_units}"
 
 
 def _serialize_yes_no_choice(result: Any) -> str:
@@ -150,8 +154,61 @@ def _build_card_choice_context(
     del state, player
     cards = _arg_or_kw(args, kwargs, 2, "offered_cards") or kwargs.get("card_choices")
     if isinstance(cards, list):
-        return {"choice_count": len(cards)}
+        names: list[str] = []
+        abilities: list[str] = []
+        try:
+            from characters import CARD_TO_NAMES, CHARACTERS
+
+            for card_index in cards:
+                pair = CARD_TO_NAMES.get(int(card_index), ("", ""))
+                card_names = [candidate for candidate in pair if candidate]
+                names.extend(card_names)
+                for character_name in card_names:
+                    ability = str(getattr(CHARACTERS.get(character_name), "ability_text", "") or "")
+                    abilities.append(ability)
+        except Exception:
+            names = []
+            abilities = []
+        return {
+            "choice_count": len(cards),
+            "choice_names": names,
+            "choice_abilities": abilities,
+        }
     return {}
+
+
+def _build_draft_choice_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    context = _build_card_choice_context(args, kwargs, state, player)
+    offered_cards = _arg_or_kw(args, kwargs, 2, "offered_cards") or []
+    drafted_cards = list(getattr(player, "drafted_cards", []) or [])
+    draft_phase = len(drafted_cards) + 1
+    context.update(
+        {
+            "offered_count": len(offered_cards) if isinstance(offered_cards, list) else 0,
+            "offered_names": context.get("choice_names", []),
+            "offered_abilities": context.get("choice_abilities", []),
+            "draft_phase": draft_phase,
+            "draft_phase_label": f"draft_phase_{draft_phase}",
+        }
+    )
+    return context
+
+
+def _build_final_character_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    context = _build_card_choice_context(args, kwargs, state, player)
+    context["final_choice"] = True
+    context["decision_phase_label"] = "final_character_confirmation"
+    return context
 
 
 def _build_purchase_tile_context(
@@ -396,17 +453,86 @@ def _build_lap_reward_legal_choices(args: tuple[Any, ...], kwargs: dict[str, Any
     shards_pool = int(getattr(state, "lap_reward_shards_pool_remaining", rules.shards_pool))
     coins_pool = int(getattr(state, "lap_reward_coins_pool_remaining", rules.coins_pool))
     budget = rules.points_budget
-    max_cash = min(cash_pool, budget // max(1, rules.cash_point_cost))
-    max_shards = min(shards_pool, budget // max(1, rules.shards_point_cost))
-    max_coins = min(coins_pool, budget // max(1, rules.coins_point_cost))
     choices: list[dict[str, Any]] = []
-    if max_cash > 0:
-        choices.append(_choice_payload("cash", title=f"Cash +{max_cash}", value={"choice": "cash", "cash_units": max_cash, "shard_units": 0, "coin_units": 0}))
-    if max_shards > 0:
-        choices.append(_choice_payload("shards", title=f"Shards +{max_shards}", value={"choice": "shards", "cash_units": 0, "shard_units": max_shards, "coin_units": 0}))
-    if max_coins > 0:
-        choices.append(_choice_payload("coins", title=f"Coins +{max_coins}", value={"choice": "coins", "cash_units": 0, "shard_units": 0, "coin_units": max_coins}))
+    max_cash = min(cash_pool, budget // max(1, int(rules.cash_point_cost)))
+    max_shards = min(shards_pool, budget // max(1, int(rules.shards_point_cost)))
+    max_coins = min(coins_pool, budget // max(1, int(rules.coins_point_cost)))
+    for cash_units in range(0, max_cash + 1):
+        cash_points = cash_units * int(rules.cash_point_cost)
+        if cash_points > budget:
+            break
+        shard_cap = min(shards_pool, (budget - cash_points) // max(1, int(rules.shards_point_cost)))
+        for shard_units in range(0, shard_cap + 1):
+            spent = cash_points + shard_units * int(rules.shards_point_cost)
+            coin_cap = min(coins_pool, (budget - spent) // max(1, int(rules.coins_point_cost)))
+            for coin_units in range(0, coin_cap + 1):
+                total_points = spent + coin_units * int(rules.coins_point_cost)
+                if total_points <= 0 or total_points > budget:
+                    continue
+                choice = "mixed"
+                if cash_units > 0 and shard_units == 0 and coin_units == 0:
+                    choice = "cash"
+                elif shard_units > 0 and cash_units == 0 and coin_units == 0:
+                    choice = "shards"
+                elif coin_units > 0 and cash_units == 0 and shard_units == 0:
+                    choice = "coins"
+                title_parts: list[str] = []
+                if cash_units > 0:
+                    title_parts.append(f"Cash +{cash_units}")
+                if shard_units > 0:
+                    title_parts.append(f"Shards +{shard_units}")
+                if coin_units > 0:
+                    title_parts.append(f"Coins +{coin_units}")
+                choices.append(
+                    _choice_payload(
+                        f"cash-{cash_units}_shards-{shard_units}_coins-{coin_units}",
+                        title=" / ".join(title_parts),
+                        description=f"Spend {total_points}/{budget} reward points",
+                        value={
+                            "choice": choice,
+                            "cash_units": cash_units,
+                            "shard_units": shard_units,
+                            "coin_units": coin_units,
+                            "spent_points": total_points,
+                            "points_budget": budget,
+                        },
+                    )
+                )
+    choices.sort(
+        key=lambda item: (
+            int(((item.get("value") or {}).get("spent_points") or 0)),
+            int(((item.get("value") or {}).get("cash_units") or 0)),
+            int(((item.get("value") or {}).get("shard_units") or 0)),
+            int(((item.get("value") or {}).get("coin_units") or 0)),
+        ),
+        reverse=True,
+    )
     return choices
+
+
+def _build_lap_reward_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    del args, kwargs
+    rules = state.config.rules.lap_reward
+    return {
+        "budget": int(rules.points_budget),
+        "pools": {
+            "cash": int(getattr(state, "lap_reward_cash_pool_remaining", rules.cash_pool)),
+            "shards": int(getattr(state, "lap_reward_shards_pool_remaining", rules.shards_pool)),
+            "coins": int(getattr(state, "lap_reward_coins_pool_remaining", rules.coins_pool)),
+        },
+        "cash_point_cost": int(rules.cash_point_cost),
+        "shards_point_cost": int(rules.shards_point_cost),
+        "coins_point_cost": int(rules.coins_point_cost),
+        "player_hand_coins": getattr(player, "hand_coins", None),
+        "player_placed_coins": getattr(player, "score_coins_placed", None),
+        "player_total_score": int(getattr(player, "hand_coins", 0) or 0) + int(getattr(player, "score_coins_placed", 0) or 0),
+        "player_owned_tile_count": getattr(player, "tiles_owned", None),
+    }
 
 
 def _parse_lap_reward_choice(choice_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> Any:
@@ -582,6 +708,46 @@ def _parse_coin_placement_choice(choice_id: str, args: tuple[Any, ...], kwargs: 
     return int(choice_id)
 
 
+def _build_trick_tile_target_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    del state, player
+    card_name = str(_arg_or_kw(args, kwargs, 2, "card_name") or "")
+    candidate_tiles = list(_arg_or_kw(args, kwargs, 3, "candidate_tiles") or [])
+    target_scope = str(_arg_or_kw(args, kwargs, 4, "target_scope") or "")
+    return {
+        "card_name": card_name,
+        "candidate_count": len(candidate_tiles),
+        "candidate_tiles": [int(tile) for tile in candidate_tiles if isinstance(tile, int)],
+        "target_scope": target_scope,
+    }
+
+
+def _build_trick_tile_target_choices(args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> list[dict[str, Any]]:
+    del state, player
+    candidate_tiles = list(_arg_or_kw(args, kwargs, 3, "candidate_tiles") or [])
+    choices: list[dict[str, Any]] = []
+    for tile_index in candidate_tiles:
+        if not isinstance(tile_index, int):
+            continue
+        choices.append(
+            _choice_payload(
+                str(tile_index),
+                title=f"Tile {tile_index + 1}",
+                value={"tile_index": tile_index},
+            )
+        )
+    return choices
+
+
+def _parse_trick_tile_target_choice(choice_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> Any:
+    del args, kwargs, state, player
+    return int(choice_id)
+
+
 def _build_geo_bonus_choices(args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> list[dict[str, Any]]:
     del args, kwargs, state, player
     return [
@@ -672,12 +838,12 @@ METHOD_SPECS: dict[str, DecisionMethodSpec] = {
         _build_runaway_legal_choices,
         _parse_runaway_choice,
     ),
-    "choose_lap_reward": DecisionMethodSpec("lap_reward", _serialize_lap_reward_choice, legal_choice_builder=_build_lap_reward_legal_choices, choice_parser=_parse_lap_reward_choice),
-    "choose_draft_card": DecisionMethodSpec("draft_card", _serialize_string_choice, _build_card_choice_context, lambda args, kwargs, state, player: _build_card_index_choices(args, kwargs, state, player, 2, "offered_cards"), _parse_draft_choice),
+    "choose_lap_reward": DecisionMethodSpec("lap_reward", _serialize_lap_reward_choice, _build_lap_reward_context, legal_choice_builder=_build_lap_reward_legal_choices, choice_parser=_parse_lap_reward_choice),
+    "choose_draft_card": DecisionMethodSpec("draft_card", _serialize_string_choice, _build_draft_choice_context, lambda args, kwargs, state, player: _build_card_index_choices(args, kwargs, state, player, 2, "offered_cards"), _parse_draft_choice),
     "choose_final_character": DecisionMethodSpec(
         "final_character",
         _serialize_string_choice,
-        _build_card_choice_context,
+        _build_final_character_context,
         lambda args, kwargs, state, player: _build_card_index_choices(args, kwargs, state, player, 2, "card_choices"),
         _parse_final_character_choice,
     ),
@@ -709,6 +875,13 @@ METHOD_SPECS: dict[str, DecisionMethodSpec] = {
         _build_coin_placement_context,
         _build_coin_placement_choices,
         _parse_coin_placement_choice,
+    ),
+    "choose_trick_tile_target": DecisionMethodSpec(
+        "trick_tile_target",
+        _serialize_string_choice,
+        _build_trick_tile_target_context,
+        _build_trick_tile_target_choices,
+        _parse_trick_tile_target_choice,
     ),
     "choose_geo_bonus": DecisionMethodSpec("geo_bonus", _serialize_string_choice, legal_choice_builder=_build_geo_bonus_choices, choice_parser=_parse_string_choice),
     "choose_doctrine_relief_target": DecisionMethodSpec(
@@ -778,6 +951,14 @@ def build_public_context(method_name: str, args: tuple[Any, ...], kwargs: dict[s
         "player_cash": getattr(player, "cash", None),
         "player_position": getattr(player, "position", None),
         "player_shards": getattr(player, "shards", None),
+        "player_hand_coins": getattr(player, "hand_coins", None),
+        "player_placed_coins": getattr(player, "score_coins_placed", None),
+        "player_total_score": (
+            int(getattr(player, "hand_coins", 0) or 0) + int(getattr(player, "score_coins_placed", 0) or 0)
+            if player is not None
+            else None
+        ),
+        "player_owned_tile_count": getattr(player, "tiles_owned", None),
     }
     spec = _decision_method_spec_for_method(method_name)
     if spec.public_context_builder is not None:

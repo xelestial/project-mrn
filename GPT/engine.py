@@ -185,6 +185,7 @@ class GameEngine:
             "choose_doctrine_relief_target": "doctrine_relief",
             "choose_active_flip_card": "active_flip",
             "choose_burden_exchange_on_supply": "burden_exchange",
+            "choose_trick_tile_target": "trick_tile_target",
         }
         return request_type_map.get(decision_name, decision_name.removeprefix("choose_"))
 
@@ -227,6 +228,11 @@ class GameEngine:
             owned_tiles = getattr(player, "visited_owned_tile_indices", None)
             if owned_tiles is not None:
                 context["owned_tile_count"] = len(list(owned_tiles))
+        elif decision_name == "choose_trick_tile_target":
+            if len(args) >= 3:
+                context["card_name"] = args[0]
+                context["candidate_count"] = len(args[1]) if isinstance(args[1], list) else None
+                context["target_scope"] = str(args[2])
         return {key: value for key, value in context.items() if value is not None}
 
     def run(self) -> GameResult:

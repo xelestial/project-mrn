@@ -326,15 +326,24 @@ function normalizeChoiceText(
     const cashUnits = asNumber(value["cash_units"]) ?? 0;
     const shardUnits = asNumber(value["shard_units"]) ?? 0;
     const coinUnits = asNumber(value["coin_units"]) ?? 0;
+    const spentPoints = asNumber(value["spent_points"]);
+    const pointsBudget = asNumber(value["points_budget"]);
+    const nonZeroCount = [cashUnits, shardUnits, coinUnits].filter((amount) => amount > 0).length;
 
-    if (reward === "cash" || cashUnits > 0) {
+    if ((reward === "cash" || cashUnits > 0) && nonZeroCount <= 1) {
       return { title: promptText.choice.cashTitle, description: promptText.choice.cashReward(cashUnits) };
     }
-    if (reward === "shards" || shardUnits > 0) {
+    if ((reward === "shards" || shardUnits > 0) && nonZeroCount <= 1) {
       return { title: promptText.choice.shardTitle, description: promptText.choice.shardReward(shardUnits) };
     }
-    if (reward === "coins" || coinUnits > 0) {
+    if ((reward === "coins" || coinUnits > 0) && nonZeroCount <= 1) {
       return { title: promptText.choice.coinTitle, description: promptText.choice.coinReward(coinUnits) };
+    }
+    if (cashUnits > 0 || shardUnits > 0 || coinUnits > 0) {
+      return {
+        title: promptText.choice.mixedReward(cashUnits, shardUnits, coinUnits, spentPoints, pointsBudget),
+        description: cleanDisplayText(fallbackDescription),
+      };
     }
     return { title: cleanDisplayText(fallbackTitle), description: cleanDisplayText(fallbackDescription) };
   }
@@ -388,6 +397,16 @@ function normalizeChoiceText(
       };
     }
     return { title: cleanDisplayText(fallbackTitle), description: cleanDisplayText(fallbackDescription) };
+  }
+
+  if (prompt.requestType === "trick_tile_target") {
+    const tileIndex = asNumber(value["tile_index"]);
+    if (tileIndex !== null) {
+      return {
+        title: cleanDisplayText(fallbackTitle) || tileLabel(tileIndex),
+        description: cleanDisplayText(fallbackDescription),
+      };
+    }
   }
 
   return { title: cleanDisplayText(fallbackTitle), description: cleanDisplayText(fallbackDescription) };
@@ -641,6 +660,7 @@ export function PromptOverlay({
   const isMarkTarget = prompt.requestType === "mark_target";
   const isPurchaseTile = prompt.requestType === "purchase_tile";
   const isLapReward = prompt.requestType === "lap_reward";
+  const isTrickTileTarget = prompt.requestType === "trick_tile_target";
   const isActiveFlip = prompt.requestType === "active_flip";
   const isBurdenExchange = prompt.requestType === "burden_exchange";
   const isSpecificTrickReward = prompt.requestType === "specific_trick_reward";
@@ -655,6 +675,9 @@ export function PromptOverlay({
   const currentCost = numberFromContext(prompt.publicContext, "cost", "tile_purchase_cost");
   const currentShards = numberFromContext(prompt.publicContext, "player_shards");
   const currentCoins = numberFromContext(prompt.publicContext, "player_hand_coins");
+  const currentPlacedCoins = numberFromContext(prompt.publicContext, "player_placed_coins");
+  const currentTotalScore = numberFromContext(prompt.publicContext, "player_total_score");
+  const currentOwnedTileCount = numberFromContext(prompt.publicContext, "player_owned_tile_count");
   const currentZone = stringFromContext(prompt.publicContext, "tile_zone");
   const weatherName = stringFromContext(prompt.publicContext, "weather_name");
   const markActorName = stringFromContext(prompt.publicContext, "actor_name");
@@ -666,6 +689,9 @@ export function PromptOverlay({
   const burdenTrigger = promptText.context.burdenExchangeTrigger(supplyThreshold, currentFValue);
   const markCandidateCount = prompt.choices.filter((choice) => choice.choiceId !== "none").length;
   const doctrineCandidateCount = numberFromContext(prompt.publicContext, "candidate_count") ?? markCandidateCount;
+  const trickTargetCandidateCount = numberFromContext(prompt.publicContext, "candidate_count");
+  const trickTargetScope = stringFromContext(prompt.publicContext, "target_scope");
+  const trickTargetCardName = stringFromContext(prompt.publicContext, "card_name");
   const movementPosition = numberFromContext(prompt.publicContext, "player_position");
   const runawayOneShortPos = numberFromContext(prompt.publicContext, "one_short_pos");
   const runawayBonusTargetPos = numberFromContext(prompt.publicContext, "bonus_target_pos");
@@ -674,6 +700,29 @@ export function PromptOverlay({
     ? prompt.publicContext["owned_tile_indices"].map((item) => asNumber(item)).filter((item): item is number => item !== null)
     : [];
   const ownedTileCount = ownedTileIndices.length;
+  const rewardBudget = numberFromContext(prompt.publicContext, "budget");
+  const rewardPools = isRecord(prompt.publicContext["pools"]) ? prompt.publicContext["pools"] : null;
+  const rewardPoolSummary = rewardPools
+    ? [
+        typeof rewardPools["cash"] === "number" ? `${promptText.choice.cashReward(rewardPools["cash"] as number)}=2P` : null,
+        typeof rewardPools["shards"] === "number" ? `${promptText.choice.shardReward(rewardPools["shards"] as number)}=3P` : null,
+        typeof rewardPools["coins"] === "number" ? `${promptText.choice.coinReward(rewardPools["coins"] as number)}=3P` : null,
+      ]
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .join(" / ")
+    : "";
+  const draftPhase = numberFromContext(prompt.publicContext, "draft_phase");
+  const offeredCount = numberFromContext(prompt.publicContext, "offered_count");
+  const offeredNames = Array.isArray(prompt.publicContext["offered_names"])
+    ? prompt.publicContext["offered_names"].map((value) => asString(value)).filter((value) => value.length > 0)
+    : [];
+  const finalChoiceCount = numberFromContext(prompt.publicContext, "choice_count");
+  const finalChoiceNames = Array.isArray(prompt.publicContext["choice_names"])
+    ? prompt.publicContext["choice_names"].map((value) => asString(value)).filter((value) => value.length > 0)
+    : [];
+  const targetTiles = Array.isArray(prompt.publicContext["candidate_tiles"])
+    ? prompt.publicContext["candidate_tiles"].map((item) => asNumber(item)).filter((item): item is number => item !== null)
+    : [];
 
   if (collapsed) {
         return (
@@ -862,6 +911,27 @@ export function PromptOverlay({
           <section className="prompt-section prompt-hand-stage">
             <div className="prompt-section-summary">
               <p>{cleanDisplayText(prompt.requestType === "draft_card" ? promptText.character.draftPrompt : promptText.character.finalPrompt)}</p>
+              <SummaryPills
+                values={[
+                  prompt.requestType === "draft_card"
+                    ? promptText.character.draftPhaseLabel(draftPhase)
+                    : promptText.character.finalPhaseLabel,
+                  prompt.requestType === "draft_card"
+                    ? offeredCount !== null
+                      ? `${promptText.context.selectableTargets}: ${offeredCount}`
+                      : null
+                    : finalChoiceCount !== null
+                      ? `${promptText.context.selectableTargets}: ${finalChoiceCount}`
+                      : null,
+                  prompt.requestType === "draft_card"
+                    ? offeredNames.length > 0
+                      ? offeredNames.join(", ")
+                      : null
+                    : finalChoiceNames.length > 0
+                      ? finalChoiceNames.join(", ")
+                      : null,
+                ]}
+              />
             </div>
             <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
               {prompt.choices.map((choice) => (
@@ -965,10 +1035,42 @@ export function PromptOverlay({
             testIdPrefix="lap-reward-choice"
             variant="reward"
             summaryPills={[
+              rewardBudget !== null ? `${promptText.context.rewardBudget}: ${rewardBudget}` : null,
+              rewardPoolSummary ? `${promptText.context.rewardPools}: ${rewardPoolSummary}` : null,
               `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
               `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
               `${promptText.context.currentCoins}: ${currentCoins ?? "-"}`,
+              `${promptText.context.currentPlacedCoins}: ${currentPlacedCoins ?? "-"}`,
+              `${promptText.context.currentTotalScore}: ${currentTotalScore ?? "-"}`,
+              `${promptText.context.ownedTiles}: ${currentOwnedTileCount ?? "-"}`,
             ]}
+          />
+        ) : null}
+
+        {isTrickTileTarget ? (
+          <DecisionChoiceSection
+            prompt={prompt}
+            orderedChoices={orderedChoices}
+            promptText={promptText}
+            compactChoices={compactChoices}
+            busy={busy}
+            onSelectChoice={onSelectChoice}
+            variant="target"
+            testIdPrefix="trick-tile-target-choice"
+            summaryPills={[
+              trickTargetCardName ? `${promptText.context.trigger}: ${trickTargetCardName}` : null,
+              trickTargetCandidateCount !== null ? `${promptText.context.selectableTargets}: ${trickTargetCandidateCount}` : null,
+              trickTargetScope ? `${promptText.context.targetRule}: ${trickTargetScope}` : null,
+              targetTiles.length > 0 ? `${promptText.context.targetTiles}: ${targetTiles.map((tile) => tileLabel(tile)).join(", ")}` : null,
+            ]}
+            renderExtra={(choice) => {
+              const tileIndex = asNumber(choice.value?.["tile_index"]);
+              return tileIndex !== null ? (
+                <div className="prompt-summary-pill-row">
+                  <span className="prompt-summary-pill">{tileLabel(tileIndex)}</span>
+                </div>
+              ) : null;
+            }}
           />
         ) : null}
 

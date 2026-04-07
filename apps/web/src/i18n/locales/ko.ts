@@ -220,7 +220,7 @@ export const koLocale = {
       movement: "이동값 결정",
       runaway_step_choice: "탈출 노비 이동 선택",
       lap_reward: "랩 보상 선택",
-      draft_card: "이번 턴 인물 선택",
+      draft_card: "드래프트 인물 선택",
       final_character: "최종 캐릭터 선택",
       final_character_choice: "최종 캐릭터 선택",
       trick_to_use: "잔꾀 사용",
@@ -233,6 +233,7 @@ export const koLocale = {
       active_flip: "액티브 카드 뒤집기",
       specific_trick_reward: "특정 잔꾀 보상",
       burden_exchange: "짐 카드 교환",
+      trick_tile_target: "잔꾀 대상 토지 선택",
     },
   },
   promptHelper: {
@@ -240,8 +241,8 @@ export const koLocale = {
     byType: {
       movement: "주사위를 굴리거나 주사위 카드를 사용해 이번 턴의 이동값을 결정하세요.",
       runaway_step_choice: "탈출 노비 효과로 선택 가능한 이동 경로 중 하나를 고르세요.",
-      lap_reward: "랩 보상으로 받을 자원을 선택하세요.",
-      draft_card: "이번 차례에 사용할 인물을 고르세요.",
+      lap_reward: "10포인트 예산 안에서 현금/조각/승점 조합을 선택하세요.",
+      draft_card: "드래프트 단계에서 이번 라운드 후보 인물을 가져가세요.",
       final_character: "최종으로 사용할 인물을 고르세요.",
       final_character_choice: "최종으로 사용할 인물을 고르세요.",
       trick_to_use: "지금 타이밍에 사용할 잔꾀를 선택하거나 사용하지 않음을 고르세요.",
@@ -254,6 +255,7 @@ export const koLocale = {
       active_flip: "현재 뒤집을 수 있는 카드 중 하나를 선택하거나 뒤집기 종료를 누르세요.",
       specific_trick_reward: "보상으로 받을 잔꾀를 선택하세요.",
       burden_exchange: "보급 단계가 열려 짐 카드를 정리할 수 있습니다. 이번에 비용을 내고 제거할지 결정하세요.",
+      trick_tile_target: "카드 효과를 적용할 토지를 직접 고르세요.",
     },
   },
   eventLabel: {
@@ -618,6 +620,8 @@ export const koLocale = {
     progressBadge: "흐름",
     workerTitle: "참가자 상태",
     workerBadge: "worker",
+    actorStatusTitle: "현재 행동자 상태",
+    actorStatusBadge: "자원",
     fields: {
       dice: "주사위",
       move: "이동",
@@ -627,6 +631,12 @@ export const koLocale = {
       trick: "잔꾀",
       fortune: "운수",
       beat: "현재 행동",
+      cash: "현금",
+      shards: "조각",
+      handCoins: "손 승점",
+      placedCoins: "배치 승점",
+      totalScore: "총점",
+      ownedTiles: "소유 토지",
     },
     promptIdle: "선택 요청 없음",
     progressEmpty: "아직 이번 턴의 진행 기록이 없습니다.",
@@ -740,6 +750,13 @@ export const koLocale = {
       zone: "구역",
       currentShards: "현재 조각",
       currentCoins: "현재 승점",
+      currentPlacedCoins: "배치 승점",
+      currentTotalScore: "총 승점",
+      ownedTiles: "보유 토지",
+      rewardBudget: "보상 예산",
+      rewardPools: "남은 보상 풀",
+      draftPhase: "드래프트 단계",
+      targetTiles: "대상 토지",
       noneSelected: "없음",
       burdenExchangeTrigger: (threshold: number | null, currentF: number | null) => {
         if (threshold !== null && currentF !== null) {
@@ -772,9 +789,11 @@ export const koLocale = {
       skipDescription: "[이번에는 잔꾀를 사용하지 않습니다.]",
     },
     character: {
-      draftPrompt: "[클릭해서 이번 턴에 사용할 인물을 고르세요]",
+      draftPrompt: "[드래프트 후보 중 1장을 가져가세요]",
       finalPrompt: "[최종으로 사용할 인물을 고르세요]",
       ability: (name: string) => `[${name} 능력]`,
+      draftPhaseLabel: (phase: number | null) => (phase !== null ? `${phase}차 드래프트` : "드래프트"),
+      finalPhaseLabel: "최종 확정",
     },
     mark: {
       noneTitle: "[지목 안 함]",
@@ -791,6 +810,14 @@ export const koLocale = {
       cashReward: (amount: number) => `현금 +${amount}`,
       shardReward: (amount: number) => `조각 +${amount}`,
       coinReward: (amount: number) => `승점 +${amount}`,
+      mixedReward: (cash: number, shards: number, coins: number, spent: number | null, budget: number | null) => {
+        const parts = [];
+        if (cash > 0) parts.push(`현금 +${cash}`);
+        if (shards > 0) parts.push(`조각 +${shards}`);
+        if (coins > 0) parts.push(`승점 +${coins}`);
+        if (spent !== null && budget !== null) parts.push(`예산 ${spent}/${budget}`);
+        return parts.join(" / ");
+      },
       buyTileTitle: "토지 구매",
       buyTile: (pos: number | null, cost: number | null) =>
         pos !== null && cost !== null ? `${pos + 1}번 칸 / 비용 ${cost}` : "도착한 칸의 토지를 구매합니다.",

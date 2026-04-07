@@ -65,6 +65,10 @@ class BasePolicy(Protocol):
         """코인 배치 타일 선택."""
         ...
 
+    def choose_trick_tile_target(self, state: Any, player: Any, card_name: Any, candidate_tiles: Any, target_scope: str = "any") -> Any:
+        """선택형 잔꾀의 타일 대상 선택."""
+        ...
+
     def choose_geo_bonus(self, state: Any, player: Any, char: Any) -> Any:
         """지형 보너스 선택 (지리학자)."""
         ...

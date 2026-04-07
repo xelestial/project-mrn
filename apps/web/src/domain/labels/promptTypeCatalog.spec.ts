@@ -6,6 +6,7 @@ describe("promptTypeCatalog", () => {
     expect(KNOWN_PROMPT_TYPES).toContain("movement");
     expect(KNOWN_PROMPT_TYPES).toContain("trick_to_use");
     expect(KNOWN_PROMPT_TYPES).toContain("final_character_choice");
+    expect(KNOWN_PROMPT_TYPES).toContain("trick_tile_target");
   });
 
   it("maps known prompt types to Korean labels", () => {

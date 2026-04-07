@@ -213,7 +213,7 @@ export const enLocale = {
       movement: "Movement",
       runaway_step_choice: "Runaway Movement Choice",
       lap_reward: "Lap Reward",
-      draft_card: "Turn Character Pick",
+      draft_card: "Draft Character Pick",
       final_character: "Final Character",
       final_character_choice: "Final Character",
       trick_to_use: "Use Trick",
@@ -226,6 +226,7 @@ export const enLocale = {
       active_flip: "Active Flip",
       specific_trick_reward: "Specific Trick Reward",
       burden_exchange: "Burden Exchange",
+      trick_tile_target: "Trick Tile Target",
       pabal_dice_mode: "Pabal Dice Mode",
     },
   },
@@ -234,8 +235,8 @@ export const enLocale = {
     byType: {
       movement: "Roll dice or use dice cards to decide this turn's movement value.",
       runaway_step_choice: "Choose one of the available movement routes.",
-      lap_reward: "Choose the reward for completing a lap.",
-      draft_card: "Choose the character to use this turn.",
+      lap_reward: "Choose a cash/shard/point bundle within the 10-point lap reward budget.",
+      draft_card: "Take one character candidate during the draft step.",
       final_character: "Choose the final character.",
       final_character_choice: "Choose the final character.",
       trick_to_use: "Choose a trick to use now, or skip it.",
@@ -248,6 +249,7 @@ export const enLocale = {
       active_flip: "Choose a card to flip, or finish flipping.",
       specific_trick_reward: "Choose the trick reward.",
       burden_exchange: "A supply step opened a burden cleanup window. Decide whether to pay now and remove the burden card.",
+      trick_tile_target: "Choose the tile affected by this trick card.",
       pabal_dice_mode: "Choose whether to roll three dice or reduce the roll to one die this turn.",
     },
   },
@@ -613,6 +615,8 @@ export const enLocale = {
     progressBadge: "Flow",
     workerTitle: "Participant Status",
     workerBadge: "worker",
+    actorStatusTitle: "Current Actor Status",
+    actorStatusBadge: "Resources",
     fields: {
       dice: "Dice",
       move: "Move",
@@ -622,6 +626,12 @@ export const enLocale = {
       trick: "Trick",
       fortune: "Fortune",
       beat: "Current action",
+      cash: "Cash",
+      shards: "Shards",
+      handCoins: "Hand points",
+      placedCoins: "Placed points",
+      totalScore: "Total score",
+      ownedTiles: "Owned tiles",
     },
     promptIdle: "No active prompt",
     progressEmpty: "No turn progress yet.",
@@ -735,6 +745,13 @@ export const enLocale = {
       zone: "Zone",
       currentShards: "Current shards",
       currentCoins: "Current points",
+      currentPlacedCoins: "Placed points",
+      currentTotalScore: "Total score",
+      ownedTiles: "Owned tiles",
+      rewardBudget: "Reward budget",
+      rewardPools: "Reward pool",
+      draftPhase: "Draft phase",
+      targetTiles: "Target tiles",
       noneSelected: "None",
       burdenExchangeTrigger: (threshold: number | null, currentF: number | null) => {
         if (threshold !== null && currentF !== null) {
@@ -767,9 +784,11 @@ export const enLocale = {
       skipDescription: "Proceed without using a trick.",
     },
     character: {
-      draftPrompt: "Choose the character you want to use this turn.",
+      draftPrompt: "Take one candidate from the draft.",
       finalPrompt: "Choose the final character.",
       ability: (name: string) => `${name} ability`,
+      draftPhaseLabel: (phase: number | null) => (phase !== null ? `Draft phase ${phase}` : "Draft"),
+      finalPhaseLabel: "Final confirmation",
     },
     pabal: {
       plusOneTitle: "Roll three dice",
@@ -792,6 +811,14 @@ export const enLocale = {
       cashReward: (amount: number) => `Cash +${amount}`,
       shardReward: (amount: number) => `Shards +${amount}`,
       coinReward: (amount: number) => `Points +${amount}`,
+      mixedReward: (cash: number, shards: number, coins: number, spent: number | null, budget: number | null) => {
+        const parts = [];
+        if (cash > 0) parts.push(`Cash +${cash}`);
+        if (shards > 0) parts.push(`Shards +${shards}`);
+        if (coins > 0) parts.push(`Points +${coins}`);
+        if (spent !== null && budget !== null) parts.push(`Budget ${spent}/${budget}`);
+        return parts.join(" / ");
+      },
       buyTileTitle: "Buy tile",
       buyTile: (pos: number | null, cost: number | null) =>
         pos !== null && cost !== null ? `Tile ${pos + 1} / cost ${cost}` : "Buy the tile you landed on.",

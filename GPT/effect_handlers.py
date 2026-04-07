@@ -855,13 +855,35 @@ class EngineEffectHandlers:
         if name == "번뜩임":
             return engine._apply_flash_trade(state, player)
         if name == "재뿌리기":
-            pos = engine._select_other_player_tile(state, player, highest=True)
+            candidates = [i for i, owner in enumerate(state.tile_owner) if owner is not None and owner != player.player_id]
+            if not candidates:
+                return {"type": "NO_EFFECT", "reason": "no_target_tile"}
+            pos = engine._request_decision(
+                "choose_trick_tile_target",
+                state,
+                player,
+                name,
+                list(candidates),
+                "other_owned_highest",
+                fallback=lambda: engine._select_other_player_tile(state, player, highest=True),
+            )
             if pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_target_tile"}
             state.tile_rent_modifiers_this_turn[pos] = 0
             return {"type": "TILE_RENT_ZERO", "pos": pos}
         if name == "긴장감 조성":
-            pos = engine._select_owned_tile(state, player.player_id, highest=True)
+            candidates = [i for i, owner in enumerate(state.tile_owner) if owner == player.player_id]
+            if not candidates:
+                return {"type": "NO_EFFECT", "reason": "no_owned_tile"}
+            pos = engine._request_decision(
+                "choose_trick_tile_target",
+                state,
+                player,
+                name,
+                list(candidates),
+                "owned_highest",
+                fallback=lambda: engine._select_owned_tile(state, player.player_id, highest=True),
+            )
             if pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_owned_tile"}
             state.tile_rent_modifiers_this_turn[pos] = max(2, state.tile_rent_modifiers_this_turn.get(pos, 1) * 2)

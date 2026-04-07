@@ -15,6 +15,7 @@ export const SPECIALIZED_PROMPT_TYPES = [
   "active_flip",
   "specific_trick_reward",
   "burden_exchange",
+  "trick_tile_target",
   "pabal_dice_mode",
 ] as const;
 

@@ -2834,3 +2834,48 @@ Updated: 2026-04-07
   - the next practical step is attaching a real stronger endpoint and collecting playtest evidence
 - Validation:
   - doc/status refresh only
+
+## 2026-04-07 Draft Context + Trick Tile Target + Lap Reward Contract Recovery
+
+- What changed:
+  - Engine / server:
+    - restored player-facing trick tile selection for targeted trick cards instead of auto-picking tiles:
+      - `재뿌리기`
+      - `긴장감 조성`
+    - added canonical `trick_tile_target` decision handling across:
+      - engine request typing
+      - human policy prompt publishing
+      - server decision gateway context / choice parsing
+    - expanded draft and final-character decision context so the UI can distinguish:
+      - draft phase
+      - offered candidate count
+      - offered candidate names / abilities
+      - final confirmation state
+    - restored lap reward to the real point-budget bundle contract instead of a collapsed 3-choice variant
+      - mixed `cash / shards / coins` bundles are now published to humans
+      - lap reward public context now includes current actor resource state
+  - Web:
+    - `PromptOverlay` now renders:
+      - draft phase-aware candidate prompts
+      - trick tile target prompts
+      - mixed lap reward bundles with budget/pool context
+    - `TurnStagePanel` now shows a current-actor status card with:
+      - cash
+      - shards
+      - hand points
+      - placed points
+      - total score
+      - owned tile count
+    - selector/state flow now preserves actor resource context from prompt / decision events into the turn-stage model
+    - locale resources were updated so the new decision surfaces remain locale-owned
+- Why:
+  - the reported UX failures were not isolated copy issues; they came from human decision contracts being flattened below the actual game rules
+  - restoring the real decision shapes was necessary to make:
+    - draft flow legible
+    - targeted trick cards actually playable
+    - lap rewards explainable and rule-correct
+  - adding actor status to the turn stage closes the missing “current situation” gap during reward and decision beats
+- Validation:
+  - `.venv311/bin/python -m pytest GPT/test_human_policy_prompt_payloads.py GPT/test_event_effects.py apps/server/tests/test_runtime_service.py`
+  - `cd apps/web && npm run test -- --run src/domain/labels/promptTypeCatalog.spec.ts src/features/prompt/promptSurfaceCatalog.spec.ts src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`

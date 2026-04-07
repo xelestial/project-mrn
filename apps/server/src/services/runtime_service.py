@@ -403,6 +403,9 @@ class _ServerDecisionPolicyBridge:
         fallback_policy = str(getattr(request, "fallback_policy", "required") or "required")
         call = build_routed_decision_call(invocation, fallback_policy=fallback_policy)
         client = self._router.client_for_call(call)
+        client_policy = getattr(client, "policy", None)
+        if callable(getattr(request, "fallback", None)) and (client_policy is None or not hasattr(client_policy, invocation.method_name)):
+            return request.fallback()
         return client.resolve(call)
 
     def __getattr__(self, name: str):

@@ -86,6 +86,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 "player_cash": 15,
                 "player_position": 8,
                 "player_shards": 2,
+                "player_total_score": 0,
                 "tile_index": 9,
                 "cost": 4,
                 "source": "landing",
@@ -113,6 +114,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 "player_cash": 9,
                 "player_position": 22,
                 "player_shards": 5,
+                "player_total_score": 0,
                 "one_short_pos": 25,
                 "bonus_target_pos": 26,
                 "bonus_target_kind": "S",
@@ -159,6 +161,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 "card_description": "가진 채 보급 단계에 들어가면 비용을 내고 제거할 수 있습니다.",
                 "burden_cost": 4,
                 "player_hand_coins": 1,
+                "player_total_score": 1,
                 "burden_card_count": 1,
                 "decision_phase": "trick_supply",
                 "decision_reason": "supply_threshold",
@@ -166,6 +169,74 @@ class RuntimeServiceTests(unittest.TestCase):
                 "current_f_value": 3.5,
             },
         )
+
+    def test_draft_context_exposes_phase_and_offered_candidates(self) -> None:
+        state = type("State", (), {"rounds_completed": 0, "turn_index": 0, "active_by_card": {1: "산적", 2: "건설업자"}})()
+        player = type("Player", (), {"cash": 10, "position": 3, "drafted_cards": [7]})()
+
+        context = build_public_context("choose_draft_card", (state, player, [1, 2]), {})
+
+        self.assertEqual(context["offered_count"], 2)
+        self.assertTrue(isinstance(context["offered_names"], list))
+        self.assertGreater(len(context["offered_names"]), 0)
+        self.assertEqual(context["draft_phase"], 2)
+        self.assertEqual(context["draft_phase_label"], "draft_phase_2")
+
+    def test_lap_reward_context_exposes_budget_bundles_and_player_status(self) -> None:
+        rules = type(
+            "LapRules",
+            (),
+            {
+                "points_budget": 10,
+                "cash_pool": 5,
+                "shards_pool": 3,
+                "coins_pool": 3,
+                "cash_point_cost": 2,
+                "shards_point_cost": 3,
+                "coins_point_cost": 3,
+            },
+        )()
+        state = type(
+            "State",
+            (),
+            {
+                "rounds_completed": 1,
+                "turn_index": 4,
+                "lap_reward_cash_pool_remaining": 4,
+                "lap_reward_shards_pool_remaining": 2,
+                "lap_reward_coins_pool_remaining": 3,
+                "config": type("Config", (), {"rules": type("Rules", (), {"lap_reward": rules})()})(),
+            },
+        )()
+        player = type(
+            "Player",
+            (),
+            {"cash": 18, "position": 9, "shards": 4, "hand_coins": 2, "score_coins_placed": 3, "tiles_owned": 5},
+        )()
+
+        context = build_public_context("choose_lap_reward", (state, player), {})
+
+        self.assertEqual(context["budget"], 10)
+        self.assertEqual(context["pools"], {"cash": 4, "shards": 2, "coins": 3})
+        self.assertEqual(context["player_hand_coins"], 2)
+        self.assertEqual(context["player_placed_coins"], 3)
+        self.assertEqual(context["player_total_score"], 5)
+        self.assertEqual(context["player_owned_tile_count"], 5)
+
+    def test_trick_tile_target_context_exposes_candidates(self) -> None:
+        state = type("State", (), {"rounds_completed": 2, "turn_index": 1})()
+        player = type("Player", (), {"cash": 9, "position": 11, "shards": 1})()
+
+        context = build_public_context(
+            "choose_trick_tile_target",
+            (state, player, "재뿌리기", [4, 9, 12], "other_owned_highest"),
+            {},
+        )
+
+        self.assertEqual(context["card_name"], "재뿌리기")
+        self.assertEqual(context["candidate_count"], 3)
+        self.assertEqual(context["candidate_tiles"], [4, 9, 12])
+        self.assertEqual(context["target_scope"], "other_owned_highest")
 
     def test_decision_client_router_prefers_human_policy_attributes_and_human_seats(self) -> None:
         from apps.server.src.services.runtime_service import _ServerDecisionClientRouter

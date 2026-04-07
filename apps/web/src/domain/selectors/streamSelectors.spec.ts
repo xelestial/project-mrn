@@ -1176,4 +1176,85 @@ describe("streamSelectors", () => {
     expect(stage.currentBeatLabel).not.toBe("Turn start");
     expect(stage.progressTrail.at(-1)).toBe(stage.currentBeatLabel);
   });
+
+  it("surfaces actor resource status from lap reward prompts", () => {
+    const stage = selectTurnStage([
+      {
+        type: "event",
+        seq: 520,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 7,
+          turn_index: 2,
+          acting_player_id: 1,
+          character: "Scholar",
+        },
+      },
+      {
+        type: "prompt",
+        seq: 521,
+        session_id: "s1",
+        payload: {
+          request_id: "req_lap_1",
+          request_type: "lap_reward",
+          player_id: 1,
+          public_context: {
+            budget: 10,
+            player_cash: 18,
+            player_shards: 4,
+            player_hand_coins: 2,
+            player_placed_coins: 3,
+            player_total_score: 5,
+            player_owned_tile_count: 6,
+          },
+        },
+      },
+    ]);
+
+    expect(stage.actorCash).toBe(18);
+    expect(stage.actorShards).toBe(4);
+    expect(stage.actorHandCoins).toBe(2);
+    expect(stage.actorPlacedCoins).toBe(3);
+    expect(stage.actorTotalScore).toBe(5);
+    expect(stage.actorOwnedTileCount).toBe(6);
+  });
+
+  it("derives trick tile target focus from canonical legal choices", () => {
+    const stage = selectTurnStage([
+      {
+        type: "event",
+        seq: 530,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 7,
+          turn_index: 3,
+          acting_player_id: 3,
+          character: "박수",
+        },
+      },
+      {
+        type: "prompt",
+        seq: 531,
+        session_id: "s1",
+        payload: {
+          request_id: "req_trick_tile_1",
+          request_type: "trick_tile_target",
+          player_id: 3,
+          legal_choices: [
+            { choice_id: "4", label: "5번 칸", value: { tile_index: 4 } },
+            { choice_id: "7", label: "8번 칸", value: { tile_index: 7 } },
+          ],
+          public_context: {
+            card_name: "재뿌리기",
+            candidate_count: 2,
+          },
+        },
+      },
+    ]);
+
+    expect(stage.focusTileIndex).toBe(4);
+    expect(stage.currentBeatKind).toBe("decision");
+  });
 });

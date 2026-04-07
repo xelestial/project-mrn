@@ -28,6 +28,10 @@ from viewer.prompt_contract import build_prompt_envelope, extract_choice_id
 TIMEOUT_S = 300.0  # 5 minutes
 
 
+def _lap_reward_choice_id(cash_units: int, shard_units: int, coin_units: int) -> str:
+    return f"cash-{cash_units}_shards-{shard_units}_coins-{coin_units}"
+
+
 class HumanHttpPolicy:
     """Policy that blocks for human input on one or more designated seats.
 
@@ -257,28 +261,58 @@ class HumanHttpPolicy:
         shards_pool = int(getattr(state, "lap_reward_shards_pool_remaining", rules.shards_pool))
         coins_pool = int(getattr(state, "lap_reward_coins_pool_remaining", rules.coins_pool))
 
-        # Compute max units for each type
         budget = rules.points_budget
         max_cash = min(cash_pool, budget // max(1, rules.cash_point_cost))
         max_shards = min(shards_pool, budget // max(1, rules.shards_point_cost))
         max_coins = min(coins_pool, budget // max(1, rules.coins_point_cost))
 
         options = []
-        if max_cash > 0:
-            options.append({
-                "id": "cash", "label": f"Cash (+{max_cash})",
-                "choice": "cash", "cash_units": max_cash, "shard_units": 0, "coin_units": 0,
-            })
-        if max_shards > 0:
-            options.append({
-                "id": "shards", "label": f"Shards (+{max_shards})",
-                "choice": "shards", "cash_units": 0, "shard_units": max_shards, "coin_units": 0,
-            })
-        if max_coins > 0:
-            options.append({
-                "id": "coins", "label": f"Coins (+{max_coins})",
-                "choice": "coins", "cash_units": 0, "shard_units": 0, "coin_units": max_coins,
-            })
+        for cash_units in range(0, max_cash + 1):
+            cash_points = cash_units * int(rules.cash_point_cost)
+            if cash_points > budget:
+                break
+            shard_cap = min(shards_pool, (budget - cash_points) // max(1, int(rules.shards_point_cost)))
+            for shard_units in range(0, shard_cap + 1):
+                spent = cash_points + shard_units * int(rules.shards_point_cost)
+                coin_cap = min(coins_pool, (budget - spent) // max(1, int(rules.coins_point_cost)))
+                for coin_units in range(0, coin_cap + 1):
+                    total_points = spent + coin_units * int(rules.coins_point_cost)
+                    if total_points <= 0 or total_points > budget:
+                        continue
+                    choice = "mixed"
+                    if cash_units > 0 and shard_units == 0 and coin_units == 0:
+                        choice = "cash"
+                    elif shard_units > 0 and cash_units == 0 and coin_units == 0:
+                        choice = "shards"
+                    elif coin_units > 0 and cash_units == 0 and shard_units == 0:
+                        choice = "coins"
+                    label_parts: list[str] = []
+                    if cash_units > 0:
+                        label_parts.append(f"Cash +{cash_units}")
+                    if shard_units > 0:
+                        label_parts.append(f"Shards +{shard_units}")
+                    if coin_units > 0:
+                        label_parts.append(f"Coins +{coin_units}")
+                    options.append(
+                        {
+                            "id": _lap_reward_choice_id(cash_units, shard_units, coin_units),
+                            "label": " / ".join(label_parts),
+                            "choice": choice,
+                            "cash_units": cash_units,
+                            "shard_units": shard_units,
+                            "coin_units": coin_units,
+                            "spent_points": total_points,
+                        }
+                    )
+        options.sort(
+            key=lambda item: (
+                int(item["spent_points"]),
+                int(item["cash_units"]),
+                int(item["shard_units"]),
+                int(item["coin_units"]),
+            ),
+            reverse=True,
+        )
 
         if not options:
             return LapRewardDecision(choice="blocked")
@@ -292,6 +326,8 @@ class HumanHttpPolicy:
                     "cash_units": opt["cash_units"],
                     "shard_units": opt["shard_units"],
                     "coin_units": opt["coin_units"],
+                    "spent_points": opt["spent_points"],
+                    "points_budget": budget,
                 },
             }
             for opt in options
@@ -303,6 +339,15 @@ class HumanHttpPolicy:
             public_context={
                 "budget": budget,
                 "pools": {"cash": cash_pool, "shards": shards_pool, "coins": coins_pool},
+                "cash_point_cost": int(rules.cash_point_cost),
+                "shards_point_cost": int(rules.shards_point_cost),
+                "coins_point_cost": int(rules.coins_point_cost),
+                "player_cash": player.cash,
+                "player_shards": player.shards,
+                "player_hand_coins": getattr(player, "hand_coins", 0),
+                "player_placed_coins": getattr(player, "score_coins_placed", 0),
+                "player_total_score": int(getattr(player, "hand_coins", 0) or 0) + int(getattr(player, "score_coins_placed", 0) or 0),
+                "player_owned_tile_count": getattr(player, "tiles_owned", 0),
             },
             can_pass=False,
             timeout_ms=int(TIMEOUT_S * 1000),
@@ -365,6 +410,8 @@ class HumanHttpPolicy:
                 "offered_count": len(options),
                 "offered_names": [opt["label"] for opt in options],
                 "offered_abilities": [opt["character_ability"] for opt in options],
+                "draft_phase": len(list(getattr(player, "drafted_cards", []) or [])) + 1,
+                "draft_phase_label": f"draft_phase_{len(list(getattr(player, 'drafted_cards', []) or [])) + 1}",
             },
             timeout_ms=int(TIMEOUT_S * 1000),
         )
@@ -421,6 +468,8 @@ class HumanHttpPolicy:
                 "choice_count": len(options),
                 "choice_names": [opt["label"] for opt in options],
                 "choice_abilities": [opt["character_ability"] for opt in options],
+                "final_choice": True,
+                "decision_phase_label": "final_character_confirmation",
             },
             timeout_ms=int(TIMEOUT_S * 1000),
         )
@@ -738,6 +787,71 @@ class HumanHttpPolicy:
             return self._ai.choose_coin_placement_tile(state, player)
 
         return self._ask(prompt, _parse, lambda: self._ai.choose_coin_placement_tile(state, player))
+
+    # ------------------------------------------------------------------
+    # choose_trick_tile_target
+    # ------------------------------------------------------------------
+
+    def choose_trick_tile_target(self, state: Any, player: Any, card_name: Any, candidate_tiles: Any, target_scope: str = "any") -> Any:
+        candidate_indices = [int(idx) for idx in list(candidate_tiles or []) if isinstance(idx, int)]
+
+        def _fallback_choice():
+            if not candidate_indices:
+                return None
+            if target_scope == "owned_lowest":
+                return sorted(
+                    candidate_indices,
+                    key=lambda idx: (getattr(state, "tile_coins", [0] * (idx + 1))[idx], idx),
+                )[0]
+            return sorted(
+                candidate_indices,
+                key=lambda idx: (
+                    state.config.rules.economy.rent_cost_for(state, idx) if getattr(state.tile_at(idx), "purchase_cost", None) is not None else 0,
+                    getattr(state, "tile_coins", [0] * (idx + 1))[idx],
+                    idx,
+                ),
+                reverse=True,
+            )[0]
+
+        if not self._is_human_seat(player.player_id):
+            ai_method = getattr(self._ai, "choose_trick_tile_target", None)
+            return ai_method(state, player, card_name, candidate_indices, target_scope) if callable(ai_method) else _fallback_choice()
+
+        if not candidate_indices:
+            return None
+
+        prompt = build_prompt_envelope(
+            request_type="trick_tile_target",
+            player_id=player.player_id + 1,
+            legal_choices=[
+                {
+                    "choice_id": str(tile_index),
+                    "label": f"{tile_index + 1}번 칸",
+                    "value": {"tile_index": tile_index},
+                }
+                for tile_index in candidate_indices
+            ],
+            public_context={
+                "card_name": str(card_name or ""),
+                "candidate_count": len(candidate_indices),
+                "candidate_tiles": list(candidate_indices),
+                "target_scope": str(target_scope or "any"),
+                "player_cash": player.cash,
+                "player_position": player.position,
+            },
+            timeout_ms=int(TIMEOUT_S * 1000),
+        )
+
+        def _parse(r: dict):
+            sel = extract_choice_id(r)
+            if sel is not None:
+                try:
+                    return int(sel)
+                except ValueError:
+                    pass
+            return _fallback_choice()
+
+        return self._ask(prompt, _parse, _fallback_choice)
 
     # ------------------------------------------------------------------
     # Fully AI-delegated decisions

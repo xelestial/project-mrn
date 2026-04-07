@@ -95,6 +95,12 @@ export type TurnStageViewModel = {
   externalAiWorkerAdapter: string;
   externalAiPolicyClass: string;
   externalAiDecisionStyle: string;
+  actorCash: number | null;
+  actorShards: number | null;
+  actorHandCoins: number | null;
+  actorPlacedCoins: number | null;
+  actorTotalScore: number | null;
+  actorOwnedTileCount: number | null;
   progressTrail: string[];
 };
 
@@ -1023,6 +1029,35 @@ function promptFocusTileIndex(payload: Record<string, unknown>): number | null {
   return null;
 }
 
+function updateActorStatusFromContext(model: TurnStageViewModel, payload: Record<string, unknown>) {
+  const publicContext = isRecord(payload["public_context"]) ? payload["public_context"] : payload;
+  const cash = numberOrNull(publicContext["player_cash"]);
+  const shards = numberOrNull(publicContext["player_shards"]);
+  const handCoins = numberOrNull(publicContext["player_hand_coins"]);
+  const placedCoins = numberOrNull(publicContext["player_placed_coins"]);
+  const totalScore = numberOrNull(publicContext["player_total_score"]);
+  const ownedTileCount = numberOrNull(publicContext["player_owned_tile_count"]);
+
+  if (cash !== null) {
+    model.actorCash = cash;
+  }
+  if (shards !== null) {
+    model.actorShards = shards;
+  }
+  if (handCoins !== null) {
+    model.actorHandCoins = handCoins;
+  }
+  if (placedCoins !== null) {
+    model.actorPlacedCoins = placedCoins;
+  }
+  if (totalScore !== null) {
+    model.actorTotalScore = totalScore;
+  }
+  if (ownedTileCount !== null) {
+    model.actorOwnedTileCount = ownedTileCount;
+  }
+}
+
 export function selectTurnStage(
   messages: InboundMessage[],
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
@@ -1070,6 +1105,12 @@ export function selectTurnStage(
     externalAiWorkerAdapter: "-",
     externalAiPolicyClass: "-",
     externalAiDecisionStyle: "-",
+    actorCash: null,
+    actorShards: null,
+    actorHandCoins: null,
+    actorPlacedCoins: null,
+    actorTotalScore: null,
+    actorOwnedTileCount: null,
     progressTrail: [],
   };
 
@@ -1169,6 +1210,7 @@ export function selectTurnStage(
       const requestType = asString(message.payload["request_type"]);
       const promptActor = numberOrNull(message.payload["player_id"]);
       if (requestType !== "-" && (model.actorPlayerId === null || model.actorPlayerId === promptActor)) {
+        updateActorStatusFromContext(model, message.payload);
         model.promptSummary = text.stream.promptWaiting(promptLabelForType(requestType, text.promptType));
         model.currentBeatKind = "decision";
         model.currentBeatLabel = promptLabelForType(requestType, text.promptType);
@@ -1217,6 +1259,7 @@ export function selectTurnStage(
     }
     if (eventCode === "decision_requested") {
       updateExternalAiStatus(message.payload);
+      updateActorStatusFromContext(model, message.payload);
       const detail = detailFromEventCode(message.payload, eventCode, text);
       model.promptSummary = detail;
       updateBeat(
@@ -1229,6 +1272,7 @@ export function selectTurnStage(
     }
     if (eventCode === "decision_resolved") {
       updateExternalAiStatus(message.payload);
+      updateActorStatusFromContext(model, message.payload);
       const detail = detailFromEventCode(message.payload, eventCode, text);
       model.promptSummary = detail;
       updateBeat(
@@ -1241,6 +1285,7 @@ export function selectTurnStage(
     }
     if (eventCode === "decision_timeout_fallback") {
       updateExternalAiStatus(message.payload);
+      updateActorStatusFromContext(model, message.payload);
       const detail = detailFromEventCode(message.payload, eventCode, text);
       model.promptSummary = detail;
       updateBeat(
