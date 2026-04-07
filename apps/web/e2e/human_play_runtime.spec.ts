@@ -445,7 +445,7 @@ test("human quick start surfaces turn banner and first prompt through stable ids
   await expect(page.getByTestId("core-action-panel")).toBeVisible();
   await expect(page.getByTestId("turn-notice-banner")).toBeVisible();
   await expect(page.getByTestId("prompt-overlay")).toBeVisible();
-  await expect(page.getByText("Show raw")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Debug log" })).toHaveCount(1);
   await expect(page.getByTestId("trick-choice-10-0")).toBeVisible();
   await expect(page.getByTestId("trick-choice-14-4")).toBeVisible();
   await expect(page.getByTestId("prompt-overlay")).toContainText("Scout Route");
@@ -534,7 +534,6 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await expect(page.getByTestId("spectator-turn-move")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-spotlight")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-journey")).toBeVisible();
-  await expect(page.getByTestId("spectator-turn-progress")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-result")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-handoff")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-spotlight")).toContainText("Bought tile 7 for 2");
@@ -1242,7 +1241,7 @@ test("mixed participant runtime keeps a long worker-success to fallback chain re
   await expect(page.getByTestId("spectator-turn-scene")).toContainText("P3 fallback turn closed");
   await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("P3 paid P1 6 on tile 15");
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("Participant status");
-  await expect(page.getByTestId("spectator-turn-progress")).toContainText("Decision timeout fallback");
+  await expect(page.getByTestId("spectator-turn-journey")).toContainText("Timeout fallback");
   await expect(page.getByTestId("spectator-turn-worker")).toContainText("attempt 2/2");
   await expect(page.getByTestId("spectator-turn-worker")).toContainText("mode heuristic_v3_gpt");
   await expect(page.getByTestId("spectator-turn-worker")).toContainText("adapter reference_heuristic_v1");

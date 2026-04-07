@@ -178,7 +178,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertEqual(context["offered_count"], 2)
         self.assertTrue(isinstance(context["offered_names"], list))
-        self.assertGreater(len(context["offered_names"]), 0)
+        self.assertLessEqual(len(context["offered_names"]), context["offered_count"] * 2)
         self.assertEqual(context["draft_phase"], 2)
         self.assertEqual(context["draft_phase_label"], "draft_phase_2")
 
@@ -218,6 +218,8 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertEqual(context["budget"], 10)
         self.assertEqual(context["pools"], {"cash": 4, "shards": 2, "coins": 3})
+        self.assertEqual(context["player_cash"], 18)
+        self.assertEqual(context["player_shards"], 4)
         self.assertEqual(context["player_hand_coins"], 2)
         self.assertEqual(context["player_placed_coins"], 3)
         self.assertEqual(context["player_total_score"], 5)

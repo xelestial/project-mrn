@@ -87,7 +87,6 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     (eventLabel.events as Record<string, string>)["turn_end_snapshot"] ??
     app.spectatorFields.progress;
   const title = actorPlayerId === null ? app.spectatorHeadline : app.spectatorTitle(actorPlayerId);
-  const progress = model.progressTrail.filter((item) => item.trim());
   const latestActionTitle = latestAction?.label ?? "-";
   const latestActionDetail = latestAction?.detail?.trim() ? latestAction.detail : "-";
   const latestActionTone = payoffToneForEventCode(latestAction?.eventCode ?? "");
@@ -497,18 +496,6 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
         </article>
       ) : null}
 
-      <div className="spectator-turn-progress" data-testid="spectator-turn-progress">
-        <span>{app.spectatorFields.progress}</span>
-        {progress.length > 0 ? (
-          <div className="spectator-turn-progress-list">
-            {progress.map((step) => (
-              <small key={step}>{step}</small>
-            ))}
-          </div>
-        ) : (
-          <strong>-</strong>
-        )}
-      </div>
     </section>
   );
 }

@@ -1,4 +1,4 @@
-﻿import { FormEvent, useEffect, useMemo, useState } from "react";
+﻿import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { mergeSessionManifest } from "./domain/manifest/manifestRehydrate";
 import {
   characterAbilityLabelsFromManifestLabels,
@@ -8,12 +8,9 @@ import { promptLabelForType } from "./domain/labels/promptTypeCatalog";
 import { selectActivePrompt, selectLatestDecisionAck } from "./domain/selectors/promptSelectors";
 import {
   selectCoreActionFeed,
-  selectCriticalAlerts,
   selectLastMove,
   selectLatestManifest,
   selectLatestSnapshot,
-  selectSituation,
-  selectTheaterFeed,
   selectTimeline,
   selectTurnStage,
 } from "./domain/selectors/streamSelectors";
@@ -23,11 +20,7 @@ import { PlayersPanel } from "./features/players/PlayersPanel";
 import { PromptOverlay } from "./features/prompt/PromptOverlay";
 import { SpectatorTurnPanel } from "./features/stage/SpectatorTurnPanel";
 import { TurnStagePanel } from "./features/stage/TurnStagePanel";
-import { ConnectionPanel } from "./features/status/ConnectionPanel";
-import { SituationPanel } from "./features/status/SituationPanel";
 import { CoreActionPanel } from "./features/theater/CoreActionPanel";
-import { IncidentCardStack } from "./features/theater/IncidentCardStack";
-import { TimelinePanel } from "./features/timeline/TimelinePanel";
 import { useGameStream } from "./hooks/useGameStream";
 import { useI18n } from "./i18n/useI18n";
 import {
@@ -128,6 +121,14 @@ function loadStoredSessionToken(sessionId: string): string | undefined {
   return stored && stored.trim() ? stored : undefined;
 }
 
+function escapeDebugHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;");
+}
+
 function saveStoredSessionToken(sessionId: string, token: string | undefined): void {
   const normalized = sessionId.trim();
   if (!normalized) {
@@ -149,6 +150,10 @@ function findCurrentActorId(messages: Array<{ payload: Record<string, unknown> }
     }
   }
   return null;
+}
+
+function shouldHideCharacterForPrompt(requestType: string): boolean {
+  return requestType === "draft_card" || requestType === "final_character";
 }
 
 export function App() {
@@ -180,8 +185,6 @@ export function App() {
 
   const [compactDensity, setCompactDensity] = useState(false);
   const [showRawMessages, setShowRawMessages] = useState(false);
-  const [matchTopCollapsed, setMatchTopCollapsed] = useState(false);
-
   const [promptCollapsed, setPromptCollapsed] = useState(false);
   const [promptBusy, setPromptBusy] = useState(false);
   const [promptRequestId, setPromptRequestId] = useState("");
@@ -189,6 +192,7 @@ export function App() {
   const [promptFeedback, setPromptFeedback] = useState("");
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [turnBanner, setTurnBanner] = useState<{ seq: number; text: string; detail: string } | null>(null);
+  const debugWindowRef = useRef<Window | null>(null);
 
   const stream = useGameStream({ sessionId, token });
   const selectorText = useMemo(
@@ -202,11 +206,8 @@ export function App() {
   );
 
   const timeline = selectTimeline(stream.messages, compactDensity ? 24 : 40, selectorText);
-  const theaterFeed = selectTheaterFeed(stream.messages, compactDensity ? 16 : 28, selectorText);
   const coreActionFeed = selectCoreActionFeed(stream.messages, effectivePlayerId, compactDensity ? 10 : 14, selectorText);
   const latestCoreAction = coreActionFeed.find((item) => !item.isLocalActor) ?? coreActionFeed[0] ?? null;
-  const alerts = selectCriticalAlerts(stream.messages, 6, selectorText);
-  const situation = selectSituation(stream.messages, selectorText);
   const turnStage = selectTurnStage(stream.messages, selectorText);
   const snapshot = selectLatestSnapshot(stream.messages);
   const lastMove = selectLastMove(stream.messages);
@@ -214,11 +215,16 @@ export function App() {
 
   const currentActorId = findCurrentActorId(stream.messages);
   const isMyTurn = currentActorId !== null && effectivePlayerId !== null && currentActorId === effectivePlayerId;
+  const actorLabel = currentActorId !== null ? `P${currentActorId}` : turnStage.actor;
+  const actorCharacterText =
+    shouldHideCharacterForPrompt(turnStage.promptRequestType) || turnStage.actorPlayerId !== currentActorId
+      ? "-"
+      : turnStage.character;
   const currentActorText =
-    turnStage.actor !== "-"
-      ? turnStage.character && turnStage.character !== "-"
-        ? `${turnStage.actor} (${turnStage.character})`
-        : turnStage.actor
+    actorLabel !== "-"
+      ? actorCharacterText && actorCharacterText !== "-"
+        ? `${actorLabel} (${actorCharacterText})`
+        : actorLabel
       : "-";
   const boardTurnOverlay =
     !isMyTurn && currentActorId !== null && currentActorText !== "-"
@@ -444,15 +450,6 @@ export function App() {
   }, [app, isMyTurn, turnStage.actor, turnStage.character, turnStage.currentBeatLabel, turnStage.turnStartSeq, turnStage.weatherName]);
 
   useEffect(() => {
-    if (route !== "match") {
-      return;
-    }
-    if (stream.status !== "connected" || runtime.status === "stalled" || runtime.status === "error") {
-      setMatchTopCollapsed(false);
-    }
-  }, [route, runtime.status, stream.status]);
-
-  useEffect(() => {
     if (route !== "match" || stream.status !== "connected") {
       return;
     }
@@ -463,6 +460,84 @@ export function App() {
     const safeHash = buildMatchHash(sessionId.trim());
     window.history.replaceState(null, "", safeHash);
   }, [route, sessionId, stream.status]);
+
+  useEffect(() => {
+    if (!showRawMessages) {
+      if (debugWindowRef.current && !debugWindowRef.current.closed) {
+        debugWindowRef.current.close();
+      }
+      debugWindowRef.current = null;
+      return;
+    }
+    const popup =
+      debugWindowRef.current && !debugWindowRef.current.closed
+        ? debugWindowRef.current
+        : window.open("", "mrn-debug-log", "width=900,height=960,resizable=yes,scrollbars=yes");
+    if (!popup) {
+      setShowRawMessages(false);
+      return;
+    }
+    debugWindowRef.current = popup;
+    const timelineMarkup = timeline
+      .map(
+        (item) => `
+          <article class="debug-timeline-item">
+            <strong>#${item.seq} ${escapeDebugHtml(item.label)}</strong>
+            <p>${escapeDebugHtml(item.detail)}</p>
+          </article>
+        `
+      )
+      .join("");
+    const rawMarkup = stream.messages
+      .slice()
+      .reverse()
+      .map((message) => `<pre>${escapeDebugHtml(JSON.stringify(message, null, 2))}</pre>`)
+      .join("");
+    popup.document.open();
+    popup.document.write(`
+      <!doctype html>
+      <html lang="${locale}">
+        <head>
+          <meta charset="utf-8" />
+          <title>MRN Debug Log</title>
+          <style>
+            body { margin: 0; font-family: "SF Mono", ui-monospace, monospace; background: #071225; color: #e6efff; }
+            main { display: grid; grid-template-columns: 320px 1fr; min-height: 100vh; }
+            aside { border-right: 1px solid #203a63; padding: 16px; background: #0a1730; overflow: auto; }
+            section { padding: 16px; overflow: auto; }
+            h1, h2 { margin: 0 0 12px; font-family: "Noto Sans KR", sans-serif; }
+            .meta { margin-bottom: 16px; color: #a9bbdf; font-family: "Noto Sans KR", sans-serif; }
+            .debug-timeline-item { padding: 10px; border-radius: 10px; background: #0d1f3d; border: 1px solid #274679; margin-bottom: 8px; }
+            .debug-timeline-item strong { display: block; color: #ffda77; margin-bottom: 6px; }
+            .debug-timeline-item p { margin: 0; color: #d7e5ff; font-family: "Noto Sans KR", sans-serif; line-height: 1.5; }
+            pre { margin: 0 0 10px; padding: 12px; border-radius: 10px; background: #091427; border: 1px solid #203a63; white-space: pre-wrap; word-break: break-word; }
+          </style>
+        </head>
+        <body>
+          <main>
+            <aside>
+              <h1>Debug Log</h1>
+              <div class="meta">session=${escapeDebugHtml(sessionId || "-")} / runtime=${escapeDebugHtml(runtime.status)} / seq=${stream.lastSeq}</div>
+              <h2>Timeline</h2>
+              ${timelineMarkup || "<p>-</p>"}
+            </aside>
+            <section>
+              <h2>Raw Messages (${stream.messages.length})</h2>
+              ${rawMarkup || "<p>-</p>"}
+            </section>
+          </main>
+        </body>
+      </html>
+    `);
+    popup.document.close();
+    const syncClosed = window.setInterval(() => {
+      if (debugWindowRef.current?.closed) {
+        debugWindowRef.current = null;
+        setShowRawMessages(false);
+      }
+    }, 1000);
+    return () => window.clearInterval(syncClosed);
+  }, [locale, runtime.status, sessionId, showRawMessages, stream.lastSeq, stream.messages, timeline]);
 
   useEffect(() => {
     saveStoredSessionToken(sessionId, token);
@@ -755,61 +830,98 @@ export function App() {
     setPromptBusy(true);
   };
 
-  const topCommandSummary = useMemo(() => {
-    if (!sessionId.trim()) {
-      return app.topSummaryEmpty;
-    }
-    return app.topSummary(sessionId, runtime.status);
-  }, [app, runtime.status, sessionId]);
+  const headerPlayers = snapshot?.players ?? [];
+  const myStatusLabel = isMyTurn ? turnStageText.myTurn : turnStageText.observing;
 
   return (
     <main className={`page ${compactDensity ? "page-compact" : ""} ${route === "match" ? "page-match" : ""}`}>
-      <header className="header">
-        <h1>{app.title}</h1>
-        <p>{app.subtitle}</p>
-        <div className="route-tabs">
-          <button
-            type="button"
-            className={route === "lobby" ? "route-tab route-tab-active" : "route-tab"}
-            onClick={() => navigateRoute("lobby")}
-          >
-            {app.routeLobby}
-          </button>
-          <button
-            type="button"
-            className={route === "match" ? "route-tab route-tab-active" : "route-tab"}
-            onClick={() => navigateRoute("match")}
-          >
-            {app.routeMatch}
-          </button>
-          {route === "match" ? (
-            <>
-              <button type="button" className="route-tab" onClick={() => setMatchTopCollapsed((prev) => !prev)}>
-                {matchTopCollapsed ? app.connectionExpand : app.connectionCollapse}
+      {route === "lobby" ? (
+        <header className="header">
+          <h1>{app.title}</h1>
+          <p>{app.subtitle}</p>
+          <div className="route-tabs">
+            <button
+              type="button"
+              className={route === "lobby" ? "route-tab route-tab-active" : "route-tab"}
+              onClick={() => navigateRoute("lobby")}
+            >
+              {app.routeLobby}
+            </button>
+            <button
+              type="button"
+              className="route-tab"
+              onClick={() => navigateRoute("match")}
+            >
+              {app.routeMatch}
+            </button>
+            <button
+              type="button"
+              className={locale === "ko" ? "route-tab route-tab-active" : "route-tab"}
+              data-testid="locale-switch-ko"
+              onClick={() => setLocale("ko")}
+            >
+              {app.localeKo}
+            </button>
+            <button
+              type="button"
+              className={locale === "en" ? "route-tab route-tab-active" : "route-tab"}
+              data-testid="locale-switch-en"
+              onClick={() => setLocale("en")}
+            >
+              {app.localeEn}
+            </button>
+          </div>
+        </header>
+      ) : (
+        <header className="match-global-bar">
+          <div className="match-global-left">
+            <strong>{sessionId ? `Session ${sessionId}` : app.topSummaryEmpty}</strong>
+            <small>{runtime.status}</small>
+          </div>
+          <div className="match-global-players" data-testid="match-global-players">
+            {headerPlayers.map((player) => (
+              <button
+                type="button"
+                key={`header-player-${player.playerId}`}
+                className={`match-global-player-chip ${player.playerId === currentActorId ? "is-actor" : ""} ${
+                  effectivePlayerId === player.playerId ? "is-me" : ""
+                } ${player.alive ? "" : "is-out"}`}
+              >
+                <span className="match-global-player-dot" />
+                <span>{`P${player.playerId}`}</span>
+                <small>{player.character && player.character !== "-" ? player.character : "?"}</small>
+              </button>
+            ))}
+          </div>
+          <div className="match-global-right">
+            <span className={`match-global-status ${isMyTurn ? "match-global-status-my-turn" : ""}`}>{myStatusLabel}</span>
+            <div className="match-global-actions">
+              <button
+                type="button"
+                className={locale === "ko" ? "route-tab route-tab-active" : "route-tab"}
+                data-testid="locale-switch-ko"
+                onClick={() => setLocale("ko")}
+              >
+                {app.localeKo}
+              </button>
+              <button
+                type="button"
+                className={locale === "en" ? "route-tab route-tab-active" : "route-tab"}
+                data-testid="locale-switch-en"
+                onClick={() => setLocale("en")}
+              >
+                {app.localeEn}
               </button>
               <button type="button" className="route-tab" onClick={() => setCompactDensity((prev) => !prev)}>
                 {compactDensity ? app.densityStandard : app.densityCompact}
               </button>
-            </>
-          ) : null}
-          <button
-            type="button"
-            className={locale === "ko" ? "route-tab route-tab-active" : "route-tab"}
-            data-testid="locale-switch-ko"
-            onClick={() => setLocale("ko")}
-          >
-            {app.localeKo}
-          </button>
-          <button
-            type="button"
-            className={locale === "en" ? "route-tab route-tab-active" : "route-tab"}
-            data-testid="locale-switch-en"
-            onClick={() => setLocale("en")}
-          >
-            {app.localeEn}
-          </button>
-        </div>
-      </header>
+              <button type="button" className="route-tab" onClick={() => setShowRawMessages((prev) => !prev)}>
+                {showRawMessages ? app.rawHide : app.rawShow}
+              </button>
+            </div>
+          </div>
+        </header>
+      )}
 
       {route === "lobby" ? (
         <LobbyView
@@ -854,31 +966,6 @@ export function App() {
         />
       ) : (
         <>
-          <section className="panel match-command-strip">
-            <div className="match-command-row">
-              <strong>{topCommandSummary}</strong>
-              {actionablePrompt && promptCollapsed ? (
-                <button
-                  type="button"
-                  className="route-tab route-tab-active match-reopen-prompt"
-                  onClick={() => setPromptCollapsed(false)}
-                >
-                  {app.reopenPrompt(promptLabelForType(actionablePrompt.requestType), promptSecondsLeft)}
-                </button>
-              ) : null}
-            </div>
-            {!matchTopCollapsed ? (
-              <>
-                <ConnectionPanel status={stream.status} lastSeq={stream.lastSeq} runtime={runtime} />
-                <div className="match-command-secondary">
-                  <button type="button" className="route-tab route-tab-muted" onClick={() => setShowRawMessages((prev) => !prev)}>
-                    {showRawMessages ? app.rawHide : app.rawShow}
-                  </button>
-                </div>
-              </>
-            ) : null}
-          </section>
-
           {turnBanner ? (
             <div className="turn-notice-banner" data-testid="turn-notice-banner">
               <strong>{turnBanner.text}</strong>
@@ -887,20 +974,24 @@ export function App() {
           ) : null}
 
           <div className="match-layout">
-            <BoardPanel
-              snapshot={snapshot}
-              manifestTiles={manifestTiles}
-              boardTopology={boardTopology}
-              tileKindLabels={tileKindLabels}
-              lastMove={lastMove}
-              stageFocus={turnStage}
-              weather={turnStage}
-              turnBanner={boardTurnOverlay}
-              showTurnOverlay={!isMyTurn && currentActorId !== null}
-            />
+            <div className="match-board-zone">
+              <BoardPanel
+                snapshot={snapshot}
+                manifestTiles={manifestTiles}
+                boardTopology={boardTopology}
+                tileKindLabels={tileKindLabels}
+                lastMove={lastMove}
+                stageFocus={turnStage}
+                weather={turnStage}
+                turnBanner={boardTurnOverlay}
+                showTurnOverlay={currentActorId !== null}
+              />
+              <CoreActionPanel items={coreActionFeed} latest={latestCoreAction} />
+            </div>
 
-            <div className="match-content-grid">
-              <div className="match-main-column">
+            <div className="match-side-zone">
+              <PlayersPanel snapshot={snapshot} currentActorPlayerId={currentActorId} />
+              <div className="match-action-zone">
                 {isMyTurn ? (
                   <>
                     <TurnStagePanel model={turnStage} characterAbilityText={activeCharacterAbility} isMyTurn={isMyTurn} />
@@ -919,9 +1010,6 @@ export function App() {
                 ) : (
                   <SpectatorTurnPanel actorPlayerId={currentActorId} model={turnStage} latestAction={latestCoreAction} />
                 )}
-
-                <CoreActionPanel items={coreActionFeed} latest={latestCoreAction} />
-                <IncidentCardStack items={theaterFeed} focusPlayerId={effectivePlayerId} />
 
                 {passivePrompt ? (
                   <section className="panel passive-prompt-card" data-testid="passive-prompt-card">
@@ -942,45 +1030,19 @@ export function App() {
                     </div>
                   </section>
                 ) : null}
-              </div>
-
-              <div className="match-side-column">
-                <SituationPanel model={situation} alerts={alerts} />
-                <PlayersPanel snapshot={snapshot} currentActorPlayerId={currentActorId} />
-                <TimelinePanel items={timeline} />
+                <PromptOverlay
+                  prompt={actionablePrompt}
+                  collapsed={promptCollapsed}
+                  busy={promptBusy}
+                  secondsLeft={promptSecondsLeft}
+                  feedbackMessage={promptFeedback}
+                  compactChoices={compactDensity}
+                  onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
+                  onSelectChoice={onSelectPromptChoice}
+                />
               </div>
             </div>
-
-            <PromptOverlay
-              prompt={actionablePrompt}
-              collapsed={promptCollapsed}
-              busy={promptBusy}
-              secondsLeft={promptSecondsLeft}
-              feedbackMessage={promptFeedback}
-              compactChoices={compactDensity}
-              onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
-              onSelectChoice={onSelectPromptChoice}
-            />
           </div>
-
-          {showRawMessages ? (
-            <section className="panel debug-panel">
-              <div className="debug-head">
-                <h2>{app.rawMessages} ({stream.messages.length})</h2>
-                <button type="button" className="route-tab" onClick={() => setShowRawMessages(false)}>
-                  {app.rawHide}
-                </button>
-              </div>
-              <div className="messages">
-                {stream.messages
-                  .slice()
-                  .reverse()
-                  .map((message, idx) => (
-                    <pre key={`${message.seq}-${idx}`}>{JSON.stringify(message, null, 2)}</pre>
-                  ))}
-              </div>
-            </section>
-          ) : null}
 
         </>
       )}

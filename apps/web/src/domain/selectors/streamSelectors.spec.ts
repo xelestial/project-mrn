@@ -839,6 +839,47 @@ describe("streamSelectors", () => {
     expect(stage.progressTrail).toContain("지목 대상 없음");
   });
 
+  it("uses prompt actor and hides stale character during draft and final-character phases", () => {
+    const stage = selectTurnStage([
+      {
+        type: "event",
+        seq: 900,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 5,
+          turn_index: 3,
+          acting_player_id: 1,
+          character: "건설업자",
+        },
+      },
+      {
+        type: "prompt",
+        seq: 901,
+        session_id: "s1",
+        payload: {
+          request_id: "req_draft_1",
+          request_type: "draft_card",
+          player_id: 2,
+          round_index: 6,
+          turn_index: 1,
+          public_context: {
+            round_index: 6,
+            turn_index: 1,
+            draft_phase: 2,
+          },
+        },
+      },
+    ]);
+
+    expect(stage.actorPlayerId).toBe(2);
+    expect(stage.actor).toBe("P2");
+    expect(stage.round).toBe(6);
+    expect(stage.turn).toBe(1);
+    expect(stage.character).toBe("-");
+    expect(stage.promptRequestType).toBe("draft_card");
+  });
+
   it("derives prompt focus tile from canonical legal_choices when public_context omits tile_index", () => {
     const stage = selectTurnStage([
       {

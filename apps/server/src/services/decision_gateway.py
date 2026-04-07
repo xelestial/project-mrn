@@ -528,6 +528,8 @@ def _build_lap_reward_context(
         "cash_point_cost": int(rules.cash_point_cost),
         "shards_point_cost": int(rules.shards_point_cost),
         "coins_point_cost": int(rules.coins_point_cost),
+        "player_cash": getattr(player, "cash", None),
+        "player_shards": getattr(player, "shards", None),
         "player_hand_coins": getattr(player, "hand_coins", None),
         "player_placed_coins": getattr(player, "score_coins_placed", None),
         "player_total_score": int(getattr(player, "hand_coins", 0) or 0) + int(getattr(player, "score_coins_placed", 0) or 0),

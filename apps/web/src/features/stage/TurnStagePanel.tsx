@@ -284,24 +284,6 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
           {stageLine(turnEndLabel, model.turnEndSummary)}
         </article>
 
-        <article className="turn-stage-card turn-stage-card-wide">
-          <div className="turn-stage-card-top">
-            <strong>{turnStage.progressTitle}</strong>
-            <span>{turnStage.progressBadge}</span>
-          </div>
-          {model.progressTrail.length > 0 ? (
-            <div className="turn-stage-trail">
-              {model.progressTrail.map((step, index) => (
-                <span key={`trail-${index}`} className="turn-stage-trail-chip">
-                  {step}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <small>{turnStage.progressEmpty}</small>
-          )}
-        </article>
-
         {sceneCards.length > 0 ? (
           <article className="turn-stage-card turn-stage-card-wide turn-stage-scene-strip" data-testid="turn-stage-scene-strip">
             <div className="turn-stage-card-top">

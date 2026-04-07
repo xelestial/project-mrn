@@ -1,5 +1,4 @@
 import { KeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { PromptChoiceViewModel, PromptViewModel } from "../../domain/selectors/promptSelectors";
 import { promptHelperForType } from "../../domain/labels/promptHelperCatalog";
 import { promptLabelForType } from "../../domain/labels/promptTypeCatalog";
@@ -322,23 +321,11 @@ function normalizeChoiceText(
   const value = choice.value ?? {};
 
   if (prompt.requestType === "lap_reward") {
-    const reward = asString(value["choice"]).toLowerCase();
     const cashUnits = asNumber(value["cash_units"]) ?? 0;
     const shardUnits = asNumber(value["shard_units"]) ?? 0;
     const coinUnits = asNumber(value["coin_units"]) ?? 0;
     const spentPoints = asNumber(value["spent_points"]);
     const pointsBudget = asNumber(value["points_budget"]);
-    const nonZeroCount = [cashUnits, shardUnits, coinUnits].filter((amount) => amount > 0).length;
-
-    if ((reward === "cash" || cashUnits > 0) && nonZeroCount <= 1) {
-      return { title: promptText.choice.cashTitle, description: promptText.choice.cashReward(cashUnits) };
-    }
-    if ((reward === "shards" || shardUnits > 0) && nonZeroCount <= 1) {
-      return { title: promptText.choice.shardTitle, description: promptText.choice.shardReward(shardUnits) };
-    }
-    if ((reward === "coins" || coinUnits > 0) && nonZeroCount <= 1) {
-      return { title: promptText.choice.coinTitle, description: promptText.choice.coinReward(coinUnits) };
-    }
     if (cashUnits > 0 || shardUnits > 0 || coinUnits > 0) {
       return {
         title: promptText.choice.mixedReward(cashUnits, shardUnits, coinUnits, spentPoints, pointsBudget),
@@ -725,24 +712,30 @@ export function PromptOverlay({
     : [];
 
   if (collapsed) {
-        return (
-          <button type="button" className="prompt-floating-chip" onClick={onToggleCollapse}>
-            {collapsedPromptChip(promptText, promptLabel, secondsLeft)}
-          </button>
-        );
+    return (
+      <section className="panel prompt-dock-collapsed" data-testid="prompt-dock-collapsed">
+        <div className="prompt-dock-collapsed-copy">
+          <strong>{promptText.headTitle(promptLabel)}</strong>
+          <small>{collapsedPromptChip(promptText, promptLabel, secondsLeft)}</small>
+        </div>
+        <button type="button" className="prompt-dock-collapsed-button" onClick={onToggleCollapse}>
+          {promptText.collapse}
+        </button>
+      </section>
+    );
   }
 
-  const overlay = (
-    <div className="prompt-modal-layer" role="dialog" aria-modal="true" aria-busy={busy}>
-      <div className="prompt-backdrop" />
-      <section
-        ref={rootRef}
-        className={`panel prompt-overlay prompt-overlay-${prompt.requestType}`}
-        data-testid="prompt-overlay"
-        data-prompt-type={prompt.requestType}
-        onKeyDown={onKeyDown}
-        tabIndex={-1}
-      >
+  return (
+    <section
+      ref={rootRef}
+      className={`panel prompt-overlay prompt-overlay-docked prompt-overlay-${prompt.requestType}`}
+      data-testid="prompt-overlay"
+      data-prompt-type={prompt.requestType}
+      onKeyDown={onKeyDown}
+      tabIndex={-1}
+      role="region"
+      aria-busy={busy}
+    >
         <div className="prompt-head">
           <div className="prompt-head-copy">
             <h2>{promptText.headTitle(promptLabel)}</h2>
@@ -1288,9 +1281,6 @@ export function PromptOverlay({
             </div>
           ) : null}
         </div>
-      </section>
-    </div>
+    </section>
   );
-
-  return createPortal(overlay, document.body);
 }

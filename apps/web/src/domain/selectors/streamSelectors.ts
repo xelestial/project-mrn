@@ -1059,6 +1059,43 @@ function updateActorStatusFromContext(model: TurnStageViewModel, payload: Record
   }
 }
 
+function isPreCharacterSelectionRequestType(requestType: string): boolean {
+  return requestType === "draft_card" || requestType === "final_character";
+}
+
+function updateActorFromPrompt(
+  model: TurnStageViewModel,
+  payload: Record<string, unknown>,
+  text: StreamSelectorTextResources
+) {
+  const promptActor = numberOrNull(payload["player_id"] ?? payload["acting_player_id"]);
+  if (promptActor !== null) {
+    model.actorPlayerId = promptActor;
+    model.actor = playerLabel(promptActor, text);
+  }
+
+  const publicContext = isRecord(payload["public_context"]) ? payload["public_context"] : null;
+  const round = numberOrNull(publicContext?.["round_index"] ?? payload["round_index"]);
+  const turn = numberOrNull(publicContext?.["turn_index"] ?? payload["turn_index"]);
+  if (round !== null) {
+    model.round = round;
+  }
+  if (turn !== null) {
+    model.turn = turn;
+  }
+
+  const requestType = asString(payload["request_type"]);
+  if (isPreCharacterSelectionRequestType(requestType)) {
+    model.character = "-";
+    return;
+  }
+
+  const actorName = asString(publicContext?.["actor_name"] ?? payload["actor_name"] ?? payload["character"]);
+  if (actorName !== "-") {
+    model.character = actorName;
+  }
+}
+
 export function selectTurnStage(
   messages: InboundMessage[],
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
@@ -1211,7 +1248,13 @@ export function selectTurnStage(
     if (message.type === "prompt") {
       const requestType = asString(message.payload["request_type"]);
       const promptActor = numberOrNull(message.payload["player_id"]);
-      if (requestType !== "-" && (model.actorPlayerId === null || model.actorPlayerId === promptActor)) {
+      if (
+        requestType !== "-" &&
+        (model.actorPlayerId === null ||
+          model.actorPlayerId === promptActor ||
+          isPreCharacterSelectionRequestType(requestType))
+      ) {
+        updateActorFromPrompt(model, message.payload, text);
         updateActorStatusFromContext(model, message.payload);
         model.promptSummary = text.stream.promptWaiting(promptLabelForType(requestType, text.promptType));
         model.promptRequestType = requestType;
@@ -1261,6 +1304,7 @@ export function selectTurnStage(
       continue;
     }
     if (eventCode === "decision_requested") {
+      updateActorFromPrompt(model, message.payload, text);
       updateExternalAiStatus(message.payload);
       updateActorStatusFromContext(model, message.payload);
       const detail = detailFromEventCode(message.payload, eventCode, text);
@@ -1275,6 +1319,7 @@ export function selectTurnStage(
       continue;
     }
     if (eventCode === "decision_resolved") {
+      updateActorFromPrompt(model, message.payload, text);
       updateExternalAiStatus(message.payload);
       updateActorStatusFromContext(model, message.payload);
       const detail = detailFromEventCode(message.payload, eventCode, text);
@@ -1289,6 +1334,7 @@ export function selectTurnStage(
       continue;
     }
     if (eventCode === "decision_timeout_fallback") {
+      updateActorFromPrompt(model, message.payload, text);
       updateExternalAiStatus(message.payload);
       updateActorStatusFromContext(model, message.payload);
       const detail = detailFromEventCode(message.payload, eventCode, text);
