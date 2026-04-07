@@ -3,9 +3,10 @@ import { useI18n } from "../../i18n/useI18n";
 
 type PlayersPanelProps = {
   snapshot: SnapshotViewModel | null;
+  currentActorPlayerId: number | null;
 };
 
-export function PlayersPanel({ snapshot }: PlayersPanelProps) {
+export function PlayersPanel({ snapshot, currentActorPlayerId }: PlayersPanelProps) {
   const { players: playersText } = useI18n();
   const players = snapshot?.players ?? [];
   return (
@@ -14,7 +15,12 @@ export function PlayersPanel({ snapshot }: PlayersPanelProps) {
       {players.length === 0 ? <p>{playersText.waiting}</p> : null}
       <div className="players-grid">
         {players.map((player) => (
-          <article key={player.playerId} className={`player-card ${player.alive ? "" : "out"}`}>
+          <article
+            key={player.playerId}
+            className={`player-card ${player.alive ? "" : "out"} ${
+              player.playerId === currentActorPlayerId ? "player-card-active" : ""
+            }`}
+          >
             <header>
               <strong>P{player.playerId}</strong>
               <span>{player.displayName}</span>

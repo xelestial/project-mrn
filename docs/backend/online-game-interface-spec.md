@@ -1,13 +1,13 @@
 # Online Game Interface Spec
 
-Canonical document path. Mirror in `PLAN/[PLAN]_ONLINE_GAME_INTERFACE_SPEC.md` is kept only for legacy links.
+Canonical document path for the current backend/frontend runtime seam.
 
 Status: `ACTIVE`  
 Owner: `Shared`  
 Updated: `2026-03-31`  
 Parents:
-- `PLAN/REACT_ONLINE_GAME_IMPL_PLAN.md`
-- `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`
+- `docs/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
+- `PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
 
 ## Purpose
 
@@ -293,7 +293,7 @@ Canonical codes:
 - Removal/rename requires:
   1. migration window with aliases
   2. parser tests updated for both forms
-  3. explicit note in `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`.
+  3. explicit note in `PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`.
 - Rule IDs and display labels evolve independently:
 - IDs are compatibility-critical
 - labels are replaceable catalogs (locale/theme/client mode)
@@ -382,7 +382,7 @@ export interface ManifestLifecyclePort {
 
 Reference plan:
 
-- `PLAN/[PLAN]_PARAMETER_DRIVEN_RUNTIME_DECOUPLING.md`
+- `PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
 - `PLAN/[REVIEW]_PIPELINE_CONSISTENCY_AND_COUPLING_AUDIT.md`
 
 ## Coupling Reduction Checklist (For Any New Interface)

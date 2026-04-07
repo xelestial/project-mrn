@@ -15,6 +15,9 @@ export const koLocale = {
     localeEn: "English",
     waitingTitle: (playerId: number) => `플레이어 P${playerId}의 선택을 기다리는 중입니다.`,
     waitingDescription: "내 턴이 아니어도 다른 플레이어의 진행 상황은 극장과 보드에서 계속 확인할 수 있습니다.",
+    myTurnWaitingTitle: "내 턴 진행 준비 중",
+    myTurnWaitingDescription: (beatLabel: string, beatDetail: string) =>
+      koLocale.app.inlineSummary(["선택 요청을 불러오는 중", beatLabel, beatDetail]),
     passivePromptTitle: "다른 플레이어 선택 진행 중",
     passivePromptSummary: (playerId: number, promptLabel: string, secondsLeft: number | null) =>
       `P${playerId} / ${promptLabel} / 남은 시간 ${secondsLeft ?? "-"}초`,
@@ -630,6 +633,7 @@ export const koLocale = {
       rent: "렌트",
       trick: "잔꾀",
       fortune: "운수",
+      decision: "선택",
       beat: "현재 행동",
       cash: "현금",
       shards: "조각",

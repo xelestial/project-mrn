@@ -148,7 +148,7 @@ export function BoardPanel({
 
   if (tiles.length === 0) {
     return (
-      <section className="panel">
+      <section className="panel board-panel">
         <h2>{board.title}</h2>
         <p>{board.loading}</p>
       </section>
@@ -156,7 +156,7 @@ export function BoardPanel({
   }
 
   return (
-    <section className="panel">
+    <section className="panel board-panel">
       <h2>{board.title}</h2>
       {snapshot ? (
         <p>{board.roundTurnMarker(snapshot.round, snapshot.turn, snapshot.markerOwnerPlayerId, endTimeRemaining)}</p>

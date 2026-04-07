@@ -80,6 +80,7 @@ export type TurnStageViewModel = {
   weatherSummary: string;
   effectSummary: string;
   promptSummary: string;
+  promptRequestType: string;
   latestActionLabel: string;
   latestActionDetail: string;
   currentBeatLabel: string;
@@ -1090,6 +1091,7 @@ export function selectTurnStage(
     weatherSummary: weather.name === "-" ? "-" : text.stream.weatherDetail(weather.name, weather.effect),
     effectSummary: "-",
     promptSummary: "-",
+    promptRequestType: "-",
     latestActionLabel: "-",
     latestActionDetail: "-",
     currentBeatLabel: "-",
@@ -1212,6 +1214,7 @@ export function selectTurnStage(
       if (requestType !== "-" && (model.actorPlayerId === null || model.actorPlayerId === promptActor)) {
         updateActorStatusFromContext(model, message.payload);
         model.promptSummary = text.stream.promptWaiting(promptLabelForType(requestType, text.promptType));
+        model.promptRequestType = requestType;
         model.currentBeatKind = "decision";
         model.currentBeatLabel = promptLabelForType(requestType, text.promptType);
         model.currentBeatDetail = model.promptSummary;
@@ -1262,6 +1265,7 @@ export function selectTurnStage(
       updateActorStatusFromContext(model, message.payload);
       const detail = detailFromEventCode(message.payload, eventCode, text);
       model.promptSummary = detail;
+      model.promptRequestType = asString(message.payload["request_type"]);
       updateBeat(
         pickMessageLabel(message, text),
         detail || "-",
@@ -1275,6 +1279,7 @@ export function selectTurnStage(
       updateActorStatusFromContext(model, message.payload);
       const detail = detailFromEventCode(message.payload, eventCode, text);
       model.promptSummary = detail;
+      model.promptRequestType = asString(message.payload["request_type"]);
       updateBeat(
         pickMessageLabel(message, text),
         detail || "-",
@@ -1288,6 +1293,7 @@ export function selectTurnStage(
       updateActorStatusFromContext(model, message.payload);
       const detail = detailFromEventCode(message.payload, eventCode, text);
       model.promptSummary = detail;
+      model.promptRequestType = asString(message.payload["request_type"]);
       updateBeat(
         pickMessageLabel(message, text),
         detail || "-",

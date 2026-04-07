@@ -289,7 +289,7 @@ body {
 
 .match-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 420px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   align-items: start;
   min-height: 0;
@@ -300,7 +300,14 @@ body {
   overflow: visible;
 }
 
-.match-board-column,
+.match-content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 420px);
+  gap: 16px;
+  align-items: start;
+}
+
+.match-main-column,
 .match-side-column {
   display: grid;
   gap: 12px;
@@ -308,7 +315,7 @@ body {
   min-width: 0;
 }
 
-.page.page-match .match-board-column,
+.page.page-match .match-main-column,
 .page.page-match .match-side-column {
   min-height: auto;
   overflow: visible;
@@ -320,12 +327,39 @@ body {
   top: 96px;
 }
 
+.board-panel {
+  padding: 16px;
+}
+
 .match-reopen-prompt {
   margin-left: auto;
   white-space: nowrap;
 }
 
-.waiting-panel strong {
+.waiting-panel {
+  border-color: rgba(255, 218, 119, 0.78);
+  background: linear-gradient(180deg, rgba(255, 218, 119, 0.08), rgba(14, 31, 61, 0.96));
+}
+
+.waiting-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.waiting-panel h2 {
+  margin: 0 0 6px;
+}
+
+.waiting-panel p {
+  margin: 0;
+  color: #d6e4ff;
+  line-height: 1.5;
+}
+
+.waiting-panel strong,
+.waiting-panel h2 {
   color: #ffda77;
 }
 
@@ -1776,6 +1810,12 @@ body {
   gap: 4px;
 }
 
+.player-card-active {
+  border-color: rgba(255, 218, 119, 0.92);
+  background: linear-gradient(180deg, rgba(255, 218, 119, 0.1), rgba(8, 19, 39, 0.96));
+  box-shadow: 0 0 0 1px rgba(255, 218, 119, 0.18), 0 12px 24px rgba(0, 0, 0, 0.24);
+}
+
 .player-card.out {
   opacity: 0.65;
   border-color: #66405a;
@@ -2531,7 +2571,7 @@ body {
 .turn-notice-banner {
   position: fixed;
   left: 50%;
-  bottom: 18px;
+  top: 84px;
   z-index: 950;
   min-width: min(420px, calc(100vw - 32px));
   display: grid;
@@ -2558,7 +2598,7 @@ body {
 }
 
 @media (max-width: 1280px) {
-  .match-layout {
+  .match-content-grid {
     grid-template-columns: repeat(1, minmax(0, 1fr));
   }
 
@@ -2574,7 +2614,7 @@ body {
   }
 
   .page.page-match .match-layout,
-  .page.page-match .match-board-column,
+  .page.page-match .match-main-column,
   .page.page-match .match-side-column {
     height: auto;
     overflow: visible;

@@ -1,12 +1,16 @@
 # docs/frontend
 
-Frontend component contracts, interaction guidelines, and test matrix.
+Current frontend reference set.
 
-Canonical active spec:
+Read in this order:
 
-- `docs/frontend/react-component-structure-spec.md`
-- `docs/frontend/human-play-ui-behavior-spec.md`
+1. `docs/frontend/[ACTIVE]_UI_UX_PRIORITY_ONE_PAGE.md`
+2. `docs/frontend/[PROPOSAL]_UI_UX_ISSUE_FIX_PLAN.md`
+3. `docs/frontend/[PROPOSAL]_UI_UX_DETAILED_SPEC.md`
+4. `docs/frontend/[PROPOSAL]_UI_UX_REDESIGN_FROM_SCRATCH.md`
+5. `docs/frontend/[PROPOSAL]_UI_UX_COMMERCIAL_REDESIGN.md`
 
-Legacy compatibility mirror:
+Notes:
 
-- `PLAN/[PLAN]_REACT_COMPONENT_STRUCTURE_SPEC.md`
+- the one-page priority doc is the execution entrypoint
+- the proposal docs remain as rationale and design direction

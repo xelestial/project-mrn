@@ -441,10 +441,11 @@ test("human quick start surfaces turn banner and first prompt through stable ids
 
   await expect(page).toHaveURL(/#\/match/);
   await expect(page.getByTestId("board-weather-summary")).toBeVisible();
+  await expect(page.locator(".board-panel")).toBeVisible();
   await expect(page.getByTestId("core-action-panel")).toBeVisible();
   await expect(page.getByTestId("turn-notice-banner")).toBeVisible();
   await expect(page.getByTestId("prompt-overlay")).toBeVisible();
-  await expect(page.getByText("Show raw")).toHaveCount(0);
+  await expect(page.getByText("Show raw")).toHaveCount(1);
   await expect(page.getByTestId("trick-choice-10-0")).toBeVisible();
   await expect(page.getByTestId("trick-choice-14-4")).toBeVisible();
   await expect(page.getByTestId("prompt-overlay")).toContainText("Scout Route");
@@ -544,16 +545,12 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await expect(page.getByTestId("board-actor-banner")).toBeVisible();
   await expect(page.getByTestId("core-action-journey")).toBeVisible();
   await expect(page.getByTestId("core-action-result-card")).toBeVisible();
-  await expect(page.getByTestId("turn-stage-spotlight-strip")).toBeVisible();
-  await expect(page.getByTestId("turn-stage-scene-strip")).toBeVisible();
-  await expect(page.getByTestId("turn-stage-outcome-strip")).toBeVisible();
-  await expect(page.getByTestId("turn-stage-handoff-card")).toBeVisible();
+  await expect(page.getByTestId("turn-stage-actor-status")).toHaveCount(0);
   await expect(page.getByTestId("prompt-overlay")).toHaveCount(0);
   await expect(page.getByTestId("core-action-journey")).toContainText("P2");
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("Bandit");
   await expect(page.getByTestId("spectator-turn-result")).toContainText("Tile purchased");
   await expect(page.getByTestId("spectator-turn-handoff")).toContainText("P2 turn closed");
-  await expect(page.getByTestId("turn-stage-handoff-card")).toContainText("P2 turn closed");
 });
 
 test("remote turn keeps lap reward, mark, and flip effects visible through spectator and stage panels", async ({ page }) => {
@@ -606,8 +603,7 @@ test("remote turn keeps lap reward, mark, and flip effects visible through spect
   await expect(page.getByTestId("spectator-turn-spotlight")).toContainText("P3");
   await expect(page.getByTestId("spectator-turn-spotlight")).toContainText("Courier");
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("Card flip");
-  await expect(page.getByTestId("turn-stage-spotlight-strip")).toContainText("Card flip");
-  await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("P3");
+  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Card flip");
 });
 
 test("mixed participant seats with external ai descriptors still load match runtime cleanly", async ({ page }) => {
@@ -685,7 +681,6 @@ test("mixed participant seats with external ai descriptors still load match runt
   await expect(page.getByTestId("spectator-turn-panel")).toBeVisible();
   await expect(page.getByTestId("spectator-turn-character")).toContainText("Surveyor");
   await expect(page.getByTestId("spectator-turn-weather")).toContainText("Dry Season");
-  await expect(page.getByTestId("turn-stage-spotlight-strip")).toContainText("Dry Season");
   await expect(page.getByTestId("prompt-overlay")).toHaveCount(0);
 });
 
@@ -749,8 +744,8 @@ test("remote timeout fallback stays visible in spectator and stage flow", async 
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("Timeout fallback");
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("prod-bot-1");
   await expect(page.getByTestId("spectator-turn-worker")).toContainText("local fallback");
-  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("local_ai");
-  await expect(page.getByTestId("turn-stage-scene-strip")).toContainText("Timeout fallback / defaulted to local AI");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("local_ai");
+  await expect(page.getByTestId("spectator-turn-prompt")).toContainText("Timeout fallback / defaulted to local AI");
 });
 
 test("mixed participant runtime keeps timeout and payoff continuity through handoff", async ({ page }) => {
@@ -856,10 +851,10 @@ test("mixed participant runtime keeps timeout and payoff continuity through hand
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("Timeout fallback");
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("prod-bot-1");
   await expect(page.getByTestId("spectator-turn-worker")).toContainText("prod-bot-1");
-  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("local fallback");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("local fallback");
   await expect(page.getByTestId("spectator-turn-result")).toContainText("Bought tile 9 for 4");
   await expect(page.getByTestId("spectator-turn-handoff")).toContainText("P3 turn closed");
-  await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("Bought tile 9 for 4");
+  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Bought tile 9 for 4");
 });
 
 test("mixed participant runtime keeps worker success then fallback visible across consecutive turns", async ({ page }) => {
@@ -997,12 +992,9 @@ test("mixed participant runtime keeps worker success then fallback visible acros
   await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("prod-bot-1");
   await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("priority_score_v1");
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("Participant status");
-  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("external_ai_timeout");
-  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("attempt 3");
-  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("priority_score_v1");
-  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("PriorityScoredPolicy");
-  await expect(page.getByTestId("turn-stage-scene-strip")).toContainText("Participant Status");
-  await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("Bought tile 11 for 3");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("external_ai_timeout");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("PriorityScoredPolicy");
+  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Bought tile 11 for 3");
 });
 
 test("mixed participant runtime keeps worker-not-ready fallback and weather continuity visible", async ({ page }) => {
@@ -1110,10 +1102,7 @@ test("mixed participant runtime keeps worker-not-ready fallback and weather cont
   await expect(page.getByTestId("spectator-turn-worker")).toContainText("attempt 1/3");
   await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Participant status");
   await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("P3 paid P1 5 on tile 13");
-  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("external_ai_worker_not_ready");
-  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("state not_ready");
-  await expect(page.getByTestId("turn-stage-scene-strip")).toContainText("Dry Season");
-  await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("P3 paid P1 5 on tile 13");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("external_ai_worker_not_ready");
 });
 
 test("mixed participant runtime keeps a long worker-success to fallback chain readable", async ({ page }) => {
@@ -1254,12 +1243,10 @@ test("mixed participant runtime keeps a long worker-success to fallback chain re
   await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("P3 paid P1 6 on tile 15");
   await expect(page.getByTestId("spectator-turn-journey")).toContainText("Participant status");
   await expect(page.getByTestId("spectator-turn-progress")).toContainText("Decision timeout fallback");
-  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("attempt 2/2");
-  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("mode heuristic_v3_gpt");
-  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("adapter reference_heuristic_v1");
-  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("class HeuristicPolicy");
-  await expect(page.getByTestId("turn-stage-scene-strip")).toContainText("Round Weather");
-  await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("P3 paid P1 6 on tile 15");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("attempt 2/2");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("mode heuristic_v3_gpt");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("adapter reference_heuristic_v1");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("class HeuristicPolicy");
 });
 
 test("mixed participant runtime keeps repeated fallback continuity readable across longer chains", async ({ page }) => {
@@ -1344,10 +1331,10 @@ test("mixed participant runtime keeps repeated fallback continuity readable acro
   await expect(page.getByTestId("spectator-turn-scene")).toContainText("P3 fallback fortune closed");
   await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Participant status");
   await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Fortune effect");
-  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("class HeuristicPolicy");
-  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("adapter reference_heuristic_v1");
-  await expect(page.getByTestId("turn-stage-worker-status")).toContainText("not_ready");
-  await expect(page.getByTestId("turn-stage-outcome-strip")).toContainText("Gain 1 shard.");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("class HeuristicPolicy");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("adapter reference_heuristic_v1");
+  await expect(page.getByTestId("spectator-turn-worker")).toContainText("not_ready");
+  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Gain 1 shard.");
 });
 
 test("locale toggle persists across reload", async ({ page }) => {

@@ -15,6 +15,9 @@ export const enLocale = {
     localeEn: "English",
     waitingTitle: (playerId: number) => `Waiting for player P${playerId} to choose.`,
     waitingDescription: "Even when it is not your turn, the board and theater keep showing public progress.",
+    myTurnWaitingTitle: "Preparing your turn",
+    myTurnWaitingDescription: (beatLabel: string, beatDetail: string) =>
+      enLocale.app.inlineSummary(["Loading your next decision", beatLabel, beatDetail]),
     passivePromptTitle: "Another player is choosing",
     passivePromptSummary: (playerId: number, promptLabel: string, secondsLeft: number | null) =>
       `P${playerId} / ${promptLabel} / ${secondsLeft ?? "-"}s left`,
@@ -625,6 +628,7 @@ export const enLocale = {
       rent: "Rent",
       trick: "Trick",
       fortune: "Fortune",
+      decision: "Decision",
       beat: "Current action",
       cash: "Cash",
       shards: "Shards",

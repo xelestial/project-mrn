@@ -15,13 +15,6 @@ type SceneCard = {
   tone: "move" | "economy" | "effect";
 };
 
-type SpotlightCard = {
-  key: string;
-  title: string;
-  detail: string;
-  tone: "move" | "economy" | "effect";
-};
-
 function valueOrDash(value: string): string {
   const trimmed = value.trim();
   return trimmed ? trimmed : "-";
@@ -42,10 +35,6 @@ function hasMeaningfulValue(value: string): boolean {
 
 function isSceneCard(card: SceneCard | null): card is SceneCard {
   return card !== null;
-}
-
-function hasOutcome(summary: string): boolean {
-  return hasMeaningfulValue(summary);
 }
 
 function hasActorStatus(model: TurnStageViewModel): boolean {
@@ -73,6 +62,10 @@ function hasWorkerStatus(model: TurnStageViewModel): boolean {
     model.externalAiAttemptCount !== null ||
     model.externalAiAttemptLimit !== null
   );
+}
+
+function isTrickPromptType(requestType: string): boolean {
+  return requestType === "trick_to_use" || requestType === "hidden_trick_card" || requestType === "trick_tile_target";
 }
 
 export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnStagePanelProps) {
@@ -178,117 +171,7 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
       : null,
   ];
   const sceneCards = sceneCardCandidates.filter(isSceneCard);
-  const outcomeCards: SceneCard[] = [];
-  if (hasOutcome(model.purchaseSummary)) {
-    outcomeCards.push({ key: "purchase-outcome", label: purchaseEventLabel, value: model.purchaseSummary, tone: "economy" });
-  }
-  if (hasOutcome(model.rentSummary)) {
-    outcomeCards.push({ key: "rent-outcome", label: rentEventLabel, value: model.rentSummary, tone: "economy" });
-  }
-  if (hasOutcome(model.fortuneResolvedSummary || model.fortuneSummary)) {
-    outcomeCards.push({
-      key: "fortune-outcome",
-      label: fortuneResolvedEventLabel,
-      value: model.fortuneResolvedSummary || model.fortuneSummary,
-      tone: "effect",
-    });
-  }
-  if (hasOutcome(model.lapRewardSummary)) {
-    outcomeCards.push({ key: "lap-reward-outcome", label: eventLabel.events.lap_reward_chosen ?? turnStage.fields.beat, value: model.lapRewardSummary, tone: "economy" });
-  }
-  if (hasOutcome(model.markSummary)) {
-    outcomeCards.push({ key: "mark-outcome", label: markResolvedEventLabel, value: model.markSummary, tone: "effect" });
-  }
-  if (hasOutcome(model.flipSummary)) {
-    outcomeCards.push({ key: "flip-outcome", label: eventLabel.events.marker_flip ?? turnStage.cardEffectTitle, value: model.flipSummary, tone: "effect" });
-  }
-  if (!hasOutcome(model.fortuneResolvedSummary || model.fortuneSummary) && hasOutcome(model.weatherEffect)) {
-    outcomeCards.push({
-      key: "weather-outcome",
-      label: turnStage.weatherTitle,
-      value: model.weatherEffect,
-      tone: "effect",
-    });
-  }
-  if (hasOutcome(model.trickSummary)) {
-    outcomeCards.push({ key: "trick-outcome", label: turnStage.fields.trick, value: model.trickSummary, tone: "effect" });
-  }
-  if (hasOutcome(model.turnEndSummary)) {
-    outcomeCards.push({ key: "turn-end-outcome", label: turnEndLabel, value: model.turnEndSummary, tone: "effect" });
-  }
-  if (hasWorkerStatus(model)) {
-    outcomeCards.push({
-      key: "worker-outcome",
-      label: turnStage.workerTitle,
-      value: workerStatusDetail,
-      tone: "effect",
-    });
-  }
-  const spotlightCards: SpotlightCard[] = [];
-  if (hasMeaningfulValue(model.weatherName) || hasMeaningfulValue(model.weatherEffect)) {
-    spotlightCards.push({
-      key: "weather",
-      title: turnStage.weatherTitle,
-      detail: valueOrDash(turnStage.weatherSummaryLine(model.weatherName, model.weatherEffect)),
-      tone: "effect",
-    });
-  }
-  if (hasMeaningfulValue(model.lapRewardSummary)) {
-    spotlightCards.push({
-      key: "lap-reward",
-      title: eventLabel.events.lap_reward_chosen ?? turnStage.fields.beat,
-      detail: model.lapRewardSummary,
-      tone: "economy",
-    });
-  }
-  if (hasMeaningfulValue(model.fortuneDrawSummary)) {
-    spotlightCards.push({
-      key: "fortune-draw",
-      title: fortuneDrawEventLabel,
-      detail: model.fortuneDrawSummary,
-      tone: "effect",
-    });
-  }
-  if (hasMeaningfulValue(model.fortuneResolvedSummary || model.fortuneSummary)) {
-    spotlightCards.push({
-      key: "fortune-effect",
-      title: fortuneResolvedEventLabel,
-      detail: model.fortuneResolvedSummary || model.fortuneSummary,
-      tone: "effect",
-    });
-  }
-  if (hasMeaningfulValue(model.purchaseSummary)) {
-    spotlightCards.push({
-      key: "purchase",
-      title: purchaseEventLabel,
-      detail: model.purchaseSummary,
-      tone: "economy",
-    });
-  }
-  if (hasMeaningfulValue(model.rentSummary)) {
-    spotlightCards.push({
-      key: "rent",
-      title: rentEventLabel,
-      detail: model.rentSummary,
-      tone: "economy",
-    });
-  }
-  if (hasMeaningfulValue(model.markSummary)) {
-    spotlightCards.push({
-      key: "mark",
-      title: markResolvedEventLabel,
-      detail: model.markSummary,
-      tone: "effect",
-    });
-  }
-  if (hasMeaningfulValue(model.flipSummary)) {
-    spotlightCards.push({
-      key: "flip",
-      title: eventLabel.events.marker_flip ?? turnStage.cardEffectTitle,
-      detail: model.flipSummary,
-      tone: "effect",
-    });
-  }
+  const decisionFieldLabel = isTrickPromptType(model.promptRequestType) ? turnStage.fields.trick : turnStage.fields.decision;
 
   return (
     <section className="panel turn-stage-panel">
@@ -359,30 +242,13 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
           </article>
         ) : null}
 
-        {spotlightCards.length > 0 ? (
-          <article className="turn-stage-card turn-stage-card-wide turn-stage-spotlight-strip" data-testid="turn-stage-spotlight-strip">
-            <div className="turn-stage-card-top">
-              <strong>{turnStage.currentBeatTitle}</strong>
-              <span>{turnStage.currentBeatBadge}</span>
-            </div>
-            <div className="turn-stage-spotlight-list">
-              {spotlightCards.map((card) => (
-                <div key={card.key} className={`turn-stage-spotlight-card turn-stage-spotlight-card-${card.tone}`}>
-                  <span>{card.title}</span>
-                  <strong>{valueOrDash(card.detail)}</strong>
-                </div>
-              ))}
-            </div>
-          </article>
-        ) : null}
-
         <article className="turn-stage-card">
           <div className="turn-stage-card-top">
             <strong>{turnStage.currentBeatTitle}</strong>
             <span>{turnStage.currentBeatBadge}</span>
           </div>
           {stageLine(turnStage.fields.beat, model.currentBeatLabel)}
-          {stageLine(turnStage.fields.trick, model.promptSummary === "-" ? turnStage.promptIdle : model.promptSummary)}
+          {stageLine(decisionFieldLabel, model.promptSummary === "-" ? turnStage.promptIdle : model.promptSummary)}
         </article>
 
         <article className="turn-stage-card">
@@ -455,33 +321,6 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
           </article>
         ) : null}
 
-        {outcomeCards.length > 0 ? (
-          <article className="turn-stage-card turn-stage-card-wide turn-stage-outcome-strip" data-testid="turn-stage-outcome-strip">
-            <div className="turn-stage-card-top">
-              <strong>{turnStage.resultSequenceTitle}</strong>
-              <span>{turnStage.resultSequenceBadge}</span>
-            </div>
-            <div className="turn-stage-outcome-list">
-              {outcomeCards.map((card) => (
-                <div key={card.key} className={`turn-stage-outcome-card turn-stage-outcome-card-${card.tone}`}>
-                  <span>{card.label}</span>
-                  <strong>{valueOrDash(card.value)}</strong>
-                </div>
-              ))}
-            </div>
-          </article>
-        ) : null}
-
-        {hasMeaningfulValue(model.turnEndSummary) ? (
-          <article className="turn-stage-card turn-stage-card-wide turn-stage-card-handoff" data-testid="turn-stage-handoff-card">
-            <div className="turn-stage-card-top">
-              <strong>{turnEndLabel}</strong>
-              <span>{turnStage.progressBadge}</span>
-            </div>
-            <p>{valueOrDash(model.turnEndSummary)}</p>
-            <small>{turnStage.progressTitle}</small>
-          </article>
-        ) : null}
       </div>
     </section>
   );

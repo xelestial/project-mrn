@@ -1,13 +1,13 @@
 # Online Game API Spec (REST + WebSocket)
 
-Canonical document path. Mirror in `PLAN/[PLAN]_ONLINE_GAME_API_SPEC.md` is kept only for legacy links.
+Canonical document path for the current runtime API contract.
 
 Status: `ACTIVE`  
 Owner: `Shared`  
 Updated: `2026-03-31`  
 Parents:
-- `PLAN/REACT_ONLINE_GAME_IMPL_PLAN.md`
-- `PLAN/[PLAN]_ONLINE_GAME_INTERFACE_SPEC.md`
+- `docs/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
+- `PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
 
 ## Purpose
 
@@ -527,7 +527,7 @@ Client runtime rule:
 
 Reference plan:
 
-- `PLAN/[PLAN]_PARAMETER_DRIVEN_RUNTIME_DECOUPLING.md`
+- `PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
 
 Verification reference:
 

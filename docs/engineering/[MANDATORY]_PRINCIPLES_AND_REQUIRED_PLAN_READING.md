@@ -24,15 +24,9 @@ Read these in order:
 1. `docs/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
 2. `docs/Game-Rules.md`
 3. `PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
-4. `PLAN/[PLAN]_UNIFIED_DECISION_API_ORCHESTRATION.md`
-5. `PLAN/[PLAN]_UNIFIED_DECISION_API_DETAILED_EXECUTION.md`
-6. `PLAN/[PLAN]_HUMAN_PLAY_RULE_LOG_PARITY_AND_DI.md`
-7. `PLAN/[PLAN]_GAME_RULES_ALIGNMENT_AUDIT_AND_FIX_PLAN.md`
-8. `PLAN/[PLAN]_STRING_RESOURCE_EXTERNALIZATION_AND_ENCODING_STABILITY.md`
-9. `PLAN/[PLAN]_BILINGUAL_STRING_RESOURCE_ARCHITECTURE.md`
-10. `PLAN/[PLAN]_PARAMETER_DRIVEN_RUNTIME_DECOUPLING.md`
-11. `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`
-12. `PLAN/PLAN_STATUS_INDEX.md`
+4. `PLAN/PLAN_STATUS_INDEX.md`
+5. `docs/frontend/[ACTIVE]_UI_UX_PRIORITY_ONE_PAGE.md`
+6. `docs/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md`
 
 ## Mandatory Engineering Principles
 
@@ -93,9 +87,7 @@ Read these in order:
 
 - User-facing strings should live in shared resources/catalogs.
 - Do not introduce new inline visible strings unless there is a strong temporary reason.
-- Any string or wording work must check:
-  - `PLAN/[PLAN]_STRING_RESOURCE_EXTERNALIZATION_AND_ENCODING_STABILITY.md`
-  - `PLAN/[PLAN]_BILINGUAL_STRING_RESOURCE_ARCHITECTURE.md`
+- Any string or wording work must check the current active web locale/resources and worklog.
 
 ## Mandatory Working Checklist
 
@@ -119,5 +111,5 @@ If text appears broken:
 When touching user-facing text, always re-check:
 
 - `docs/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
-- `PLAN/[PLAN]_STRING_RESOURCE_EXTERNALIZATION_AND_ENCODING_STABILITY.md`
-- `PLAN/[PLAN]_BILINGUAL_STRING_RESOURCE_ARCHITECTURE.md`
+- `PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
+- `docs/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md`

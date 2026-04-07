@@ -268,5 +268,5 @@ Scope: `GPT` 엔진 턴 진행 순서(라운드 시작 포함)와 로그 생성 
 
 ## 8) 참고 문서
 
-- [log-engine-generation-audit.md](C:/Users/SIL-EDITOR/Desktop/Workspace/project-mrn/docs/backend/log-engine-generation-audit.md)
-- [runtime-logging-policy.md](C:/Users/SIL-EDITOR/Desktop/Workspace/project-mrn/docs/backend/runtime-logging-policy.md)
+- [runtime-logging-policy.md](/Users/sil/Workspace/project-mrn/docs/backend/runtime-logging-policy.md)
+- [online-game-interface-spec.md](/Users/sil/Workspace/project-mrn/docs/backend/online-game-interface-spec.md)

@@ -389,11 +389,6 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
           <span>{app.spectatorFields.character}</span>
           <strong>{valueOrDash(model.character)}</strong>
         </article>
-        <article className="spectator-turn-card" data-testid="spectator-turn-beat">
-          <span>{app.spectatorFields.beat}</span>
-          <strong>{valueOrDash(model.currentBeatLabel)}</strong>
-          <small>{valueOrDash(model.currentBeatDetail)}</small>
-        </article>
         <article className="spectator-turn-card" data-testid="spectator-turn-action">
           <span>{app.spectatorFields.action}</span>
           <strong>{valueOrDash(latestActionTitle)}</strong>
@@ -431,14 +426,6 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
         <article className="spectator-turn-card" data-testid="spectator-turn-landing">
           <span>{app.spectatorFields.landing}</span>
           <strong>{valueOrDash(model.landingSummary)}</strong>
-        </article>
-        <article className="spectator-turn-card" data-testid="spectator-turn-economy">
-          <span>{app.spectatorFields.economy}</span>
-          <strong>{valueOrDash(economyText)}</strong>
-        </article>
-        <article className="spectator-turn-card" data-testid="spectator-turn-effect">
-          <span>{app.spectatorFields.effect}</span>
-          <strong>{valueOrDash(effectText)}</strong>
         </article>
       </div>
 

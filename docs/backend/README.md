@@ -11,9 +11,4 @@ Canonical active specs:
 
 - `docs/backend/online-game-interface-spec.md`
 - `docs/backend/runtime-logging-policy.md`
-- `docs/backend/log-engine-generation-audit.md`
 - `docs/backend/turn-structure-and-order-source-map.md`
-
-Legacy compatibility mirror:
-
-- `PLAN/[PLAN]_ONLINE_GAME_INTERFACE_SPEC.md`

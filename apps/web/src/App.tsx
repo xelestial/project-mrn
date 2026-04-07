@@ -180,7 +180,7 @@ export function App() {
 
   const [compactDensity, setCompactDensity] = useState(false);
   const [showRawMessages, setShowRawMessages] = useState(false);
-  const [matchTopCollapsed, setMatchTopCollapsed] = useState(true);
+  const [matchTopCollapsed, setMatchTopCollapsed] = useState(false);
 
   const [promptCollapsed, setPromptCollapsed] = useState(false);
   const [promptBusy, setPromptBusy] = useState(false);
@@ -232,6 +232,7 @@ export function App() {
   const canActOnPrompt = Boolean(activePrompt && token && effectivePlayerId !== null && activePrompt.playerId === effectivePlayerId);
   const actionablePrompt = canActOnPrompt ? activePrompt : null;
   const passivePrompt = activePrompt && !canActOnPrompt ? activePrompt : null;
+  const waitingForMyPrompt = isMyTurn && !actionablePrompt && !promptBusy;
   const latestPromptAck = selectLatestDecisionAck(stream.messages, actionablePrompt?.requestId ?? promptRequestId);
   const promptSecondsLeft =
     promptExpiresAtMs === null ? null : Math.max(0, Math.ceil((promptExpiresAtMs - nowMs) / 1000));
@@ -438,9 +439,18 @@ export function App() {
     });
     const timer = window.setTimeout(() => {
       setTurnBanner((prev) => (prev?.seq === turnStage.turnStartSeq ? null : prev));
-    }, 2000);
+    }, isMyTurn ? 5000 : 3200);
     return () => window.clearTimeout(timer);
-  }, [turnStage.actor, turnStage.character, turnStage.turnStartSeq]);
+  }, [app, isMyTurn, turnStage.actor, turnStage.character, turnStage.currentBeatLabel, turnStage.turnStartSeq, turnStage.weatherName]);
+
+  useEffect(() => {
+    if (route !== "match") {
+      return;
+    }
+    if (stream.status !== "connected" || runtime.status === "stalled" || runtime.status === "error") {
+      setMatchTopCollapsed(false);
+    }
+  }, [route, runtime.status, stream.status]);
 
   useEffect(() => {
     if (route !== "match" || stream.status !== "connected") {
@@ -713,7 +723,7 @@ export function App() {
     setSessionManifest(selected?.parameter_manifest ?? null);
     setNotice(app.notices.useSession(id));
     if (route === "match") {
-      window.location.hash = buildMatchHash(id, tokenInput.trim() || undefined);
+      window.location.hash = buildMatchHash(id);
     }
   };
 
@@ -877,65 +887,80 @@ export function App() {
           ) : null}
 
           <div className="match-layout">
-            <div className="match-board-column">
-              <BoardPanel
-                snapshot={snapshot}
-                manifestTiles={manifestTiles}
-                boardTopology={boardTopology}
-                tileKindLabels={tileKindLabels}
-                lastMove={lastMove}
-                stageFocus={turnStage}
-                weather={turnStage}
-                turnBanner={boardTurnOverlay}
-                showTurnOverlay={!isMyTurn && currentActorId !== null}
-              />
+            <BoardPanel
+              snapshot={snapshot}
+              manifestTiles={manifestTiles}
+              boardTopology={boardTopology}
+              tileKindLabels={tileKindLabels}
+              lastMove={lastMove}
+              stageFocus={turnStage}
+              weather={turnStage}
+              turnBanner={boardTurnOverlay}
+              showTurnOverlay={!isMyTurn && currentActorId !== null}
+            />
 
-              <TurnStagePanel model={turnStage} characterAbilityText={activeCharacterAbility} isMyTurn={isMyTurn} />
-              <CoreActionPanel items={coreActionFeed} latest={latestCoreAction} />
+            <div className="match-content-grid">
+              <div className="match-main-column">
+                {isMyTurn ? (
+                  <>
+                    <TurnStagePanel model={turnStage} characterAbilityText={activeCharacterAbility} isMyTurn={isMyTurn} />
+                    {waitingForMyPrompt ? (
+                      <section className="panel waiting-panel" data-testid="my-turn-waiting-panel">
+                        <div className="waiting-panel-head">
+                          <div>
+                            <h2>{app.myTurnWaitingTitle}</h2>
+                            <p>{app.myTurnWaitingDescription(turnStage.currentBeatLabel, turnStage.currentBeatDetail)}</p>
+                          </div>
+                          <span className="spinner" aria-hidden="true" />
+                        </div>
+                      </section>
+                    ) : null}
+                  </>
+                ) : (
+                  <SpectatorTurnPanel actorPlayerId={currentActorId} model={turnStage} latestAction={latestCoreAction} />
+                )}
 
-              {!isMyTurn && currentActorId !== null ? (
-                <SpectatorTurnPanel actorPlayerId={currentActorId} model={turnStage} latestAction={latestCoreAction} />
-              ) : null}
+                <CoreActionPanel items={coreActionFeed} latest={latestCoreAction} />
+                <IncidentCardStack items={theaterFeed} focusPlayerId={effectivePlayerId} />
 
-              <IncidentCardStack items={theaterFeed} focusPlayerId={effectivePlayerId} />
-
-              {passivePrompt ? (
-                <section className="panel passive-prompt-card" data-testid="passive-prompt-card">
-                  <div className="passive-prompt-head">
-                    <div>
-                      <h2>{app.passivePromptTitle}</h2>
-                      <p>
-                        {app.passivePromptSummary(
-                          passivePrompt.playerId,
-                          promptLabelForType(passivePrompt.requestType),
-                          promptSecondsLeft
-                        )}
-                      </p>
+                {passivePrompt ? (
+                  <section className="panel passive-prompt-card" data-testid="passive-prompt-card">
+                    <div className="passive-prompt-head">
+                      <div>
+                        <h2>{app.passivePromptTitle}</h2>
+                        <p>
+                          {app.passivePromptSummary(
+                            passivePrompt.playerId,
+                            promptLabelForType(passivePrompt.requestType),
+                            promptSecondsLeft
+                          )}
+                        </p>
+                      </div>
+                      <div className="passive-prompt-badge">
+                        <span className="spinner" aria-hidden="true" />
+                      </div>
                     </div>
-                    <div className="passive-prompt-badge">
-                      <span className="spinner" aria-hidden="true" />
-                    </div>
-                  </div>
-                </section>
-              ) : null}
+                  </section>
+                ) : null}
+              </div>
 
-              <PromptOverlay
-                prompt={actionablePrompt}
-                collapsed={promptCollapsed}
-                busy={promptBusy}
-                secondsLeft={promptSecondsLeft}
-                feedbackMessage={promptFeedback}
-                compactChoices={compactDensity}
-                onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
-                onSelectChoice={onSelectPromptChoice}
-              />
+              <div className="match-side-column">
+                <SituationPanel model={situation} alerts={alerts} />
+                <PlayersPanel snapshot={snapshot} currentActorPlayerId={currentActorId} />
+                <TimelinePanel items={timeline} />
+              </div>
             </div>
 
-            <div className="match-side-column">
-              <SituationPanel model={situation} alerts={alerts} />
-              <PlayersPanel snapshot={snapshot} />
-              <TimelinePanel items={timeline} />
-            </div>
+            <PromptOverlay
+              prompt={actionablePrompt}
+              collapsed={promptCollapsed}
+              busy={promptBusy}
+              secondsLeft={promptSecondsLeft}
+              feedbackMessage={promptFeedback}
+              compactChoices={compactDensity}
+              onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
+              onSelectChoice={onSelectPromptChoice}
+            />
           </div>
 
           {showRawMessages ? (
