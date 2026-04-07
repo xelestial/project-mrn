@@ -12,6 +12,8 @@ describe("i18n registry", () => {
     expect(LOCALES.ko.app.title).toBe("MRN Online Viewer (React/FastAPI)");
     expect(LOCALES.en.app.routeLobby).toBe("Lobby");
     expect(LOCALES.en.prompt.choice.buyTileTitle).toBe("Buy tile");
+    expect(LOCALES.ko.prompt.context.burdenExchangeTrigger(3, 3.5)).toBe("보급 단계 (F 3.5 / 기준 3)");
+    expect(LOCALES.en.prompt.context.burdenExchangeTrigger(3, 3.5)).toBe("Supply step (F 3.5 / threshold 3)");
     expect(LOCALES.ko.prompt.requestMetaPills(2, 30000, 18)).toEqual([
       "행동자 P2",
       "제한 30초",

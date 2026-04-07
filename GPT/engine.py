@@ -1186,6 +1186,18 @@ class GameEngine:
                 target_p.skipped_turn = True
                 target_p.revealed_this_round = True
                 self._strategy_stats[player.player_id]["marked_target_names"].append(target)
+                self._emit_vis(
+                    "mark_resolved",
+                    Phase.MARK,
+                    player.player_id + 1,
+                    state,
+                    source_player_id=player.player_id + 1,
+                    target_player_id=target_p.player_id + 1,
+                    target_character=target,
+                    success=True,
+                    effect_type="assassin_reveal",
+                    resolution={"type": "assassin_reveal"},
+                )
                 self._log({
                     "event": "assassin_reveal",
                     "player": player.player_id + 1,
@@ -1195,6 +1207,17 @@ class GameEngine:
                 })
             else:
                 self._record_mark_attempt(player.player_id, "none" if not target else "missing", state)
+                self._emit_vis(
+                    "mark_target_none" if not target else "mark_target_missing",
+                    Phase.MARK,
+                    player.player_id + 1,
+                    state,
+                    source_player_id=player.player_id + 1,
+                    actor_name=char,
+                    target_character=target,
+                    effect_type="assassin_reveal",
+                    fallback_applied=False,
+                )
                 if mark_debug is not None:
                     event_name = "mark_target_none" if not target else "mark_target_missing"
                     row = {"event": event_name, "player": player.player_id + 1, "character": char, "decision": mark_debug}
@@ -1290,6 +1313,18 @@ class GameEngine:
                 target_p.skipped_turn = True
                 target_p.revealed_this_round = True
                 self._strategy_stats[player.player_id]["marked_target_names"].append(target)
+                self._emit_vis(
+                    "mark_resolved",
+                    Phase.MARK,
+                    player.player_id + 1,
+                    state,
+                    source_player_id=player.player_id + 1,
+                    target_player_id=target_p.player_id + 1,
+                    target_character=target,
+                    success=True,
+                    effect_type="assassin_reveal",
+                    resolution={"type": "assassin_reveal"},
+                )
                 self._log(
                     {
                         "event": "assassin_reveal",
@@ -1301,6 +1336,17 @@ class GameEngine:
                 )
             else:
                 self._record_mark_attempt(player.player_id, "none" if not target else "missing", state)
+                self._emit_vis(
+                    "mark_target_none" if not target else "mark_target_missing",
+                    Phase.MARK,
+                    player.player_id + 1,
+                    state,
+                    source_player_id=player.player_id + 1,
+                    actor_name=char,
+                    target_character=target,
+                    effect_type="assassin_reveal",
+                    fallback_applied=False,
+                )
                 if mark_debug is not None:
                     event_name = "mark_target_none" if not target else "mark_target_missing"
                     row = {
@@ -1444,6 +1490,16 @@ class GameEngine:
         if not target_character:
             self._record_mark_attempt(source_pid, "none", state)
             self._apply_failed_mark_fallback(state, source, payload)
+            self._emit_vis(
+                "mark_target_none",
+                Phase.MARK,
+                source_pid + 1,
+                state,
+                source_player_id=source_pid + 1,
+                actor_name=source.current_character,
+                effect_type=payload.get("type"),
+                fallback_applied=True,
+            )
             if decision is not None:
                 self._log({"event": "mark_target_none", "player": source_pid + 1, "decision": decision})
             return
@@ -1451,12 +1507,36 @@ class GameEngine:
         if target_p is None:
             self._record_mark_attempt(source_pid, "missing", state)
             self._apply_failed_mark_fallback(state, source, payload)
+            self._emit_vis(
+                "mark_target_missing",
+                Phase.MARK,
+                source_pid + 1,
+                state,
+                source_player_id=source_pid + 1,
+                actor_name=source.current_character,
+                target_character=target_character,
+                effect_type=payload.get("type"),
+                fallback_applied=True,
+            )
             if decision is not None:
                 self._log({"event": "mark_target_missing", "player": source_pid + 1, "target_character": target_character, "decision": decision})
             return
         if target_p.revealed_this_round:
             self._record_mark_attempt(source_pid, "blocked", state)
             self._apply_failed_mark_fallback(state, source, payload)
+            self._emit_vis(
+                "mark_blocked",
+                Phase.MARK,
+                source_pid + 1,
+                state,
+                source_player_id=source_pid + 1,
+                target_player_id=target_p.player_id + 1,
+                target_character=target_character,
+                actor_name=source.current_character,
+                reason="revealed_by_assassin",
+                effect_type=payload.get("type"),
+                fallback_applied=True,
+            )
             self._log({
                 "event": "mark_blocked",
                 "source_player": source_pid + 1,
@@ -1470,6 +1550,17 @@ class GameEngine:
         mark = {"source_pid": source_pid, **payload}
         target_p.pending_marks.append(mark)
         self._strategy_stats[source_pid]["marked_target_names"].append(target_character)
+        self._emit_vis(
+            "mark_queued",
+            Phase.MARK,
+            source_pid + 1,
+            state,
+            source_player_id=source_pid + 1,
+            target_player_id=target_p.player_id + 1,
+            target_character=target_character,
+            actor_name=source.current_character,
+            effect_type=payload.get("type"),
+        )
         if decision is not None:
             self._log({"event": "mark_queued", "source_player": source_pid + 1, "target_player": target_p.player_id + 1, "target_character": target_character, "payload": payload, "decision": decision})
 

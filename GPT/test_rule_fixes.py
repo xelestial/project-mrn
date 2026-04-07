@@ -1,5 +1,6 @@
 import random
 import unittest
+from unittest.mock import patch
 
 from ai_policy import BasePolicy, HeuristicPolicy, MovementDecision, LapRewardDecision
 from config import DEFAULT_CONFIG, CellKind
@@ -1467,6 +1468,51 @@ class DoctrineBurdenReliefTests(unittest.TestCase):
         engine._queue_mark(state, manshin.player_id, None, {"type": "manshin_remove_burdens"})
         self.assertEqual(len([c for c in manshin.trick_hand if getattr(c, "is_burden", False)]), 0)
         self.assertEqual(manshin.cash, start_cash + burden.burden_cost)
+
+    def test_bandit_mark_queue_emits_visibility_event(self):
+        policy = TargetPolicy(target_name=CARD_TO_NAMES[4][0])
+        engine = GameEngine(DEFAULT_CONFIG, policy, rng=random.Random(0), enable_logging=True)
+        state = GameState.create(DEFAULT_CONFIG)
+        self._init_strategy_stats_for_mark_tests(engine)
+        actor = state.players[0]
+        target = state.players[1]
+        actor.current_character = "산적"
+        target.current_character = CARD_TO_NAMES[4][0]
+        state.current_round_order = [actor.player_id, target.player_id]
+
+        with patch.object(engine, "_emit_vis") as emit_vis:
+            engine._apply_character_start(state, actor)
+
+        self.assertTrue(any(call.args[0] == "mark_queued" for call in emit_vis.call_args_list))
+
+    def test_assassin_mark_success_emits_visibility_event(self):
+        policy = TargetPolicy(target_name=CARD_TO_NAMES[4][0])
+        engine = GameEngine(DEFAULT_CONFIG, policy, rng=random.Random(0), enable_logging=True)
+        state = GameState.create(DEFAULT_CONFIG)
+        self._init_strategy_stats_for_mark_tests(engine)
+        actor = state.players[0]
+        target = state.players[1]
+        actor.current_character = "자객"
+        target.current_character = CARD_TO_NAMES[4][0]
+        state.current_round_order = [actor.player_id, target.player_id]
+
+        with patch.object(engine, "_emit_vis") as emit_vis:
+            engine._apply_character_start(state, actor)
+
+        self.assertTrue(any(call.args[0] == "mark_resolved" for call in emit_vis.call_args_list))
+
+    def test_manshin_mark_none_emits_visibility_event(self):
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True)
+        state = GameState.create(DEFAULT_CONFIG)
+        self._init_strategy_stats_for_mark_tests(engine)
+        actor = state.players[0]
+        actor.current_character = "만신"
+        state.current_round_order = [actor.player_id]
+
+        with patch.object(engine, "_emit_vis") as emit_vis:
+            engine._apply_character_start(state, actor)
+
+        self.assertTrue(any(call.args[0] == "mark_target_none" for call in emit_vis.call_args_list))
 
     def test_swindler_takeover_multiplier_three_below_eight_shards(self):
         engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True)

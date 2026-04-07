@@ -789,6 +789,56 @@ describe("streamSelectors", () => {
     expect(stage.effectSummary).toContain("Courier");
   });
 
+  it("surfaces queued and failed mark visibility events in the current turn stage", () => {
+    const stage = selectTurnStage([
+      {
+        type: "event",
+        seq: 800,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 9,
+          turn_index: 3,
+          acting_player_id: 1,
+          character: "Manshin",
+        },
+      },
+      {
+        type: "event",
+        seq: 801,
+        session_id: "s1",
+        payload: {
+          event_type: "mark_queued",
+          round_index: 9,
+          turn_index: 3,
+          acting_player_id: 1,
+          source_player_id: 1,
+          target_player_id: 3,
+          target_character: "Builder",
+          effect_type: "manshin_remove_burdens",
+        },
+      },
+      {
+        type: "event",
+        seq: 802,
+        session_id: "s1",
+        payload: {
+          event_type: "mark_target_none",
+          round_index: 9,
+          turn_index: 3,
+          acting_player_id: 1,
+          source_player_id: 1,
+          actor_name: "Manshin",
+        },
+      },
+    ]);
+
+    expect(stage.markSummary).toContain("기본 처리");
+    expect(stage.effectSummary).toContain("기본 처리");
+    expect(stage.progressTrail).toContain("지목 예약");
+    expect(stage.progressTrail).toContain("지목 대상 없음");
+  });
+
   it("derives prompt focus tile from canonical legal_choices when public_context omits tile_index", () => {
     const stage = selectTurnStage([
       {

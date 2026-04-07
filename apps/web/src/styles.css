@@ -29,10 +29,9 @@ body {
 }
 
 .page.page-match {
-  height: 100vh;
   min-height: 100vh;
-  overflow: hidden;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: visible;
+  grid-template-rows: auto auto auto;
 }
 
 .header h1 {
@@ -243,6 +242,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .match-command-secondary {
@@ -296,8 +296,8 @@ body {
 }
 
 .page.page-match .match-layout {
-  height: 100%;
-  overflow: hidden;
+  height: auto;
+  overflow: visible;
 }
 
 .match-board-column,
@@ -310,14 +310,19 @@ body {
 
 .page.page-match .match-board-column,
 .page.page-match .match-side-column {
-  min-height: 0;
-  overflow: auto;
+  min-height: auto;
+  overflow: visible;
   padding-right: 4px;
 }
 
 .match-side-column {
   position: sticky;
   top: 96px;
+}
+
+.match-reopen-prompt {
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .waiting-panel strong {
@@ -506,6 +511,7 @@ body {
 }
 
 .board-scroll {
+  position: relative;
   overflow: auto;
   width: 100%;
   max-height: calc(100vh - 220px);
@@ -542,6 +548,51 @@ body {
 .board-move-summary {
   margin: 6px 0 10px;
   color: #ffda77;
+}
+
+.board-turn-overlay {
+  position: sticky;
+  left: 0;
+  bottom: 18px;
+  z-index: 12;
+  width: min(760px, calc(100% - 24px));
+  margin: -132px auto 12px;
+  padding: 18px 22px;
+  border-radius: 20px;
+  border: 2px solid rgba(255, 218, 119, 0.88);
+  background:
+    linear-gradient(180deg, rgba(21, 42, 78, 0.96), rgba(8, 18, 37, 0.96)),
+    #081225;
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.42),
+    0 0 0 1px rgba(255, 218, 119, 0.08);
+  text-align: center;
+  pointer-events: none;
+  backdrop-filter: blur(10px);
+}
+
+.board-turn-overlay-eyebrow {
+  margin-bottom: 8px;
+  color: #ffd87e;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.board-turn-overlay strong {
+  display: block;
+  color: #fff3c7;
+  font-size: clamp(24px, 3.2vw, 38px);
+  line-height: 1.15;
+}
+
+.board-turn-overlay p {
+  margin: 10px 0 0;
+  color: #d9e8ff;
+  font-size: clamp(15px, 2vw, 21px);
+  line-height: 1.4;
+  font-weight: 700;
 }
 
 .board-moving-pawn-ghost {
@@ -1985,14 +2036,16 @@ body {
 
 .prompt-floating-chip {
   position: fixed;
-  right: 18px;
-  bottom: 18px;
+  right: 20px;
+  bottom: 20px;
   z-index: 999;
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid #4e79bd;
-  background: #17335f;
-  color: #f4f8ff;
+  padding: 14px 18px;
+  border-radius: 16px;
+  border: 2px solid #ffda77;
+  background: linear-gradient(180deg, rgba(37, 70, 120, 0.98), rgba(23, 51, 95, 0.98));
+  color: #fff7d1;
+  font-weight: 700;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.45);
   cursor: pointer;
 }
 
@@ -2591,6 +2644,13 @@ body {
 
   .board-scroll {
     max-height: none;
+  }
+
+  .board-turn-overlay {
+    position: relative;
+    bottom: auto;
+    margin: 12px auto 0;
+    width: 100%;
   }
 
   .prompt-overlay {

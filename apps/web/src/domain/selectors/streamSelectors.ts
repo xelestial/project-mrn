@@ -502,6 +502,33 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
     }
     return text.stream.landing.markResolved;
   }
+  if (eventType === "mark_queued") {
+    return text.stream.markQueued(
+      payload["source_player_id"] ?? payload["player_id"] ?? "?",
+      payload["target_player_id"] ?? "?",
+      asString(payload["target_character"]),
+      asString(payload["effect_type"])
+    );
+  }
+  if (eventType === "mark_target_none") {
+    return text.stream.markTargetNone(
+      payload["source_player_id"] ?? payload["player_id"] ?? "?",
+      asString(payload["actor_name"])
+    );
+  }
+  if (eventType === "mark_target_missing") {
+    return text.stream.markTargetMissing(
+      payload["source_player_id"] ?? payload["player_id"] ?? "?",
+      asString(payload["target_character"])
+    );
+  }
+  if (eventType === "mark_blocked") {
+    return text.stream.markBlocked(
+      payload["source_player_id"] ?? payload["player_id"] ?? "?",
+      payload["target_player_id"] ?? "?",
+      asString(payload["target_character"])
+    );
+  }
   if (eventType === "marker_flip") {
     const from = asString(payload["from_character"] ?? payload["from"]);
     const to = asString(payload["to_character"] ?? payload["to"]);
@@ -581,6 +608,10 @@ const CORE_EVENT_CODES = new Set<string>([
   "lap_reward_chosen",
   "fortune_drawn",
   "fortune_resolved",
+  "mark_queued",
+  "mark_target_none",
+  "mark_target_missing",
+  "mark_blocked",
   "bankruptcy",
   "game_end",
   "turn_end_snapshot",
@@ -1267,7 +1298,13 @@ export function selectTurnStage(
       model.effectSummary = detail;
       continue;
     }
-    if (eventCode === "mark_resolved") {
+    if (
+      eventCode === "mark_resolved" ||
+      eventCode === "mark_queued" ||
+      eventCode === "mark_target_none" ||
+      eventCode === "mark_target_missing" ||
+      eventCode === "mark_blocked"
+    ) {
       const detail = detailFromEventCode(message.payload, eventCode, text);
       model.markSummary = detail;
       model.effectSummary = detail;

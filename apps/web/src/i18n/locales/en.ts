@@ -46,6 +46,8 @@ export const enLocale = {
     topSummaryEmpty: "Select a session",
     topSummary: (sessionId: string, runtimeStatus: string) => `Session ${sessionId} / ${runtimeStatus}`,
     turnBanner: (actorText: string) => `${actorText}'s turn`,
+    reopenPrompt: (promptLabel: string, secondsLeft: number | null) =>
+      `Reopen choice: ${promptLabel} / ${secondsLeft ?? "-"}s left`,
     errors: {
       refreshSessions: "Failed to load the session list.",
       sendPrompt: "Failed to submit the choice. Please try again.",
@@ -211,7 +213,7 @@ export const enLocale = {
       movement: "Movement",
       runaway_step_choice: "Runaway Movement Choice",
       lap_reward: "Lap Reward",
-      draft_card: "Draft Pick",
+      draft_card: "Turn Character Pick",
       final_character: "Final Character",
       final_character_choice: "Final Character",
       trick_to_use: "Use Trick",
@@ -245,7 +247,7 @@ export const enLocale = {
       doctrine_relief: "Choose the target of Doctrine Researcher relief.",
       active_flip: "Choose a card to flip, or finish flipping.",
       specific_trick_reward: "Choose the trick reward.",
-      burden_exchange: "Choose the burden card to exchange.",
+      burden_exchange: "A supply step opened a burden cleanup window. Decide whether to pay now and remove the burden card.",
       pabal_dice_mode: "Choose whether to roll three dice or reduce the roll to one die this turn.",
     },
   },
@@ -272,6 +274,10 @@ export const enLocale = {
       decision_requested: "Decision requested",
       decision_resolved: "Decision resolved",
       decision_timeout_fallback: "Decision timeout fallback",
+      mark_queued: "Mark queued",
+      mark_target_none: "No legal mark target",
+      mark_target_missing: "Missing mark target",
+      mark_blocked: "Mark blocked",
       active_flip_resolved: "Active flip resolved",
       bankruptcy: "Bankruptcy",
       game_end: "Game end",
@@ -460,6 +466,24 @@ export const enLocale = {
     tilePurchased: (tileDisplay: string, cost: unknown) => `Bought tile ${tileDisplay} for ${cost}`,
     markerTransferred: (from: unknown, to: unknown, flipped?: unknown) =>
       typeof flipped === "number" ? `[Marker] P${from} -> P${to} (flip P${flipped})` : `[Marker] P${from} -> P${to}`,
+    markQueued: (source: unknown, target: unknown, targetCharacter: string, effectType: string) => {
+      const effect =
+        effectType === "bandit_tax"
+          ? "Bandit"
+          : effectType === "hunter_pull"
+            ? "Hunter"
+            : effectType === "baksu_transfer"
+              ? "Baksu"
+              : effectType === "manshin_remove_burdens"
+                ? "Manshin"
+                : "Mark";
+      return `[${effect}] P${source} -> P${target} / ${targetCharacter}`;
+    },
+    markTargetNone: (source: unknown, actorName: string) => `${actorName || `P${source}`} / no legal mark target, fallback applied`,
+    markTargetMissing: (source: unknown, targetCharacter: string) =>
+      `P${source} / could not find ${targetCharacter || "-"} in the remaining turn order`,
+    markBlocked: (source: unknown, target: unknown, targetCharacter: string) =>
+      `P${source} / mark on P${target}${targetCharacter ? ` (${targetCharacter})` : ""} was blocked because the target was already revealed`,
     markerFlipDetail: (from: string, to: string) => `${from} -> ${to}`,
     rentPaid: (payer: unknown, owner: unknown, amount: unknown, tileDisplay: string) =>
       `P${payer} paid P${owner} ${amount} on tile ${tileDisplay}`,
@@ -700,12 +724,31 @@ export const enLocale = {
       currentWeather: "Current weather",
       actorCharacter: "Acting character",
       selectableTargets: "Selectable targets",
+      targetRule: "Mark rule",
+      trigger: "Trigger",
+      burdenCard: "Burden card",
+      burdenCost: "Removal cost",
+      currentF: "Current F",
+      supplyThreshold: "Supply threshold",
       purchaseCost: "Purchase cost",
       currentCash: "Current cash",
       zone: "Zone",
       currentShards: "Current shards",
       currentCoins: "Current points",
       noneSelected: "None",
+      burdenExchangeTrigger: (threshold: number | null, currentF: number | null) => {
+        if (threshold !== null && currentF !== null) {
+          return `Supply step (F ${currentF} / threshold ${threshold})`;
+        }
+        if (threshold !== null) {
+          return `Supply step (threshold F ${threshold})`;
+        }
+        return "Supply step";
+      },
+      markTargetRule: (targetCount: number | null) =>
+        targetCount === 0
+          ? "No unrevealed later-turn character is available to mark in this round."
+          : "You may only mark unrevealed characters that act later in this round.",
     },
     movement: {
       rollMode: "Roll dice",
@@ -759,7 +802,11 @@ export const enLocale = {
       flipChange: (current: string, next: string) => `${current} -> ${next}`,
       flipDescription: "Flip the chosen card to its opposite side.",
       exchangeBurden: "Exchange burden card",
-      exchangeBurdenDescription: "Choose the burden card to exchange.",
+      exchangeBurdenDescription: (cardName: string | null, cost: number | null, trigger: string) =>
+        `${trigger}${cardName ? ` / ${cardName}` : ""}${cost !== null ? ` / cost ${cost}` : ""}`,
+      keepBurdenTitle: "Keep it this time",
+      keepBurdenDescription: (cardName: string | null, trigger: string) =>
+        `${trigger}: keep${cardName ? ` ${cardName}` : " this burden card"} for now.`,
       skip: "Skip",
     },
     busy: "Submitting choice...",

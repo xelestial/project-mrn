@@ -370,11 +370,22 @@ function normalizeChoiceText(
   }
 
   if (prompt.requestType === "burden_exchange") {
+    const cardName = asString(prompt.publicContext["card_name"]) || null;
+    const burdenCost = asNumber(prompt.publicContext["burden_cost"]);
+    const supplyThreshold = asNumber(prompt.publicContext["supply_threshold"]);
+    const currentFValue = asNumber(prompt.publicContext["current_f_value"]);
+    const trigger = cleanDisplayText(promptText.context.burdenExchangeTrigger(supplyThreshold, currentFValue));
     if (choice.choiceId === "yes") {
-      return { title: promptText.choice.exchangeBurden, description: promptText.choice.exchangeBurdenDescription };
+      return {
+        title: promptText.choice.exchangeBurden,
+        description: promptText.choice.exchangeBurdenDescription(cardName, burdenCost, trigger),
+      };
     }
     if (choice.choiceId === "no") {
-      return { title: cleanDisplayText(promptText.choice.skip), description: cleanDisplayText(fallbackDescription) };
+      return {
+        title: cleanDisplayText(promptText.choice.keepBurdenTitle),
+        description: cleanDisplayText(promptText.choice.keepBurdenDescription(cardName, trigger)),
+      };
     }
     return { title: cleanDisplayText(fallbackTitle), description: cleanDisplayText(fallbackDescription) };
   }
@@ -647,6 +658,12 @@ export function PromptOverlay({
   const currentZone = stringFromContext(prompt.publicContext, "tile_zone");
   const weatherName = stringFromContext(prompt.publicContext, "weather_name");
   const markActorName = stringFromContext(prompt.publicContext, "actor_name");
+  const markTargetCount = numberFromContext(prompt.publicContext, "target_count");
+  const burdenCardName = stringFromContext(prompt.publicContext, "card_name");
+  const burdenCost = numberFromContext(prompt.publicContext, "burden_cost");
+  const currentFValue = numberFromContext(prompt.publicContext, "current_f_value");
+  const supplyThreshold = numberFromContext(prompt.publicContext, "supply_threshold");
+  const burdenTrigger = promptText.context.burdenExchangeTrigger(supplyThreshold, currentFValue);
   const markCandidateCount = prompt.choices.filter((choice) => choice.choiceId !== "none").length;
   const doctrineCandidateCount = numberFromContext(prompt.publicContext, "candidate_count") ?? markCandidateCount;
   const movementPosition = numberFromContext(prompt.publicContext, "player_position");
@@ -872,10 +889,13 @@ export function PromptOverlay({
                   {promptText.context.actorCharacter}: {markActorName || "-"}
                 </span>
                 <span className="prompt-summary-pill">
-                  {promptText.context.selectableTargets}: {String(doctrineCandidateCount)}
+                  {promptText.context.selectableTargets}: {String(markTargetCount ?? doctrineCandidateCount)}
                 </span>
                 <span className="prompt-summary-pill">
                   {promptText.context.currentPosition}: {tileLabel(currentTileIndex)}
+                </span>
+                <span className="prompt-summary-pill">
+                  {promptText.context.targetRule}: {promptText.context.markTargetRule(markTargetCount ?? markCandidateCount)}
                 </span>
               </div>
             </div>
@@ -978,9 +998,13 @@ export function PromptOverlay({
             busy={busy}
             onSelectChoice={onSelectChoice}
             testIdPrefix="burden-exchange-choice"
+            collapseSecondaryChoices={false}
             summaryPills={[
+              `${promptText.context.trigger}: ${burdenTrigger}`,
+              burdenCardName ? `${promptText.context.burdenCard}: ${burdenCardName}` : null,
+              `${promptText.context.burdenCost}: ${formatNumber(burdenCost)}`,
               `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
-              `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
+              currentFValue !== null ? `${promptText.context.currentF}: ${currentFValue}` : null,
             ]}
           />
         ) : null}

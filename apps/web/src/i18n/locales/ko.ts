@@ -46,6 +46,8 @@ export const koLocale = {
     topSummaryEmpty: "세션을 선택하세요",
     topSummary: (sessionId: string, runtimeStatus: string) => `세션 ${sessionId} / 상태 ${runtimeStatus}`,
     turnBanner: (actorText: string) => `${actorText}의 턴입니다`,
+    reopenPrompt: (promptLabel: string, secondsLeft: number | null) =>
+      `선택창 다시 열기: ${promptLabel} / 남은 ${secondsLeft ?? "-"}초`,
     errors: {
       refreshSessions: "세션 목록을 불러오지 못했습니다.",
       sendPrompt: "선택 요청을 전송하지 못했습니다. 잠시 후 다시 시도해 주세요.",
@@ -218,7 +220,7 @@ export const koLocale = {
       movement: "이동값 결정",
       runaway_step_choice: "탈출 노비 이동 선택",
       lap_reward: "랩 보상 선택",
-      draft_card: "드래프트 선택",
+      draft_card: "이번 턴 인물 선택",
       final_character: "최종 캐릭터 선택",
       final_character_choice: "최종 캐릭터 선택",
       trick_to_use: "잔꾀 사용",
@@ -251,7 +253,7 @@ export const koLocale = {
       doctrine_relief: "교리 연구관 효과의 적용 대상을 선택하세요.",
       active_flip: "현재 뒤집을 수 있는 카드 중 하나를 선택하거나 뒤집기 종료를 누르세요.",
       specific_trick_reward: "보상으로 받을 잔꾀를 선택하세요.",
-      burden_exchange: "교환할 짐 카드를 선택하세요.",
+      burden_exchange: "보급 단계가 열려 짐 카드를 정리할 수 있습니다. 이번에 비용을 내고 제거할지 결정하세요.",
     },
   },
   eventLabel: {
@@ -277,6 +279,10 @@ export const koLocale = {
       decision_requested: "선택 요청 등록",
       decision_resolved: "선택 처리 완료",
       decision_timeout_fallback: "시간 초과 기본 처리",
+      mark_queued: "지목 예약",
+      mark_target_none: "지목 대상 없음",
+      mark_target_missing: "지목 대상 불일치",
+      mark_blocked: "지목 차단",
       active_flip_resolved: "카드 뒤집기 처리",
       bankruptcy: "파산",
       game_end: "게임 종료",
@@ -465,6 +471,24 @@ export const koLocale = {
     tilePurchased: (tileDisplay: string, cost: unknown) => `${tileDisplay}번 칸 구매 / 비용 ${cost}`,
     markerTransferred: (from: unknown, to: unknown, flipped?: unknown) =>
       typeof flipped === "number" ? `[징표] P${from} -> P${to} (플립 P${flipped})` : `[징표] P${from} -> P${to}`,
+    markQueued: (source: unknown, target: unknown, targetCharacter: string, effectType: string) => {
+      const effect =
+        effectType === "bandit_tax"
+          ? "산적"
+          : effectType === "hunter_pull"
+            ? "추노꾼"
+            : effectType === "baksu_transfer"
+              ? "박수"
+              : effectType === "manshin_remove_burdens"
+                ? "만신"
+                : "지목";
+      return `[${effect}] P${source} -> P${target} / ${targetCharacter}`;
+    },
+    markTargetNone: (source: unknown, actorName: string) => `${actorName || `P${source}`} / 지목 가능한 대상이 없어 기본 처리`,
+    markTargetMissing: (source: unknown, targetCharacter: string) =>
+      `P${source} / 지목 대상 ${targetCharacter || "-"}을(를) 현재 차례 순서에서 찾지 못함`,
+    markBlocked: (source: unknown, target: unknown, targetCharacter: string) =>
+      `P${source} / P${target}${targetCharacter ? ` (${targetCharacter})` : ""} 지목이 공개 상태라 차단됨`,
     markerFlipDetail: (from: string, to: string) => `${from} -> ${to}`,
     rentPaid: (payer: unknown, owner: unknown, amount: unknown, tileDisplay: string) =>
       `P${payer} -> P${owner} / ${amount}냥 / ${tileDisplay}번 칸`,
@@ -705,12 +729,31 @@ export const koLocale = {
       currentWeather: "현재 날씨",
       actorCharacter: "행동 인물",
       selectableTargets: "선택 가능 대상",
+      targetRule: "지목 규칙",
+      trigger: "발동 원인",
+      burdenCard: "대상 짐",
+      burdenCost: "제거 비용",
+      currentF: "현재 F",
+      supplyThreshold: "보급 기준",
       purchaseCost: "구매 비용",
       currentCash: "보유 현금",
       zone: "구역",
       currentShards: "현재 조각",
       currentCoins: "현재 승점",
       noneSelected: "없음",
+      burdenExchangeTrigger: (threshold: number | null, currentF: number | null) => {
+        if (threshold !== null && currentF !== null) {
+          return `보급 단계 (F ${currentF} / 기준 ${threshold})`;
+        }
+        if (threshold !== null) {
+          return `보급 단계 (기준 F ${threshold})`;
+        }
+        return "보급 단계";
+      },
+      markTargetRule: (targetCount: number | null) =>
+        targetCount === 0
+          ? "이번 라운드 뒤 순번의 비공개 인물이 없어 지목할 대상이 없습니다."
+          : "이번 라운드 뒤 순번의 아직 공개되지 않은 인물만 지목할 수 있습니다.",
     },
     movement: {
       rollMode: "주사위 굴리기",
@@ -758,7 +801,11 @@ export const koLocale = {
       flipChange: (current: string, next: string) => `${current} -> ${next}`,
       flipDescription: "선택한 카드를 반대 면으로 뒤집습니다.",
       exchangeBurden: "짐 카드 교환",
-      exchangeBurdenDescription: "교환할 짐 카드를 선택합니다.",
+      exchangeBurdenDescription: (cardName: string | null, cost: number | null, trigger: string) =>
+        `${trigger}${cardName ? ` / ${cardName}` : ""}${cost !== null ? ` / 비용 ${cost}` : ""}`,
+      keepBurdenTitle: "이번에는 유지",
+      keepBurdenDescription: (cardName: string | null, trigger: string) =>
+        `${trigger}에는${cardName ? ` ${cardName}` : " 이 짐 카드"}를 유지합니다.`,
       skip: "건너뜀",
     },
     busy: "처리 중... 엔진 응답을 기다리는 중",

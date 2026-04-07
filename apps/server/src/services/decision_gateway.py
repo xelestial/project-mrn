@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
@@ -167,14 +168,66 @@ def _build_purchase_tile_context(
     }
 
 
+def _build_burden_exchange_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    del kwargs
+    card = _arg_or_kw(args, {}, 2, "card")
+    next_threshold = _number_or_none(getattr(state, "next_supply_f_threshold", None))
+    current_threshold = next_threshold - 3 if next_threshold is not None else None
+    burden_cards = [
+        hand_card
+        for hand_card in list(getattr(player, "trick_hand", []) or [])
+        if bool(getattr(hand_card, "is_burden", False))
+    ]
+    return {
+        "card_name": getattr(card, "name", None),
+        "card_description": getattr(card, "description", None),
+        "burden_cost": getattr(card, "burden_cost", None),
+        "player_hand_coins": getattr(player, "hand_coins", None),
+        "burden_card_count": len(burden_cards),
+        "decision_phase": "trick_supply",
+        "decision_reason": "supply_threshold",
+        "supply_threshold": current_threshold if current_threshold is None or current_threshold >= 0 else None,
+        "current_f_value": getattr(state, "f_value", None),
+    }
+
+
 def _build_mark_target_context(
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
     state: Any,
     player: Any,
 ) -> dict[str, Any]:
-    del state, player
-    return {"actor_name": _arg_or_kw(args, kwargs, 2, "actor_name")}
+    actor_name = _arg_or_kw(args, kwargs, 2, "actor_name")
+    context: dict[str, Any] = {
+        "actor_name": actor_name,
+        "target_rule": "future_turn_unrevealed_only",
+    }
+    try:
+        from viewer.human_policy import _is_mark_skill_blocked_by_uhsa, _legal_mark_target_players
+
+        if _is_mark_skill_blocked_by_uhsa(state, player, actor_name):
+            context["blocked_by_eosa"] = True
+            context["target_count"] = 0
+            return context
+        legal_targets = _legal_mark_target_players(state, player)
+    except Exception:
+        legal_targets = []
+    context["target_count"] = len(legal_targets)
+    context["target_pairs"] = [
+        {
+            "target_character": str(getattr(target, "current_character", "") or ""),
+            "target_player_id": int(getattr(target, "player_id", -1)) + 1,
+        }
+        for target in legal_targets
+        if getattr(target, "current_character", None) and isinstance(getattr(target, "player_id", None), int)
+    ]
+    context["no_legal_targets"] = len(context["target_pairs"]) == 0
+    return context
 
 
 def _build_active_flip_context(
@@ -679,7 +732,13 @@ METHOD_SPECS: dict[str, DecisionMethodSpec] = {
         _build_specific_trick_reward_choices,
         _parse_specific_trick_reward_choice,
     ),
-    "choose_burden_exchange_on_supply": DecisionMethodSpec("burden_exchange", _serialize_yes_no_choice, legal_choice_builder=_build_burden_exchange_choices, choice_parser=_parse_yes_no_choice),
+    "choose_burden_exchange_on_supply": DecisionMethodSpec(
+        "burden_exchange",
+        _serialize_yes_no_choice,
+        _build_burden_exchange_context,
+        _build_burden_exchange_choices,
+        _parse_yes_no_choice,
+    ),
     "choose_pabal_dice_mode": DecisionMethodSpec(
         "pabal_dice_mode",
         _serialize_string_choice,
@@ -927,6 +986,7 @@ class DecisionGateway:
         loop: asyncio.AbstractEventLoop,
         touch_activity: Callable[[str], None],
         fallback_executor,
+        ai_decision_delay_ms: int = 0,
     ) -> None:
         self._session_id = session_id
         self._prompt_service = prompt_service
@@ -935,6 +995,7 @@ class DecisionGateway:
         self._touch_activity = touch_activity
         self._fallback_executor = fallback_executor
         self._request_seq = 0
+        self._ai_decision_delay_ms = max(0, int(ai_decision_delay_ms))
 
     def next_request_id(self) -> str:
         self._request_seq += 1
@@ -1125,6 +1186,8 @@ class DecisionGateway:
             provider="ai",
             public_context=public_context,
         )
+        if self._ai_decision_delay_ms > 0:
+            time.sleep(self._ai_decision_delay_ms / 1000.0)
         result = resolver()
         self._publish_decision_resolved(
             request_id=request_id,

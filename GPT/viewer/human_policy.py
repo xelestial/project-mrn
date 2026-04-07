@@ -1028,6 +1028,8 @@ class HumanHttpPolicy:
         if not self._is_human_seat(player.player_id):
             return self._ai.choose_burden_exchange_on_supply(state, player, card)
 
+        next_threshold = getattr(state, "next_supply_f_threshold", None)
+        supply_threshold = next_threshold - 3 if isinstance(next_threshold, int) else None
         prompt = build_prompt_envelope(
             request_type="burden_exchange",
             player_id=player.player_id + 1,
@@ -1039,7 +1041,13 @@ class HumanHttpPolicy:
                 "player_cash": player.cash,
                 "player_position": player.position,
                 "card_name": getattr(card, "name", "Burden"),
+                "card_description": getattr(card, "description", ""),
                 "burden_cost": getattr(card, "burden_cost", 0),
+                "burden_card_count": sum(1 for hand_card in getattr(player, "trick_hand", []) if getattr(hand_card, "is_burden", False)),
+                "decision_phase": "trick_supply",
+                "decision_reason": "supply_threshold",
+                "supply_threshold": supply_threshold,
+                "current_f_value": getattr(state, "f_value", 0),
                 "player_shards": getattr(player, "shards", 0),
                 "player_hand_coins": getattr(player, "hand_coins", 0),
             },

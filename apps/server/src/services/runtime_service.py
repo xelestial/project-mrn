@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import random
 import sys
 import time
@@ -187,8 +188,20 @@ class RuntimeService:
             for seat in session.seats
             if seat.seat_type == SeatType.HUMAN
         ]
+        human_player_ids = [
+            int(seat.seat)
+            for seat in session.seats
+            if seat.seat_type == SeatType.HUMAN
+        ]
         policy = ai_policy
         if self._stream_service is not None:
+            ai_decision_delay_ms = int(
+                runtime.get(
+                    "ai_decision_delay_ms",
+                    0 if os.environ.get("PYTEST_CURRENT_TEST") else 1000,
+                )
+                or 0
+            )
             policy = _ServerDecisionPolicyBridge(
                 session_id=session_id,
                 session_seats=session.seats,
@@ -200,8 +213,23 @@ class RuntimeService:
                 touch_activity=self._touch_activity,
                 fallback_executor=self.execute_prompt_fallback,
                 client_factory=self._decision_client_factory,
+                ai_decision_delay_ms=ai_decision_delay_ms,
             )
-        vis_stream = _FanoutVisEventStream(loop, self._stream_service, session_id, self._touch_activity)
+        spectator_event_delay_ms = int(
+            runtime.get(
+                "spectator_event_delay_ms",
+                0 if os.environ.get("PYTEST_CURRENT_TEST") else 350,
+            )
+            or 0
+        )
+        vis_stream = _FanoutVisEventStream(
+            loop,
+            self._stream_service,
+            session_id,
+            self._touch_activity,
+            human_player_ids=human_player_ids,
+            spectator_event_delay_ms=spectator_event_delay_ms,
+        )
         engine = GameEngine(
             config=self._config_factory.create(resolved),
             policy=policy,
@@ -324,6 +352,7 @@ class _ServerDecisionPolicyBridge:
         touch_activity,
         fallback_executor,
         client_factory=None,
+        ai_decision_delay_ms: int = 0,
     ) -> None:
         self._human_seats = frozenset(int(seat) for seat in human_seats)
         self._session_id = session_id
@@ -334,6 +363,7 @@ class _ServerDecisionPolicyBridge:
             loop=loop,
             touch_activity=touch_activity,
             fallback_executor=fallback_executor,
+            ai_decision_delay_ms=ai_decision_delay_ms,
         )
         factory = client_factory or _ServerDecisionClientFactory()
         self._human_client = factory.create_human_client(
@@ -1110,21 +1140,35 @@ class _ServerDecisionClientFactory:
 class _FanoutVisEventStream:
     """Engine event stream bridge that forwards events to StreamService immediately."""
 
-    def __init__(self, loop: asyncio.AbstractEventLoop, stream_service, session_id: str, touch_activity) -> None:
+    def __init__(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        stream_service,
+        session_id: str,
+        touch_activity,
+        *,
+        human_player_ids: list[int] | None = None,
+        spectator_event_delay_ms: int = 0,
+    ) -> None:
         self._loop = loop
         self._stream_service = stream_service
         self._session_id = session_id
         self._events: list = []
         self._touch_activity = touch_activity
+        self._human_player_ids = frozenset(int(player_id) for player_id in (human_player_ids or []))
+        self._spectator_event_delay_ms = max(0, int(spectator_event_delay_ms))
 
     def append(self, event) -> None:
         self._events.append(event)
         self._touch_activity(self._session_id)
+        payload = event.to_dict()
         fut = asyncio.run_coroutine_threadsafe(
-            self._stream_service.publish(self._session_id, "event", event.to_dict()),
+            self._stream_service.publish(self._session_id, "event", payload),
             self._loop,
         )
         fut.result()
+        if self._should_delay_after_event(payload):
+            time.sleep(self._spectator_event_delay_ms / 1000.0)
 
     @property
     def events(self) -> list:
@@ -1135,3 +1179,35 @@ class _FanoutVisEventStream:
 
     def __len__(self) -> int:
         return len(self._events)
+
+    def _should_delay_after_event(self, payload: dict[str, object]) -> bool:
+        if self._spectator_event_delay_ms <= 0:
+            return False
+        event_type = str(payload.get("event_type") or "").strip()
+        if event_type not in {
+            "turn_start",
+            "weather_reveal",
+            "draft_pick",
+            "final_character_choice",
+            "dice_roll",
+            "player_move",
+            "landing_resolved",
+            "rent_paid",
+            "tile_purchased",
+            "fortune_drawn",
+            "fortune_resolved",
+            "lap_reward_chosen",
+            "marker_transferred",
+            "marker_flip",
+            "trick_used",
+            "turn_end_snapshot",
+        }:
+            return False
+        actor = payload.get("acting_player_id")
+        if not isinstance(actor, int):
+            actor = payload.get("player_id")
+        if not isinstance(actor, int):
+            actor = payload.get("player")
+        if not isinstance(actor, int):
+            return False
+        return actor not in self._human_player_ids

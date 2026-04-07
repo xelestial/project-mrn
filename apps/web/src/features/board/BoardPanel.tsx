@@ -19,6 +19,11 @@ type BoardPanelProps = {
   lastMove: LastMoveViewModel | null;
   stageFocus: Pick<TurnStageViewModel, "focusTileIndex" | "currentBeatKind" | "currentBeatLabel" | "currentBeatDetail" | "actorPlayerId">;
   weather: Pick<TurnStageViewModel, "weatherName" | "weatherEffect">;
+  turnBanner: {
+    text: string;
+    detail: string;
+  } | null;
+  showTurnOverlay: boolean;
 };
 
 type BoardText = ReturnType<typeof useI18n>["board"];
@@ -65,7 +70,17 @@ function costLabel(cost: number | null, rent: number | null, boardText: BoardTex
   return boardText.costLabel(cost, rent);
 }
 
-export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLabels, lastMove, stageFocus, weather }: BoardPanelProps) {
+export function BoardPanel({
+  snapshot,
+  manifestTiles,
+  boardTopology,
+  tileKindLabels,
+  lastMove,
+  stageFocus,
+  weather,
+  turnBanner,
+  showTurnOverlay,
+}: BoardPanelProps) {
   const { board } = useI18n();
   const tiles = (snapshot?.tiles && snapshot.tiles.length > 0 ? snapshot.tiles : manifestTiles ?? []).slice();
   tiles.sort((a, b) => a.tileIndex - b.tileIndex);
@@ -120,6 +135,16 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
           "--board-move-player-color": playerColor(movedPlayerId),
         } as CSSProperties)
       : null;
+  const boardOverlayMoveText =
+    lastMove && showTurnOverlay ? board.lastMove(lastMove.playerId, lastMove.fromTileIndex, lastMove.toTileIndex) : "";
+  const boardOverlayDetail =
+    boardOverlayMoveText && boardOverlayMoveText !== "-"
+      ? boardOverlayMoveText
+      : turnBanner?.detail && turnBanner.detail !== "-"
+        ? turnBanner.detail
+        : stageFocus.currentBeatDetail !== "-"
+          ? stageFocus.currentBeatDetail
+          : "";
 
   if (tiles.length === 0) {
     return (
@@ -264,6 +289,15 @@ export function BoardPanel({ snapshot, manifestTiles, boardTopology, tileKindLab
             );
           })}
         </div>
+        {showTurnOverlay && turnBanner ? (
+          <div className="board-turn-overlay" data-testid="board-turn-overlay" aria-live="polite">
+            <div className="board-turn-overlay-eyebrow">
+              {stageFocus.currentBeatLabel !== "-" ? stageFocus.currentBeatLabel : board.title}
+            </div>
+            <strong>{turnBanner.text}</strong>
+            {boardOverlayDetail ? <p>{boardOverlayDetail}</p> : null}
+          </div>
+        ) : null}
       </div>
     </section>
   );

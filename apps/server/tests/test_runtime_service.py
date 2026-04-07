@@ -119,6 +119,54 @@ class RuntimeServiceTests(unittest.TestCase):
             },
         )
 
+    def test_burden_exchange_context_exposes_supply_trigger_details(self) -> None:
+        card = type(
+            "Card",
+            (),
+            {
+                "name": "무거운 짐",
+                "description": "가진 채 보급 단계에 들어가면 비용을 내고 제거할 수 있습니다.",
+                "burden_cost": 4,
+                "is_burden": True,
+            },
+        )()
+        state = type("State", (), {"rounds_completed": 1, "turn_index": 2, "next_supply_f_threshold": 6, "f_value": 3.5})()
+        player = type(
+            "Player",
+            (),
+            {
+                "cash": 11,
+                "position": 14,
+                "shards": 3,
+                "hand_coins": 1,
+                "trick_hand": [card],
+            },
+        )()
+
+        self.assertEqual(
+            build_public_context(
+                "choose_burden_exchange_on_supply",
+                (state, player, card),
+                {},
+            ),
+            {
+                "round_index": 2,
+                "turn_index": 3,
+                "player_cash": 11,
+                "player_position": 14,
+                "player_shards": 3,
+                "card_name": "무거운 짐",
+                "card_description": "가진 채 보급 단계에 들어가면 비용을 내고 제거할 수 있습니다.",
+                "burden_cost": 4,
+                "player_hand_coins": 1,
+                "burden_card_count": 1,
+                "decision_phase": "trick_supply",
+                "decision_reason": "supply_threshold",
+                "supply_threshold": 3,
+                "current_f_value": 3.5,
+            },
+        )
+
     def test_decision_client_router_prefers_human_policy_attributes_and_human_seats(self) -> None:
         from apps.server.src.services.runtime_service import _ServerDecisionClientRouter
 

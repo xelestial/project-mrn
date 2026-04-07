@@ -47,6 +47,7 @@ type ViewRoute = "lobby" | "match";
 const LOBBY_HASH = "#/lobby";
 const MATCH_HASH = "#/match";
 const SESSION_TOKEN_STORAGE_PREFIX = "mrn:sessionToken:";
+const MAX_SESSION_SEED = 2_147_483_647;
 
 function parseRouteFromHash(hash: string): ViewRoute {
   if (hash.startsWith(MATCH_HASH)) {
@@ -93,6 +94,29 @@ function inferPlayerIdFromSessionToken(token: string | undefined): number | null
 
 function tokenStorageKey(sessionId: string): string {
   return `${SESSION_TOKEN_STORAGE_PREFIX}${sessionId.trim()}`;
+}
+
+function generateSessionSeed(): number {
+  if (typeof window !== "undefined" && window.crypto?.getRandomValues) {
+    const values = new Uint32Array(1);
+    window.crypto.getRandomValues(values);
+    return (values[0] % MAX_SESSION_SEED) + 1;
+  }
+  return Math.floor(Math.random() * MAX_SESSION_SEED) + 1;
+}
+
+function resolveSessionSeed(seedInput: string): number {
+  const normalized = seedInput.trim();
+  if (normalized) {
+    const parsed = Number(normalized);
+    if (Number.isFinite(parsed)) {
+      const truncated = Math.trunc(parsed);
+      if (truncated > 0) {
+        return truncated;
+      }
+    }
+  }
+  return generateSessionSeed();
 }
 
 function loadStoredSessionToken(sessionId: string): string | undefined {
@@ -142,7 +166,7 @@ export function App() {
   const [seatTypes, setSeatTypes] = useState<LobbySeatType[]>(["human", "ai", "ai", "ai"]);
   const [seatCountInput, setSeatCountInput] = useState("4");
   const [aiProfile, setAiProfile] = useState("balanced");
-  const [seedInput, setSeedInput] = useState("42");
+  const [seedInput, setSeedInput] = useState("");
   const [hostTokenInput, setHostTokenInput] = useState("");
   const [lastJoinTokens, setLastJoinTokens] = useState<Record<string, string>>({});
   const [joinSeatInput, setJoinSeatInput] = useState("1");
@@ -190,6 +214,19 @@ export function App() {
 
   const currentActorId = findCurrentActorId(stream.messages);
   const isMyTurn = currentActorId !== null && effectivePlayerId !== null && currentActorId === effectivePlayerId;
+  const currentActorText =
+    turnStage.actor !== "-"
+      ? turnStage.character && turnStage.character !== "-"
+        ? `${turnStage.actor} (${turnStage.character})`
+        : turnStage.actor
+      : "-";
+  const boardTurnOverlay =
+    !isMyTurn && currentActorId !== null && currentActorText !== "-"
+      ? {
+          text: app.turnBanner(currentActorText),
+          detail: turnStage.currentBeatLabel !== "-" ? turnStage.currentBeatLabel : turnStage.currentBeatDetail,
+        }
+      : null;
 
   const activePrompt = selectActivePrompt(stream.messages);
   const canActOnPrompt = Boolean(activePrompt && token && effectivePlayerId !== null && activePrompt.playerId === effectivePlayerId);
@@ -460,6 +497,7 @@ export function App() {
     setError("");
     setNotice("");
     try {
+      const seed = resolveSessionSeed(seedInput);
       const seats = seatTypes.map((seatType, index) => ({
         seat: index + 1,
         seat_type: seatType,
@@ -468,7 +506,7 @@ export function App() {
       const created = await createSession({
         seats,
         config: {
-          seed: Number(seedInput) || 42,
+          seed,
           seat_limits: {
             min: 1,
             max: seats.length,
@@ -501,6 +539,7 @@ export function App() {
     setError("");
     setNotice("");
     try {
+      const seed = resolveSessionSeed(seedInput);
       const created = await createSession({
         seats: Array.from({ length: seatTypes.length }, (_, idx) => ({
           seat: idx + 1,
@@ -508,7 +547,7 @@ export function App() {
           ai_profile: idx % 2 === 0 ? "gpt" : "claude",
         })),
         config: {
-          seed: Number(seedInput) || 42,
+          seed,
           seat_limits: {
             min: 1,
             max: seatTypes.length,
@@ -544,6 +583,7 @@ export function App() {
     setError("");
     setNotice("");
     try {
+      const seed = resolveSessionSeed(seedInput);
       const seatCount = Math.max(2, Math.min(4, Number(seatCountInput) || 4));
       const seats = Array.from({ length: seatCount }, (_, idx) => ({
         seat: idx + 1,
@@ -553,7 +593,7 @@ export function App() {
       const created = await createSession({
         seats,
         config: {
-          seed: Number(seedInput) || 42,
+          seed,
           seat_limits: {
             min: 1,
             max: seats.length,
@@ -807,6 +847,15 @@ export function App() {
           <section className="panel match-command-strip">
             <div className="match-command-row">
               <strong>{topCommandSummary}</strong>
+              {actionablePrompt && promptCollapsed ? (
+                <button
+                  type="button"
+                  className="route-tab route-tab-active match-reopen-prompt"
+                  onClick={() => setPromptCollapsed(false)}
+                >
+                  {app.reopenPrompt(promptLabelForType(actionablePrompt.requestType), promptSecondsLeft)}
+                </button>
+              ) : null}
             </div>
             {!matchTopCollapsed ? (
               <>
@@ -820,11 +869,15 @@ export function App() {
             ) : null}
           </section>
 
+          {turnBanner ? (
+            <div className="turn-notice-banner" data-testid="turn-notice-banner">
+              <strong>{turnBanner.text}</strong>
+              <small>{turnBanner.detail}</small>
+            </div>
+          ) : null}
+
           <div className="match-layout">
             <div className="match-board-column">
-              <TurnStagePanel model={turnStage} characterAbilityText={activeCharacterAbility} isMyTurn={isMyTurn} />
-              <CoreActionPanel items={coreActionFeed} latest={latestCoreAction} />
-
               <BoardPanel
                 snapshot={snapshot}
                 manifestTiles={manifestTiles}
@@ -833,7 +886,12 @@ export function App() {
                 lastMove={lastMove}
                 stageFocus={turnStage}
                 weather={turnStage}
+                turnBanner={boardTurnOverlay}
+                showTurnOverlay={!isMyTurn && currentActorId !== null}
               />
+
+              <TurnStagePanel model={turnStage} characterAbilityText={activeCharacterAbility} isMyTurn={isMyTurn} />
+              <CoreActionPanel items={coreActionFeed} latest={latestCoreAction} />
 
               {!isMyTurn && currentActorId !== null ? (
                 <SpectatorTurnPanel actorPlayerId={currentActorId} model={turnStage} latestAction={latestCoreAction} />
@@ -899,16 +957,8 @@ export function App() {
             </section>
           ) : null}
 
-          {turnBanner ? (
-            <div className="turn-notice-banner" data-testid="turn-notice-banner">
-              <strong>{turnBanner.text}</strong>
-              <small>{turnBanner.detail}</small>
-            </div>
-          ) : null}
         </>
       )}
     </main>
   );
 }
-
-
