@@ -12,6 +12,13 @@ type ApiEnvelope<T> = {
   error: { code: string; category?: string; message: string; retryable: boolean } | null;
 };
 
+type ErrorEnvelope = {
+  ok?: boolean;
+  data?: unknown;
+  error?: { message?: string } | null;
+  detail?: unknown;
+};
+
 export type ParameterManifest = {
   manifest_version: number;
   manifest_hash: string;
@@ -63,6 +70,7 @@ export type CreateSessionResult = {
 export type PublicSessionResult = {
   session_id: string;
   status: string;
+  seed?: number;
   round_index?: number;
   turn_index?: number;
   created_at?: string;
@@ -95,6 +103,28 @@ export type RuntimeStatusResult = {
   };
 };
 
+function extractErrorMessage(payload: ErrorEnvelope | null | undefined, status: number): string {
+  const directMessage = payload?.error?.message;
+  if (typeof directMessage === "string" && directMessage.trim()) {
+    return directMessage;
+  }
+  const detail = payload?.detail;
+  if (typeof detail === "string" && detail.trim()) {
+    return detail;
+  }
+  if (detail && typeof detail === "object") {
+    const detailRecord = detail as { error?: { message?: string } | null; message?: unknown };
+    const nested = detailRecord.error?.message;
+    if (typeof nested === "string" && nested.trim()) {
+      return nested;
+    }
+    if (typeof detailRecord.message === "string" && detailRecord.message.trim()) {
+      return detailRecord.message;
+    }
+  }
+  return `Request failed: ${status}`;
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -103,9 +133,14 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers ?? {}),
     },
   });
-  const payload = (await response.json()) as ApiEnvelope<T>;
-  if (!response.ok || !payload.ok || payload.data == null) {
-    const message = payload.error?.message ?? `Request failed: ${response.status}`;
+  let payload: (ApiEnvelope<T> & ErrorEnvelope) | null = null;
+  try {
+    payload = (await response.json()) as ApiEnvelope<T> & ErrorEnvelope;
+  } catch {
+    payload = null;
+  }
+  if (!response.ok || !payload?.ok || payload.data == null) {
+    const message = extractErrorMessage(payload, response.status);
     throw new Error(message);
   }
   return payload.data;

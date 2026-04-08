@@ -125,6 +125,25 @@ Start here without reading other documents:
   - bug: calls `setTokenInput("")` then immediately reads `tokenInput.trim()` (React async state)
   - fix: capture value before clearing — `const token = tokenInput.trim(); setTokenInput(""); ... buildMatchHash(id, token || undefined)`
 
+### 7. "Select a session" oops text in active game (confirmed in live play)
+- `apps/web/src/features/players/PlayersPanel.tsx`
+  - bug: all player cards show "Select a session" subtitle even after characters are assigned
+  - fix: clear this text when player is alive or has a character assigned
+
+### 8. Raw `[효과]` / `[능력N]` / `[도치]` tags in card text (confirmed in live play)
+- `apps/web/src/features/prompt/PromptOverlay.tsx` — card description render
+  - bug: `[효과] 이번 턴 모든 통행료를 내지 않습니다` — marker tags shown as raw text
+  - fix: `parseCardText()` util — replace `[TAG]` patterns with styled badges or `<strong>` tags
+
+### 9. Timeline panel below the fold (confirmed in live play)
+- `apps/web/src/App.tsx` — `TimelinePanel` placement
+  - bug: "Recent Public Actions" requires scrolling to see; invisible during active play
+  - fix: move into side column as scrollable EventFeed (see commercial redesign Zone F)
+
+## Confirmed Non-Issues (revised from earlier analysis)
+
+- **BUG-01 (tile costs)**: costs DO appear after draft completes. Only missing during Round 0 draft phase. Lower priority than originally assessed.
+
 ## Reference Documents
 
 Use only when the above entry points are insufficient:

@@ -192,7 +192,7 @@ export function BoardPanel({
           ) : null}
         </>
       )}
-      <div className="board-scroll">
+      <div className="board-scroll" style={boardStyle}>
         <div className={`board-ring ${normalizedTopology === "line" ? "board-ring-line" : "board-ring-ring"}`} style={boardStyle}>
           {movingPawnStyle ? (
             <div
@@ -313,9 +313,9 @@ export function BoardPanel({
         </div>
         {showTurnOverlay && turnBanner ? (
           <div className="board-turn-overlay" data-testid="board-turn-overlay" aria-live="polite">
-            <div className="board-turn-overlay-eyebrow">
-              {stageFocus.currentBeatLabel !== "-" ? stageFocus.currentBeatLabel : board.title}
-            </div>
+            {stageFocus.currentBeatLabel !== "-" ? (
+              <div className="board-turn-overlay-eyebrow">{stageFocus.currentBeatLabel}</div>
+            ) : null}
             <strong>{turnBanner.text}</strong>
             {boardOverlayDetail ? <p>{boardOverlayDetail}</p> : null}
           </div>

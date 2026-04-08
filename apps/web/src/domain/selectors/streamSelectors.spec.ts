@@ -5,7 +5,9 @@ import {
   selectCriticalAlerts,
   selectLastMove,
   selectLatestManifest,
+  selectLiveSnapshot,
   selectLatestSnapshot,
+  selectLivePlayers,
   selectSituation,
   selectTheaterFeed,
   selectTimeline,
@@ -48,6 +50,15 @@ const snapshotEvent: InboundMessage = {
             owner_player_id: 1,
             pawn_player_ids: [1, 3],
           },
+          {
+            tile_index: 8,
+            tile_kind: "T3",
+            zone_color: "blue",
+            purchase_cost: 5,
+            rent_cost: 5,
+            owner_player_id: null,
+            pawn_player_ids: [],
+          },
         ],
       },
     },
@@ -63,6 +74,122 @@ describe("streamSelectors", () => {
     expect(snapshot?.markerOwnerPlayerId).toBe(2);
     expect(snapshot?.players[0].character).toBe("Scholar");
     expect(snapshot?.tiles[0].tileKind).toBe("T3");
+  });
+
+  it("overlays current actor live deltas on top of the latest snapshot players", () => {
+    const players = selectLivePlayers([
+      snapshotEvent,
+      {
+        type: "event",
+        seq: 210,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 2,
+          turn_index: 6,
+          acting_player_id: 1,
+          character: "Builder",
+        },
+      },
+      {
+        type: "event",
+        seq: 211,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_resolved",
+          round_index: 2,
+          turn_index: 6,
+          player_id: 1,
+          resolution: "accepted",
+          choice_id: "huge_fire",
+          public_context: {
+            player_cash: 18,
+            player_shards: 7,
+            player_hand_coins: 2,
+            player_placed_coins: 3,
+            player_total_score: 5,
+            player_owned_tile_count: 4,
+          },
+        },
+      },
+    ]);
+
+    expect(players).toHaveLength(1);
+    expect(players[0].character).toBe("Builder");
+    expect(players[0].cash).toBe(18);
+    expect(players[0].shards).toBe(7);
+    expect(players[0].handCoins).toBe(2);
+    expect(players[0].placedCoins).toBe(3);
+    expect(players[0].totalScore).toBe(5);
+    expect(players[0].ownedTileCount).toBe(4);
+  });
+
+  it("builds a live snapshot with updated pawns and tile ownership after current-turn events", () => {
+    const snapshot = selectLiveSnapshot([
+      snapshotEvent,
+      {
+        type: "event",
+        seq: 220,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 2,
+          turn_index: 6,
+          acting_player_id: 1,
+          character: "Builder",
+        },
+      },
+      {
+        type: "event",
+        seq: 221,
+        session_id: "s1",
+        payload: {
+          event_type: "player_move",
+          round_index: 2,
+          turn_index: 6,
+          acting_player_id: 1,
+          from_tile_index: 5,
+          to_tile_index: 8,
+        },
+      },
+      {
+        type: "event",
+        seq: 222,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_resolved",
+          round_index: 2,
+          turn_index: 6,
+          player_id: 1,
+          resolution: "accepted",
+          choice_id: "buy",
+          public_context: {
+            player_position: 8,
+            player_owned_tile_count: 3,
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 223,
+        session_id: "s1",
+        payload: {
+          event_type: "tile_purchased",
+          round_index: 2,
+          turn_index: 6,
+          acting_player_id: 1,
+          player_id: 1,
+          tile_index: 8,
+          cost: 5,
+        },
+      },
+    ]);
+
+    expect(snapshot).not.toBeNull();
+    expect(snapshot?.players[0].position).toBe(8);
+    expect(snapshot?.players[0].ownedTileCount).toBe(3);
+    expect(snapshot?.tiles.find((tile) => tile.tileIndex === 8)?.ownerPlayerId).toBe(1);
+    expect(snapshot?.tiles.find((tile) => tile.tileIndex === 8)?.pawnPlayerIds).toEqual([1]);
   });
 
   it("builds timeline labels from recent messages", () => {

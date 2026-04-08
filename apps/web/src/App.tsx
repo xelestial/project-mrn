@@ -10,7 +10,8 @@ import {
   selectCoreActionFeed,
   selectLastMove,
   selectLatestManifest,
-  selectLatestSnapshot,
+  selectLiveSnapshot,
+  selectLivePlayers,
   selectTimeline,
   selectTurnStage,
 } from "./domain/selectors/streamSelectors";
@@ -20,6 +21,7 @@ import { PromptOverlay } from "./features/prompt/PromptOverlay";
 import { CoreActionPanel } from "./features/theater/CoreActionPanel";
 import { useGameStream } from "./hooks/useGameStream";
 import { useI18n } from "./i18n/useI18n";
+import type { InboundMessage } from "./core/contracts/stream";
 import {
   createSession,
   getRuntimeStatus,
@@ -162,6 +164,196 @@ function playerColor(playerId: number): string {
   return palette[(Math.max(1, playerId) - 1) % palette.length];
 }
 
+function isKoreanLocale(locale: string): boolean {
+  return locale.toLowerCase().startsWith("ko");
+}
+
+function stageInProgressLabel(label: string, locale: string): string {
+  if (!hasReadableValue(label)) {
+    return "-";
+  }
+  return isKoreanLocale(locale) ? `${label} 중...` : `${label} in progress`;
+}
+
+function waitingPlayerLabel(locale: string): string {
+  return isKoreanLocale(locale) ? "대기 중" : "Waiting";
+}
+
+function localPlayerBadgeLabel(locale: string): string {
+  return isKoreanLocale(locale) ? "[나]" : "[Me]";
+}
+
+function currentTurnBadgeLabel(locale: string): string {
+  return isKoreanLocale(locale) ? "현재 차례" : "Current turn";
+}
+
+type OverlayHandCard = {
+  key: string;
+  title: string;
+  effect: string;
+  serial: string;
+  hidden: boolean;
+  selected?: boolean;
+  currentTarget?: boolean;
+};
+
+function nonEmptyText(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function handCardsFromPublicContext(publicContext: Record<string, unknown>, locale: string): OverlayHandCard[] {
+  const fullHand = Array.isArray(publicContext["full_hand"]) ? publicContext["full_hand"] : [];
+  if (fullHand.length > 0) {
+    return fullHand.flatMap((item, index) => {
+        if (!item || typeof item !== "object") {
+          return [];
+        }
+        const row = item as Record<string, unknown>;
+        const deckIndex = typeof row["deck_index"] === "number" ? row["deck_index"] : null;
+        const title = nonEmptyText(row["name"]) || (locale === "ko" ? "잔꾀" : "Trick");
+        const effect = nonEmptyText(row["card_description"]) || (locale === "ko" ? "효과 없음" : "No effect text");
+        const hidden = row["is_hidden"] === true;
+        const isCurrentTarget = row["is_current_target"] === true;
+        return [{
+          key: `${deckIndex ?? index}-${title}`,
+          title,
+          effect,
+          serial: deckIndex === null ? "" : `#${deckIndex}`,
+          hidden,
+          currentTarget: isCurrentTarget,
+        }];
+      });
+  }
+
+  const burdenCards = Array.isArray(publicContext["burden_cards"]) ? publicContext["burden_cards"] : [];
+  if (burdenCards.length > 0) {
+    return burdenCards.flatMap((item, index) => {
+        if (!item || typeof item !== "object") {
+          return [];
+        }
+        const row = item as Record<string, unknown>;
+        const deckIndex = typeof row["deck_index"] === "number" ? row["deck_index"] : null;
+        const burdenCost = typeof row["burden_cost"] === "number" ? row["burden_cost"] : null;
+        const title = nonEmptyText(row["name"]) || (locale === "ko" ? "짐" : "Burden");
+        const effectBase = nonEmptyText(row["card_description"]) || (locale === "ko" ? "효과 없음" : "No effect text");
+        const effect =
+          burdenCost === null
+            ? effectBase
+            : locale === "ko"
+              ? `${effectBase} / 제거 비용 ${burdenCost}`
+              : `${effectBase} / remove cost ${burdenCost}`;
+        return [{
+          key: `${deckIndex ?? index}-${title}`,
+          title,
+          effect,
+          serial: deckIndex === null ? "" : `#${deckIndex}`,
+          hidden: false,
+          currentTarget: row["is_current_target"] === true,
+        }];
+      });
+  }
+
+  return [];
+}
+
+function currentHandCardsFromMessages(
+  messages: InboundMessage[],
+  prompt: ReturnType<typeof selectActivePrompt>,
+  locale: string,
+  playerId: number | null
+): OverlayHandCard[] {
+  if (prompt) {
+    const currentPromptCards = handCardsFromPublicContext(prompt.publicContext, locale);
+    if (currentPromptCards.length > 0) {
+      return currentPromptCards;
+    }
+  }
+
+  const preferredPlayerId = prompt?.playerId ?? playerId;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.type !== "prompt") {
+      continue;
+    }
+    const messagePlayerId = typeof message.payload["player_id"] === "number" ? message.payload["player_id"] : null;
+    if (preferredPlayerId !== null && messagePlayerId !== preferredPlayerId) {
+      continue;
+    }
+    const publicContext =
+      message.payload["public_context"] && typeof message.payload["public_context"] === "object"
+        ? (message.payload["public_context"] as Record<string, unknown>)
+        : null;
+    if (!publicContext) {
+      continue;
+    }
+    const persistedCards = handCardsFromPublicContext(publicContext, locale);
+    if (persistedCards.length > 0) {
+      return persistedCards;
+    }
+  }
+
+  return [];
+}
+
+const CHARACTER_PRIORITY: Record<string, number> = {
+  어사: 1,
+  탐관오리: 1,
+  자객: 2,
+  산적: 2,
+  추노꾼: 3,
+  "탈출 노비": 3,
+  파발꾼: 4,
+  아전: 4,
+  "교리 연구관": 5,
+  "교리 감독관": 5,
+  박수: 6,
+  만신: 6,
+  객주: 7,
+  중매꾼: 7,
+  건설업자: 8,
+  사기꾼: 8,
+};
+
+function findLatestRoundOrder(messages: Array<{ payload: Record<string, unknown> }>): number[] | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const payload = messages[i].payload;
+    if (payload["event_type"] !== "round_order") {
+      continue;
+    }
+    const rawOrder = payload["order"];
+    if (!Array.isArray(rawOrder)) {
+      continue;
+    }
+    const order = rawOrder.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    if (order.length > 0) {
+      return order;
+    }
+  }
+  return null;
+}
+
+function deriveRoundOrderFromPlayers(
+  visibleSeatIds: number[],
+  playersById: Map<number, { character: string }>
+): number[] | null {
+  const ordered = visibleSeatIds
+    .map((playerId) => {
+      const character = playersById.get(playerId)?.character ?? "-";
+      const priority = CHARACTER_PRIORITY[character];
+      return { playerId, priority: typeof priority === "number" ? priority : Number.POSITIVE_INFINITY };
+    })
+    .filter((entry) => Number.isFinite(entry.priority))
+    .sort((a, b) => (a.priority === b.priority ? a.playerId - b.playerId : a.priority - b.priority))
+    .map((entry) => entry.playerId);
+  return ordered.length > 0 ? ordered : null;
+}
+
+function orderSeatIdsForDisplay(visibleSeatIds: number[], roundOrder: number[] | null): number[] {
+  const ordered = roundOrder ? roundOrder.filter((playerId) => visibleSeatIds.includes(playerId)) : [...visibleSeatIds];
+  const remaining = visibleSeatIds.filter((playerId) => !ordered.includes(playerId));
+  return [...ordered, ...remaining];
+}
+
 export function App() {
   const { app, eventLabel, promptType, stream: streamText, turnStage: turnStageText, locale, setLocale } = useI18n();
   const [route, setRoute] = useState<ViewRoute>(() => parseHashState(window.location.hash).route);
@@ -196,6 +388,8 @@ export function App() {
   const [promptRequestId, setPromptRequestId] = useState("");
   const [promptExpiresAtMs, setPromptExpiresAtMs] = useState<number | null>(null);
   const [promptFeedback, setPromptFeedback] = useState("");
+  const [activeFlipQueuedChoiceIds, setActiveFlipQueuedChoiceIds] = useState<string[]>([]);
+  const [activeFlipShouldFinish, setActiveFlipShouldFinish] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [turnBanner, setTurnBanner] = useState<{ seq: number; text: string; detail: string } | null>(null);
   const debugWindowRef = useRef<Window | null>(null);
@@ -215,11 +409,13 @@ export function App() {
   const coreActionFeed = selectCoreActionFeed(stream.messages, effectivePlayerId, compactDensity ? 10 : 14, selectorText);
   const latestCoreAction = coreActionFeed.find((item) => !item.isLocalActor) ?? coreActionFeed[0] ?? null;
   const turnStage = selectTurnStage(stream.messages, selectorText);
-  const snapshot = selectLatestSnapshot(stream.messages);
+  const snapshot = selectLiveSnapshot(stream.messages, selectorText);
+  const livePlayers = selectLivePlayers(stream.messages, selectorText);
   const lastMove = selectLastMove(stream.messages);
   const latestManifest = selectLatestManifest(stream.messages);
 
   const currentActorId = findCurrentActorId(stream.messages);
+  const markerOwnerPlayerId = snapshot?.markerOwnerPlayerId ?? null;
   const isMyTurn = currentActorId !== null && effectivePlayerId !== null && currentActorId === effectivePlayerId;
   const actorLabel = currentActorId !== null ? `P${currentActorId}` : turnStage.actor;
   const actorCharacterText =
@@ -258,25 +454,27 @@ export function App() {
   const promptSecondsLeft =
     promptExpiresAtMs === null ? null : Math.max(0, Math.ceil((promptExpiresAtMs - nowMs) / 1000));
 
-  const visibleSeatIds = useMemo(() => {
-    const fromManifest = (sessionManifest?.seats?.allowed ?? []).filter((seat): seat is number => Number.isFinite(seat));
-    if (fromManifest.length > 0) {
-      return Array.from(new Set(fromManifest)).sort((a, b) => a - b);
-    }
-    const fromSnapshot = (snapshot?.players ?? []).map((player) => player.playerId);
-    if (fromSnapshot.length > 0) {
-      return Array.from(new Set(fromSnapshot)).sort((a, b) => a - b);
-    }
-    return [1, 2, 3, 4];
-  }, [sessionManifest?.seats?.allowed, snapshot?.players]);
-
   const playersById = useMemo(() => {
-    const map = new Map<number, NonNullable<typeof snapshot>["players"][number]>();
-    for (const player of snapshot?.players ?? []) {
+    const map = new Map<number, (typeof livePlayers)[number]>();
+    for (const player of livePlayers) {
       map.set(player.playerId, player);
     }
     return map;
-  }, [snapshot?.players]);
+  }, [livePlayers]);
+
+  const visibleSeatIds = useMemo(() => {
+    return [1, 2, 3, 4];
+  }, []);
+  const latestRoundOrder = useMemo(() => findLatestRoundOrder(stream.messages), [stream.messages]);
+  const derivedRoundOrder = useMemo(
+    () => deriveRoundOrderFromPlayers(visibleSeatIds, playersById),
+    [playersById, visibleSeatIds]
+  );
+  const effectiveRoundOrder = latestRoundOrder ?? derivedRoundOrder;
+  const orderedSeatIds = useMemo(
+    () => orderSeatIdsForDisplay(visibleSeatIds, effectiveRoundOrder),
+    [effectiveRoundOrder, visibleSeatIds]
+  );
 
   const joinSeatOptions = (sessionManifest?.seats?.allowed ?? [])
     .slice()
@@ -308,6 +506,19 @@ export function App() {
       : latestCoreAction?.detail ?? "-";
   const tableSceneSupport = hasReadableValue(activeCharacterAbility) ? activeCharacterAbility : turnStageText.promptIdle;
   const currentPromptLabel = actionablePrompt ? promptLabelForType(actionablePrompt.requestType) : null;
+  const overlayHandCards = useMemo(
+    () => currentHandCardsFromMessages(stream.messages, actionablePrompt, locale, effectivePlayerId),
+    [stream.messages, actionablePrompt, locale, effectivePlayerId]
+  );
+  const overlayHandTitle = locale === "ko" ? "현재 잔꾀 패" : "Current trick hand";
+  const overlayHandSubtitle =
+    actionablePrompt?.requestType === "burden_exchange"
+      ? locale === "ko"
+        ? "처리할 짐 카드를 확인하고 아래 패에서 대상을 고르세요."
+        : "Check the current burden and use the tray below to pick the target card."
+      : locale === "ko"
+        ? "이름과 효과를 같이 보면서 현재 손패를 확인합니다."
+        : "Keep the current hand visible with both name and effect text.";
   const decisionWaitingTitle = currentPromptLabel && currentPromptLabel !== "-" ? currentPromptLabel : tableSceneTitle;
   const decisionWaitingLines = Array.from(
     new Set(
@@ -319,6 +530,41 @@ export function App() {
         hasReadableValue(tableSceneSupport) ? tableSceneSupport : null,
       ].filter((value): value is string => hasReadableValue(value))
     )
+  );
+  const playerStageFallbackLabel =
+    currentPromptLabel && currentPromptLabel !== "-"
+      ? currentPromptLabel
+      : hasReadableValue(turnStage.currentBeatLabel)
+        ? turnStage.currentBeatLabel
+        : "-";
+  const activeCharacterSlots = useMemo(
+    () =>
+      Array.from({ length: 8 }, (_, index) => {
+        const slot = index + 1;
+        const owner = orderedSeatIds
+          .map((playerId) => {
+            const player = playersById.get(playerId);
+            if (!player || !hasReadableValue(player.character) || player.character === "-") {
+              return null;
+            }
+            return {
+              playerId,
+              player,
+              priority: CHARACTER_PRIORITY[player.character] ?? Number.POSITIVE_INFINITY,
+            };
+          })
+          .find((entry): entry is NonNullable<typeof entry> => entry !== null && entry.priority === slot);
+        return {
+          slot,
+          playerId: owner?.playerId ?? null,
+          label: owner ? `P${owner.playerId}` : null,
+          character: owner?.player.character ?? null,
+          ability: owner?.player.character ? characterAbilityLabels[owner.player.character] ?? "-" : null,
+          isCurrentActor: owner?.playerId === currentActorId,
+          isLocalPlayer: owner?.playerId === effectivePlayerId,
+        };
+      }),
+    [orderedSeatIds, playersById, characterAbilityLabels, currentActorId, effectivePlayerId]
   );
 
   useEffect(() => {
@@ -448,6 +694,8 @@ export function App() {
       setPromptRequestId("");
       setPromptExpiresAtMs(null);
       setPromptFeedback("");
+      setActiveFlipQueuedChoiceIds([]);
+      setActiveFlipShouldFinish(false);
       return;
     }
     if (actionablePrompt.requestId !== promptRequestId) {
@@ -467,6 +715,8 @@ export function App() {
       return;
     }
     setPromptBusy(false);
+    setActiveFlipQueuedChoiceIds([]);
+    setActiveFlipShouldFinish(false);
     if (latestPromptAck.status === "rejected") {
       setPromptFeedback(app.errors.promptRejected(latestPromptAck.reason));
       return;
@@ -489,8 +739,50 @@ export function App() {
       return;
     }
     setPromptBusy(false);
+    setActiveFlipQueuedChoiceIds([]);
+    setActiveFlipShouldFinish(false);
     setPromptFeedback(app.errors.promptConnectionLost);
   }, [promptBusy, stream.status]);
+
+  useEffect(() => {
+    if (!actionablePrompt || promptBusy || actionablePrompt.requestType !== "active_flip") {
+      return;
+    }
+    if (activeFlipQueuedChoiceIds.length > 0) {
+      const [nextChoiceId, ...rest] = activeFlipQueuedChoiceIds;
+      const sent = stream.sendDecision({
+        requestId: actionablePrompt.requestId,
+        playerId: actionablePrompt.playerId,
+        choiceId: nextChoiceId,
+        choicePayload: {},
+      });
+      if (!sent) {
+        setPromptFeedback(app.errors.sendPrompt);
+        setActiveFlipQueuedChoiceIds([]);
+        setActiveFlipShouldFinish(false);
+        return;
+      }
+      setActiveFlipQueuedChoiceIds(rest);
+      setPromptBusy(true);
+      return;
+    }
+    if (!activeFlipShouldFinish) {
+      return;
+    }
+    const sent = stream.sendDecision({
+      requestId: actionablePrompt.requestId,
+      playerId: actionablePrompt.playerId,
+      choiceId: "none",
+      choicePayload: {},
+    });
+    if (!sent) {
+      setPromptFeedback(app.errors.sendPrompt);
+      setActiveFlipShouldFinish(false);
+      return;
+    }
+    setActiveFlipShouldFinish(false);
+    setPromptBusy(true);
+  }, [actionablePrompt, activeFlipQueuedChoiceIds, activeFlipShouldFinish, promptBusy, stream, app.errors]);
 
   useEffect(() => {
     if (turnStage.turnStartSeq === null || turnStage.actor === "-") {
@@ -875,7 +1167,35 @@ export function App() {
       setError(app.errors.invalidPromptPlayer);
       return;
     }
+    if (actionablePrompt.requestType === "active_flip" && choiceId.startsWith("__active_flip_batch__:")) {
+      const requestedIds = choiceId
+        .replace("__active_flip_batch__:", "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0 && value !== "none");
+      if (requestedIds.length === 0) {
+        setPromptFeedback(locale === "ko" ? "뒤집을 카드를 한 장 이상 선택하세요." : "Choose at least one card to flip.");
+        return;
+      }
+      const [firstChoiceId, ...restChoiceIds] = requestedIds;
+      const sent = stream.sendDecision({
+        requestId: actionablePrompt.requestId,
+        playerId: actionablePrompt.playerId,
+        choiceId: firstChoiceId,
+        choicePayload: {},
+      });
+      if (!sent) {
+        setPromptFeedback(app.errors.sendPrompt);
+        return;
+      }
+      setActiveFlipQueuedChoiceIds(restChoiceIds);
+      setActiveFlipShouldFinish(true);
+      setPromptBusy(true);
+      return;
+    }
     setPromptFeedback("");
+    setActiveFlipQueuedChoiceIds([]);
+    setActiveFlipShouldFinish(false);
     const sent = stream.sendDecision({
       requestId: actionablePrompt.requestId,
       playerId: actionablePrompt.playerId,
@@ -1012,12 +1332,6 @@ export function App() {
         />
       ) : (
         <>
-          {turnBanner ? (
-            <div className="turn-notice-banner" data-testid="turn-notice-banner">
-              <strong>{turnBanner.text}</strong>
-              <small>{turnBanner.detail}</small>
-            </div>
-          ) : null}
           <section className="match-table-layout">
             <BoardPanel
               snapshot={snapshot}
@@ -1028,27 +1342,86 @@ export function App() {
               stageFocus={turnStage}
               weather={turnStage}
               turnBanner={boardTurnOverlay}
-              showTurnOverlay={currentActorId !== null}
+              showTurnOverlay={false}
               minimalHeader
               overlayContent={
                 <div className="match-table-overlay">
+                  {turnBanner ? (
+                    <section className="match-table-turn-banner" data-testid="turn-notice-banner">
+                      <strong>{turnBanner.text}</strong>
+                      {turnBanner.detail && turnBanner.detail !== "-" ? <small>{turnBanner.detail}</small> : null}
+                    </section>
+                  ) : null}
                   <section className="match-table-topline">
                     <article className="match-table-weather-bar" data-testid="board-weather-summary">
                       <div className="match-table-card-head">
                         <strong>{turnStageText.weatherTitle}</strong>
                         <span>{turnStageText.weatherBadge}</span>
                       </div>
-                      <h4>{turnStage.weatherName}</h4>
-                      <p>{turnStage.weatherEffect}</p>
+                      <div className="match-table-weather-content">
+                        <div className="match-table-weather-main">
+                          <h4>{turnStage.weatherName}</h4>
+                          <p>{turnStage.weatherEffect}</p>
+                        </div>
+                        <div className="match-table-weather-active">
+                          <div className="match-table-card-head">
+                            <strong>{locale === "ko" ? "현재 활성 등장인물" : "Current active character"}</strong>
+                            <span>{locale === "ko" ? "인물" : "Character"}</span>
+                          </div>
+                          <div className="match-table-active-character-grid">
+                            {activeCharacterSlots.map((card) => (
+                              <article
+                                key={card.slot}
+                                className={`match-table-active-character-card ${
+                                  card.isCurrentActor ? "match-table-active-character-card-actor" : ""
+                                } ${card.isLocalPlayer ? "match-table-active-character-card-local" : ""} ${
+                                  card.character ? "" : "match-table-active-character-card-empty"
+                                }`}
+                                style={
+                                  {
+                                    "--player-accent": playerColor(card.playerId ?? card.slot),
+                                  } as CSSProperties
+                                }
+                              >
+                                <div className="match-table-active-character-head">
+                                  <strong>{locale === "ko" ? `${card.slot}번` : `#${card.slot}`}</strong>
+                                  {card.label ? <span className="match-table-active-character-owner">{card.label}</span> : null}
+                                  {card.isLocalPlayer ? (
+                                    <span className="match-table-player-badge match-table-player-badge-local">
+                                      {localPlayerBadgeLabel(locale)}
+                                    </span>
+                                  ) : null}
+                                  {card.isCurrentActor ? (
+                                    <span className="match-table-player-badge match-table-player-badge-actor">
+                                      {currentTurnBadgeLabel(locale)}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <h5>
+                                  {card.character ?? (locale === "ko" ? "아직 선택하지 않았습니다" : "Not selected yet")}
+                                </h5>
+                                <p>{card.character ? card.ability : locale === "ko" ? "미선택" : "Unselected"}</p>
+                              </article>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
                     </article>
 
                     <div className="match-table-player-strip" data-testid="match-player-strip">
-                      {visibleSeatIds.map((playerId) => {
+                      {orderedSeatIds.map((playerId) => {
                         const player = playersById.get(playerId) ?? null;
-                        const characterLabel = player?.character && player.character !== "-" ? player.character : app.topSummaryEmpty;
-                        const displayName = player?.displayName && player.displayName !== "-" ? player.displayName : `Player ${playerId}`;
                         const isCurrentActor = playerId === currentActorId;
                         const isLocalPlayer = playerId === effectivePlayerId;
+                        const characterLabel =
+                          player?.character && player.character !== "-"
+                            ? player.character
+                            : isCurrentActor && hasReadableValue(playerStageFallbackLabel)
+                              ? stageInProgressLabel(playerStageFallbackLabel, locale)
+                              : hasReadableValue(playerStageFallbackLabel)
+                                ? waitingPlayerLabel(locale)
+                                : "-";
+                        const displayName = player?.displayName && player.displayName !== "-" ? player.displayName : `Player ${playerId}`;
                         return (
                           <article
                             key={playerId}
@@ -1058,7 +1431,27 @@ export function App() {
                             style={{ "--player-accent": playerColor(playerId) } as CSSProperties}
                           >
                             <div className="match-table-player-head">
-                              <strong>{`P${playerId}`}</strong>
+                              <div className="match-table-player-head-main">
+                                <strong>{`P${playerId}`}</strong>
+                                {playerId === markerOwnerPlayerId ? (
+                                  <span
+                                    className="match-table-player-badge match-table-player-badge-marker"
+                                    title={locale === "ko" ? "현재 징표 소유자" : "Current marker owner"}
+                                  >
+                                    👑
+                                  </span>
+                                ) : null}
+                                {isLocalPlayer ? (
+                                  <span className="match-table-player-badge match-table-player-badge-local">
+                                    {localPlayerBadgeLabel(locale)}
+                                  </span>
+                                ) : null}
+                                {isCurrentActor ? (
+                                  <span className="match-table-player-badge match-table-player-badge-actor">
+                                    {currentTurnBadgeLabel(locale)}
+                                  </span>
+                                ) : null}
+                              </div>
                               <span>{displayName}</span>
                             </div>
                             <p className="match-table-player-character">{characterLabel}</p>
@@ -1124,6 +1517,34 @@ export function App() {
                           onSelectChoice={onSelectPromptChoice}
                         />
                       </div>
+                    ) : null}
+                    {overlayHandCards.length > 0 ? (
+                      <section className="match-table-hand-tray" data-testid="board-hand-tray">
+                        <div className="match-table-hand-tray-head">
+                          <strong>{overlayHandTitle}</strong>
+                          <small>{overlayHandSubtitle}</small>
+                        </div>
+                        <div className="match-table-hand-tray-grid">
+                          {overlayHandCards.map((card) => (
+                            <article
+                              key={card.key}
+                              className={`match-table-hand-card ${card.hidden ? "match-table-hand-card-hidden" : ""} ${
+                                card.currentTarget ? "match-table-hand-card-current" : ""
+                              }`}
+                            >
+                              <div className="match-table-hand-card-top">
+                                <strong>{card.title}</strong>
+                                <span>
+                                  {[card.serial, card.hidden ? (locale === "ko" ? "히든" : "Hidden") : null]
+                                    .filter(Boolean)
+                                    .join(" ")}
+                                </span>
+                              </div>
+                              <p>{card.effect}</p>
+                            </article>
+                          ))}
+                        </div>
+                      </section>
                     ) : null}
                   </div>
                 </div>

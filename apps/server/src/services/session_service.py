@@ -138,9 +138,15 @@ class SessionService:
         return session
 
     def to_public(self, session: Session) -> dict:
+        seed = session.config.get("seed")
+        if seed is None:
+            runtime_seed = session.resolved_parameters.get("runtime", {})
+            if isinstance(runtime_seed, dict):
+                seed = runtime_seed.get("seed")
         return {
             "session_id": session.session_id,
             "status": session.status.value,
+            "seed": seed,
             "round_index": session.round_index,
             "turn_index": session.turn_index,
             "created_at": session.created_at,

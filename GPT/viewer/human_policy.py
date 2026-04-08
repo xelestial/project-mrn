@@ -1156,8 +1156,20 @@ class HumanHttpPolicy:
                 "player_position": player.position,
                 "card_name": getattr(card, "name", "Burden"),
                 "card_description": getattr(card, "description", ""),
+                "card_deck_index": getattr(card, "deck_index", None),
                 "burden_cost": getattr(card, "burden_cost", 0),
                 "burden_card_count": sum(1 for hand_card in getattr(player, "trick_hand", []) if getattr(hand_card, "is_burden", False)),
+                "burden_cards": [
+                    {
+                        "deck_index": getattr(hand_card, "deck_index", None),
+                        "name": getattr(hand_card, "name", ""),
+                        "card_description": getattr(hand_card, "description", ""),
+                        "burden_cost": getattr(hand_card, "burden_cost", 0),
+                        "is_current_target": getattr(hand_card, "deck_index", None) == getattr(card, "deck_index", None),
+                    }
+                    for hand_card in getattr(player, "trick_hand", [])
+                    if getattr(hand_card, "is_burden", False)
+                ],
                 "decision_phase": "trick_supply",
                 "decision_reason": "supply_threshold",
                 "supply_threshold": supply_threshold,

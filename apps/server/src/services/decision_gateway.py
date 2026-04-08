@@ -287,12 +287,24 @@ def _build_burden_exchange_context(
         for hand_card in list(getattr(player, "trick_hand", []) or [])
         if bool(getattr(hand_card, "is_burden", False))
     ]
+    burden_cards_payload = [
+        {
+            "deck_index": getattr(hand_card, "deck_index", None),
+            "name": getattr(hand_card, "name", None),
+            "card_description": getattr(hand_card, "description", None),
+            "burden_cost": getattr(hand_card, "burden_cost", None),
+            "is_current_target": getattr(hand_card, "deck_index", None) == getattr(card, "deck_index", None),
+        }
+        for hand_card in burden_cards
+    ]
     return {
         "card_name": getattr(card, "name", None),
         "card_description": getattr(card, "description", None),
+        "card_deck_index": getattr(card, "deck_index", None),
         "burden_cost": getattr(card, "burden_cost", None),
         "player_hand_coins": getattr(player, "hand_coins", None),
         "burden_card_count": len(burden_cards),
+        "burden_cards": burden_cards_payload,
         "decision_phase": "trick_supply",
         "decision_reason": "supply_threshold",
         "supply_threshold": current_threshold if current_threshold is None or current_threshold >= 0 else None,

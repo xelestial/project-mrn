@@ -1594,6 +1594,140 @@ export function selectLatestSnapshot(messages: InboundMessage[]): SnapshotViewMo
   return null;
 }
 
+function findLatestSnapshotEntry(messages: InboundMessage[]): { index: number; snapshot: SnapshotViewModel } | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const snapshot = snapshotFromMessage(messages[i]);
+    if (snapshot) {
+      return { index: i, snapshot };
+    }
+  }
+  return null;
+}
+
+function overlayLiveActorOnPlayers(players: PlayerViewModel[], stage: TurnStageViewModel): PlayerViewModel[] {
+  if (stage.actorPlayerId === null) {
+    return players;
+  }
+  return players.map((player) => {
+    if (player.playerId !== stage.actorPlayerId) {
+      return player;
+    }
+    return {
+      ...player,
+      character:
+        stage.character !== "-" && stage.character.trim().length > 0
+          ? stage.character
+          : player.character,
+      cash: stage.actorCash ?? player.cash,
+      shards: stage.actorShards ?? player.shards,
+      handCoins: stage.actorHandCoins ?? player.handCoins,
+      placedCoins: stage.actorPlacedCoins ?? player.placedCoins,
+      totalScore: stage.actorTotalScore ?? player.totalScore,
+      ownedTileCount: stage.actorOwnedTileCount ?? player.ownedTileCount,
+    };
+  });
+}
+
+export function selectLivePlayers(
+  messages: InboundMessage[],
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): PlayerViewModel[] {
+  const snapshot = selectLatestSnapshot(messages);
+  if (!snapshot) {
+    return [];
+  }
+  const stage = selectTurnStage(messages, text);
+  return overlayLiveActorOnPlayers(snapshot.players, stage);
+}
+
+export function selectLiveSnapshot(
+  messages: InboundMessage[],
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): SnapshotViewModel | null {
+  const entry = findLatestSnapshotEntry(messages);
+  if (!entry) {
+    return null;
+  }
+
+  const players = selectLivePlayers(messages, text);
+  const playerMap = new Map<number, PlayerViewModel>(
+    players.map((player) => [player.playerId, { ...player }])
+  );
+  const tiles = entry.snapshot.tiles.map((tile) => ({ ...tile, pawnPlayerIds: [] as number[] }));
+
+  let markerOwnerPlayerId = entry.snapshot.markerOwnerPlayerId;
+  for (let i = entry.index + 1; i < messages.length; i += 1) {
+    const message = messages[i];
+    if (message.type !== "event") {
+      continue;
+    }
+    const eventCode = messageKindFromPayload(message.payload);
+    const eventActorId = numberOrNull(message.payload["acting_player_id"] ?? message.payload["player_id"]);
+    const eventActor = eventActorId !== null ? playerMap.get(eventActorId) : null;
+    const publicContext = isRecord(message.payload["public_context"]) ? message.payload["public_context"] : null;
+    const contextPosition = numberOrNull(publicContext?.["player_position"]);
+    if (eventActor && contextPosition !== null) {
+      eventActor.position = contextPosition;
+    }
+    if (eventCode === "player_move" && eventActor) {
+      const toTileIndex = numberOrNull(
+        message.payload["to_tile_index"] ?? message.payload["to_tile"] ?? message.payload["to_pos"]
+      );
+      if (toTileIndex !== null) {
+        eventActor.position = toTileIndex;
+      }
+    }
+    if (eventCode === "tile_purchased") {
+      const tileIndex = numberOrNull(message.payload["tile_index"] ?? message.payload["position"] ?? message.payload["tile"]);
+      const ownerPlayerId = numberOrNull(
+        message.payload["owner_player_id"] ?? message.payload["acting_player_id"] ?? message.payload["player_id"]
+      );
+      if (tileIndex !== null && ownerPlayerId !== null) {
+        const tile = tiles.find((item) => item.tileIndex === tileIndex);
+        if (tile) {
+          tile.ownerPlayerId = ownerPlayerId;
+        }
+      }
+      continue;
+    }
+    if (eventCode === "marker_transferred") {
+      const nextOwner = numberOrNull(message.payload["to_player_id"] ?? message.payload["to_owner"]);
+      if (nextOwner !== null) {
+        markerOwnerPlayerId = nextOwner;
+      }
+    }
+  }
+
+  for (const tile of tiles) {
+    tile.pawnPlayerIds = [];
+  }
+
+  for (const player of playerMap.values()) {
+    if (!player.alive) {
+      continue;
+    }
+    const targetTile = tiles.find((tile) => tile.tileIndex === player.position);
+    if (targetTile) {
+      targetTile.pawnPlayerIds = [...targetTile.pawnPlayerIds, player.playerId];
+    }
+  }
+
+  for (const tile of tiles) {
+    tile.pawnPlayerIds.sort((a, b) => a - b);
+  }
+
+  const normalizedPlayers = players.map((player) => ({
+    ...(playerMap.get(player.playerId) ?? player),
+  }));
+
+  return {
+    ...entry.snapshot,
+    markerOwnerPlayerId,
+    players: normalizedPlayers,
+    tiles,
+  };
+}
+
 function manifestRecordFromPayload(payload: Record<string, unknown>): Record<string, unknown> | null {
   if (isRecord(payload["parameter_manifest"])) {
     return payload["parameter_manifest"];

@@ -704,6 +704,9 @@ class GameEngine:
             state,
             weather=state.current_weather.name if state.current_weather else None,
             weather_name=state.current_weather.name if state.current_weather else None,
+            weather_effect=state.current_weather.effect if state.current_weather else None,
+            effect_text=state.current_weather.effect if state.current_weather else None,
+            description=state.current_weather.effect if state.current_weather else None,
             effects=list(state.current_weather_effects),
         )
         self._run_draft(state)

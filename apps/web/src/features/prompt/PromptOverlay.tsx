@@ -32,9 +32,19 @@ type HandChoiceCard = {
   key: string;
   name: string;
   description: string;
+  serial: string;
   isHidden: boolean;
   isUsable: boolean;
   choiceId: string | null;
+};
+
+type BurdenChoiceCard = {
+  key: string;
+  deckIndex: number | null;
+  name: string;
+  description: string;
+  burdenCost: number | null;
+  isCurrentTarget: boolean;
 };
 
 type ChoiceGridVariant = "default" | "target" | "decision" | "reward";
@@ -247,6 +257,7 @@ function buildHandChoiceCards(prompt: PromptViewModel, promptText: PromptText): 
           key: `${deckIndex ?? "x"}-${index}`,
           name,
           description,
+          serial: deckIndex === null ? "" : `#${deckIndex}`,
           isHidden,
           isUsable,
           choiceId: linkedChoice?.choiceId ?? null,
@@ -262,12 +273,46 @@ function buildHandChoiceCards(prompt: PromptViewModel, promptText: PromptText): 
       key: `${choice.choiceId}-${index}`,
       name: choice.title,
       description: choiceDescription(choice, promptText),
+      serial: asNumber(choice.value?.["deck_index"]) === null ? "" : `#${asNumber(choice.value?.["deck_index"])}`,
       isHidden: false,
       isUsable: true,
       choiceId: choice.choiceId,
     }));
 
   return { cards, passChoiceId };
+}
+
+function buildBurdenChoiceCards(prompt: PromptViewModel): BurdenChoiceCard[] {
+  const cards = Array.isArray(prompt.publicContext["burden_cards"]) ? prompt.publicContext["burden_cards"] : [];
+  return cards
+    .map((item, index) => {
+      if (!isRecord(item)) {
+        return null;
+      }
+      const deckIndex = asNumber(item["deck_index"]);
+      const name = asString(item["name"], `Burden ${index + 1}`);
+      const description = asString(item["card_description"], "");
+      const burdenCost = asNumber(item["burden_cost"]);
+      const isCurrentTarget = item["is_current_target"] === true;
+      return {
+        key: `${deckIndex ?? index}-${name}`,
+        deckIndex,
+        name,
+        description,
+        burdenCost,
+        isCurrentTarget,
+      };
+    })
+    .filter((item): item is BurdenChoiceCard => item !== null)
+    .sort((left, right) => {
+      if (left.isCurrentTarget !== right.isCurrentTarget) {
+        return left.isCurrentTarget ? -1 : 1;
+      }
+      if (left.deckIndex === null || right.deckIndex === null) {
+        return left.name.localeCompare(right.name);
+      }
+      return left.deckIndex - right.deckIndex;
+    });
 }
 
 function characterAbilityText(choice: PromptChoiceViewModel, promptText: PromptText): string {
@@ -543,11 +588,13 @@ export function PromptOverlay({
   onToggleCollapse,
   onSelectChoice,
 }: PromptOverlayProps) {
-  const { prompt: promptText, promptType, promptHelper } = useI18n();
+  const { prompt: promptText, promptType, promptHelper, locale } = useI18n();
   const rootRef = useRef<HTMLElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const [movementMode, setMovementMode] = useState<"roll" | "cards">("roll");
   const [selectedCards, setSelectedCards] = useState<number[]>([]);
+  const [selectedBurdenDeckIndex, setSelectedBurdenDeckIndex] = useState<number | null>(null);
+  const [selectedActiveFlipChoiceIds, setSelectedActiveFlipChoiceIds] = useState<string[]>([]);
 
   const movement = useMemo(() => {
     if (!prompt || prompt.requestType !== "movement") {
@@ -562,6 +609,12 @@ export function PromptOverlay({
     }
     return buildHandChoiceCards(prompt, promptText);
   }, [prompt, promptText]);
+  const burdenChoiceCards = useMemo(() => {
+    if (!prompt || prompt.requestType !== "burden_exchange") {
+      return [];
+    }
+    return buildBurdenChoiceCards(prompt);
+  }, [prompt]);
   const orderedChoices = useMemo(() => (prompt ? sortChoicesForDisplay(prompt.choices) : []), [prompt]);
 
   useEffect(() => {
@@ -572,10 +625,18 @@ export function PromptOverlay({
       }
       setSelectedCards([]);
       setMovementMode("roll");
+      setSelectedBurdenDeckIndex(null);
+      setSelectedActiveFlipChoiceIds([]);
       return;
     }
     setSelectedCards([]);
     setMovementMode("roll");
+    const currentBurdenDeckIndex =
+      typeof prompt.publicContext["card_deck_index"] === "number"
+        ? (prompt.publicContext["card_deck_index"] as number)
+        : null;
+    setSelectedBurdenDeckIndex(currentBurdenDeckIndex);
+    setSelectedActiveFlipChoiceIds([]);
   }, [prompt?.requestId]);
 
   useEffect(() => {
@@ -670,6 +731,8 @@ export function PromptOverlay({
   const markActorName = stringFromContext(prompt.publicContext, "actor_name");
   const markTargetCount = numberFromContext(prompt.publicContext, "target_count");
   const burdenCardName = stringFromContext(prompt.publicContext, "card_name");
+  const burdenCardDescription = stringFromContext(prompt.publicContext, "card_description");
+  const burdenCardDeckIndex = numberFromContext(prompt.publicContext, "card_deck_index");
   const burdenCost = numberFromContext(prompt.publicContext, "burden_cost");
   const currentFValue = numberFromContext(prompt.publicContext, "current_f_value");
   const supplyThreshold = numberFromContext(prompt.publicContext, "supply_threshold");
@@ -711,6 +774,31 @@ export function PromptOverlay({
     ? prompt.publicContext["candidate_tiles"].map((item) => asNumber(item)).filter((item): item is number => item !== null)
     : [];
   const landingTileIndex = numberFromContext(prompt.publicContext, "player_position", "landing_tile_index");
+  const yesChoice = prompt.choices.find((choice) => choice.choiceId === "yes") ?? null;
+  const noChoice = prompt.choices.find((choice) => choice.choiceId === "no") ?? null;
+  const selectedBurdenCard =
+    burdenChoiceCards.find((card) => card.deckIndex === selectedBurdenDeckIndex) ??
+    burdenChoiceCards.find((card) => card.isCurrentTarget) ??
+    null;
+  const canRemoveSelectedBurden =
+    yesChoice !== null &&
+    selectedBurdenCard !== null &&
+    selectedBurdenCard.isCurrentTarget &&
+    !busy;
+  const burdenTrayTitle = locale.startsWith("ko") ? "보급 잔꾀 패" : "Supply trick tray";
+  const burdenTrayGuide = locale.startsWith("ko")
+    ? "현재 처리 중인 짐 카드를 아래에서 확인하고, 선택한 뒤 짐 없애기 또는 유지를 결정하세요."
+    : "Check the current burden card below, select it, then remove it or keep it.";
+  const burdenWaitingGuide =
+    selectedBurdenCard && !selectedBurdenCard.isCurrentTarget
+      ? locale.startsWith("ko")
+        ? "지금 단계에서는 강조된 현재 대상 짐 카드만 처리할 수 있습니다."
+        : "Only the highlighted current burden can be handled at this step."
+      : "";
+  const burdenRemoveButtonLabel = locale.startsWith("ko")
+    ? `짐 없애기${burdenCost !== null ? ` (${burdenCost}냥)` : ""}`
+    : `Remove burden${burdenCost !== null ? ` (${burdenCost})` : ""}`;
+  const burdenKeepButtonLabel = locale.startsWith("ko") ? "이번에는 유지" : "Keep it this time";
 
   if (collapsed) {
     return (
@@ -720,7 +808,7 @@ export function PromptOverlay({
           <small>{collapsedPromptChip(promptText, promptLabel, secondsLeft)}</small>
         </div>
         <button type="button" className="prompt-dock-collapsed-button" onClick={onToggleCollapse}>
-          {promptText.collapse}
+          {promptText.expand}
         </button>
       </section>
     );
@@ -741,6 +829,8 @@ export function PromptOverlay({
           <div className="prompt-head-copy">
             <h2>{promptText.headTitle(promptLabel)}</h2>
             <p className="prompt-helper">{promptHelp}</p>
+          </div>
+          <div className="prompt-head-actions">
             <div className="prompt-head-meta" data-testid="prompt-head-meta">
               {headMetaPills.map((pill) => (
                 <span key={pill} className="prompt-head-pill">
@@ -748,10 +838,10 @@ export function PromptOverlay({
                 </span>
               ))}
             </div>
+            <button type="button" onClick={onToggleCollapse}>
+              {promptText.collapse}
+            </button>
           </div>
-          <button type="button" onClick={onToggleCollapse}>
-            {promptText.collapse}
-          </button>
         </div>
 
         <div className="prompt-body">
@@ -850,7 +940,9 @@ export function PromptOverlay({
               <div className="prompt-summary-pill-row">
                 <span className="prompt-summary-pill">
                   {promptText.trick.handSummary(
-                    trickChoices.cards.length,
+                    typeof prompt.publicContext["total_hand_count"] === "number"
+                      ? (prompt.publicContext["total_hand_count"] as number)
+                      : trickChoices.cards.length,
                     typeof prompt.publicContext["hidden_trick_count"] === "number"
                       ? (prompt.publicContext["hidden_trick_count"] as number)
                       : undefined
@@ -886,7 +978,7 @@ export function PromptOverlay({
                   }}
                 >
                   <div className="prompt-choice-topline">
-                    <strong>{card.name}</strong>
+                    <strong>{card.serial ? `${card.name} ${card.serial}` : card.name}</strong>
                     <span className="prompt-choice-badge">
                       {card.isHidden ? promptText.hiddenState.hidden : promptText.hiddenState.public}
                     </span>
@@ -1105,23 +1197,100 @@ export function PromptOverlay({
         ) : null}
 
         {isBurdenExchange ? (
-          <DecisionChoiceSection
-            prompt={prompt}
-            orderedChoices={orderedChoices}
-            promptText={promptText}
-            compactChoices={compactChoices}
-            busy={busy}
-            onSelectChoice={onSelectChoice}
-            testIdPrefix="burden-exchange-choice"
-            collapseSecondaryChoices={false}
-            summaryPills={[
-              `${promptText.context.trigger}: ${burdenTrigger}`,
-              burdenCardName ? `${promptText.context.burdenCard}: ${burdenCardName}` : null,
-              `${promptText.context.burdenCost}: ${formatNumber(burdenCost)}`,
-              `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
-              currentFValue !== null ? `${promptText.context.currentF}: ${currentFValue}` : null,
-            ]}
-          />
+          <section className="prompt-section prompt-burden-stage">
+            <div className="prompt-section-summary">
+              <SummaryPills
+                values={[
+                  `${promptText.context.trigger}: ${burdenTrigger}`,
+                  burdenCardName
+                    ? `${promptText.context.burdenCard}: ${burdenCardName}${burdenCardDeckIndex !== null ? ` #${burdenCardDeckIndex}` : ""}`
+                    : null,
+                  `${promptText.context.burdenCost}: ${formatNumber(burdenCost)}`,
+                  `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
+                  currentFValue !== null ? `${promptText.context.currentF}: ${currentFValue}` : null,
+                ]}
+              />
+              {burdenCardDescription ? <p>{cleanDisplayText(burdenCardDescription)}</p> : null}
+            </div>
+
+            <div className="prompt-burden-actions">
+              <button
+                type="button"
+                className="prompt-primary-action"
+                data-testid="burden-remove"
+                disabled={!canRemoveSelectedBurden}
+                onClick={() => {
+                  if (yesChoice) {
+                    onSelectChoice(yesChoice.choiceId);
+                  }
+                }}
+              >
+                {burdenRemoveButtonLabel}
+              </button>
+              <button
+                type="button"
+                className="prompt-secondary-action"
+                data-testid="burden-keep"
+                disabled={busy || !noChoice}
+                onClick={() => {
+                  if (noChoice) {
+                    onSelectChoice(noChoice.choiceId);
+                  }
+                }}
+              >
+                {burdenKeepButtonLabel}
+              </button>
+            </div>
+
+            <section className="prompt-burden-tray">
+              <div className="prompt-burden-tray-head">
+                <strong>{burdenTrayTitle}</strong>
+                <small>{burdenTrayGuide}</small>
+              </div>
+              <div className="prompt-burden-tray-grid">
+                {burdenChoiceCards.map((card) => (
+                  <button
+                    type="button"
+                    key={card.key}
+                    className={`prompt-choice-card prompt-burden-card ${
+                      card.isCurrentTarget ? "prompt-burden-card-current" : ""
+                    } ${selectedBurdenDeckIndex === card.deckIndex ? "prompt-burden-card-selected" : ""}`}
+                    data-testid={`burden-card-${card.deckIndex ?? card.key}`}
+                    disabled={busy}
+                    onClick={() => setSelectedBurdenDeckIndex(card.deckIndex)}
+                  >
+                    <div className="prompt-choice-topline">
+                      <strong>{`${card.name}${card.deckIndex !== null ? ` #${card.deckIndex}` : ""}`}</strong>
+                      <span className="prompt-choice-badge">
+                        {card.burdenCost !== null
+                          ? locale.startsWith("ko")
+                            ? `비용 ${card.burdenCost}`
+                            : `Cost ${card.burdenCost}`
+                          : card.isCurrentTarget
+                            ? locale.startsWith("ko")
+                              ? "현재 처리 중"
+                              : "Current"
+                            : locale.startsWith("ko")
+                              ? "대기"
+                              : "Queued"}
+                      </span>
+                    </div>
+                    <small>{cleanDisplayText(card.description)}</small>
+                    <small className="prompt-choice-footnote">
+                      {card.isCurrentTarget
+                        ? locale.startsWith("ko")
+                          ? "현재 단계에서 처리할 짐"
+                          : "Current burden for this step"
+                        : locale.startsWith("ko")
+                          ? "다음 순서에서 처리될 수 있는 짐"
+                          : "Handled later in the supply sequence"}
+                    </small>
+                  </button>
+                ))}
+              </div>
+              {burdenWaitingGuide ? <small className="prompt-choice-footnote">{burdenWaitingGuide}</small> : null}
+            </section>
+          </section>
         ) : null}
 
         {isSpecificTrickReward ? (
