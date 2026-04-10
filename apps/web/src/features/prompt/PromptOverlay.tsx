@@ -93,6 +93,17 @@ function cleanDisplayText(value: string): string {
   return trimmed;
 }
 
+/**
+ * Strip or reformat inline bracket tags from card description text.
+ * Transforms: "[효과] 통행료 면제" → "효과: 통행료 면제"
+ * Handles: [효과], [능력1], [능력2], [도치], and any other [TAG] patterns.
+ */
+function cleanCardDescription(value: string): string {
+  return value
+    .replace(/\[([^\]]{1,20})\]\s*/g, (_, tag: string) => `${tag.trim()}: `)
+    .trim();
+}
+
 function sortChoicesForDisplay(choices: PromptChoiceViewModel[]): PromptChoiceViewModel[] {
   return [...choices].sort((left, right) => {
     const leftIsPass = left.choiceId === "none";
@@ -571,7 +582,7 @@ function EmphasisChoiceGrid({
               {secondary ? <span className="prompt-choice-badge">{promptText.secondaryChoiceBadge}</span> : null}
             </div>
             {renderExtra ? renderExtra(choice) : null}
-            {normalized.description ? <small>{normalized.description}</small> : null}
+            {normalized.description ? <small>{cleanCardDescription(normalized.description)}</small> : null}
           </button>
         );
       })}
@@ -1297,7 +1308,7 @@ export function PromptOverlay({
                       {card.isHidden ? promptText.hiddenState.hidden : promptText.hiddenState.public}
                     </span>
                   </div>
-                  <small>{card.description}</small>
+                  <small>{cleanCardDescription(card.description)}</small>
                   {!card.isUsable ? <small className="prompt-choice-footnote">{promptText.hiddenState.unavailable}</small> : null}
                 </button>
               ))}
@@ -1328,7 +1339,7 @@ export function PromptOverlay({
                     disabled={busy}
                   >
                   <strong>{choice.name}</strong>
-                  <small>{choice.description}</small>
+                  <small>{cleanCardDescription(choice.description)}</small>
                 </button>
               ))}
             </div>
@@ -1675,7 +1686,7 @@ export function PromptOverlay({
                             : "Burden"}
                       </span>
                     </div>
-                    <small>{cleanDisplayText(card.description)}</small>
+                    <small>{cleanCardDescription(cleanDisplayText(card.description))}</small>
                     <small className="prompt-choice-footnote">
                       {card.deckIndex !== null && selectedBurdenDeckIndexes.includes(card.deckIndex)
                         ? locale.startsWith("ko")

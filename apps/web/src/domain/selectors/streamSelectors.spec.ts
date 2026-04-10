@@ -663,8 +663,8 @@ describe("streamSelectors", () => {
     expect(slots[6]).toMatchObject({
       slot: 7,
       playerId: null,
-      character: null,
-      inactiveCharacter: null,
+      character: "중매꾼",
+      inactiveCharacter: "객주",
       isCurrentActor: false,
       isLocalPlayer: false,
     });
@@ -678,7 +678,7 @@ describe("streamSelectors", () => {
     });
   });
 
-  it("clears earlier randomized faces once the next turn starts", () => {
+  it("keeps earlier randomized faces visible across turn starts until the round changes", () => {
     const messages: InboundMessage[] = [
       {
         type: "event",
@@ -765,8 +765,8 @@ describe("streamSelectors", () => {
     });
     expect(slots[0]).toMatchObject({
       slot: 1,
-      character: null,
-      inactiveCharacter: null,
+      character: "탐관오리",
+      inactiveCharacter: "어사",
       playerId: null,
     });
     expect(slots[6]).toMatchObject({
@@ -780,12 +780,12 @@ describe("streamSelectors", () => {
     expect(slots[7]).toMatchObject({
       slot: 8,
       playerId: null,
-      character: null,
-      inactiveCharacter: null,
+      character: "사기꾼",
+      inactiveCharacter: "건설업자",
     });
   });
 
-  it("resets stale active faces at turn boundaries and rehydrates mark targets from the prompt", () => {
+  it("keeps round faces at turn boundaries and rehydrates mark targets from the prompt", () => {
     const messages: InboundMessage[] = [
       {
         type: "event",
@@ -1307,6 +1307,169 @@ describe("streamSelectors", () => {
       { slot: 3, playerId: null, label: null, character: "탈출 노비" },
       { slot: 4, playerId: null, label: null, character: "아전" },
       { slot: 5, playerId: null, label: null, character: "교리 연구관" },
+    ]);
+  });
+
+  it("ignores stale backend active-slot projections when newer raw round state exists", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_end_snapshot",
+          round_index: 1,
+          turn_index: 1,
+          acting_player_id: 1,
+          snapshot: {
+            players: [
+              {
+                player_id: 1,
+                display_name: "Player 1",
+                character: "자객",
+                alive: true,
+                position: 0,
+                cash: 20,
+                shards: 4,
+                hidden_trick_count: 0,
+                owned_tile_count: 0,
+              },
+            ],
+            board: {
+              marker_owner_player_id: 1,
+              f_value: 0,
+              tiles: [],
+            },
+          },
+          view_state: {
+            active_slots: {
+              items: Array.from({ length: 8 }, (_, index) => ({
+                slot: index + 1,
+                player_id: null,
+                label: null,
+                character: null,
+                inactive_character: null,
+                is_current_actor: false,
+              })),
+            },
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 2,
+        session_id: "s1",
+        payload: {
+          event_type: "round_order",
+          round_index: 1,
+          turn_index: 1,
+          active_by_card: {
+            "2": "산적",
+            "5": "교리 감독관",
+            "6": "박수",
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 3,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 1,
+          turn_index: 2,
+          acting_player_id: 1,
+          character: "산적",
+        },
+      },
+    ];
+
+    const slots = selectActiveCharacterSlots(messages, 1);
+    expect(slots[1]).toMatchObject({ slot: 2, character: "산적", playerId: 1 });
+    expect(slots[4]).toMatchObject({ slot: 5, character: "교리 감독관" });
+    expect(slots[5]).toMatchObject({ slot: 6, character: "박수" });
+  });
+
+  it("ignores stale backend mark-target projections when a newer raw prompt arrives", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_end_snapshot",
+          round_index: 1,
+          turn_index: 1,
+          acting_player_id: 1,
+          snapshot: {
+            players: [
+              {
+                player_id: 1,
+                display_name: "Player 1",
+                character: "자객",
+                alive: true,
+                position: 0,
+                cash: 20,
+                shards: 4,
+                hidden_trick_count: 0,
+                owned_tile_count: 0,
+              },
+            ],
+            board: {
+              marker_owner_player_id: 1,
+              f_value: 0,
+              tiles: [],
+            },
+          },
+          view_state: {
+            mark_target: {
+              actor_slot: 2,
+              candidates: [],
+            },
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 2,
+        session_id: "s1",
+        payload: {
+          event_type: "round_order",
+          round_index: 1,
+          turn_index: 1,
+          active_by_card: {
+            "2": "산적",
+            "3": "탈출 노비",
+            "4": "아전",
+            "5": "교리 감독관",
+          },
+        },
+      },
+      {
+        type: "prompt",
+        seq: 3,
+        session_id: "s1",
+        payload: {
+          request_id: "req_mark_live",
+          request_type: "mark_target",
+          player_id: 1,
+          legal_choices: [
+            { choice_id: "탈출 노비", title: "탈출 노비", value: { target_character: "탈출 노비", target_card_no: 3 } },
+            { choice_id: "아전", title: "아전", value: { target_character: "아전", target_card_no: 4 } },
+            { choice_id: "교리 감독관", title: "교리 감독관", value: { target_character: "교리 감독관", target_card_no: 5 } },
+            { choice_id: "none", title: "지목 안 함" },
+          ],
+          public_context: {
+            actor_name: "산적",
+          },
+        },
+      },
+    ];
+
+    expect(selectMarkTargetCharacterSlots(messages, "산적", 1)).toEqual([
+      { slot: 3, playerId: null, label: null, character: "탈출 노비" },
+      { slot: 4, playerId: null, label: null, character: "아전" },
+      { slot: 5, playerId: null, label: null, character: "교리 감독관" },
     ]);
   });
 

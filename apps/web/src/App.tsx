@@ -26,6 +26,8 @@ import {
   selectTurnStage,
 } from "./domain/selectors/streamSelectors";
 import { BoardPanel } from "./features/board/BoardPanel";
+import { GameEventOverlay } from "./features/board/GameEventOverlay";
+import { useEventQueue } from "./features/board/useEventQueue";
 import { LobbyView, type LobbySeatType } from "./features/lobby/LobbyView";
 import { PromptOverlay } from "./features/prompt/PromptOverlay";
 import { useGameStream } from "./hooks/useGameStream";
@@ -277,6 +279,7 @@ export function App() {
   const promptSubmitRequestIdRef = useRef<string | null>(null);
 
   const stream = useGameStream({ sessionId, token });
+  const eventQueue = useEventQueue();
   const selectorText = useMemo(
     () => ({
       eventLabel,
@@ -766,6 +769,28 @@ export function App() {
     }, 2800);
     return () => window.clearTimeout(timer);
   }, [latestCurrentTurnReveal, turnStage.weatherName]);
+
+  // Enqueue game event overlays for notable economy events
+  const lastEnqueuedRevealSeqRef = useRef<number>(0);
+  useEffect(() => {
+    if (!latestCurrentTurnReveal) return;
+    if (latestCurrentTurnReveal.seq <= lastEnqueuedRevealSeqRef.current) return;
+
+    const { eventCode, label, detail, seq } = latestCurrentTurnReveal;
+    if (eventCode === "rent_paid") {
+      lastEnqueuedRevealSeqRef.current = seq;
+      // Determine pay/receive from perspective of local player
+      // detail already contains the human-readable rent description from the selector
+      const kind =
+        effectivePlayerId !== null && detail.includes(`P${effectivePlayerId}`)
+          ? "rent_pay"
+          : "rent_observe";
+      eventQueue.enqueue({ kind, label, detail });
+    } else if (eventCode === "lap_reward_chosen") {
+      lastEnqueuedRevealSeqRef.current = seq;
+      eventQueue.enqueue({ kind: "lap_complete", label, detail });
+    }
+  }, [latestCurrentTurnReveal, effectivePlayerId, eventQueue]);
 
   useEffect(() => {
     if (route !== "match" || stream.status !== "connected") {
@@ -1701,6 +1726,7 @@ export function App() {
             />
           </section>
 
+          <GameEventOverlay currentEvent={eventQueue.currentEvent} />
         </>
       )}
     </main>

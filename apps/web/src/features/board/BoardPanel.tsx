@@ -8,6 +8,7 @@ import type {
 } from "../../domain/selectors/streamSelectors";
 import { useI18n } from "../../i18n/useI18n";
 import pawnPieceUrl from "../../assets/pawn-piece.svg";
+import { usePawnAnimation } from "./usePawnAnimation";
 import { DEFAULT_RING_TILE_COUNT, boardGridForTileCount, projectTilePosition } from "./boardProjection";
 import { computeBoardHudFrame, sameBoardHudFrame } from "./boardHudLayout";
 import { computeBoardHudScale } from "./boardHudScale";
@@ -281,6 +282,21 @@ export function BoardPanel({
           "--board-move-player-color": playerColor(movedPlayerId),
         } as CSSProperties)
       : null;
+
+  // Step-by-step pawn animation
+  const { animPlayerId, animTileIndex, animPhase } = usePawnAnimation(lastMove);
+  const ghostStepPosition =
+    animTileIndex !== null
+      ? projectTilePosition(animTileIndex, tiles.length, normalizedTopology)
+      : null;
+  const stepGhostStyle =
+    ghostStepPosition !== null && animPlayerId !== null
+      ? ({
+          "--board-move-ghost-x": `${((ghostStepPosition.col - 0.5) / grid.cols) * 100}%`,
+          "--board-move-ghost-y": `${((ghostStepPosition.row - 0.5) / grid.rows) * 100}%`,
+          "--board-move-player-color": playerColor(animPlayerId),
+        } as CSSProperties)
+      : null;
   const boardOverlayMoveText =
     lastMove && showTurnOverlay ? board.lastMove(lastMove.playerId, lastMove.fromTileIndex, lastMove.toTileIndex) : "";
   const boardOverlayDetail =
@@ -348,7 +364,18 @@ export function BoardPanel({
       )}
       <div ref={boardScrollRef} className="board-scroll" style={boardStyle}>
         <div className={`board-ring ${normalizedTopology === "line" ? "board-ring-line" : "board-ring-ring"}`} style={boardStyle}>
-          {movingPawnStyle ? (
+          {stepGhostStyle ? (
+            // Step-by-step animation: ghost moves through each tile
+            <div
+              className={`board-moving-pawn-ghost board-pawn-step${animPhase === "arrived" ? " board-pawn-arrived" : ""}`}
+              data-testid="board-moving-pawn-ghost"
+              style={stepGhostStyle}
+              aria-hidden="true"
+            >
+              {animPlayerId}
+            </div>
+          ) : movingPawnStyle ? (
+            // Fallback arc animation when no pathTileIndices available
             <div
               className="board-moving-pawn-ghost"
               data-testid="board-moving-pawn-ghost"

@@ -118,7 +118,7 @@ describe("promptSelectors", () => {
     expect(model?.choices[1].secondary).toBe(true);
   });
 
-  it("prefers backend-projected active prompt when view_state prompt is present", () => {
+  it("prefers the latest state-bearing prompt over an older backend-projected prompt", () => {
     const messages: InboundMessage[] = [
       {
         type: "event",
@@ -173,18 +173,12 @@ describe("promptSelectors", () => {
     ];
 
     const model = selectActivePrompt(messages);
-    expect(model?.requestId).toBe("req_backend_prompt_1");
-    expect(model?.requestType).toBe("purchase_tile");
-    expect(model?.playerId).toBe(2);
-    expect(model?.choices).toHaveLength(2);
-    expect(model?.choices[1].secondary).toBe(true);
-    expect(model?.publicContext.tile_purchase_cost).toBe(4);
-    expect(model?.behavior.normalizedRequestType).toBe("purchase_tile");
-    expect(model?.surface.kind).toBe("purchase_tile");
-    expect(model?.surface.blocksPublicEvents).toBe(true);
+    expect(model?.requestId).toBe("req_old_prompt");
+    expect(model?.requestType).toBe("movement");
+    expect(model?.playerId).toBe(1);
   });
 
-  it("treats backend view_state without prompt as canonical no-active-prompt state", () => {
+  it("does not let an older backend view_state suppress a newer raw prompt", () => {
     const messages: InboundMessage[] = [
       {
         type: "event",
@@ -216,7 +210,11 @@ describe("promptSelectors", () => {
       },
     ];
 
-    expect(selectActivePrompt(messages)).toBeNull();
+    expect(selectActivePrompt(messages)).toMatchObject({
+      requestId: "req_old_prompt",
+      requestType: "movement",
+      playerId: 1,
+    });
   });
 
   it("projects backend prompt behavior for burden exchange chain handling", () => {
@@ -410,6 +408,93 @@ describe("promptSelectors", () => {
     expect(selectActivePrompt(messages)).toBeNull();
   });
 
+  it("uses a newer raw prompt when the latest backend view_state is stale", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          view_state: {
+            prompt: {},
+          },
+        },
+      },
+      {
+        type: "prompt",
+        seq: 2,
+        session_id: "s1",
+        payload: {
+          request_id: "req_mark_live",
+          request_type: "mark_target",
+          player_id: 1,
+          legal_choices: [{ choice_id: "none", title: "지목 안 함" }],
+          public_context: { actor_name: "산적" },
+        },
+      },
+    ];
+
+    expect(selectActivePrompt(messages)).toMatchObject({
+      requestId: "req_mark_live",
+      requestType: "mark_target",
+      playerId: 1,
+    });
+  });
+
+  it("does not keep an old backend prompt active after a newer raw closing event", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "prompt",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          request_id: "req_draft_live",
+          request_type: "draft_card",
+          player_id: 1,
+          legal_choices: [{ choice_id: "card_1", title: "중매꾼" }],
+          view_state: {
+            prompt: {
+              active: {
+                request_id: "req_draft_live",
+                request_type: "draft_card",
+                player_id: 1,
+                timeout_ms: 300000,
+                choices: [{ choice_id: "card_1", title: "중매꾼", description: "", value: null, secondary: false }],
+                public_context: {},
+                behavior: {
+                  normalized_request_type: "draft_card",
+                  single_surface: false,
+                  auto_continue: false,
+                },
+                surface: {
+                  kind: "character_pick",
+                  blocks_public_events: true,
+                  character_pick: {
+                    phase: "draft",
+                    options: [{ choice_id: "card_1", name: "중매꾼", description: "" }],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 2,
+        session_id: "s1",
+        payload: {
+          event_type: "draft_pick",
+          acting_player_id: 1,
+          picked_card: "중매꾼",
+        },
+      },
+    ];
+
+    expect(selectActivePrompt(messages)).toBeNull();
+  });
+
   it("returns latest decision ack status for request id", () => {
     const messages: InboundMessage[] = [
       {
@@ -424,7 +509,7 @@ describe("promptSelectors", () => {
     expect(ack?.reason).toBe("invalid_choice");
   });
 
-  it("prefers backend-projected prompt feedback when present", () => {
+  it("prefers the latest state-bearing prompt feedback over an older backend projection", () => {
     const messages: InboundMessage[] = [
       {
         type: "event",
@@ -453,8 +538,8 @@ describe("promptSelectors", () => {
 
     const ack = selectLatestDecisionAck(messages, "req_1");
     expect(ack).toEqual({
-      status: "stale",
-      reason: "request_superseded",
+      status: "rejected",
+      reason: "old_client_copy",
     });
   });
 
@@ -683,7 +768,7 @@ describe("promptSelectors", () => {
     ]);
   });
 
-  it("prefers backend-projected hand tray when view_state hand_tray is present", () => {
+  it("prefers the latest state-bearing hand tray over an older backend projection", () => {
     const messages: InboundMessage[] = [
       {
         type: "event",
@@ -731,10 +816,10 @@ describe("promptSelectors", () => {
 
     expect(selectCurrentHandTrayCards(messages, "ko", 1)).toEqual([
       {
-        key: "11-health-check",
-        title: "건강 검진",
-        effect: "통행료를 절반으로 낮춥니다.",
-        serial: "",
+        key: "99-오래된 카드",
+        title: "오래된 카드",
+        effect: "오래된 손패 fallback",
+        serial: "#99",
         hidden: false,
         currentTarget: false,
       },

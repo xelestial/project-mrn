@@ -90,6 +90,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 "tile_index": 9,
                 "cost": 4,
                 "source": "landing",
+                "landing_tile_index": 8,
             },
         )
 
@@ -163,6 +164,15 @@ class RuntimeServiceTests(unittest.TestCase):
                 "player_hand_coins": 1,
                 "player_total_score": 1,
                 "burden_card_count": 1,
+                "burden_cards": [
+                    {
+                        "deck_index": None,
+                        "name": "무거운 짐",
+                        "card_description": "가진 채 보급 단계에 들어가면 비용을 내고 제거할 수 있습니다.",
+                        "burden_cost": 4,
+                        "is_current_target": True,
+                    }
+                ],
                 "decision_phase": "trick_supply",
                 "decision_reason": "supply_threshold",
                 "supply_threshold": 3,
@@ -2031,9 +2041,9 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertEqual(requested.payload.get("request_type"), "purchase_tile")
             self.assertEqual(resolved.payload.get("choice_id"), "no")
             self.assertEqual(requested.payload.get("public_context", {}).get("round_index"), 1)
-            self.assertEqual(requested.payload.get("public_context", {}).get("turn_index"), 4)
+            self.assertEqual(requested.payload.get("public_context", {}).get("turn_index"), 1)
             self.assertEqual(resolved.payload.get("public_context", {}).get("round_index"), 1)
-            self.assertEqual(resolved.payload.get("public_context", {}).get("turn_index"), 4)
+            self.assertEqual(resolved.payload.get("public_context", {}).get("turn_index"), 1)
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)

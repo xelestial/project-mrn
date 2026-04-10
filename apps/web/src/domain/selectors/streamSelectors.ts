@@ -2187,7 +2187,6 @@ function clearActiveByCard(target: Record<number, string>): void {
 
 function shouldResetActiveByCard(eventCode: string): boolean {
   return (
-    eventCode === "turn_start" ||
     eventCode === "round_start" ||
     eventCode === "round_order"
   );
@@ -2288,12 +2287,44 @@ function selectLatestBackendViewState(messages: InboundMessage[]): Record<string
   return null;
 }
 
+function isStateBearingMessage(message: InboundMessage): boolean {
+  return message.type === "event" || message.type === "prompt" || message.type === "decision_ack";
+}
+
+function latestStateBearingMessageIndex(messages: InboundMessage[]): number | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (isStateBearingMessage(messages[i])) {
+      return i;
+    }
+  }
+  return null;
+}
+
+function selectLatestBackendViewStateEntry(messages: InboundMessage[]): { index: number; viewState: Record<string, unknown> } | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const payload = isRecord(messages[i].payload) ? messages[i].payload : null;
+    const viewState = isRecord(payload?.["view_state"]) ? payload["view_state"] : null;
+    if (viewState) {
+      return { index: i, viewState };
+    }
+  }
+  return null;
+}
+
+function isBackendProjectionCurrent(messages: InboundMessage[], index: number): boolean {
+  const latestStatefulIndex = latestStateBearingMessageIndex(messages);
+  return latestStatefulIndex === null || index >= latestStatefulIndex;
+}
+
 function selectBackendDerivedPlayers(
   messages: InboundMessage[],
   currentLocalPlayerId: number | null
 ): DerivedPlayerViewModel[] | null {
-  const viewState = selectLatestBackendViewState(messages);
-  const players = isRecord(viewState?.["players"]) ? viewState["players"] : null;
+  const entry = selectLatestBackendViewStateEntry(messages);
+  if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
+    return null;
+  }
+  const players = isRecord(entry.viewState["players"]) ? entry.viewState["players"] : null;
   const items = Array.isArray(players?.["items"]) ? players["items"] : null;
   if (!items || items.length === 0) {
     return null;
@@ -2338,8 +2369,11 @@ function selectBackendActiveCharacterSlots(
   messages: InboundMessage[],
   currentLocalPlayerId: number | null
 ): ActiveCharacterSlotViewModel[] | null {
-  const viewState = selectLatestBackendViewState(messages);
-  const activeSlots = isRecord(viewState?.["active_slots"]) ? viewState["active_slots"] : null;
+  const entry = selectLatestBackendViewStateEntry(messages);
+  if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
+    return null;
+  }
+  const activeSlots = isRecord(entry.viewState["active_slots"]) ? entry.viewState["active_slots"] : null;
   const items = Array.isArray(activeSlots?.["items"]) ? activeSlots["items"] : null;
   if (!items || items.length === 0) {
     return null;
@@ -2368,8 +2402,11 @@ function selectBackendActiveCharacterSlots(
 }
 
 function selectBackendMarkTargetCharacterSlots(messages: InboundMessage[]): MarkTargetSlotViewModel[] | null {
-  const viewState = selectLatestBackendViewState(messages);
-  const markTarget = isRecord(viewState?.["mark_target"]) ? viewState["mark_target"] : null;
+  const entry = selectLatestBackendViewStateEntry(messages);
+  if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
+    return null;
+  }
+  const markTarget = isRecord(entry.viewState["mark_target"]) ? entry.viewState["mark_target"] : null;
   const candidates = Array.isArray(markTarget?.["candidates"]) ? markTarget["candidates"] : null;
   if (!candidates) {
     return null;

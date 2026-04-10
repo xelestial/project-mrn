@@ -106,6 +106,136 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
         self.assertEqual(active_slots, fixture["expected"]["active_slots"])
         self.assertEqual(mark_target, fixture["expected"]["mark_target"])
 
+    def test_active_slots_persist_round_faces_across_turn_start(self) -> None:
+        messages = [
+            {
+                "type": "event",
+                "seq": 1,
+                "session_id": "s1",
+                "server_time_ms": 1,
+                "payload": {
+                    "event_type": "round_order",
+                    "active_by_card": {
+                        "2": "산적",
+                        "5": "교리 감독관",
+                        "6": "박수",
+                    },
+                },
+            },
+            {
+                "type": "event",
+                "seq": 2,
+                "session_id": "s1",
+                "server_time_ms": 2,
+                "payload": {
+                    "event_type": "turn_end_snapshot",
+                    "acting_player_id": 1,
+                    "snapshot": {
+                        "players": [
+                            {"player_id": 1, "display_name": "Player 1", "character": "자객"},
+                            {"player_id": 2, "display_name": "Player 2", "character": "교리 연구관"},
+                            {"player_id": 3, "display_name": "Player 3", "character": "만신"},
+                        ],
+                        "board": {
+                            "marker_owner_player_id": 1,
+                        },
+                    },
+                },
+            },
+            {
+                "type": "event",
+                "seq": 3,
+                "session_id": "s1",
+                "server_time_ms": 3,
+                "payload": {
+                    "event_type": "turn_start",
+                    "acting_player_id": 1,
+                    "character": "산적",
+                },
+            },
+        ]
+
+        active_slots = build_active_slots_view_state(messages)
+
+        self.assertIsNotNone(active_slots)
+        self.assertEqual(active_slots["items"][1]["character"], "산적")
+        self.assertEqual(active_slots["items"][4]["character"], "교리 감독관")
+        self.assertEqual(active_slots["items"][5]["character"], "박수")
+
+    def test_stream_service_keeps_mark_target_candidates_visible_after_turn_start(self) -> None:
+        stream = StreamService()
+
+        async def _publish() -> dict:
+            await stream.publish(
+                "sess_1",
+                "event",
+                {
+                    "event_type": "round_order",
+                    "active_by_card": {
+                        "2": "산적",
+                        "3": "탈출 노비",
+                        "4": "아전",
+                        "5": "교리 감독관",
+                    },
+                },
+            )
+            await stream.publish(
+                "sess_1",
+                "event",
+                {
+                    "event_type": "turn_end_snapshot",
+                    "acting_player_id": 1,
+                    "snapshot": {
+                        "players": [
+                            {"player_id": 1, "display_name": "Player 1", "character": "자객"},
+                        ],
+                        "board": {
+                            "marker_owner_player_id": 1,
+                        },
+                    },
+                },
+            )
+            await stream.publish(
+                "sess_1",
+                "event",
+                {
+                    "event_type": "turn_start",
+                    "acting_player_id": 1,
+                    "character": "산적",
+                },
+            )
+            await stream.publish(
+                "sess_1",
+                "prompt",
+                {
+                    "request_id": "req_mark_live",
+                    "request_type": "mark_target",
+                    "player_id": 1,
+                    "legal_choices": [
+                        {"choice_id": "탈출 노비", "title": "탈출 노비", "value": {"target_character": "탈출 노비", "target_card_no": 3}},
+                        {"choice_id": "아전", "title": "아전", "value": {"target_character": "아전", "target_card_no": 4}},
+                        {"choice_id": "교리 감독관", "title": "교리 감독관", "value": {"target_character": "교리 감독관", "target_card_no": 5}},
+                        {"choice_id": "none", "title": "지목 안 함"},
+                    ],
+                    "public_context": {
+                        "actor_name": "산적",
+                    },
+                },
+            )
+            snapshot = await stream.snapshot("sess_1")
+            return snapshot[-1].to_dict()["payload"]["view_state"]
+
+        view_state = asyncio.run(_publish())
+
+        self.assertEqual(
+            view_state["mark_target"]["candidates"],
+            [
+                {"slot": 3, "player_id": None, "label": None, "character": "탈출 노비"},
+                {"slot": 4, "player_id": None, "label": None, "character": "아전"},
+                {"slot": 5, "player_id": None, "label": None, "character": "교리 감독관"},
+            ],
+        )
+
 
 def _project_root():
     from pathlib import Path

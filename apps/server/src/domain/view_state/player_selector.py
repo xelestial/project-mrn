@@ -162,7 +162,7 @@ def _clear_active_by_card(target: dict[int, str]) -> None:
 
 
 def _should_reset_active_by_card(event_type: str) -> bool:
-    return event_type in {"turn_start", "round_start", "round_order"}
+    return event_type in {"round_start", "round_order"}
 
 
 def _collect_active_by_card(messages: list[dict[str, Any]]) -> dict[int, str]:

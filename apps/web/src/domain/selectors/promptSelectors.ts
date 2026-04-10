@@ -205,19 +205,33 @@ export type PromptInteractionViewModel = {
   shouldReleaseSubmission: boolean;
 };
 
-function latestBackendViewState(messages: InboundMessage[]): Record<string, unknown> | null {
+function isStateBearingMessage(message: InboundMessage): boolean {
+  return message.type === "event" || message.type === "prompt" || message.type === "decision_ack";
+}
+
+function latestStateBearingMessageIndex(messages: InboundMessage[]): number | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const payload = isRecord(messages[i].payload) ? messages[i].payload : null;
-    const viewState = isRecord(payload?.["view_state"]) ? payload["view_state"] : null;
-    if (viewState) {
-      return viewState;
+    if (isStateBearingMessage(messages[i])) {
+      return i;
     }
   }
   return null;
 }
 
-function hasAnyBackendViewState(messages: InboundMessage[]): boolean {
-  return latestBackendViewState(messages) !== null;
+function latestBackendViewStateEntry(messages: InboundMessage[]): { index: number; viewState: Record<string, unknown> } | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const payload = isRecord(messages[i].payload) ? messages[i].payload : null;
+    const viewState = isRecord(payload?.["view_state"]) ? payload["view_state"] : null;
+    if (viewState) {
+      return { index: i, viewState };
+    }
+  }
+  return null;
+}
+
+function isBackendProjectionCurrent(messages: InboundMessage[], index: number): boolean {
+  const latestStatefulIndex = latestStateBearingMessageIndex(messages);
+  return latestStatefulIndex === null || index >= latestStatefulIndex;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1110,8 +1124,11 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
 }
 
 function selectBackendActivePrompt(messages: InboundMessage[]): PromptViewModel | null {
-  const viewState = latestBackendViewState(messages);
-  const prompt = isRecord(viewState?.["prompt"]) ? viewState["prompt"] : null;
+  const entry = latestBackendViewStateEntry(messages);
+  if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
+    return null;
+  }
+  const prompt = isRecord(entry.viewState["prompt"]) ? entry.viewState["prompt"] : null;
   const active = isRecord(prompt?.["active"]) ? prompt["active"] : null;
   if (!active) {
     return null;
@@ -1144,7 +1161,8 @@ export function selectActivePrompt(messages: InboundMessage[]): PromptViewModel 
   if (backendPrompt) {
     return backendPrompt;
   }
-  if (hasAnyBackendViewState(messages)) {
+  const backendEntry = latestBackendViewStateEntry(messages);
+  if (backendEntry && isBackendProjectionCurrent(messages, backendEntry.index)) {
     return null;
   }
   for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -1214,8 +1232,11 @@ export function selectLatestDecisionAck(messages: InboundMessage[], requestId: s
 }
 
 function selectBackendLatestPromptFeedback(messages: InboundMessage[], requestId: string): DecisionAckViewModel | null {
-  const viewState = latestBackendViewState(messages);
-  const prompt = isRecord(viewState?.["prompt"]) ? viewState["prompt"] : null;
+  const entry = latestBackendViewStateEntry(messages);
+  if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
+    return null;
+  }
+  const prompt = isRecord(entry.viewState["prompt"]) ? entry.viewState["prompt"] : null;
   const feedback = isRecord(prompt?.["last_feedback"]) ? prompt["last_feedback"] : null;
   if (!feedback || feedback["request_id"] !== requestId) {
     return null;
@@ -1231,8 +1252,11 @@ function selectBackendLatestPromptFeedback(messages: InboundMessage[], requestId
 }
 
 function selectBackendHandTrayCards(messages: InboundMessage[]): HandTrayCardViewModel[] | null {
-  const viewState = latestBackendViewState(messages);
-  const handTray = isRecord(viewState?.["hand_tray"]) ? viewState["hand_tray"] : null;
+  const entry = latestBackendViewStateEntry(messages);
+  if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
+    return null;
+  }
+  const handTray = isRecord(entry.viewState["hand_tray"]) ? entry.viewState["hand_tray"] : null;
   const cards = Array.isArray(handTray?.["cards"]) ? handTray["cards"] : null;
   if (!cards) {
     return null;
