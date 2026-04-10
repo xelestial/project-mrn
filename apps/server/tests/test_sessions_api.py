@@ -253,6 +253,24 @@ class SessionsApiTests(unittest.TestCase):
         async def _seed_events() -> None:
             from apps.server.src import state
 
+            await state.stream_service.publish(
+                session_id,
+                "event",
+                {
+                    "event_type": "turn_end_snapshot",
+                    "snapshot": {
+                        "players": [
+                            {"player_id": 1},
+                            {"player_id": 2},
+                            {"player_id": 3},
+                            {"player_id": 4},
+                        ],
+                        "board": {
+                            "marker_owner_player_id": 2,
+                        },
+                    },
+                },
+            )
             await state.stream_service.publish(session_id, "event", {"event_type": "round_start"})
             await state.stream_service.publish(session_id, "event", {"event_type": "turn_start"})
 
@@ -261,12 +279,14 @@ class SessionsApiTests(unittest.TestCase):
         replay = self.client.get(f"/api/v1/sessions/{session_id}/replay")
         self.assertEqual(replay.status_code, 200)
         data = replay.json()["data"]
-        self.assertEqual(data["event_count"], 3)
-        self.assertEqual(data["events"][-2]["seq"], 2)
-        self.assertEqual(data["events"][-1]["seq"], 3)
+        self.assertEqual(data["event_count"], 4)
+        self.assertEqual(data["events"][-2]["seq"], 3)
+        self.assertEqual(data["events"][-1]["seq"], 4)
         self.assertEqual(data["events"][-2].get("payload", {}).get("event_type"), "round_start")
         self.assertEqual(data["events"][-1].get("payload", {}).get("event_type"), "turn_start")
         self.assertIn("server_time_ms", data["events"][0])
+        self.assertIn("view_state", data["events"][-1].get("payload", {}))
+        self.assertIn("players", data["events"][-1].get("payload", {}).get("view_state", {}))
 
     def test_start_response_includes_parameter_manifest(self) -> None:
         created = self.client.post("/api/v1/sessions", json=_all_ai_payload())

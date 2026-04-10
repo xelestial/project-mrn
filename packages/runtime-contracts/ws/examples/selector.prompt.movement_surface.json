@@ -1,0 +1,98 @@
+{
+  "case_id": "prompt_movement_surface",
+  "metadata": {
+    "expected_choice_ids": ["dice", "card_2", "card_5", "card_2_5"],
+    "roll_choice_id": "dice",
+    "card_pool": [2, 5]
+  },
+  "messages": [
+    {
+      "type": "prompt",
+      "seq": 71,
+      "session_id": "sess_prompt_surface",
+      "server_time_ms": 71,
+      "payload": {
+        "request_id": "req_movement_surface_1",
+        "request_type": "movement",
+        "player_id": 1,
+        "timeout_ms": 30000,
+        "legal_choices": [
+          {
+            "choice_id": "dice",
+            "title": "Roll dice",
+            "description": "Normal move.",
+            "value": {
+              "use_cards": false,
+              "card_values": []
+            }
+          },
+          {
+            "choice_id": "card_2",
+            "title": "Use card 2",
+            "description": "Move with card 2.",
+            "value": {
+              "use_cards": true,
+              "card_values": [2]
+            }
+          },
+          {
+            "choice_id": "card_5",
+            "title": "Use card 5",
+            "description": "Move with card 5.",
+            "value": {
+              "use_cards": true,
+              "card_values": [5]
+            }
+          },
+          {
+            "choice_id": "card_2_5",
+            "title": "Use cards 2+5",
+            "description": "Move with cards 2 and 5.",
+            "value": {
+              "use_cards": true,
+              "card_values": [2, 5]
+            }
+          }
+        ],
+        "public_context": {
+          "player_position": 9
+        }
+      }
+    }
+  ],
+  "expected": {
+    "prompt": {
+      "active": {
+        "surface": {
+          "kind": "movement",
+          "blocks_public_events": true,
+          "movement": {
+            "roll_choice_id": "dice",
+            "card_pool": [2, 5],
+            "can_use_two_cards": true,
+            "card_choices": [
+              {
+                "choice_id": "card_2",
+                "cards": [2],
+                "title": "Use card 2",
+                "description": "Move with card 2."
+              },
+              {
+                "choice_id": "card_5",
+                "cards": [5],
+                "title": "Use card 5",
+                "description": "Move with card 5."
+              },
+              {
+                "choice_id": "card_2_5",
+                "cards": [2, 5],
+                "title": "Use cards 2+5",
+                "description": "Move with cards 2 and 5."
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

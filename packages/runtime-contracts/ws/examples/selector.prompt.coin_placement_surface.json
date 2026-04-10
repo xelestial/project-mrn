@@ -1,0 +1,85 @@
+{
+  "case_id": "prompt_coin_placement_surface",
+  "metadata": {
+    "expected_choice_ids": ["12", "18", "24"],
+    "owned_tile_count": 3
+  },
+  "messages": [
+    {
+      "type": "prompt",
+      "seq": 51,
+      "session_id": "sess_prompt_surface",
+      "server_time_ms": 51,
+      "payload": {
+        "request_id": "req_coin_surface_1",
+        "request_type": "coin_placement",
+        "player_id": 1,
+        "timeout_ms": 30000,
+        "legal_choices": [
+          {
+            "choice_id": "12",
+            "title": "Tile 12",
+            "description": "Place one score point on tile 12.",
+            "value": {
+              "tile_index": 12
+            }
+          },
+          {
+            "choice_id": "18",
+            "title": "Tile 18",
+            "description": "Place one score point on tile 18.",
+            "value": {
+              "tile_index": 18
+            }
+          },
+          {
+            "choice_id": "24",
+            "title": "Tile 24",
+            "description": "Place one score point on tile 24.",
+            "value": {
+              "tile_index": 24
+            }
+          }
+        ],
+        "public_context": {
+          "owned_tile_count": 3,
+          "owned_tile_indices": [12, 18, 24],
+          "player_cash": 16
+        }
+      }
+    }
+  ],
+  "expected": {
+    "prompt": {
+      "active": {
+        "surface": {
+          "kind": "coin_placement",
+          "blocks_public_events": true,
+          "coin_placement": {
+            "owned_tile_count": 3,
+            "options": [
+              {
+                "choice_id": "12",
+                "tile_index": 12,
+                "title": "Tile 12",
+                "description": "Place one score point on tile 12."
+              },
+              {
+                "choice_id": "18",
+                "tile_index": 18,
+                "title": "Tile 18",
+                "description": "Place one score point on tile 18."
+              },
+              {
+                "choice_id": "24",
+                "tile_index": 24,
+                "title": "Tile 24",
+                "description": "Place one score point on tile 24."
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

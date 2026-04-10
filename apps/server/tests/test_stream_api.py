@@ -234,6 +234,59 @@ class StreamApiTests(unittest.TestCase):
         self.assertIsNone(acks[-1].get("payload", {}).get("reason"))
         self.assertEqual(acks[-1].get("payload", {}).get("provider"), "human")
 
+    def test_spectator_does_not_receive_prompt_or_decision_ack_for_seat(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 19})
+        join_token = session.join_tokens[1]
+        joined = state.session_service.join_session(session.session_id, seat=1, join_token=join_token)
+        session_token = joined["session_token"]
+
+        spectator_path = f"/api/v1/sessions/{session.session_id}/stream"
+        seat_path = f"/api/v1/sessions/{session.session_id}/stream?token={session_token}"
+        with self.client.websocket_connect(spectator_path) as spectator_ws, self.client.websocket_connect(seat_path) as seat_ws:
+            async def _publish_private_messages() -> None:
+                await state.stream_service.publish(
+                    session.session_id,
+                    "prompt",
+                    {
+                        "request_id": "r_private_prompt",
+                        "request_type": "movement",
+                        "player_id": 1,
+                        "timeout_ms": 5000,
+                        "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                    },
+                )
+                await state.stream_service.publish(
+                    session.session_id,
+                    "decision_ack",
+                    {
+                        "request_id": "r_private_prompt",
+                        "status": "accepted",
+                        "player_id": 1,
+                        "provider": "human",
+                    },
+                )
+
+            asyncio.run(_publish_private_messages())
+
+            seat_messages: list[dict] = []
+            for _ in range(6):
+                msg = seat_ws.receive_json()
+                seat_messages.append(msg)
+                seen_types = {item.get("type") for item in seat_messages}
+                if "prompt" in seen_types and "decision_ack" in seen_types:
+                    break
+
+            spectator_messages: list[dict] = []
+            for _ in range(4):
+                spectator_messages.append(spectator_ws.receive_json())
+
+        self.assertIn("prompt", {msg.get("type") for msg in seat_messages})
+        self.assertIn("decision_ack", {msg.get("type") for msg in seat_messages})
+        self.assertNotIn("prompt", {msg.get("type") for msg in spectator_messages})
+        self.assertNotIn("decision_ack", {msg.get("type") for msg in spectator_messages})
+
     def test_seat_decision_retry_returns_stale_after_first_accept(self) -> None:
         from apps.server.src import state
 

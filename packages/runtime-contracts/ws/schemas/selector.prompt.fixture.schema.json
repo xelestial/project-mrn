@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Selector Prompt Fixture",
+  "type": "object",
+  "required": ["case_id", "metadata", "messages", "expected"],
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "metadata": {
+      "type": "object"
+    },
+    "messages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type", "seq", "session_id", "server_time_ms", "payload"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["event", "prompt", "decision_ack", "error", "heartbeat"]
+          },
+          "seq": { "type": "integer", "minimum": 1 },
+          "session_id": { "type": "string", "minLength": 1 },
+          "server_time_ms": { "type": "integer", "minimum": 0 },
+          "payload": { "type": "object" }
+        }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "required": ["prompt"],
+      "properties": {
+        "prompt": {
+          "type": "object",
+          "required": ["active"],
+          "properties": {
+            "active": {
+              "type": "object",
+              "required": ["surface"],
+              "properties": {
+                "surface": { "type": "object" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

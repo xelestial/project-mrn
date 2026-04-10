@@ -137,6 +137,78 @@ class RuntimeContractExampleTests(unittest.TestCase):
                 f"{filename}: expected event order {expected_order!r}, got {event_types!r}"
             )
 
+    def test_selector_scene_fixture_matches_shared_schema(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "selector.scene.fixture.schema.json")
+        example = _load_json(root / "examples" / "selector.scene.turn_resolution.json")
+        _validate_subset(example, schema, path="$<selector.scene.turn_resolution.json>")
+
+    def test_selector_player_fixture_matches_shared_schema(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "selector.player.fixture.schema.json")
+        example = _load_json(root / "examples" / "selector.player.mark_target_visibility.json")
+        _validate_subset(example, schema, path="$<selector.player.mark_target_visibility.json>")
+
+    def test_selector_board_fixture_matches_shared_schema(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "selector.board.fixture.schema.json")
+        example = _load_json(root / "examples" / "selector.board.live_tiles.json")
+        _validate_subset(example, schema, path="$<selector.board.live_tiles.json>")
+
+    def test_selector_prompt_lap_reward_fixture_matches_shared_schema(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "selector.prompt.fixture.schema.json")
+        example = _load_json(root / "examples" / "selector.prompt.lap_reward_surface.json")
+        _validate_subset(example, schema, path="$<selector.prompt.lap_reward_surface.json>")
+
+    def test_selector_prompt_burden_fixture_matches_shared_schema(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "selector.prompt.fixture.schema.json")
+        example = _load_json(root / "examples" / "selector.prompt.burden_exchange_surface.json")
+        _validate_subset(example, schema, path="$<selector.prompt.burden_exchange_surface.json>")
+
+    def test_selector_prompt_mark_target_fixture_matches_shared_schema(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "selector.prompt.fixture.schema.json")
+        example = _load_json(root / "examples" / "selector.prompt.mark_target_surface.json")
+        _validate_subset(example, schema, path="$<selector.prompt.mark_target_surface.json>")
+
+    def test_selector_prompt_active_flip_fixture_matches_shared_schema(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "selector.prompt.fixture.schema.json")
+        example = _load_json(root / "examples" / "selector.prompt.active_flip_surface.json")
+        _validate_subset(example, schema, path="$<selector.prompt.active_flip_surface.json>")
+
+    def test_selector_prompt_coin_placement_fixture_matches_shared_schema(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "selector.prompt.fixture.schema.json")
+        example = _load_json(root / "examples" / "selector.prompt.coin_placement_surface.json")
+        _validate_subset(example, schema, path="$<selector.prompt.coin_placement_surface.json>")
+
+    def test_selector_prompt_movement_fixture_matches_shared_schema(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "selector.prompt.fixture.schema.json")
+        example = _load_json(root / "examples" / "selector.prompt.movement_surface.json")
+        _validate_subset(example, schema, path="$<selector.prompt.movement_surface.json>")
+
+    def test_selector_prompt_hand_choice_fixture_matches_shared_schema(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "selector.prompt.fixture.schema.json")
+        example = _load_json(root / "examples" / "selector.prompt.hand_choice_surface.json")
+        _validate_subset(example, schema, path="$<selector.prompt.hand_choice_surface.json>")
+
+    def test_selector_prompt_runaway_step_fixture_matches_shared_schema(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "selector.prompt.fixture.schema.json")
+        example = _load_json(root / "examples" / "selector.prompt.runaway_step_surface.json")
+        _validate_subset(example, schema, path="$<selector.prompt.runaway_step_surface.json>")
+
+    def test_selector_prompt_geo_bonus_fixture_matches_shared_schema(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "selector.prompt.fixture.schema.json")
+        example = _load_json(root / "examples" / "selector.prompt.geo_bonus_surface.json")
+        _validate_subset(example, schema, path="$<selector.prompt.geo_bonus_surface.json>")
+
     def test_external_ai_examples_match_frozen_schemas(self) -> None:
         root = _project_root() / "packages" / "runtime-contracts" / "external-ai"
         schemas = root / "schemas"

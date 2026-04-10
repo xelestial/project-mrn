@@ -25,6 +25,42 @@
       "round_index": 2,
       "turn_index": 7,
       "weather_name": "Emergency Shelter"
+    },
+    "view_state": {
+      "prompt": {
+        "active": {
+          "request_id": "req_turn7_move",
+          "request_type": "movement",
+          "player_id": 1,
+          "timeout_ms": 30000,
+          "choices": [
+            {
+              "choice_id": "roll",
+              "title": "Roll dice",
+              "description": "Normal move.",
+              "value": null,
+              "secondary": false
+            },
+            {
+              "choice_id": "dice_1_4",
+              "title": "Use dice cards 1,4",
+              "description": "Fixed move 5.",
+              "value": null,
+              "secondary": false
+            }
+          ],
+          "public_context": {
+            "round_index": 2,
+            "turn_index": 7,
+            "weather_name": "Emergency Shelter"
+          },
+          "behavior": {
+            "normalized_request_type": "movement",
+            "single_surface": false,
+            "auto_continue": false
+          }
+        }
+      }
     }
   }
 }

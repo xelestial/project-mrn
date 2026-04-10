@@ -553,6 +553,7 @@ class EngineEffectHandlers:
         while remaining_cards:
             chosen_card = engine._request_decision("choose_active_flip_card", state, owner, list(remaining_cards))
             flip_debug = engine.policy.pop_debug("marker_flip", owner.player_id) if hasattr(engine.policy, "pop_debug") else None
+            batch_flip_requested = isinstance(chosen_card, (list, tuple, set))
             if chosen_card is None:
                 if not flipped_events:
                     engine._record_ai_decision(
@@ -573,56 +574,79 @@ class EngineEffectHandlers:
                     state.pending_marker_flip_owner_id = None
                     return event
                 break
-            if chosen_card not in remaining_cards:
+            chosen_cards: list[int]
+            if batch_flip_requested:
+                chosen_cards = []
+                seen_cards: set[int] = set()
+                for raw_card in chosen_card:
+                    try:
+                        card_index = int(raw_card)
+                    except (TypeError, ValueError):
+                        chosen_cards = []
+                        break
+                    if card_index in seen_cards:
+                        continue
+                    seen_cards.add(card_index)
+                    chosen_cards.append(card_index)
+                if not chosen_cards:
+                    break
+            else:
+                chosen_cards = [chosen_card]
+            if any(card_index not in remaining_cards for card_index in chosen_cards):
                 engine._log(
                     {
                         "event": "marker_flip_invalid_choice",
                         "player": owner.player_id + 1,
-                        "chosen_card": chosen_card,
+                        "chosen_card": list(chosen_cards) if batch_flip_requested else chosen_cards[0],
                         "remaining_cards": list(remaining_cards),
                     }
                 )
                 break
 
-            a, b = card_names[chosen_card]
-            current = state.active_by_card[chosen_card]
-            flipped = b if current == a else a
-            state.active_by_card[chosen_card] = flipped
-            event = {
-                "event": "marker_flip",
-                "player": owner.player_id + 1,
-                "card_no": chosen_card,
-                "from_character": current,
-                "to_character": flipped,
-                "decision": flip_debug,
-            }
-            flipped_events.append(event)
-            engine._record_ai_decision(
-                state,
-                owner,
-                "marker_flip",
-                flip_debug,
-                result={
-                    "chosen_card": chosen_card,
+            for chosen_card_index in chosen_cards:
+                a, b = card_names[chosen_card_index]
+                current = state.active_by_card[chosen_card_index]
+                flipped = b if current == a else a
+                state.active_by_card[chosen_card_index] = flipped
+                event = {
+                    "event": "marker_flip",
+                    "player": owner.player_id + 1,
+                    "card_no": chosen_card_index,
                     "from_character": current,
                     "to_character": flipped,
-                    "flip_index": len(flipped_events),
-                },
-                source_event="marker_flip",
-            )
-            engine._log(event)
-            engine._emit_vis(
-                "marker_flip",
-                Phase.WEATHER,
-                owner.player_id + 1,
-                state,
-                card_no=chosen_card,
-                from_character=current,
-                to_character=flipped,
-                flip_index=len(flipped_events),
-                remaining_flip_candidates=len(remaining_cards) - 1,
-            )
-            remaining_cards.remove(chosen_card)
+                    "decision": flip_debug,
+                }
+                flipped_events.append(event)
+                engine._record_ai_decision(
+                    state,
+                    owner,
+                    "marker_flip",
+                    flip_debug,
+                    result={
+                        "chosen_card": chosen_card_index,
+                        "chosen_cards": list(chosen_cards),
+                        "from_character": current,
+                        "to_character": flipped,
+                        "flip_index": len(flipped_events),
+                        "finish_after_selection": batch_flip_requested,
+                    },
+                    source_event="marker_flip",
+                )
+                engine._log(event)
+                engine._emit_vis(
+                    "marker_flip",
+                    Phase.WEATHER,
+                    owner.player_id + 1,
+                    state,
+                    card_no=chosen_card_index,
+                    from_character=current,
+                    to_character=flipped,
+                    flip_index=len(flipped_events),
+                    remaining_flip_candidates=len(remaining_cards) - 1,
+                )
+                remaining_cards.remove(chosen_card_index)
+            if batch_flip_requested:
+                break
 
         state.pending_marker_flip_owner_id = None
         if not flipped_events:

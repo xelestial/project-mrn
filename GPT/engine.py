@@ -11,6 +11,7 @@ import math
 from ai_policy import BasePolicy, MovementDecision
 from characters import CHARACTERS, CARD_TO_NAMES, randomized_active_by_card
 from config import CellKind, GameConfig
+from policy_mark_utils import ordered_public_mark_targets
 from state import GameState, PlayerState
 from fortune_cards import FortuneCard
 from trick_cards import TrickCard
@@ -101,6 +102,7 @@ class GameEngine:
         self._vis_stream: VisEventStream | None = event_stream
         self._vis_step: int = 0
         self._vis_session_id: str = ""
+        self._vis_buffer: list[tuple[str, str, int | None, dict[str, Any]]] | None = None
         self.events = EventDispatcher()
         self.events.set_trace_hook(self._trace_semantic_event)
         self.rule_scripts = RuleScriptEngine(self, getattr(config, "rule_scripts_path", None))
@@ -368,6 +370,9 @@ class GameEngine:
     ) -> None:
         if self._vis_stream is None:
             return
+        if self._vis_buffer is not None:
+            self._vis_buffer.append((event_type, public_phase, acting_player_id, dict(payload)))
+            return
         self._vis_stream.append(
             VisEvent(
                 event_type=event_type,
@@ -381,6 +386,12 @@ class GameEngine:
             )
         )
         self._vis_step += 1
+
+    def _drain_buffered_vis_events(self, state: GameState) -> None:
+        pending = self._vis_buffer or []
+        self._vis_buffer = None
+        for event_type, public_phase, acting_player_id, payload in pending:
+            self._emit_vis(event_type, public_phase, acting_player_id, state, **payload)
 
     def _trace_semantic_event(self, event_name: str, args: tuple, kwargs: dict, results: list, mode: str) -> None:
         self._last_semantic_event_name = event_name
@@ -1186,7 +1197,7 @@ class GameEngine:
             return
         if char == "자객":
             target, mark_debug = _resolve_mark_target()
-            target_p = self._find_player_by_character(state, target, exclude=player.player_id, source_pid=player.player_id, future_only=True)
+            target_p = self._find_mark_target_player(state, player, target)
             self._record_ai_decision(state, player, "mark_target", mark_debug, result={"target_character": target}, source_event="character_start")
             if target_p is not None:
                 self._record_mark_attempt(player.player_id, "success", state)
@@ -1300,13 +1311,7 @@ class GameEngine:
         # Card 2: mark branch (front=assassin, back=bandit)
         if card_no == 2 and is_front_face:
             target, mark_debug = _resolve_mark_target()
-            target_p = self._find_player_by_character(
-                state,
-                target,
-                exclude=player.player_id,
-                source_pid=player.player_id,
-                future_only=True,
-            )
+            target_p = self._find_mark_target_player(state, player, target)
             self._record_ai_decision(
                 state,
                 player,
@@ -1512,7 +1517,7 @@ class GameEngine:
             if decision is not None:
                 self._log({"event": "mark_target_none", "player": source_pid + 1, "decision": decision})
             return
-        target_p = self._find_player_by_character(state, target_character, exclude=source_pid, source_pid=source_pid, future_only=True)
+        target_p = self._find_mark_target_player(state, source, target_character)
         if target_p is None:
             self._record_mark_attempt(source_pid, "missing", state)
             self._apply_failed_mark_fallback(state, source, payload)
@@ -1755,13 +1760,65 @@ class GameEngine:
         source: PlayerState,
         requested_target: Optional[str],
     ) -> tuple[Optional[str], bool]:
-        ordered_targets = self._ordered_mark_targets(state, source.player_id)
-        if not ordered_targets:
+        public_targets = ordered_public_mark_targets(state, source)
+        if not public_targets:
             return None, False
-        legal_names = {target.current_character for target in ordered_targets if target.current_character}
+        legal_names = {
+            str(target["target_character"])
+            for target in public_targets
+            if isinstance(target.get("target_character"), str) and target.get("target_character")
+        }
         if requested_target and requested_target in legal_names:
             return requested_target, False
-        return ordered_targets[0].current_character, True
+
+        # Public choices may include future priority-card faces that nobody actually drafted.
+        # For fallback coercion, preserve the previous "first real future target" safety so
+        # engine-side recovery does not turn an invalid/empty choice into a forced miss.
+        for target in public_targets:
+            card_no = target.get("card_no")
+            candidate = target.get("target_character")
+            if not isinstance(card_no, int) or not isinstance(candidate, str) or not candidate:
+                continue
+            holder = self._find_future_mark_target_holder_by_card_no(state, source, card_no)
+            if holder is not None:
+                return candidate, True
+        return None, False
+
+    def _find_future_mark_target_holder_by_card_no(
+        self,
+        state: GameState,
+        source: PlayerState,
+        card_no: int,
+    ) -> Optional[PlayerState]:
+        try:
+            source_order_idx = state.current_round_order.index(source.player_id)
+            allowed_pids = set(state.current_round_order[source_order_idx + 1 :])
+        except ValueError:
+            return None
+        for player in state.players:
+            if player.player_id == source.player_id:
+                continue
+            if not player.alive or player.player_id not in allowed_pids:
+                continue
+            if self._character_card_no(player) == card_no:
+                return player
+        return None
+
+    def _find_mark_target_player(
+        self,
+        state: GameState,
+        source: PlayerState,
+        target_character: Optional[str],
+    ) -> Optional[PlayerState]:
+        if not target_character:
+            return None
+        for target in ordered_public_mark_targets(state, source):
+            candidate = target.get("target_character")
+            card_no = target.get("card_no")
+            if candidate != target_character or not isinstance(card_no, int):
+                continue
+            return self._find_future_mark_target_holder_by_card_no(state, source, card_no)
+        return None
 
     def _find_player_by_character(self, state: GameState, character_name: Optional[str], exclude: Optional[int] = None, source_pid: Optional[int] = None, future_only: bool = False) -> Optional[PlayerState]:
         if not character_name:
@@ -2347,133 +2404,150 @@ class GameEngine:
         old_f = state.f_value
         old_tiles = player.tiles_owned
         old_alive = player.alive
+        previous_vis_buffer = self._vis_buffer
+        self._vis_buffer = []
 
-        total_move = move
-        encounter_event = None
-        obstacle_event = None
-        total_move, obstacle_event = self._apply_obstacle_slowdown(
-            state,
-            player,
-            start_pos=old_pos,
-            planned_move=total_move,
-        )
-        if player.trick_encounter_boost_this_turn and total_move > 0:
-            seen = False
-            cur = old_pos
-            for step in range(1, total_move):
-                cur = (cur + 1) % board_len
-                if any(op.alive and op.player_id != player.player_id and op.position == cur for op in state.players):
-                    extra = [self.rng.randint(1, 6), self.rng.randint(1, 6)]
-                    total_move += sum(extra)
-                    encounter_event = {"met_at": cur, "step": step, "extra_dice": extra, "extra_move": sum(extra)}
-                    seen = True
+        try:
+            total_move = move
+            encounter_event = None
+            obstacle_event = None
+            total_move, obstacle_event = self._apply_obstacle_slowdown(
+                state,
+                player,
+                start_pos=old_pos,
+                planned_move=total_move,
+            )
+            if player.trick_encounter_boost_this_turn and total_move > 0:
+                seen = False
+                cur = old_pos
+                for step in range(1, total_move):
+                    cur = (cur + 1) % board_len
+                    if any(op.alive and op.player_id != player.player_id and op.position == cur for op in state.players):
+                        extra = [self.rng.randint(1, 6), self.rng.randint(1, 6)]
+                        total_move += sum(extra)
+                        encounter_event = {"met_at": cur, "step": step, "extra_dice": extra, "extra_move": sum(extra)}
+                        seen = True
+                        break
+                player.trick_encounter_boost_this_turn = False
+
+            chain_segments: list[dict] = []
+            current_start = old_pos
+            current_move = total_move
+            while True:
+                new_total_steps = player.total_steps + current_move
+                old_laps = player.total_steps // board_len
+                new_laps = new_total_steps // board_len
+                player.total_steps = new_total_steps
+                player.position = (current_start + current_move) % board_len
+
+                lap_events: List[dict] = []
+                for _ in range(new_laps - old_laps):
+                    lap_events.append(self._apply_lap_reward(state, player))
+                    if player.current_character == "객주":
+                        geo_result = self._apply_geo_bonus(player, lap_events[-1])
+                        self._record_ai_decision(
+                            state,
+                            player,
+                            "geo_bonus",
+                            None,
+                            result=geo_result,
+                            source_event="lap_reward",
+                        )
+                        lap_events.append(geo_result)
+
+                landing_event = self._resolve_landing(state, player)
+                buffered_landing_events = list(self._vis_buffer or [])
+                self._vis_buffer = []
+                self._emit_vis(
+                    "landing_resolved",
+                    Phase.LANDING,
+                    player.player_id + 1,
+                    state,
+                    position=player.position,
+                    landing=landing_event,
+                )
+                self._vis_buffer.extend(buffered_landing_events)
+                chain_segments.append({
+                    "start_pos": current_start,
+                    "end_pos": player.position,
+                    "move": current_move,
+                    "laps_gained": new_laps - old_laps,
+                    "lap_events": lap_events,
+                    "landing": landing_event,
+                })
+                if not (isinstance(landing_event, dict) and landing_event.get("type") == "ZONE_CHAIN"):
                     break
-            player.trick_encounter_boost_this_turn = False
+                current_start = player.position
+                current_move = landing_event.get("extra_move", 0)
+                if current_move <= 0:
+                    break
 
-        chain_segments: list[dict] = []
-        current_start = old_pos
-        current_move = total_move
-        while True:
-            new_total_steps = player.total_steps + current_move
-            old_laps = player.total_steps // board_len
-            new_laps = new_total_steps // board_len
-            player.total_steps = new_total_steps
-            player.position = (current_start + current_move) % board_len
-
-            lap_events: List[dict] = []
-            for _ in range(new_laps - old_laps):
-                lap_events.append(self._apply_lap_reward(state, player))
-                if player.current_character == "객주":
-                    geo_result = self._apply_geo_bonus(player, lap_events[-1])
-                    self._record_ai_decision(
-                        state,
-                        player,
-                        "geo_bonus",
-                        None,
-                        result=geo_result,
-                        source_event="lap_reward",
-                    )
-                    lap_events.append(geo_result)
-
-            landing_event = self._resolve_landing(state, player)
+            final_segment = chain_segments[-1]
+            log_row = {
+                "event": "turn",
+                "round_index": state.rounds_completed + 1,
+                "turn_index_global": state.turn_index + 1,
+                "player": player.player_id + 1,
+                "character": player.current_character,
+                "turn_number_for_player": player.turns_taken,
+                "start_pos": old_pos,
+                "end_pos": player.position,
+                "cell": state.board[player.position].name,
+                "move": total_move,
+                "movement": movement_meta,
+                "laps_gained": sum(seg["laps_gained"] for seg in chain_segments),
+                "lap_events": final_segment["lap_events"],
+                "landing": final_segment["landing"],
+                "cash_before": old_cash, "cash_after": player.cash,
+                "hand_coins_before": old_hand, "hand_coins_after": player.hand_coins,
+                "shards_before": old_shards, "shards_after": player.shards,
+                "tiles_before": old_tiles, "tiles_after": player.tiles_owned,
+                "f_before": old_f, "f_after": state.f_value,
+                "alive_before": old_alive, "alive_after": player.alive,
+            }
+            if encounter_event is not None:
+                log_row["encounter_bonus"] = encounter_event
+            if obstacle_event is not None:
+                log_row["obstacle_slowdown"] = obstacle_event
+            if len(chain_segments) > 1:
+                log_row["chain_segments"] = chain_segments
+            self._log(log_row)
+            laps_gained = sum(seg["laps_gained"] for seg in chain_segments)
+            path: list[int] = []
+            cursor = old_pos
+            for seg in chain_segments:
+                seg_move = int(seg.get("move", 0) or 0)
+                for _ in range(max(0, seg_move)):
+                    cursor = (cursor + 1) % board_len
+                    path.append(cursor)
+            movement_source = movement_meta.get("mode", "unknown")
+            pending_vis_events = list(self._vis_buffer or [])
+            self._vis_buffer = previous_vis_buffer
             self._emit_vis(
-                "landing_resolved",
-                Phase.LANDING,
+                "player_move",
+                Phase.MOVEMENT,
                 player.player_id + 1,
                 state,
-                position=player.position,
-                landing=landing_event,
+                player_id=player.player_id + 1,
+                from_tile=old_pos,
+                from_tile_index=old_pos,
+                to_tile=player.position,
+                to_tile_index=player.position,
+                move=total_move,
+                crossed_start=laps_gained > 0,
+                formula=movement_meta.get("formula", ""),
+                path=path,
+                movement_source=movement_source,
             )
-            chain_segments.append({
-                "start_pos": current_start,
-                "end_pos": player.position,
-                "move": current_move,
-                "laps_gained": new_laps - old_laps,
-                "lap_events": lap_events,
-                "landing": landing_event,
-            })
-            if not (isinstance(landing_event, dict) and landing_event.get("type") == "ZONE_CHAIN"):
-                break
-            current_start = player.position
-            current_move = landing_event.get("extra_move", 0)
-            if current_move <= 0:
-                break
-
-        final_segment = chain_segments[-1]
-        log_row = {
-            "event": "turn",
-            "round_index": state.rounds_completed + 1,
-            "turn_index_global": state.turn_index + 1,
-            "player": player.player_id + 1,
-            "character": player.current_character,
-            "turn_number_for_player": player.turns_taken,
-            "start_pos": old_pos,
-            "end_pos": player.position,
-            "cell": state.board[player.position].name,
-            "move": total_move,
-            "movement": movement_meta,
-            "laps_gained": sum(seg["laps_gained"] for seg in chain_segments),
-            "lap_events": final_segment["lap_events"],
-            "landing": final_segment["landing"],
-            "cash_before": old_cash, "cash_after": player.cash,
-            "hand_coins_before": old_hand, "hand_coins_after": player.hand_coins,
-            "shards_before": old_shards, "shards_after": player.shards,
-            "tiles_before": old_tiles, "tiles_after": player.tiles_owned,
-            "f_before": old_f, "f_after": state.f_value,
-            "alive_before": old_alive, "alive_after": player.alive,
-        }
-        if encounter_event is not None:
-            log_row["encounter_bonus"] = encounter_event
-        if obstacle_event is not None:
-            log_row["obstacle_slowdown"] = obstacle_event
-        if len(chain_segments) > 1:
-            log_row["chain_segments"] = chain_segments
-        self._log(log_row)
-        laps_gained = sum(seg["laps_gained"] for seg in chain_segments)
-        path: list[int] = []
-        cursor = old_pos
-        for seg in chain_segments:
-            seg_move = int(seg.get("move", 0) or 0)
-            for _ in range(max(0, seg_move)):
-                cursor = (cursor + 1) % board_len
-                path.append(cursor)
-        movement_source = movement_meta.get("mode", "unknown")
-        self._emit_vis(
-            "player_move",
-            Phase.MOVEMENT,
-            player.player_id + 1,
-            state,
-            player_id=player.player_id + 1,
-            from_tile=old_pos,
-            from_tile_index=old_pos,
-            to_tile=player.position,
-            to_tile_index=player.position,
-            move=total_move,
-            crossed_start=laps_gained > 0,
-            formula=movement_meta.get("formula", ""),
-            path=path,
-            movement_source=movement_source,
-        )
+            if pending_vis_events:
+                if self._vis_buffer is None:
+                    self._vis_buffer = pending_vis_events
+                    self._drain_buffered_vis_events(state)
+                else:
+                    self._vis_buffer.extend(pending_vis_events)
+        except Exception:
+            self._vis_buffer = previous_vis_buffer
+            raise
 
     def _apply_geo_bonus(self, player: PlayerState, lap_result: dict) -> dict:
         """Apply geo character bonus by selected lap-reward categories.

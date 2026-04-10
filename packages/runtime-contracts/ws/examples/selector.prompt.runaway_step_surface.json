@@ -1,0 +1,68 @@
+{
+  "case_id": "prompt_runaway_step_surface",
+  "metadata": {
+    "expected_choice_ids": ["yes", "no"],
+    "bonus_choice_id": "yes",
+    "stay_choice_id": "no"
+  },
+  "messages": [
+    {
+      "type": "prompt",
+      "seq": 73,
+      "session_id": "sess_prompt_surface",
+      "server_time_ms": 73,
+      "payload": {
+        "request_id": "req_runaway_surface_1",
+        "request_type": "runaway_step_choice",
+        "player_id": 1,
+        "timeout_ms": 30000,
+        "legal_choices": [
+          {
+            "choice_id": "yes",
+            "title": "+1 to 18",
+            "description": "추가 1칸 이동합니다.",
+            "value": {
+              "take_bonus": true,
+              "one_short_pos": 17,
+              "bonus_target_pos": 18,
+              "bonus_target_kind": "운수"
+            }
+          },
+          {
+            "choice_id": "no",
+            "title": "Stay on 17",
+            "description": "현재 칸에 멈춥니다.",
+            "value": {
+              "take_bonus": false,
+              "one_short_pos": 17,
+              "bonus_target_pos": 18,
+              "bonus_target_kind": "운수"
+            }
+          }
+        ],
+        "public_context": {
+          "one_short_pos": 17,
+          "bonus_target_pos": 18,
+          "bonus_target_kind": "운수"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "prompt": {
+      "active": {
+        "surface": {
+          "kind": "runaway_step_choice",
+          "blocks_public_events": true,
+          "runaway_step": {
+            "bonus_choice_id": "yes",
+            "stay_choice_id": "no",
+            "one_short_pos": 17,
+            "bonus_target_pos": 18,
+            "bonus_target_kind": "운수"
+          }
+        }
+      }
+    }
+  }
+}

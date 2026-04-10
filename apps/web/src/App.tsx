@@ -1611,15 +1611,9 @@ export function App() {
                   </div>
                   {hasBoardBottomDock ? (
                     <div
-                      className="match-table-overlay-middle"
-                      style={
-                        boardBoundedFixedStyle
-                          ? {
-                              ...boardBoundedFixedStyle,
-                              transform: "translateY(-50%)",
-                            }
-                          : undefined
-                      }
+                      className={`match-table-overlay-middle ${
+                        overlayHandCards.length > 0 ? "match-table-overlay-middle-with-hand-tray" : ""
+                      }`}
                     >
                       <div className="match-table-prompt-wrap match-table-prompt-floating">
                         {passivePrompt ? (

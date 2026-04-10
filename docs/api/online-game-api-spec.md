@@ -279,6 +279,271 @@ Common envelope:
 }
 ```
 
+Additive view-model channel:
+
+- stream/replay payloads may include a renderer-agnostic `payload.view_state` object
+- current first migrated slice is `payload.view_state.players`
+- current additive slices are:
+  - `view_state.players`
+  - `view_state.active_slots`
+  - `view_state.mark_target`
+  - `view_state.reveals`
+  - `view_state.board`
+  - `view_state.prompt`
+  - `view_state.hand_tray`
+  - `view_state.turn_stage`
+  - `view_state.scene`
+- `view_state.players` currently contains:
+  - `ordered_player_ids`
+  - `marker_owner_player_id`
+  - `marker_draft_direction`
+- `view_state.players.items` may include canonical player-card fields such as:
+  - `current_character_face`
+  - `priority_slot`
+  - `is_current_actor`
+  - `is_marker_owner`
+- `view_state.active_slots.items` contains canonical slot projections for the active-character strip
+- `view_state.mark_target.candidates` contains canonical mark-target candidates derived from the same slot projection
+- `view_state.reveals.items` contains canonical current-turn public reveal items in backend-owned order
+  - fields currently include:
+    - `seq`
+    - `event_code`
+    - `event_order`
+    - `tone`
+    - `focus_tile_index`
+    - `is_interrupt`
+- `view_state.board.last_move` contains the latest board movement projection:
+  - `player_id`
+  - `from_tile_index`
+  - `to_tile_index`
+  - `path_tile_indices`
+- `view_state.board.tiles` contains canonical dynamic board-surface projection:
+  - `tile_index`
+  - `score_coin_count`
+  - `owner_player_id`
+  - `pawn_player_ids`
+- `view_state.prompt.active` contains backend-owned active prompt projection when a live prompt exists
+  - fields currently include:
+    - `request_id`
+    - `request_type`
+    - `player_id`
+    - `timeout_ms`
+    - `choices`
+    - `public_context`
+    - `behavior`
+    - `surface`
+  - `behavior` may include:
+    - `normalized_request_type`
+    - `single_surface`
+    - `auto_continue`
+    - `chain_key`
+    - `chain_item_count`
+    - `current_item_deck_index`
+  - `surface` contains backend-owned renderer-agnostic prompt-surface projection
+    - common fields:
+      - `kind`
+      - `blocks_public_events`
+    - `surface.lap_reward` may include:
+      - `budget`
+      - `cash_pool`
+      - `shards_pool`
+      - `coins_pool`
+      - `cash_point_cost`
+      - `shards_point_cost`
+      - `coins_point_cost`
+      - `options[]`
+        - `choice_id`
+        - `cash_units`
+        - `shard_units`
+        - `coin_units`
+        - `spent_points`
+    - `surface.burden_exchange_batch` may include:
+      - `burden_card_count`
+      - `current_f_value`
+      - `supply_threshold`
+      - `cards[]`
+        - `deck_index`
+        - `name`
+        - `description`
+        - `burden_cost`
+        - `is_current_target`
+    - `surface.mark_target` may include:
+      - `actor_name`
+      - `target_count`
+      - `none_choice_id`
+      - `candidates[]`
+        - `choice_id`
+        - `slot`
+        - `player_id`
+        - `name`
+        - `label`
+    - `surface.character_pick` may include:
+      - `selection_count`
+      - `options[]`
+        - `choice_id`
+        - `name`
+        - `description`
+    - `surface.purchase_tile` may include:
+      - `tile_index`
+      - `tile_label`
+      - `tile_color`
+      - `cost`
+      - `cash_after_purchase`
+      - `cash_gap`
+      - `options[]`
+        - `choice_id`
+        - `title`
+        - `description`
+        - `tile_index`
+        - `is_purchase`
+    - `surface.trick_tile_target` may include:
+      - `effect_name`
+      - `tile_count`
+      - `options[]`
+        - `choice_id`
+        - `tile_index`
+        - `title`
+        - `description`
+    - `surface.coin_placement` may include:
+      - `owned_tile_count`
+      - `options[]`
+        - `choice_id`
+        - `tile_index`
+        - `title`
+        - `description`
+    - `surface.movement` may include:
+      - `roll_choice_id`
+      - `card_pool[]`
+      - `can_use_two_cards`
+      - `card_choices[]`
+        - `choice_id`
+        - `cards[]`
+        - `title`
+        - `description`
+    - `surface.hand_choice` may include:
+      - `mode`
+      - `pass_choice_id`
+      - `cards[]`
+        - `choice_id`
+        - `deck_index`
+        - `name`
+        - `description`
+        - `is_hidden`
+        - `is_usable`
+    - `surface.doctrine_relief` may include:
+      - `candidate_count`
+      - `options[]`
+        - `choice_id`
+        - `target_player_id`
+        - `burden_count`
+        - `title`
+        - `description`
+    - `surface.geo_bonus` may include:
+      - `actor_name`
+      - `options[]`
+        - `choice_id`
+        - `reward_kind`
+        - `title`
+        - `description`
+    - `surface.specific_trick_reward` may include:
+      - `reward_count`
+      - `options[]`
+        - `choice_id`
+        - `deck_index`
+        - `name`
+        - `description`
+    - `surface.pabal_dice_mode` may include:
+      - `options[]`
+        - `choice_id`
+        - `dice_mode`
+        - `title`
+        - `description`
+    - `surface.runaway_step` may include:
+      - `bonus_choice_id`
+      - `stay_choice_id`
+      - `one_short_pos`
+      - `bonus_target_pos`
+      - `bonus_target_kind`
+    - `surface.active_flip` may include:
+      - `selection_count`
+      - `finish_choice_id`
+      - `options[]`
+        - `choice_id`
+        - `name`
+        - `description`
+- `view_state.prompt.last_feedback` may carry the latest prompt lifecycle result
+  - fields currently include:
+    - `request_id`
+    - `status`
+    - `reason`
+  - current status values surfaced through the projection are:
+    - `accepted`
+    - `rejected`
+    - `stale`
+    - `timeout_fallback` on the raw backend side, though current web fallback helper only consumes `accepted/rejected/stale`
+- `view_state.hand_tray.cards` contains the canonical current visible hand/burden tray for the stream consumer
+  - fields currently include:
+    - `key`
+    - `name`
+    - `description`
+    - `deck_index`
+    - `is_hidden`
+    - `is_current_target`
+- `view_state.turn_stage` contains backend-owned current turn/beat projection
+  - fields currently include:
+    - `turn_start_seq`
+    - `actor_player_id`
+    - `round_index`
+    - `turn_index`
+    - `character`
+    - `weather_name`
+    - `weather_effect`
+    - `current_beat_kind`
+    - `current_beat_event_code`
+    - `current_beat_request_type`
+    - `current_beat_seq`
+    - `focus_tile_index`
+    - `focus_tile_indices`
+    - `prompt_request_type`
+    - external-ai status fields mirrored from decision public context
+    - actor resource fields mirrored from prompt public context
+    - `progress_codes`
+- `view_state.scene` contains backend-owned renderer-agnostic scene reduction for summary / theater / core-action surfaces
+  - `view_state.scene.situation` currently includes:
+    - `actor_player_id`
+    - `round_index`
+    - `turn_index`
+    - `headline_seq`
+    - `headline_message_type`
+    - `headline_event_code`
+    - `weather_name`
+    - `weather_effect`
+  - `view_state.scene.theater_feed` currently includes:
+    - `seq`
+    - `message_type`
+    - `event_code`
+    - `tone`
+    - `lane`
+    - `actor_player_id`
+    - `round_index`
+    - `turn_index`
+  - `view_state.scene.core_action_feed` currently includes:
+    - `seq`
+    - `event_code`
+    - `actor_player_id`
+    - `round_index`
+    - `turn_index`
+  - `view_state.scene.timeline` currently includes:
+    - `seq`
+    - `message_type`
+    - `event_code`
+  - `view_state.scene.critical_alerts` currently includes:
+    - `seq`
+    - `message_type`
+    - `event_code`
+    - `severity`
+- clients may consume `view_state` when present and fall back to raw event reduction when absent during migration
+
 `type` values:
 
 - `event`
@@ -318,6 +583,7 @@ Validation baseline:
 Payload:
 
 - `VisEventEnvelope` from shared runtime contract.
+- may also include additive `view_state` data during selector migration
 
 ## `prompt`
 
@@ -341,6 +607,10 @@ Payload:
   }
 }
 ```
+
+Additive migration note:
+
+- prompts may also carry the same additive `view_state` object as stream events
 
 Canonical `request_type` set (v1 human policy):
 

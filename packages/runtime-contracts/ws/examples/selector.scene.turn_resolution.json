@@ -1,0 +1,352 @@
+{
+  "case_id": "scene_turn_resolution_bankruptcy_tail",
+  "metadata": {
+    "core_turn_resolution_order": [
+      "dice_roll",
+      "player_move",
+      "landing_resolved",
+      "rent_paid"
+    ],
+    "engine_advance_resolution_order": [
+      "player_move",
+      "landing_resolved",
+      "rent_paid"
+    ]
+  },
+  "messages": [
+    {
+      "type": "event",
+      "seq": 100,
+      "session_id": "s1",
+      "server_time_ms": 1,
+      "payload": {
+        "event_type": "weather_reveal",
+        "round_index": 4,
+        "turn_index": 6,
+        "acting_player_id": 3,
+        "weather_name": "긴급 피난",
+        "weather_effect": "모든 짐 제거 비용이 2배가 됩니다."
+      }
+    },
+    {
+      "type": "event",
+      "seq": 101,
+      "session_id": "s1",
+      "server_time_ms": 2,
+      "payload": {
+        "event_type": "turn_start",
+        "round_index": 4,
+        "turn_index": 6,
+        "acting_player_id": 3,
+        "character": "만신"
+      }
+    },
+    {
+      "type": "event",
+      "seq": 102,
+      "session_id": "s1",
+      "server_time_ms": 3,
+      "payload": {
+        "event_type": "dice_roll",
+        "round_index": 4,
+        "turn_index": 6,
+        "acting_player_id": 3,
+        "cards_used": [
+          1,
+          4
+        ],
+        "total_move": 5
+      }
+    },
+    {
+      "type": "prompt",
+      "seq": 103,
+      "session_id": "s1",
+      "server_time_ms": 4,
+      "payload": {
+        "request_id": "req_purchase_1",
+        "request_type": "purchase_tile",
+        "player_id": 3
+      }
+    },
+    {
+      "type": "decision_ack",
+      "seq": 104,
+      "session_id": "s1",
+      "server_time_ms": 5,
+      "payload": {
+        "request_id": "req_purchase_1",
+        "status": "accepted",
+        "player_id": 3
+      }
+    },
+    {
+      "type": "event",
+      "seq": 105,
+      "session_id": "s1",
+      "server_time_ms": 6,
+      "payload": {
+        "event_type": "player_move",
+        "round_index": 4,
+        "turn_index": 6,
+        "acting_player_id": 3,
+        "from_tile_index": 2,
+        "to_tile_index": 7
+      }
+    },
+    {
+      "type": "event",
+      "seq": 106,
+      "session_id": "s1",
+      "server_time_ms": 7,
+      "payload": {
+        "event_type": "landing_resolved",
+        "round_index": 4,
+        "turn_index": 6,
+        "acting_player_id": 3,
+        "position": 7,
+        "result_type": "RENT"
+      }
+    },
+    {
+      "type": "event",
+      "seq": 107,
+      "session_id": "s1",
+      "server_time_ms": 8,
+      "payload": {
+        "event_type": "rent_paid",
+        "round_index": 4,
+        "turn_index": 6,
+        "acting_player_id": 3,
+        "player_id": 3,
+        "target_player_id": 1,
+        "tile_index": 7,
+        "amount": 3
+      }
+    },
+    {
+      "type": "event",
+      "seq": 108,
+      "session_id": "s1",
+      "server_time_ms": 9,
+      "payload": {
+        "event_type": "bankruptcy",
+        "round_index": 4,
+        "turn_index": 6,
+        "player_id": 4
+      }
+    }
+  ],
+  "expected": {
+    "scene": {
+      "situation": {
+        "actor_player_id": 4,
+        "round_index": 4,
+        "turn_index": 6,
+        "headline_seq": 108,
+        "headline_message_type": "event",
+        "headline_event_code": "bankruptcy",
+        "weather_name": "긴급 피난",
+        "weather_effect": "모든 짐 제거 비용이 2배가 됩니다."
+      },
+      "theater_feed": [
+        {
+          "seq": 108,
+          "message_type": "event",
+          "event_code": "bankruptcy",
+          "tone": "critical",
+          "lane": "core",
+          "actor_player_id": 4,
+          "round_index": 4,
+          "turn_index": 6
+        },
+        {
+          "seq": 107,
+          "message_type": "event",
+          "event_code": "rent_paid",
+          "tone": "economy",
+          "lane": "core",
+          "actor_player_id": 3,
+          "round_index": 4,
+          "turn_index": 6
+        },
+        {
+          "seq": 106,
+          "message_type": "event",
+          "event_code": "landing_resolved",
+          "tone": "economy",
+          "lane": "core",
+          "actor_player_id": 3,
+          "round_index": 4,
+          "turn_index": 6
+        },
+        {
+          "seq": 105,
+          "message_type": "event",
+          "event_code": "player_move",
+          "tone": "move",
+          "lane": "core",
+          "actor_player_id": 3,
+          "round_index": 4,
+          "turn_index": 6
+        },
+        {
+          "seq": 104,
+          "message_type": "decision_ack",
+          "event_code": "decision_ack",
+          "tone": "system",
+          "lane": "prompt",
+          "actor_player_id": 3,
+          "round_index": null,
+          "turn_index": null
+        },
+        {
+          "seq": 103,
+          "message_type": "prompt",
+          "event_code": "prompt",
+          "tone": "system",
+          "lane": "system",
+          "actor_player_id": 3,
+          "round_index": null,
+          "turn_index": null
+        },
+        {
+          "seq": 102,
+          "message_type": "event",
+          "event_code": "dice_roll",
+          "tone": "move",
+          "lane": "core",
+          "actor_player_id": 3,
+          "round_index": 4,
+          "turn_index": 6
+        },
+        {
+          "seq": 101,
+          "message_type": "event",
+          "event_code": "turn_start",
+          "tone": "system",
+          "lane": "core",
+          "actor_player_id": 3,
+          "round_index": 4,
+          "turn_index": 6
+        },
+        {
+          "seq": 100,
+          "message_type": "event",
+          "event_code": "weather_reveal",
+          "tone": "system",
+          "lane": "core",
+          "actor_player_id": 3,
+          "round_index": 4,
+          "turn_index": 6
+        }
+      ],
+      "core_action_feed": [
+        {
+          "seq": 108,
+          "event_code": "bankruptcy",
+          "actor_player_id": 4,
+          "round_index": 4,
+          "turn_index": 6
+        },
+        {
+          "seq": 107,
+          "event_code": "rent_paid",
+          "actor_player_id": 3,
+          "round_index": 4,
+          "turn_index": 6
+        },
+        {
+          "seq": 106,
+          "event_code": "landing_resolved",
+          "actor_player_id": 3,
+          "round_index": 4,
+          "turn_index": 6
+        },
+        {
+          "seq": 105,
+          "event_code": "player_move",
+          "actor_player_id": 3,
+          "round_index": 4,
+          "turn_index": 6
+        },
+        {
+          "seq": 102,
+          "event_code": "dice_roll",
+          "actor_player_id": 3,
+          "round_index": 4,
+          "turn_index": 6
+        },
+        {
+          "seq": 101,
+          "event_code": "turn_start",
+          "actor_player_id": 3,
+          "round_index": 4,
+          "turn_index": 6
+        },
+        {
+          "seq": 100,
+          "event_code": "weather_reveal",
+          "actor_player_id": 3,
+          "round_index": 4,
+          "turn_index": 6
+        }
+      ],
+      "timeline": [
+        {
+          "seq": 108,
+          "message_type": "event",
+          "event_code": "bankruptcy"
+        },
+        {
+          "seq": 107,
+          "message_type": "event",
+          "event_code": "rent_paid"
+        },
+        {
+          "seq": 106,
+          "message_type": "event",
+          "event_code": "landing_resolved"
+        },
+        {
+          "seq": 105,
+          "message_type": "event",
+          "event_code": "player_move"
+        },
+        {
+          "seq": 104,
+          "message_type": "decision_ack",
+          "event_code": "decision_ack"
+        },
+        {
+          "seq": 103,
+          "message_type": "prompt",
+          "event_code": "prompt"
+        },
+        {
+          "seq": 102,
+          "message_type": "event",
+          "event_code": "dice_roll"
+        },
+        {
+          "seq": 101,
+          "message_type": "event",
+          "event_code": "turn_start"
+        },
+        {
+          "seq": 100,
+          "message_type": "event",
+          "event_code": "weather_reveal"
+        }
+      ],
+      "critical_alerts": [
+        {
+          "seq": 108,
+          "message_type": "event",
+          "event_code": "bankruptcy",
+          "severity": "critical"
+        }
+      ]
+    }
+  }
+}

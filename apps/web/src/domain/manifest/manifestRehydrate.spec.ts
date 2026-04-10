@@ -17,6 +17,7 @@ function createLatest(overrides?: Partial<ParameterManifestViewModel>): Paramete
         zoneColor: "",
         purchaseCost: null,
         rentCost: null,
+        scoreCoinCount: 0,
         ownerPlayerId: null,
         pawnPlayerIds: [],
       },

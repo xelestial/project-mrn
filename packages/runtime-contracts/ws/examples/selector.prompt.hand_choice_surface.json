@@ -1,0 +1,112 @@
+{
+  "case_id": "prompt_hand_choice_surface",
+  "metadata": {
+    "expected_choice_ids": ["12", "17", "none"],
+    "pass_choice_id": "none",
+    "mode": "use"
+  },
+  "messages": [
+    {
+      "type": "prompt",
+      "seq": 72,
+      "session_id": "sess_prompt_surface",
+      "server_time_ms": 72,
+      "payload": {
+        "request_id": "req_hand_choice_surface_1",
+        "request_type": "trick_to_use",
+        "player_id": 1,
+        "timeout_ms": 30000,
+        "legal_choices": [
+          {
+            "choice_id": "12",
+            "title": "뇌고왕",
+            "description": "지금 사용합니다.",
+            "value": {
+              "deck_index": 12
+            }
+          },
+          {
+            "choice_id": "17",
+            "title": "객주",
+            "description": "지금 사용합니다.",
+            "value": {
+              "deck_index": 17
+            }
+          },
+          {
+            "choice_id": "none",
+            "title": "이번에는 사용 안 함",
+            "description": "카드를 사용하지 않습니다."
+          }
+        ],
+        "public_context": {
+          "total_hand_count": 3,
+          "hidden_trick_count": 1,
+          "full_hand": [
+            {
+              "deck_index": 12,
+              "name": "뇌고왕",
+              "card_description": "즉시 사용 효과",
+              "is_hidden": false,
+              "is_usable": true
+            },
+            {
+              "deck_index": 17,
+              "name": "객주",
+              "card_description": "상황 대응 카드",
+              "is_hidden": false,
+              "is_usable": true
+            },
+            {
+              "deck_index": 25,
+              "name": "호객꾼",
+              "card_description": "숨긴 카드",
+              "is_hidden": true,
+              "is_usable": false
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "expected": {
+    "prompt": {
+      "active": {
+        "surface": {
+          "kind": "trick_to_use",
+          "blocks_public_events": true,
+          "hand_choice": {
+            "mode": "use",
+            "pass_choice_id": "none",
+            "cards": [
+              {
+                "choice_id": "12",
+                "deck_index": 12,
+                "name": "뇌고왕",
+                "description": "즉시 사용 효과",
+                "is_hidden": false,
+                "is_usable": true
+              },
+              {
+                "choice_id": "17",
+                "deck_index": 17,
+                "name": "객주",
+                "description": "상황 대응 카드",
+                "is_hidden": false,
+                "is_usable": true
+              },
+              {
+                "choice_id": null,
+                "deck_index": 25,
+                "name": "호객꾼",
+                "description": "숨긴 카드",
+                "is_hidden": true,
+                "is_usable": false
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

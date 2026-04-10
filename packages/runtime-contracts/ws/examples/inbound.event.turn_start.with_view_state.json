@@ -1,0 +1,119 @@
+{
+  "type": "event",
+  "seq": 200,
+  "session_id": "sess_turn_stage_example",
+  "server_time_ms": 1743211200000,
+  "payload": {
+    "event_type": "turn_start",
+    "round_index": 3,
+    "turn_index": 8,
+    "acting_player_id": 2,
+    "character": "교리 연구관",
+    "view_state": {
+      "scene": {
+        "situation": {
+          "actor_player_id": 2,
+          "round_index": 3,
+          "turn_index": 8,
+          "headline_seq": 201,
+          "headline_message_type": "event",
+          "headline_event_code": "player_move",
+          "weather_name": "긴급 피난",
+          "weather_effect": "모든 짐 제거 비용이 2배가 됩니다."
+        },
+        "theater_feed": [
+          {
+            "seq": 201,
+            "message_type": "event",
+            "event_code": "player_move",
+            "tone": "move",
+            "lane": "core",
+            "actor_player_id": 2,
+            "round_index": 3,
+            "turn_index": 8
+          },
+          {
+            "seq": 200,
+            "message_type": "event",
+            "event_code": "turn_start",
+            "tone": "system",
+            "lane": "core",
+            "actor_player_id": 2,
+            "round_index": 3,
+            "turn_index": 8
+          }
+        ],
+        "core_action_feed": [
+          {
+            "seq": 201,
+            "event_code": "player_move",
+            "actor_player_id": 2,
+            "round_index": 3,
+            "turn_index": 8
+          },
+          {
+            "seq": 200,
+            "event_code": "turn_start",
+            "actor_player_id": 2,
+            "round_index": 3,
+            "turn_index": 8
+          }
+        ],
+        "timeline": [
+          {
+            "seq": 201,
+            "message_type": "event",
+            "event_code": "player_move"
+          },
+          {
+            "seq": 200,
+            "message_type": "event",
+            "event_code": "turn_start"
+          }
+        ],
+        "critical_alerts": [
+          {
+            "seq": 199,
+            "message_type": "event",
+            "event_code": "decision_timeout_fallback",
+            "severity": "warning"
+          }
+        ]
+      },
+      "turn_stage": {
+        "turn_start_seq": 200,
+        "actor_player_id": 2,
+        "round_index": 3,
+        "turn_index": 8,
+        "character": "교리 연구관",
+        "weather_name": "긴급 피난",
+        "weather_effect": "모든 짐 제거 비용이 2배가 됩니다.",
+        "current_beat_kind": "decision",
+        "current_beat_event_code": "prompt_active",
+        "current_beat_request_type": "draft_card",
+        "current_beat_seq": 201,
+        "focus_tile_index": null,
+        "focus_tile_indices": [],
+        "prompt_request_type": "draft_card",
+        "external_ai_worker_id": "-",
+        "external_ai_failure_code": "-",
+        "external_ai_fallback_mode": "-",
+        "external_ai_resolution_status": "-",
+        "external_ai_attempt_count": null,
+        "external_ai_attempt_limit": null,
+        "external_ai_ready_state": "-",
+        "external_ai_policy_mode": "-",
+        "external_ai_worker_adapter": "-",
+        "external_ai_policy_class": "-",
+        "external_ai_decision_style": "-",
+        "actor_cash": null,
+        "actor_shards": null,
+        "actor_hand_coins": null,
+        "actor_placed_coins": null,
+        "actor_total_score": null,
+        "actor_owned_tile_count": null,
+        "progress_codes": ["turn_start", "prompt_active"]
+      }
+    }
+  }
+}

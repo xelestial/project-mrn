@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "required": ["case_id", "metadata", "messages", "expected"],
+  "properties": {
+    "case_id": { "type": "string", "minLength": 1 },
+    "metadata": {
+      "type": "object",
+      "required": ["actor_player_id", "actor_character", "expected_visible_target_characters"],
+      "properties": {
+        "actor_player_id": { "type": "integer", "minimum": 1 },
+        "actor_character": { "type": "string", "minLength": 1 },
+        "expected_visible_target_characters": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "messages": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "expected": {
+      "type": "object",
+      "required": ["players", "active_slots", "mark_target"],
+      "properties": {
+        "players": { "type": "object" },
+        "active_slots": { "type": "object" },
+        "mark_target": { "type": "object" }
+      }
+    }
+  }
+}

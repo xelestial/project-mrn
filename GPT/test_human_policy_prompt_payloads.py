@@ -31,6 +31,8 @@ def _wait_pending(policy: HumanHttpPolicy, timeout_s: float = 1.0):
 
 def _fake_state() -> SimpleNamespace:
     return SimpleNamespace(
+        rounds_completed=0,
+        turn_index=0,
         active_by_card={1: "어사", 2: "자객"},
         config=SimpleNamespace(
             characters=SimpleNamespace(),
@@ -115,6 +117,8 @@ def test_hidden_trick_prompt_contains_full_hand_context():
 
     assert pending["request_type"] == "hidden_trick_card"
     public_context = pending["public_context"]
+    assert public_context["round_index"] == 1
+    assert public_context["turn_index"] == 1
     full_hand = public_context.get("full_hand")
     assert isinstance(full_hand, list)
     assert len(full_hand) == 3

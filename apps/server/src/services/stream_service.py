@@ -5,6 +5,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 
+from apps.server.src.domain.view_state import project_view_state
 from apps.server.src.services.persistence import StreamStore
 
 
@@ -49,13 +50,29 @@ class StreamService:
 
     async def publish(self, session_id: str, msg_type: str, payload: dict) -> StreamMessage:
         async with self._lock:
+            enriched_payload = dict(payload)
+            history = [item.to_dict() for item in self._buffers.get(session_id, [])]
+            projected = project_view_state(
+                [
+                    *history,
+                    {
+                        "type": msg_type,
+                        "seq": self._seq[session_id] + 1,
+                        "session_id": session_id,
+                        "server_time_ms": int(time.time() * 1000),
+                        "payload": enriched_payload,
+                    },
+                ]
+            )
+            if projected:
+                enriched_payload["view_state"] = projected
             self._seq[session_id] += 1
             item = StreamMessage(
                 type=msg_type,
                 seq=self._seq[session_id],
                 session_id=session_id,
                 server_time_ms=int(time.time() * 1000),
-                payload=payload,
+                payload=enriched_payload,
             )
             buf = self._buffers[session_id]
             buf.append(item)

@@ -9,6 +9,8 @@ import type { LocaleMessages } from "../../i18n/types";
 import { eventLabelForCode, nonEventLabelForMessageType } from "../labels/eventLabelCatalog";
 import { toneForEventCode } from "../labels/eventToneCatalog";
 import { promptLabelForType } from "../labels/promptTypeCatalog";
+import { charactersForPrioritySlot, oppositeCharacterForSlot, prioritySlotForCharacter } from "../characters/prioritySlots";
+import { selectActivePrompt } from "./promptSelectors";
 
 export type TimelineItem = {
   seq: number;
@@ -126,6 +128,43 @@ export type PlayerViewModel = {
   totalScore: number;
   hiddenTrickCount: number;
   ownedTileCount: number;
+  publicTricks: string[];
+  trickCount: number;
+};
+
+export type DerivedPlayerViewModel = PlayerViewModel & {
+  prioritySlot: number | null;
+  currentCharacterFace: string;
+  isMarkerOwner: boolean;
+  isCurrentActor: boolean;
+  isLocalPlayer: boolean;
+};
+
+export type ActiveCharacterSlotViewModel = {
+  slot: number;
+  playerId: number | null;
+  label: string | null;
+  character: string | null;
+  inactiveCharacter: string | null;
+  isCurrentActor: boolean;
+  isLocalPlayer: boolean;
+};
+
+export type MarkTargetSlotViewModel = {
+  slot: number;
+  playerId: number | null;
+  label: string | null;
+  character: string;
+};
+
+export type CurrentTurnRevealItem = {
+  seq: number;
+  eventCode: string;
+  label: string;
+  detail: string;
+  tone: "move" | "effect" | "economy";
+  focusTileIndex: number | null;
+  isInterrupt: boolean;
 };
 
 export type TileViewModel = {
@@ -134,6 +173,7 @@ export type TileViewModel = {
   zoneColor: string;
   purchaseCost: number | null;
   rentCost: number | null;
+  scoreCoinCount: number;
   ownerPlayerId: number | null;
   pawnPlayerIds: number[];
 };
@@ -142,9 +182,95 @@ export type SnapshotViewModel = {
   round: number;
   turn: number;
   markerOwnerPlayerId: number | null;
+  markerDraftDirection: "clockwise" | "counterclockwise" | null;
   fValue: number;
+  currentRoundOrder: number[];
+  activeByCard: Record<number, string>;
   players: PlayerViewModel[];
   tiles: TileViewModel[];
+};
+
+type BackendDerivedPlayerItem = {
+  player_id: number;
+  display_name: string;
+  cash: number;
+  shards: number;
+  owned_tile_count: number;
+  trick_count: number;
+  hand_coins: number;
+  placed_coins: number;
+  total_score: number;
+  priority_slot: number | null;
+  current_character_face: string;
+  is_marker_owner: boolean;
+  is_current_actor: boolean;
+};
+
+type BackendActiveSlotItem = {
+  slot: number;
+  player_id: number | null;
+  label: string | null;
+  character: string | null;
+  inactive_character: string | null;
+  is_current_actor: boolean;
+};
+
+type BackendMarkTargetCandidate = {
+  slot: number;
+  player_id: number | null;
+  label: string | null;
+  character: string;
+};
+
+type BackendSceneSituationProjection = {
+  actorPlayerId: number | null;
+  roundIndex: number | null;
+  turnIndex: number | null;
+  headlineSeq: number | null;
+  headlineMessageType: string;
+  headlineEventCode: string;
+  weatherName: string;
+  weatherEffect: string;
+};
+
+type BackendSceneTheaterItemProjection = {
+  seq: number;
+  messageType: string;
+  eventCode: string;
+  tone: TheaterItem["tone"];
+  lane: TheaterItem["lane"];
+  actorPlayerId: number | null;
+  roundIndex: number | null;
+  turnIndex: number | null;
+};
+
+type BackendSceneCoreActionItemProjection = {
+  seq: number;
+  eventCode: string;
+  actorPlayerId: number | null;
+  roundIndex: number | null;
+  turnIndex: number | null;
+};
+
+type BackendSceneTimelineItemProjection = {
+  seq: number;
+  messageType: string;
+  eventCode: string;
+};
+
+type BackendSceneCriticalAlertProjection = {
+  seq: number;
+  messageType: string;
+  eventCode: string;
+  severity: AlertItem["severity"];
+};
+
+type BackendSceneProjection = {
+  situation: BackendSceneSituationProjection | null;
+  theaterFeed: BackendSceneTheaterItemProjection[];
+  coreActionFeed: BackendSceneCoreActionItemProjection[];
+  timeline: BackendSceneTimelineItemProjection[];
+  criticalAlerts: BackendSceneCriticalAlertProjection[];
 };
 
 export type ParameterManifestViewModel = {
@@ -182,6 +308,33 @@ function asNumberText(value: unknown): string {
 
 function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function integerArray(value: unknown): number[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is number => typeof item === "number" && Number.isFinite(item));
+}
+
+function scoreCoinCountFromRecord(raw: Record<string, unknown>): number {
+  if (typeof raw["score_coin_count"] === "number") {
+    return raw["score_coin_count"];
+  }
+  if (typeof raw["score_coins"] === "number") {
+    return raw["score_coins"];
+  }
+  if (typeof raw["tile_score_coins"] === "number") {
+    return raw["tile_score_coins"];
+  }
+  return 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -578,6 +731,23 @@ export function selectTimeline(
   limit = 12,
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): TimelineItem[] {
+  const backendScene = selectBackendScene(messages);
+  if (backendScene) {
+    const safeLimit = Math.max(1, limit);
+    const messageBySeq = selectMessageBySeq(messages);
+    return backendScene.timeline.slice(0, safeLimit).map((item) => {
+      const sourceMessage = messageBySeq.get(item.seq);
+      return {
+        seq: item.seq,
+        label: sourceMessage
+          ? pickMessageLabel(sourceMessage, text)
+          : item.messageType !== "event"
+            ? nonEventLabelForMessageType(item.messageType as InboundMessage["type"], text.eventLabel)
+            : eventLabelForCode(item.eventCode, text.eventLabel),
+        detail: sourceMessage ? pickMessageDetail(sourceMessage, text) : "",
+      };
+    });
+  }
   return messages
     .slice(-limit)
     .map((message) => ({
@@ -628,6 +798,28 @@ const CORE_EVENT_CODES = new Set<string>([
   "turn_end_snapshot",
 ]);
 
+const CURRENT_TURN_REVEAL_EVENT_CODES = new Set<string>([
+  "weather_reveal",
+  "dice_roll",
+  "player_move",
+  "landing_resolved",
+  "tile_purchased",
+  "rent_paid",
+  "fortune_drawn",
+  "fortune_resolved",
+]);
+
+const CURRENT_TURN_REVEAL_ORDER: Record<string, number> = {
+  weather_reveal: 10,
+  dice_roll: 20,
+  player_move: 30,
+  landing_resolved: 40,
+  rent_paid: 50,
+  tile_purchased: 50,
+  fortune_drawn: 60,
+  fortune_resolved: 70,
+};
+
 const PROMPT_EVENT_CODES = new Set<string>(["decision_requested", "decision_resolved", "decision_timeout_fallback"]);
 
 function laneFromMessage(message: InboundMessage): TheaterItem["lane"] {
@@ -665,6 +857,27 @@ export function selectTheaterFeed(
   limit = 20,
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): TheaterItem[] {
+  const backendScene = selectBackendScene(messages);
+  if (backendScene) {
+    const safeLimit = Math.max(1, limit);
+    const messageBySeq = selectMessageBySeq(messages);
+    return backendScene.theaterFeed.slice(0, safeLimit).map((item) => {
+      const sourceMessage = messageBySeq.get(item.seq);
+      return {
+        seq: item.seq,
+        label: sourceMessage
+          ? pickMessageLabel(sourceMessage, text)
+          : item.messageType !== "event"
+            ? nonEventLabelForMessageType(item.messageType as InboundMessage["type"], text.eventLabel)
+            : eventLabelForCode(item.eventCode, text.eventLabel),
+        detail: sourceMessage ? pickMessageDetail(sourceMessage, text) : "",
+        tone: item.tone,
+        lane: item.lane,
+        actor: item.actorPlayerId !== null ? playerLabel(item.actorPlayerId, text) : "-",
+        eventCode: item.eventCode,
+      };
+    });
+  }
   const safeLimit = Math.max(1, limit);
   const coreCap = Math.max(1, Math.floor(safeLimit * 0.5));
   const promptCap = Math.max(1, Math.floor(safeLimit * 0.3));
@@ -757,6 +970,24 @@ export function selectCriticalAlerts(
   limit = 4,
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): AlertItem[] {
+  const backendScene = selectBackendScene(messages);
+  if (backendScene) {
+    const safeLimit = Math.max(1, limit);
+    const messageBySeq = selectMessageBySeq(messages);
+    return backendScene.criticalAlerts.slice(0, safeLimit).map((item) => {
+      const sourceMessage = messageBySeq.get(item.seq);
+      return {
+        seq: item.seq,
+        severity: item.severity,
+        title: sourceMessage
+          ? pickMessageLabel(sourceMessage, text)
+          : item.messageType !== "event"
+            ? nonEventLabelForMessageType(item.messageType as InboundMessage["type"], text.eventLabel)
+            : eventLabelForCode(item.eventCode, text.eventLabel),
+        detail: sourceMessage ? pickMessageDetail(sourceMessage, text) || "-" : "-",
+      };
+    });
+  }
   const alerts: AlertItem[] = [];
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const alert = alertFromEvent(messages[i], text);
@@ -829,7 +1060,7 @@ function isCoreActionMessage(message: InboundMessage): boolean {
     return false;
   }
   const eventCode = messageKindFromPayload(message.payload);
-  return CORE_EVENT_CODES.has(eventCode);
+  return CORE_EVENT_CODES.has(eventCode) || eventCode === "decision_timeout_fallback";
 }
 
 export function selectCoreActionFeed(
@@ -838,6 +1069,24 @@ export function selectCoreActionFeed(
   limit = 10,
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): CoreActionItem[] {
+  const backendScene = selectBackendScene(messages);
+  if (backendScene) {
+    const safeLimit = Math.max(1, limit);
+    const messageBySeq = selectMessageBySeq(messages);
+    return backendScene.coreActionFeed.slice(0, safeLimit).map((item) => {
+      const sourceMessage = messageBySeq.get(item.seq);
+      return {
+        seq: item.seq,
+        actor: item.actorPlayerId !== null ? playerLabel(item.actorPlayerId, text) : "-",
+        eventCode: item.eventCode,
+        round: item.roundIndex,
+        turn: item.turnIndex,
+        label: sourceMessage ? pickMessageLabel(sourceMessage, text) : eventLabelForCode(item.eventCode, text.eventLabel),
+        detail: sourceMessage ? pickMessageDetail(sourceMessage, text) : "",
+        isLocalActor: focusPlayerId !== null && item.actorPlayerId === focusPlayerId,
+      };
+    });
+  }
   const safeLimit = Math.max(1, limit);
   const rows: CoreActionItem[] = [];
   for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -895,6 +1144,25 @@ export function selectSituation(
   messages: InboundMessage[],
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): SituationViewModel {
+  const backendScene = selectBackendScene(messages);
+  if (backendScene?.situation) {
+    const messageBySeq = selectMessageBySeq(messages);
+    const sourceMessage =
+      backendScene.situation.headlineSeq !== null ? messageBySeq.get(backendScene.situation.headlineSeq) ?? null : null;
+    const eventType = sourceMessage
+      ? pickMessageLabel(sourceMessage, text)
+      : backendScene.situation.headlineMessageType !== "event"
+        ? nonEventLabelForMessageType(backendScene.situation.headlineMessageType as InboundMessage["type"], text.eventLabel)
+        : eventLabelForCode(backendScene.situation.headlineEventCode, text.eventLabel);
+    return {
+      actor: backendScene.situation.actorPlayerId !== null ? playerLabel(backendScene.situation.actorPlayerId, text) : "-",
+      round: backendScene.situation.roundIndex !== null ? String(backendScene.situation.roundIndex) : "-",
+      turn: backendScene.situation.turnIndex !== null ? String(backendScene.situation.turnIndex) : "-",
+      eventType,
+      weather: backendScene.situation.weatherName,
+      weatherEffect: backendScene.situation.weatherEffect,
+    };
+  }
   const last = latestSituationMessage(messages);
   if (!last) {
     return { actor: "-", round: "-", turn: "-", eventType: "-", weather: "-", weatherEffect: "-" };
@@ -1020,9 +1288,18 @@ function promptFocusTileIndex(payload: Record<string, unknown>): number | null {
 function promptFocusTileIndices(payload: Record<string, unknown>): number[] {
   const publicContext = isRecord(payload["public_context"]) ? payload["public_context"] : null;
   const contextTileIndex = numberOrNull(publicContext?.["tile_index"]);
+  const landingTileIndex = numberOrNull(publicContext?.["landing_tile_index"]);
   const contextCandidateTiles = Array.isArray(publicContext?.["candidate_tiles"])
     ? publicContext["candidate_tiles"].map((item) => numberOrNull(item)).filter((item): item is number => item !== null)
     : [];
+  if (landingTileIndex !== null) {
+    const ordered = [landingTileIndex, contextTileIndex, ...contextCandidateTiles].filter(
+      (item, index, items): item is number => item !== null && items.indexOf(item) === index
+    );
+    if (ordered.length > 0) {
+      return ordered;
+    }
+  }
   if (contextTileIndex !== null && contextCandidateTiles.length > 0) {
     return [contextTileIndex, ...contextCandidateTiles.filter((item) => item !== contextTileIndex)];
   }
@@ -1080,7 +1357,7 @@ function updateActorStatusFromContext(model: TurnStageViewModel, payload: Record
 }
 
 function isPreCharacterSelectionRequestType(requestType: string): boolean {
-  return requestType === "draft_card" || requestType === "final_character";
+  return requestType === "draft_card" || requestType === "final_character" || requestType === "final_character_choice";
 }
 
 function updateActorFromPrompt(
@@ -1120,6 +1397,7 @@ export function selectTurnStage(
   messages: InboundMessage[],
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): TurnStageViewModel {
+  const backendTurnStage = selectBackendTurnStage(messages);
   const weather = findPersistedWeather(messages, text);
   const fallback: TurnStageViewModel = {
     turnStartSeq: null,
@@ -1464,10 +1742,141 @@ export function selectTurnStage(
 
   model.progressTrail = trail.slice(-6);
 
+  if (backendTurnStage) {
+    const messageBySeq = new Map<number, InboundMessage>();
+    for (const message of messages) {
+      messageBySeq.set(message.seq, message);
+    }
+    model.turnStartSeq = backendTurnStage.turnStartSeq;
+    model.actorPlayerId = backendTurnStage.actorPlayerId;
+    model.actor = backendTurnStage.actorPlayerId === null ? "-" : playerLabel(backendTurnStage.actorPlayerId, text);
+    model.round = backendTurnStage.round;
+    model.turn = backendTurnStage.turn;
+    model.character = backendTurnStage.character;
+    model.weatherName = backendTurnStage.weatherName;
+    model.weatherEffect = backendTurnStage.weatherEffect;
+    model.currentBeatKind = backendTurnStage.currentBeatKind;
+    model.focusTileIndex = backendTurnStage.focusTileIndex;
+    model.focusTileIndices = backendTurnStage.focusTileIndices;
+    model.promptRequestType = backendTurnStage.promptRequestType;
+    model.externalAiWorkerId = backendTurnStage.externalAiWorkerId;
+    model.externalAiFailureCode = backendTurnStage.externalAiFailureCode;
+    model.externalAiFallbackMode = backendTurnStage.externalAiFallbackMode;
+    model.externalAiResolutionStatus = backendTurnStage.externalAiResolutionStatus;
+    model.externalAiAttemptCount = backendTurnStage.externalAiAttemptCount;
+    model.externalAiAttemptLimit = backendTurnStage.externalAiAttemptLimit;
+    model.externalAiReadyState = backendTurnStage.externalAiReadyState;
+    model.externalAiPolicyMode = backendTurnStage.externalAiPolicyMode;
+    model.externalAiWorkerAdapter = backendTurnStage.externalAiWorkerAdapter;
+    model.externalAiPolicyClass = backendTurnStage.externalAiPolicyClass;
+    model.externalAiDecisionStyle = backendTurnStage.externalAiDecisionStyle;
+    model.actorCash = backendTurnStage.actorCash;
+    model.actorShards = backendTurnStage.actorShards;
+    model.actorHandCoins = backendTurnStage.actorHandCoins;
+    model.actorPlacedCoins = backendTurnStage.actorPlacedCoins;
+    model.actorTotalScore = backendTurnStage.actorTotalScore;
+    model.actorOwnedTileCount = backendTurnStage.actorOwnedTileCount;
+    model.currentBeatLabel = labelForTurnStageCode(
+      backendTurnStage.currentBeatEventCode,
+      backendTurnStage.currentBeatRequestType,
+      text
+    );
+    const beatSource =
+      backendTurnStage.currentBeatSeq === null ? null : messageBySeq.get(backendTurnStage.currentBeatSeq) ?? null;
+    model.currentBeatDetail =
+      backendTurnStage.currentBeatEventCode === "prompt_active"
+        ? text.stream.promptWaiting(promptLabelForType(backendTurnStage.currentBeatRequestType, text.promptType))
+        : beatSource
+          ? pickMessageDetail(beatSource, text) || "-"
+          : model.currentBeatDetail;
+    model.latestActionLabel = model.currentBeatLabel;
+    model.latestActionDetail = model.currentBeatDetail;
+    if (backendTurnStage.progressCodes.length > 0) {
+      model.progressTrail = backendTurnStage.progressCodes
+        .map((code) => labelForTurnStageCode(code, backendTurnStage.promptRequestType, text))
+        .filter((label) => label !== "-")
+        .slice(-6);
+    }
+  }
+
   return model;
 }
 
+export function selectCurrentTurnRevealItems(
+  messages: InboundMessage[],
+  limit = 6,
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): CurrentTurnRevealItem[] {
+  const safeLimit = Math.max(1, limit);
+  const backendItems = selectBackendCurrentTurnRevealItems(messages);
+  if (backendItems && backendItems.length > 0) {
+    return backendItems.slice(-safeLimit);
+  }
+  let turnStartIndex = -1;
+  let targetRound: number | null = null;
+  let targetTurn: number | null = null;
+
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.type !== "event" || messageKindFromPayload(message.payload) !== "turn_start") {
+      continue;
+    }
+    turnStartIndex = i;
+    targetRound = numberOrNull(message.payload["round_index"]);
+    targetTurn = numberOrNull(message.payload["turn_index"]);
+    break;
+  }
+
+  if (turnStartIndex < 0) {
+    return [];
+  }
+
+  const items: CurrentTurnRevealItem[] = [];
+  for (let i = turnStartIndex + 1; i < messages.length; i += 1) {
+    const message = messages[i];
+    if (message.type !== "event") {
+      continue;
+    }
+    if (!sameRoundTurn(message.payload, targetRound, targetTurn)) {
+      continue;
+    }
+    const eventCode = messageKindFromPayload(message.payload);
+    if (!CURRENT_TURN_REVEAL_EVENT_CODES.has(eventCode)) {
+      continue;
+    }
+    items.push({
+      seq: message.seq,
+      eventCode,
+      label: pickMessageLabel(message, text),
+      detail: pickMessageDetail(message, text) || "-",
+      tone:
+        eventCode === "dice_roll" || eventCode === "player_move"
+          ? "move"
+          : eventCode === "tile_purchased" || eventCode === "rent_paid"
+            ? "economy"
+            : "effect",
+      focusTileIndex: focusTileIndexFromPayload(message.payload, eventCode),
+      isInterrupt: eventCode === "weather_reveal" || eventCode === "fortune_drawn" || eventCode === "fortune_resolved",
+    });
+  }
+
+  items.sort((left, right) => {
+    const leftOrder = CURRENT_TURN_REVEAL_ORDER[left.eventCode] ?? 999;
+    const rightOrder = CURRENT_TURN_REVEAL_ORDER[right.eventCode] ?? 999;
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+    return left.seq - right.seq;
+  });
+
+  return items.slice(-safeLimit);
+}
+
 export function selectLastMove(messages: InboundMessage[]): LastMoveViewModel | null {
+  const backendMove = selectBackendLastMove(messages);
+  if (backendMove) {
+    return backendMove;
+  }
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
     if (message.type !== "event" || messageKindFromPayload(message.payload) !== "player_move") {
@@ -1493,6 +1902,8 @@ function toPlayerViewModel(raw: unknown): PlayerViewModel | null {
   if (typeof playerId !== "number") {
     return null;
   }
+  const publicTricks = stringArray(raw["public_tricks"]);
+  const hiddenTrickCount = typeof raw["hidden_trick_count"] === "number" ? raw["hidden_trick_count"] : 0;
   return {
     playerId,
     displayName: typeof raw["display_name"] === "string" ? raw["display_name"] : `Player ${playerId}`,
@@ -1524,8 +1935,13 @@ function toPlayerViewModel(raw: unknown): PlayerViewModel | null {
               : typeof raw["score_coins_placed"] === "number"
                 ? raw["score_coins_placed"]
                 : 0),
-    hiddenTrickCount: typeof raw["hidden_trick_count"] === "number" ? raw["hidden_trick_count"] : 0,
+    hiddenTrickCount,
     ownedTileCount: typeof raw["owned_tile_count"] === "number" ? raw["owned_tile_count"] : 0,
+    publicTricks,
+    trickCount:
+      typeof raw["trick_count"] === "number"
+        ? raw["trick_count"]
+        : publicTricks.length + hiddenTrickCount,
   };
 }
 
@@ -1544,6 +1960,7 @@ function toTileViewModel(raw: unknown, fallbackTileIndex: number | null = null):
     zoneColor: typeof raw["zone_color"] === "string" ? raw["zone_color"] : "",
     purchaseCost: typeof raw["purchase_cost"] === "number" ? raw["purchase_cost"] : null,
     rentCost: typeof raw["rent_cost"] === "number" ? raw["rent_cost"] : null,
+    scoreCoinCount: scoreCoinCountFromRecord(raw),
     ownerPlayerId: typeof raw["owner_player_id"] === "number" ? raw["owner_player_id"] : null,
     pawnPlayerIds: Array.isArray(raw["pawn_player_ids"])
       ? raw["pawn_player_ids"].filter((v): v is number => typeof v === "number")
@@ -1573,12 +1990,31 @@ function snapshotFromMessage(message: InboundMessage): SnapshotViewModel | null 
   const tiles = tilesSource.map((tile, index) => toTileViewModel(tile, index)).filter((item): item is TileViewModel => item !== null);
 
   const markerOwner = snapshotBoard?.["marker_owner_player_id"];
+  const markerDraftDirection =
+    markerDraftDirectionFromRecord(snapshotBoard) ?? markerDraftDirectionFromRecord(message.payload);
   const fValue = snapshotBoard?.["f_value"];
+  const currentRoundOrder = Array.from(
+    new Set(
+      integerArray(explicitSnapshot?.["current_round_order"] ?? message.payload["order"]).map((value) =>
+        value >= 1 ? Math.trunc(value) : value
+      )
+    )
+  ).filter((value) => value >= 1);
+  const activeByCardRaw = isRecord(explicitSnapshot?.["active_by_card"])
+    ? explicitSnapshot["active_by_card"]
+    : isRecord(message.payload["active_by_card"])
+      ? message.payload["active_by_card"]
+      : null;
+  const activeByCard: Record<number, string> = {};
+  mergeActiveByCard(activeByCard, activeByCardRaw);
   return {
     round,
     turn,
     markerOwnerPlayerId: typeof markerOwner === "number" ? markerOwner : null,
+    markerDraftDirection,
     fValue: typeof fValue === "number" ? fValue : 0,
+    currentRoundOrder,
+    activeByCard,
     players,
     tiles,
   };
@@ -1628,6 +2064,651 @@ function overlayLiveActorOnPlayers(players: PlayerViewModel[], stage: TurnStageV
   });
 }
 
+function mergeActiveByCard(target: Record<number, string>, raw: unknown): void {
+  if (!isRecord(raw)) {
+    return;
+  }
+  for (const [key, value] of Object.entries(raw)) {
+    const cardNo = Number.parseInt(key, 10);
+    if (!Number.isFinite(cardNo) || cardNo < 1) {
+      continue;
+    }
+    if (typeof value === "string" && value.trim()) {
+      target[cardNo] = value;
+    }
+  }
+}
+
+function markerDraftDirectionFromRecord(raw: unknown): "clockwise" | "counterclockwise" | null {
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const value = raw["marker_draft_direction"] ?? raw["draft_direction"];
+  return value === "clockwise" || value === "counterclockwise" ? value : null;
+}
+
+function mergePromptContextActiveByCard(target: Record<number, string>, publicContext: unknown): void {
+  if (!isRecord(publicContext)) {
+    return;
+  }
+  mergeActiveByCard(target, publicContext["active_by_card"]);
+
+  const actorName = publicContext["actor_name"];
+  if (typeof actorName === "string" && actorName.trim()) {
+    const actorSlot = prioritySlotForCharacter(actorName);
+    if (actorSlot !== null) {
+      target[actorSlot] = actorName;
+    }
+  }
+
+  const targetPairs = publicContext["target_pairs"];
+  if (!Array.isArray(targetPairs)) {
+    return;
+  }
+  for (const item of targetPairs) {
+    if (!isRecord(item)) {
+      continue;
+    }
+    const cardNo = numberOrNull(item["target_card_no"]);
+    const targetCharacter = item["target_character"];
+    if (cardNo === null || typeof targetCharacter !== "string" || !targetCharacter.trim()) {
+      continue;
+    }
+    target[cardNo] = targetCharacter;
+  }
+}
+
+function mergeMarkTargetPromptActiveByCard(target: Record<number, string>, payload: Record<string, unknown>): void {
+  const requestType = asString(payload["request_type"]);
+  if (requestType !== "mark_target") {
+    return;
+  }
+
+  const publicContext = isRecord(payload["public_context"]) ? payload["public_context"] : null;
+  const actorName = asString(publicContext?.["actor_name"] ?? payload["actor_name"] ?? payload["character"]);
+  if (actorName !== "-") {
+    const actorSlot = prioritySlotForCharacter(actorName);
+    if (actorSlot !== null) {
+      target[actorSlot] = actorName;
+    }
+  }
+
+  const legalChoices = Array.isArray(payload["legal_choices"]) ? payload["legal_choices"] : [];
+  for (const item of legalChoices) {
+    if (!isRecord(item)) {
+      continue;
+    }
+    const choiceId = asString(item["choice_id"]);
+    if (choiceId === "none" || choiceId === "no") {
+      continue;
+    }
+    const value = isRecord(item["value"]) ? item["value"] : null;
+    const targetCharacter = asString(value?.["target_character"] ?? item["target_character"] ?? item["title"] ?? item["label"]);
+    if (targetCharacter === "-") {
+      continue;
+    }
+    const targetSlot = prioritySlotForCharacter(targetCharacter);
+    if (targetSlot !== null) {
+      target[targetSlot] = targetCharacter;
+    }
+  }
+}
+
+function mergeNormalizedPromptActiveByCard(messages: InboundMessage[], target: Record<number, string>): void {
+  const activePrompt = selectActivePrompt(messages);
+  if (!activePrompt) {
+    return;
+  }
+  mergePromptContextActiveByCard(target, activePrompt.publicContext);
+  if (activePrompt.requestType !== "mark_target") {
+    return;
+  }
+  for (const choice of activePrompt.choices) {
+    if (choice.choiceId === "none" || choice.choiceId === "no") {
+      continue;
+    }
+    const targetCharacter = asString(choice.value?.["target_character"] ?? choice.title);
+    if (targetCharacter === "-") {
+      continue;
+    }
+    const targetSlot =
+      numberOrNull(choice.value?.["target_card_no"]) ?? prioritySlotForCharacter(targetCharacter);
+    if (targetSlot !== null) {
+      target[targetSlot] = targetCharacter;
+    }
+  }
+}
+
+function clearActiveByCard(target: Record<number, string>): void {
+  for (const key of Object.keys(target)) {
+    delete target[Number(key)];
+  }
+}
+
+function shouldResetActiveByCard(eventCode: string): boolean {
+  return (
+    eventCode === "turn_start" ||
+    eventCode === "round_start" ||
+    eventCode === "round_order"
+  );
+}
+
+function collectActiveByCardUntil(messages: InboundMessage[], endIndex: number): Record<number, string> {
+  const activeByCard: Record<number, string> = {};
+  for (let i = 0; i <= endIndex && i < messages.length; i += 1) {
+    const message = messages[i];
+    if (message.type === "prompt") {
+      const publicContext = isRecord(message.payload["public_context"]) ? message.payload["public_context"] : null;
+      mergePromptContextActiveByCard(activeByCard, publicContext);
+      mergeMarkTargetPromptActiveByCard(activeByCard, message.payload);
+      continue;
+    }
+    if (message.type !== "event") {
+      continue;
+    }
+    const eventCode = messageKindFromPayload(message.payload);
+    if (shouldResetActiveByCard(eventCode)) {
+      clearActiveByCard(activeByCard);
+    }
+    mergeActiveByCard(activeByCard, message.payload["active_by_card"]);
+    const snapshot = isRecord(message.payload["snapshot"]) ? message.payload["snapshot"] : null;
+    mergeActiveByCard(activeByCard, snapshot?.["active_by_card"]);
+    const publicContext = isRecord(message.payload["public_context"]) ? message.payload["public_context"] : null;
+    mergeActiveByCard(activeByCard, publicContext?.["active_by_card"]);
+    if (eventCode !== "marker_flip") {
+      continue;
+    }
+    const cardNo = numberOrNull(message.payload["card_no"]);
+    const toCharacter = message.payload["to_character"];
+    if (cardNo !== null && typeof toCharacter === "string" && toCharacter.trim()) {
+      activeByCard[cardNo] = toCharacter;
+    }
+  }
+  mergeNormalizedPromptActiveByCard(messages.slice(0, Math.min(endIndex + 1, messages.length)), activeByCard);
+  return activeByCard;
+}
+
+function resolvePublicPrioritySlots(
+  players: PlayerViewModel[],
+  currentActorPlayerId: number | null
+): Map<number, number | null> {
+  const slotOwners = new Map<number, number[]>();
+  for (const player of players) {
+    const slot = prioritySlotForCharacter(player.character);
+    if (slot === null) {
+      continue;
+    }
+    const owners = slotOwners.get(slot) ?? [];
+    owners.push(player.playerId);
+    slotOwners.set(slot, owners);
+  }
+
+  const resolved = new Map<number, number | null>();
+  for (const player of players) {
+    const slot = prioritySlotForCharacter(player.character);
+    if (slot === null) {
+      resolved.set(player.playerId, null);
+      continue;
+    }
+    const owners = slotOwners.get(slot) ?? [];
+    if (owners.length <= 1) {
+      resolved.set(player.playerId, slot);
+      continue;
+    }
+    resolved.set(player.playerId, currentActorPlayerId === player.playerId ? slot : null);
+  }
+  return resolved;
+}
+
+function selectBackendMarkerOrderedPlayerIds(messages: InboundMessage[]): number[] | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const payload = isRecord(messages[i].payload) ? messages[i].payload : null;
+    const viewState = isRecord(payload?.["view_state"]) ? payload?.["view_state"] : null;
+    const players = isRecord(viewState?.["players"]) ? viewState?.["players"] : null;
+    const ordered = Array.isArray(players?.["ordered_player_ids"]) ? players?.["ordered_player_ids"] : null;
+    if (!ordered) {
+      continue;
+    }
+    const orderedIds = ordered.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    if (orderedIds.length > 0) {
+      return orderedIds;
+    }
+  }
+  return null;
+}
+
+function selectLatestBackendViewState(messages: InboundMessage[]): Record<string, unknown> | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const payload = isRecord(messages[i].payload) ? messages[i].payload : null;
+    const viewState = isRecord(payload?.["view_state"]) ? payload["view_state"] : null;
+    if (viewState) {
+      return viewState;
+    }
+  }
+  return null;
+}
+
+function selectBackendDerivedPlayers(
+  messages: InboundMessage[],
+  currentLocalPlayerId: number | null
+): DerivedPlayerViewModel[] | null {
+  const viewState = selectLatestBackendViewState(messages);
+  const players = isRecord(viewState?.["players"]) ? viewState["players"] : null;
+  const items = Array.isArray(players?.["items"]) ? players["items"] : null;
+  if (!items || items.length === 0) {
+    return null;
+  }
+  const mapped = items.map((item): DerivedPlayerViewModel | null => {
+      if (!isRecord(item) || typeof item["player_id"] !== "number") {
+        return null;
+      }
+      const playerId = item["player_id"];
+      return {
+        playerId,
+        displayName: typeof item["display_name"] === "string" ? item["display_name"] : `Player ${playerId}`,
+        character:
+          typeof item["current_character_face"] === "string" && item["current_character_face"].trim()
+            ? item["current_character_face"]
+            : "-",
+        alive: true,
+        position: 0,
+        cash: typeof item["cash"] === "number" ? item["cash"] : 0,
+        shards: typeof item["shards"] === "number" ? item["shards"] : 0,
+        handCoins: typeof item["hand_coins"] === "number" ? item["hand_coins"] : 0,
+        placedCoins: typeof item["placed_coins"] === "number" ? item["placed_coins"] : 0,
+        totalScore: typeof item["total_score"] === "number" ? item["total_score"] : 0,
+        hiddenTrickCount: 0,
+        ownedTileCount: typeof item["owned_tile_count"] === "number" ? item["owned_tile_count"] : 0,
+        publicTricks: [] as string[],
+        trickCount: typeof item["trick_count"] === "number" ? item["trick_count"] : 0,
+        prioritySlot: typeof item["priority_slot"] === "number" ? item["priority_slot"] : null,
+        currentCharacterFace:
+          typeof item["current_character_face"] === "string" && item["current_character_face"].trim()
+            ? item["current_character_face"]
+            : "-",
+        isMarkerOwner: item["is_marker_owner"] === true,
+        isCurrentActor: item["is_current_actor"] === true,
+        isLocalPlayer: currentLocalPlayerId === playerId,
+      };
+    })
+  return mapped.filter((item): item is DerivedPlayerViewModel => item !== null);
+}
+
+function selectBackendActiveCharacterSlots(
+  messages: InboundMessage[],
+  currentLocalPlayerId: number | null
+): ActiveCharacterSlotViewModel[] | null {
+  const viewState = selectLatestBackendViewState(messages);
+  const activeSlots = isRecord(viewState?.["active_slots"]) ? viewState["active_slots"] : null;
+  const items = Array.isArray(activeSlots?.["items"]) ? activeSlots["items"] : null;
+  if (!items || items.length === 0) {
+    return null;
+  }
+  const mapped = items
+    .map((item) => {
+      if (!isRecord(item) || typeof item["slot"] !== "number") {
+        return null;
+      }
+      const playerId = typeof item["player_id"] === "number" ? item["player_id"] : null;
+      return {
+        slot: item["slot"],
+        playerId,
+        label: typeof item["label"] === "string" ? item["label"] : null,
+        character: typeof item["character"] === "string" && item["character"].trim() ? item["character"] : null,
+        inactiveCharacter:
+          typeof item["inactive_character"] === "string" && item["inactive_character"].trim()
+            ? item["inactive_character"]
+            : null,
+        isCurrentActor: item["is_current_actor"] === true,
+        isLocalPlayer: playerId !== null && currentLocalPlayerId === playerId,
+      };
+    })
+    .filter((item): item is ActiveCharacterSlotViewModel => item !== null);
+  return mapped.some((item) => item.character) ? mapped : null;
+}
+
+function selectBackendMarkTargetCharacterSlots(messages: InboundMessage[]): MarkTargetSlotViewModel[] | null {
+  const viewState = selectLatestBackendViewState(messages);
+  const markTarget = isRecord(viewState?.["mark_target"]) ? viewState["mark_target"] : null;
+  const candidates = Array.isArray(markTarget?.["candidates"]) ? markTarget["candidates"] : null;
+  if (!candidates) {
+    return null;
+  }
+  const mapped = candidates
+    .map((item) => {
+      if (!isRecord(item) || typeof item["slot"] !== "number" || typeof item["character"] !== "string") {
+        return null;
+      }
+      return {
+        slot: item["slot"],
+        playerId: typeof item["player_id"] === "number" ? item["player_id"] : null,
+        label: typeof item["label"] === "string" ? item["label"] : null,
+        character: item["character"],
+      };
+    })
+    .filter((item): item is MarkTargetSlotViewModel => item !== null);
+  return mapped.length > 0 ? mapped : null;
+}
+
+function selectMessageBySeq(messages: InboundMessage[]): Map<number, InboundMessage> {
+  const map = new Map<number, InboundMessage>();
+  for (const message of messages) {
+    map.set(message.seq, message);
+  }
+  return map;
+}
+
+function selectBackendScene(messages: InboundMessage[]): BackendSceneProjection | null {
+  const viewState = selectLatestBackendViewState(messages);
+  const scene = isRecord(viewState?.["scene"]) ? viewState["scene"] : null;
+  if (!scene) {
+    return null;
+  }
+  const situation = isRecord(scene["situation"]) ? scene["situation"] : null;
+  const theaterFeedRaw = Array.isArray(scene["theater_feed"]) ? scene["theater_feed"] : [];
+  const coreActionFeedRaw = Array.isArray(scene["core_action_feed"]) ? scene["core_action_feed"] : [];
+  const timelineRaw = Array.isArray(scene["timeline"]) ? scene["timeline"] : [];
+  const criticalAlertsRaw = Array.isArray(scene["critical_alerts"]) ? scene["critical_alerts"] : [];
+  return {
+    situation: situation
+      ? {
+          actorPlayerId: typeof situation["actor_player_id"] === "number" ? situation["actor_player_id"] : null,
+          roundIndex: typeof situation["round_index"] === "number" ? situation["round_index"] : null,
+          turnIndex: typeof situation["turn_index"] === "number" ? situation["turn_index"] : null,
+          headlineSeq: typeof situation["headline_seq"] === "number" ? situation["headline_seq"] : null,
+          headlineMessageType:
+            typeof situation["headline_message_type"] === "string" && situation["headline_message_type"].trim()
+              ? situation["headline_message_type"]
+              : "event",
+          headlineEventCode:
+            typeof situation["headline_event_code"] === "string" && situation["headline_event_code"].trim()
+              ? situation["headline_event_code"]
+              : "event",
+          weatherName:
+            typeof situation["weather_name"] === "string" && situation["weather_name"].trim() ? situation["weather_name"] : "-",
+          weatherEffect:
+            typeof situation["weather_effect"] === "string" && situation["weather_effect"].trim() ? situation["weather_effect"] : "-",
+        }
+      : null,
+    theaterFeed: theaterFeedRaw
+      .map((item) => {
+        if (!isRecord(item) || typeof item["seq"] !== "number" || typeof item["event_code"] !== "string") {
+          return null;
+        }
+        const tone = item["tone"];
+        const lane = item["lane"];
+        return {
+          seq: item["seq"],
+          messageType: typeof item["message_type"] === "string" && item["message_type"].trim() ? item["message_type"] : "event",
+          eventCode: item["event_code"],
+          tone: tone === "move" || tone === "economy" || tone === "system" || tone === "critical" ? tone : "system",
+          lane: lane === "core" || lane === "prompt" || lane === "system" ? lane : "system",
+          actorPlayerId: typeof item["actor_player_id"] === "number" ? item["actor_player_id"] : null,
+          roundIndex: typeof item["round_index"] === "number" ? item["round_index"] : null,
+          turnIndex: typeof item["turn_index"] === "number" ? item["turn_index"] : null,
+        } satisfies BackendSceneTheaterItemProjection;
+      })
+      .filter((item): item is BackendSceneTheaterItemProjection => item !== null),
+    coreActionFeed: coreActionFeedRaw
+      .map((item) => {
+        if (!isRecord(item) || typeof item["seq"] !== "number" || typeof item["event_code"] !== "string") {
+          return null;
+        }
+        return {
+          seq: item["seq"],
+          eventCode: item["event_code"],
+          actorPlayerId: typeof item["actor_player_id"] === "number" ? item["actor_player_id"] : null,
+          roundIndex: typeof item["round_index"] === "number" ? item["round_index"] : null,
+          turnIndex: typeof item["turn_index"] === "number" ? item["turn_index"] : null,
+        } satisfies BackendSceneCoreActionItemProjection;
+      })
+      .filter((item): item is BackendSceneCoreActionItemProjection => item !== null),
+    timeline: timelineRaw
+      .map((item) => {
+        if (!isRecord(item) || typeof item["seq"] !== "number") {
+          return null;
+        }
+        return {
+          seq: item["seq"],
+          messageType: typeof item["message_type"] === "string" && item["message_type"].trim() ? item["message_type"] : "event",
+          eventCode: typeof item["event_code"] === "string" && item["event_code"].trim() ? item["event_code"] : "event",
+        } satisfies BackendSceneTimelineItemProjection;
+      })
+      .filter((item): item is BackendSceneTimelineItemProjection => item !== null),
+    criticalAlerts: criticalAlertsRaw
+      .map((item) => {
+        if (!isRecord(item) || typeof item["seq"] !== "number") {
+          return null;
+        }
+        const severity = item["severity"];
+        return {
+          seq: item["seq"],
+          messageType: typeof item["message_type"] === "string" && item["message_type"].trim() ? item["message_type"] : "event",
+          eventCode: typeof item["event_code"] === "string" && item["event_code"].trim() ? item["event_code"] : "event",
+          severity: severity === "warning" || severity === "critical" ? severity : "critical",
+        } satisfies BackendSceneCriticalAlertProjection;
+      })
+      .filter((item): item is BackendSceneCriticalAlertProjection => item !== null),
+  };
+}
+
+function selectBackendCurrentTurnRevealItems(
+  messages: InboundMessage[],
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): CurrentTurnRevealItem[] | null {
+  const viewState = selectLatestBackendViewState(messages);
+  const reveals = isRecord(viewState?.["reveals"]) ? viewState["reveals"] : null;
+  const items = Array.isArray(reveals?.["items"]) ? reveals["items"] : null;
+  if (!items || items.length === 0) {
+    return null;
+  }
+  const messageBySeq = selectMessageBySeq(messages);
+  return items
+    .map((item) => {
+      if (!isRecord(item) || typeof item["seq"] !== "number" || typeof item["event_code"] !== "string") {
+        return null;
+      }
+      const eventCode = item["event_code"];
+      const sourceMessage = messageBySeq.get(item["seq"]);
+      return {
+        seq: item["seq"],
+        eventCode,
+        label: sourceMessage ? pickMessageLabel(sourceMessage, text) : eventLabelForCode(eventCode, text.eventLabel),
+        detail: sourceMessage ? pickMessageDetail(sourceMessage, text) || "-" : "-",
+        tone:
+          item["tone"] === "move" || item["tone"] === "economy" || item["tone"] === "effect"
+            ? item["tone"]
+            : toneForEventCode(eventCode) === "economy"
+              ? "economy"
+              : toneForEventCode(eventCode) === "move"
+                ? "move"
+                : "effect",
+        focusTileIndex: typeof item["focus_tile_index"] === "number" ? item["focus_tile_index"] : null,
+        isInterrupt: item["is_interrupt"] === true,
+      } satisfies CurrentTurnRevealItem;
+    })
+    .filter((item): item is CurrentTurnRevealItem => item !== null);
+}
+
+function selectBackendLastMove(messages: InboundMessage[]): LastMoveViewModel | null {
+  const viewState = selectLatestBackendViewState(messages);
+  const board = isRecord(viewState?.["board"]) ? viewState["board"] : null;
+  const lastMove = isRecord(board?.["last_move"]) ? board["last_move"] : null;
+  if (!lastMove) {
+    return null;
+  }
+  return {
+    playerId: typeof lastMove["player_id"] === "number" ? lastMove["player_id"] : null,
+    fromTileIndex: typeof lastMove["from_tile_index"] === "number" ? lastMove["from_tile_index"] : null,
+    toTileIndex: typeof lastMove["to_tile_index"] === "number" ? lastMove["to_tile_index"] : null,
+    pathTileIndices: integerArray(lastMove["path_tile_indices"]),
+  };
+}
+
+function selectBackendBoardTiles(messages: InboundMessage[]): Pick<TileViewModel, "tileIndex" | "scoreCoinCount" | "ownerPlayerId" | "pawnPlayerIds">[] | null {
+  const viewState = selectLatestBackendViewState(messages);
+  const board = isRecord(viewState?.["board"]) ? viewState["board"] : null;
+  const tiles = Array.isArray(board?.["tiles"]) ? board["tiles"] : null;
+  if (!tiles || tiles.length === 0) {
+    return null;
+  }
+  const mapped = tiles
+    .map((item) => {
+      if (!isRecord(item) || typeof item["tile_index"] !== "number") {
+        return null;
+      }
+      return {
+        tileIndex: item["tile_index"],
+        scoreCoinCount: typeof item["score_coin_count"] === "number" ? item["score_coin_count"] : 0,
+        ownerPlayerId: typeof item["owner_player_id"] === "number" ? item["owner_player_id"] : null,
+        pawnPlayerIds: Array.isArray(item["pawn_player_ids"])
+          ? item["pawn_player_ids"].filter((value): value is number => typeof value === "number")
+          : [],
+      };
+    })
+    .filter(
+      (
+        item
+      ): item is Pick<TileViewModel, "tileIndex" | "scoreCoinCount" | "ownerPlayerId" | "pawnPlayerIds"> => item !== null
+    );
+  return mapped.length > 0 ? mapped : null;
+}
+
+type BackendTurnStageProjection = {
+  turnStartSeq: number | null;
+  actorPlayerId: number | null;
+  round: number | null;
+  turn: number | null;
+  character: string;
+  weatherName: string;
+  weatherEffect: string;
+  currentBeatKind: TurnStageViewModel["currentBeatKind"];
+  currentBeatEventCode: string;
+  currentBeatRequestType: string;
+  currentBeatSeq: number | null;
+  focusTileIndex: number | null;
+  focusTileIndices: number[];
+  promptRequestType: string;
+  externalAiWorkerId: string;
+  externalAiFailureCode: string;
+  externalAiFallbackMode: string;
+  externalAiResolutionStatus: string;
+  externalAiAttemptCount: number | null;
+  externalAiAttemptLimit: number | null;
+  externalAiReadyState: string;
+  externalAiPolicyMode: string;
+  externalAiWorkerAdapter: string;
+  externalAiPolicyClass: string;
+  externalAiDecisionStyle: string;
+  actorCash: number | null;
+  actorShards: number | null;
+  actorHandCoins: number | null;
+  actorPlacedCoins: number | null;
+  actorTotalScore: number | null;
+  actorOwnedTileCount: number | null;
+  progressCodes: string[];
+};
+
+function selectBackendTurnStage(messages: InboundMessage[]): BackendTurnStageProjection | null {
+  const viewState = selectLatestBackendViewState(messages);
+  const turnStage = isRecord(viewState?.["turn_stage"]) ? viewState["turn_stage"] : null;
+  if (!turnStage) {
+    return null;
+  }
+  const currentBeatKind = turnStage["current_beat_kind"];
+  return {
+    turnStartSeq: typeof turnStage["turn_start_seq"] === "number" ? turnStage["turn_start_seq"] : null,
+    actorPlayerId: typeof turnStage["actor_player_id"] === "number" ? turnStage["actor_player_id"] : null,
+    round: typeof turnStage["round_index"] === "number" ? turnStage["round_index"] : null,
+    turn: typeof turnStage["turn_index"] === "number" ? turnStage["turn_index"] : null,
+    character: typeof turnStage["character"] === "string" && turnStage["character"].trim() ? turnStage["character"] : "-",
+    weatherName:
+      typeof turnStage["weather_name"] === "string" && turnStage["weather_name"].trim() ? turnStage["weather_name"] : "-",
+    weatherEffect:
+      typeof turnStage["weather_effect"] === "string" && turnStage["weather_effect"].trim() ? turnStage["weather_effect"] : "-",
+    currentBeatKind:
+      currentBeatKind === "move" ||
+      currentBeatKind === "economy" ||
+      currentBeatKind === "effect" ||
+      currentBeatKind === "decision" ||
+      currentBeatKind === "system"
+        ? currentBeatKind
+        : "system",
+    currentBeatEventCode:
+      typeof turnStage["current_beat_event_code"] === "string" && turnStage["current_beat_event_code"].trim()
+        ? turnStage["current_beat_event_code"]
+        : "-",
+    currentBeatRequestType:
+      typeof turnStage["current_beat_request_type"] === "string" && turnStage["current_beat_request_type"].trim()
+        ? turnStage["current_beat_request_type"]
+        : "-",
+    currentBeatSeq: typeof turnStage["current_beat_seq"] === "number" ? turnStage["current_beat_seq"] : null,
+    focusTileIndex: typeof turnStage["focus_tile_index"] === "number" ? turnStage["focus_tile_index"] : null,
+    focusTileIndices: integerArray(turnStage["focus_tile_indices"]),
+    promptRequestType:
+      typeof turnStage["prompt_request_type"] === "string" && turnStage["prompt_request_type"].trim()
+        ? turnStage["prompt_request_type"]
+        : "-",
+    externalAiWorkerId:
+      typeof turnStage["external_ai_worker_id"] === "string" && turnStage["external_ai_worker_id"].trim()
+        ? turnStage["external_ai_worker_id"]
+        : "-",
+    externalAiFailureCode:
+      typeof turnStage["external_ai_failure_code"] === "string" && turnStage["external_ai_failure_code"].trim()
+        ? turnStage["external_ai_failure_code"]
+        : "-",
+    externalAiFallbackMode:
+      typeof turnStage["external_ai_fallback_mode"] === "string" && turnStage["external_ai_fallback_mode"].trim()
+        ? turnStage["external_ai_fallback_mode"]
+        : "-",
+    externalAiResolutionStatus:
+      typeof turnStage["external_ai_resolution_status"] === "string" && turnStage["external_ai_resolution_status"].trim()
+        ? turnStage["external_ai_resolution_status"]
+        : "-",
+    externalAiAttemptCount: typeof turnStage["external_ai_attempt_count"] === "number" ? turnStage["external_ai_attempt_count"] : null,
+    externalAiAttemptLimit: typeof turnStage["external_ai_attempt_limit"] === "number" ? turnStage["external_ai_attempt_limit"] : null,
+    externalAiReadyState:
+      typeof turnStage["external_ai_ready_state"] === "string" && turnStage["external_ai_ready_state"].trim()
+        ? turnStage["external_ai_ready_state"]
+        : "-",
+    externalAiPolicyMode:
+      typeof turnStage["external_ai_policy_mode"] === "string" && turnStage["external_ai_policy_mode"].trim()
+        ? turnStage["external_ai_policy_mode"]
+        : "-",
+    externalAiWorkerAdapter:
+      typeof turnStage["external_ai_worker_adapter"] === "string" && turnStage["external_ai_worker_adapter"].trim()
+        ? turnStage["external_ai_worker_adapter"]
+        : "-",
+    externalAiPolicyClass:
+      typeof turnStage["external_ai_policy_class"] === "string" && turnStage["external_ai_policy_class"].trim()
+        ? turnStage["external_ai_policy_class"]
+        : "-",
+    externalAiDecisionStyle:
+      typeof turnStage["external_ai_decision_style"] === "string" && turnStage["external_ai_decision_style"].trim()
+        ? turnStage["external_ai_decision_style"]
+        : "-",
+    actorCash: typeof turnStage["actor_cash"] === "number" ? turnStage["actor_cash"] : null,
+    actorShards: typeof turnStage["actor_shards"] === "number" ? turnStage["actor_shards"] : null,
+    actorHandCoins: typeof turnStage["actor_hand_coins"] === "number" ? turnStage["actor_hand_coins"] : null,
+    actorPlacedCoins: typeof turnStage["actor_placed_coins"] === "number" ? turnStage["actor_placed_coins"] : null,
+    actorTotalScore: typeof turnStage["actor_total_score"] === "number" ? turnStage["actor_total_score"] : null,
+    actorOwnedTileCount:
+      typeof turnStage["actor_owned_tile_count"] === "number" ? turnStage["actor_owned_tile_count"] : null,
+    progressCodes: stringArray(turnStage["progress_codes"]),
+  };
+}
+
+function labelForTurnStageCode(
+  code: string,
+  requestType: string,
+  text: StreamSelectorTextResources
+): string {
+  if (code === "prompt_active") {
+    return promptLabelForType(requestType, text.promptType);
+  }
+  return eventLabelForCode(code, text.eventLabel);
+}
+
 export function selectLivePlayers(
   messages: InboundMessage[],
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
@@ -1638,6 +2719,160 @@ export function selectLivePlayers(
   }
   const stage = selectTurnStage(messages, text);
   return overlayLiveActorOnPlayers(snapshot.players, stage);
+}
+
+export function selectCurrentActorPlayerId(messages: InboundMessage[]): number | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const payload = messages[i].payload;
+    const acting = payload["acting_player_id"] ?? payload["player_id"];
+    if (typeof acting === "number") {
+      return acting;
+    }
+  }
+  return null;
+}
+
+export function selectDerivedPlayers(
+  messages: InboundMessage[],
+  currentLocalPlayerId: number | null = null,
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): DerivedPlayerViewModel[] {
+  const backendPlayers = selectBackendDerivedPlayers(messages, currentLocalPlayerId);
+  if (backendPlayers && backendPlayers.length > 0) {
+    return backendPlayers;
+  }
+  const snapshot = selectLiveSnapshot(messages, text);
+  if (!snapshot) {
+    return [];
+  }
+  const currentActorPlayerId = selectCurrentActorPlayerId(messages);
+  return snapshot.players.map((player) => {
+    const currentCharacterFace =
+      currentActorPlayerId === player.playerId && player.character && player.character.trim() ? player.character : "-";
+    const prioritySlot = currentCharacterFace !== "-" ? prioritySlotForCharacter(currentCharacterFace) : null;
+    return {
+      ...player,
+      prioritySlot,
+      currentCharacterFace,
+      isMarkerOwner: snapshot.markerOwnerPlayerId === player.playerId,
+      isCurrentActor: currentActorPlayerId === player.playerId,
+      isLocalPlayer: currentLocalPlayerId === player.playerId,
+    };
+  });
+}
+
+export function selectActiveCharacterSlots(
+  messages: InboundMessage[],
+  currentLocalPlayerId: number | null = null,
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): ActiveCharacterSlotViewModel[] {
+  const backendSlots = selectBackendActiveCharacterSlots(messages, currentLocalPlayerId);
+  if (backendSlots && backendSlots.length > 0) {
+    return backendSlots;
+  }
+  const snapshot = selectLiveSnapshot(messages, text);
+  if (!snapshot) {
+    return [];
+  }
+  const derivedPlayers = selectDerivedPlayers(messages, currentLocalPlayerId, text);
+  const actor = derivedPlayers.find((player) => player.isCurrentActor) ?? null;
+  return Array.from({ length: 8 }, (_, index) => {
+    const slot = index + 1;
+    const owner = actor && actor.prioritySlot === slot ? actor : null;
+    const slotCharacter =
+      typeof snapshot.activeByCard[slot] === "string" &&
+      snapshot.activeByCard[slot].trim().length > 0 &&
+      snapshot.activeByCard[slot] !== "-"
+        ? snapshot.activeByCard[slot]
+        : null;
+    const ownerCharacter =
+      owner?.currentCharacterFace && owner.currentCharacterFace !== "-" ? owner.currentCharacterFace : null;
+    const activeCharacter = slotCharacter ?? ownerCharacter ?? null;
+    return {
+      slot,
+      playerId: owner?.playerId ?? null,
+      label: owner ? `P${owner.playerId}` : null,
+      character: activeCharacter,
+      inactiveCharacter: activeCharacter ? oppositeCharacterForSlot(slot, activeCharacter) : null,
+      isCurrentActor: owner?.isCurrentActor ?? false,
+      isLocalPlayer: owner?.isLocalPlayer ?? false,
+    };
+  });
+}
+
+export function selectMarkTargetCharacterSlots(
+  messages: InboundMessage[],
+  actorCharacterName: string | null,
+  currentLocalPlayerId: number | null = null,
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): MarkTargetSlotViewModel[] {
+  const backendCandidates = selectBackendMarkTargetCharacterSlots(messages);
+  if (backendCandidates) {
+    return backendCandidates;
+  }
+  const actorSlot = prioritySlotForCharacter(actorCharacterName);
+  if (actorSlot === null) {
+    return [];
+  }
+  return selectActiveCharacterSlots(messages, currentLocalPlayerId, text)
+    .filter((slot) => slot.slot > actorSlot && typeof slot.character === "string" && slot.character.trim().length > 0)
+    .map((slot) => ({
+      slot: slot.slot,
+      playerId: slot.playerId,
+      label: slot.label,
+      character: slot.character as string,
+    }));
+}
+
+export function selectMarkerOrderedPlayers(
+  messages: InboundMessage[],
+  currentLocalPlayerId: number | null = null,
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): DerivedPlayerViewModel[] {
+  const derivedPlayers = selectDerivedPlayers(messages, currentLocalPlayerId, text);
+  if (derivedPlayers.length === 0) {
+    return derivedPlayers;
+  }
+  const backendOrderedIds = selectBackendMarkerOrderedPlayerIds(messages);
+  if (backendOrderedIds && backendOrderedIds.length > 0) {
+    const byId = new Map(derivedPlayers.map((player) => [player.playerId, player]));
+    const orderedPlayers = backendOrderedIds
+      .map((playerId) => byId.get(playerId) ?? null)
+      .filter((player): player is DerivedPlayerViewModel => player !== null);
+    if (orderedPlayers.length > 0) {
+      return orderedPlayers;
+    }
+  }
+
+  const snapshot = selectLiveSnapshot(messages, text);
+  if (!snapshot) {
+    return derivedPlayers;
+  }
+
+  const sortedIds = derivedPlayers
+    .map((player) => player.playerId)
+    .slice()
+    .sort((left, right) => left - right);
+  const ownerId = snapshot.markerOwnerPlayerId;
+  const ownerIndex = ownerId === null ? -1 : sortedIds.indexOf(ownerId);
+  if (ownerIndex < 0) {
+    return derivedPlayers.slice().sort((left, right) => left.playerId - right.playerId);
+  }
+
+  const direction = snapshot.markerDraftDirection ?? "clockwise";
+  const orderedIds: number[] = [];
+  for (let step = 0; step < sortedIds.length; step += 1) {
+    const index =
+      direction === "clockwise"
+        ? (ownerIndex + step) % sortedIds.length
+        : (ownerIndex - step + sortedIds.length) % sortedIds.length;
+    orderedIds.push(sortedIds[index]);
+  }
+
+  const byId = new Map(derivedPlayers.map((player) => [player.playerId, player]));
+  return orderedIds
+    .map((playerId) => byId.get(playerId) ?? null)
+    .filter((player): player is DerivedPlayerViewModel => player !== null);
 }
 
 export function selectLiveSnapshot(
@@ -1656,18 +2891,44 @@ export function selectLiveSnapshot(
   const tiles = entry.snapshot.tiles.map((tile) => ({ ...tile, pawnPlayerIds: [] as number[] }));
 
   let markerOwnerPlayerId = entry.snapshot.markerOwnerPlayerId;
+  let markerDraftDirection = entry.snapshot.markerDraftDirection;
+  let currentRoundOrder = [...entry.snapshot.currentRoundOrder];
+  const activeByCard = collectActiveByCardUntil(messages, entry.index);
   for (let i = entry.index + 1; i < messages.length; i += 1) {
     const message = messages[i];
+    if (message.type === "prompt") {
+      const publicContext = isRecord(message.payload["public_context"]) ? message.payload["public_context"] : null;
+      mergePromptContextActiveByCard(activeByCard, publicContext);
+      mergeMarkTargetPromptActiveByCard(activeByCard, message.payload);
+      continue;
+    }
     if (message.type !== "event") {
       continue;
     }
     const eventCode = messageKindFromPayload(message.payload);
+    if (shouldResetActiveByCard(eventCode)) {
+      clearActiveByCard(activeByCard);
+    }
     const eventActorId = numberOrNull(message.payload["acting_player_id"] ?? message.payload["player_id"]);
     const eventActor = eventActorId !== null ? playerMap.get(eventActorId) : null;
     const publicContext = isRecord(message.payload["public_context"]) ? message.payload["public_context"] : null;
+    const contextMarkerDirection = markerDraftDirectionFromRecord(publicContext);
+    if (contextMarkerDirection) {
+      markerDraftDirection = contextMarkerDirection;
+    }
     const contextPosition = numberOrNull(publicContext?.["player_position"]);
     if (eventActor && contextPosition !== null) {
       eventActor.position = contextPosition;
+    }
+    const contextTileIndex = numberOrNull(publicContext?.["tile_index"]);
+    if (publicContext && contextTileIndex !== null) {
+      const tile = tiles.find((item) => item.tileIndex === contextTileIndex);
+      if (tile) {
+        const contextScoreCoinCount = scoreCoinCountFromRecord(publicContext);
+        if (contextScoreCoinCount > 0 || "tile_score_coins" in publicContext || "score_coin_count" in publicContext || "score_coins" in publicContext) {
+          tile.scoreCoinCount = contextScoreCoinCount;
+        }
+      }
     }
     if (eventCode === "player_move" && eventActor) {
       const toTileIndex = numberOrNull(
@@ -1686,6 +2947,15 @@ export function selectLiveSnapshot(
         const tile = tiles.find((item) => item.tileIndex === tileIndex);
         if (tile) {
           tile.ownerPlayerId = ownerPlayerId;
+          const payloadScoreCoinCount = scoreCoinCountFromRecord(message.payload);
+          if (
+            payloadScoreCoinCount > 0 ||
+            "tile_score_coins" in message.payload ||
+            "score_coin_count" in message.payload ||
+            "score_coins" in message.payload
+          ) {
+            tile.scoreCoinCount = payloadScoreCoinCount;
+          }
         }
       }
       continue;
@@ -1695,8 +2965,51 @@ export function selectLiveSnapshot(
       if (nextOwner !== null) {
         markerOwnerPlayerId = nextOwner;
       }
+      const nextDirection = markerDraftDirectionFromRecord(message.payload) ?? markerDraftDirectionFromRecord(publicContext);
+      if (nextDirection) {
+        markerDraftDirection = nextDirection;
+      }
+    }
+    mergeActiveByCard(activeByCard, message.payload["active_by_card"]);
+    mergeActiveByCard(activeByCard, publicContext?.["active_by_card"]);
+    if (eventCode === "round_order") {
+      const nextOrder = integerArray(message.payload["order"])
+        .map((value) => Math.trunc(value))
+        .filter((value) => value >= 1);
+      if (nextOrder.length > 0) {
+        currentRoundOrder = Array.from(new Set(nextOrder));
+      }
+      const nextOwner = numberOrNull(message.payload["marker_owner_player_id"] ?? message.payload["marker_owner"] ?? publicContext?.["marker_owner_player_id"]);
+      if (nextOwner !== null) {
+        markerOwnerPlayerId = nextOwner;
+      }
+      const nextDirection = markerDraftDirectionFromRecord(message.payload) ?? markerDraftDirectionFromRecord(publicContext);
+      if (nextDirection) {
+        markerDraftDirection = nextDirection;
+      }
+      continue;
+    }
+    if (eventCode === "round_start") {
+      const nextOwner = numberOrNull(message.payload["marker_owner_player_id"] ?? publicContext?.["marker_owner_player_id"]);
+      if (nextOwner !== null) {
+        markerOwnerPlayerId = nextOwner;
+      }
+      const nextDirection = markerDraftDirectionFromRecord(message.payload) ?? markerDraftDirectionFromRecord(publicContext);
+      if (nextDirection) {
+        markerDraftDirection = nextDirection;
+      }
+    }
+    if (eventCode === "marker_flip") {
+      const cardNo = numberOrNull(message.payload["card_no"]);
+      const toCharacter = message.payload["to_character"];
+      if (cardNo !== null && typeof toCharacter === "string" && toCharacter.trim()) {
+        activeByCard[cardNo] = toCharacter;
+      }
     }
   }
+  mergeNormalizedPromptActiveByCard(messages, activeByCard);
+
+  const backendBoardTiles = selectBackendBoardTiles(messages);
 
   for (const tile of tiles) {
     tile.pawnPlayerIds = [];
@@ -1716,6 +3029,19 @@ export function selectLiveSnapshot(
     tile.pawnPlayerIds.sort((a, b) => a - b);
   }
 
+  if (backendBoardTiles && backendBoardTiles.length > 0) {
+    const backendTileByIndex = new Map(backendBoardTiles.map((tile) => [tile.tileIndex, tile]));
+    for (const tile of tiles) {
+      const projected = backendTileByIndex.get(tile.tileIndex);
+      if (!projected) {
+        continue;
+      }
+      tile.scoreCoinCount = projected.scoreCoinCount;
+      tile.ownerPlayerId = projected.ownerPlayerId;
+      tile.pawnPlayerIds = [...projected.pawnPlayerIds];
+    }
+  }
+
   const normalizedPlayers = players.map((player) => ({
     ...(playerMap.get(player.playerId) ?? player),
   }));
@@ -1723,6 +3049,9 @@ export function selectLiveSnapshot(
   return {
     ...entry.snapshot,
     markerOwnerPlayerId,
+    markerDraftDirection,
+    currentRoundOrder,
+    activeByCard,
     players: normalizedPlayers,
     tiles,
   };
@@ -1782,6 +3111,7 @@ function normalizeManifestTiles(manifestRaw: Record<string, unknown>): TileViewM
     zoneColor: "",
     purchaseCost: null,
     rentCost: null,
+    scoreCoinCount: 0,
     ownerPlayerId: null,
     pawnPlayerIds: [],
   }));

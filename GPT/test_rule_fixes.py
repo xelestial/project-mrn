@@ -1,14 +1,27 @@
+import json
 import random
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from ai_policy import BasePolicy, HeuristicPolicy, MovementDecision, LapRewardDecision
+from apps.server.src.services.decision_gateway import (
+    _build_burden_exchange_context,
+    _build_coin_placement_choices,
+    _build_geo_bonus_choices,
+    _build_lap_reward_legal_choices,
+    _build_movement_legal_choices,
+    _build_runaway_legal_choices,
+)
 from config import DEFAULT_CONFIG, CellKind
 from engine import GameEngine
 from state import GameState
 from characters import CARD_TO_NAMES
+from policy_mark_utils import ordered_public_mark_targets
 from trick_cards import TrickCard, build_trick_deck
 from fortune_cards import FortuneCard
+from viewer.stream import VisEventStream
 
 
 class DummyPolicy(BasePolicy):
@@ -94,6 +107,25 @@ def first_special_position(state, kind):
 
 def first_t3_position(state):
     return state.first_tile_position(kinds=[CellKind.T3])
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _load_selector_scene_fixture() -> dict:
+    path = _project_root() / "packages" / "runtime-contracts" / "ws" / "examples" / "selector.scene.turn_resolution.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _load_selector_player_fixture() -> dict:
+    path = _project_root() / "packages" / "runtime-contracts" / "ws" / "examples" / "selector.player.mark_target_visibility.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _load_selector_prompt_fixture(name: str) -> dict:
+    path = _project_root() / "packages" / "runtime-contracts" / "ws" / "examples" / name
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 class RuleFixTests(unittest.TestCase):
@@ -483,6 +515,7 @@ class RuleFixTests(unittest.TestCase):
         bandit = state.players[2]
         assassin.current_character = "자객"
         target.current_character = "아전"
+        state.active_by_card[4] = "아전"
         bandit.current_character = "산적"
         target.pending_marks.append({"type": "bandit_tax", "source_pid": bandit.player_id})
 
@@ -514,7 +547,7 @@ class RuleFixTests(unittest.TestCase):
         self.assertEqual(engine._strategy_stats[assassin.player_id].get("mark_fail_missing", 0), 1)
 
     def test_mark_target_must_be_future_turn_character(self):
-        requested_target = CARD_TO_NAMES[4][0]
+        requested_target = CARD_TO_NAMES[1][1]
         policy = TargetPolicy(target_name=requested_target)
         engine = self.make_engine(policy=policy)
         state = self.make_state(engine)
@@ -556,7 +589,7 @@ class RuleFixTests(unittest.TestCase):
         self.assertTrue(any(row.get("event") == "mark_target_coerced" for row in engine._action_log))
 
     def test_mark_target_invalid_choice_is_coerced_to_first_future_target(self):
-        requested_target = CARD_TO_NAMES[4][0]
+        requested_target = CARD_TO_NAMES[1][1]
         policy = TargetPolicy(target_name=requested_target)
         engine = self.make_engine(policy=policy)
         state = self.make_state(engine)
@@ -574,6 +607,82 @@ class RuleFixTests(unittest.TestCase):
         self.assertEqual(len(later.pending_marks), 1)
         self.assertEqual(later.pending_marks[0]["source_pid"], actor.player_id)
         self.assertEqual(later.pending_marks[0]["type"], "bandit_tax")
+
+    def test_mark_target_coercion_uses_future_public_active_faces(self):
+        requested_target = CARD_TO_NAMES[1][1]
+        policy = TargetPolicy(target_name=requested_target)
+        engine = self.make_engine(policy=policy)
+        state = self.make_state(engine)
+        actor = state.players[0]
+        future_one = state.players[1]
+        future_two = state.players[2]
+
+        actor.current_character = CARD_TO_NAMES[2][0]  # 자객
+        future_one.current_character = CARD_TO_NAMES[7][0]  # 객주
+        future_two.current_character = CARD_TO_NAMES[8][0]  # 건설업자
+        state.active_by_card[7] = CARD_TO_NAMES[7][1]  # 중매꾼
+        state.active_by_card[8] = CARD_TO_NAMES[8][1]  # 사기꾼
+        state.current_round_order = [actor.player_id, future_one.player_id, future_two.player_id]
+
+        engine._apply_character_start(state, actor)
+
+        self.assertEqual(len(future_one.pending_marks), 0)
+        self.assertEqual(len(future_two.pending_marks), 0)
+        coerced = next((row for row in engine._action_log if row.get("event") == "mark_target_coerced"), None)
+        self.assertIsNotNone(coerced)
+        self.assertEqual(coerced["target_character"], CARD_TO_NAMES[7][1])
+
+    def test_mark_target_explicit_unheld_public_face_resolves_as_miss(self):
+        requested_target = CARD_TO_NAMES[3][1]
+        policy = TargetPolicy(target_name=requested_target)
+        engine = self.make_engine(policy=policy)
+        state = self.make_state(engine)
+        actor = state.players[0]
+        future_one = state.players[1]
+        future_two = state.players[2]
+
+        actor.current_character = CARD_TO_NAMES[2][0]  # 자객
+        future_one.current_character = CARD_TO_NAMES[7][0]  # 객주
+        future_two.current_character = CARD_TO_NAMES[8][0]  # 건설업자
+        state.active_by_card[3] = CARD_TO_NAMES[3][1]  # 탈출 노비 (unheld public face)
+        state.active_by_card[7] = CARD_TO_NAMES[7][1]  # 중매꾼
+        state.active_by_card[8] = CARD_TO_NAMES[8][1]  # 사기꾼
+        state.current_round_order = [actor.player_id, future_one.player_id, future_two.player_id]
+
+        engine._apply_character_start(state, actor)
+
+        self.assertFalse(future_one.skipped_turn)
+        self.assertFalse(future_two.skipped_turn)
+        self.assertEqual(engine._strategy_stats[actor.player_id].get("mark_fail_missing", 0), 1)
+
+    def test_mark_target_visible_candidates_match_shared_player_fixture_metadata(self):
+        fixture = _load_selector_player_fixture()
+        metadata = fixture["metadata"]
+
+        engine = self.make_engine(policy=DummyPolicy())
+        state = self.make_state(engine)
+        actor = state.players[0]
+        first_target = state.players[1]
+        second_target = state.players[2]
+        third_target = state.players[3]
+
+        actor.current_character = metadata["actor_character"]
+        first_target.current_character = CARD_TO_NAMES[3][0]
+        second_target.current_character = CARD_TO_NAMES[4][0]
+        third_target.current_character = CARD_TO_NAMES[5][0]
+        state.current_round_order = [actor.player_id, first_target.player_id, second_target.player_id, third_target.player_id]
+        state.active_by_card[3] = metadata["expected_visible_target_characters"][0]
+        state.active_by_card[4] = metadata["expected_visible_target_characters"][1]
+        state.active_by_card[5] = metadata["expected_visible_target_characters"][2]
+
+        self.assertEqual(
+            ordered_public_mark_targets(state, actor)[:3],
+            [
+                {"card_no": 3, "target_character": metadata["expected_visible_target_characters"][0]},
+                {"card_no": 4, "target_character": metadata["expected_visible_target_characters"][1]},
+                {"card_no": 5, "target_character": metadata["expected_visible_target_characters"][2]},
+            ],
+        )
 
     def test_malicious_tile_cost_uses_face_value_times_three(self):
         engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True)
@@ -1017,6 +1126,7 @@ class TrickSystemTests(unittest.TestCase):
         target = state.players[1]
         bandit.current_character = "산적"
         target.current_character = "아전"
+        state.active_by_card[4] = "아전"
         start_cash = bandit.cash
         engine._apply_character_start(state, bandit)
         self.assertEqual(engine._strategy_stats[bandit.player_id]["mark_successes"], 1)
@@ -1213,6 +1323,26 @@ class TrickSystemTests(unittest.TestCase):
         )
         self.assertTrue(marker_event.get("marker_changed", False))
 
+    def test_marker_flip_batch_finishes_with_one_decision(self):
+        class BatchFlipPolicy(DummyPolicy):
+            def choose_active_flip_card(self, state, player, flippable_cards):
+                del state, player, flippable_cards
+                return [0, 1]
+
+        engine = self.make_engine(policy=BatchFlipPolicy())
+        state = self.make_state(engine)
+        state.pending_marker_flip_owner_id = 0
+        state.marker_owner_id = 0
+        state.active_by_card = {0: CARD_TO_NAMES[0][0], 1: CARD_TO_NAMES[1][0]}
+
+        result = engine.effect_handlers.handle_marker_flip(state)
+
+        self.assertEqual(state.pending_marker_flip_owner_id, None)
+        self.assertEqual(result["event"], "marker_flip_sequence")
+        self.assertEqual(result["cards"], [0, 1])
+        flip_rows = [row for row in engine._action_log if row.get("event") == "marker_flip"]
+        self.assertEqual([row.get("card_no") for row in flip_rows[-2:]], [0, 1])
+
     def test_trick_phase_uses_only_one_card_per_turn(self):
         class FirstUsablePolicy(DummyPolicy):
             def choose_trick_to_use(self, state, player, hand):
@@ -1264,6 +1394,33 @@ class TrickSystemTests(unittest.TestCase):
         self.assertEqual(slowdown.get("planned_move"), 4)
         self.assertEqual(slowdown.get("effective_move"), 3)
         self.assertEqual(slowdown.get("reduced_by"), 1)
+
+    def test_vis_stream_emits_player_move_before_landing_and_rent(self):
+        fixture = _load_selector_scene_fixture()
+        expected_order = fixture["metadata"]["engine_advance_resolution_order"]
+        stream = VisEventStream()
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True, event_stream=stream)
+        state = self.make_state(engine)
+        mover = state.players[0]
+        owner = state.players[1]
+        rent_tile = first_t3_position(state)
+        mover.position = (rent_tile - 1) % len(state.board)
+        mover.total_steps = mover.position
+        owner.position = rent_tile
+        owner.total_steps = owner.position
+        owner.tiles_owned = 1
+        state.tile_owner[rent_tile] = owner.player_id
+        state.current_round_order = [mover.player_id, owner.player_id]
+        state.turn_index = 0
+        engine._vis_session_id = "test-session"
+
+        engine._advance_player(state, mover, 1, {"mode": "test", "formula": "1"})
+
+        event_types = [event.event_type for event in stream.events]
+        for event_code in expected_order:
+            self.assertIn(event_code, event_types)
+        for before, after in zip(expected_order, expected_order[1:]):
+            self.assertLess(event_types.index(before), event_types.index(after))
 
     def test_reroll_cards_are_consumed_by_trick_phase_selection(self):
         class RerollPolicy(DummyPolicy):
@@ -1736,6 +1893,88 @@ class TrickRuleAuditTests(unittest.TestCase):
         self.assertEqual(rules.cash_pool, 30)
         self.assertEqual(rules.shards_pool, 18)
         self.assertEqual(rules.coins_pool, 18)
+
+    def test_selector_prompt_lap_reward_fixture_metadata_matches_gateway_choices(self):
+        fixture = _load_selector_prompt_fixture("selector.prompt.lap_reward_surface.json")
+        metadata = fixture["metadata"]
+        state = SimpleNamespace(
+            config=DEFAULT_CONFIG,
+            lap_reward_cash_pool_remaining=30,
+            lap_reward_shards_pool_remaining=18,
+            lap_reward_coins_pool_remaining=18,
+        )
+
+        generated_choices = _build_lap_reward_legal_choices((), {}, state, None)
+        generated_choice_ids = [str(choice["choice_id"]) for choice in generated_choices]
+
+        self.assertEqual(
+            metadata["expected_choice_ids"],
+            ["cash-2_shards-1_coins-1", "cash-5_shards-0_coins-0", "cash-2_shards-2_coins-0"],
+        )
+        for choice_id in metadata["expected_choice_ids"]:
+            self.assertIn(choice_id, generated_choice_ids)
+
+    def test_selector_prompt_burden_fixture_metadata_matches_gateway_context(self):
+        fixture = _load_selector_prompt_fixture("selector.prompt.burden_exchange_surface.json")
+        metadata = fixture["metadata"]
+        burden_cards = [
+            SimpleNamespace(deck_index=91, name="무거운 짐", description="이동 -1", burden_cost=4, is_burden=True),
+            SimpleNamespace(deck_index=92, name="가벼운 짐", description="효과 없음", burden_cost=2, is_burden=True),
+            SimpleNamespace(deck_index=93, name="호객꾼", description="말 효과", burden_cost=2, is_burden=True),
+        ]
+        player = SimpleNamespace(trick_hand=list(burden_cards), hand_coins=0)
+        state = SimpleNamespace(next_supply_f_threshold=6, f_value=3)
+
+        context = _build_burden_exchange_context((None, None, burden_cards[0]), {}, state, player)
+
+        self.assertEqual(metadata["expected_current_target_deck_index"], 91)
+        self.assertEqual(context["card_deck_index"], metadata["expected_current_target_deck_index"])
+        self.assertEqual(
+            [str(item["name"]) for item in context["burden_cards"]],
+            metadata["expected_card_names"],
+        )
+
+    def test_selector_prompt_coin_placement_fixture_metadata_matches_gateway_choices(self):
+        fixture = _load_selector_prompt_fixture("selector.prompt.coin_placement_surface.json")
+        metadata = fixture["metadata"]
+        player = SimpleNamespace(player_id=1, visited_owned_tile_indices=[12, 18, 24])
+        state = SimpleNamespace(tile_owner=[None] * 40)
+        state.tile_owner[12] = 1
+        state.tile_owner[18] = 1
+        state.tile_owner[24] = 1
+
+        choices = _build_coin_placement_choices((), {}, state, player)
+
+        self.assertEqual([choice["choice_id"] for choice in choices], metadata["expected_choice_ids"])
+        self.assertEqual(len(choices), metadata["owned_tile_count"])
+
+    def test_selector_prompt_geo_bonus_fixture_metadata_matches_gateway_choices(self):
+        fixture = _load_selector_prompt_fixture("selector.prompt.geo_bonus_surface.json")
+        metadata = fixture["metadata"]
+
+        choices = _build_geo_bonus_choices((), {}, None, None)
+
+        self.assertEqual([choice["choice_id"] for choice in choices], metadata["expected_choice_ids"])
+
+    def test_selector_prompt_movement_fixture_metadata_matches_gateway_choices(self):
+        fixture = _load_selector_prompt_fixture("selector.prompt.movement_surface.json")
+        metadata = fixture["metadata"]
+        player = SimpleNamespace(used_dice_cards={1, 3, 4, 6})
+
+        choices = _build_movement_legal_choices((), {}, None, player)
+
+        self.assertEqual([choice["choice_id"] for choice in choices], metadata["expected_choice_ids"])
+        self.assertEqual(choices[0]["choice_id"], metadata["roll_choice_id"])
+
+    def test_selector_prompt_runaway_fixture_metadata_matches_gateway_choices(self):
+        fixture = _load_selector_prompt_fixture("selector.prompt.runaway_step_surface.json")
+        metadata = fixture["metadata"]
+
+        choices = _build_runaway_legal_choices((None, None, 17, 18, "운수"), {}, None, None)
+
+        self.assertEqual([choice["choice_id"] for choice in choices], metadata["expected_choice_ids"])
+        self.assertEqual(choices[0]["choice_id"], metadata["bonus_choice_id"])
+        self.assertEqual(choices[1]["choice_id"], metadata["stay_choice_id"])
 
     def test_lap_reward_over_budget_request_is_trimmed_before_apply(self):
         class OverBudgetPolicy(DummyPolicy):

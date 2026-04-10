@@ -170,6 +170,60 @@ class RuntimeServiceTests(unittest.TestCase):
             },
         )
 
+    def test_trick_hand_context_exposes_stable_deck_indexes_for_use_and_hidden_selection(self) -> None:
+        card_a = type("Card", (), {"deck_index": 41, "name": "마당발", "description": "desc-a"})()
+        card_b = type("Card", (), {"deck_index": 42, "name": "마당발", "description": "desc-b"})()
+        state = type("State", (), {"rounds_completed": 1, "turn_index": 2})()
+        player = type(
+            "Player",
+            (),
+            {
+                "cash": 11,
+                "position": 14,
+                "shards": 3,
+                "hidden_trick_deck_index": 42,
+                "trick_hand": [card_a, card_b],
+            },
+        )()
+
+        trick_context = build_public_context("choose_trick_to_use", (state, player, [card_a]), {})
+        hidden_context = build_public_context("choose_hidden_trick_card", (state, player, [card_a, card_b]), {})
+
+        self.assertEqual(trick_context["usable_hand_count"], 1)
+        self.assertEqual(trick_context["total_hand_count"], 2)
+        self.assertEqual(trick_context["hidden_trick_deck_index"], 42)
+        self.assertEqual(
+            trick_context["full_hand"],
+            [
+                {"deck_index": 41, "name": "마당발", "card_description": "desc-a", "is_hidden": False, "is_usable": True},
+                {"deck_index": 42, "name": "마당발", "card_description": "desc-b", "is_hidden": True, "is_usable": False},
+            ],
+        )
+        self.assertEqual(hidden_context["hidden_trick_deck_index"], 42)
+        self.assertEqual(len(hidden_context["full_hand"]), 2)
+        self.assertTrue(hidden_context["selection_required"])
+
+    def test_specific_trick_reward_context_and_choices_keep_deck_index_identity(self) -> None:
+        reward_a = type("Reward", (), {"deck_index": 101, "name": "보상 카드", "description": "desc-a"})()
+        reward_b = type("Reward", (), {"deck_index": 102, "name": "보상 카드", "description": "desc-b"})()
+        state = type("State", (), {"rounds_completed": 5, "turn_index": 0})()
+        player = type("Player", (), {"cash": 9, "position": 22, "shards": 5})()
+
+        context = build_public_context("choose_specific_trick_reward", (state, player, [reward_a, reward_b]), {})
+        invocation = build_decision_invocation("choose_specific_trick_reward", (state, player, [reward_a, reward_b]), {})
+        routed = build_routed_decision_call(invocation, fallback_policy="required")
+
+        self.assertEqual(context["reward_count"], 2)
+        self.assertEqual(
+            context["reward_cards"],
+            [
+                {"deck_index": 101, "name": "보상 카드", "card_description": "desc-a"},
+                {"deck_index": 102, "name": "보상 카드", "card_description": "desc-b"},
+            ],
+        )
+        self.assertEqual([choice["choice_id"] for choice in routed.legal_choices], ["101", "102"])
+        self.assertEqual([choice["title"] for choice in routed.legal_choices], ["보상 카드 #101", "보상 카드 #102"])
+        self.assertEqual(routed.choice_parser("102", invocation.args, invocation.kwargs, invocation.state, invocation.player), reward_b)
     def test_draft_context_exposes_phase_and_offered_candidates(self) -> None:
         state = type("State", (), {"rounds_completed": 0, "turn_index": 0, "active_by_card": {1: "산적", 2: "건설업자"}})()
         player = type("Player", (), {"cash": 10, "position": 3, "drafted_cards": [7]})()
@@ -181,6 +235,65 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertLessEqual(len(context["offered_names"]), context["offered_count"] * 2)
         self.assertEqual(context["draft_phase"], 2)
         self.assertEqual(context["draft_phase_label"], "draft_phase_2")
+
+    def test_mark_target_context_uses_public_active_faces_for_future_slots(self) -> None:
+        state = type(
+            "State",
+            (),
+            {
+                "rounds_completed": 1,
+                "turn_index": 2,
+                "current_round_order": [0, 1, 2],
+                "active_by_card": {
+                    2: "자객",
+                    3: "탈출 노비",
+                    4: "아전",
+                    5: "교리 감독관",
+                    6: "박수",
+                    7: "중매꾼",
+                    8: "사기꾼",
+                },
+                "players": [
+                    type("Player", (), {"player_id": 0, "alive": True, "current_character": "자객", "revealed_this_round": False})(),
+                    type("Player", (), {"player_id": 1, "alive": True, "current_character": "객주", "revealed_this_round": False})(),
+                    type("Player", (), {"player_id": 2, "alive": True, "current_character": "건설업자", "revealed_this_round": False})(),
+                ],
+            },
+        )()
+        player = type("Player", (), {"player_id": 0, "cash": 11, "position": 6, "shards": 2, "current_character": "자객"})()
+
+        context = build_public_context("choose_mark_target", (state, player, "자객"), {})
+        invocation = build_decision_invocation("choose_mark_target", (state, player, "자객"), {})
+        routed = build_routed_decision_call(invocation, fallback_policy="required")
+
+        self.assertEqual(context["target_count"], 6)
+        self.assertEqual(
+            context["target_pairs"],
+            [
+                {"target_character": "탈출 노비", "target_card_no": 3},
+                {"target_character": "아전", "target_card_no": 4},
+                {"target_character": "교리 감독관", "target_card_no": 5},
+                {"target_character": "박수", "target_card_no": 6},
+                {"target_character": "중매꾼", "target_card_no": 7},
+                {"target_character": "사기꾼", "target_card_no": 8},
+            ],
+        )
+        self.assertEqual(
+            [choice["choice_id"] for choice in routed.legal_choices],
+            ["none", "탈출 노비", "아전", "교리 감독관", "박수", "중매꾼", "사기꾼"],
+        )
+
+    def test_final_character_choices_follow_active_face_names(self) -> None:
+        state = type("State", (), {"rounds_completed": 0, "turn_index": 0, "active_by_card": {7: "중매꾼", 8: "사기꾼"}})()
+        player = type("Player", (), {"cash": 10, "position": 3, "drafted_cards": [7, 8]})()
+
+        context = build_public_context("choose_final_character", (state, player, [7, 8]), {})
+        invocation = build_decision_invocation("choose_final_character", (state, player, [7, 8]), {})
+        routed = build_routed_decision_call(invocation, fallback_policy="required")
+
+        self.assertEqual(context["choice_names"], ["중매꾼", "사기꾼"])
+        self.assertEqual([choice["title"] for choice in routed.legal_choices], ["중매꾼", "사기꾼"])
+        self.assertEqual(routed.choice_parser("7", invocation.args, invocation.kwargs, invocation.state, invocation.player), "중매꾼")
 
     def test_lap_reward_context_exposes_budget_bundles_and_player_status(self) -> None:
         rules = type(
@@ -268,11 +381,12 @@ class RuntimeServiceTests(unittest.TestCase):
 
         context = build_public_context(
             "choose_purchase_tile",
-            (state, player, 1, state.board[1], 6),
+            (state, player, 0, state.board[0], 6),
             {"source": "matchmaker_adjacent"},
         )
 
-        self.assertEqual(context["tile_index"], 1)
+        self.assertEqual(context["tile_index"], 0)
+        self.assertEqual(context["landing_tile_index"], 1)
         self.assertEqual(context["tile_zone"], "red")
         self.assertEqual(context["tile_kind"], "T3")
         self.assertEqual(context["tile_purchase_cost"], 3)
@@ -1916,6 +2030,10 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertEqual(resolved.payload.get("provider"), "ai")
             self.assertEqual(requested.payload.get("request_type"), "purchase_tile")
             self.assertEqual(resolved.payload.get("choice_id"), "no")
+            self.assertEqual(requested.payload.get("public_context", {}).get("round_index"), 1)
+            self.assertEqual(requested.payload.get("public_context", {}).get("turn_index"), 4)
+            self.assertEqual(resolved.payload.get("public_context", {}).get("round_index"), 1)
+            self.assertEqual(resolved.payload.get("public_context", {}).get("turn_index"), 4)
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -1967,6 +2085,10 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertEqual(resolved.payload.get("provider"), "ai")
             self.assertEqual(requested.payload.get("request_type"), "mark_target")
             self.assertEqual(resolved.payload.get("choice_id"), "3")
+            self.assertEqual(requested.payload.get("public_context", {}).get("round_index"), 2)
+            self.assertEqual(requested.payload.get("public_context", {}).get("turn_index"), 3)
+            self.assertEqual(resolved.payload.get("public_context", {}).get("round_index"), 2)
+            self.assertEqual(resolved.payload.get("public_context", {}).get("turn_index"), 3)
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)

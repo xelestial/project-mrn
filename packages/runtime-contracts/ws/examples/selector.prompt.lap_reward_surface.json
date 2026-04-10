@@ -1,0 +1,121 @@
+{
+  "case_id": "prompt_lap_reward_surface",
+  "metadata": {
+    "expected_choice_ids": [
+      "cash-2_shards-1_coins-1",
+      "cash-5_shards-0_coins-0",
+      "cash-2_shards-2_coins-0"
+    ]
+  },
+  "messages": [
+    {
+      "type": "prompt",
+      "seq": 11,
+      "session_id": "sess_prompt_surface",
+      "server_time_ms": 11,
+      "payload": {
+        "request_id": "req_lap_surface_1",
+        "request_type": "lap_reward",
+        "player_id": 1,
+        "timeout_ms": 30000,
+        "legal_choices": [
+          {
+            "choice_id": "cash-2_shards-1_coins-1",
+            "title": "Cash +2 / Shards +1 / Coins +1",
+            "description": "Spend 10/10 reward points",
+            "value": {
+              "cash_units": 2,
+              "shard_units": 1,
+              "coin_units": 1,
+              "spent_points": 10,
+              "points_budget": 10
+            }
+          },
+          {
+            "choice_id": "cash-5_shards-0_coins-0",
+            "title": "Cash +5",
+            "description": "Spend 10/10 reward points",
+            "value": {
+              "cash_units": 5,
+              "shard_units": 0,
+              "coin_units": 0,
+              "spent_points": 10,
+              "points_budget": 10
+            }
+          },
+          {
+            "choice_id": "cash-2_shards-2_coins-0",
+            "title": "Cash +2 / Shards +2",
+            "description": "Spend 10/10 reward points",
+            "value": {
+              "cash_units": 2,
+              "shard_units": 2,
+              "coin_units": 0,
+              "spent_points": 10,
+              "points_budget": 10
+            }
+          }
+        ],
+        "public_context": {
+          "budget": 10,
+          "pools": {
+            "cash": 30,
+            "shards": 18,
+            "coins": 18
+          },
+          "cash_point_cost": 2,
+          "shards_point_cost": 3,
+          "coins_point_cost": 3,
+          "player_cash": 12,
+          "player_shards": 4,
+          "player_hand_coins": 1,
+          "player_placed_coins": 2,
+          "player_total_score": 3,
+          "player_owned_tile_count": 4
+        }
+      }
+    }
+  ],
+  "expected": {
+    "prompt": {
+      "active": {
+        "surface": {
+          "kind": "lap_reward",
+          "blocks_public_events": true,
+          "lap_reward": {
+            "budget": 10,
+            "cash_pool": 30,
+            "shards_pool": 18,
+            "coins_pool": 18,
+            "cash_point_cost": 2,
+            "shards_point_cost": 3,
+            "coins_point_cost": 3,
+            "options": [
+              {
+                "choice_id": "cash-2_shards-1_coins-1",
+                "cash_units": 2,
+                "shard_units": 1,
+                "coin_units": 1,
+                "spent_points": 10
+              },
+              {
+                "choice_id": "cash-5_shards-0_coins-0",
+                "cash_units": 5,
+                "shard_units": 0,
+                "coin_units": 0,
+                "spent_points": 10
+              },
+              {
+                "choice_id": "cash-2_shards-2_coins-0",
+                "cash_units": 2,
+                "shard_units": 2,
+                "coin_units": 0,
+                "spent_points": 10
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

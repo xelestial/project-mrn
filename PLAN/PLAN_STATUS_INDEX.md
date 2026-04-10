@@ -1,7 +1,7 @@
 # PLAN Status Index
 
 Status: ACTIVE  
-Updated: 2026-04-07  
+Updated: 2026-04-09  
 Owner: GPT
 
 ## Purpose
@@ -28,7 +28,8 @@ Read and maintain these:
 2. `docs/Game-Rules.md`
 3. `PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
 4. `docs/frontend/[ACTIVE]_UI_UX_PRIORITY_ONE_PAGE.md`
-5. `docs/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md`
+5. `docs/frontend/[PLAN]_LIVE_PLAY_STATE_AND_DECISION_RECOVERY.md`
+6. `docs/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md`
 
 ## Closed Enough
 

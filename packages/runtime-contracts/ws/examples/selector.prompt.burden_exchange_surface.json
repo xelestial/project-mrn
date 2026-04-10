@@ -1,0 +1,92 @@
+{
+  "case_id": "prompt_burden_exchange_surface",
+  "metadata": {
+    "expected_current_target_deck_index": 91,
+    "expected_card_names": ["무거운 짐", "가벼운 짐", "호객꾼"]
+  },
+  "messages": [
+    {
+      "type": "prompt",
+      "seq": 21,
+      "session_id": "sess_prompt_surface",
+      "server_time_ms": 21,
+      "payload": {
+        "request_id": "req_burden_surface_1",
+        "request_type": "burden_exchange",
+        "player_id": 1,
+        "timeout_ms": 30000,
+        "legal_choices": [
+          { "choice_id": "yes", "title": "Pay 4 to remove" },
+          { "choice_id": "no", "title": "Keep burden" }
+        ],
+        "public_context": {
+          "burden_card_count": 3,
+          "current_f_value": 3,
+          "supply_threshold": 3,
+          "player_cash": 12,
+          "burden_cards": [
+            {
+              "deck_index": 91,
+              "name": "무거운 짐",
+              "card_description": "이동 -1",
+              "burden_cost": 4,
+              "is_current_target": true
+            },
+            {
+              "deck_index": 92,
+              "name": "가벼운 짐",
+              "card_description": "효과 없음",
+              "burden_cost": 2,
+              "is_current_target": false
+            },
+            {
+              "deck_index": 93,
+              "name": "호객꾼",
+              "card_description": "말 효과",
+              "burden_cost": 2,
+              "is_current_target": false
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "expected": {
+    "prompt": {
+      "active": {
+        "surface": {
+          "kind": "burden_exchange_batch",
+          "blocks_public_events": true,
+          "burden_exchange_batch": {
+            "burden_card_count": 3,
+            "current_f_value": 3,
+            "supply_threshold": 3,
+            "cards": [
+              {
+                "deck_index": 91,
+                "name": "무거운 짐",
+                "description": "이동 -1",
+                "burden_cost": 4,
+                "is_current_target": true
+              },
+              {
+                "deck_index": 92,
+                "name": "가벼운 짐",
+                "description": "효과 없음",
+                "burden_cost": 2,
+                "is_current_target": false
+              },
+              {
+                "deck_index": 93,
+                "name": "호객꾼",
+                "description": "말 효과",
+                "burden_cost": 2,
+                "is_current_target": false
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

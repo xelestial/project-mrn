@@ -1,0 +1,94 @@
+{
+  "case_id": "board_live_tiles_projection",
+  "metadata": {
+    "focus_tile_indices": [5, 8]
+  },
+  "messages": [
+    {
+      "type": "event",
+      "seq": 1,
+      "session_id": "s1",
+      "server_time_ms": 1,
+      "payload": {
+        "event_type": "turn_end_snapshot",
+        "round_index": 2,
+        "turn_index": 5,
+        "acting_player_id": 1,
+        "snapshot": {
+          "players": [
+            { "player_id": 1, "display_name": "Player 1", "character": "산적", "alive": true, "position": 2, "cash": 12, "shards": 4, "owned_tile_count": 1 },
+            { "player_id": 2, "display_name": "Player 2", "character": "박수", "alive": true, "position": 5, "cash": 9, "shards": 4, "owned_tile_count": 1 }
+          ],
+          "board": {
+            "marker_owner_player_id": 2,
+            "tiles": [
+              { "tile_index": 5, "score_coin_count": 1, "owner_player_id": 2, "pawn_player_ids": [2] },
+              { "tile_index": 8, "score_coin_count": 0, "owner_player_id": null, "pawn_player_ids": [] }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "event",
+      "seq": 2,
+      "session_id": "s1",
+      "server_time_ms": 2,
+      "payload": {
+        "event_type": "player_move",
+        "round_index": 2,
+        "turn_index": 6,
+        "acting_player_id": 1,
+        "from_tile_index": 2,
+        "to_tile_index": 8,
+        "path": [3, 4, 5, 6, 7, 8]
+      }
+    },
+    {
+      "type": "event",
+      "seq": 3,
+      "session_id": "s1",
+      "server_time_ms": 3,
+      "payload": {
+        "event_type": "tile_purchased",
+        "round_index": 2,
+        "turn_index": 6,
+        "acting_player_id": 1,
+        "tile_index": 8,
+        "owner_player_id": 1,
+        "score_coin_count": 1
+      }
+    },
+    {
+      "type": "event",
+      "seq": 4,
+      "session_id": "s1",
+      "server_time_ms": 4,
+      "payload": {
+        "event_type": "landing_resolved",
+        "round_index": 2,
+        "turn_index": 6,
+        "acting_player_id": 2,
+        "public_context": {
+          "tile_index": 5,
+          "score_coin_count": 3,
+          "player_position": 5
+        }
+      }
+    }
+  ],
+  "expected": {
+    "board": {
+      "last_move": {
+        "player_id": 1,
+        "from_tile_index": 2,
+        "to_tile_index": 8,
+        "path_tile_indices": [3, 4, 5, 6, 7, 8]
+      },
+      "tiles": [
+        { "tile_index": 5, "score_coin_count": 3, "owner_player_id": 2, "pawn_player_ids": [2] },
+        { "tile_index": 8, "score_coin_count": 1, "owner_player_id": 1, "pawn_player_ids": [1] }
+      ]
+    }
+  }
+}

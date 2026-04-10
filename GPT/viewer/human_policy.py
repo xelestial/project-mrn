@@ -20,6 +20,7 @@ import threading
 from itertools import combinations
 from typing import Any, Optional
 
+from policy_mark_utils import ordered_public_mark_targets
 from viewer.prompt_contract import build_prompt_envelope, extract_choice_id
 
 # ---------------------------------------------------------------------------
@@ -28,8 +29,49 @@ from viewer.prompt_contract import build_prompt_envelope, extract_choice_id
 TIMEOUT_S = 300.0  # 5 minutes
 
 
+def _round_index_from_state(state: Any) -> int | None:
+    rounds_completed = getattr(state, "rounds_completed", None)
+    if isinstance(rounds_completed, int):
+        return rounds_completed + 1
+    return None
+
+
+def _turn_index_from_state(state: Any) -> int | None:
+    turn_index = getattr(state, "turn_index", None)
+    if isinstance(turn_index, int):
+        return turn_index + 1
+    return None
+
+
 def _lap_reward_choice_id(cash_units: int, shard_units: int, coin_units: int) -> str:
     return f"cash-{cash_units}_shards-{shard_units}_coins-{coin_units}"
+
+
+def _legal_adjacent_purchase_targets(state: Any, anchor_pos: int) -> list[int]:
+    try:
+        block_ids = list(getattr(state, "block_ids", []) or [])
+        board = list(getattr(state, "board", []) or [])
+        tile_owner = list(getattr(state, "tile_owner", []) or [])
+        if anchor_pos < 0 or anchor_pos >= len(block_ids):
+            return []
+        block_id = block_ids[anchor_pos]
+        if block_id < 0:
+            return []
+        candidates: list[int] = []
+        for idx, bid in enumerate(block_ids):
+            if idx == anchor_pos or bid != block_id:
+                continue
+            if idx >= len(board) or idx >= len(tile_owner):
+                continue
+            if abs(idx - anchor_pos) != 1 or tile_owner[idx] is not None:
+                continue
+            cell_kind = getattr(board[idx], "name", str(board[idx]))
+            if cell_kind not in {"T2", "T3"}:
+                continue
+            candidates.append(int(idx))
+        return candidates
+    except Exception:
+        return []
 
 
 class HumanHttpPolicy:
@@ -532,6 +574,8 @@ class HumanHttpPolicy:
                 for opt in options
             ],
             public_context={
+                "round_index": _round_index_from_state(state),
+                "turn_index": _turn_index_from_state(state),
                 "player_cash": player.cash,
                 "player_position": player.position,
                 "hand_count": len(hand),
@@ -569,6 +613,24 @@ class HumanHttpPolicy:
             return self._ai.choose_purchase_tile(state, player, pos, cell, cost, source=source)
 
         tile = state.tiles[pos]
+        public_context = {
+            "tile_index": pos,
+            "tile_zone": tile.zone_color,
+            "tile_kind": getattr(tile.kind, "name", None),
+            "tile_purchase_cost": tile.purchase_cost,
+            "tile_rent_cost": tile.rent_cost,
+            "tile_score_coins": tile.score_coins,
+            "cost": cost,
+            "player_cash": player.cash,
+            "player_shards": getattr(player, "shards", None),
+            "player_position": player.position,
+            "source": source,
+        }
+        if source in {"matchmaker_adjacent", "adjacent_extra"} and isinstance(getattr(player, "position", None), int):
+            public_context["landing_tile_index"] = player.position
+            candidate_tiles = _legal_adjacent_purchase_targets(state, player.position)
+            if candidate_tiles:
+                public_context["candidate_tiles"] = candidate_tiles
         prompt = build_prompt_envelope(
             request_type="purchase_tile",
             player_id=player.player_id + 1,
@@ -576,17 +638,7 @@ class HumanHttpPolicy:
                 {"choice_id": "yes", "label": f"{pos}번 칸 구매 (비용 {cost})", "value": True},
                 {"choice_id": "no", "label": "구매 없이 턴 종료", "value": False},
             ],
-            public_context={
-                "tile_index": pos,
-                "tile_zone": tile.zone_color,
-                "tile_kind": getattr(tile.kind, "name", None),
-                "tile_purchase_cost": tile.purchase_cost,
-                "tile_rent_cost": tile.rent_cost,
-                "tile_score_coins": tile.score_coins,
-                "cost": cost,
-                "player_cash": player.cash,
-                "source": source,
-            },
+            public_context=public_context,
             can_pass=True,
             timeout_ms=int(TIMEOUT_S * 1000),
         )
@@ -634,6 +686,8 @@ class HumanHttpPolicy:
                 for opt in options
             ],
             public_context={
+                "round_index": _round_index_from_state(state),
+                "turn_index": _turn_index_from_state(state),
                 "player_cash": player.cash,
                 "player_position": player.position,
                 "hand_count": len(hand),
@@ -677,22 +731,22 @@ class HumanHttpPolicy:
         if _is_mark_skill_blocked_by_uhsa(state, player, actor_name):
             return None
 
-        legal_targets = _legal_mark_target_players(state, player)
+        legal_targets = _legal_mark_target_public_choices(state, player)
         if not legal_targets:
             return None
 
-        options = [{"id": "none", "label": "지목 안 함", "target_character": None, "target_player_id": None}]
+        options = [{"id": "none", "label": "지목 안 함", "target_character": None, "target_card_no": None}]
         for target in legal_targets:
-            target_character = str(getattr(target, "current_character", "") or "")
-            target_player_id = int(getattr(target, "player_id", -1))
-            if not target_character or target_player_id < 0:
+            target_character = str(target.get("target_character", "") or "")
+            target_card_no = int(target.get("card_no", -1))
+            if not target_character or target_card_no < 1:
                 continue
             options.append(
                 {
-                    "id": str(target_player_id),
-                    "label": f"{target_character} / P{target_player_id + 1}",
+                    "id": target_character,
+                    "label": target_character,
                     "target_character": target_character,
-                    "target_player_id": target_player_id + 1,
+                    "target_card_no": target_card_no,
                 }
             )
 
@@ -707,7 +761,7 @@ class HumanHttpPolicy:
                     if opt["id"] == "none"
                     else {
                         "target_character": opt["target_character"],
-                        "target_player_id": opt["target_player_id"],
+                        "target_card_no": opt["target_card_no"],
                     },
                 }
                 for opt in options
@@ -720,7 +774,7 @@ class HumanHttpPolicy:
                 "target_pairs": [
                     {
                         "target_character": opt["target_character"],
-                        "target_player_id": opt["target_player_id"],
+                        "target_card_no": opt["target_card_no"],
                     }
                     for opt in options
                     if opt["id"] != "none"
@@ -1072,6 +1126,9 @@ class HumanHttpPolicy:
                 "already_flipped_cards": sorted(owner_seen),
                 "flip_limit": None,
                 "flip_mode": "multi",
+                "flip_submit_mode": "finish_once",
+                "finish_choice_id": "none",
+                "batch_payload_key": "selected_choice_ids",
                 "flip_trigger": "marker_owner_changed",
                 "marker_owner_player_id": None if marker_owner_id is None else int(marker_owner_id) + 1,
                 "pending_marker_flip_owner_id": None if pending_owner_id is None else int(pending_owner_id) + 1,
@@ -1082,6 +1139,21 @@ class HumanHttpPolicy:
 
         def _parse(r: dict):
             sel = extract_choice_id(r, "none")
+            payload = r.get("choice_payload") if isinstance(r, dict) else None
+            selected_ids = payload.get("selected_choice_ids") if isinstance(payload, dict) else None
+            if sel == "none" and isinstance(selected_ids, list):
+                selected_cards: list[int] = []
+                for selected_id in selected_ids:
+                    selected_text = str(selected_id).strip()
+                    if not selected_text or selected_text == "none":
+                        continue
+                    for opt in options:
+                        if opt["id"] == selected_text and opt["card_index"] is not None:
+                            owner_seen.add(int(opt["card_index"]))
+                            selected_cards.append(int(opt["card_index"]))
+                            break
+                owner_seen.clear()
+                return selected_cards if selected_cards else None
             if sel == "none":
                 owner_seen.clear()
                 return None
@@ -1102,8 +1174,9 @@ class HumanHttpPolicy:
         options = [
             {
                 "id": str(card.deck_index),
-                "label": getattr(card, "name", f"Card {card.deck_index}"),
+                "label": f"{getattr(card, 'name', f'Card {card.deck_index}')} #{card.deck_index}",
                 "deck_index": card.deck_index,
+                "card_description": getattr(card, "description", ""),
             }
             for card in choices
         ]
@@ -1115,15 +1188,24 @@ class HumanHttpPolicy:
                 {
                     "choice_id": opt["id"],
                     "label": opt["label"],
-                    "value": {"deck_index": opt["deck_index"]},
+                    "value": {"deck_index": opt["deck_index"], "card_description": opt.get("card_description", "")},
                 }
                 for opt in options
             ],
             public_context={
                 "player_cash": player.cash,
                 "player_position": player.position,
+                "player_shards": getattr(player, "shards", None),
                 "reward_count": len(options),
-                "reward_names": [opt["label"] for opt in options],
+                "reward_names": [getattr(card, "name", str(card)) for card in choices],
+                "reward_cards": [
+                    {
+                        "deck_index": getattr(card, "deck_index", None),
+                        "name": getattr(card, "name", str(card)),
+                        "card_description": getattr(card, "description", ""),
+                    }
+                    for card in choices
+                ],
             },
             timeout_ms=int(TIMEOUT_S * 1000),
         )
@@ -1277,6 +1359,13 @@ def _legal_mark_target_players(state: Any, player: Any) -> list[Any]:
             continue
         out.append(target)
     return out
+
+
+def _legal_mark_target_public_choices(state: Any, player: Any) -> list[dict[str, int | str]]:
+    try:
+        return ordered_public_mark_targets(state, player)
+    except Exception:
+        return []
 
 
 def _is_mark_skill_blocked_by_uhsa(state: Any, player: Any, actor_name: Any) -> bool:

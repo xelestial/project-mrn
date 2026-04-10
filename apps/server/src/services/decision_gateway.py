@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Literal
 
 DecisionProvider = Literal["human", "ai"]
@@ -12,6 +14,14 @@ ChoiceSerializer = Callable[[Any], str]
 ContextBuilder = Callable[[tuple[Any, ...], dict[str, Any], Any, Any], dict[str, Any]]
 LegalChoiceBuilder = Callable[[tuple[Any, ...], dict[str, Any], Any, Any], list[dict[str, Any]]]
 ChoiceParser = Callable[[str, tuple[Any, ...], dict[str, Any], Any, Any], Any]
+
+
+def _ensure_gpt_import_path() -> None:
+    root = Path(__file__).resolve().parents[4]
+    gpt_dir = root / "GPT"
+    gpt_text = str(gpt_dir)
+    if gpt_text not in sys.path:
+        sys.path.insert(0, gpt_text)
 
 
 @dataclass(frozen=True)
@@ -145,30 +155,41 @@ def _choice_payload(
     return payload
 
 
+def _active_character_for_card_index(state: Any, card_index: int) -> tuple[str, str]:
+    try:
+        _ensure_gpt_import_path()
+        from characters import CARD_TO_NAMES, CHARACTERS
+
+        active_name = str((getattr(state, "active_by_card", {}) or {}).get(int(card_index)) or "")
+        if active_name:
+            ability = str(getattr(CHARACTERS.get(active_name), "ability_text", "") or "")
+            return active_name, ability
+
+        names = CARD_TO_NAMES.get(int(card_index), ("", ""))
+        fallback_name = next((candidate for candidate in names if candidate), "")
+        ability = str(getattr(CHARACTERS.get(fallback_name), "ability_text", "") or "")
+        return fallback_name, ability
+    except Exception:
+        return "", ""
+
+
 def _build_card_choice_context(
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
     state: Any,
     player: Any,
 ) -> dict[str, Any]:
-    del state, player
+    del player
     cards = _arg_or_kw(args, kwargs, 2, "offered_cards") or kwargs.get("card_choices")
     if isinstance(cards, list):
         names: list[str] = []
         abilities: list[str] = []
-        try:
-            from characters import CARD_TO_NAMES, CHARACTERS
-
-            for card_index in cards:
-                pair = CARD_TO_NAMES.get(int(card_index), ("", ""))
-                card_names = [candidate for candidate in pair if candidate]
-                names.extend(card_names)
-                for character_name in card_names:
-                    ability = str(getattr(CHARACTERS.get(character_name), "ability_text", "") or "")
-                    abilities.append(ability)
-        except Exception:
-            names = []
-            abilities = []
+        for card_index in cards:
+            name, ability = _active_character_for_card_index(state, int(card_index))
+            if name:
+                names.append(name)
+            if ability:
+                abilities.append(ability)
         return {
             "choice_count": len(cards),
             "choice_names": names,
@@ -217,6 +238,32 @@ def _build_purchase_tile_context(
     state: Any,
     player: Any,
 ) -> dict[str, Any]:
+    def _legal_adjacent_purchase_targets(anchor_pos: int) -> list[int]:
+        try:
+            block_ids = list(getattr(state, "block_ids", []) or [])
+            board = list(getattr(state, "board", []) or [])
+            tile_owner = list(getattr(state, "tile_owner", []) or [])
+            if anchor_pos < 0 or anchor_pos >= len(block_ids):
+                return []
+            block_id = block_ids[anchor_pos]
+            if block_id < 0:
+                return []
+            candidates: list[int] = []
+            for idx, bid in enumerate(block_ids):
+                if idx == anchor_pos or bid != block_id:
+                    continue
+                if idx >= len(board) or idx >= len(tile_owner):
+                    continue
+                if abs(idx - anchor_pos) != 1 or tile_owner[idx] is not None:
+                    continue
+                cell_kind = getattr(board[idx], "name", str(board[idx]))
+                if cell_kind not in {"T2", "T3"}:
+                    continue
+                candidates.append(int(idx))
+            return candidates
+        except Exception:
+            return []
+
     pos = _arg_or_kw(args, kwargs, 2, "pos")
     cell = _arg_or_kw(args, kwargs, 3, "cell")
     tile = None
@@ -232,32 +279,18 @@ def _build_purchase_tile_context(
     rent_cost = getattr(tile, "rent_cost", None) if tile is not None else getattr(cell, "rent_cost", None)
     score_coins = getattr(tile, "score_coins", None) if tile is not None else None
     tile_kind = getattr(getattr(tile, "kind", None), "name", None) if tile is not None else getattr(cell, "name", None)
+    source = kwargs.get("source", "landing")
+    landing_tile_index = getattr(player, "position", None) if isinstance(getattr(player, "position", None), int) else None
     candidate_tiles: list[int] = []
-    if kwargs.get("source") == "matchmaker_adjacent" and isinstance(pos, int):
-        try:
-            block_ids = list(getattr(state, "block_ids", []) or [])
-            board = list(getattr(state, "board", []) or [])
-            tile_owner = list(getattr(state, "tile_owner", []) or [])
-            block_id = block_ids[pos]
-            for idx, bid in enumerate(block_ids):
-                if idx == pos or bid != block_id:
-                    continue
-                if idx >= len(board) or idx >= len(tile_owner):
-                    continue
-                if abs(idx - pos) != 1:
-                    continue
-                if tile_owner[idx] is not None:
-                    continue
-                cell_kind = getattr(board[idx], "name", str(board[idx]))
-                if cell_kind not in {"T2", "T3"}:
-                    continue
-                candidate_tiles.append(int(idx))
-        except Exception:
-            candidate_tiles = []
+    if source in {"matchmaker_adjacent", "adjacent_extra"}:
+        if isinstance(landing_tile_index, int):
+            candidate_tiles = _legal_adjacent_purchase_targets(landing_tile_index)
+        elif isinstance(pos, int):
+            candidate_tiles = _legal_adjacent_purchase_targets(pos)
     context = {
         "tile_index": pos,
         "cost": _arg_or_kw(args, kwargs, 4, "cost"),
-        "source": kwargs.get("source", "landing"),
+        "source": source,
         "tile_zone": zone,
         "tile_kind": tile_kind,
         "tile_purchase_cost": purchase_cost,
@@ -267,6 +300,8 @@ def _build_purchase_tile_context(
         "player_shards": getattr(player, "shards", None),
         "player_position": getattr(player, "position", None),
     }
+    if landing_tile_index is not None:
+        context["landing_tile_index"] = landing_tile_index
     if candidate_tiles:
         context["candidate_tiles"] = candidate_tiles
     return context
@@ -324,23 +359,24 @@ def _build_mark_target_context(
         "target_rule": "future_turn_unrevealed_only",
     }
     try:
-        from viewer.human_policy import _is_mark_skill_blocked_by_uhsa, _legal_mark_target_players
+        _ensure_gpt_import_path()
+        from viewer.human_policy import _is_mark_skill_blocked_by_uhsa, _legal_mark_target_public_choices
 
         if _is_mark_skill_blocked_by_uhsa(state, player, actor_name):
             context["blocked_by_eosa"] = True
             context["target_count"] = 0
             return context
-        legal_targets = _legal_mark_target_players(state, player)
+        legal_targets = _legal_mark_target_public_choices(state, player)
     except Exception:
         legal_targets = []
     context["target_count"] = len(legal_targets)
     context["target_pairs"] = [
         {
-            "target_character": str(getattr(target, "current_character", "") or ""),
-            "target_player_id": int(getattr(target, "player_id", -1)) + 1,
+            "target_character": str(target.get("target_character", "") or ""),
+            "target_card_no": int(target.get("card_no", -1)),
         }
         for target in legal_targets
-        if getattr(target, "current_character", None) and isinstance(getattr(target, "player_id", None), int)
+        if target.get("target_character") and isinstance(target.get("card_no"), int)
     ]
     context["no_legal_targets"] = len(context["target_pairs"]) == 0
     return context
@@ -355,7 +391,13 @@ def _build_active_flip_context(
     del state, player
     flippable_cards = _arg_or_kw(args, kwargs, 2, "flippable_cards")
     if isinstance(flippable_cards, list):
-        return {"flip_count": len(flippable_cards)}
+        return {
+            "flip_count": len(flippable_cards),
+            "flip_mode": "multi",
+            "flip_submit_mode": "finish_once",
+            "finish_choice_id": "none",
+            "batch_payload_key": "selected_choice_ids",
+        }
     return {}
 
 
@@ -365,10 +407,32 @@ def _build_hidden_trick_context(
     state: Any,
     player: Any,
 ) -> dict[str, Any]:
-    del state, player
     hand = _arg_or_kw(args, kwargs, 2, "hand")
     if isinstance(hand, list):
-        return {"hand_count": len(hand), "selection_required": True}
+        full_hand_cards = list(getattr(player, "trick_hand", []) or hand)
+        hidden_deck_index = getattr(player, "hidden_trick_deck_index", None)
+        usable_deck_indices = {getattr(card, "deck_index", None) for card in hand}
+        return {
+            "hand_count": len(hand),
+            "hidden_trick_count": sum(
+                1
+                for card in full_hand_cards
+                if hidden_deck_index is not None and getattr(card, "deck_index", None) == hidden_deck_index
+            ),
+            "hidden_trick_deck_index": hidden_deck_index,
+            "hand_names": [getattr(card, "name", str(card)) for card in hand],
+            "full_hand": [
+                {
+                    "deck_index": getattr(card, "deck_index", None),
+                    "name": getattr(card, "name", str(card)),
+                    "card_description": getattr(card, "description", ""),
+                    "is_hidden": hidden_deck_index is not None and getattr(card, "deck_index", None) == hidden_deck_index,
+                    "is_usable": getattr(card, "deck_index", None) in usable_deck_indices,
+                }
+                for card in full_hand_cards
+            ],
+            "selection_required": True,
+        }
     return {}
 
 
@@ -378,10 +442,33 @@ def _build_trick_to_use_context(
     state: Any,
     player: Any,
 ) -> dict[str, Any]:
-    del state, player
     hand = _arg_or_kw(args, kwargs, 2, "hand")
     if isinstance(hand, list):
-        return {"hand_count": len(hand)}
+        full_hand_cards = list(getattr(player, "trick_hand", []) or hand)
+        hidden_deck_index = getattr(player, "hidden_trick_deck_index", None)
+        usable_deck_indices = {getattr(card, "deck_index", None) for card in hand}
+        return {
+            "hand_count": len(hand),
+            "usable_hand_count": len(hand),
+            "total_hand_count": len(full_hand_cards),
+            "hidden_trick_count": sum(
+                1
+                for card in full_hand_cards
+                if hidden_deck_index is not None and getattr(card, "deck_index", None) == hidden_deck_index
+            ),
+            "hidden_trick_deck_index": hidden_deck_index,
+            "hand_names": [getattr(card, "name", str(card)) for card in full_hand_cards],
+            "full_hand": [
+                {
+                    "deck_index": getattr(card, "deck_index", None),
+                    "name": getattr(card, "name", str(card)),
+                    "card_description": getattr(card, "description", ""),
+                    "is_hidden": hidden_deck_index is not None and getattr(card, "deck_index", None) == hidden_deck_index,
+                    "is_usable": getattr(card, "deck_index", None) in usable_deck_indices,
+                }
+                for card in full_hand_cards
+            ],
+        }
     return {}
 
 
@@ -391,10 +478,26 @@ def _build_specific_trick_reward_context(
     state: Any,
     player: Any,
 ) -> dict[str, Any]:
-    del state, player
+    del state
     choices = _arg_or_kw(args, kwargs, 2, "choices")
     if isinstance(choices, list):
-        return {"reward_count": len(choices)}
+        reward_cards = [
+            {
+                "deck_index": getattr(card, "deck_index", None),
+                "name": getattr(card, "name", str(card)),
+                "card_description": getattr(card, "description", ""),
+            }
+            for card in choices
+            if getattr(card, "deck_index", None) is not None
+        ]
+        return {
+            "player_cash": getattr(player, "cash", None),
+            "player_position": getattr(player, "position", None),
+            "player_shards": getattr(player, "shards", None),
+            "reward_count": len(reward_cards),
+            "reward_names": [str(card["name"]) for card in reward_cards],
+            "reward_cards": reward_cards,
+        }
     return {}
 
 
@@ -407,7 +510,12 @@ def _build_coin_placement_context(
     del args, kwargs, state
     owned_tiles = getattr(player, "visited_owned_tile_indices", None)
     if owned_tiles is not None:
-        return {"owned_tile_count": len(list(owned_tiles))}
+        owned_tile_indices = [int(idx) for idx in owned_tiles if isinstance(idx, int)]
+        return {
+            "owned_tile_count": len(owned_tile_indices),
+            "owned_tile_indices": owned_tile_indices,
+            "player_cash": getattr(player, "cash", None),
+        }
     return {}
 
 
@@ -417,11 +525,32 @@ def _build_doctrine_relief_context(
     state: Any,
     player: Any,
 ) -> dict[str, Any]:
-    del state, player
+    del state
     candidates = _arg_or_kw(args, kwargs, 2, "candidates")
     if isinstance(candidates, list):
-        return {"candidate_count": len(candidates)}
+        return {
+            "candidate_count": len(candidates),
+            "candidate_player_ids": [getattr(candidate, "player_id", None) for candidate in candidates],
+            "player_cash": getattr(player, "cash", None),
+            "player_shards": getattr(player, "shards", None),
+        }
     return {}
+
+
+def _build_geo_bonus_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    del state
+    actor_name = str(_arg_or_kw(args, kwargs, 2, "actor_name") or "")
+    return {
+        "actor_name": actor_name,
+        "player_cash": getattr(player, "cash", None),
+        "player_shards": getattr(player, "shards", None),
+        "player_hand_coins": getattr(player, "hand_score_coins", None),
+    }
 
 
 def _build_runaway_step_context(
@@ -617,16 +746,16 @@ def _build_card_index_choices(args: tuple[Any, ...], kwargs: dict[str, Any], sta
     raw_cards = _arg_or_kw(args, kwargs, index, key) or []
     choices: list[dict[str, Any]] = []
     for card_index in raw_cards:
-        name = ""
-        try:
-            from characters import CARD_TO_NAMES
-
-            names = CARD_TO_NAMES.get(int(card_index), ("", ""))
-            name = next((candidate for candidate in names if candidate), "")
-        except Exception:
-            name = ""
+        name, ability = _active_character_for_card_index(state, int(card_index))
         title = name or str(card_index)
-        choices.append(_choice_payload(str(card_index), title=title, value={"card_index": int(card_index)}))
+        choices.append(
+            _choice_payload(
+                str(card_index),
+                title=title,
+                description=ability or None,
+                value={"card_index": int(card_index), "character_name": title, "character_ability": ability},
+            )
+        )
     return choices
 
 
@@ -638,16 +767,12 @@ def _parse_draft_choice(choice_id: str, args: tuple[Any, ...], kwargs: dict[str,
 def _parse_final_character_choice(choice_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> Any:
     del player
     choices = _arg_or_kw(args, kwargs, 2, "card_choices") or []
-    try:
-        from characters import CARD_TO_NAMES
-
-        for card_index in choices:
-            if str(card_index) != str(choice_id):
-                continue
-            names = CARD_TO_NAMES.get(int(card_index), ("", ""))
-            return next((candidate for candidate in names if candidate), str(card_index))
-    except Exception:
-        pass
+    for card_index in choices:
+        if str(card_index) != str(choice_id):
+            continue
+        name, _ability = _active_character_for_card_index(state, int(card_index))
+        if name:
+            return name
     raise ValueError("invalid_final_character_choice_id")
 
 
@@ -721,36 +846,39 @@ def _parse_yes_no_choice(choice_id: str, args: tuple[Any, ...], kwargs: dict[str
 def _build_mark_target_choices(args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> list[dict[str, Any]]:
     actor_name = _arg_or_kw(args, kwargs, 2, "actor_name")
     try:
-        from viewer.human_policy import _is_mark_skill_blocked_by_uhsa, _legal_mark_target_players
+        _ensure_gpt_import_path()
+        from viewer.human_policy import _is_mark_skill_blocked_by_uhsa, _legal_mark_target_public_choices
 
         if _is_mark_skill_blocked_by_uhsa(state, player, actor_name):
             return [_choice_payload("none", title="No mark")]
-        legal_targets = _legal_mark_target_players(state, player)
+        legal_targets = _legal_mark_target_public_choices(state, player)
     except Exception:
-        legal_targets = [target for target in getattr(state, "players", []) if getattr(target, "alive", False) and getattr(target, "player_id", None) != getattr(player, "player_id", None)]
+        legal_targets = []
     choices = [_choice_payload("none", title="No mark")]
     for target in legal_targets:
-        character = str(getattr(target, "current_character", "") or "")
-        player_id = getattr(target, "player_id", None)
-        if not character or not isinstance(player_id, int):
+        character = str(target.get("target_character", "") or "")
+        card_no = target.get("card_no")
+        if not character or not isinstance(card_no, int):
             continue
         choices.append(
             _choice_payload(
-                str(player_id),
-                title=f"{character} / P{player_id + 1}",
-                value={"target_character": character, "target_player_id": player_id + 1},
+                character,
+                title=character,
+                value={"target_character": character, "target_card_no": card_no},
             )
         )
     return choices
 
 
 def _parse_mark_target_choice(choice_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> Any:
-    del args, kwargs, player
+    del args, kwargs
     if choice_id == "none":
         return None
-    for target in getattr(state, "players", []):
-        if str(getattr(target, "player_id", "")) == str(choice_id):
-            return getattr(target, "current_character", None)
+    for choice in _build_mark_target_choices((), {}, state, player):
+        if choice.get("choice_id") == choice_id:
+            value = dict(choice.get("value") or {})
+            target_character = value.get("target_character")
+            return str(target_character) if target_character else None
     raise ValueError("invalid_mark_target_choice_id")
 
 
@@ -761,7 +889,15 @@ def _build_coin_placement_choices(args: tuple[Any, ...], kwargs: dict[str, Any],
         owned = [int(idx) for idx in getattr(player, "visited_owned_tile_indices", [])]
     else:
         owned = [int(idx) for idx in getattr(player, "visited_owned_tile_indices", []) if tile_owner[int(idx)] == getattr(player, "player_id", None)]
-    return [_choice_payload(str(idx), title=f"Tile {idx}", value={"tile_index": idx}) for idx in owned]
+    return [
+        _choice_payload(
+            str(idx),
+            title=f"Tile {idx}",
+            description=f"Place one score point on tile {idx}.",
+            value={"tile_index": idx},
+        )
+        for idx in owned
+    ]
 
 
 def _parse_coin_placement_choice(choice_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> Any:
@@ -812,9 +948,9 @@ def _parse_trick_tile_target_choice(choice_id: str, args: tuple[Any, ...], kwarg
 def _build_geo_bonus_choices(args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> list[dict[str, Any]]:
     del args, kwargs, state, player
     return [
-        _choice_payload("cash", title="Cash +1", value={"choice": "cash"}),
-        _choice_payload("shards", title="Shards +1", value={"choice": "shards"}),
-        _choice_payload("coins", title="Coins +1", value={"choice": "coins"}),
+        _choice_payload("cash", title="Cash +1", description="Gain 1 cash.", value={"choice": "cash"}),
+        _choice_payload("shards", title="Shards +1", description="Gain 1 shard.", value={"choice": "shards"}),
+        _choice_payload("coins", title="Coins +1", description="Gain 1 score point.", value={"choice": "coins"}),
     ]
 
 
@@ -836,6 +972,7 @@ def _build_doctrine_relief_choices(args: tuple[Any, ...], kwargs: dict[str, Any]
             _choice_payload(
                 str(player_id),
                 title=f"P{player_id + 1}",
+                description=f"Remove 1 burden from P{player_id + 1}.",
                 value={"target_player_id": player_id + 1, "burden_count": burden_count},
             )
         )
@@ -852,11 +989,21 @@ def _parse_doctrine_relief_choice(choice_id: str, args: tuple[Any, ...], kwargs:
 
 
 def _build_active_flip_choices(args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> list[dict[str, Any]]:
-    del state, player
     flippable_cards = list(_arg_or_kw(args, kwargs, 2, "flippable_cards") or [])
     choices = [_choice_payload("none", title="Finish flipping")]
     for card_index in flippable_cards:
-        choices.append(_choice_payload(str(card_index), title=f"Flip {card_index}", value={"card_index": int(card_index)}))
+        current_name, flipped_name = _active_character_for_card_index(state, int(card_index))
+        choices.append(
+            _choice_payload(
+                str(card_index),
+                title=f"{current_name or f'Card {card_index}'} -> {flipped_name or 'Flip'}",
+                value={
+                    "card_index": int(card_index),
+                    "current_name": current_name,
+                    "flipped_name": flipped_name,
+                },
+            )
+        )
     return choices
 
 
@@ -873,8 +1020,9 @@ def _build_specific_trick_reward_choices(args: tuple[Any, ...], kwargs: dict[str
     return [
         _choice_payload(
             str(getattr(card, "deck_index", "")),
-            title=getattr(card, "name", str(getattr(card, "deck_index", ""))),
-            value={"deck_index": getattr(card, "deck_index", None)},
+            title=f"{getattr(card, 'name', str(getattr(card, 'deck_index', '')))} #{getattr(card, 'deck_index', '')}",
+            description=getattr(card, "description", ""),
+            value={"deck_index": getattr(card, "deck_index", None), "card_description": getattr(card, "description", "")},
         )
         for card in choices
         if getattr(card, "deck_index", None) is not None
@@ -944,7 +1092,13 @@ METHOD_SPECS: dict[str, DecisionMethodSpec] = {
         _build_trick_tile_target_choices,
         _parse_trick_tile_target_choice,
     ),
-    "choose_geo_bonus": DecisionMethodSpec("geo_bonus", _serialize_string_choice, legal_choice_builder=_build_geo_bonus_choices, choice_parser=_parse_string_choice),
+    "choose_geo_bonus": DecisionMethodSpec(
+        "geo_bonus",
+        _serialize_string_choice,
+        _build_geo_bonus_context,
+        legal_choice_builder=_build_geo_bonus_choices,
+        choice_parser=_parse_string_choice,
+    ),
     "choose_doctrine_relief_target": DecisionMethodSpec(
         "doctrine_relief",
         _serialize_default_choice,
@@ -977,8 +1131,8 @@ METHOD_SPECS: dict[str, DecisionMethodSpec] = {
         "pabal_dice_mode",
         _serialize_string_choice,
         legal_choice_builder=lambda args, kwargs, state, player: [
-            _choice_payload("plus_one", title="Roll three dice", value={"dice_mode": "plus_one"}),
-            _choice_payload("minus_one", title="Roll one die", value={"dice_mode": "minus_one"}),
+            _choice_payload("plus_one", title="Roll three dice", description="Use the default three-die roll this turn.", value={"dice_mode": "plus_one"}),
+            _choice_payload("minus_one", title="Roll one die", description="Reduce the roll to one die this turn.", value={"dice_mode": "minus_one"}),
         ],
         choice_parser=_parse_string_choice,
     ),
@@ -1157,8 +1311,9 @@ def build_decision_requested_payload(
     provider: DecisionProvider,
     round_index: int | None = None,
     turn_index: int | None = None,
+    public_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "event_type": "decision_requested",
         "request_id": request_id,
         "player_id": player_id,
@@ -1168,6 +1323,9 @@ def build_decision_requested_payload(
         "round_index": round_index,
         "turn_index": turn_index,
     }
+    if public_context:
+        payload["public_context"] = dict(public_context)
+    return payload
 
 
 def build_decision_resolved_payload(
@@ -1179,8 +1337,9 @@ def build_decision_resolved_payload(
     provider: DecisionProvider,
     round_index: int | None = None,
     turn_index: int | None = None,
+    public_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "event_type": "decision_resolved",
         "request_id": request_id,
         "player_id": player_id,
@@ -1190,6 +1349,9 @@ def build_decision_resolved_payload(
         "round_index": round_index,
         "turn_index": turn_index,
     }
+    if public_context:
+        payload["public_context"] = dict(public_context)
+    return payload
 
 
 def build_decision_timeout_fallback_payload(
@@ -1263,6 +1425,7 @@ class DecisionGateway:
                 provider=provider,
                 round_index=public_context.get("round_index"),
                 turn_index=public_context.get("turn_index"),
+                public_context=public_context,
             ),
         )
 
@@ -1286,6 +1449,7 @@ class DecisionGateway:
                 provider=provider,
                 round_index=public_context.get("round_index"),
                 turn_index=public_context.get("turn_index"),
+                public_context=public_context,
             ),
         )
 

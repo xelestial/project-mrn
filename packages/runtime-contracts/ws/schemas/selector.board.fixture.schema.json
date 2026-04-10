@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "required": ["case_id", "metadata", "messages", "expected"],
+  "properties": {
+    "case_id": { "type": "string", "minLength": 1 },
+    "metadata": {
+      "type": "object",
+      "required": ["focus_tile_indices"],
+      "properties": {
+        "focus_tile_indices": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "messages": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "expected": {
+      "type": "object",
+      "required": ["board"],
+      "properties": {
+        "board": { "type": "object" }
+      }
+    }
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "case_id": "prompt_mark_target_surface",
+  "metadata": {
+    "expected_choice_ids": ["교리 감독관", "만신", "객주"],
+    "actor_name": "산적"
+  },
+  "messages": [
+    {
+      "type": "prompt",
+      "seq": 31,
+      "session_id": "sess_prompt_surface",
+      "server_time_ms": 31,
+      "payload": {
+        "request_id": "req_mark_surface_1",
+        "request_type": "mark_target",
+        "player_id": 1,
+        "timeout_ms": 30000,
+        "legal_choices": [
+          {
+            "choice_id": "none",
+            "title": "No mark"
+          },
+          {
+            "choice_id": "교리 감독관",
+            "title": "교리 감독관",
+            "value": {
+              "target_character": "교리 감독관",
+              "target_card_no": 5
+            }
+          },
+          {
+            "choice_id": "만신",
+            "title": "만신",
+            "value": {
+              "target_character": "만신",
+              "target_card_no": 6
+            }
+          },
+          {
+            "choice_id": "객주",
+            "title": "객주",
+            "value": {
+              "target_character": "객주",
+              "target_card_no": 7
+            }
+          }
+        ],
+        "public_context": {
+          "actor_name": "산적",
+          "target_rule": "future_turn_unrevealed_only",
+          "target_count": 3,
+          "target_pairs": [
+            { "target_character": "교리 감독관", "target_card_no": 5 },
+            { "target_character": "만신", "target_card_no": 6 },
+            { "target_character": "객주", "target_card_no": 7 }
+          ]
+        }
+      }
+    }
+  ],
+  "expected": {
+    "prompt": {
+      "active": {
+        "surface": {
+          "kind": "mark_target",
+          "blocks_public_events": true,
+          "mark_target": {
+            "actor_name": "산적",
+            "none_choice_id": "none",
+            "candidates": [
+              {
+                "choice_id": "교리 감독관",
+                "target_character": "교리 감독관",
+                "target_card_no": 5,
+                "target_player_id": null
+              },
+              {
+                "choice_id": "만신",
+                "target_character": "만신",
+                "target_card_no": 6,
+                "target_player_id": null
+              },
+              {
+                "choice_id": "객주",
+                "target_character": "객주",
+                "target_card_no": 7,
+                "target_player_id": null
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

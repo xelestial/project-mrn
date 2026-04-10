@@ -192,6 +192,14 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                 message = await asyncio.wait_for(subscriber_queue.get(), timeout=sender_poll_timeout_sec)
             except asyncio.TimeoutError:
                 continue
+            message_type = str(message.get("type", "")).strip().lower()
+            payload = message.get("payload", {})
+            target_player_id = payload.get("player_id") if isinstance(payload, dict) else None
+            if message_type in {"prompt", "decision_ack"}:
+                if auth_ctx.get("role") != "seat":
+                    continue
+                if target_player_id != auth_ctx.get("player_id"):
+                    continue
             await websocket.send_json(message)
 
     heart = asyncio.create_task(_heartbeat())

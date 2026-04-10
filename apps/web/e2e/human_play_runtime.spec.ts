@@ -523,33 +523,29 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await page.goto(`/#/match?session=${sessionId}&token=session_p1_remote_runtime`);
 
   await expect(page.getByTestId("turn-notice-banner")).toBeVisible();
-  await expect(page.getByTestId("spectator-turn-panel")).toBeVisible();
-  await expect(page.getByTestId("spectator-turn-scene")).toBeVisible();
-  await expect(page.getByTestId("spectator-turn-weather")).toBeVisible();
-  await expect(page.getByTestId("spectator-turn-weather")).toContainText("Cold Front");
-  await expect(page.getByTestId("spectator-turn-character")).toBeVisible();
-  await expect(page.getByTestId("spectator-turn-action")).toBeVisible();
-  await expect(page.getByTestId("spectator-turn-payoff")).toBeVisible();
-  await expect(page.getByTestId("spectator-turn-prompt")).toBeVisible();
-  await expect(page.getByTestId("spectator-turn-move")).toBeVisible();
-  await expect(page.getByTestId("spectator-turn-spotlight")).toBeVisible();
-  await expect(page.getByTestId("spectator-turn-journey")).toBeVisible();
-  await expect(page.getByTestId("spectator-turn-result")).toBeVisible();
-  await expect(page.getByTestId("spectator-turn-handoff")).toBeVisible();
-  await expect(page.getByTestId("spectator-turn-spotlight")).toContainText("Bought tile 7 for 2");
+  await expect(page.getByTestId("turn-notice-banner")).toContainText("P2 (Bandit)'s turn");
+  await expect(page.getByTestId("turn-notice-banner")).not.toContainText("Tile purchased");
+  await expect(page.getByTestId("board-event-reveal-stack")).toBeVisible();
+  await expect(page.getByTestId("board-event-reveal-dice_roll-1")).toContainText("Movement value");
+  await expect(page.getByTestId("board-event-reveal-player_move-2")).toContainText("Player move");
+  await expect(page.getByTestId("board-event-reveal-landing_resolved-3")).toBeVisible();
+  await expect(page.getByTestId("board-event-reveal-tile_purchased-4")).toContainText("Tile purchased");
+  await expect(page.getByTestId("board-reveal-spotlight-tile_purchased")).toContainText("Bought tile 7 for 2");
+  await expect(page.getByTestId("board-weather-summary")).toContainText("Cold Front");
   await expect(page.getByTestId("board-move-start-badge")).toBeVisible();
   await expect(page.getByTestId("board-move-end-badge")).toBeVisible();
   await expect(page.getByTestId("board-moving-pawn-ghost")).toBeVisible();
   await expect(page.getByTestId("board-path-step-3")).toBeVisible();
   await expect(page.getByTestId("board-actor-banner")).toBeVisible();
+  await expect(page.getByTestId("core-action-panel")).toBeVisible();
+  await expect(page.getByTestId("core-action-payoff-sequence")).toContainText("Bought tile 7 for 2");
   await expect(page.getByTestId("core-action-journey")).toBeVisible();
   await expect(page.getByTestId("core-action-result-card")).toBeVisible();
   await expect(page.getByTestId("turn-stage-actor-status")).toHaveCount(0);
   await expect(page.getByTestId("prompt-overlay")).toHaveCount(0);
   await expect(page.getByTestId("core-action-journey")).toContainText("P2");
-  await expect(page.getByTestId("spectator-turn-journey")).toContainText("Bandit");
-  await expect(page.getByTestId("spectator-turn-result")).toContainText("Tile purchased");
-  await expect(page.getByTestId("spectator-turn-handoff")).toContainText("P2 turn closed");
+  await expect(page.getByTestId("core-action-journey")).toContainText("Landing resolved");
+  await expect(page.getByTestId("core-action-panel")).toContainText("P2 turn closed");
 });
 
 test("remote turn keeps lap reward, mark, and flip effects visible through spectator and stage panels", async ({ page }) => {
@@ -996,7 +992,7 @@ test("mixed participant runtime keeps worker success then fallback visible acros
   await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Bought tile 11 for 3");
 });
 
-test("mixed participant runtime keeps worker-not-ready fallback and weather continuity visible", async ({ page }) => {
+test("mixed participant runtime keeps timeout fallback and weather continuity visible", async ({ page }) => {
   const sessionId = "sess_mixed_worker_not_ready_runtime";
   const manifest = buildManifest({
     hash: "mixed_worker_not_ready_hash",
@@ -1095,13 +1091,13 @@ test("mixed participant runtime keeps worker-not-ready fallback and weather cont
 
   await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_worker_not_ready_runtime`);
 
-  await expect(page.getByTestId("spectator-turn-weather")).toContainText("Dry Season");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("external_ai_worker_not_ready");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("state not_ready");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("attempt 1/3");
-  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Participant status");
-  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("P3 paid P1 5 on tile 13");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("external_ai_worker_not_ready");
+  await expect(page.getByTestId("board-weather-summary")).toContainText("Dry Season");
+  await expect(page.getByTestId("board-event-reveal-stack")).toBeVisible();
+  await expect(page.getByTestId("board-event-reveal-rent_paid-1")).toContainText("P3 paid P1 5");
+  await expect(page.getByTestId("board-reveal-spotlight-rent_paid")).toContainText("P3 paid P1 5 on tile 13");
+  await expect(page.getByTestId("core-action-payoff-sequence")).toContainText("P3 paid P1 5 on tile 13");
+  await expect(page.getByTestId("core-action-panel")).toContainText("Decision timeout fallback");
+  await expect(page.getByTestId("core-action-panel")).toContainText("Timeout fallback");
 });
 
 test("mixed participant runtime keeps a long worker-success to fallback chain readable", async ({ page }) => {
@@ -1237,15 +1233,13 @@ test("mixed participant runtime keeps a long worker-success to fallback chain re
 
   await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_long_chain_runtime`);
 
-  await expect(page.getByTestId("spectator-turn-weather")).toContainText("Cold Front");
-  await expect(page.getByTestId("spectator-turn-scene")).toContainText("P3 fallback turn closed");
-  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("P3 paid P1 6 on tile 15");
-  await expect(page.getByTestId("spectator-turn-journey")).toContainText("Participant status");
-  await expect(page.getByTestId("spectator-turn-journey")).toContainText("Timeout fallback");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("attempt 2/2");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("mode heuristic_v3_gpt");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("adapter reference_heuristic_v1");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("class HeuristicPolicy");
+  await expect(page.getByTestId("board-event-reveal-stack")).toBeVisible();
+  await expect(page.getByTestId("board-event-reveal-rent_paid-1")).toContainText("P3 paid P1 6");
+  await expect(page.getByTestId("board-weather-summary")).toContainText("Cold Front");
+  await expect(page.getByTestId("core-action-panel")).toContainText("P3 fallback turn closed");
+  await expect(page.getByTestId("core-action-payoff-sequence")).toContainText("P3 paid P1 6 on tile 15");
+  await expect(page.getByTestId("core-action-panel")).toContainText("Lucky Wind");
+  await expect(page.getByTestId("core-action-panel")).toContainText("Gain 2 cash");
 });
 
 test("mixed participant runtime keeps repeated fallback continuity readable across longer chains", async ({ page }) => {
@@ -1326,14 +1320,17 @@ test("mixed participant runtime keeps repeated fallback continuity readable acro
 
   await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_repeated_fallback_chain`);
 
-  await expect(page.getByTestId("spectator-turn-weather")).toContainText("Monsoon");
-  await expect(page.getByTestId("spectator-turn-scene")).toContainText("P3 fallback fortune closed");
-  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Participant status");
-  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Fortune effect");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("class HeuristicPolicy");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("adapter reference_heuristic_v1");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("not_ready");
-  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Gain 1 shard.");
+  await expect(page.getByTestId("turn-notice-banner")).toBeVisible();
+  await expect(page.getByTestId("turn-notice-banner")).toContainText("Fortune resolved");
+  await expect(page.getByTestId("turn-notice-banner")).toContainText("Gain 1 shard.");
+  await expect(page.getByTestId("board-weather-summary")).toContainText("Monsoon");
+  await expect(page.getByTestId("board-event-reveal-stack")).toBeVisible();
+  await expect(page.getByTestId("board-event-reveal-fortune_resolved-1")).toContainText("Gain 1 shard.");
+  await expect(page.getByTestId("board-reveal-spotlight-fortune_resolved")).toContainText("Gain 1 shard.");
+  await expect(page.getByTestId("core-action-payoff-sequence")).toContainText("Fortune effect");
+  await expect(page.getByTestId("core-action-payoff-sequence")).toContainText("Gain 1 shard.");
+  await expect(page.getByTestId("core-action-journey")).toContainText("Decision timeout fallback");
+  await expect(page.getByTestId("core-action-panel")).toContainText("P3 fallback fortune closed");
 });
 
 test("locale toggle persists across reload", async ({ page }) => {

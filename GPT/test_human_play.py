@@ -439,7 +439,7 @@ def test_human_policy_final_character_returns_name() -> list[str]:
     return errors
 
 
-def test_human_policy_mark_target_character_player_pairs() -> list[str]:
+def test_human_policy_mark_target_uses_public_active_faces() -> list[str]:
     errors = []
     try:
         from viewer.human_policy import HumanHttpPolicy
@@ -456,12 +456,17 @@ def test_human_policy_mark_target_character_player_pairs() -> list[str]:
         state = GameState.create(DEFAULT_CONFIG)
         player = state.players[0]
 
-        # Simulate round order so only players after seat 0 are legal targets.
-        state.current_round_order = [2, 0, 1, 3]
+        state.current_round_order = [0, 1, 2, 3]
         state.players[0].current_character = CARD_TO_NAMES[2][0]  # 자객
-        state.players[1].current_character = CARD_TO_NAMES[2][1]  # 산적
-        state.players[2].current_character = CARD_TO_NAMES[5][0]  # 교리 연구관 (not legal this turn)
-        state.players[3].current_character = CARD_TO_NAMES[6][0]  # 박수
+        state.players[1].current_character = CARD_TO_NAMES[7][0]  # 객주
+        state.players[2].current_character = CARD_TO_NAMES[5][0]  # 교리 연구관
+        state.players[3].current_character = CARD_TO_NAMES[8][0]  # 건설업자
+        state.active_by_card[3] = CARD_TO_NAMES[3][1]  # 탈출 노비
+        state.active_by_card[4] = CARD_TO_NAMES[4][1]  # 아전
+        state.active_by_card[5] = CARD_TO_NAMES[5][1]  # 교리 감독관
+        state.active_by_card[6] = CARD_TO_NAMES[6][0]  # 박수
+        state.active_by_card[7] = CARD_TO_NAMES[7][1]  # 중매꾼
+        state.active_by_card[8] = CARD_TO_NAMES[8][1]  # 사기꾼
         for p in state.players:
             p.alive = True
             p.revealed_this_round = False
@@ -490,29 +495,43 @@ def test_human_policy_mark_target_character_player_pairs() -> list[str]:
         legal_choices = prompt.get("legal_choices", [])
         labels = [opt.get("label") for opt in legal_choices]
         expected_labels = [
-            "No target",
-            f"{CARD_TO_NAMES[2][1]} / P2",
-            f"{CARD_TO_NAMES[6][0]} / P4",
+            "지목 안 함",
+            CARD_TO_NAMES[3][1],
+            CARD_TO_NAMES[4][1],
+            CARD_TO_NAMES[5][1],
+            CARD_TO_NAMES[6][0],
+            CARD_TO_NAMES[7][1],
+            CARD_TO_NAMES[8][1],
         ]
         if labels != expected_labels:
             errors.append(f"Unexpected mark_target labels: {labels!r}")
 
         choice_ids = [opt.get("choice_id") for opt in legal_choices]
-        if choice_ids != ["none", "1", "3"]:
+        if choice_ids != [
+            "none",
+            CARD_TO_NAMES[3][1],
+            CARD_TO_NAMES[4][1],
+            CARD_TO_NAMES[5][1],
+            CARD_TO_NAMES[6][0],
+            CARD_TO_NAMES[7][1],
+            CARD_TO_NAMES[8][1],
+        ]:
             errors.append(f"Unexpected mark_target choice_ids: {choice_ids!r}")
 
         target_pairs = prompt.get("public_context", {}).get("target_pairs", [])
-        if len(target_pairs) != 2:
-            errors.append(f"Expected 2 target_pairs, got {target_pairs!r}")
+        if len(target_pairs) != 6:
+            errors.append(f"Expected 6 target_pairs, got {target_pairs!r}")
+        elif target_pairs[0].get("target_card_no") != 3:
+            errors.append(f"Expected first target to expose card_no 3, got {target_pairs!r}")
 
-        ok = policy.submit_response({"choice_id": "1"})
+        ok = policy.submit_response({"choice_id": CARD_TO_NAMES[7][1]})
         if not ok:
             errors.append("submit_response returned False for mark_target")
         done.wait(timeout=3.0)
         if not done.is_set():
             errors.append("choose_mark_target did not unblock")
-        elif result[0] != CARD_TO_NAMES[2][1]:
-            errors.append(f"Expected selected target character {CARD_TO_NAMES[2][1]!r}, got {result[0]!r}")
+        elif result[0] != CARD_TO_NAMES[7][1]:
+            errors.append(f"Expected selected target character {CARD_TO_NAMES[7][1]!r}, got {result[0]!r}")
 
         # Defensive suppression: if Uhsa is active elsewhere, 무뢰 mark skills should not prompt.
         state.players[1].current_character = CARD_TO_NAMES[1][0]  # 어사
@@ -523,6 +542,81 @@ def test_human_policy_mark_target_character_player_pairs() -> list[str]:
             errors.append("Expected mark_target to be suppressed by Uhsa, but got a target")
         if policy2.pending_prompt is not None:
             errors.append("Suppressed mark_target should not leave a pending prompt")
+    except Exception as e:
+        import traceback
+        errors.append(f"Exception: {e}\n{traceback.format_exc()}")
+    return errors
+
+
+def test_human_policy_matchmaker_purchase_context_keeps_landing_tile_and_legal_targets() -> list[str]:
+    errors = []
+    try:
+        from viewer.human_policy import HumanHttpPolicy
+        from ai_policy import HeuristicPolicy
+        from config import DEFAULT_CONFIG
+        from state import GameState
+
+        ai = HeuristicPolicy(
+            character_policy_mode="heuristic_v1",
+            lap_policy_mode="heuristic_v1",
+        )
+        policy = HumanHttpPolicy(human_seat=0, ai_fallback=ai)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        player.current_character = "중매꾼"
+
+        block_positions = []
+        for block_id in sorted(set(state.block_ids)):
+            if block_id > 0:
+                positions = state.block_tile_positions(block_id, land_only=True)
+                if len(positions) >= 3:
+                    block_positions = positions
+                    break
+        if len(block_positions) < 3:
+            errors.append("failed to find a three-land block for matchmaker prompt test")
+            return errors
+
+        left, middle, right = block_positions[:3]
+        player.position = middle
+
+        result = [None]
+        done = threading.Event()
+
+        def _call():
+            result[0] = policy.choose_purchase_tile(state, player, left, state.board[left], 6, source="matchmaker_adjacent")
+            done.set()
+
+        threading.Thread(target=_call, daemon=True).start()
+
+        for _ in range(20):
+            if policy.pending_prompt is not None:
+                break
+            time.sleep(0.05)
+
+        prompt = policy.pending_prompt
+        if prompt is None:
+            errors.append("pending_prompt never set for matchmaker purchase")
+            return errors
+        if prompt.get("request_type") != "purchase_tile":
+            errors.append(f"Expected request_type=purchase_tile, got {prompt.get('request_type')}")
+
+        public_context = prompt.get("public_context", {})
+        if public_context.get("tile_index") != left:
+            errors.append(f"Expected tile_index {left}, got {public_context.get('tile_index')!r}")
+        if public_context.get("landing_tile_index") != middle:
+            errors.append(f"Expected landing_tile_index {middle}, got {public_context.get('landing_tile_index')!r}")
+        if public_context.get("candidate_tiles") != [left, right]:
+            errors.append(f"Expected legal candidate_tiles {[left, right]!r}, got {public_context.get('candidate_tiles')!r}")
+
+        ok = policy.submit_response({"choice_id": "yes"})
+        if not ok:
+            errors.append("submit_response returned False for matchmaker purchase")
+
+        done.wait(timeout=3.0)
+        if not done.is_set():
+            errors.append("choose_purchase_tile did not unblock")
+        elif result[0] is not True:
+            errors.append(f"Expected purchase decision True, got {result[0]!r}")
     except Exception as e:
         import traceback
         errors.append(f"Exception: {e}\n{traceback.format_exc()}")
@@ -657,8 +751,8 @@ def test_human_policy_specific_trick_reward_prompt() -> list[str]:
         state = GameState.create(DEFAULT_CONFIG)
         player = state.players[0]
         choices = [
-            SimpleNamespace(deck_index=11, name="Reward A"),
-            SimpleNamespace(deck_index=12, name="Reward B"),
+            SimpleNamespace(deck_index=11, name="Reward", description="desc-a"),
+            SimpleNamespace(deck_index=12, name="Reward", description="desc-b"),
         ]
 
         result = [None]
@@ -684,8 +778,14 @@ def test_human_policy_specific_trick_reward_prompt() -> list[str]:
                 f"Expected request_type=specific_trick_reward, got {prompt.get('request_type')}"
             )
         names = [opt.get("label") for opt in prompt.get("legal_choices", [])]
-        if names != ["Reward A", "Reward B"]:
+        if names != ["Reward #11", "Reward #12"]:
             errors.append(f"Unexpected specific_trick_reward labels: {names}")
+        reward_cards = prompt.get("public_context", {}).get("reward_cards", [])
+        if reward_cards != [
+            {"deck_index": 11, "name": "Reward", "card_description": "desc-a"},
+            {"deck_index": 12, "name": "Reward", "card_description": "desc-b"},
+        ]:
+            errors.append(f"Unexpected specific_trick_reward reward_cards: {reward_cards!r}")
 
         ok = policy.submit_response({"choice_id": "12"})
         if not ok:
@@ -743,6 +843,8 @@ def test_human_policy_active_flip_prompt() -> list[str]:
         ctx = prompt.get("public_context", {})
         if ctx.get("flip_mode") != "multi":
             errors.append(f"active_flip should expose flip_mode='multi', got {ctx.get('flip_mode')!r}")
+        if ctx.get("flip_submit_mode") != "finish_once":
+            errors.append(f"active_flip should expose flip_submit_mode='finish_once', got {ctx.get('flip_submit_mode')!r}")
         if ctx.get("flip_limit", "sentinel") is not None:
             errors.append(f"active_flip should expose flip_limit=None, got {ctx.get('flip_limit')!r}")
         if ctx.get("marker_owner_player_id") != 1:
@@ -750,14 +852,19 @@ def test_human_policy_active_flip_prompt() -> list[str]:
                 f"active_flip should expose marker_owner_player_id=1 for seat0 owner, got {ctx.get('marker_owner_player_id')!r}"
             )
 
-        ok = policy.submit_response({"choice_id": "1"})
+        ok = policy.submit_response(
+            {
+                "choice_id": "none",
+                "choice_payload": {"selected_choice_ids": ["1"], "finish_after_selection": True},
+            }
+        )
         if not ok:
             errors.append("submit_response returned False for active_flip")
         done.wait(timeout=3.0)
         if not done.is_set():
             errors.append("choose_active_flip_card did not unblock")
-        elif result[0] != 1:
-            errors.append(f"Expected flipped card index 1, got {result[0]!r}")
+        elif result[0] != [1]:
+            errors.append(f"Expected one-shot active_flip batch [1], got {result[0]!r}")
     except Exception as e:
         import traceback
         errors.append(f"Exception: {e}\n{traceback.format_exc()}")
@@ -1134,7 +1241,8 @@ def main() -> int:
         ("human_policy_multi_humans",   test_human_policy_multiple_human_seats),
         ("human_policy_prompt_response",test_human_policy_prompt_and_response),
         ("human_policy_final_character",test_human_policy_final_character_returns_name),
-        ("human_policy_mark_target",    test_human_policy_mark_target_character_player_pairs),
+        ("human_policy_mark_target",    test_human_policy_mark_target_uses_public_active_faces),
+        ("human_policy_matchmaker_purchase", test_human_policy_matchmaker_purchase_context_keeps_landing_tile_and_legal_targets),
         ("human_policy_geo_bonus",      test_human_policy_geo_bonus_prompt),
         ("human_policy_doctrine_relief",test_human_policy_doctrine_relief_prompt),
         ("human_policy_trick_reward",   test_human_policy_specific_trick_reward_prompt),

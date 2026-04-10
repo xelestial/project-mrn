@@ -2921,3 +2921,873 @@ Updated: 2026-04-07
   - dice and movement still felt like instant jumps, especially on human turns, because only non-human turns were delayed
 - Validation:
   - `cd apps/web && npm run build`
+
+## 2026-04-09 Active Priority Slot Owner Recovery
+
+- What changed:
+  - Web:
+    - restored an explicit priority-slot map for the active character strip instead of inferring slot ownership from the currently visible face name
+    - fixed the strip owner resolution so a flipped face like `객주 -> 중매꾼` still stays attached to the player who owns card `#7`
+    - added a focused unit test for front/back card pairs sharing one priority slot
+- Why:
+  - the in-progress active-strip patch had started reading `active_by_card`, but it still matched owners by active face text
+  - that breaks as soon as `marker_flip` changes the face name, because slot ownership is tied to the original card number / priority, not to the temporary visible face label
+  - this keeps the strip truthful during live play and aligns with the current P0/P1 recovery plan
+- Validation:
+  - `cd apps/web && npm run test -- src/domain/characters/prioritySlots.spec.ts src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+  - note: full `cd apps/web && npm test` still reports the pre-existing `src/domain/store/gameStreamReducer.spec.ts` 50-message cap failure
+
+## 2026-04-09 Mark Target Public Active-Face Recovery
+
+- What changed:
+  - Engine / policy:
+    - added a shared ordered public mark-target helper based on future acting slots and `active_by_card`
+    - mark-target coercion now validates against public active faces instead of hidden `current_character` assignments
+  - Human / server decision contracts:
+    - mark-target prompts and canonical legal choices now publish public active-face guesses like `#7 중매꾼`
+    - canonical `choice_id` now matches the guessed character string instead of leaking player-id-shaped targets
+    - draft/final canonical card-choice titles and parsing now follow the currently active face name for each card slot
+  - Web:
+    - `final_character_choice` compatibility prompts now hide stale actor character text just like `final_character`
+- Why:
+  - the live-play recovery plan requires mark prompts to behave like deduction over active priority cards, not over player avatars
+  - the old contract mixed hidden player assignments into prompt choices and serialized mark choices against a shape that did not match AI return values
+  - tightening the public guess path closes another P0 logic gap without reopening broader architecture work
+- Validation:
+  - `.venv311/bin/python -m pytest GPT/test_rule_fixes.py -k 'mark_target or hunt_season or assassin_clears'`
+  - `.venv311/bin/python -m pytest GPT/test_human_play.py -k 'final_character_returns_name or mark_target_uses_public_active_faces'`
+  - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py -k 'mark_target_context_uses_public_active_faces_for_future_slots or ai_bridge_keeps_mark_target_on_canonical_decision_flow'`
+  - `cd apps/web && npm run test -- src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+  - note: broader Python/web suites still contain unrelated pre-existing collection/failure noise outside this slice
+
+## 2026-04-09 Matchmaker Follow-up Purchase Anchoring
+
+- What changed:
+  - Server / human prompt context:
+    - `purchase_tile` prompts for `matchmaker_adjacent` and `adjacent_extra` now publish `landing_tile_index` separately from the selected `tile_index`
+    - adjacent candidate lists are now derived from the actual landing tile, so the prompt only advertises legal follow-up purchase targets in the same block
+  - Web:
+    - purchase prompt summaries now keep `현재 위치` pinned to the landing tile instead of jumping to the follow-up target tile
+    - board focus ordering now prefers `landing tile -> selected target -> other legal targets`, which keeps the pawn location and follow-up purchase context readable during chained buy decisions
+- Why:
+  - the live-play recovery plan called out matchmaker / arrival / purchase ordering and “money changed before resolution” confusion
+  - follow-up purchase prompts were overloading `tile_index` for both “where I landed” and “what I am buying next”, which made selector focus and prompt copy drift away from the real board state
+  - splitting those meanings closes a concrete P0 clarity bug without changing the purchase rules themselves
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py -k 'purchase_context_exposes_tile_metadata_and_adjacent_candidates'`
+  - `.venv311/bin/python -m pytest GPT/test_human_play.py -k 'matchmaker_purchase_context_keeps_landing_tile_and_legal_targets'`
+  - `cd apps/web && npm run test -- src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-09 Trick Card Identity Safety
+
+- What changed:
+  - Server runtime context:
+    - `trick_to_use` and `hidden_trick_card` prompts now publish the same `full_hand`, `hidden_trick_deck_index`, and per-card `deck_index` / hidden / usable flags that the direct human-policy prompt already used
+    - `specific_trick_reward` context now exposes `reward_cards` with stable `deck_index` entries, and canonical choice titles now include the serial suffix like `보상 카드 #102`
+  - Human prompt contract:
+    - specific reward prompts now carry both `deck_index` and description payloads per choice, plus `reward_cards` in public context
+  - Web:
+    - hand-choice fallback rendering now preserves `is_hidden` from canonical choice payloads instead of flattening every card into a public visible card
+    - specific reward cards now show `#deck_index` so duplicate-name rewards stay distinguishable in the prompt surface
+- Why:
+  - the live-play recovery plan requires every trick-card decision path to resolve against stable instance identity, not against duplicated names
+  - runtime-served prompts had weaker trick-hand context than the direct human-policy path, and the web fallback renderer dropped hidden-card identity even when the canonical choice payload still had it
+  - tightening both the prompt contract and the web render path closes the “same name card” ambiguity without changing trick rules
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py -k 'trick_hand_context_exposes_stable_deck_indexes_for_use_and_hidden_selection or specific_trick_reward_context_and_choices_keep_deck_index_identity or ai_bridge_keeps_specific_trick_reward_on_canonical_decision_flow'`
+  - `.venv311/bin/python -m pytest GPT/test_human_play.py -k 'specific_trick_reward_prompt or trick_to_use_full_hand_context or hidden_trick_requires_selection'`
+  - `cd apps/web && npm run test -- src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-09 Derived Player Selector Path
+
+- What changed:
+  - Web selectors:
+    - added `selectCurrentActorPlayerId`, `selectDerivedPlayers`, and `selectActiveCharacterSlots`
+    - the derived player path now combines snapshot player state, current-turn live deltas, active slot mapping, active face (`active_by_card`), marker ownership, local seat, and current actor flags in one place
+    - base player normalization now keeps `public_tricks` and `trickCount` so visible player stats do not have to reconstruct trick totals ad hoc in the component
+  - App:
+    - the top player strip now reads `currentCharacterFace`, marker-owner/current-turn/local badges, and trick totals from the derived selector path
+    - the active-character strip now reads selector-built slot ownership instead of rebuilding slot ownership inside `App.tsx`
+- Why:
+  - the recovery plan’s next priority was to stop scattering visible player truth across `snapshot.players`, ad hoc `playersById` maps, and separate active-strip ownership logic
+  - before this change, the top strip and active strip were both correct-ish but not actually fed by one shared derived state path
+  - moving those decisions into selectors gives us one place to keep current face, slot ownership, and visible player stats aligned
+- Validation:
+  - `cd apps/web && npm run test -- src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-09 Hand Tray Truth And Tile Score Propagation
+
+- What changed:
+  - Prompt selectors:
+    - added `selectCurrentHandTrayCards`, which now derives the local player hand tray from the unresolved active prompt when it belongs to that player, then falls back to the latest persisted prompt context for that same player
+    - full-hand and burden trays now share one canonical parser for `deck_index`, hidden/private state, current-target flags, and burden removal cost copy
+  - App:
+    - removed the ad hoc `App.tsx` message walk that rebuilt hand tray state outside the selector layer
+    - the bottom tray now reads directly from selector output, so used cards disappear and persisted burden cleanup stays tied to the same prompt-context truth source
+  - Board / stream selectors:
+    - tile view models now preserve `score_coin_count` / `score_coins` / `tile_score_coins`
+    - live snapshot projection now updates tile score coins from current-turn event payloads and event public context when those counts are present
+    - board tiles now render a score badge from the selector-fed tile model instead of dropping that state on the floor
+- Why:
+  - the recovery plan’s unified player/tile selector path explicitly called out the hand tray and tile-level board badges as still depending on parallel, component-local state paths
+  - before this change, the hand tray lived in a second `App.tsx` replay loop and tile score coins were available upstream but silently discarded by the web tile model
+  - moving both back into selector-owned models keeps the board HUD closer to the same live truth path as the player strip and prompt surfaces
+- Validation:
+  - `cd apps/web && npm run test -- src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/streamSelectors.spec.ts src/domain/manifest/manifestRehydrate.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-09 Board-Attached Decision Dock And Hand Tray Cleanup
+
+- What changed:
+  - Match board overlay layout:
+    - split the in-board overlay into a top HUD layer and a bottom decision dock instead of one centered stack that floated across the middle of the board
+    - weather, player strip, active-character strip, and turn banner now stay in the top overlay lane, while passive prompt, actionable prompt, waiting state, and hand tray render inside a shared bottom dock attached to the board edge
+  - Board HUD docking:
+    - the board overlay container now stretches across the board interior and spaces its children with `justify-content: space-between`, so decision surfaces read like table HUD chrome instead of a mid-board modal column
+  - Hand tray cleanup:
+    - the tray now lives inside the same bottom dock shell as the prompt surface
+    - tray cards use an auto-fit grid and the tray itself renders as a dock continuation instead of a separate floating panel
+  - Prompt shell sizing:
+    - docked prompts now cap their height lower inside the board HUD lane so the board stays readable behind public state and movement highlights
+- Why:
+  - the recovery plan called out prompts and hand trays “fighting the board for space” and asked for attached HUD layers with no orphan trays
+  - before this change, the whole interaction stack sat around the board center, which made the middle tiles harder to read and made the hand tray feel disconnected from the decision surface
+  - anchoring prompt and tray to the bottom inner edge keeps the board legible while still preserving a single live interaction area
+- Validation:
+  - `cd apps/web && npm run test -- src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-09 Weather And Active-Card HUD Pass
+
+- What changed:
+  - Weather HUD:
+    - the top weather card now shows compact HUD pills for round/turn, current beat, and current actor alongside the real weather name/effect text
+    - weather detail text now hides duplicate placeholder output and falls back to a simple pending headline when the current round weather has not been revealed yet
+  - Active-character strip:
+    - the strip header now reports how many active faces are currently revealed
+    - active cards now render in a compact horizontal HUD row with scrolling overflow instead of expanding into a larger fixed grid
+    - empty slots now render an explicit waiting state so the row stays readable without looking broken
+- Why:
+  - the recovery plan called for “weather + P1~P4” to read in one glance and for the active strip to stay compact and horizontally aligned
+  - after the board-docked prompt pass, the overlay structure was better, but the top HUD still felt taller and more diffuse than it needed to be
+  - tightening the weather summary and active strip presentation makes the board-top status line read more like one cohesive HUD pass instead of stacked independent panels
+- Validation:
+  - `cd apps/web && npm run test -- src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-09 Current-Turn Public Event Reveal Stack
+
+- What changed:
+  - Web selectors:
+    - added `selectCurrentTurnRevealItems`, which extracts the current turn’s publicly revealed events in order from `turn_start` onward
+    - the selector currently tracks the plan’s targeted reveal events: `weather_reveal`, `dice_roll`, `player_move`, `landing_resolved`, `fortune_drawn`, and `fortune_resolved`
+    - each row carries ordered sequence, formatted label/detail, tone, and focus tile so the board HUD can render these as one coherent timeline instead of relying on transient banners alone
+  - App HUD:
+    - added a `공개 이벤트 / Public events` row to the top board overlay
+    - the row keeps event cards in current-turn order and highlights the newest reveal without hiding earlier public steps when prompts open afterward
+- Why:
+  - the recovery plan called out fortune reveal/effect, weather reveal, dice result, movement path, and landing outcome as major public effects that were resolving underneath later prompts
+  - before this change, only a short-lived banner hinted at some events, and that banner could be replaced before the player had seen the whole public sequence
+  - keeping a turn-local reveal stack in the board HUD preserves the public chain in visible order while staying inside the board-first layout
+- Validation:
+  - `cd apps/web && npm run test -- src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-09 Purchase And Rent Reveal Continuity
+
+- What changed:
+  - Reveal stack:
+    - extended `selectCurrentTurnRevealItems` so the board HUD now keeps `tile_purchased` and `rent_paid` in the same current-turn public sequence as movement, landing, weather, and fortune beats
+    - added an `economy` reveal tone so purchase/rent cards read as payoff beats instead of blending into movement/effect cards
+  - Core action continuity:
+    - restored `decision_timeout_fallback` into the core-action feed so same-turn timeout fallback remains visible beside rent/purchase resolution instead of disappearing from the turn flow
+  - Browser coverage:
+    - updated runtime e2e scenarios so remote purchase turns now assert the purchase reveal card
+    - updated mixed fallback turns so rent-only current turns assert the rent reveal card and the timeout fallback beat in the core-action panel
+- Why:
+  - the one-page UI priority still called for larger movement / landing / rent / purchase reveals, and the first reveal stack pass stopped one beat too early at landing
+  - once a turn reached purchase or rent, the board HUD still lost the economic payoff beat even though that is the part players actually care about most
+  - timeout fallback also needed to stay visible in the same turn flow so mixed human/external-AI turns do not collapse back into ambiguous logs
+- Validation:
+  - `cd apps/web && npm run test -- src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run e2e -- --grep "mixed participant runtime keeps timeout fallback and weather continuity visible|remote turn keeps spectator continuity visible and does not open a local prompt|mixed participant runtime keeps a long worker-success to fallback chain readable"`
+  - `cd apps/web && npm run build`
+
+## 2026-04-09 Important-Only Turn Interrupt Banner
+
+- What changed:
+  - Banner policy:
+    - kept the board-top turn banner for `turn_start`, but stopped later same-turn beat updates from re-emitting the same turn banner over and over
+    - restricted reveal-triggered banner interrupts to only the high-signal public effects currently in scope: `weather_reveal`, `fortune_drawn`, and `fortune_resolved`
+    - left movement / landing / purchase / rent visible in the current-turn reveal stack instead of letting those more frequent beats steal the banner
+  - HUD styling:
+    - added a separate interrupt visual treatment for the in-board turn banner so important public effects read differently from the ordinary “whose turn” notice
+  - Runtime browser coverage:
+    - remote purchase turn coverage now asserts that the banner stays on the acting player instead of flipping to the purchase event
+    - repeated fallback fortune coverage now asserts that the banner promotes the fortune resolution while the rest of the turn stays visible in the reveal stack and core-action lane
+- Why:
+  - the one-page UI priority explicitly called for interrupt overlays only on truly important events, and the previous behavior promoted every latest reveal beat into the same banner slot
+  - after the reveal stack recovery, that made ordinary movement / purchase / rent beats feel louder than they should and also let the turn-start banner get re-written multiple times during one turn
+  - limiting interrupts to weather/fortune-level effects keeps the public sequence readable without turning the board HUD back into a stream of noisy popups
+- Validation:
+  - `cd apps/web && npm run e2e -- --grep "remote turn keeps spectator continuity visible and does not open a local prompt|mixed participant runtime keeps repeated fallback continuity readable across longer chains|mixed participant runtime keeps timeout fallback and weather continuity visible"`
+  - `cd apps/web && npm run build`
+
+## 2026-04-09 Board Reveal Spotlight Fallbacks
+
+- What changed:
+  - Board spotlight:
+    - passed the latest current-turn reveal item into `BoardPanel` so the board can keep a stronger, larger reveal anchored to the actual play surface
+    - added tile-attached reveal spotlight cards for the latest purchase / rent / fortune-style public beat when a focus tile is known
+    - added a board-internal fallback reveal panel for cases where the public reveal has no explicit tile index, so the result still stays visible even when the stream payload cannot point to a specific tile
+  - Reveal focus fallback:
+    - when a reveal has no tile index but the actor pawn is known on the board, the spotlight now falls back to the acting pawn tile before using the board-wide fallback panel
+  - Runtime browser coverage:
+    - remote purchase continuity now asserts the board spotlight for the purchase result
+    - rent fallback continuity now asserts the board spotlight for the rent payoff
+    - repeated fallback fortune continuity now asserts the no-tile fallback spotlight path for the fortune result
+- Why:
+  - the reveal stack solved ordering, but the plan also called for larger movement / landing / rent / purchase reveals that still feel attached to the board itself
+  - without a board-attached spotlight, the most important current-turn result could still feel like text in the HUD instead of something that happened on the board
+  - no-tile public effects needed a graceful fallback so the stronger reveal treatment did not disappear just because a runtime payload omitted `tile_index`
+- Validation:
+  - `cd apps/web && npm run e2e -- --grep "remote turn keeps spectator continuity visible and does not open a local prompt|mixed participant runtime keeps timeout fallback and weather continuity visible|mixed participant runtime keeps repeated fallback continuity readable across longer chains"`
+  - `cd apps/web && npm run build`
+
+## 2026-04-09 Mixed Human + External-AI Playtest Smoke
+
+- What changed:
+  - Ran the real-playtest checklist path locally:
+    - started the stronger external worker on `127.0.0.1:8011` with `worker_profile=priority_scored`
+    - started the app server on `127.0.0.1:8001`
+    - passed `tools/check_external_ai_endpoint.py` with the stronger-worker requirements
+    - created a real mixed-seat session with:
+      - seat 1 external AI over HTTP
+      - seat 2 human
+      - seat 3 local AI
+    - joined the human seat and started the session successfully
+  - Captured runtime evidence from the live replay/export path instead of only relying on browser mocks
+- Why:
+  - the active priority board explicitly says to move to real playtests once the board/HUD recovery became stable enough
+  - the goal here was to verify that the stronger worker really attaches and that mixed human/external/local flow produces usable evidence for the next fixes
+- Evidence:
+  - stronger-worker health and contract smoke passed for:
+    - `worker_id=local-priority-bot`
+    - `worker_profile=priority_scored`
+    - `worker_adapter=priority_score_v1`
+    - `policy_class=PriorityScoredPolicy`
+    - `decision_style=priority_scored_contract`
+  - real mixed-seat session:
+    - `session_id=sess_4eb68bd82792`
+    - session creation, human join, and session start all succeeded
+    - the external-AI seat immediately resolved an opening `hidden_trick_card` choice through `/decide`
+    - the next blocking prompt was correctly issued only for the human seat, and runtime state moved to `waiting_input`
+  - concrete drift found:
+    - the real replay stream for that external-AI resolution did not include worker provenance fields on the emitted `decision_requested` / `decision_resolved` events
+    - the follow-up human prompt also showed `round_index=null` / `turn_index=null` in the replay export for that opening choice path
+    - this is now concrete playtest evidence for the next fix, rather than a speculative UI issue
+- Validation:
+  - `PYTHONPATH=/Users/sil/Workspace/project-mrn .venv311/bin/python tools/run_external_ai_worker.py --host 127.0.0.1 --port 8011 --worker-id local-priority-bot --policy-mode heuristic_v3_gpt --worker-profile priority_scored --worker-adapter priority_score_v1`
+  - `.venv311/bin/python -m uvicorn apps.server.src.app:app --host 127.0.0.1 --port 8001`
+  - `.venv311/bin/python tools/check_external_ai_endpoint.py --base-url http://127.0.0.1:8011 --require-ready --require-profile priority_scored --require-adapter priority_score_v1 --require-policy-class PriorityScoredPolicy --require-decision-style priority_scored_contract --require-request-type movement --require-request-type purchase_tile`
+
+## 2026-04-09 Replay Decision Metadata Recovery
+
+- What changed:
+  - replay decision payloads:
+    - taught the server `decision_requested` / `decision_resolved` event builders to persist the full `public_context` snapshot into replay/export payloads instead of only carrying top-level request metadata
+    - kept the event-level `round_index` / `turn_index` mirrored from that same context so replay consumers can read turn identity without reparsing prompt envelopes
+  - opening hidden-trick human prompt:
+    - added `round_index` and `turn_index` to the human `hidden_trick_card` prompt contract so the first blocking human prompt in a live mixed-seat game no longer emits `null` turn metadata
+  - regression coverage:
+    - extended the prompt payload test to assert round/turn on hidden-trick prompts
+    - extended runtime service bridge coverage to assert replay decision events carry the embedded `public_context` round/turn snapshot on canonical AI paths
+- Why:
+  - the first real mixed human + external-AI smoke found that opening replay events were losing decision context exactly where we needed it most: the live export could not explain which turn a human prompt belonged to, and external-worker provenance disappeared from replay because decision events dropped `public_context`
+  - prompt mocks alone were no longer enough here because the failure only showed up after the real gateway -> replay path serialized the events
+- Evidence:
+  - targeted tests now pass for both sides of the fix:
+    - hidden-trick human prompt payload includes `round_index=1` and `turn_index=1`
+    - runtime bridge replay events keep embedded `public_context` for AI decision request/resolve payloads
+  - reran the real mixed-seat smoke with:
+    - seat 1 external AI over HTTP
+    - seat 2 human
+    - seat 3 local AI
+  - live replay result from `session_id=sess_3762e0c923bd`:
+    - the external-AI opening `decision_resolved` event now carries worker provenance in `public_context`, including `worker_id=local-priority-bot`, `worker_profile=priority_scored`, `worker_adapter=priority_score_v1`, `policy_class=PriorityScoredPolicy`, and `decision_style=priority_scored_contract`
+    - the follow-up human `hidden_trick_card` `decision_requested` event now carries `round_index=1` and `turn_index=1` instead of `null`
+    - the paired external-AI `decision_requested` event also now carries the serialized `public_context` snapshot; worker identity remains pending-placeholder state there by design because the request event is emitted before the worker response is available
+- Validation:
+  - `.venv311/bin/python -m pytest GPT/test_human_policy_prompt_payloads.py -k 'hidden_trick_prompt_contains_full_hand_context'`
+  - `.venv311/bin/python -m pytest apps/server/tests/test_runtime_service.py -k 'ai_bridge_keeps_purchase_tile_on_canonical_decision_flow or ai_bridge_keeps_mark_target_on_canonical_decision_flow'`
+  - `.venv311/bin/python -m uvicorn apps.server.src.app:app --host 127.0.0.1 --port 8001`
+  - `PYTHONPATH=/Users/sil/Workspace/project-mrn .venv311/bin/python tools/run_external_ai_worker.py --host 127.0.0.1 --port 8011 --worker-id local-priority-bot --policy-mode heuristic_v3_gpt --worker-profile priority_scored --worker-adapter priority_score_v1`
+  - live mixed-seat replay smoke via `/api/v1/sessions`, `/join`, `/start`, `/runtime-status`, and `/replay`
+
+## 2026-04-09 Live Stream Prompt Leakage Fix
+
+- What changed:
+  - websocket delivery filter:
+    - updated the stream sender so `prompt` and `decision_ack` messages are no longer broadcast to every subscriber on the session
+    - spectator sockets now skip those private message types entirely
+    - seat-authenticated sockets only receive `prompt` / `decision_ack` when the payload `player_id` matches the authenticated seat player
+  - regression coverage:
+    - added a stream API test that opens both a spectator socket and a seat socket and verifies the seat receives private prompt/ack traffic while the spectator does not
+- Why:
+  - a real mixed-seat live stream check exposed that spectator sockets were incorrectly receiving human prompt traffic because the websocket sender was forwarding the shared stream queue without any per-role filtering
+  - the online-game API spec says spectator mode receives events only, so this was a true privacy/UX leak, not just a cosmetic mismatch
+- Evidence:
+  - first live WS check on `session_id=sess_6afc51e67670` showed:
+    - `spectator_prompt_count=1`
+    - the leaked spectator message was the exact human `hidden_trick_card` prompt payload for player 2
+  - after the sender filter fix, reran the live mixed-seat WS flow on `session_id=sess_d536403280e3` and observed:
+    - `spectator_prompt_count=0`
+    - `spectator_ack_count=0`
+    - `seat_prompt_count=1`
+    - human decision submission returned `decision_ack.status=accepted`
+    - human `decision_resolved` landed with `round_index=1` / `turn_index=1`
+    - external-AI opening resolution still preserved worker provenance with `worker_id=local-priority-bot`, `worker_profile=priority_scored`, `worker_adapter=priority_score_v1`, `policy_class=PriorityScoredPolicy`, and `decision_style=priority_scored_contract`
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_stream_api.py -k 'spectator_does_not_receive_prompt_or_decision_ack_for_seat or seat_decision_accepts_pending_prompt_with_ack'`
+  - `.venv311/bin/python tools/check_external_ai_endpoint.py --base-url http://127.0.0.1:8011 --require-ready --require-profile priority_scored --require-adapter priority_score_v1 --require-policy-class PriorityScoredPolicy --require-decision-style priority_scored_contract --require-request-type movement --require-request-type purchase_tile`
+  - live mixed-seat websocket smoke via `/api/v1/sessions`, `/join`, `/start`, seat `/stream?token=...`, spectator `/stream`, `/runtime-status`, and `/replay`
+
+## 2026-04-09 Backend Selector / Middleware Migration Planning
+
+- What changed:
+  - added a new architecture plan:
+    - `docs/engineering/[PLAN]_BACKEND_SELECTOR_AND_MIDDLEWARE_VIEWMODEL_MIGRATION.md`
+  - documented a staged migration from frontend-owned selector truth to backend or middleware-owned view-state selectors
+  - defined:
+    - target server package boundary for reusable view-state selectors
+    - projection responsibilities for players, active slots, mark targets, prompts, reveals, and board state
+    - phased cutover order so the web can become a thin rendering layer instead of continuing to reconstruct gameplay state locally
+    - validation gates across server unit tests, runtime integration tests, stream/replay contract tests, and live playtests
+- Why:
+  - the user explicitly requested a backend or middleware selector migration so frontend changes do not require re-implementing gameplay-derived UI truth
+  - recent live-play regressions have repeatedly shown that too much canonical state assembly still lives in:
+    - `apps/web/src/domain/selectors/streamSelectors.ts`
+    - `apps/web/src/domain/selectors/promptSelectors.ts`
+    - `apps/web/src/App.tsx`
+  - this is therefore a user-requested exception to the normal “do not reopen broad architecture migration” rule in `PLAN/PLAN_STATUS_INDEX.md`
+- Evidence:
+  - current selector burden was re-audited before writing the plan:
+    - web side:
+      - `selectTurnStage`
+      - `selectCurrentTurnRevealItems`
+      - `selectDerivedPlayers`
+      - `selectActiveCharacterSlots`
+      - `selectMarkTargetCharacterSlots`
+      - `selectMarkerOrderedPlayers`
+      - `selectCurrentHandTrayCards`
+    - server-side seams already available for the migration:
+      - `apps/server/src/services/runtime_service.py`
+      - `apps/server/src/services/stream_service.py`
+      - `apps/server/src/routes/stream.py`
+- Validation:
+  - documentation-only planning task
+  - no implementation started yet
+
+## 2026-04-09 Backend Selector Plan Compatibility Update
+
+- What changed:
+  - tightened the new backend selector migration plan so it explicitly targets portability beyond the current React client
+  - added plan requirements that the selector/projector layer must remain reusable even if the frontend is replaced by:
+    - Unity
+    - Unreal
+  - documented a DI-oriented selector/projector/transport-adapter boundary instead of allowing React-shaped projection logic to leak back into the contract
+  - added an API documentation tracking requirement so any runtime contract change in this migration must update:
+    - `docs/api/online-game-api-spec.md`
+    - `docs/api/README.md`
+    - relevant runtime contract examples and schemas
+- Why:
+  - the user clarified that this migration is only worthwhile if a future renderer swap can reuse the same selector set and DI structure by matching interfaces
+  - without that explicit requirement, the plan could still drift into a web-specific “thin React but still React-shaped” projection layer
+- Evidence:
+  - the plan now includes:
+    - a dedicated compatibility requirement section
+    - a DI and client adapter contract section
+    - explicit phase exit criteria that include contract-document updates
+    - validation requirements for non-web client compatibility fixtures
+- Validation:
+  - documentation-only update
+  - no API contract changed yet; this entry updates the migration requirements, not the live API
+
+## 2026-04-10 Backend Selector Migration Phase 1 Start
+
+- What changed:
+  - started the first implementation slice of the backend selector / middleware migration instead of keeping player ordering logic only in the React client
+  - created a new server-side selector package:
+    - `apps/server/src/domain/view_state/__init__.py`
+    - `apps/server/src/domain/view_state/types.py`
+    - `apps/server/src/domain/view_state/snapshot_selector.py`
+    - `apps/server/src/domain/view_state/player_selector.py`
+    - `apps/server/src/domain/view_state/projector.py`
+  - moved the canonical “marker owner + draft direction -> ordered player ids” logic into the server projector
+  - updated `apps/server/src/services/stream_service.py` so every published stream payload can carry additive `payload.view_state.players`
+  - updated the web selector path so `selectMarkerOrderedPlayers` prefers backend-projected ordering when `payload.view_state.players.ordered_player_ids` is present, while still keeping the old frontend reduction as fallback
+  - tightened the live prompt/active-slot path so active mark-target choices rehydrate from the latest unresolved prompt even when later messages become the newest snapshot source
+- Why:
+  - phase 1 of the migration plan was to prove that a selector can move to the backend and be consumed as a renderer-agnostic view-model instead of staying React-only
+  - player ordering was chosen as the first slice because it already had clear bugs around duplicated local logic and is small enough to migrate end-to-end without changing the full prompt stack yet
+- API / contract impact:
+  - additive only
+  - `docs/api/online-game-api-spec.md` now documents `payload.view_state.players` on stream/replay payloads
+  - no existing raw fields were removed
+- Validation:
+  - `python -m pytest apps/server/tests/test_view_state_player_selector.py`
+  - `python -m pytest apps/server/tests/test_sessions_api.py -k replay_endpoint_returns_buffered_messages`
+  - `cd apps/web && npm run test -- src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-10 Backend Selector Migration Phase 2 Active Slots / Mark Target
+
+- What changed:
+  - extended the new server-side `view_state` projector so it no longer publishes only player ordering
+  - added backend prompt resolution and slot projection logic:
+    - `apps/server/src/domain/view_state/prompt_selector.py`
+    - expanded `apps/server/src/domain/view_state/player_selector.py`
+  - server `view_state` now projects:
+    - `view_state.players.items`
+    - `view_state.active_slots.items`
+    - `view_state.mark_target.candidates`
+  - active slot projection now rehydrates from the latest unresolved prompt when prompt public context exposes:
+    - `actor_name`
+    - `target_pairs`
+    - mark-target `legal_choices`
+  - this keeps the canonical active strip and mark-target candidate list available even when later stream events become the newest snapshot source
+  - frontend selectors were updated to prefer backend projections for:
+    - `selectDerivedPlayers`
+    - `selectActiveCharacterSlots`
+    - `selectMarkTargetCharacterSlots`
+  - the web fallback reducers still remain in place while the migration is incomplete
+- Why:
+  - the first migrated slice solved player ordering, but the highest-friction UI defects were still concentrated around:
+    - stale / duplicated current faces
+    - empty active slots during mark-target prompts
+    - mark-target candidates drifting away from the active strip
+  - moving active slot and mark-target derivation to the backend makes the transport contract portable for non-React clients and reduces frontend guesswork
+- API / contract impact:
+  - additive only
+  - `docs/api/online-game-api-spec.md` now documents `view_state.active_slots` and `view_state.mark_target`
+- Validation:
+  - `python -m pytest apps/server/tests/test_view_state_player_selector.py`
+  - `python -m pytest apps/server/tests/test_sessions_api.py -k replay_endpoint_returns_buffered_messages`
+  - `python -m pytest apps/server/tests/test_stream_api.py -k 'spectator_does_not_receive_prompt_or_decision_ack_for_seat or seat_decision_accepts_pending_prompt_with_ack'`
+  - `cd apps/web && npm run test -- src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-10 Backend Selector Migration Phase 4 Reveal Stack / Board Movement
+
+- What changed:
+  - extended the server-side `view_state` projector again so the web no longer has to own current-turn public reveal ordering or latest board movement extraction
+  - added:
+    - `apps/server/src/domain/view_state/reveal_selector.py`
+    - `apps/server/src/domain/view_state/board_selector.py`
+  - server `view_state` now also publishes:
+    - `view_state.reveals`
+    - `view_state.board`
+  - `view_state.reveals.items` is now the backend-owned current-turn public event stack with:
+    - canonical order
+    - reveal tone
+    - interrupt-worthiness
+    - focus tile index
+  - `view_state.board.last_move` now carries the latest movement path projection
+  - web selectors were updated so:
+    - `selectCurrentTurnRevealItems` prefers `view_state.reveals`
+    - `selectLastMove` prefers `view_state.board.last_move`
+  - the web still formats labels/details locally from raw messages, but it no longer decides reveal ordering or movement ownership when backend projection is present
+  - the app stopped re-sorting reveal items locally and now trusts backend reveal ordering directly
+- Why:
+  - the previous migration slice still left the reveal stack and latest board-move spotlight vulnerable to frontend-only truth drift
+  - this slice moves the ordering and focus semantics into the same renderer-agnostic projection layer the future Unity / Unreal clients will consume
+- API / contract impact:
+  - additive only
+  - updated:
+    - `docs/api/online-game-api-spec.md`
+    - `docs/api/README.md`
+    - `packages/runtime-contracts/ws/examples/inbound.event.player_move.with_view_state.json`
+- Validation:
+  - `python -m pytest apps/server/tests/test_view_state_reveal_selector.py`
+  - `cd apps/web && npm run test -- src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-10 Backend Selector Migration Phase 3 Prompt Surface Projection
+
+- What changed:
+  - added backend-owned prompt projection on top of the existing prompt liveness helper
+  - `apps/server/src/domain/view_state/prompt_selector.py` now exposes `build_prompt_view_state(...)`
+  - `apps/server/src/domain/view_state/projector.py` now publishes additive `view_state.prompt`
+  - `view_state.prompt.active` carries:
+    - `request_id`
+    - `request_type`
+    - `player_id`
+    - `timeout_ms`
+    - parsed canonical `choices`
+    - `public_context`
+  - web `selectActivePrompt(...)` now prefers backend `view_state.prompt.active`
+  - if backend `view_state` is present and no prompt slice exists, the web now treats that as authoritative “no active prompt” instead of reviving an older raw prompt locally
+  - this reduces prompt truth drift and makes prompt rendering less dependent on React-side replay reduction
+- Why:
+  - after player / slot / reveal migration, the next biggest remaining frontend-owned truth was “which prompt is actually active right now?”
+  - stale prompt suppression and active prompt selection need to live in the transport-facing selector layer so non-React clients can render the same actionable prompt state
+- API / contract impact:
+  - additive only
+  - updated:
+    - `docs/api/online-game-api-spec.md`
+    - `packages/runtime-contracts/ws/examples/inbound.prompt.movement.json`
+- Validation:
+  - `python -m pytest apps/server/tests/test_view_state_prompt_selector.py`
+  - `cd apps/web && npm run test -- src/domain/selectors/promptSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-10 Backend Selector Migration Phase 3.1 Prompt Chain Behavior
+
+- What changed:
+  - extended `view_state.prompt.active` with backend-owned `behavior` metadata so clients do not need to infer prompt chain semantics from raw request types and ad hoc public-context fields
+  - `apps/server/src/domain/view_state/prompt_selector.py` now projects:
+    - `normalized_request_type`
+    - `single_surface`
+    - `auto_continue`
+    - `chain_key`
+    - `chain_item_count`
+    - `current_item_deck_index`
+  - `burden_exchange` is now explicitly exposed as a single-surface auto-continue chain via:
+    - `normalized_request_type = burden_exchange_batch`
+    - `single_surface = true`
+    - `auto_continue = true`
+  - web `selectActivePrompt(...)` now carries prompt behavior through to the renderer
+  - `apps/web/src/App.tsx` burden-chain suppression and follow-up auto-send logic now keys off backend `prompt.behavior` instead of raw `request_type === burden_exchange`
+- Why:
+  - repeated burden prompts were still normalized with React-local rules
+  - this slice moves prompt-chain semantics into the transport contract so alternate clients can implement the same UX without reverse-engineering web behavior
+- API / contract impact:
+  - additive only
+  - updated:
+    - `docs/api/online-game-api-spec.md`
+    - `packages/runtime-contracts/ws/examples/inbound.prompt.movement.json`
+- Validation:
+  - `python -m pytest apps/server/tests/test_view_state_prompt_selector.py`
+  - `cd apps/web && npm run test -- src/domain/selectors/promptSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-10 Backend Selector Migration Phase 3.2 Prompt Feedback Projection
+
+- What changed:
+  - extended `view_state.prompt` again so the server also projects recent prompt lifecycle feedback
+  - `apps/server/src/domain/view_state/prompt_selector.py` now builds `last_feedback` from:
+    - `decision_ack`
+    - `decision_resolved`
+    - `decision_timeout_fallback`
+  - web `selectLatestDecisionAck(...)` now prefers backend `view_state.prompt.last_feedback`
+  - this lets the client consume canonical prompt feedback from the backend projection instead of scanning raw `decision_ack` messages first
+- Why:
+  - prompt rendering still depended on direct raw-message inspection for rejection / stale feedback
+  - pushing this into the selector layer keeps prompt lifecycle truth aligned across future non-React clients
+- API / contract impact:
+  - additive only
+  - updated:
+    - `docs/api/online-game-api-spec.md`
+    - `packages/runtime-contracts/ws/examples/inbound.decision_ack.rejected.with_view_state.json`
+- Validation:
+  - `python -m pytest apps/server/tests/test_view_state_prompt_selector.py`
+  - `cd apps/web && npm run test -- src/domain/selectors/promptSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-10 Backend Selector Migration Phase 3.3 Prompt Interaction Middleware Selector
+
+- What changed:
+  - added a renderer-adjacent middleware selector so React no longer hand-assembles prompt busy / timeout / rejection / stale / connection-loss behavior inline
+  - `apps/web/src/domain/selectors/promptSelectors.ts` now exports `selectPromptInteractionState(...)`
+  - the selector combines:
+    - backend `view_state.prompt.last_feedback`
+    - current active prompt projection
+    - client-tracked in-flight request id
+    - local timeout wall-clock state
+    - stream connectivity
+    - local manual send-failure feedback
+  - the selector returns:
+    - `busy`
+    - `secondsLeft`
+    - structured feedback kind
+    - `shouldReleaseSubmission`
+  - `apps/web/src/App.tsx` now uses that middleware selector instead of separate local effects for:
+    - rejected prompt handling
+    - stale prompt handling
+    - timeout notice derivation
+    - connection-loss release
+- Why:
+  - the previous slice moved prompt feedback truth into backend projection, but the React app still contained a mini state machine for interpreting it
+  - this slice keeps only the truly local “submit started” state in React and moves the rest of the interaction logic into a reusable selector layer that another renderer can adapt with the same contract
+- API / contract impact:
+  - none
+  - middleware-only consolidation on the client side
+- Validation:
+  - `cd apps/web && npm run test -- src/domain/selectors/promptSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-10 Backend Selector Migration Phase 3.4 Hand Tray Projection
+
+- What changed:
+  - added backend-owned `view_state.hand_tray`
+  - `apps/server/src/domain/view_state/hand_selector.py` now projects the canonical visible hand/burden tray from:
+    - the current active prompt public context when present
+    - otherwise the latest persisted prompt public context on that stream
+  - `apps/server/src/domain/view_state/projector.py` now publishes additive `view_state.hand_tray`
+  - web `selectCurrentHandTrayCards(...)` now prefers backend `view_state.hand_tray` and only falls back to raw prompt scanning during migration
+- Why:
+  - hand-tray truth was still rebuilt in React from seat-specific prompt history
+  - this slice moves another seat-aware surface into the shared backend projection contract so future Unity / Unreal clients can consume the same tray semantics directly
+- API / contract impact:
+  - additive only
+  - updated:
+    - `docs/api/online-game-api-spec.md`
+    - `packages/runtime-contracts/ws/examples/inbound.prompt.trick_to_use.with_view_state.json`
+- Validation:
+  - `python -m pytest apps/server/tests/test_view_state_hand_selector.py`
+  - `cd apps/web && npm run test -- src/domain/selectors/promptSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-10 Backend Selector Migration Phase 3.5 Turn Stage Projection
+
+- What changed:
+  - added backend-owned `view_state.turn_stage`
+  - `apps/server/src/domain/view_state/turn_selector.py` now projects:
+    - current actor identity
+    - round / turn coordinates
+    - current beat kind
+    - current beat event/request code
+    - focus tile indices
+    - external-ai decision status fields
+    - actor resource snapshot fields
+    - progress code trail
+  - web `selectTurnStage(...)` now prefers backend `view_state.turn_stage` for the canonical beat / focus / actor / progress truth and only keeps localization + message-detail rendering on the client side
+- Why:
+  - the turn banner, waiting states, and prompt overlays still depended on the heaviest remaining React-side state reducer
+  - this slice moves the “what stage are we actually in?” decision to the backend while preserving frontend-specific text rendering
+- API / contract impact:
+  - additive only
+  - updated:
+    - `docs/api/online-game-api-spec.md`
+    - `packages/runtime-contracts/ws/examples/inbound.event.turn_start.with_view_state.json`
+- Validation:
+  - `python -m pytest apps/server/tests/test_view_state_turn_selector.py`
+  - `cd apps/web && npm run test -- src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-10 Backend Selector Migration Phase 3.6 Scene / Theater / Core-Action Projection
+
+- What changed:
+  - added backend-owned `view_state.scene`
+  - `apps/server/src/domain/view_state/scene_selector.py` now projects:
+    - `situation`
+      - current actor player id
+      - round / turn coordinates
+      - latest headline message seq / code
+      - persisted weather name / effect
+    - `theater_feed`
+      - capped lane-aware feed entries with backend-owned `tone` and `lane`
+      - renderer-agnostic `message_type` / `event_code` / actor / round / turn fields
+    - `core_action_feed`
+      - capped core-event feed entries in backend-owned order
+    - `timeline`
+      - backend-owned recent message sequence projection for compact history surfaces
+    - `critical_alerts`
+      - backend-owned latest terminal warning / critical alert projection
+  - `apps/server/src/domain/view_state/projector.py` now publishes additive `view_state.scene`
+  - web `selectSituation(...)`, `selectTheaterFeed(...)`, `selectCoreActionFeed(...)`, `selectTimeline(...)`, and `selectCriticalAlerts(...)` now prefer backend `view_state.scene` and only keep:
+    - seq-to-message lookup
+    - localized label/detail rendering
+    - local-player highlighting for core-action rows
+- Why:
+  - this was one of the last raw stream reduction islands still living in the frontend selector layer
+  - moving it to backend projection keeps the transport contract reusable across React / Unity / Unreal while letting each renderer handle only presentation
+- API / contract impact:
+  - additive only
+  - updated:
+    - `docs/api/online-game-api-spec.md`
+    - `packages/runtime-contracts/ws/examples/inbound.event.turn_start.with_view_state.json`
+- Validation:
+  - `python -m pytest apps/server/tests/test_view_state_scene_selector.py`
+  - `python -m pytest apps/server/tests/test_sessions_api.py -k replay_endpoint_returns_buffered_messages`
+  - `cd apps/web && npm run test -- src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-10 Backend Selector Migration Phase 3.7 Shared Selector Fixture Contract
+
+- What changed:
+  - added shared selector fixture contract:
+    - `packages/runtime-contracts/ws/examples/selector.scene.turn_resolution.json`
+    - `packages/runtime-contracts/ws/schemas/selector.scene.fixture.schema.json`
+  - the fixture now carries:
+    - canonical mixed message history
+    - expected `view_state.scene` projection
+    - shared metadata for event ordering
+  - backend tests now read the same fixture contract instead of ad-hoc inline scene samples:
+    - `apps/server/tests/test_view_state_scene_selector.py`
+    - `apps/server/tests/test_runtime_contract_examples.py`
+  - frontend selector tests now read the same fixture contract:
+    - `apps/web/src/domain/selectors/streamSelectors.spec.ts`
+  - engine regression now reads the same metadata file for move -> landing -> rent ordering:
+    - `GPT/test_rule_fixes.py`
+  - runtime contract README now documents selector fixtures as a first-class shared contract artifact:
+    - `packages/runtime-contracts/ws/README.md`
+- Why:
+  - the migration goal is not only moving selectors server-side, but ensuring multiple renderers and subsystems validate against the same truth source
+  - this slice prevents frontend/backend/engine regressions from drifting into three different hand-written fixture universes
+- API / contract impact:
+  - no transport API change
+  - additive test-contract + metadata contract only
+- Validation:
+  - `python -m pytest apps/server/tests/test_view_state_scene_selector.py`
+  - `python -m pytest apps/server/tests/test_runtime_contract_examples.py`
+  - `python -m pytest GPT/test_rule_fixes.py -k vis_stream_emits_player_move_before_landing_and_rent`
+  - `cd apps/web && npm run test -- src/domain/selectors/streamSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+## Phase 3.8 Board Surface Truth Projection
+
+- migrated dynamic board surface truth to backend `view_state.board.tiles`
+- web live snapshot now prefers backend board tiles for `owner / score_coin / pawn` dynamic state and keeps static tile schema local
+- added shared fixture + schema for board selector contract:
+  - `packages/runtime-contracts/ws/examples/selector.board.live_tiles.json`
+  - `packages/runtime-contracts/ws/schemas/selector.board.fixture.schema.json`
+- added backend/frontend selector tests that read the same board fixture contract
+
+## 2026-04-10 Backend Selector Migration Phase 3.9 Prompt Surface Projection Contract
+
+- What changed:
+  - backend `view_state.prompt.active` now owns renderer-agnostic prompt-surface truth through `surface`
+  - `apps/server/src/domain/view_state/prompt_selector.py` now projects:
+    - common prompt surface metadata:
+      - `kind`
+      - `blocks_public_events`
+    - `lap_reward` surface:
+      - budget / pools / point costs
+      - canonical reward option units derived from legal choices
+    - `burden_exchange_batch` surface:
+      - burden count / current F / supply threshold
+      - canonical burden-card tray with current-target identity
+  - web prompt selectors and `PromptOverlay` now prefer backend `surface` for:
+    - lap reward picker
+    - burden exchange batch tray
+    - prompt-vs-public-event blocking behavior
+  - added shared prompt selector fixtures + schema:
+    - `packages/runtime-contracts/ws/examples/selector.prompt.lap_reward_surface.json`
+    - `packages/runtime-contracts/ws/examples/selector.prompt.burden_exchange_surface.json`
+    - `packages/runtime-contracts/ws/schemas/selector.prompt.fixture.schema.json`
+  - backend, frontend, and engine-adjacent tests now read the same shared prompt fixture metadata
+- Why:
+  - prompt choice surfaces were still one of the biggest React-owned interpretation islands
+  - this keeps the transport contract reusable for React / Unity / Unreal adapters while letting tests assert the same output across backend projection, frontend adapters, and engine-adjacent gateway builders
+- API / contract impact:
+  - additive only
+  - updated:
+    - `docs/api/online-game-api-spec.md`
+    - `packages/runtime-contracts/ws/README.md`
+- Validation:
+  - `python -m pytest apps/server/tests/test_view_state_prompt_selector.py`
+  - `python -m pytest apps/server/tests/test_runtime_contract_examples.py`
+  - `python -m pytest GPT/test_rule_fixes.py -k selector_prompt`
+  - `cd apps/web && npm run test -- src/domain/selectors/promptSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-10 Backend Selector Migration Phase 3.10 Prompt Surface Choice-Card Expansion
+
+- What changed:
+  - backend `view_state.prompt.active.surface` now also projects canonical choice-card surfaces for prompt types that previously still depended on React-side interpretation:
+    - `mark_target`
+    - `draft_card` / `final_character` / `final_character_choice` via `surface.character_pick`
+    - `purchase_tile`
+    - `trick_tile_target`
+    - `active_flip`
+  - `apps/server/src/domain/view_state/prompt_selector.py` now derives these surfaces directly from prompt `legal_choices` and `public_context`, so adapters no longer need to infer ordering or card labels themselves
+  - `apps/server/src/services/decision_gateway.py` now enriches `active_flip` legal choices with stable display metadata (`current_name`, `flipped_name`) so middleware and alternate clients can render the same transition text without duplicating card lookup logic
+  - frontend prompt selectors and `PromptOverlay` now prefer backend-projected surface ordering/details for:
+    - mark-target candidate trays
+    - character pick trays
+    - active-flip trays and finish action
+  - shared prompt selector fixtures expanded with:
+    - `packages/runtime-contracts/ws/examples/selector.prompt.mark_target_surface.json`
+    - `packages/runtime-contracts/ws/examples/selector.prompt.active_flip_surface.json`
+  - backend, frontend, and engine-adjacent tests now validate the same prompt-surface metadata for these specialized surfaces
+- Why:
+  - lap reward / burden exchange were no longer the only prompt-specific interpretation islands; mark-target and active-flip still leaked renderer-owned ordering and labeling logic
+  - this keeps the prompt contract progressively closer to a renderer-agnostic selector module that React, Unity, Unreal, or any other client can consume with minimal UI-only adaptation
+- API / contract impact:
+  - additive only
+  - updated:
+    - `docs/api/online-game-api-spec.md`
+    - `packages/runtime-contracts/ws/README.md`
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_view_state_prompt_selector.py apps/server/tests/test_runtime_contract_examples.py -q`
+  - `.venv311/bin/python -m pytest GPT/test_rule_fixes.py -k 'selector_prompt or active_flip' -q`
+  - `cd apps/web && npm run test -- src/domain/selectors/promptSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-10 Backend Selector Migration Phase 3.11 Prompt Surface Reward / Target Expansion
+
+- What changed:
+  - extended backend `view_state.prompt.active.surface` so the remaining mid-weight prompt choice surfaces no longer depend on React-only summary/ordering logic:
+    - `coin_placement`
+    - `doctrine_relief`
+    - `geo_bonus`
+    - `specific_trick_reward`
+    - `pabal_dice_mode`
+  - `apps/server/src/domain/view_state/prompt_selector.py` now projects canonical renderer-agnostic option trays for those request types directly from `legal_choices` and decision `public_context`
+  - `apps/server/src/services/decision_gateway.py` now enriches gateway choice/context payloads for these prompts so alternate clients do not need to rebuild titles/descriptions from raw ids:
+    - coin placement choices now publish stable tile descriptions
+    - doctrine relief choices now publish stable removal descriptions
+    - geo bonus and pabal dice mode choices now publish stable descriptions
+    - geo bonus now also carries actor/resource context in `public_context`
+  - frontend prompt selectors and `PromptOverlay` now prefer backend-projected option ordering for:
+    - character-target style decision grids
+    - reward choice trays
+    - pabal dice-mode chooser
+  - added shared selector fixtures for:
+    - `packages/runtime-contracts/ws/examples/selector.prompt.coin_placement_surface.json`
+    - `packages/runtime-contracts/ws/examples/selector.prompt.geo_bonus_surface.json`
+  - backend/frontend/engine tests now validate the same shared metadata for those prompt types, while direct selector tests cover:
+    - `doctrine_relief`
+    - `specific_trick_reward`
+    - `pabal_dice_mode`
+- Why:
+  - after phases 3.9 and 3.10, React still owned too much interpretation for several remaining reward/target decision surfaces
+  - this slice keeps pushing prompt rendering toward a transport contract that Unity, Unreal, or any other renderer can consume with UI-only adaptation
+- API / contract impact:
+  - additive only
+  - updated:
+    - `docs/api/online-game-api-spec.md`
+    - `packages/runtime-contracts/ws/README.md`
+- Validation:
+  - `.venv311/bin/python -m pytest apps/server/tests/test_view_state_prompt_selector.py apps/server/tests/test_runtime_contract_examples.py -q`
+  - `.venv311/bin/python -m pytest GPT/test_rule_fixes.py -k 'selector_prompt or geo_bonus or coin_placement' -q`
+  - `cd apps/web && npm run test -- src/domain/selectors/promptSelectors.spec.ts`
+  - `cd apps/web && npm run build`
+
+## 2026-04-10 Backend Selector Migration Phase 3.12 Prompt Surface Core Action Completion
+
+- What changed:
+  - completed backend `view_state.prompt.active.surface` coverage for the last prompt-heavy action selectors that still leaked React-side interpretation:
+    - `movement`
+    - `trick_to_use` / `hidden_trick_card` via `surface.hand_choice`
+    - `runaway_step_choice` via `surface.runaway_step`
+  - `apps/server/src/domain/view_state/prompt_selector.py` now projects canonical movement card combinations, hand-choice trays, and runaway-step ids/targets directly from prompt `legal_choices` and `public_context`
+  - `PromptOverlay` now prefers backend-projected movement / hand-choice / runaway-step surfaces before falling back to legacy local reconstruction, which keeps renderer logic closer to pure presentation
+  - added shared selector fixtures for:
+    - `packages/runtime-contracts/ws/examples/selector.prompt.movement_surface.json`
+    - `packages/runtime-contracts/ws/examples/selector.prompt.hand_choice_surface.json`
+    - `packages/runtime-contracts/ws/examples/selector.prompt.runaway_step_surface.json`
+  - backend/frontend/engine tests now validate the same shared metadata for movement and runaway-step, while hand-choice uses the same backend/frontend shared fixture contract
+- Why:
+  - after earlier prompt-surface phases, the remaining complex React-owned interpretation islands were movement-card composition, trick-hand visibility/availability, and runaway-step ordering
+  - this brings prompt rendering even closer to a reusable selector contract that alternate clients can consume with thin UI-only adapters
+- API / contract impact:
+  - additive only
+  - updated:
+    - `docs/api/online-game-api-spec.md`
+    - `packages/runtime-contracts/ws/README.md`

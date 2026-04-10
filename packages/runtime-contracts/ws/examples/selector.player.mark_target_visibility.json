@@ -1,0 +1,135 @@
+{
+  "case_id": "player_mark_target_visibility",
+  "metadata": {
+    "actor_player_id": 1,
+    "actor_character": "산적",
+    "expected_visible_target_characters": ["탈출 노비", "아전", "교리 연구관"]
+  },
+  "messages": [
+    {
+      "type": "event",
+      "seq": 1,
+      "session_id": "s1",
+      "server_time_ms": 1,
+      "payload": {
+        "event_type": "turn_end_snapshot",
+        "acting_player_id": 1,
+        "snapshot": {
+          "players": [
+            { "player_id": 1, "display_name": "Player 1", "character": "자객", "cash": 15, "shards": 4, "owned_tile_count": 1 },
+            { "player_id": 2, "display_name": "Player 2", "character": "교리 연구관", "cash": 17, "shards": 4, "owned_tile_count": 1 },
+            { "player_id": 4, "display_name": "Player 4", "character": "자객", "cash": 17, "shards": 4, "owned_tile_count": 1 }
+          ],
+          "board": {
+            "marker_owner_player_id": 2
+          }
+        }
+      }
+    },
+    {
+      "type": "event",
+      "seq": 2,
+      "session_id": "s1",
+      "server_time_ms": 2,
+      "payload": {
+        "event_type": "turn_start",
+        "acting_player_id": 1,
+        "character": "산적"
+      }
+    },
+    {
+      "type": "prompt",
+      "seq": 3,
+      "session_id": "s1",
+      "server_time_ms": 3,
+      "payload": {
+        "request_id": "req_mark_1",
+        "request_type": "mark_target",
+        "player_id": 1,
+        "legal_choices": [
+          { "choice_id": "탈출 노비", "title": "탈출 노비", "value": { "target_character": "탈출 노비", "target_card_no": 3 } },
+          { "choice_id": "아전", "title": "아전", "value": { "target_character": "아전", "target_card_no": 4 } },
+          { "choice_id": "교리 연구관", "title": "교리 연구관", "value": { "target_character": "교리 연구관", "target_card_no": 5 } },
+          { "choice_id": "none", "title": "지목 안 함" }
+        ],
+        "public_context": {
+          "actor_name": "산적"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "players": {
+      "ordered_player_ids": [2, 4, 1],
+      "marker_owner_player_id": 2,
+      "marker_draft_direction": null,
+      "items": [
+        {
+          "player_id": 2,
+          "display_name": "Player 2",
+          "cash": 17,
+          "shards": 4,
+          "owned_tile_count": 1,
+          "trick_count": 0,
+          "hand_coins": 0,
+          "placed_coins": 0,
+          "total_score": 0,
+          "priority_slot": null,
+          "current_character_face": "-",
+          "is_marker_owner": true,
+          "is_current_actor": false
+        },
+        {
+          "player_id": 4,
+          "display_name": "Player 4",
+          "cash": 17,
+          "shards": 4,
+          "owned_tile_count": 1,
+          "trick_count": 0,
+          "hand_coins": 0,
+          "placed_coins": 0,
+          "total_score": 0,
+          "priority_slot": null,
+          "current_character_face": "-",
+          "is_marker_owner": false,
+          "is_current_actor": false
+        },
+        {
+          "player_id": 1,
+          "display_name": "Player 1",
+          "cash": 15,
+          "shards": 4,
+          "owned_tile_count": 1,
+          "trick_count": 0,
+          "hand_coins": 0,
+          "placed_coins": 0,
+          "total_score": 0,
+          "priority_slot": 2,
+          "current_character_face": "산적",
+          "is_marker_owner": false,
+          "is_current_actor": true
+        }
+      ]
+    },
+    "active_slots": {
+      "items": [
+        { "slot": 1, "player_id": null, "label": null, "character": null, "inactive_character": null, "is_current_actor": false },
+        { "slot": 2, "player_id": 1, "label": "P1", "character": "산적", "inactive_character": "자객", "is_current_actor": true },
+        { "slot": 3, "player_id": null, "label": null, "character": "탈출 노비", "inactive_character": "추노꾼", "is_current_actor": false },
+        { "slot": 4, "player_id": null, "label": null, "character": "아전", "inactive_character": "파발꾼", "is_current_actor": false },
+        { "slot": 5, "player_id": null, "label": null, "character": "교리 연구관", "inactive_character": "교리 감독관", "is_current_actor": false },
+        { "slot": 6, "player_id": null, "label": null, "character": null, "inactive_character": null, "is_current_actor": false },
+        { "slot": 7, "player_id": null, "label": null, "character": null, "inactive_character": null, "is_current_actor": false },
+        { "slot": 8, "player_id": null, "label": null, "character": null, "inactive_character": null, "is_current_actor": false }
+      ]
+    },
+    "mark_target": {
+      "actor_slot": 2,
+      "candidates": [
+        { "slot": 3, "player_id": null, "label": null, "character": "탈출 노비" },
+        { "slot": 4, "player_id": null, "label": null, "character": "아전" },
+        { "slot": 5, "player_id": null, "label": null, "character": "교리 연구관" }
+      ]
+    }
+  }
+}

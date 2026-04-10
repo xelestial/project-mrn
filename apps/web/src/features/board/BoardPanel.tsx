@@ -146,9 +146,18 @@ export function BoardPanel({
     "--board-hud-small-size": `${hudScale.smallFontSize}px`,
     "--board-hud-chip-size": `${hudScale.chipFontSize}px`,
     "--board-hud-stat-size": `${hudScale.statFontSize}px`,
+    "--board-hud-control-height": `${hudScale.controlHeight}px`,
+    "--board-hud-weather-min-height": `${hudScale.weatherMinHeight}px`,
+    "--board-hud-player-card-min-height": `${hudScale.playerCardMinHeight}px`,
+    "--board-hud-active-card-min-height": `${hudScale.activeCharacterMinHeight}px`,
     "--board-hud-prompt-max-height": `${hudScale.promptMaxHeight}px`,
+    "--board-hud-prompt-shell-max-width": `${hudScale.promptShellMaxWidth}px`,
+    "--board-hud-hand-tray-max-height": `${hudScale.handTrayMaxHeight}px`,
+    "--board-hud-prompt-middle-reserve-bottom": `${hudScale.promptMiddleReserveBottom}px`,
     "--board-hud-choice-min-width": `${hudScale.choiceMinWidth}px`,
+    "--board-hud-choice-min-height": `${hudScale.choiceMinHeight}px`,
     "--board-hud-hand-card-min-width": `${hudScale.handCardMinWidth}px`,
+    "--board-hud-hand-card-min-height": `${hudScale.handCardMinHeight}px`,
     "--board-hand-grid-cols": String(hudScale.handGridColumns),
   } as CSSProperties;
 

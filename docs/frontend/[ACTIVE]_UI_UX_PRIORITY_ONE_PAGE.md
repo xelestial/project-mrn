@@ -1,12 +1,19 @@
 # [ACTIVE] UI/UX Priority One Page
 
 Status: ACTIVE  
-Updated: 2026-04-07  
+Updated: 2026-04-09  
 Source: merged from Claude proposals + Codex review
 
 ## Purpose
 
 This is the one-page execution priority for current UI/UX work.
+
+For the live-play recovery slice that is now blocking real sessions, also use:
+
+- `docs/frontend/[PLAN]_LIVE_PLAY_STATE_AND_DECISION_RECOVERY.md`
+
+That document is the deeper execution plan for unresolved logic bugs,
+single-source selector work, and board HUD cleanup.
 
 ## Current Diagnosis
 
@@ -26,6 +33,8 @@ It is loss of readability:
 2. no-empty-state on my turn
 3. decision labeling cleanup
 4. prompt reason visibility
+5. draft / active-card / mark-target correctness
+6. stable card identity for trick use and burden cleanup
 
 Why:
 - these are foundational
@@ -39,12 +48,24 @@ Why:
 3. keep current actor resources always readable
 4. keep the top line compact: weather + four-player status only
 5. merge "preparing" copy into the main decision surface instead of showing a second waiting panel
+6. keep the bottom trick hand attached to the board and fed by the same selector state as the top cards
+7. keep active-card slots truthful and horizontally compact
 
 ### P2. Evidence-Driven Dramatic Layer
 
 1. stronger spectator strip / current-turn narration
 2. larger movement / landing / rent / purchase reveals
 3. interrupt overlays only for truly important events
+
+## Real Current Failure Pattern
+
+If a bug is reported during live play, place it into one of these buckets first:
+
+1. logic bug
+2. selector / data-source drift
+3. board HUD / layout readability
+
+Do not start with CSS if the active state, draft ownership, or candidate generation is already wrong.
 
 ## Do Now vs Later
 
@@ -75,9 +96,9 @@ Why:
 
 ## Practical Order
 
-1. fix actor visibility and my-turn blank state
-2. fix prompt labeling and prompt reason visibility
-3. reduce duplicate turn/spectator panels
+1. fix draft / final-character / active-card truth
+2. fix mark-target and card-identity correctness
+3. unify visible player / hand / board state behind selectors
 4. enlarge and simplify board-first layout
 5. run playtests
 6. reopen heavier redesign items only if playtest evidence demands it
@@ -151,3 +172,4 @@ Use only when the above entry points are insufficient:
 - `docs/frontend/[PROPOSAL]_UI_UX_ISSUE_FIX_PLAN.md` — full bug list with cause/fix/priority
 - `docs/frontend/[PROPOSAL]_UI_UX_COMMERCIAL_REDESIGN.md` — full redesign spec (Zone A–I)
 - `docs/frontend/[PROPOSAL]_UI_UX_DETAILED_SPEC.md` — pixel math and CSS specs
+- `docs/frontend/[PLAN]_LIVE_PLAY_STATE_AND_DECISION_RECOVERY.md` — current execution plan for unresolved live-play failures

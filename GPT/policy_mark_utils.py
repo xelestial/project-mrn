@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from typing import Optional
 
-from characters import CHARACTERS
+from characters import CARD_TO_NAMES, CHARACTERS
 from policy_groups import (
     DISRUPTION_LIKE_CHARACTERS,
     ECONOMY_LIKE_CHARACTERS,
@@ -19,22 +19,66 @@ from policy_groups import (
 from state import GameState, PlayerState
 
 
+def _card_no_for_character(character_name: str | None) -> int | None:
+    if not character_name:
+        return None
+    char_def = CHARACTERS.get(character_name)
+    if char_def is None:
+        return None
+    return int(char_def.card_no)
+
+
+def _holder_for_card_no(state: GameState, card_no: int) -> PlayerState | None:
+    for other in state.players:
+        if not other.alive or not other.current_character:
+            continue
+        if _card_no_for_character(other.current_character) == card_no:
+            return other
+    return None
+
+
+def _public_character_for_card_no(state: GameState, card_no: int) -> str | None:
+    active_by_card = getattr(state, "active_by_card", {}) or {}
+    if isinstance(active_by_card, dict):
+        public_name = active_by_card.get(card_no)
+        if isinstance(public_name, str) and public_name:
+            return public_name
+
+    holder = _holder_for_card_no(state, card_no)
+    if holder is not None and holder.current_character:
+        return str(holder.current_character)
+
+    pair = CARD_TO_NAMES.get(card_no)
+    if pair:
+        return str(pair[0])
+    return None
+
+
+def ordered_public_mark_targets(state: GameState, player: PlayerState) -> list[dict[str, int | str]]:
+    """Return future priority-card public mark guesses in card order."""
+
+    actor_card_no = _card_no_for_character(getattr(player, "current_character", None))
+    if actor_card_no is None:
+        return []
+
+    ordered_targets: list[dict[str, int | str]] = []
+    seen_characters: set[str] = set()
+    max_card_no = max(CARD_TO_NAMES)
+    for card_no in range(actor_card_no + 1, max_card_no + 1):
+        holder = _holder_for_card_no(state, card_no)
+        if holder is not None and getattr(holder, "revealed_this_round", False):
+            continue
+        public_character = _public_character_for_card_no(state, card_no)
+        if not public_character or public_character in seen_characters:
+            continue
+        ordered_targets.append({"card_no": card_no, "target_character": public_character})
+        seen_characters.add(public_character)
+    return ordered_targets
+
+
 def public_mark_guess_candidates(state: GameState, player: PlayerState) -> list[str]:
     """Return publicly plausible character guesses without peeking hidden assignments."""
-    public_pool = {name for name in state.active_by_card.values() if name}
-    if player.current_character:
-        public_pool.discard(player.current_character)
-    try:
-        my_order_idx = state.current_round_order.index(player.player_id)
-    except ValueError:
-        return sorted(public_pool)
-    prior_pids = set(state.current_round_order[:my_order_idx])
-    for other in state.players:
-        if not other.current_character:
-            continue
-        if other.player_id in prior_pids or other.revealed_this_round:
-            public_pool.discard(other.current_character)
-    return sorted(public_pool)
+    return [str(target["target_character"]) for target in ordered_public_mark_targets(state, player)]
 
 
 def mark_guess_policy_params(profile: str, character_policy_mode: str) -> tuple[float, float]:

@@ -1,0 +1,79 @@
+{
+  "case_id": "prompt_active_flip_surface",
+  "metadata": {
+    "expected_choice_ids": ["5", "7"],
+    "finish_choice_id": "none"
+  },
+  "messages": [
+    {
+      "type": "prompt",
+      "seq": 41,
+      "session_id": "sess_prompt_surface",
+      "server_time_ms": 41,
+      "payload": {
+        "request_id": "req_flip_surface_1",
+        "request_type": "active_flip",
+        "player_id": 1,
+        "timeout_ms": 30000,
+        "legal_choices": [
+          {
+            "choice_id": "none",
+            "title": "Finish flipping"
+          },
+          {
+            "choice_id": "5",
+            "title": "교리 감독관 -> 교리 연구관",
+            "value": {
+              "card_index": 5,
+              "current_name": "교리 감독관",
+              "flipped_name": "교리 연구관"
+            }
+          },
+          {
+            "choice_id": "7",
+            "title": "객주 -> 중매꾼",
+            "value": {
+              "card_index": 7,
+              "current_name": "객주",
+              "flipped_name": "중매꾼"
+            }
+          }
+        ],
+        "public_context": {
+          "flip_count": 2,
+          "flip_mode": "multi",
+          "flip_submit_mode": "finish_once",
+          "finish_choice_id": "none",
+          "batch_payload_key": "selected_choice_ids"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "prompt": {
+      "active": {
+        "surface": {
+          "kind": "active_flip",
+          "blocks_public_events": true,
+          "active_flip": {
+            "finish_choice_id": "none",
+            "options": [
+              {
+                "choice_id": "5",
+                "card_index": 5,
+                "current_name": "교리 감독관",
+                "flipped_name": "교리 연구관"
+              },
+              {
+                "choice_id": "7",
+                "card_index": 7,
+                "current_name": "객주",
+                "flipped_name": "중매꾼"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

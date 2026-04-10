@@ -13,7 +13,10 @@ describe("boardHudScale", () => {
     expect(scale.sceneScale).toBeGreaterThanOrEqual(1);
     expect(scale.density).not.toBe("compact");
     expect(scale.handGridColumns).toBe(5);
-    expect(scale.promptMaxHeight).toBeGreaterThanOrEqual(300);
+    expect(scale.promptMaxHeight).toBeGreaterThanOrEqual(200);
+    expect(scale.promptShellMaxWidth).toBeGreaterThanOrEqual(1000);
+    expect(scale.handTrayMaxHeight).toBeGreaterThanOrEqual(136);
+    expect(scale.playerCardMinHeight).toBeGreaterThanOrEqual(140);
   });
 
   it("shrinks typography and spacing for constrained overlay scenes", () => {
@@ -27,7 +30,10 @@ describe("boardHudScale", () => {
     expect(scale.density).toBe("compact");
     expect(scale.bodyFontSize).toBeLessThanOrEqual(12);
     expect(scale.overlayGap).toBeLessThanOrEqual(12);
-    expect(scale.choiceMinWidth).toBeGreaterThanOrEqual(180);
-    expect(scale.handCardMinWidth).toBeGreaterThanOrEqual(170);
+    expect(scale.choiceMinWidth).toBeGreaterThanOrEqual(150);
+    expect(scale.handCardMinWidth).toBeGreaterThanOrEqual(138);
+    expect(scale.choiceMinHeight).toBeLessThanOrEqual(140);
+    expect(scale.promptShellMaxWidth).toBeLessThanOrEqual(1000);
+    expect(scale.handTrayMaxHeight).toBeLessThanOrEqual(220);
   });
 });

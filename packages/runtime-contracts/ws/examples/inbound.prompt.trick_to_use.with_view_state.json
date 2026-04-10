@@ -1,0 +1,75 @@
+{
+  "type": "prompt",
+  "seq": 31,
+  "session_id": "sess_hand_tray_example",
+  "server_time_ms": 1743210900000,
+  "payload": {
+    "request_id": "req_turn8_trick",
+    "request_type": "trick_to_use",
+    "player_id": 1,
+    "timeout_ms": 30000,
+    "legal_choices": [
+      {
+        "choice_id": "deck_11",
+        "title": "건강 검진",
+        "description": "통행료를 절반으로 낮춥니다."
+      }
+    ],
+    "public_context": {
+      "full_hand": [
+        {
+          "deck_index": 11,
+          "name": "건강 검진",
+          "card_description": "통행료를 절반으로 낮춥니다.",
+          "is_hidden": false
+        }
+      ]
+    },
+    "view_state": {
+      "prompt": {
+        "active": {
+          "request_id": "req_turn8_trick",
+          "request_type": "trick_to_use",
+          "player_id": 1,
+          "timeout_ms": 30000,
+          "choices": [
+            {
+              "choice_id": "deck_11",
+              "title": "건강 검진",
+              "description": "통행료를 절반으로 낮춥니다.",
+              "value": null,
+              "secondary": false
+            }
+          ],
+          "public_context": {
+            "full_hand": [
+              {
+                "deck_index": 11,
+                "name": "건강 검진",
+                "card_description": "통행료를 절반으로 낮춥니다.",
+                "is_hidden": false
+              }
+            ]
+          },
+          "behavior": {
+            "normalized_request_type": "trick_to_use",
+            "single_surface": false,
+            "auto_continue": false
+          }
+        }
+      },
+      "hand_tray": {
+        "cards": [
+          {
+            "key": "11-0-건강 검진",
+            "name": "건강 검진",
+            "description": "통행료를 절반으로 낮춥니다.",
+            "deck_index": 11,
+            "is_hidden": false,
+            "is_current_target": false
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "case_id": "prompt_geo_bonus_surface",
+  "metadata": {
+    "expected_choice_ids": ["cash", "shards", "coins"],
+    "actor_name": "박수"
+  },
+  "messages": [
+    {
+      "type": "prompt",
+      "seq": 61,
+      "session_id": "sess_prompt_surface",
+      "server_time_ms": 61,
+      "payload": {
+        "request_id": "req_geo_surface_1",
+        "request_type": "geo_bonus",
+        "player_id": 1,
+        "timeout_ms": 30000,
+        "legal_choices": [
+          {
+            "choice_id": "cash",
+            "title": "Cash +1",
+            "description": "Gain 1 cash.",
+            "value": {
+              "choice": "cash"
+            }
+          },
+          {
+            "choice_id": "shards",
+            "title": "Shards +1",
+            "description": "Gain 1 shard.",
+            "value": {
+              "choice": "shards"
+            }
+          },
+          {
+            "choice_id": "coins",
+            "title": "Coins +1",
+            "description": "Gain 1 score point.",
+            "value": {
+              "choice": "coins"
+            }
+          }
+        ],
+        "public_context": {
+          "actor_name": "박수",
+          "player_cash": 9,
+          "player_shards": 4,
+          "player_hand_coins": 1
+        }
+      }
+    }
+  ],
+  "expected": {
+    "prompt": {
+      "active": {
+        "surface": {
+          "kind": "geo_bonus",
+          "blocks_public_events": true,
+          "geo_bonus": {
+            "actor_name": "박수",
+            "options": [
+              {
+                "choice_id": "cash",
+                "reward_kind": "cash",
+                "title": "Cash +1",
+                "description": "Gain 1 cash."
+              },
+              {
+                "choice_id": "shards",
+                "reward_kind": "shards",
+                "title": "Shards +1",
+                "description": "Gain 1 shard."
+              },
+              {
+                "choice_id": "coins",
+                "reward_kind": "coins",
+                "title": "Coins +1",
+                "description": "Gain 1 score point."
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

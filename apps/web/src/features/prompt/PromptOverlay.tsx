@@ -8,6 +8,12 @@ import { isSpecializedPromptType } from "./promptSurfaceCatalog";
 
 type PromptOverlayProps = {
   prompt: PromptViewModel | null;
+  markTargetCandidates?: Array<{
+    slot: number;
+    playerId: number | null;
+    label: string | null;
+    character: string;
+  }>;
   collapsed: boolean;
   busy: boolean;
   secondsLeft: number | null;
@@ -47,6 +53,19 @@ type BurdenChoiceCard = {
   isCurrentTarget: boolean;
 };
 
+type LapRewardSelection = {
+  cashUnits: number;
+  shardUnits: number;
+  coinUnits: number;
+};
+
+type LapRewardOption = LapRewardSelection & {
+  choiceId: string;
+  spentPoints: number;
+};
+
+type CharacterPickOption = NonNullable<PromptViewModel["surface"]["characterPick"]>["options"][number];
+
 type ChoiceGridVariant = "default" | "target" | "decision" | "reward";
 type SummaryPillValue = string | null | undefined;
 
@@ -60,6 +79,10 @@ function asNumber(value: unknown): number | null {
 
 function asString(value: unknown, fallback = ""): string {
   return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function isKoreanLocale(locale: string): boolean {
+  return locale.toLowerCase().startsWith("ko");
 }
 
 function cleanDisplayText(value: string): string {
@@ -81,9 +104,9 @@ function sortChoicesForDisplay(choices: PromptChoiceViewModel[]): PromptChoiceVi
   });
 }
 
-function choiceDescription(choice: PromptChoiceViewModel, promptText: PromptText): string {
+function choiceDescription(choice: PromptChoiceViewModel, _promptText: PromptText): string {
   const text = choice.description.trim();
-  return text ? cleanDisplayText(text) : promptText.noChoiceDescription;
+  return text ? cleanDisplayText(text) : "";
 }
 
 function parseMovementChoice(choice: PromptChoiceViewModel): { cards: number[] } | null {
@@ -120,6 +143,14 @@ function numberFromContext(context: Record<string, unknown>, ...keys: string[]):
   return null;
 }
 
+function numberFromNestedContext(context: Record<string, unknown>, parentKey: string, childKey: string): number | null {
+  const parent = context[parentKey];
+  if (!isRecord(parent)) {
+    return null;
+  }
+  return asNumber(parent[childKey]);
+}
+
 function stringFromContext(context: Record<string, unknown>, ...keys: string[]): string {
   for (const key of keys) {
     const parsed = asString(context[key]);
@@ -136,6 +167,10 @@ function tileLabel(tileIndex: number | null): string {
 
 function formatNumber(value: number | null): string {
   return value === null ? "-" : String(value);
+}
+
+function lapRewardSelectionKey(selection: LapRewardSelection): string {
+  return `${selection.cashUnits}|${selection.shardUnits}|${selection.coinUnits}`;
 }
 
 function booleanFromValue(value: unknown): boolean | null {
@@ -184,6 +219,24 @@ function isSecondaryChoice(choice: PromptChoiceViewModel): boolean {
 }
 
 function movementChoices(prompt: PromptViewModel): MovementChoiceParts {
+  if (prompt.surface.movement) {
+    const rollChoice = prompt.surface.movement.rollChoiceId
+      ? prompt.choices.find((choice) => choice.choiceId === prompt.surface.movement?.rollChoiceId) ?? null
+      : null;
+    const cardChoices = prompt.surface.movement.cardChoices
+      .map((item) => {
+        const choice = prompt.choices.find((entry) => entry.choiceId === item.choiceId);
+        return choice ? { cards: item.cards, choice } : null;
+      })
+      .filter((item): item is { cards: number[]; choice: PromptChoiceViewModel } => item !== null);
+    return {
+      rollChoice,
+      cardChoices,
+      cardPool: prompt.surface.movement.cardPool,
+      canUseTwoCards: prompt.surface.movement.canUseTwoCards,
+    };
+  }
+
   let rollChoice: PromptChoiceViewModel | null = null;
   const cardChoices: Array<{ cards: number[]; choice: PromptChoiceViewModel }> = [];
   const cardSet = new Set<number>();
@@ -221,6 +274,21 @@ function findCardChoice(
 }
 
 function buildHandChoiceCards(prompt: PromptViewModel, promptText: PromptText): { cards: HandChoiceCard[]; passChoiceId: string | null } {
+  if (prompt.surface.handChoice) {
+    return {
+      passChoiceId: prompt.surface.handChoice.passChoiceId,
+      cards: prompt.surface.handChoice.cards.map((card, index) => ({
+        key: `${card.deckIndex ?? "x"}-${index}`,
+        name: card.name,
+        description: card.description || promptText.hiddenCardDescription(card.name),
+        serial: card.deckIndex === null ? "" : `#${card.deckIndex}`,
+        isHidden: card.isHidden,
+        isUsable: card.isUsable,
+        choiceId: card.choiceId,
+      })),
+    };
+  }
+
   const choiceByDeck = new Map<number, PromptChoiceViewModel>();
   let passChoiceId: string | null = null;
 
@@ -274,7 +342,7 @@ function buildHandChoiceCards(prompt: PromptViewModel, promptText: PromptText): 
       name: choice.title,
       description: choiceDescription(choice, promptText),
       serial: asNumber(choice.value?.["deck_index"]) === null ? "" : `#${asNumber(choice.value?.["deck_index"])}`,
-      isHidden: false,
+      isHidden: choice.value?.["is_hidden"] === true,
       isUsable: true,
       choiceId: choice.choiceId,
     }));
@@ -334,25 +402,30 @@ function markChoiceTitle(choice: PromptChoiceViewModel, promptText: PromptText):
   if (choice.choiceId === "none") {
     return cleanDisplayText(promptText.mark.noneTitle);
   }
-  return cleanDisplayText(promptText.mark.title(choice.title));
+  const targetCharacter = asString(choice.value?.["target_character"]);
+  return cleanDisplayText(targetCharacter || choice.title);
 }
 
 function markChoiceDescription(choice: PromptChoiceViewModel, promptText: PromptText): string {
   if (choice.choiceId === "none") {
     return cleanDisplayText(promptText.mark.noneDescription);
   }
-  const targetCharacter = asString(choice.value?.["target_character"]);
   const targetPlayerId = asNumber(choice.value?.["target_player_id"]);
-  if (targetCharacter && targetPlayerId !== null) {
-    return cleanDisplayText(promptText.mark.description(targetCharacter, targetPlayerId));
+  if (targetPlayerId !== null) {
+    return `P${targetPlayerId}`;
   }
-  return cleanDisplayText(promptText.mark.fallbackDescription);
+  return "";
 }
 
-function markChoiceTarget(choice: PromptChoiceViewModel): { character: string; playerId: number | null } {
+function markChoiceTarget(choice: PromptChoiceViewModel): {
+  character: string;
+  playerId: number | null;
+  cardNo: number | null;
+} {
   return {
     character: asString(choice.value?.["target_character"]),
     playerId: asNumber(choice.value?.["target_player_id"]),
+    cardNo: asNumber(choice.value?.["target_card_no"]),
   };
 }
 
@@ -455,6 +528,7 @@ type EmphasisChoiceGridProps = {
   testIdPrefix: string;
   renderExtra?: (choice: PromptChoiceViewModel) => ReactNode;
   collapseSecondaryChoices?: boolean;
+  mergeSecondaryChoices?: boolean;
 };
 
 function EmphasisChoiceGrid({
@@ -468,10 +542,12 @@ function EmphasisChoiceGrid({
   testIdPrefix,
   renderExtra,
   collapseSecondaryChoices = false,
+  mergeSecondaryChoices = false,
 }: EmphasisChoiceGridProps) {
   const primaryChoices = orderedChoices.filter((choice) => !isSecondaryChoice(choice));
   const secondaryChoices = orderedChoices.filter((choice) => isSecondaryChoice(choice));
-  const groups = [primaryChoices].filter((group) => group.length > 0);
+  const mergedPrimaryChoices = mergeSecondaryChoices ? orderedChoices : primaryChoices;
+  const groups = [mergedPrimaryChoices].filter((group) => group.length > 0);
 
   const renderGroup = (group: PromptChoiceViewModel[], groupIndex: number) => (
     <div
@@ -495,7 +571,7 @@ function EmphasisChoiceGrid({
               {secondary ? <span className="prompt-choice-badge">{promptText.secondaryChoiceBadge}</span> : null}
             </div>
             {renderExtra ? renderExtra(choice) : null}
-            <small>{normalized.description}</small>
+            {normalized.description ? <small>{normalized.description}</small> : null}
           </button>
         );
       })}
@@ -505,14 +581,13 @@ function EmphasisChoiceGrid({
   return (
     <>
       {groups.map(renderGroup)}
-      {secondaryChoices.length > 0 && !collapseSecondaryChoices ? renderGroup(secondaryChoices, 1) : null}
-      {secondaryChoices.length > 0 && collapseSecondaryChoices ? (
+      {secondaryChoices.length > 0 && !mergeSecondaryChoices && !collapseSecondaryChoices ? renderGroup(secondaryChoices, 1) : null}
+      {secondaryChoices.length > 0 && !mergeSecondaryChoices && collapseSecondaryChoices ? (
         <details className="prompt-choice-secondary-group">
           <summary>{promptText.secondaryChoiceBadge}</summary>
           {renderGroup(secondaryChoices, 1)}
         </details>
       ) : null}
-      {orderedChoices.length === 0 ? <p>{promptText.choice.noChoices}</p> : null}
     </>
   );
 }
@@ -523,11 +598,9 @@ type ChoiceSectionProps = {
 };
 
 function ChoiceSection({ summaryPills = [], children }: ChoiceSectionProps) {
+  void summaryPills;
   return (
     <section className="prompt-section prompt-hand-stage">
-      <div className="prompt-section-summary">
-        <SummaryPills values={summaryPills} />
-      </div>
       {children}
     </section>
   );
@@ -545,6 +618,7 @@ type DecisionChoiceSectionProps = {
   variant?: ChoiceGridVariant;
   renderExtra?: (choice: PromptChoiceViewModel) => ReactNode;
   collapseSecondaryChoices?: boolean;
+  mergeSecondaryChoices?: boolean;
 };
 
 function DecisionChoiceSection({
@@ -559,6 +633,7 @@ function DecisionChoiceSection({
   variant = "default",
   renderExtra,
   collapseSecondaryChoices = true,
+  mergeSecondaryChoices = false,
 }: DecisionChoiceSectionProps) {
   return (
     <ChoiceSection summaryPills={summaryPills}>
@@ -573,6 +648,7 @@ function DecisionChoiceSection({
         testIdPrefix={testIdPrefix}
         renderExtra={renderExtra}
         collapseSecondaryChoices={collapseSecondaryChoices}
+        mergeSecondaryChoices={mergeSecondaryChoices}
       />
     </ChoiceSection>
   );
@@ -580,6 +656,7 @@ function DecisionChoiceSection({
 
 export function PromptOverlay({
   prompt,
+  markTargetCandidates = [],
   collapsed,
   busy,
   secondsLeft,
@@ -593,8 +670,13 @@ export function PromptOverlay({
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const [movementMode, setMovementMode] = useState<"roll" | "cards">("roll");
   const [selectedCards, setSelectedCards] = useState<number[]>([]);
-  const [selectedBurdenDeckIndex, setSelectedBurdenDeckIndex] = useState<number | null>(null);
+  const [selectedBurdenDeckIndexes, setSelectedBurdenDeckIndexes] = useState<number[]>([]);
   const [selectedActiveFlipChoiceIds, setSelectedActiveFlipChoiceIds] = useState<string[]>([]);
+  const [lapRewardSelection, setLapRewardSelection] = useState<LapRewardSelection>({
+    cashUnits: 0,
+    shardUnits: 0,
+    coinUnits: 0,
+  });
 
   const movement = useMemo(() => {
     if (!prompt || prompt.requestType !== "movement") {
@@ -613,9 +695,98 @@ export function PromptOverlay({
     if (!prompt || prompt.requestType !== "burden_exchange") {
       return [];
     }
+    if (prompt.surface.burdenExchangeBatch) {
+      return prompt.surface.burdenExchangeBatch.cards
+        .map((card, index) => ({
+          key: `${card.deckIndex ?? index}-${card.name}`,
+          deckIndex: card.deckIndex,
+          name: card.name,
+          description: card.description,
+          burdenCost: card.burdenCost,
+          isCurrentTarget: card.isCurrentTarget,
+        }))
+        .sort((left, right) => {
+          if (left.isCurrentTarget !== right.isCurrentTarget) {
+            return left.isCurrentTarget ? -1 : 1;
+          }
+          if (left.deckIndex === null || right.deckIndex === null) {
+            return left.name.localeCompare(right.name);
+          }
+          return left.deckIndex - right.deckIndex;
+        });
+    }
     return buildBurdenChoiceCards(prompt);
   }, [prompt]);
+  const lapRewardOptions = useMemo(() => {
+    if (!prompt || prompt.requestType !== "lap_reward") {
+      return new Map<string, LapRewardOption>();
+    }
+    const options = new Map<string, LapRewardOption>();
+    const rewardOptions =
+      prompt.surface.lapReward?.options ??
+      prompt.choices.map((choice) => ({
+        choiceId: choice.choiceId,
+        cashUnits: asNumber(choice.value?.["cash_units"]) ?? 0,
+        shardUnits: asNumber(choice.value?.["shard_units"]) ?? 0,
+        coinUnits: asNumber(choice.value?.["coin_units"]) ?? 0,
+        spentPoints: asNumber(choice.value?.["spent_points"]) ?? 0,
+      }));
+    for (const option of rewardOptions) {
+      options.set(
+        lapRewardSelectionKey({
+          cashUnits: option.cashUnits,
+          shardUnits: option.shardUnits,
+          coinUnits: option.coinUnits,
+        }),
+        {
+          choiceId: option.choiceId,
+          cashUnits: option.cashUnits,
+          shardUnits: option.shardUnits,
+          coinUnits: option.coinUnits,
+          spentPoints: option.spentPoints,
+        }
+      );
+    }
+    return options;
+  }, [prompt]);
   const orderedChoices = useMemo(() => (prompt ? sortChoicesForDisplay(prompt.choices) : []), [prompt]);
+  const orderedChoiceMap = useMemo(() => new Map(orderedChoices.map((choice) => [choice.choiceId, choice] as const)), [orderedChoices]);
+  const projectSurfaceOrderedChoices = (choiceIds: string[]) =>
+    choiceIds
+      .map((choiceId) => orderedChoiceMap.get(choiceId) ?? null)
+      .filter((choice): choice is PromptChoiceViewModel => choice !== null);
+  const displayedMarkChoices = useMemo(() => {
+    if (!prompt || prompt.requestType !== "mark_target") {
+      return orderedChoices;
+    }
+    const orderedSurfaceCandidates = prompt.surface.markTarget?.candidates ?? [];
+    if (orderedSurfaceCandidates.length > 0) {
+      const noneChoices = orderedChoices.filter((choice) => choice.choiceId === "none");
+      const matchedChoices = orderedSurfaceCandidates
+        .map((candidate) => orderedChoiceMap.get(candidate.choiceId) ?? null)
+        .filter((choice): choice is PromptChoiceViewModel => choice !== null);
+      return [...matchedChoices, ...noneChoices];
+    }
+    const noneChoices = orderedChoices.filter((choice) => choice.choiceId === "none");
+    const fallbackChoices = orderedChoices.filter((choice) => choice.choiceId !== "none");
+    if (markTargetCandidates.length === 0) {
+      return [...fallbackChoices, ...noneChoices];
+    }
+    const choiceByCharacter = new Map<string, PromptChoiceViewModel>();
+    for (const choice of orderedChoices) {
+      if (choice.choiceId === "none") {
+        continue;
+      }
+      const key = asString(choice.value?.["target_character"]) || choice.choiceId || choice.title;
+      if (key) {
+        choiceByCharacter.set(key, choice);
+      }
+    }
+    const matchedChoices = markTargetCandidates
+      .map((candidate) => choiceByCharacter.get(candidate.character) ?? null)
+      .filter((choice): choice is PromptChoiceViewModel => choice !== null);
+    return [...matchedChoices, ...noneChoices];
+  }, [prompt, orderedChoices, orderedChoiceMap, markTargetCandidates]);
 
   useEffect(() => {
     if (!prompt) {
@@ -625,7 +796,7 @@ export function PromptOverlay({
       }
       setSelectedCards([]);
       setMovementMode("roll");
-      setSelectedBurdenDeckIndex(null);
+      setSelectedBurdenDeckIndexes([]);
       setSelectedActiveFlipChoiceIds([]);
       return;
     }
@@ -635,7 +806,7 @@ export function PromptOverlay({
       typeof prompt.publicContext["card_deck_index"] === "number"
         ? (prompt.publicContext["card_deck_index"] as number)
         : null;
-    setSelectedBurdenDeckIndex(currentBurdenDeckIndex);
+    setSelectedBurdenDeckIndexes(currentBurdenDeckIndex === null ? [] : [currentBurdenDeckIndex]);
     setSelectedActiveFlipChoiceIds([]);
   }, [prompt?.requestId]);
 
@@ -672,7 +843,6 @@ export function PromptOverlay({
 
   const movementSelectedChoice =
     movement && selectedCards.length > 0 ? findCardChoice(movement.cardChoices, selectedCards) : null;
-
   const onToggleCardChip = (card: number) => {
     setSelectedCards((prev) => {
       if (prev.includes(card)) {
@@ -701,6 +871,21 @@ export function PromptOverlay({
     onSelectChoice(movementSelectedChoice.choiceId);
   };
 
+  const onToggleActiveFlipChoice = (choiceId: string) => {
+    setSelectedActiveFlipChoiceIds((prev) =>
+      prev.includes(choiceId) ? prev.filter((item) => item !== choiceId) : [...prev, choiceId]
+    );
+  };
+
+  const onToggleBurdenCard = (deckIndex: number | null) => {
+    if (deckIndex === null) {
+      return;
+    }
+    setSelectedBurdenDeckIndexes((prev) =>
+      prev.includes(deckIndex) ? prev.filter((item) => item !== deckIndex) : [...prev, deckIndex].sort((a, b) => a - b)
+    );
+  };
+
   const isCharacterPick =
     prompt.requestType === "draft_card" ||
     prompt.requestType === "final_character" ||
@@ -717,6 +902,55 @@ export function PromptOverlay({
   const isDoctrineRelief = prompt.requestType === "doctrine_relief";
   const isGeoBonus = prompt.requestType === "geo_bonus";
   const isPabalDiceMode = prompt.requestType === "pabal_dice_mode";
+  const activeFlipFinishChoiceId = isActiveFlip ? prompt.surface.activeFlip?.finishChoiceId ?? "none" : null;
+  const activeFlipFinishChoice =
+    isActiveFlip && activeFlipFinishChoiceId
+      ? orderedChoices.find((choice) => choice.choiceId === activeFlipFinishChoiceId) ?? null
+      : null;
+  const activeFlipSelectableChoices = isActiveFlip
+    ? (() => {
+        if (prompt.surface.activeFlip?.options && prompt.surface.activeFlip.options.length > 0) {
+          return projectSurfaceOrderedChoices(prompt.surface.activeFlip.options.map((option) => option.choiceId));
+        }
+        return orderedChoices.filter((choice) => choice.choiceId !== "none");
+      })()
+    : [];
+  const characterPickChoices =
+    isCharacterPick && prompt.surface.characterPick?.options && prompt.surface.characterPick.options.length > 0
+      ? projectSurfaceOrderedChoices(prompt.surface.characterPick.options.map((option) => option.choiceId))
+      : orderedChoices;
+  const trickTileTargetChoices =
+    isTrickTileTarget && prompt.surface.trickTileTarget?.options && prompt.surface.trickTileTarget.options.length > 0
+      ? projectSurfaceOrderedChoices(prompt.surface.trickTileTarget.options.map((option) => option.choiceId))
+      : orderedChoices;
+  const coinPlacementChoices =
+    isCoinPlacement && prompt.surface.coinPlacement?.options && prompt.surface.coinPlacement.options.length > 0
+      ? projectSurfaceOrderedChoices(prompt.surface.coinPlacement.options.map((option) => option.choiceId))
+      : orderedChoices;
+  const doctrineReliefChoices =
+    isDoctrineRelief && prompt.surface.doctrineRelief?.options && prompt.surface.doctrineRelief.options.length > 0
+      ? projectSurfaceOrderedChoices(prompt.surface.doctrineRelief.options.map((option) => option.choiceId))
+      : orderedChoices;
+  const geoBonusChoices =
+    isGeoBonus && prompt.surface.geoBonus?.options && prompt.surface.geoBonus.options.length > 0
+      ? projectSurfaceOrderedChoices(prompt.surface.geoBonus.options.map((option) => option.choiceId))
+      : orderedChoices;
+  const specificTrickRewardChoices =
+    isSpecificTrickReward && prompt.surface.specificTrickReward?.options && prompt.surface.specificTrickReward.options.length > 0
+      ? projectSurfaceOrderedChoices(prompt.surface.specificTrickReward.options.map((option) => option.choiceId))
+      : orderedChoices;
+  const pabalDiceModeChoices =
+    isPabalDiceMode && prompt.surface.pabalDiceMode?.options && prompt.surface.pabalDiceMode.options.length > 0
+      ? projectSurfaceOrderedChoices(prompt.surface.pabalDiceMode.options.map((option) => option.choiceId))
+      : orderedChoices;
+  const runawayChoices =
+    isRunawayChoice && prompt.surface.runawayStep
+      ? projectSurfaceOrderedChoices(
+          [prompt.surface.runawayStep.bonusChoiceId, prompt.surface.runawayStep.stayChoiceId].filter(
+            (choiceId): choiceId is string => Boolean(choiceId)
+          )
+        )
+      : orderedChoices;
 
   const currentTileIndex = numberFromContext(prompt.publicContext, "tile_index", "player_position");
   const currentCash = numberFromContext(prompt.publicContext, "player_cash");
@@ -726,20 +960,68 @@ export function PromptOverlay({
   const currentPlacedCoins = numberFromContext(prompt.publicContext, "player_placed_coins");
   const currentTotalScore = numberFromContext(prompt.publicContext, "player_total_score");
   const currentOwnedTileCount = numberFromContext(prompt.publicContext, "player_owned_tile_count");
+  const rewardBudget = prompt.surface.lapReward?.budget ?? numberFromContext(prompt.publicContext, "budget");
+  const rewardSurface = prompt.surface.lapReward;
+  const rewardCashPool = rewardSurface?.cashPool ?? (numberFromNestedContext(prompt.publicContext, "pools", "cash") ?? 0);
+  const rewardShardPool = rewardSurface?.shardsPool ?? (numberFromNestedContext(prompt.publicContext, "pools", "shards") ?? 0);
+  const rewardCoinPool = rewardSurface?.coinsPool ?? (numberFromNestedContext(prompt.publicContext, "pools", "coins") ?? 0);
+  const rewardCashCost = rewardSurface?.cashPointCost ?? (numberFromContext(prompt.publicContext, "cash_point_cost") ?? 1);
+  const rewardShardCost = rewardSurface?.shardsPointCost ?? (numberFromContext(prompt.publicContext, "shards_point_cost") ?? 1);
+  const rewardCoinCost = rewardSurface?.coinsPointCost ?? (numberFromContext(prompt.publicContext, "coins_point_cost") ?? 1);
+  const lapRewardSpentPoints =
+    lapRewardSelection.cashUnits * rewardCashCost +
+    lapRewardSelection.shardUnits * rewardShardCost +
+    lapRewardSelection.coinUnits * rewardCoinCost;
+  const selectedLapRewardChoice =
+    lapRewardOptions.get(lapRewardSelectionKey(lapRewardSelection)) ?? null;
+  const lapRewardRemaining =
+    (rewardSurface?.budget ?? rewardBudget) === null ? null : Math.max(0, (rewardSurface?.budget ?? rewardBudget ?? 0) - lapRewardSpentPoints);
+
+  useEffect(() => {
+    if (!prompt || prompt.requestType !== "lap_reward") {
+      setLapRewardSelection({ cashUnits: 0, shardUnits: 0, coinUnits: 0 });
+      return;
+    }
+    setLapRewardSelection({ cashUnits: 0, shardUnits: 0, coinUnits: 0 });
+  }, [prompt?.requestId, prompt?.requestType]);
+
+  const adjustLapReward = (field: keyof LapRewardSelection, delta: 1 | -1) => {
+    setLapRewardSelection((current) => {
+      const currentValue = current[field];
+      const nextValue = Math.max(0, currentValue + delta);
+      if (nextValue === currentValue) {
+        return current;
+      }
+      const candidate = { ...current, [field]: nextValue };
+      const poolLimit =
+        field === "cashUnits" ? rewardCashPool : field === "shardUnits" ? rewardShardPool : rewardCoinPool;
+      if (nextValue > poolLimit) {
+        return current;
+      }
+      const nextSpent =
+        candidate.cashUnits * rewardCashCost +
+        candidate.shardUnits * rewardShardCost +
+        candidate.coinUnits * rewardCoinCost;
+      if (rewardBudget !== null && nextSpent > rewardBudget) {
+        return current;
+      }
+      if (nextSpent > 0 && !lapRewardOptions.has(lapRewardSelectionKey(candidate))) {
+        return current;
+      }
+      return candidate;
+    });
+  };
   const currentZone = stringFromContext(prompt.publicContext, "tile_zone");
   const weatherName = stringFromContext(prompt.publicContext, "weather_name");
   const markActorName = stringFromContext(prompt.publicContext, "actor_name");
   const markTargetCount = numberFromContext(prompt.publicContext, "target_count");
-  const burdenCardName = stringFromContext(prompt.publicContext, "card_name");
-  const burdenCardDescription = stringFromContext(prompt.publicContext, "card_description");
-  const burdenCardDeckIndex = numberFromContext(prompt.publicContext, "card_deck_index");
-  const burdenCost = numberFromContext(prompt.publicContext, "burden_cost");
-  const currentFValue = numberFromContext(prompt.publicContext, "current_f_value");
-  const supplyThreshold = numberFromContext(prompt.publicContext, "supply_threshold");
+  const burdenSurface = prompt.surface.burdenExchangeBatch;
+  const currentFValue = burdenSurface?.currentFValue ?? numberFromContext(prompt.publicContext, "current_f_value");
+  const supplyThreshold = burdenSurface?.supplyThreshold ?? numberFromContext(prompt.publicContext, "supply_threshold");
   const burdenTrigger = promptText.context.burdenExchangeTrigger(supplyThreshold, currentFValue);
   const markCandidateCount = prompt.choices.filter((choice) => choice.choiceId !== "none").length;
-  const doctrineCandidateCount = numberFromContext(prompt.publicContext, "candidate_count") ?? markCandidateCount;
-  const trickTargetCandidateCount = numberFromContext(prompt.publicContext, "candidate_count");
+  const doctrineCandidateCount = prompt.surface.doctrineRelief?.candidateCount ?? numberFromContext(prompt.publicContext, "candidate_count") ?? markCandidateCount;
+  const trickTargetCandidateCount = prompt.surface.trickTileTarget?.candidateTiles.length ?? numberFromContext(prompt.publicContext, "candidate_count");
   const trickTargetScope = stringFromContext(prompt.publicContext, "target_scope");
   const trickTargetCardName = stringFromContext(prompt.publicContext, "card_name");
   const movementPosition = numberFromContext(prompt.publicContext, "player_position");
@@ -749,9 +1031,16 @@ export function PromptOverlay({
   const ownedTileIndices = Array.isArray(prompt.publicContext["owned_tile_indices"])
     ? prompt.publicContext["owned_tile_indices"].map((item) => asNumber(item)).filter((item): item is number => item !== null)
     : [];
-  const ownedTileCount = ownedTileIndices.length;
-  const rewardBudget = numberFromContext(prompt.publicContext, "budget");
-  const rewardPools = isRecord(prompt.publicContext["pools"]) ? prompt.publicContext["pools"] : null;
+  const ownedTileCount = prompt.surface.coinPlacement?.ownedTileCount ?? ownedTileIndices.length;
+  const rewardPools = rewardSurface
+    ? {
+        cash: rewardSurface.cashPool,
+        shards: rewardSurface.shardsPool,
+        coins: rewardSurface.coinsPool,
+      }
+    : isRecord(prompt.publicContext["pools"])
+      ? prompt.publicContext["pools"]
+      : null;
   const rewardPoolSummary = rewardPools
     ? [
         typeof rewardPools["cash"] === "number" ? `${promptText.choice.cashReward(rewardPools["cash"] as number)}=2P` : null,
@@ -774,31 +1063,55 @@ export function PromptOverlay({
     ? prompt.publicContext["candidate_tiles"].map((item) => asNumber(item)).filter((item): item is number => item !== null)
     : [];
   const landingTileIndex = numberFromContext(prompt.publicContext, "player_position", "landing_tile_index");
+  const purchaseTargetTiles =
+    isPurchaseTile
+      ? [currentTileIndex, ...targetTiles].filter(
+          (tile, index, items): tile is number => tile !== null && items.indexOf(tile) === index
+        )
+      : targetTiles;
   const yesChoice = prompt.choices.find((choice) => choice.choiceId === "yes") ?? null;
   const noChoice = prompt.choices.find((choice) => choice.choiceId === "no") ?? null;
-  const selectedBurdenCard =
-    burdenChoiceCards.find((card) => card.deckIndex === selectedBurdenDeckIndex) ??
-    burdenChoiceCards.find((card) => card.isCurrentTarget) ??
-    null;
+  const selectedBurdenCards = burdenChoiceCards.filter(
+    (card) => card.deckIndex !== null && selectedBurdenDeckIndexes.includes(card.deckIndex)
+  );
+  const selectedBurdenCount = selectedBurdenCards.length;
+  const selectedBurdenTotalCost = selectedBurdenCards.reduce((sum, card) => sum + (card.burdenCost ?? 0), 0);
   const canRemoveSelectedBurden =
     yesChoice !== null &&
-    selectedBurdenCard !== null &&
-    selectedBurdenCard.isCurrentTarget &&
+    selectedBurdenCount > 0 &&
+    currentCash !== null &&
+    selectedBurdenTotalCost <= currentCash &&
     !busy;
   const burdenTrayTitle = locale.startsWith("ko") ? "보급 잔꾀 패" : "Supply trick tray";
   const burdenTrayGuide = locale.startsWith("ko")
-    ? "현재 처리 중인 짐 카드를 아래에서 확인하고, 선택한 뒤 짐 없애기 또는 유지를 결정하세요."
-    : "Check the current burden card below, select it, then remove it or keep it.";
-  const burdenWaitingGuide =
-    selectedBurdenCard && !selectedBurdenCard.isCurrentTarget
-      ? locale.startsWith("ko")
-        ? "지금 단계에서는 강조된 현재 대상 짐 카드만 처리할 수 있습니다."
-        : "Only the highlighted current burden can be handled at this step."
-      : "";
+    ? "제거할 짐을 2장이나 3장까지 한 번에 고르면, 나머지 보급 처리도 자동으로 이어집니다."
+    : "Pick two or three burdens together and the remaining supply cleanup will continue automatically.";
   const burdenRemoveButtonLabel = locale.startsWith("ko")
-    ? `짐 없애기${burdenCost !== null ? ` (${burdenCost}냥)` : ""}`
-    : `Remove burden${burdenCost !== null ? ` (${burdenCost})` : ""}`;
+    ? "선택한 짐 없애기"
+    : "Remove selected burdens";
   const burdenKeepButtonLabel = locale.startsWith("ko") ? "이번에는 유지" : "Keep it this time";
+  const burdenRemoveSummary =
+    selectedBurdenCount > 0
+      ? locale.startsWith("ko")
+        ? `${selectedBurdenCount}장 / 총 ${selectedBurdenTotalCost}냥`
+        : `${selectedBurdenCount} card(s) / total ${selectedBurdenTotalCost}`
+      : locale.startsWith("ko")
+        ? "선택 없음"
+        : "No selection";
+  const burdenSelectionGuide =
+    selectedBurdenCount > 0
+      ? locale.startsWith("ko")
+        ? `선택한 짐 ${selectedBurdenCount}장을 이번 보급 단계에서 한 번에 처리합니다.`
+        : `Resolve ${selectedBurdenCount} selected burden card(s) for this supply step.`
+      : locale.startsWith("ko")
+        ? "제거할 짐을 1장 이상 선택하세요."
+        : "Choose at least one burden card to remove.";
+  const burdenSelectionBlockedGuide =
+    currentCash !== null && selectedBurdenCount > 0 && selectedBurdenTotalCost > currentCash
+      ? locale.startsWith("ko")
+        ? `총 제거 비용 ${selectedBurdenTotalCost}냥이 현재 현금 ${currentCash}냥을 넘습니다.`
+        : `Total removal cost ${selectedBurdenTotalCost} exceeds current cash ${currentCash}.`
+      : "";
 
   if (collapsed) {
     return (
@@ -849,15 +1162,10 @@ export function PromptOverlay({
         {prompt.requestType === "movement" && movement ? (
           <section className="prompt-section prompt-movement-stage">
             <div className="prompt-section-summary">
-              <p>
-                {movementMode === "roll"
-                  ? cleanDisplayText(promptText.movement.rollButton)
-                  : cleanDisplayText(promptText.movement.cardGuide(movement.canUseTwoCards ? 2 : 1))}
-              </p>
+              {movementMode === "cards" ? (
+                <p>{cleanDisplayText(promptText.movement.cardGuide(movement.canUseTwoCards ? 2 : 1))}</p>
+              ) : null}
               <div className="prompt-summary-pill-row">
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentPosition}: {tileLabel(movementPosition)}
-                </span>
                 {weatherName ? (
                   <span className="prompt-summary-pill">
                     {promptText.context.currentWeather}: {weatherName}
@@ -936,21 +1244,27 @@ export function PromptOverlay({
         {(prompt.requestType === "trick_to_use" || prompt.requestType === "hidden_trick_card") && trickChoices ? (
           <section className="prompt-section prompt-hand-stage">
             <div className="prompt-section-summary">
-              <p>{cleanDisplayText(prompt.requestType === "trick_to_use" ? promptText.trick.usePrompt : promptText.trick.hiddenPrompt)}</p>
-              <div className="prompt-summary-pill-row">
-                <span className="prompt-summary-pill">
-                  {promptText.trick.handSummary(
-                    typeof prompt.publicContext["total_hand_count"] === "number"
-                      ? (prompt.publicContext["total_hand_count"] as number)
-                      : trickChoices.cards.length,
-                    typeof prompt.publicContext["hidden_trick_count"] === "number"
-                      ? (prompt.publicContext["hidden_trick_count"] as number)
-                      : undefined
-                  )}
-                </span>
+              <div className="prompt-inline-summary">
+                <p>{cleanDisplayText(prompt.requestType === "trick_to_use" ? promptText.trick.usePrompt : promptText.trick.hiddenPrompt)}</p>
+                <div className="prompt-summary-pill-row">
+                  <span className="prompt-summary-pill">
+                    {promptText.trick.handSummary(
+                      typeof prompt.publicContext["total_hand_count"] === "number"
+                        ? (prompt.publicContext["total_hand_count"] as number)
+                        : trickChoices.cards.length,
+                      typeof prompt.publicContext["hidden_trick_count"] === "number"
+                        ? (prompt.publicContext["hidden_trick_count"] as number)
+                        : undefined
+                    )}
+                  </span>
+                </div>
               </div>
             </div>
-            <div className="prompt-choices hand-grid">
+            <div
+              className={`prompt-choices hand-grid ${
+                prompt.requestType === "trick_to_use" ? "hand-grid-trick-to-use" : "hand-grid-hidden-trick"
+              }`}
+            >
               {prompt.requestType === "trick_to_use" && trickChoices.passChoiceId ? (
                 <button
                   type="button"
@@ -978,15 +1292,13 @@ export function PromptOverlay({
                   }}
                 >
                   <div className="prompt-choice-topline">
-                    <strong>{card.serial ? `${card.name} ${card.serial}` : card.name}</strong>
+                    <strong>{card.name}</strong>
                     <span className="prompt-choice-badge">
                       {card.isHidden ? promptText.hiddenState.hidden : promptText.hiddenState.public}
                     </span>
                   </div>
                   <small>{card.description}</small>
-                  <small className="prompt-choice-footnote">
-                    {card.isUsable ? promptText.hiddenState.usable : promptText.hiddenState.unavailable}
-                  </small>
+                  {!card.isUsable ? <small className="prompt-choice-footnote">{promptText.hiddenState.unavailable}</small> : null}
                 </button>
               ))}
             </div>
@@ -995,32 +1307,18 @@ export function PromptOverlay({
 
         {isCharacterPick ? (
           <section className="prompt-section prompt-hand-stage">
-            <div className="prompt-section-summary">
-              <p>{cleanDisplayText(prompt.requestType === "draft_card" ? promptText.character.draftPrompt : promptText.character.finalPrompt)}</p>
-              <SummaryPills
-                values={[
-                  prompt.requestType === "draft_card"
-                    ? promptText.character.draftPhaseLabel(draftPhase)
-                    : promptText.character.finalPhaseLabel,
-                  prompt.requestType === "draft_card"
-                    ? offeredCount !== null
-                      ? `${promptText.context.selectableTargets}: ${offeredCount}`
-                      : null
-                    : finalChoiceCount !== null
-                      ? `${promptText.context.selectableTargets}: ${finalChoiceCount}`
-                      : null,
-                  prompt.requestType === "draft_card"
-                    ? offeredNames.length > 0
-                      ? offeredNames.join(", ")
-                      : null
-                    : finalChoiceNames.length > 0
-                      ? finalChoiceNames.join(", ")
-                      : null,
-                ]}
-              />
-            </div>
+            {(() => {
+              const characterPickOptions: Array<CharacterPickOption> =
+                prompt.surface.characterPick?.options ??
+                characterPickChoices.map((choice) => ({
+                  choiceId: choice.choiceId,
+                  name: choice.title,
+                  description: characterAbilityText(choice, promptText),
+                }));
+
+              return (
             <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
-              {prompt.choices.map((choice) => (
+              {characterPickOptions.map((choice) => (
                   <button
                     type="button"
                     key={choice.choiceId}
@@ -1029,65 +1327,64 @@ export function PromptOverlay({
                     onClick={() => onSelectChoice(choice.choiceId)}
                     disabled={busy}
                   >
-                  <strong>{choice.title}</strong>
-                  <small>{characterAbilityText(choice, promptText)}</small>
+                  <strong>{choice.name}</strong>
+                  <small>{choice.description}</small>
                 </button>
               ))}
             </div>
+              );
+            })()}
           </section>
         ) : null}
 
         {isMarkTarget ? (
           <section className="prompt-section prompt-hand-stage">
-            <div className="prompt-section-summary">
-              <div className="prompt-summary-pill-row">
-                <span className="prompt-summary-pill">
-                  {promptText.context.actorCharacter}: {markActorName || "-"}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.selectableTargets}: {String(markTargetCount ?? doctrineCandidateCount)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.currentPosition}: {tileLabel(currentTileIndex)}
-                </span>
-                <span className="prompt-summary-pill">
-                  {promptText.context.targetRule}: {promptText.context.markTargetRule(markTargetCount ?? markCandidateCount)}
-                </span>
-              </div>
-            </div>
-            <div className={`prompt-choices prompt-choices-target ${compactChoices ? "prompt-choices-compact" : ""}`}>
-              {orderedChoices.map((choice) => {
+            <div
+              className={`prompt-choices prompt-choices-mark ${compactChoices ? "prompt-choices-compact" : ""}`}
+              style={{
+                gridTemplateColumns: `repeat(${Math.max(
+                  1,
+                  displayedMarkChoices.filter((choice) => choice.choiceId !== "none").length
+                )}, minmax(0, 1fr))`,
+              }}
+            >
+              {displayedMarkChoices
+                .filter((choice) => choice.choiceId !== "none")
+                .map((choice) => {
                 const target = markChoiceTarget(choice);
                 return (
                   <button
                     type="button"
                     key={choice.choiceId}
-                    className="prompt-choice-card prompt-choice-card-emphasis"
+                    className="prompt-choice-card prompt-choice-card-emphasis prompt-choice-card-mark"
                     data-testid={`mark-choice-${choice.choiceId}`}
                     onClick={() => onSelectChoice(choice.choiceId)}
                     disabled={busy}
                   >
-                    <div className="prompt-choice-topline">
-                      <strong>{markChoiceTitle(choice, promptText)}</strong>
-                      {choice.choiceId === "none" ? (
-                        <span className="prompt-choice-badge">{cleanDisplayText(promptText.choice.skip)}</span>
-                      ) : null}
-                    </div>
-                    {choice.choiceId === "none" ? (
-                      <div className="prompt-summary-pill-row">
-                        <span className="prompt-summary-pill">{cleanDisplayText(promptText.choice.skip)}</span>
-                      </div>
-                    ) : (
-                      <div className="prompt-summary-pill-row">
-                        {target.character ? <span className="prompt-summary-pill">{target.character}</span> : null}
-                        {target.playerId !== null ? <span className="prompt-summary-pill">P{target.playerId}</span> : null}
-                      </div>
-                    )}
-                    <small>{markChoiceDescription(choice, promptText)}</small>
+                    <strong>{markChoiceTitle(choice, promptText)}</strong>
+                    {target.playerId !== null ? <small>{`P${target.playerId}`}</small> : null}
                   </button>
                 );
               })}
             </div>
+            {displayedMarkChoices.some((choice) => choice.choiceId === "none") ? (
+              <div className="prompt-primary-row">
+                {displayedMarkChoices
+                  .filter((choice) => choice.choiceId === "none")
+                  .map((choice) => (
+                    <button
+                      type="button"
+                      key={choice.choiceId}
+                      className="prompt-secondary-action"
+                      data-testid={`mark-choice-${choice.choiceId}`}
+                      onClick={() => onSelectChoice(choice.choiceId)}
+                      disabled={busy}
+                    >
+                      {markChoiceTitle(choice, promptText)}
+                    </button>
+                  ))}
+              </div>
+            ) : null}
           </section>
         ) : null}
 
@@ -1101,61 +1398,124 @@ export function PromptOverlay({
             onSelectChoice={onSelectChoice}
             testIdPrefix="purchase-choice"
             variant="decision"
-            summaryPills={[
-              `${promptText.context.currentPosition}: ${tileLabel(currentTileIndex)}`,
-              `${promptText.context.purchaseCost}: ${formatNumber(currentCost)}`,
-              `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
-              currentZone ? `${promptText.context.zone}: ${currentZone}` : null,
-              targetTiles.length > 0 ? `${promptText.context.targetTiles}: ${targetTiles.map((tile) => tileLabel(tile)).join(", ")}` : null,
-            ]}
-            renderExtra={(choice) => {
-              const choiceTileIndex = asNumber(choice.value?.["tile_index"]) ?? currentTileIndex;
-              const pills = nonEmptyPills([
-                choiceTileIndex !== null ? tileLabel(choiceTileIndex) : null,
-                landingTileIndex !== null && landingTileIndex !== choiceTileIndex
-                  ? `${promptText.context.currentPosition}: ${tileLabel(landingTileIndex)}`
-                  : null,
-              ]);
-              return pills.length > 0 ? (
-                <div className="prompt-summary-pill-row">
-                  {pills.map((pill) => (
-                    <span key={`${choice.choiceId}-${pill}`} className="prompt-summary-pill">
-                      {pill}
-                    </span>
-                  ))}
-                </div>
-              ) : null;
-            }}
+            mergeSecondaryChoices
+            summaryPills={[`${promptText.context.currentCash}: ${formatNumber(currentCash)}`]}
+            renderExtra={() => null}
           />
         ) : null}
 
         {isLapReward ? (
-          <DecisionChoiceSection
-            prompt={prompt}
-            orderedChoices={prompt.choices}
-            promptText={promptText}
-            compactChoices={compactChoices}
-            busy={busy}
-            onSelectChoice={onSelectChoice}
-            testIdPrefix="lap-reward-choice"
-            variant="reward"
-            summaryPills={[
-              rewardBudget !== null ? `${promptText.context.rewardBudget}: ${rewardBudget}` : null,
-              rewardPoolSummary ? `${promptText.context.rewardPools}: ${rewardPoolSummary}` : null,
-              `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
-              `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
-              `${promptText.context.currentCoins}: ${currentCoins ?? "-"}`,
-              `${promptText.context.currentPlacedCoins}: ${currentPlacedCoins ?? "-"}`,
-              `${promptText.context.currentTotalScore}: ${currentTotalScore ?? "-"}`,
-              `${promptText.context.ownedTiles}: ${currentOwnedTileCount ?? "-"}`,
-            ]}
-          />
+          <section className="prompt-section prompt-hand-stage">
+            <div className="prompt-section-summary">
+              <div className="prompt-summary-pill-row">
+                {rewardBudget !== null ? (
+                  <span className="prompt-summary-pill">{`${promptText.context.rewardBudget}: ${lapRewardSpentPoints}/${rewardBudget}`}</span>
+                ) : null}
+                {lapRewardRemaining !== null ? (
+                  <span className="prompt-summary-pill">
+                    {isKoreanLocale(locale) ? `남은 포인트: ${lapRewardRemaining}` : `Remaining points: ${lapRewardRemaining}`}
+                  </span>
+                ) : null}
+                {rewardPoolSummary ? (
+                  <span className="prompt-summary-pill">{`${promptText.context.rewardPools}: ${rewardPoolSummary}`}</span>
+                ) : null}
+              </div>
+            </div>
+            <div className="prompt-lap-reward-builder">
+              {[
+                {
+                  key: "cashUnits" as const,
+                  label: isKoreanLocale(locale) ? "현금" : "Cash",
+                  units: lapRewardSelection.cashUnits,
+                  pool: rewardCashPool,
+                  cost: rewardCashCost,
+                },
+                {
+                  key: "shardUnits" as const,
+                  label: isKoreanLocale(locale) ? "조각" : "Shards",
+                  units: lapRewardSelection.shardUnits,
+                  pool: rewardShardPool,
+                  cost: rewardShardCost,
+                },
+                {
+                  key: "coinUnits" as const,
+                  label: isKoreanLocale(locale) ? "승점" : "Points",
+                  units: lapRewardSelection.coinUnits,
+                  pool: rewardCoinPool,
+                  cost: rewardCoinCost,
+                },
+              ].map((item) => (
+                <article key={item.key} className="prompt-lap-reward-card">
+                  <div className="prompt-lap-reward-head">
+                    <strong>{item.label}</strong>
+                    <span className="prompt-choice-badge">
+                      {isKoreanLocale(locale)
+                        ? `1개당 ${item.cost}포인트`
+                        : `${item.cost} points each`}
+                    </span>
+                  </div>
+                  <div className="prompt-lap-reward-controls">
+                    <button
+                      type="button"
+                      className="prompt-lap-adjust"
+                      disabled={busy || item.units <= 0}
+                      onClick={() => adjustLapReward(item.key, -1)}
+                    >
+                      -
+                    </button>
+                    <div className="prompt-lap-reward-value">
+                      <span>{item.units}</span>
+                      <small>
+                        {isKoreanLocale(locale) ? `남은 풀 ${item.pool}` : `Pool ${item.pool}`}
+                      </small>
+                    </div>
+                    <button
+                      type="button"
+                      className="prompt-lap-adjust"
+                      disabled={busy}
+                      onClick={() => adjustLapReward(item.key, 1)}
+                    >
+                      +
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="prompt-lap-reward-summary">
+              <strong>
+                {isKoreanLocale(locale)
+                  ? `현금 +${lapRewardSelection.cashUnits} / 조각 +${lapRewardSelection.shardUnits} / 승점 +${lapRewardSelection.coinUnits}`
+                  : `Cash +${lapRewardSelection.cashUnits} / Shards +${lapRewardSelection.shardUnits} / Points +${lapRewardSelection.coinUnits}`}
+              </strong>
+              <small>
+                {selectedLapRewardChoice
+                  ? isKoreanLocale(locale)
+                    ? "현재 조합으로 결정할 수 있습니다."
+                    : "This allocation is ready to confirm."
+                  : isKoreanLocale(locale)
+                    ? "가능한 조합이 되도록 포인트를 조절하세요."
+                    : "Adjust to a valid allocation."}
+              </small>
+              <button
+                type="button"
+                className="prompt-primary-action"
+                disabled={busy || !selectedLapRewardChoice}
+                onClick={() => {
+                  if (selectedLapRewardChoice) {
+                    onSelectChoice(selectedLapRewardChoice.choiceId);
+                  }
+                }}
+              >
+                {isKoreanLocale(locale) ? "결정" : "Confirm"}
+              </button>
+            </div>
+          </section>
         ) : null}
 
         {isTrickTileTarget ? (
           <DecisionChoiceSection
             prompt={prompt}
-            orderedChoices={orderedChoices}
+            orderedChoices={trickTileTargetChoices}
             promptText={promptText}
             compactChoices={compactChoices}
             busy={busy}
@@ -1180,20 +1540,61 @@ export function PromptOverlay({
         ) : null}
 
         {isActiveFlip ? (
-          <DecisionChoiceSection
-            prompt={prompt}
-            orderedChoices={orderedChoices}
-            promptText={promptText}
-            compactChoices={compactChoices}
-            busy={busy}
-            onSelectChoice={onSelectChoice}
-            testIdPrefix="active-flip-choice"
-            summaryPills={[
-              `${promptText.context.currentPosition}: ${tileLabel(currentTileIndex)}`,
-              `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
-              `${promptText.context.usableCards}: ${String(prompt.choices.filter((choice) => choice.choiceId !== "none").length)}`,
-            ]}
-          />
+          <section className="prompt-section prompt-hand-stage">
+            <div className={`prompt-choices hand-grid active-flip-grid ${compactChoices ? "prompt-choices-compact" : ""}`}>
+              {activeFlipSelectableChoices.map((choice) => (
+                <button
+                  type="button"
+                  key={choice.choiceId}
+                  className={`prompt-choice-card ${selectedActiveFlipChoiceIds.includes(choice.choiceId) ? "prompt-choice-card-selected" : ""}`}
+                  data-testid={`active-flip-choice-${choice.choiceId}`}
+                  disabled={busy}
+                  onClick={() => onToggleActiveFlipChoice(choice.choiceId)}
+                >
+                  <strong>{choice.title}</strong>
+                  {choiceDescription(choice, promptText) ? <small>{choiceDescription(choice, promptText)}</small> : null}
+                  {selectedActiveFlipChoiceIds.includes(choice.choiceId) ? (
+                    <small className="prompt-choice-footnote prompt-choice-footnote-selected">
+                      {locale.startsWith("ko") ? "선택됨" : "Selected"}
+                    </small>
+                  ) : null}
+                </button>
+              ))}
+              {activeFlipFinishChoice ? (
+                <button
+                  type="button"
+                  className={`prompt-choice-card prompt-choice-card-pass ${selectedActiveFlipChoiceIds.length === 0 ? "prompt-choice-card-selected" : ""}`}
+                  data-testid="active-flip-finish"
+                  disabled={busy}
+                  onClick={() =>
+                    onSelectChoice(
+                      selectedActiveFlipChoiceIds.length > 0
+                        ? `__active_flip_batch__:${selectedActiveFlipChoiceIds.join(",")}`
+                        : activeFlipFinishChoice.choiceId
+                    )
+                  }
+                >
+                  <strong>{activeFlipFinishChoice.title}</strong>
+                  {choiceDescription(activeFlipFinishChoice, promptText) ? (
+                    <small>{choiceDescription(activeFlipFinishChoice, promptText)}</small>
+                  ) : null}
+                  <small
+                    className={`prompt-choice-footnote ${
+                      selectedActiveFlipChoiceIds.length > 0 ? "prompt-choice-footnote-selected" : ""
+                    }`}
+                  >
+                    {selectedActiveFlipChoiceIds.length > 0
+                      ? locale.startsWith("ko")
+                        ? "선택한 뒤집기 확정"
+                        : "Confirm selected flip"
+                      : locale.startsWith("ko")
+                        ? "더 뒤집지 않고 종료"
+                        : "Finish without flipping more"}
+                  </small>
+                </button>
+              ) : null}
+            </div>
+          </section>
         ) : null}
 
         {isBurdenExchange ? (
@@ -1202,15 +1603,16 @@ export function PromptOverlay({
               <SummaryPills
                 values={[
                   `${promptText.context.trigger}: ${burdenTrigger}`,
-                  burdenCardName
-                    ? `${promptText.context.burdenCard}: ${burdenCardName}${burdenCardDeckIndex !== null ? ` #${burdenCardDeckIndex}` : ""}`
-                    : null,
-                  `${promptText.context.burdenCost}: ${formatNumber(burdenCost)}`,
+                  `${promptText.context.burdenCard}: ${burdenSurface?.burdenCardCount ?? prompt.publicContext["burden_card_count"] ?? burdenChoiceCards.length}`,
                   `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
-                  currentFValue !== null ? `${promptText.context.currentF}: ${currentFValue}` : null,
+                  (burdenSurface?.currentFValue ?? currentFValue) !== null
+                    ? `${promptText.context.currentF}: ${burdenSurface?.currentFValue ?? currentFValue}`
+                    : null,
+                  `${promptText.context.selectedCards}: ${burdenRemoveSummary}`,
                 ]}
               />
-              {burdenCardDescription ? <p>{cleanDisplayText(burdenCardDescription)}</p> : null}
+              <p>{burdenSelectionGuide}</p>
+              {burdenSelectionBlockedGuide ? <small className="prompt-choice-footnote">{burdenSelectionBlockedGuide}</small> : null}
             </div>
 
             <div className="prompt-burden-actions">
@@ -1221,11 +1623,13 @@ export function PromptOverlay({
                 disabled={!canRemoveSelectedBurden}
                 onClick={() => {
                   if (yesChoice) {
-                    onSelectChoice(yesChoice.choiceId);
+                    onSelectChoice(`__burden_exchange_batch__:${selectedBurdenDeckIndexes.join(",")}`);
                   }
                 }}
               >
-                {burdenRemoveButtonLabel}
+                {locale.startsWith("ko")
+                  ? `${burdenRemoveButtonLabel} (${burdenRemoveSummary})`
+                  : `${burdenRemoveButtonLabel} (${burdenRemoveSummary})`}
               </button>
               <button
                 type="button"
@@ -1234,7 +1638,7 @@ export function PromptOverlay({
                 disabled={busy || !noChoice}
                 onClick={() => {
                   if (noChoice) {
-                    onSelectChoice(noChoice.choiceId);
+                    onSelectChoice("__burden_exchange_batch__:");
                   }
                 }}
               >
@@ -1254,41 +1658,40 @@ export function PromptOverlay({
                     key={card.key}
                     className={`prompt-choice-card prompt-burden-card ${
                       card.isCurrentTarget ? "prompt-burden-card-current" : ""
-                    } ${selectedBurdenDeckIndex === card.deckIndex ? "prompt-burden-card-selected" : ""}`}
+                    } ${card.deckIndex !== null && selectedBurdenDeckIndexes.includes(card.deckIndex) ? "prompt-burden-card-selected" : ""}`}
                     data-testid={`burden-card-${card.deckIndex ?? card.key}`}
                     disabled={busy}
-                    onClick={() => setSelectedBurdenDeckIndex(card.deckIndex)}
+                    onClick={() => onToggleBurdenCard(card.deckIndex)}
                   >
                     <div className="prompt-choice-topline">
-                      <strong>{`${card.name}${card.deckIndex !== null ? ` #${card.deckIndex}` : ""}`}</strong>
+                      <strong>{card.name}</strong>
                       <span className="prompt-choice-badge">
                         {card.burdenCost !== null
                           ? locale.startsWith("ko")
                             ? `비용 ${card.burdenCost}`
                             : `Cost ${card.burdenCost}`
-                          : card.isCurrentTarget
-                            ? locale.startsWith("ko")
-                              ? "현재 처리 중"
-                              : "Current"
-                            : locale.startsWith("ko")
-                              ? "대기"
-                              : "Queued"}
+                          : locale.startsWith("ko")
+                            ? "짐"
+                            : "Burden"}
                       </span>
                     </div>
                     <small>{cleanDisplayText(card.description)}</small>
                     <small className="prompt-choice-footnote">
-                      {card.isCurrentTarget
+                      {card.deckIndex !== null && selectedBurdenDeckIndexes.includes(card.deckIndex)
                         ? locale.startsWith("ko")
-                          ? "현재 단계에서 처리할 짐"
-                          : "Current burden for this step"
+                          ? "선택됨"
+                          : "Selected"
+                        : card.isCurrentTarget
+                        ? locale.startsWith("ko")
+                          ? "현재 처리 시작 카드"
+                          : "Current step starts here"
                         : locale.startsWith("ko")
-                          ? "다음 순서에서 처리될 수 있는 짐"
-                          : "Handled later in the supply sequence"}
+                          ? "선택 안 됨"
+                          : "Not selected"}
                     </small>
                   </button>
                 ))}
               </div>
-              {burdenWaitingGuide ? <small className="prompt-choice-footnote">{burdenWaitingGuide}</small> : null}
             </section>
           </section>
         ) : null}
@@ -1296,24 +1699,25 @@ export function PromptOverlay({
         {isSpecificTrickReward ? (
           <DecisionChoiceSection
             prompt={prompt}
-            orderedChoices={orderedChoices}
+            orderedChoices={specificTrickRewardChoices}
             promptText={promptText}
             compactChoices={compactChoices}
             busy={busy}
             onSelectChoice={onSelectChoice}
             testIdPrefix="specific-reward-choice"
             summaryPills={[
-              `${promptText.context.usableCards}: ${String(prompt.choices.filter((choice) => choice.choiceId !== "none").length)}`,
+              `${promptText.context.usableCards}: ${String(prompt.surface.specificTrickReward?.rewardCount ?? prompt.choices.filter((choice) => choice.choiceId !== "none").length)}`,
               `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
               `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
             ]}
+            renderExtra={() => null}
           />
         ) : null}
 
         {isRunawayChoice ? (
           <DecisionChoiceSection
             prompt={prompt}
-            orderedChoices={orderedChoices}
+            orderedChoices={runawayChoices}
             promptText={promptText}
             compactChoices={compactChoices}
             busy={busy}
@@ -1348,7 +1752,7 @@ export function PromptOverlay({
         {isCoinPlacement ? (
           <DecisionChoiceSection
             prompt={prompt}
-            orderedChoices={orderedChoices}
+            orderedChoices={coinPlacementChoices}
             promptText={promptText}
             compactChoices={compactChoices}
             busy={busy}
@@ -1381,7 +1785,7 @@ export function PromptOverlay({
         {isDoctrineRelief ? (
           <DecisionChoiceSection
             prompt={prompt}
-            orderedChoices={orderedChoices}
+            orderedChoices={doctrineReliefChoices}
             promptText={promptText}
             compactChoices={compactChoices}
             busy={busy}
@@ -1389,7 +1793,7 @@ export function PromptOverlay({
             variant="target"
             testIdPrefix="doctrine-relief-choice"
             summaryPills={[
-              `${promptText.context.selectableTargets}: ${String(markCandidateCount)}`,
+              `${promptText.context.selectableTargets}: ${String(doctrineCandidateCount)}`,
               `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
               `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
             ]}
@@ -1407,7 +1811,7 @@ export function PromptOverlay({
         {isGeoBonus ? (
           <DecisionChoiceSection
             prompt={prompt}
-            orderedChoices={orderedChoices}
+            orderedChoices={geoBonusChoices}
             promptText={promptText}
             compactChoices={compactChoices}
             busy={busy}
@@ -1425,7 +1829,7 @@ export function PromptOverlay({
         {isPabalDiceMode ? (
           <DecisionChoiceSection
             prompt={prompt}
-            orderedChoices={orderedChoices}
+            orderedChoices={pabalDiceModeChoices}
             promptText={promptText}
             compactChoices={compactChoices}
             busy={busy}

@@ -1,7 +1,7 @@
 # [PLAN] Next Work Priority Reference
 
 Status: ACTIVE  
-Updated: 2026-04-07  
+Updated: 2026-04-09  
 Owner: GPT
 
 ## Purpose
@@ -17,6 +17,7 @@ Keep it short.
 Use:
 
 - `docs/frontend/[ACTIVE]_UI_UX_PRIORITY_ONE_PAGE.md`
+- `docs/frontend/[PLAN]_LIVE_PLAY_STATE_AND_DECISION_RECOVERY.md`
 - `docs/frontend/[PROPOSAL]_UI_UX_ISSUE_FIX_PLAN.md`
 - `docs/frontend/[PROPOSAL]_UI_UX_DETAILED_SPEC.md`
 
@@ -26,6 +27,16 @@ Current goal:
 - make current turn / remote turn / prompt cause obvious
 - keep the board as the primary surface
 - keep multi-target prompts visible on the board instead of collapsing them to one tile
+- restore one truthful selector path for:
+  - draft / final-character / active-card state
+  - player resources and pawn position
+  - hand / burden / trick consumption
+
+Immediate order inside this track:
+
+1. fix draft / final-character / mark-target / purchase logic bugs
+2. unify snapshot + live delta into one selector path
+3. clean up the board HUD and attached decision trays on top of that truth
 
 ### 2. Real playtests
 
