@@ -25,3 +25,6 @@ apps/web/vite.config.d.ts
 .venv/
 .venv311/
 apps/web/test-results/
+
+# OS/editor local files
+.DS_Store
