@@ -1,8 +1,16 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import type { LastMoveViewModel, SnapshotViewModel, TurnStageViewModel } from "../../domain/selectors/streamSelectors";
+import type {
+  CurrentTurnRevealItem,
+  LastMoveViewModel,
+  SnapshotViewModel,
+  TurnStageViewModel,
+} from "../../domain/selectors/streamSelectors";
 import { useI18n } from "../../i18n/useI18n";
 import pawnPieceUrl from "../../assets/pawn-piece.svg";
 import { DEFAULT_RING_TILE_COUNT, boardGridForTileCount, projectTilePosition } from "./boardProjection";
+import { computeBoardHudFrame, sameBoardHudFrame } from "./boardHudLayout";
+import { computeBoardHudScale } from "./boardHudScale";
 
 type BoardPanelProps = {
   snapshot: SnapshotViewModel | null;
@@ -12,14 +20,19 @@ type BoardPanelProps = {
     zoneColor: string;
     purchaseCost: number | null;
     rentCost: number | null;
+    scoreCoinCount: number;
     ownerPlayerId: number | null;
     pawnPlayerIds: number[];
   }>;
   boardTopology?: string;
   tileKindLabels?: Record<string, string>;
   lastMove: LastMoveViewModel | null;
-  stageFocus: Pick<TurnStageViewModel, "focusTileIndex" | "focusTileIndices" | "currentBeatKind" | "currentBeatLabel" | "currentBeatDetail" | "actorPlayerId">;
+  stageFocus: Pick<
+    TurnStageViewModel,
+    "focusTileIndex" | "focusTileIndices" | "currentBeatKind" | "currentBeatLabel" | "currentBeatDetail" | "actorPlayerId" | "promptRequestType"
+  >;
   weather: Pick<TurnStageViewModel, "weatherName" | "weatherEffect">;
+  revealFocus?: Pick<CurrentTurnRevealItem, "seq" | "eventCode" | "label" | "detail" | "tone" | "focusTileIndex"> | null;
   turnBanner: {
     text: string;
     detail: string;
@@ -27,6 +40,7 @@ type BoardPanelProps = {
   showTurnOverlay: boolean;
   minimalHeader?: boolean;
   overlayContent?: ReactNode;
+  onOverlayFrameChange?: ((frame: { viewportLeft: number; viewportWidth: number } | null) => void) | undefined;
 };
 
 type BoardText = ReturnType<typeof useI18n>["board"];
@@ -65,10 +79,6 @@ function playerColor(playerId: number): string {
   return palette[(Math.max(1, playerId) - 1) % palette.length];
 }
 
-function zoneLabel(zoneColor: string, boardText: BoardText): string {
-  return boardText.zoneLabel(zoneColor);
-}
-
 function costLabel(cost: number | null, rent: number | null, boardText: BoardText): string {
   return boardText.costLabel(cost, rent);
 }
@@ -81,10 +91,12 @@ export function BoardPanel({
   lastMove,
   stageFocus,
   weather,
+  revealFocus = null,
   turnBanner,
   showTurnOverlay,
   minimalHeader = false,
   overlayContent = null,
+  onOverlayFrameChange,
 }: BoardPanelProps) {
   const { board } = useI18n();
   const tiles = (snapshot?.tiles && snapshot.tiles.length > 0 ? snapshot.tiles : manifestTiles ?? []).slice();
@@ -93,10 +105,130 @@ export function BoardPanel({
   const effectiveTileCount = tiles.length > 0 ? tiles.length : DEFAULT_RING_TILE_COUNT;
   const grid = boardGridForTileCount(effectiveTileCount, normalizedTopology);
   const endTimeRemaining = snapshot ? Math.max(0, 15 - snapshot.fValue) : null;
+  const boardScrollRef = useRef<HTMLDivElement | null>(null);
+  const overlayTopAnchorTileRef = useRef<HTMLElement | null>(null);
+  const overlayBottomAnchorTileRef = useRef<HTMLElement | null>(null);
+  const overlayLeftAnchorTileRef = useRef<HTMLElement | null>(null);
+  const overlayRightAnchorTileRef = useRef<HTMLElement | null>(null);
+  const lastOverlayFrameRef = useRef<{ viewportLeft: number; viewportWidth: number } | null>(null);
+  const [hudFrame, setHudFrame] = useState<ReturnType<typeof computeBoardHudFrame> | null>(null);
+  const overlayTopAnchorTileIndex = tiles.some((tile) => tile.tileIndex === 39) ? 39 : null;
+  const overlayBottomAnchorTileIndex = tiles.some((tile) => tile.tileIndex === 31) ? 31 : null;
+  const overlayLeftAnchorTileIndex = tiles.some((tile) => tile.tileIndex === 2) ? 2 : null;
+  const overlayRightAnchorTileIndex = tiles.some((tile) => tile.tileIndex === 8) ? 8 : null;
+  const hudScale = computeBoardHudScale({
+    boardWidth: hudFrame?.boardWidth ?? 0,
+    boardHeight: hudFrame?.boardHeight ?? 0,
+    viewportWidth: hudFrame?.viewportWidth ?? 0,
+    viewportHeight: hudFrame?.viewportHeight ?? 0,
+  });
   const boardStyle = {
     "--board-grid-cols": String(grid.cols),
     "--board-grid-rows": String(grid.rows),
+    ...(hudFrame
+      ? {
+          "--board-overlay-safe-top": `${hudFrame.safeTop}px`,
+          "--board-overlay-safe-bottom-gap": `${hudFrame.safeBottomGap}px`,
+          "--board-overlay-safe-left": `${hudFrame.safeLeft}px`,
+          "--board-overlay-safe-right-gap": `${hudFrame.safeRightGap}px`,
+        }
+      : {}),
+    "--board-scene-scale": String(hudScale.sceneScale),
+    "--board-hud-gap": `${hudScale.overlayGap}px`,
+    "--board-hud-gap-tight": `${hudScale.overlayGapTight}px`,
+    "--board-hud-panel-padding": `${hudScale.panelPadding}px`,
+    "--board-hud-card-padding": `${hudScale.cardPadding}px`,
+    "--board-hud-panel-radius": `${hudScale.panelRadius}px`,
+    "--board-hud-card-radius": `${hudScale.cardRadius}px`,
+    "--board-hud-title-size": `${hudScale.titleFontSize}px`,
+    "--board-hud-emphasis-size": `${hudScale.emphasisFontSize}px`,
+    "--board-hud-body-size": `${hudScale.bodyFontSize}px`,
+    "--board-hud-small-size": `${hudScale.smallFontSize}px`,
+    "--board-hud-chip-size": `${hudScale.chipFontSize}px`,
+    "--board-hud-stat-size": `${hudScale.statFontSize}px`,
+    "--board-hud-prompt-max-height": `${hudScale.promptMaxHeight}px`,
+    "--board-hud-choice-min-width": `${hudScale.choiceMinWidth}px`,
+    "--board-hud-hand-card-min-width": `${hudScale.handCardMinWidth}px`,
+    "--board-hand-grid-cols": String(hudScale.handGridColumns),
   } as CSSProperties;
+
+  useLayoutEffect(() => {
+    const scrollNode = boardScrollRef.current;
+    const topTileNode = overlayTopAnchorTileRef.current;
+    const bottomTileNode = overlayBottomAnchorTileRef.current;
+    const leftTileNode = overlayLeftAnchorTileRef.current;
+    const rightTileNode = overlayRightAnchorTileRef.current;
+    if (!scrollNode || (!topTileNode && !bottomTileNode && !leftTileNode && !rightTileNode)) {
+      setHudFrame((prev) => (prev === null ? prev : null));
+      if (lastOverlayFrameRef.current !== null) {
+        lastOverlayFrameRef.current = null;
+        onOverlayFrameChange?.(null);
+      }
+      return;
+    }
+
+    const updateOverlaySafeBounds = () => {
+      const nextHudFrame = computeBoardHudFrame({
+        scrollRect: scrollNode.getBoundingClientRect(),
+        topTileRect: topTileNode?.getBoundingClientRect() ?? null,
+        bottomTileRect: bottomTileNode?.getBoundingClientRect() ?? null,
+        leftTileRect: leftTileNode?.getBoundingClientRect() ?? null,
+        rightTileRect: rightTileNode?.getBoundingClientRect() ?? null,
+      });
+      setHudFrame((prev) => (sameBoardHudFrame(prev, nextHudFrame) ? prev : nextHudFrame));
+      if (nextHudFrame !== null) {
+        const nextFrame = {
+          viewportLeft: nextHudFrame.viewportLeft,
+          viewportWidth: nextHudFrame.viewportWidth,
+        };
+        const previousFrame = lastOverlayFrameRef.current;
+        if (
+          previousFrame === null ||
+          previousFrame.viewportLeft !== nextFrame.viewportLeft ||
+          previousFrame.viewportWidth !== nextFrame.viewportWidth
+        ) {
+          lastOverlayFrameRef.current = nextFrame;
+          onOverlayFrameChange?.(nextFrame);
+        }
+      } else {
+        if (lastOverlayFrameRef.current !== null) {
+          lastOverlayFrameRef.current = null;
+          onOverlayFrameChange?.(null);
+        }
+      }
+    };
+
+    updateOverlaySafeBounds();
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateOverlaySafeBounds();
+    });
+    resizeObserver.observe(scrollNode);
+    if (topTileNode) {
+      resizeObserver.observe(topTileNode);
+    }
+    if (bottomTileNode) {
+      resizeObserver.observe(bottomTileNode);
+    }
+    if (leftTileNode) {
+      resizeObserver.observe(leftTileNode);
+    }
+    if (rightTileNode) {
+      resizeObserver.observe(rightTileNode);
+    }
+    window.addEventListener("resize", updateOverlaySafeBounds);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateOverlaySafeBounds);
+    };
+  }, [
+    onOverlayFrameChange,
+    overlayBottomAnchorTileIndex,
+    overlayLeftAnchorTileIndex,
+    overlayRightAnchorTileIndex,
+    overlayTopAnchorTileIndex,
+  ]);
 
   const pawnFallback = new Map<number, number[]>();
   for (const player of snapshot?.players ?? []) {
@@ -150,6 +282,17 @@ export function BoardPanel({
         : stageFocus.currentBeatDetail !== "-"
           ? stageFocus.currentBeatDetail
           : "";
+  const actorRevealFallbackTileIndex =
+    revealFocus &&
+    revealFocus.focusTileIndex === null &&
+    stageFocus.actorPlayerId !== null
+      ? tiles.find((tile) => {
+          const tilePawns = tile.pawnPlayerIds.length > 0 ? tile.pawnPlayerIds : pawnFallback.get(tile.tileIndex) ?? [];
+          return tilePawns.includes(stageFocus.actorPlayerId ?? -1);
+        })?.tileIndex ?? null
+      : null;
+  const showBoardRevealPanel =
+    Boolean(revealFocus) && revealFocus?.focusTileIndex === null && actorRevealFallbackTileIndex === null;
 
   if (tiles.length === 0) {
     return (
@@ -161,7 +304,9 @@ export function BoardPanel({
   }
 
   return (
-    <section className={`panel board-panel ${minimalHeader ? "board-panel-minimal" : ""}`}>
+    <section
+      className={`panel board-panel board-panel-topology-${normalizedTopology} ${minimalHeader ? "board-panel-minimal" : ""}`}
+    >
       {minimalHeader ? (
         <div className="board-meta-bar">
           <strong>{snapshot ? board.roundTurnMarker(snapshot.round, snapshot.turn, snapshot.markerOwnerPlayerId, endTimeRemaining) : board.manifestBoard}</strong>
@@ -192,7 +337,7 @@ export function BoardPanel({
           ) : null}
         </>
       )}
-      <div className="board-scroll" style={boardStyle}>
+      <div ref={boardScrollRef} className="board-scroll" style={boardStyle}>
         <div className={`board-ring ${normalizedTopology === "line" ? "board-ring-line" : "board-ring-ring"}`} style={boardStyle}>
           {movingPawnStyle ? (
             <div
@@ -211,9 +356,20 @@ export function BoardPanel({
             const isMoveTrail = pathStep !== null && !isMoveFrom && !isMoveTo;
             const isStageFocus = stageFocus.focusTileIndex === tile.tileIndex;
             const isStageCandidate = stageFocus.focusTileIndices.includes(tile.tileIndex) && !isStageFocus;
+            const shouldShowLiveTag =
+              isStageFocus &&
+              stageFocus.currentBeatLabel !== "-" &&
+              (stageFocus.currentBeatKind === "move" ||
+                stageFocus.currentBeatKind === "economy" ||
+                stageFocus.currentBeatKind === "effect");
             const position = projectTilePosition(tile.tileIndex, tiles.length, normalizedTopology);
             const ownerPlayerId = tile.ownerPlayerId ?? null;
             const tilePawns = tile.pawnPlayerIds.length > 0 ? tile.pawnPlayerIds : pawnFallback.get(tile.tileIndex) ?? [];
+            const isRevealFocus =
+              revealFocus?.focusTileIndex === tile.tileIndex ||
+              (Boolean(revealFocus) &&
+                actorRevealFallbackTileIndex !== null &&
+                actorRevealFallbackTileIndex === tile.tileIndex);
             const kindLabel = tileKindLabel(tile.tileKind, board, tileKindLabels);
             const isFortune = tile.tileKind === "S";
             const isFinish = tile.tileKind === "F1" || tile.tileKind === "F2";
@@ -221,9 +377,24 @@ export function BoardPanel({
               stageFocus.actorPlayerId !== null &&
               tilePawns.includes(stageFocus.actorPlayerId) &&
               (isStageFocus || isMoveTo || movedPlayerId === stageFocus.actorPlayerId);
+            const isPurchasePromptFocus = stageFocus.promptRequestType === "purchase_tile";
             return (
               <article
                 key={tile.tileIndex}
+                ref={(node) => {
+                  if (tile.tileIndex === overlayTopAnchorTileIndex) {
+                    overlayTopAnchorTileRef.current = node;
+                  }
+                  if (tile.tileIndex === overlayBottomAnchorTileIndex) {
+                    overlayBottomAnchorTileRef.current = node;
+                  }
+                  if (tile.tileIndex === overlayLeftAnchorTileIndex) {
+                    overlayLeftAnchorTileRef.current = node;
+                  }
+                  if (tile.tileIndex === overlayRightAnchorTileIndex) {
+                    overlayRightAnchorTileRef.current = node;
+                  }
+                }}
                 className={`tile-card ${isMoveFrom ? "tile-move-from" : ""} ${isMoveTo ? "tile-move-to" : ""} ${
                   isFortune ? "tile-fortune" : ""
                 } ${isMoveTrail ? "tile-move-trail" : ""} ${
@@ -235,8 +406,20 @@ export function BoardPanel({
                   gridColumn: position.col,
                 }}
               >
-                {isStageFocus ? <div className={`tile-stage-focus tile-stage-focus-${stageFocus.currentBeatKind}`} /> : null}
-                {isStageCandidate ? <div className={`tile-stage-candidate-ring tile-stage-candidate-ring-${stageFocus.currentBeatKind}`} /> : null}
+                {isStageFocus ? (
+                  <div
+                    className={`tile-stage-focus tile-stage-focus-${stageFocus.currentBeatKind} ${
+                      isPurchasePromptFocus ? "tile-stage-focus-purchase" : ""
+                    }`}
+                  />
+                ) : null}
+                {isStageCandidate ? (
+                  <div
+                    className={`tile-stage-candidate-ring tile-stage-candidate-ring-${stageFocus.currentBeatKind} ${
+                      isPurchasePromptFocus ? "tile-stage-candidate-ring-purchase" : ""
+                    }`}
+                  />
+                ) : null}
                 {isMoveFrom ? (
                   <div className="tile-corner-badge tile-corner-badge-from" data-testid="board-move-start-badge">
                     {board.moveStartTag}
@@ -261,7 +444,16 @@ export function BoardPanel({
                     {board.activeTurnTag(stageFocus.actorPlayerId ?? 0)}
                   </div>
                 ) : null}
-                {isStageFocus && stageFocus.currentBeatLabel !== "-" ? (
+                {isRevealFocus ? (
+                  <div
+                    className={`tile-reveal-spotlight tile-reveal-spotlight-${revealFocus?.tone ?? "effect"}`}
+                    data-testid={`board-reveal-spotlight-${revealFocus?.eventCode ?? "event"}`}
+                  >
+                    <strong>{revealFocus?.label ?? "-"}</strong>
+                    {revealFocus?.detail && revealFocus.detail !== "-" ? <small>{revealFocus.detail}</small> : null}
+                  </div>
+                ) : null}
+                {shouldShowLiveTag ? (
                   <div className={`tile-live-tag tile-live-tag-${stageFocus.currentBeatKind}`}>
                     <strong>{stageFocus.currentBeatLabel}</strong>
                     {stageFocus.currentBeatDetail !== "-" ? <small>{stageFocus.currentBeatDetail}</small> : null}
@@ -276,12 +468,16 @@ export function BoardPanel({
                   <div className="tile-special-center">{kindLabel}</div>
                 ) : (
                   <div className="tile-body">
-                    <small>{zoneLabel(tile.zoneColor ?? "", board)}</small>
                     <small>{costLabel(tile.purchaseCost, tile.rentCost, board)}</small>
                   </div>
                 )}
                 <div className="tile-foot">
-                  <small>{ownerPlayerId === null ? board.ownerNone : board.owner(ownerPlayerId)}</small>
+                  <div className="tile-badge-row">
+                    <small className={`tile-owner-badge ${ownerPlayerId === null ? "tile-owner-badge-empty" : ""}`}>
+                      {ownerPlayerId === null ? board.ownerNone : board.owner(ownerPlayerId)}
+                    </small>
+                    {tile.scoreCoinCount > 0 ? <small className="tile-score-badge">{board.scoreCoins(tile.scoreCoinCount)}</small> : null}
+                  </div>
                   <div className="pawn-chips">
                     {tilePawns.length > 0 ? (
                       tilePawns.map((id) => (
@@ -318,6 +514,15 @@ export function BoardPanel({
             ) : null}
             <strong>{turnBanner.text}</strong>
             {boardOverlayDetail ? <p>{boardOverlayDetail}</p> : null}
+          </div>
+        ) : null}
+        {showBoardRevealPanel && revealFocus ? (
+          <div
+            className={`board-reveal-panel board-reveal-panel-${revealFocus.tone}`}
+            data-testid={`board-reveal-spotlight-${revealFocus.eventCode}`}
+          >
+            <strong>{revealFocus.label}</strong>
+            {revealFocus.detail && revealFocus.detail !== "-" ? <p>{revealFocus.detail}</p> : null}
           </div>
         ) : null}
         {overlayContent ? <div className="board-overlay-content">{overlayContent}</div> : null}
