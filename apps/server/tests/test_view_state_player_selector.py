@@ -236,6 +236,70 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
             ],
         )
 
+    def test_stream_service_projects_full_active_slots_from_prompt_public_context_active_faces(self) -> None:
+        stream = StreamService()
+
+        async def _publish() -> dict:
+            await stream.publish(
+                "sess_1",
+                "event",
+                {
+                    "event_type": "turn_end_snapshot",
+                    "acting_player_id": 1,
+                    "snapshot": {
+                        "players": [
+                            {"player_id": 1, "display_name": "Player 1", "character": "만신"},
+                            {"player_id": 2, "display_name": "Player 2", "character": "객주"},
+                            {"player_id": 3, "display_name": "Player 3", "character": "사기꾼"},
+                        ],
+                        "board": {
+                            "marker_owner_player_id": 1,
+                        },
+                    },
+                },
+            )
+            await stream.publish(
+                "sess_1",
+                "event",
+                {
+                    "event_type": "turn_start",
+                    "acting_player_id": 1,
+                    "character": "만신",
+                },
+            )
+            await stream.publish(
+                "sess_1",
+                "prompt",
+                {
+                    "request_id": "req_hidden_live",
+                    "request_type": "hidden_trick_card",
+                    "player_id": 1,
+                    "legal_choices": [],
+                    "public_context": {
+                        "actor_name": "만신",
+                        "active_by_card": {
+                            1: "탐관오리",
+                            2: "산적",
+                            3: "추노꾼",
+                            4: "파발꾼",
+                            5: "교리 감독관",
+                            6: "만신",
+                            7: "중매꾼",
+                            8: "사기꾼",
+                        },
+                    },
+                },
+            )
+            snapshot = await stream.snapshot("sess_1")
+            return snapshot[-1].to_dict()["payload"]["view_state"]
+
+        view_state = asyncio.run(_publish())
+
+        self.assertEqual(
+            [item["character"] for item in view_state["active_slots"]["items"]],
+            ["탐관오리", "산적", "추노꾼", "파발꾼", "교리 감독관", "만신", "중매꾼", "사기꾼"],
+        )
+
 
 def _project_root():
     from pathlib import Path

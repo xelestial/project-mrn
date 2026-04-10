@@ -22,6 +22,7 @@ import {
   selectLiveSnapshot,
   selectMarkTargetCharacterSlots,
   selectMarkerOrderedPlayers,
+  selectSituation,
   selectTimeline,
   selectTurnStage,
 } from "./domain/selectors/streamSelectors";
@@ -293,6 +294,7 @@ export function App() {
   const timeline = selectTimeline(stream.messages, compactDensity ? 24 : 40, selectorText);
   const coreActionFeed = selectCoreActionFeed(stream.messages, effectivePlayerId, compactDensity ? 10 : 14, selectorText);
   const latestCoreAction = coreActionFeed.find((item) => !item.isLocalActor) ?? coreActionFeed[0] ?? null;
+  const situation = selectSituation(stream.messages, selectorText);
   const turnStage = selectTurnStage(stream.messages, selectorText);
   const snapshot = selectLiveSnapshot(stream.messages, selectorText);
   const derivedPlayers = selectDerivedPlayers(stream.messages, effectivePlayerId, selectorText);
@@ -329,13 +331,19 @@ export function App() {
           ? turnStage.currentBeatLabel
           : "";
   const weatherHeadline =
-    hasReadableValue(turnStage.weatherName)
-      ? turnStage.weatherName
+    hasReadableValue(situation.weather)
+      ? situation.weather
+      : hasReadableValue(turnStage.weatherName)
+        ? turnStage.weatherName
       : locale === "ko"
         ? "날씨 대기 중"
         : "Weather pending";
   const weatherDetail =
-    hasReadableValue(turnStage.weatherEffect) && turnStage.weatherEffect !== weatherHeadline ? turnStage.weatherEffect : "";
+    hasReadableValue(situation.weatherEffect) && situation.weatherEffect !== weatherHeadline
+      ? situation.weatherEffect
+      : hasReadableValue(turnStage.weatherEffect) && turnStage.weatherEffect !== weatherHeadline
+        ? turnStage.weatherEffect
+        : "";
   const weatherHudPills: string[] = [];
 
   const activePrompt = selectActivePrompt(stream.messages);

@@ -245,6 +245,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertLessEqual(len(context["offered_names"]), context["offered_count"] * 2)
         self.assertEqual(context["draft_phase"], 2)
         self.assertEqual(context["draft_phase_label"], "draft_phase_2")
+        self.assertEqual(context["active_by_card"], {1: "산적", 2: "건설업자"})
 
     def test_mark_target_context_uses_public_active_faces_for_future_slots(self) -> None:
         state = type(
@@ -304,6 +305,16 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(context["choice_names"], ["중매꾼", "사기꾼"])
         self.assertEqual([choice["title"] for choice in routed.legal_choices], ["중매꾼", "사기꾼"])
         self.assertEqual(routed.choice_parser("7", invocation.args, invocation.kwargs, invocation.state, invocation.player), "중매꾼")
+
+    def test_public_context_includes_weather_fields_when_state_has_current_weather(self) -> None:
+        weather = type("Weather", (), {"name": "긴급 피난", "effect": "모든 짐 제거 비용이 2배가 됩니다."})()
+        state = type("State", (), {"rounds_completed": 1, "turn_index": 2, "current_weather": weather})()
+        player = type("Player", (), {"cash": 9, "position": 4, "shards": 1})()
+
+        context = build_public_context("choose_purchase_tile", (state, player, 9, "T2", 4), {})
+
+        self.assertEqual(context["weather_name"], "긴급 피난")
+        self.assertEqual(context["weather_effect"], "모든 짐 제거 비용이 2배가 됩니다.")
 
     def test_lap_reward_context_exposes_budget_bundles_and_player_status(self) -> None:
         rules = type(

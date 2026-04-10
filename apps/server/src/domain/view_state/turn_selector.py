@@ -68,6 +68,31 @@ def _event_player_id(payload: dict[str, Any]) -> int | None:
     return _number(payload.get("player_id", payload.get("acting_player_id", payload.get("player"))))
 
 
+def _find_persisted_weather(messages: list[dict[str, Any]]) -> tuple[str, str]:
+    for message in reversed(messages):
+        payload = _record(message.get("payload")) or {}
+        public_context = _record(payload.get("public_context")) or {}
+        message_type = _string(message.get("type"))
+        event_code = _event_code(payload) if message_type == "event" else ""
+        if message_type == "event" and event_code not in {"weather_reveal", "turn_start", "round_start"}:
+            if not _string(public_context.get("weather_name")):
+                continue
+        elif message_type not in {"event", "prompt"}:
+            continue
+        weather_name = _string(
+            payload.get("weather_name", payload.get("weather", payload.get("card", public_context.get("weather_name"))))
+        )
+        weather_effect = _string(
+            payload.get(
+                "weather_effect",
+                payload.get("effect_text", payload.get("effect", payload.get("description", public_context.get("weather_effect")))),
+            )
+        )
+        if weather_name:
+            return (weather_name, weather_effect or "-")
+    return ("-", "-")
+
+
 def _turn_beat_kind(event_code: str) -> str:
     if event_code in {"dice_roll", "player_move"}:
         return "move"
@@ -223,14 +248,15 @@ def build_turn_stage_view_state(messages: list[dict[str, Any]]) -> TurnStageView
     start_payload = _record(start_message.get("payload")) or {}
     actor_player_id = _number(start_payload.get("acting_player_id", start_payload.get("player_id")))
     round_index, turn_index = _round_turn(start_payload)
+    weather_name, weather_effect = _find_persisted_weather(messages)
     model: TurnStageViewState = {
         "turn_start_seq": start_message.get("seq"),
         "actor_player_id": actor_player_id,
         "round_index": round_index,
         "turn_index": turn_index,
         "character": _string(start_payload.get("character", start_payload.get("actor_name"))) or "-",
-        "weather_name": "-",
-        "weather_effect": "-",
+        "weather_name": weather_name,
+        "weather_effect": weather_effect,
         "current_beat_kind": "system",
         "current_beat_event_code": "turn_start",
         "current_beat_request_type": "-",
@@ -272,6 +298,7 @@ def build_turn_stage_view_state(messages: list[dict[str, Any]]) -> TurnStageView
         if message.get("type") == "prompt":
             request_type = _string(payload.get("request_type"))
             prompt_actor = _number(payload.get("player_id"))
+            public_context = _record(payload.get("public_context")) or {}
             if request_type and (
                 model["actor_player_id"] is None
                 or model["actor_player_id"] == prompt_actor
@@ -290,6 +317,12 @@ def build_turn_stage_view_state(messages: list[dict[str, Any]]) -> TurnStageView
                     model["focus_tile_index"] = prompt_focus_tile_indices[0]
                 if not model["progress_codes"] or model["progress_codes"][-1] != "prompt_active":
                     model["progress_codes"] = [*model["progress_codes"], "prompt_active"]
+            prompt_weather_name = _string(public_context.get("weather_name"))
+            prompt_weather_effect = _string(public_context.get("weather_effect"))
+            if prompt_weather_name:
+                model["weather_name"] = prompt_weather_name
+            if prompt_weather_effect:
+                model["weather_effect"] = prompt_weather_effect
             continue
         if message.get("type") != "event":
             continue

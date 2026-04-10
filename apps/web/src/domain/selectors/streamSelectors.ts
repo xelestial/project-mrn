@@ -2803,17 +2803,13 @@ export function selectActiveCharacterSlots(
   currentLocalPlayerId: number | null = null,
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): ActiveCharacterSlotViewModel[] {
-  const backendSlots = selectBackendActiveCharacterSlots(messages, currentLocalPlayerId);
-  if (backendSlots && backendSlots.length > 0) {
-    return backendSlots;
-  }
   const snapshot = selectLiveSnapshot(messages, text);
   if (!snapshot) {
-    return [];
+    return selectBackendActiveCharacterSlots(messages, currentLocalPlayerId) ?? [];
   }
   const derivedPlayers = selectDerivedPlayers(messages, currentLocalPlayerId, text);
   const actor = derivedPlayers.find((player) => player.isCurrentActor) ?? null;
-  return Array.from({ length: 8 }, (_, index) => {
+  const rawSlots = Array.from({ length: 8 }, (_, index) => {
     const slot = index + 1;
     const owner = actor && actor.prioritySlot === slot ? actor : null;
     const slotCharacter =
@@ -2835,6 +2831,13 @@ export function selectActiveCharacterSlots(
       isLocalPlayer: owner?.isLocalPlayer ?? false,
     };
   });
+  const backendSlots = selectBackendActiveCharacterSlots(messages, currentLocalPlayerId);
+  if (!backendSlots || backendSlots.length === 0) {
+    return rawSlots;
+  }
+  const backendKnownCount = backendSlots.filter((slot) => Boolean(slot.character)).length;
+  const rawKnownCount = rawSlots.filter((slot) => Boolean(slot.character)).length;
+  return backendKnownCount >= rawKnownCount ? backendSlots : rawSlots;
 }
 
 export function selectMarkTargetCharacterSlots(
@@ -2843,15 +2846,11 @@ export function selectMarkTargetCharacterSlots(
   currentLocalPlayerId: number | null = null,
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): MarkTargetSlotViewModel[] {
-  const backendCandidates = selectBackendMarkTargetCharacterSlots(messages);
-  if (backendCandidates) {
-    return backendCandidates;
-  }
   const actorSlot = prioritySlotForCharacter(actorCharacterName);
   if (actorSlot === null) {
-    return [];
+    return selectBackendMarkTargetCharacterSlots(messages) ?? [];
   }
-  return selectActiveCharacterSlots(messages, currentLocalPlayerId, text)
+  const rawCandidates = selectActiveCharacterSlots(messages, currentLocalPlayerId, text)
     .filter((slot) => slot.slot > actorSlot && typeof slot.character === "string" && slot.character.trim().length > 0)
     .map((slot) => ({
       slot: slot.slot,
@@ -2859,6 +2858,11 @@ export function selectMarkTargetCharacterSlots(
       label: slot.label,
       character: slot.character as string,
     }));
+  const backendCandidates = selectBackendMarkTargetCharacterSlots(messages);
+  if (!backendCandidates) {
+    return rawCandidates;
+  }
+  return backendCandidates.length >= rawCandidates.length ? backendCandidates : rawCandidates;
 }
 
 export function selectMarkerOrderedPlayers(

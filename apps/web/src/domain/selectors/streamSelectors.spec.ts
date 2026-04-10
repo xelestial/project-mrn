@@ -918,6 +918,200 @@ describe("streamSelectors", () => {
     ]);
   });
 
+  it("prefers fresher raw prompt active faces over a sparse backend active slot projection", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_end_snapshot",
+          round_index: 1,
+          turn_index: 1,
+          acting_player_id: 1,
+          snapshot: {
+            players: [
+              {
+                player_id: 1,
+                display_name: "Player 1",
+                character: "박수",
+                alive: true,
+                position: 0,
+                cash: 20,
+                shards: 4,
+                hidden_trick_count: 0,
+                owned_tile_count: 0,
+              },
+            ],
+            board: {
+              marker_owner_player_id: 1,
+              f_value: 0,
+              tiles: [],
+            },
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 2,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 1,
+          turn_index: 2,
+          acting_player_id: 1,
+          character: "만신",
+        },
+      },
+      {
+        type: "prompt",
+        seq: 3,
+        session_id: "s1",
+        payload: {
+          request_id: "req_hidden_live",
+          request_type: "hidden_trick_card",
+          player_id: 1,
+          public_context: {
+            actor_name: "만신",
+            active_by_card: {
+              1: "탐관오리",
+              2: "산적",
+              3: "추노꾼",
+              4: "파발꾼",
+              5: "교리 감독관",
+              6: "만신",
+              7: "중매꾼",
+              8: "사기꾼",
+            },
+          },
+          view_state: {
+            active_slots: {
+              items: [
+                { slot: 1, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+                { slot: 2, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+                { slot: 3, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+                { slot: 4, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+                { slot: 5, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+                { slot: 6, player_id: 1, label: "P1", character: "만신", inactive_character: "박수", is_current_actor: true },
+                { slot: 7, player_id: null, label: null, character: "중매꾼", inactive_character: "객주", is_current_actor: false },
+                { slot: 8, player_id: null, label: null, character: "사기꾼", inactive_character: "건설업자", is_current_actor: false },
+              ],
+            },
+          },
+        },
+      },
+    ];
+
+    expect(selectActiveCharacterSlots(messages, 1).map((slot) => slot.character)).toEqual([
+      "탐관오리",
+      "산적",
+      "추노꾼",
+      "파발꾼",
+      "교리 감독관",
+      "만신",
+      "중매꾼",
+      "사기꾼",
+    ]);
+  });
+
+  it("prefers fresher raw mark target candidates over a sparser backend projection", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_end_snapshot",
+          round_index: 1,
+          turn_index: 1,
+          acting_player_id: 1,
+          snapshot: {
+            players: [
+              {
+                player_id: 1,
+                display_name: "Player 1",
+                character: "박수",
+                alive: true,
+                position: 0,
+                cash: 20,
+                shards: 4,
+                hidden_trick_count: 0,
+                owned_tile_count: 0,
+              },
+            ],
+            board: {
+              marker_owner_player_id: 1,
+              f_value: 0,
+              tiles: [],
+            },
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 2,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 1,
+          turn_index: 2,
+          acting_player_id: 1,
+          character: "만신",
+        },
+      },
+      {
+        type: "prompt",
+        seq: 3,
+        session_id: "s1",
+        payload: {
+          request_id: "req_mark_backend_sparse",
+          request_type: "mark_target",
+          player_id: 1,
+          legal_choices: [
+            {
+              choice_id: "중매꾼",
+              title: "중매꾼",
+              value: { target_character: "중매꾼", target_card_no: 7 },
+            },
+            {
+              choice_id: "사기꾼",
+              title: "사기꾼",
+              value: { target_character: "사기꾼", target_card_no: 8 },
+            },
+            {
+              choice_id: "none",
+              title: "지목 안 함",
+            },
+          ],
+          public_context: {
+            actor_name: "만신",
+            active_by_card: {
+              1: "탐관오리",
+              2: "산적",
+              3: "추노꾼",
+              4: "파발꾼",
+              5: "교리 감독관",
+              6: "만신",
+              7: "중매꾼",
+              8: "사기꾼",
+            },
+          },
+          view_state: {
+            mark_target: {
+              actor_slot: 6,
+              candidates: [{ slot: 7, player_id: null, label: null, character: "중매꾼" }],
+            },
+          },
+        },
+      },
+    ];
+
+    expect(selectMarkTargetCharacterSlots(messages, "만신", 1)).toEqual([
+      { slot: 7, playerId: null, label: null, character: "중매꾼" },
+      { slot: 8, playerId: null, label: null, character: "사기꾼" },
+    ]);
+  });
+
   it("clears previous-turn public faces from non-actors at turn start", () => {
     const messages: InboundMessage[] = [
       {

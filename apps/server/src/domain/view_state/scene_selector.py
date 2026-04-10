@@ -172,20 +172,28 @@ def _find_latest_field(messages: list[dict[str, Any]], keys: tuple[str, ...]) ->
 
 def _find_persisted_weather(messages: list[dict[str, Any]]) -> tuple[str, str]:
     for message in reversed(messages):
-        if _string(message.get("type")) != "event":
-            continue
         payload = _record(message.get("payload")) or {}
-        event_code = _event_code(payload)
-        if event_code not in WEATHER_EVENT_CODES:
+        public_context = _record(payload.get("public_context")) or {}
+        message_type = _string(message.get("type"))
+        event_code = _event_code(payload) if message_type == "event" else ""
+        if message_type == "event" and event_code not in WEATHER_EVENT_CODES:
+            if not _string(public_context.get("weather_name")):
+                continue
+        elif message_type not in {"event", "prompt"}:
             continue
-        weather_name = _string(payload.get("weather_name", payload.get("weather", payload.get("card"))))
+        weather_name = _string(
+            payload.get("weather_name", payload.get("weather", payload.get("card", public_context.get("weather_name"))))
+        )
         effects = payload.get("effects")
         if isinstance(effects, list):
             effect_parts = [item for item in effects if isinstance(item, str) and item.strip()]
             weather_effect = " / ".join(effect_parts) if effect_parts else ""
         else:
             weather_effect = _string(
-                payload.get("weather_effect", payload.get("effect_text", payload.get("effect", payload.get("description"))))
+                payload.get(
+                    "weather_effect",
+                    payload.get("effect_text", payload.get("effect", payload.get("description", public_context.get("weather_effect")))),
+                )
             )
         if weather_name:
             return (weather_name, weather_effect or "-")

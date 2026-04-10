@@ -50,3 +50,42 @@ class ViewStateSceneSelectorTests(unittest.TestCase):
         self.assertIn("view_state", latest_payload)
         self.assertIn("scene", latest_payload["view_state"])
         self.assertEqual(latest_payload["view_state"]["scene"]["core_action_feed"][0]["event_code"], "player_move")
+
+    def test_stream_service_publishes_scene_weather_from_prompt_public_context(self) -> None:
+        stream = StreamService()
+
+        async def _publish() -> dict:
+            await stream.publish(
+                "sess_scene_weather",
+                "event",
+                {
+                    "event_type": "turn_start",
+                    "round_index": 2,
+                    "turn_index": 3,
+                    "acting_player_id": 1,
+                    "character": "만신",
+                },
+            )
+            await stream.publish(
+                "sess_scene_weather",
+                "prompt",
+                {
+                    "request_id": "req_hidden_live",
+                    "request_type": "hidden_trick_card",
+                    "player_id": 1,
+                    "public_context": {
+                        "round_index": 2,
+                        "turn_index": 3,
+                        "actor_name": "만신",
+                        "weather_name": "긴급 피난",
+                        "weather_effect": "모든 짐 제거 비용이 2배가 됩니다.",
+                    },
+                },
+            )
+            snapshot = await stream.snapshot("sess_scene_weather")
+            return snapshot[-1].to_dict()["payload"]["view_state"]["scene"]["situation"]
+
+        situation = asyncio.run(_publish())
+
+        self.assertEqual(situation["weather_name"], "긴급 피난")
+        self.assertEqual(situation["weather_effect"], "모든 짐 제거 비용이 2배가 됩니다.")

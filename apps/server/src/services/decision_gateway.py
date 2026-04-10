@@ -173,6 +173,34 @@ def _active_character_for_card_index(state: Any, card_index: int) -> tuple[str, 
         return "", ""
 
 
+def _public_active_by_card(state: Any) -> dict[int, str] | None:
+    raw = getattr(state, "active_by_card", None)
+    if not isinstance(raw, dict):
+        return None
+    active_by_card: dict[int, str] = {}
+    for key, value in raw.items():
+        try:
+            card_index = int(key)
+        except Exception:
+            continue
+        name = str(value or "").strip()
+        if card_index >= 1 and name:
+            active_by_card[card_index] = name
+    return active_by_card or None
+
+
+def _public_weather_context(state: Any) -> dict[str, str]:
+    current_weather = getattr(state, "current_weather", None)
+    weather_name = str(getattr(current_weather, "name", "") or "").strip()
+    weather_effect = str(getattr(current_weather, "effect", "") or "").strip()
+    payload: dict[str, str] = {}
+    if weather_name:
+        payload["weather_name"] = weather_name
+    if weather_effect:
+        payload["weather_effect"] = weather_effect
+    return payload
+
+
 def _build_card_choice_context(
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
@@ -1175,6 +1203,10 @@ def build_public_context(method_name: str, args: tuple[Any, ...], kwargs: dict[s
         ),
         "player_owned_tile_count": getattr(player, "tiles_owned", None),
     }
+    active_by_card = _public_active_by_card(state)
+    if active_by_card:
+        context["active_by_card"] = active_by_card
+    context.update(_public_weather_context(state))
     spec = _decision_method_spec_for_method(method_name)
     if spec.public_context_builder is not None:
         context.update(spec.public_context_builder(args, kwargs, state, player))

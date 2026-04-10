@@ -152,3 +152,43 @@ class ViewStateTurnSelectorTests(unittest.TestCase):
         self.assertEqual(view_state["external_ai_worker_adapter"], "priority_score_v1")
         self.assertEqual(view_state["external_ai_policy_class"], "PriorityScoredPolicy")
         self.assertEqual(view_state["external_ai_decision_style"], "priority_scored_contract")
+
+    def test_build_turn_stage_keeps_weather_from_prompt_public_context(self) -> None:
+        view_state = build_turn_stage_view_state(
+            [
+                {
+                    "type": "event",
+                    "seq": 400,
+                    "session_id": "s1",
+                    "server_time_ms": 1,
+                    "payload": {
+                        "event_type": "turn_start",
+                        "round_index": 4,
+                        "turn_index": 11,
+                        "acting_player_id": 1,
+                        "character": "만신",
+                    },
+                },
+                {
+                    "type": "prompt",
+                    "seq": 401,
+                    "session_id": "s1",
+                    "server_time_ms": 2,
+                    "payload": {
+                        "request_id": "req_hidden_live",
+                        "request_type": "hidden_trick_card",
+                        "player_id": 1,
+                        "public_context": {
+                            "round_index": 4,
+                            "turn_index": 11,
+                            "actor_name": "만신",
+                            "weather_name": "긴급 피난",
+                            "weather_effect": "모든 짐 제거 비용이 2배가 됩니다.",
+                        },
+                    },
+                },
+            ]
+        )
+
+        self.assertEqual(view_state["weather_name"], "긴급 피난")
+        self.assertEqual(view_state["weather_effect"], "모든 짐 제거 비용이 2배가 됩니다.")
