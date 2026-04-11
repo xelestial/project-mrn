@@ -2185,10 +2185,25 @@ function clearActiveByCard(target: Record<number, string>): void {
   }
 }
 
-function shouldResetActiveByCard(eventCode: string): boolean {
+function hasActiveByCardPayload(payload: Record<string, unknown>): boolean {
+  if (isRecord(payload["active_by_card"])) {
+    return true;
+  }
+  const snapshot = isRecord(payload["snapshot"]) ? payload["snapshot"] : null;
+  if (isRecord(snapshot?.["active_by_card"])) {
+    return true;
+  }
+  const publicContext = isRecord(payload["public_context"]) ? payload["public_context"] : null;
+  if (isRecord(publicContext?.["active_by_card"])) {
+    return true;
+  }
+  return false;
+}
+
+function shouldResetActiveByCard(eventCode: string, payload: Record<string, unknown>): boolean {
   return (
-    eventCode === "round_start" ||
-    eventCode === "round_order"
+    (eventCode === "round_start" || eventCode === "round_order") &&
+    hasActiveByCardPayload(payload)
   );
 }
 
@@ -2206,7 +2221,7 @@ function collectActiveByCardUntil(messages: InboundMessage[], endIndex: number):
       continue;
     }
     const eventCode = messageKindFromPayload(message.payload);
-    if (shouldResetActiveByCard(eventCode)) {
+    if (shouldResetActiveByCard(eventCode, message.payload)) {
       clearActiveByCard(activeByCard);
     }
     mergeActiveByCard(activeByCard, message.payload["active_by_card"]);
@@ -2947,7 +2962,7 @@ export function selectLiveSnapshot(
       continue;
     }
     const eventCode = messageKindFromPayload(message.payload);
-    if (shouldResetActiveByCard(eventCode)) {
+    if (shouldResetActiveByCard(eventCode, message.payload)) {
       clearActiveByCard(activeByCard);
     }
     const eventActorId = numberOrNull(message.payload["acting_player_id"] ?? message.payload["player_id"]);

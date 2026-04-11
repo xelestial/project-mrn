@@ -161,8 +161,20 @@ def _clear_active_by_card(target: dict[int, str]) -> None:
     target.clear()
 
 
-def _should_reset_active_by_card(event_type: str) -> bool:
-    return event_type in {"round_start", "round_order"}
+def _has_active_by_card_payload(payload: dict[str, Any]) -> bool:
+    if _record(payload.get("active_by_card")):
+        return True
+    snapshot = _record(payload.get("snapshot")) or {}
+    if _record(snapshot.get("active_by_card")):
+        return True
+    public_context = _record(payload.get("public_context")) or {}
+    if _record(public_context.get("active_by_card")):
+        return True
+    return False
+
+
+def _should_reset_active_by_card(event_type: str, payload: dict[str, Any]) -> bool:
+    return event_type in {"round_start", "round_order"} and _has_active_by_card_payload(payload)
 
 
 def _collect_active_by_card(messages: list[dict[str, Any]]) -> dict[int, str]:
@@ -177,7 +189,7 @@ def _collect_active_by_card(messages: list[dict[str, Any]]) -> dict[int, str]:
         if message_type != "event":
             continue
         event_type = _event_type(payload)
-        if _should_reset_active_by_card(event_type):
+        if _should_reset_active_by_card(event_type, payload):
             _clear_active_by_card(active_by_card)
         _merge_active_by_card(active_by_card, payload.get("active_by_card"))
         _merge_active_by_card(active_by_card, (_record(payload.get("snapshot")) or {}).get("active_by_card"))

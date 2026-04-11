@@ -1339,6 +1339,70 @@ describe("streamSelectors", () => {
     ]);
   });
 
+  it("preserves active slots when round-order arrives without active-by-card payload", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "round_start",
+          marker_owner_player_id: 1,
+          marker_draft_direction: "clockwise",
+          active_by_card: {
+            1: "탐관오리",
+            2: "산적",
+            3: "탈출 노비",
+            4: "아전",
+            5: "교리 감독관",
+            6: "만신",
+            7: "중매꾼",
+            8: "사기꾼",
+          },
+          players: [
+            { player_id: 1, display_name: "Player 1", character: "자객", alive: true, position: 0, cash: 20, shards: 4, hidden_trick_count: 0, owned_tile_count: 0 },
+            { player_id: 2, display_name: "Player 2", character: "교리 연구관", alive: true, position: 0, cash: 20, shards: 4, hidden_trick_count: 0, owned_tile_count: 0 },
+            { player_id: 3, display_name: "Player 3", character: "만신", alive: true, position: 0, cash: 20, shards: 4, hidden_trick_count: 0, owned_tile_count: 0 },
+            { player_id: 4, display_name: "Player 4", character: "탐관오리", alive: true, position: 0, cash: 20, shards: 4, hidden_trick_count: 0, owned_tile_count: 0 },
+          ],
+        },
+      },
+      {
+        type: "event",
+        seq: 2,
+        session_id: "s1",
+        payload: {
+          event_type: "round_order",
+          order: [3, 2, 4, 1],
+        },
+      },
+      {
+        type: "prompt",
+        seq: 3,
+        session_id: "s1",
+        payload: {
+          request_id: "req_draft_live",
+          request_type: "draft_card",
+          player_id: 3,
+          public_context: {
+            actor_name: "만신",
+          },
+        },
+      },
+    ];
+
+    expect(selectActiveCharacterSlots(messages, 3).map((slot) => slot.character)).toEqual([
+      "탐관오리",
+      "산적",
+      "탈출 노비",
+      "아전",
+      "교리 감독관",
+      "만신",
+      "중매꾼",
+      "사기꾼",
+    ]);
+  });
+
   it("matches shared player mark-target fixture contract", () => {
     const fixture = loadSharedPlayerMarkTargetFixture();
     const lastMessage = fixture.messages.at(-1);

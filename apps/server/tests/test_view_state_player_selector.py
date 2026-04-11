@@ -365,6 +365,65 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
             ["탐관오리", "산적", "탈출 노비", "아전", "교리 감독관", "만신", "중매꾼", "사기꾼"],
         )
 
+    def test_stream_service_preserves_active_faces_when_round_order_omits_active_by_card(self) -> None:
+        stream = StreamService()
+
+        async def _publish() -> dict:
+            await stream.publish(
+                "sess_1",
+                "event",
+                {
+                    "event_type": "round_start",
+                    "marker_owner_player_id": 1,
+                    "marker_draft_direction": "clockwise",
+                    "active_by_card": {
+                        1: "탐관오리",
+                        2: "산적",
+                        3: "탈출 노비",
+                        4: "아전",
+                        5: "교리 감독관",
+                        6: "만신",
+                        7: "중매꾼",
+                        8: "사기꾼",
+                    },
+                    "players": [
+                        {"player_id": 1, "display_name": "Player 1", "character": "자객"},
+                        {"player_id": 2, "display_name": "Player 2", "character": "교리 연구관"},
+                        {"player_id": 3, "display_name": "Player 3", "character": "만신"},
+                        {"player_id": 4, "display_name": "Player 4", "character": "탐관오리"},
+                    ],
+                },
+            )
+            await stream.publish(
+                "sess_1",
+                "event",
+                {
+                    "event_type": "round_order",
+                    "order": [3, 2, 4, 1],
+                },
+            )
+            await stream.publish(
+                "sess_1",
+                "prompt",
+                {
+                    "request_id": "req_draft_live",
+                    "request_type": "draft_card",
+                    "player_id": 3,
+                    "public_context": {
+                        "actor_name": "만신",
+                    },
+                },
+            )
+            snapshot = await stream.snapshot("sess_1")
+            return snapshot[-1].to_dict()["payload"]["view_state"]
+
+        view_state = asyncio.run(_publish())
+
+        self.assertEqual(
+            [item["character"] for item in view_state["active_slots"]["items"]],
+            ["탐관오리", "산적", "탈출 노비", "아전", "교리 감독관", "만신", "중매꾼", "사기꾼"],
+        )
+
     def test_stream_service_projects_active_faces_immediately_after_session_start(self) -> None:
         stream = StreamService()
 
