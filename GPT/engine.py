@@ -285,6 +285,7 @@ class GameEngine:
             None,
             state,
             player_count=self.config.player_count,
+            active_by_card=dict(state.active_by_card),
             players=[build_player_public_state(p, state).to_dict() for p in state.players],
         )
         self._start_new_round(state, initial=True)
@@ -706,6 +707,7 @@ class GameEngine:
             alive_player_ids=alive_ids,
             marker_owner_player_id=state.marker_owner_id + 1,
             marker_draft_direction=("clockwise" if state.marker_draft_clockwise else "counterclockwise"),
+            active_by_card=dict(state.active_by_card),
         )
         self._apply_round_weather(state)
         self._emit_vis(
@@ -719,6 +721,7 @@ class GameEngine:
             effect_text=state.current_weather.effect if state.current_weather else None,
             description=state.current_weather.effect if state.current_weather else None,
             effects=list(state.current_weather_effects),
+            active_by_card=dict(state.active_by_card),
         )
         self._run_draft(state)
         alive = [p for p in state.players if p.alive]
@@ -734,6 +737,17 @@ class GameEngine:
             "marker_draft_direction": ("clockwise" if state.marker_draft_clockwise else "counterclockwise"),
             "active_by_card": dict(state.active_by_card),
         })
+        self._emit_vis(
+            "round_order",
+            Phase.CHARACTER_SELECT,
+            None,
+            state,
+            order=[pid + 1 for pid in state.current_round_order],
+            characters={p.player_id + 1: p.current_character for p in alive},
+            marker_owner_player_id=state.marker_owner_id + 1,
+            marker_draft_direction=("clockwise" if state.marker_draft_clockwise else "counterclockwise"),
+            active_by_card=dict(state.active_by_card),
+        )
 
     def _alive_ids_from_marker_direction(self, state: GameState) -> list[int]:
         alive_ids = {p.player_id for p in state.players if p.alive}

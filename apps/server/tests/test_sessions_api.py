@@ -314,6 +314,31 @@ class SessionsApiTests(unittest.TestCase):
         ]
         self.assertIn("parameter_manifest", event_types)
 
+    def test_start_replay_session_start_includes_initial_active_faces(self) -> None:
+        created = self.client.post("/api/v1/sessions", json=_all_ai_payload())
+        self.assertEqual(created.status_code, 200)
+        created_data = created.json()["data"]
+        session_id = created_data["session_id"]
+        host_token = created_data["host_token"]
+
+        started = self.client.post(
+            f"/api/v1/sessions/{session_id}/start",
+            json={"host_token": host_token},
+        )
+        self.assertEqual(started.status_code, 200)
+
+        replay = self.client.get(f"/api/v1/sessions/{session_id}/replay")
+        self.assertEqual(replay.status_code, 200)
+        events = replay.json()["data"]["events"]
+        session_start = next(
+            event for event in events
+            if event.get("type") == "event" and event.get("payload", {}).get("event_type") == "session_start"
+        )
+        active_by_card = session_start.get("payload", {}).get("active_by_card", {})
+
+        self.assertEqual(len(active_by_card), 8)
+        self.assertTrue(all(str(active_by_card.get(str(slot)) or active_by_card.get(slot) or "").strip() for slot in range(1, 9)))
+
     def test_start_response_reflects_extended_parameter_matrix_manifest(self) -> None:
         from apps.server.src import state
 

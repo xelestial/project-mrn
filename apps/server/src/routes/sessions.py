@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.infra.structured_log import log_event
+from apps.server.src.services.engine_config_factory import EngineConfigFactory
 from apps.server.src.services.session_service import SessionNotFoundError, SessionService, SessionStateError
 from apps.server.src.services.stream_service import StreamService
 from apps.server.src.services.runtime_service import RuntimeService
@@ -60,6 +61,19 @@ def _stream_service() -> StreamService:
 
 def _ok(data: dict) -> dict:
     return {"ok": True, "data": data, "error": None}
+
+
+def _initial_active_by_card(session) -> dict[int, str]:
+    import random
+
+    config = EngineConfigFactory().create(session.resolved_parameters)
+    runtime = dict(session.resolved_parameters.get("runtime", {}))
+    seed = int(runtime.get("seed", session.config.get("seed", 42)))
+    if config.characters.randomize_starting_active_by_card:
+        from characters import randomized_active_by_card
+
+        return dict(randomized_active_by_card(random.Random(seed)))
+    return dict(config.characters.starting_active_by_card)
 
 
 def _error(code: str, message: str, http_status: int = status.HTTP_400_BAD_REQUEST) -> None:
@@ -191,6 +205,7 @@ async def start_session(
                 }
                 for seat in session.seats
             ],
+            "active_by_card": _initial_active_by_card(session),
             "manifest_hash": session.parameter_manifest.get("manifest_hash"),
         },
     )
