@@ -224,6 +224,7 @@ async def start_session(
         {
             "event_type": "parameter_manifest",
             "parameter_manifest": session.parameter_manifest,
+            "active_by_card": _initial_active_by_card(session),
         },
     )
     log_event(

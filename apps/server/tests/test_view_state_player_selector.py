@@ -162,6 +162,35 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
         self.assertEqual(active_slots["items"][4]["character"], "교리 감독관")
         self.assertEqual(active_slots["items"][5]["character"], "박수")
 
+    def test_active_slots_can_be_built_from_manifest_active_faces_before_snapshot_exists(self) -> None:
+        messages = [
+            {
+                "type": "event",
+                "seq": 1,
+                "session_id": "s1",
+                "server_time_ms": 1,
+                "payload": {
+                    "event_type": "parameter_manifest",
+                    "manifest_hash": "hash_a",
+                    "active_by_card": {
+                        "1": "어사",
+                        "2": "산적",
+                        "3": "탈출 노비",
+                        "4": "아전",
+                        "5": "교리 감독관",
+                        "6": "만신",
+                        "7": "중매꾼",
+                        "8": "사기꾼",
+                    },
+                },
+            }
+        ]
+
+        active_slots = build_active_slots_view_state(messages)
+
+        self.assertIsNotNone(active_slots)
+        self.assertEqual([item["character"] for item in active_slots["items"]], ["어사", "산적", "탈출 노비", "아전", "교리 감독관", "만신", "중매꾼", "사기꾼"])
+
     def test_stream_service_keeps_mark_target_candidates_visible_after_turn_start(self) -> None:
         stream = StreamService()
 

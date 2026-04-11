@@ -1648,6 +1648,41 @@ describe("streamSelectors", () => {
     expect(slots[5]).toMatchObject({ slot: 6, character: "박수" });
   });
 
+  it("builds active slots from manifest-carried active faces before any snapshot exists", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "parameter_manifest",
+          manifest_hash: "hash_a",
+          active_by_card: {
+            "1": "어사",
+            "2": "산적",
+            "3": "탈출 노비",
+            "4": "아전",
+            "5": "교리 감독관",
+            "6": "만신",
+            "7": "중매꾼",
+            "8": "사기꾼",
+          },
+        },
+      },
+    ];
+
+    expect(selectActiveCharacterSlots(messages, 1).map((slot) => slot.character)).toEqual([
+      "어사",
+      "산적",
+      "탈출 노비",
+      "아전",
+      "교리 감독관",
+      "만신",
+      "중매꾼",
+      "사기꾼",
+    ]);
+  });
+
   it("ignores stale backend mark-target projections when a newer raw prompt arrives", () => {
     const messages: InboundMessage[] = [
       {

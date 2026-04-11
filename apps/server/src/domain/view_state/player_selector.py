@@ -305,9 +305,7 @@ def build_player_view_state(messages: list[dict[str, Any]]) -> PlayerOrderingVie
 
 def build_active_slots_view_state(messages: list[dict[str, Any]]) -> ActiveSlotsViewState | None:
     players_view = build_player_view_state(messages)
-    if not players_view:
-        return None
-    player_items = players_view.get("items", [])
+    player_items = players_view.get("items", []) if players_view else []
     active_by_card = _collect_active_by_card(messages)
     actor = next((player for player in player_items if player.get("is_current_actor")), None)
     actor_slot = actor.get("priority_slot") if actor else None

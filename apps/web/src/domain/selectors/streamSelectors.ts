@@ -2416,6 +2416,24 @@ function selectBackendActiveCharacterSlots(
   return mapped.some((item) => item.character) ? mapped : null;
 }
 
+function selectRawActiveCharacterSlotsWithoutSnapshot(messages: InboundMessage[]): ActiveCharacterSlotViewModel[] {
+  const activeByCard = collectActiveByCardUntil(messages, Math.max(0, messages.length - 1));
+  return Array.from({ length: 8 }, (_, index) => {
+    const slot = index + 1;
+    const character =
+      typeof activeByCard[slot] === "string" && activeByCard[slot].trim().length > 0 ? activeByCard[slot] : null;
+    return {
+      slot,
+      playerId: null,
+      label: null,
+      character,
+      inactiveCharacter: character ? oppositeCharacterForSlot(slot, character) : null,
+      isCurrentActor: false,
+      isLocalPlayer: false,
+    };
+  });
+}
+
 function selectBackendMarkTargetCharacterSlots(messages: InboundMessage[]): MarkTargetSlotViewModel[] | null {
   const entry = selectLatestBackendViewStateEntry(messages);
   if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
@@ -2820,7 +2838,14 @@ export function selectActiveCharacterSlots(
 ): ActiveCharacterSlotViewModel[] {
   const snapshot = selectLiveSnapshot(messages, text);
   if (!snapshot) {
-    return selectBackendActiveCharacterSlots(messages, currentLocalPlayerId) ?? [];
+    const backendSlots = selectBackendActiveCharacterSlots(messages, currentLocalPlayerId);
+    const rawSlots = selectRawActiveCharacterSlotsWithoutSnapshot(messages);
+    const backendKnownCount = backendSlots?.filter((slot) => Boolean(slot.character)).length ?? 0;
+    const rawKnownCount = rawSlots.filter((slot) => Boolean(slot.character)).length;
+    if (!backendSlots || backendKnownCount < rawKnownCount) {
+      return rawSlots;
+    }
+    return backendSlots;
   }
   const derivedPlayers = selectDerivedPlayers(messages, currentLocalPlayerId, text);
   const actor = derivedPlayers.find((player) => player.isCurrentActor) ?? null;
