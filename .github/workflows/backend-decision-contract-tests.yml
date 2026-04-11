@@ -1,14 +1,24 @@
-name: backend-decision-contract-tests
+name: backend-runtime-and-selector-tests
 
 on:
   push:
     branches:
       - main
       - "codex/**"
+    paths:
+      - ".github/workflows/backend-decision-contract-tests.yml"
+      - "apps/server/**"
+      - "GPT/**"
+      - "packages/runtime-contracts/**"
   pull_request:
+    paths:
+      - ".github/workflows/backend-decision-contract-tests.yml"
+      - "apps/server/**"
+      - "GPT/**"
+      - "packages/runtime-contracts/**"
 
 jobs:
-  backend-contract-tests:
+  backend-runtime-and-selector-tests:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -17,13 +27,19 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.13"
 
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest fastapi uvicorn
+          python -m pip install -r apps/server/requirements.txt pytest
 
-      - name: Run backend decision contract tests
+      - name: Run backend runtime and selector tests
         run: |
-          python -m pytest apps/server/tests/test_runtime_contract_examples.py apps/server/tests/test_runtime_service.py apps/server/tests/test_stream_api.py -q
+          python -m pytest \
+            apps/server/tests/test_runtime_contract_examples.py \
+            apps/server/tests/test_runtime_service.py \
+            apps/server/tests/test_stream_api.py \
+            apps/server/tests/test_sessions_api.py \
+            apps/server/tests/test_view_state_player_selector.py \
+            -q
