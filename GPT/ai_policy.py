@@ -91,6 +91,7 @@ from policy.environment_traits import (
     FORTUNE_CLEANUP_CARD_MULTIPLIERS,
     FORTUNE_POSITIVE_CLEANUP_CARD_MULTIPLIERS,
     count_cleanup_fortunes,
+    fortune_card_id_for_name,
     fortune_cleanup_deck_profile,
     has_color_rent_double_weather,
     is_cleanup_threat_weather,
@@ -1815,20 +1816,6 @@ class HeuristicPolicy(BasePolicy):
         positive_cards = dict(FORTUNE_POSITIVE_CLEANUP_CARD_MULTIPLIERS)
         cleanup_cards = {**negative_cards, **positive_cards}
 
-        def _count_cleanup(cards: list[Any]) -> tuple[int, int, int, int]:
-            fire = wildfire = recycle = public_recycle = 0
-            for card in cards:
-                name = getattr(card, "name", "")
-                if name == "화재 발생":
-                    fire += 1
-                elif name == "산불 발생":
-                    wildfire += 1
-                elif name == "자원 재활용":
-                    recycle += 1
-                elif name == "모두의 재활용":
-                    public_recycle += 1
-            return fire, wildfire, recycle, public_recycle
-
         def _at_least_one_prob(total_cards: int, success_cards: int, draws: int) -> float:
             if total_cards <= 0 or success_cards <= 0 or draws <= 0:
                 return 0.0
@@ -1847,7 +1834,7 @@ class HeuristicPolicy(BasePolicy):
                 return 0.0
             total = 0.0
             for card in cards:
-                total += cleanup_cards.get(getattr(card, "name", ""), 0.0)
+                total += cleanup_cards.get(fortune_card_id_for_name(getattr(card, "name", "")), 0.0)
             return total / len(cards)
 
         def _expected_negative_multiplier(cards: list[Any]) -> float:
@@ -1855,14 +1842,14 @@ class HeuristicPolicy(BasePolicy):
                 return 0.0
             total = 0.0
             for card in cards:
-                total += max(0.0, cleanup_cards.get(getattr(card, "name", ""), 0.0))
+                total += max(0.0, cleanup_cards.get(fortune_card_id_for_name(getattr(card, "name", "")), 0.0))
             return total / len(cards)
 
         draw_pile = list(getattr(state, "fortune_draw_pile", []) or [])
         discard_pile = list(getattr(state, "fortune_discard_pile", []) or [])
         source = draw_pile if draw_pile else discard_pile
         remaining_draws = len(source)
-        fire_count, wildfire_count, recycle_count, public_recycle_count = _count_cleanup(source)
+        fire_count, wildfire_count, recycle_count, public_recycle_count = count_cleanup_fortunes(source)
         negative_cleanup_cards = fire_count + wildfire_count
         positive_cleanup_cards = recycle_count + public_recycle_count
         all_cleanup_cards = negative_cleanup_cards + positive_cleanup_cards
@@ -4914,7 +4901,7 @@ class HeuristicPolicy(BasePolicy):
                 return 0.0
             total = 0.0
             for card in cards:
-                total += cleanup_cards.get(getattr(card, "name", ""), 0.0)
+                total += cleanup_cards.get(fortune_card_id_for_name(getattr(card, "name", "")), 0.0)
             return total / len(cards)
 
         def _expected_negative_multiplier(cards: list[Any]) -> float:
@@ -4922,7 +4909,7 @@ class HeuristicPolicy(BasePolicy):
                 return 0.0
             total = 0.0
             for card in cards:
-                total += max(0.0, cleanup_cards.get(getattr(card, "name", ""), 0.0))
+                total += max(0.0, cleanup_cards.get(fortune_card_id_for_name(getattr(card, "name", "")), 0.0))
             return total / len(cards)
 
         draw_pile = list(getattr(state, "fortune_draw_pile", []) or [])

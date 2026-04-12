@@ -1,26 +1,27 @@
 from __future__ import annotations
 
+from characters import CARD_TO_NAMES
 from policy.profile.registry import PolicyProfileRegistry
 from policy.profile.spec import PolicyProfileSpec
 
 
 DEFAULT_CHARACTER_VALUES = {
-    "어사": 6.0,
-    "탐관오리": 7.5,
-    "자객": 7.2,
-    "산적": 7.0,
-    "추노꾼": 6.8,
-    "탈출 노비": 6.2,
-    "파발꾼": 7.9,
-    "아전": 7.0,
-    "교리 연구관": 6.4,
-    "교리 감독관": 6.4,
-    "박수": 7.2,
-    "만신": 6.9,
-    "객주": 7.6,
-    "중매꾼": 7.4,
-    "건설업자": 7.8,
-    "사기꾼": 7.7,
+    CARD_TO_NAMES[1][0]: 6.0,
+    CARD_TO_NAMES[1][1]: 7.5,
+    CARD_TO_NAMES[2][0]: 7.2,
+    CARD_TO_NAMES[2][1]: 7.0,
+    CARD_TO_NAMES[3][0]: 6.8,
+    CARD_TO_NAMES[3][1]: 6.2,
+    CARD_TO_NAMES[4][0]: 7.9,
+    CARD_TO_NAMES[4][1]: 7.0,
+    CARD_TO_NAMES[5][0]: 6.4,
+    CARD_TO_NAMES[5][1]: 6.4,
+    CARD_TO_NAMES[6][0]: 7.2,
+    CARD_TO_NAMES[6][1]: 6.9,
+    CARD_TO_NAMES[7][0]: 7.6,
+    CARD_TO_NAMES[7][1]: 7.4,
+    CARD_TO_NAMES[8][0]: 7.8,
+    CARD_TO_NAMES[8][1]: 7.7,
 }
 
 

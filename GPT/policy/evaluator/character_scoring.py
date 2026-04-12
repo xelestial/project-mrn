@@ -17,13 +17,17 @@ ASSASSIN = CARD_TO_NAMES[2][0]
 TRACKER = CARD_TO_NAMES[3][0]
 SHAKEDOWN_MARKER = CARD_TO_NAMES[6][0]
 PUBLIC_CLEANER = CARD_TO_NAMES[6][1]
+EOSA = CARD_TO_NAMES[1][0]
+TAMGWANORI = CARD_TO_NAMES[1][1]
+DOCTRINE_RESEARCHER = CARD_TO_NAMES[5][0]
+DOCTRINE_MANAGER = CARD_TO_NAMES[5][1]
 
 LOW_CASH_ECONOMY = {INNKEEPER, CLERK, SHAKEDOWN_MARKER, PUBLIC_CLEANER}
 VERY_LOW_CASH_RECOVERY = {INNKEEPER, CLERK}
 TAKEOVER_DISRUPTORS = {SWINDLER, BANDIT, ASSASSIN, TRACKER}
 MONOPOLY_ROUTE_CHARACTERS = {INNKEEPER, RUNNER, ESCAPE_SLAVE}
 SHARD_SYNERGY_CHARACTERS = {BANDIT, CLERK}
-DOCTRINE_CONTROLLERS = {CARD_TO_NAMES[5][0], CARD_TO_NAMES[5][1]}
+DOCTRINE_CONTROLLERS = {DOCTRINE_RESEARCHER, DOCTRINE_MANAGER}
 
 
 @dataclass(frozen=True, slots=True)
@@ -632,7 +636,7 @@ def evaluate_v2_tactical_rules(
     survival = 0.0
     reasons: list[str] = []
 
-    if character_name == "어사":
+    if character_name == EOSA:
         race_bonus = 1.35 * inputs.land_race_pressure + 0.55 * inputs.premium_unowned
         if inputs.profile == "v3_gpt" and inputs.early_round > 0.0:
             race_bonus += 0.95 + 0.25 * inputs.behind_tiles
@@ -644,7 +648,7 @@ def evaluate_v2_tactical_rules(
             disruption += 1.8
             reasons.append("muroe_counter")
 
-    if character_name == "탐관오리":
+    if character_name == TAMGWANORI:
         race_bonus = 1.42 * inputs.land_race_pressure + 0.32 * max(0.0, inputs.player_shards - 2.0)
         if inputs.profile == "v3_gpt" and inputs.early_round > 0.0:
             race_bonus += 1.05 + 0.20 * inputs.premium_unowned
@@ -653,7 +657,7 @@ def evaluate_v2_tactical_rules(
         if race_bonus > 0.0:
             reasons.append("early_turn_order_land_race")
 
-    if character_name == "추노꾼":
+    if character_name == TRACKER:
         disruption += 0.8
         if inputs.buy_value > 0:
             disruption += 2.6
@@ -700,23 +704,23 @@ def evaluate_v2_tactical_rules(
             combo += 0.8
             reasons.append("escape_runner")
 
-    if character_name in {"산적", "아전", "탐관오리"}:
+    if character_name in {BANDIT, CLERK, TAMGWANORI}:
         economy += 0.35 * inputs.player_shards
         if inputs.combo_has_relic_collector:
             combo += 1.3
             reasons.append("shard_combo")
 
-    if character_name == "아전":
+    if character_name == CLERK:
         disruption += 0.35 * inputs.max_enemy_stack + 0.70 * inputs.max_enemy_owned_stack + 0.18 * inputs.mobility_leverage
         if inputs.max_enemy_owned_stack > 0:
             reasons.append("stacked_enemy_burst_window")
 
-    if character_name == "자객":
+    if character_name == ASSASSIN:
         if inputs.has_marks and inputs.top_threat_is_expansion_geo_combo:
             disruption += 2.4 + 0.45 * inputs.leader_pressure
             reasons.append("prevent_big_turn")
 
-    if character_name == "산적":
+    if character_name == BANDIT:
         if inputs.has_marks and (inputs.top_threat_cash >= 12 or inputs.top_threat_tiles_owned >= 5):
             disruption += 1.8 + 0.15 * inputs.player_shards + 0.35 * inputs.leader_pressure
             reasons.append("cash_damage_value")
