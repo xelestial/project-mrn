@@ -1,0 +1,96 @@
+{
+  "character_slots": [
+    {
+      "slot": 1,
+      "card_no": 1,
+      "faces": [
+        { "face_id": "official", "name": "어사", "aliases": ["어사"] },
+        { "face_id": "corrupt_official", "name": "탐관오리", "aliases": ["탐관오리"] }
+      ]
+    },
+    {
+      "slot": 2,
+      "card_no": 2,
+      "faces": [
+        { "face_id": "assassin", "name": "자객", "aliases": ["자객"] },
+        { "face_id": "bandit", "name": "산적", "aliases": ["산적"] }
+      ]
+    },
+    {
+      "slot": 3,
+      "card_no": 3,
+      "faces": [
+        { "face_id": "bounty_hunter", "name": "추노꾼", "aliases": ["추노꾼"] },
+        { "face_id": "escaped_slave", "name": "탈출 노비", "aliases": ["탈출 노비", "탈출노비"] }
+      ]
+    },
+    {
+      "slot": 4,
+      "card_no": 4,
+      "faces": [
+        { "face_id": "courier", "name": "파발꾼", "aliases": ["파발꾼"] },
+        { "face_id": "clerk", "name": "아전", "aliases": ["아전"] }
+      ]
+    },
+    {
+      "slot": 5,
+      "card_no": 5,
+      "faces": [
+        { "face_id": "doctrinal_researcher", "name": "교리 연구관", "aliases": ["교리 연구관", "교리연구관"] },
+        { "face_id": "doctrinal_supervisor", "name": "교리 감독관", "aliases": ["교리 감독관", "교리감독관"] }
+      ]
+    },
+    {
+      "slot": 6,
+      "card_no": 6,
+      "faces": [
+        { "face_id": "shaman", "name": "박수", "aliases": ["박수"] },
+        { "face_id": "manshin", "name": "만신", "aliases": ["만신"] }
+      ]
+    },
+    {
+      "slot": 7,
+      "card_no": 7,
+      "faces": [
+        { "face_id": "merchant", "name": "객주", "aliases": ["객주"] },
+        { "face_id": "matchmaker", "name": "중매꾼", "aliases": ["중매꾼"] }
+      ]
+    },
+    {
+      "slot": 8,
+      "card_no": 8,
+      "faces": [
+        { "face_id": "builder", "name": "건설업자", "aliases": ["건설업자"] },
+        { "face_id": "fraudster", "name": "사기꾼", "aliases": ["사기꾼"] }
+      ]
+    }
+  ],
+  "weather_cards": [
+    { "weather_id": 1, "name": "사냥의 계절", "effect": "무뢰 속성 인물의 지목 성공 시 추가로 4냥을 받습니다." },
+    { "weather_id": 2, "name": "추운 겨울날", "effect": "출발점 통과 보상 없음 + 2냥 은행 지불" },
+    { "weather_id": 3, "name": "풍년든 가을", "effect": "출발점을 돌 때 미리내 조각을 1개 더 받습니다." },
+    { "weather_id": 4, "name": "말이 살찌는 계절", "effect": "주사위를 1개 더 굴립니다." },
+    { "weather_id": 5, "name": "외세의 침략", "effect": "모든 참가자가 2냥을 은행에 지불합니다." },
+    { "weather_id": 6, "name": "솔선 수범", "effect": "징표를 가진 참가자는 3냥을 은행에 지불합니다." },
+    { "weather_id": 7, "name": "기우제", "effect": "징표를 가진 참가자는 조각 1개를 받고 종료 시간을 1칸 앞당깁니다." },
+    { "weather_id": 8, "name": "사랑과 우정", "effect": "같은 칸 조우 시 참가자 1명당 4냥을 얻습니다." },
+    { "weather_id": 9, "name": "구휼의 상징", "effect": "징표를 가진 참가자는 4냥을 은행에서 받습니다." },
+    { "weather_id": 10, "name": "성물의 날", "effect": "조각을 받을 때 1개 더 받습니다." },
+    { "weather_id": 11, "name": "배신의 징표", "effect": "현재 효과 없음" },
+    { "weather_id": 12, "name": "잔꾀 부리기", "effect": "잔꾀를 1장 받고 기존 잔꾀를 버리고 새로 받을 수 있습니다." },
+    { "weather_id": 13, "name": "전략 변경", "effect": "잔꾀를 최대 5장까지 받고 새로 받을 수 있습니다." },
+    { "weather_id": 14, "name": "모든 것을 자원으로", "effect": "모든 짐 카드를 제거하고 제거 비용의 2배를 은행에서 받습니다." },
+    { "weather_id": 15, "name": "긴급 피난", "effect": "모든 짐 제거 비용이 2배가 됩니다." },
+    { "weather_id": 16, "name": "대규모 민란", "effect": "주인 없는 토지는 이번 턴 분쟁 지역으로 취급됩니다." },
+    { "weather_id": 17, "name": "운수 좋은 날", "effect": "운수 칸에 도착하면 2장을 공개합니다." },
+    { "weather_id": 18, "name": "검은 달", "effect": "검은색 토지의 통행료가 2배가 됩니다." },
+    { "weather_id": 19, "name": "휴가철", "effect": "빨간색 토지의 통행료가 2배가 됩니다." },
+    { "weather_id": 20, "name": "어린이 보호구역", "effect": "노란색 토지의 통행료가 2배가 됩니다." },
+    { "weather_id": 21, "name": "바다다!", "effect": "파란색 토지의 통행료가 2배가 됩니다." },
+    { "weather_id": 22, "name": "멋진 설경", "effect": "하얀색 토지의 통행료가 2배가 됩니다." },
+    { "weather_id": 23, "name": "곡식가득한 평야", "effect": "초록색 토지의 통행료가 2배가 됩니다." },
+    { "weather_id": 24, "name": "밤인데 낮처럼 밝아요", "effect": "종료를 3칸 앞당깁니다." },
+    { "weather_id": 25, "name": "길고 긴 겨울", "effect": "종료를 1칸 앞당깁니다." },
+    { "weather_id": 26, "name": "맑고 포근한 하루", "effect": "주사위 카드를 1장 선택해 가집니다." }
+  ]
+}

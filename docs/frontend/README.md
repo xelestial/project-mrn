@@ -14,3 +14,25 @@ Notes:
 
 - frontend rendering should increasingly depend on backend selector output
 - the proposal docs remain as rationale and design direction
+
+## Dev Server And Backend Port Injection
+
+Frontend dev defaults to backend `127.0.0.1:8000`.
+
+Use one of these patterns when a different backend is running:
+
+```bash
+cd /Users/sil/Workspace/project-mrn/apps/web
+MRN_WEB_API_PORT=8011 npm run dev -- --host 127.0.0.1 --port 4174
+```
+
+```bash
+cd /Users/sil/Workspace/project-mrn/apps/web
+MRN_WEB_API_TARGET=http://127.0.0.1:18001 npm run dev -- --host 127.0.0.1 --port 4174
+```
+
+Priority order:
+
+1. `MRN_WEB_API_TARGET`
+2. `MRN_WEB_API_HOST` + `MRN_WEB_API_PORT`
+3. default `http://127.0.0.1:8000`

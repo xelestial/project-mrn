@@ -24,3 +24,6 @@ jobs:
 
       - name: Mandatory plan/policy gate
         run: python tools/plan_policy_gate.py
+
+      - name: Gameplay literal gate
+        run: python tools/gameplay_literal_gate.py

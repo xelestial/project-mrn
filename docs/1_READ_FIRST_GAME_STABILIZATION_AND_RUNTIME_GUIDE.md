@@ -32,6 +32,19 @@ It does two jobs:
   - `apps/web/src/domain/selectors/promptSelectors.ts`
   - `apps/web/src/App.tsx`
 
+## Standard Local Runtime Ports
+
+- Backend standard port: `8000`
+- Frontend standard dev port: `4174`
+- Frontend Vite proxy now defaults to backend `127.0.0.1:8000`
+
+Override patterns:
+
+- `MRN_WEB_API_PORT=8011 npm run dev -- --host 127.0.0.1 --port 4174`
+- `MRN_WEB_API_TARGET=http://127.0.0.1:18001 npm run dev -- --host 127.0.0.1 --port 4174`
+
+This exists specifically to prevent the stale-backend problem where the browser silently talks to an older local server on a different port.
+
 ## What Must Still Be Stabilized
 
 ### 1. Identifier-driven gameplay rules

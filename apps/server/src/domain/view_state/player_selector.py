@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..gameplay_catalog import (
+    opposite_character_name_for_slot,
+    priority_slot_for_character_name,
+)
 from .prompt_selector import latest_active_prompt
 from .snapshot_selector import latest_player_snapshot_entry, marker_state_from_messages
 from .types import (
@@ -12,40 +16,6 @@ from .types import (
     MarkTargetViewState,
     PlayerOrderingViewState,
 )
-
-PRIORITY_SLOT_BY_CHARACTER: dict[str, int] = {
-    "어사": 1,
-    "탐관오리": 1,
-    "자객": 2,
-    "산적": 2,
-    "추노꾼": 3,
-    "탈출 노비": 3,
-    "탈출노비": 3,
-    "파발꾼": 4,
-    "아전": 4,
-    "교리 연구관": 5,
-    "교리연구관": 5,
-    "교리 감독관": 5,
-    "교리감독관": 5,
-    "박수": 6,
-    "만신": 6,
-    "객주": 7,
-    "중매꾼": 7,
-    "건설업자": 8,
-    "사기꾼": 8,
-}
-
-SLOT_CHARACTER_PAIRS: dict[int, tuple[str, str]] = {
-    1: ("어사", "탐관오리"),
-    2: ("자객", "산적"),
-    3: ("추노꾼", "탈출 노비"),
-    4: ("파발꾼", "아전"),
-    5: ("교리 연구관", "교리 감독관"),
-    6: ("박수", "만신"),
-    7: ("객주", "중매꾼"),
-    8: ("건설업자", "사기꾼"),
-}
-
 
 def _record(value: Any) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
@@ -71,21 +41,11 @@ def _priority_slot_for_character(character: Any) -> int | None:
     normalized = _string(character)
     if not normalized:
         return None
-    return PRIORITY_SLOT_BY_CHARACTER.get(normalized)
+    return priority_slot_for_character_name(normalized)
 
 
 def _opposite_character_for_slot(slot: int, active_character: str | None) -> str | None:
-    pair = SLOT_CHARACTER_PAIRS.get(slot)
-    if not pair:
-        return None
-    normalized = _string(active_character)
-    if not normalized:
-        return pair[1]
-    if pair[0] == normalized:
-        return pair[1]
-    if pair[1] == normalized:
-        return pair[0]
-    return pair[1]
+    return opposite_character_name_for_slot(slot, active_character)
 
 
 def _event_type(payload: dict[str, Any]) -> str:
