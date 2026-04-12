@@ -41,6 +41,7 @@ Read these in order:
 ### P-01 DI And Boundary Discipline
 
 - Human and AI decisions must follow the same request/response contract.
+- Canonical contract form: `DecisionRequest -> DecisionResponse`.
 - Route behavior through provider / adapter / contract boundaries, not hidden direct coupling.
 - Keep mark / weather / fortune / prompt policy logic injectable where applicable.
 
@@ -82,6 +83,8 @@ Read these in order:
 
 - Every task, small or large, must leave a worklog summary.
 - Logic-heavy or architecture-heavy changes must start from a plan document.
+- 작업 원칙 - 소규모/대규모 작업에 관계 없이 어떤 일을 했는지 요약하여 작업 일지 문서에 남긴다.
+- 작업 원칙 - 로직 등 복잡한 변경은 계획 문서를 먼저 작성한다.
 
 ### P-08 String Ownership
 

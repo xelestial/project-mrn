@@ -10,6 +10,17 @@ This is the current execution board.
 
 Keep it short.
 
+## P0
+
+P0 means work that blocks truthful gameplay, runtime safety, or canonical decision/selector correctness.
+
+## Always-Check Order
+
+1. `docs/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
+2. `PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
+3. `docs/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md`
+4. active feature plan for the touched subsystem
+
 ## Current Priority Order
 
 ### 1. Human-play UI/UX recovery
