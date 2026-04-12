@@ -30,9 +30,23 @@ def _is_domain_logic_file(path: Path, root: Path) -> bool:
         "apps/web/src/domain/characters/prioritySlots.ts",
         "apps/server/src/domain/gameplay_catalog.py",
         "apps/server/src/domain/view_state/player_selector.py",
+        "GPT/policy_groups.py",
+        "GPT/policy_mark_utils.py",
+        "GPT/policy/environment_traits.py",
+        "GPT/policy/decision/purchase.py",
     }:
         return False
     return rel.startswith("apps/web/src/domain/") or rel.startswith("apps/server/src/domain/")
+
+
+def _is_runtime_logic_file(path: Path, root: Path) -> bool:
+    rel = path.relative_to(root).as_posix()
+    return rel in {
+        "GPT/policy_groups.py",
+        "GPT/policy_mark_utils.py",
+        "GPT/policy/environment_traits.py",
+        "GPT/policy/decision/purchase.py",
+    }
 
 
 def _character_literals(catalog: dict) -> set[str]:
@@ -57,7 +71,7 @@ def _check_domain_literals(paths: list[Path], root: Path, catalog: dict) -> list
     failures: list[str] = []
     literals = _character_literals(catalog)
     for path in paths:
-        if not path.is_file() or not _is_domain_logic_file(path, root):
+        if not path.is_file() or not (_is_domain_logic_file(path, root) or _is_runtime_logic_file(path, root)):
             continue
         text = path.read_text(encoding="utf-8")
         for literal in literals:

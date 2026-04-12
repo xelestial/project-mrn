@@ -18,6 +18,21 @@ from trick_cards import TrickCard
 from weather_cards import WeatherCard, COLOR_RENT_DOUBLE_WEATHERS
 from event_system import EventDispatcher
 from effect_handlers import EngineEffectHandlers
+from policy.character_traits import (
+    is_assassin,
+    is_bandit,
+    is_baksu,
+    is_builder,
+    is_chunokkun,
+    is_doctrine_character,
+    is_eosa,
+    is_gakju,
+    is_mansin,
+    is_matchmaker,
+    is_pabalggun,
+    is_tamgwanori,
+)
+from policy.environment_traits import fortune_card_id_for_name
 from policy_hooks import PolicyDecisionLogHook
 from rule_script_engine import RuleScriptEngine
 from viewer.events import Phase, VisEvent
@@ -522,7 +537,7 @@ class GameEngine:
         if player.attribute != "무뢰":
             return False
         return any(
-            other.alive and other.player_id != player.player_id and other.current_character == "어사"
+            other.alive and other.player_id != player.player_id and is_eosa(other.current_character)
             for other in state.players
         )
 
@@ -1147,7 +1162,7 @@ class GameEngine:
         if self._is_muroe_skill_blocked(state, player):
             self._log({"event": "ability_suppressed", "player": player.player_id + 1, "character": char, "reason": "어사"})
             return
-        if char == "자객":
+        if is_assassin(char):
             target, mark_debug = _resolve_mark_target()
             target_p = self._find_mark_target_player(state, player, target)
             self._record_ai_decision(state, player, "mark_target", mark_debug, result={"target_character": target}, source_event="character_start")
@@ -1196,27 +1211,27 @@ class GameEngine:
                     if target:
                         row["target_character"] = target
                     self._log(row)
-        elif char == "산적":
+        elif is_bandit(char):
             target, mark_debug = _resolve_mark_target()
             self._record_ai_decision(state, player, "mark_target", mark_debug, result={"target_character": target}, source_event="character_start")
             self._queue_mark(state, player.player_id, target, {"type": "bandit_tax"}, decision=mark_debug)
-        elif char == "추노꾼":
+        elif is_chunokkun(char):
             target, mark_debug = _resolve_mark_target()
             self._record_ai_decision(state, player, "mark_target", mark_debug, result={"target_character": target}, source_event="character_start")
             self._queue_mark(state, player.player_id, target, {"type": "hunter_pull", "source_pos": player.position}, decision=mark_debug)
-        elif char == "파발꾼":
+        elif is_pabalggun(char):
             player.extra_dice_count_this_turn += 1
-        elif char == "박수":
+        elif is_baksu(char):
             target, mark_debug = _resolve_mark_target()
             self._record_ai_decision(state, player, "mark_target", mark_debug, result={"target_character": target}, source_event="character_start")
             self._queue_mark(state, player.player_id, target, {"type": "baksu_transfer"}, decision=mark_debug)
-        elif char == "만신":
+        elif is_mansin(char):
             target, mark_debug = _resolve_mark_target()
             self._record_ai_decision(state, player, "mark_target", mark_debug, result={"target_character": target}, source_event="character_start")
             self._queue_mark(state, player.player_id, target, {"type": "manshin_remove_burdens"}, decision=mark_debug)
-        elif char in {"교리 연구관", "교리 감독관"}:
+        elif is_doctrine_character(char):
             self._resolve_doctrine_burden_relief(state, player)
-        elif char == "건설업자":
+        elif is_builder(char):
             player.free_purchase_this_turn = True
 
     def _apply_character_start(self, state: GameState, player: PlayerState) -> None:
@@ -1534,10 +1549,10 @@ class GameEngine:
         mark_type = payload.get("type")
         if mark_type == "baksu_transfer":
             threshold = 5
-            actor_name = "박수"
+            actor_name = CARD_TO_NAMES[6][0]
         elif mark_type == "manshin_remove_burdens":
             threshold = 7
-            actor_name = "만신"
+            actor_name = CARD_TO_NAMES[6][1]
         else:
             return
         removable = source.shards // threshold
@@ -2219,7 +2234,7 @@ class GameEngine:
             if (
                 p.alive
                 and p.player_id != player.player_id
-                and p.current_character == "탐관오리"
+                and is_tamgwanori(p.current_character)
                 and player.attribute in {"관원", "상민"}
             ):
                 if self._is_muroe_skill_blocked(state, p):
@@ -2245,7 +2260,7 @@ class GameEngine:
         else:
             base_dice = max(1, 2 + player.extra_dice_count_this_turn + extra_passive_die + player.trick_dice_delta_this_turn + self._weather_extra_dice(state))
             dice = [self.rng.randint(1, 6) for _ in range(base_dice)]
-            if char == "파발꾼" and len(set(dice)) < len(dice):
+            if is_pabalggun(char) and len(set(dice)) < len(dice):
                 dice.append(self.rng.randint(1, 6))
             move = sum(dice)
             mode = "dice"
@@ -2261,7 +2276,7 @@ class GameEngine:
         runaway_one_short_pos = None
         runaway_bonus_target_pos = None
         runaway_bonus_target_kind = None
-        if char == "탈출 노비":
+        if char == CARD_TO_NAMES[3][1]:
             board_len = len(state.board)
             one_short_pos = (player.position + move) % board_len
             target_pos = (one_short_pos + 1) % board_len
@@ -2395,7 +2410,7 @@ class GameEngine:
                 lap_events: List[dict] = []
                 for _ in range(new_laps - old_laps):
                     lap_events.append(self._apply_lap_reward(state, player))
-                    if player.current_character == "객주":
+                    if is_gakju(player.current_character):
                         geo_result = self._apply_geo_bonus(player, lap_events[-1])
                         self._record_ai_decision(
                             state,
@@ -2545,7 +2560,7 @@ class GameEngine:
         if apply_passives:
             for p in state.players:
                 if (
-                    p.alive and p.player_id != player.player_id and p.current_character == "탐관오리"
+                    p.alive and p.player_id != player.player_id and is_tamgwanori(p.current_character)
                     and player.attribute in {"관원", "상민"}
                 ):
                     if self._is_muroe_skill_blocked(state, p):
@@ -2560,7 +2575,7 @@ class GameEngine:
         if explicit_dice_count is None:
             dice_count, extra_passive_die = self._current_turn_dice_count(state, player, apply_passives=True)
             dice = [self.rng.randint(1, 6) for _ in range(dice_count)]
-            if player.current_character == "파발꾼" and len(set(dice)) < len(dice):
+            if is_pabalggun(player.current_character) and len(set(dice)) < len(dice):
                 dice.append(self.rng.randint(1, 6))
             return {"dice": dice, "move": sum(dice), "extra_passive_die": extra_passive_die, "mode": "fortune_turn_dice"}
         dice = [self.rng.randint(1, 6) for _ in range(explicit_dice_count)]
@@ -2568,7 +2583,11 @@ class GameEngine:
             remaining = [v for v in self.config.rules.dice.values if v not in player.used_dice_cards]
             max_cards = min(self.config.rules.dice.max_cards_per_turn, len(remaining), explicit_dice_count)
             chosen_cards: list[int] = []
-            if max_cards > 0 and player.current_character in {"객주", "파발꾼", "건설업자", "중매꾼"} and explicit_dice_count == 2:
+            if (
+                max_cards > 0
+                and (is_gakju(player.current_character) or is_pabalggun(player.current_character) or is_builder(player.current_character) or is_matchmaker(player.current_character))
+                and explicit_dice_count == 2
+            ):
                 chosen_cards = sorted(remaining, reverse=True)[:max_cards]
             elif max_cards > 0 and player.cash < 6:
                 chosen_cards = sorted(remaining)[:1]
@@ -2650,27 +2669,6 @@ class GameEngine:
         if rerolls:
             meta["rerolls"] = rerolls
         return sum(dice), meta
-
-        extra_passive_die = 0
-        for p in state.players:
-            if (
-                p.alive and p.player_id != player.player_id and p.current_character == "탐관오리"
-                and player.attribute in {"관원", "상민"}
-            ):
-                if self._is_muroe_skill_blocked(state, p):
-                    continue
-                tribute = p.shards // 2
-                if tribute > 0:
-                    self._pay_or_bankrupt(state, player, tribute, p.player_id)
-                extra_passive_die += 1
-        base = 2 + (1 if player.current_character == "파발꾼" else 0) + extra_passive_die
-        dice = [self.rng.randint(1, 6) for _ in range(max(1, base))]
-        if player.current_character == "파발꾼" and len(set(dice)) < len(dice):
-            dice.append(self.rng.randint(1, 6))
-        dice, rerolls = self._try_anytime_rerolls(state, player, [], dice, "dice")
-        meta = {"mode": "dice_chain", "dice": dice, "formula": "+".join(map(str, dice))}
-        if rerolls:
-            meta["rerolls"] = rerolls
         return sum(dice), meta
 
     def _is_monopoly_tile(self, state: GameState, pos: int) -> bool:
@@ -2774,17 +2772,18 @@ class GameEngine:
 
     def _apply_fortune_card_impl(self, state: GameState, player: PlayerState, card: FortuneCard) -> dict:
         name = card.name.strip()
+        card_id = fortune_card_id_for_name(name)
         board_len = len(state.board)
         attr = player.attribute
         res: dict = {"name": name}
-        if name == "자원 재활용":
+        if card_id == 30:
             return self._fortune_burden_cleanup(state, [player], multiplier=2, payout=True, name=name)
-        if name == "모두의 재활용":
+        if card_id == 31:
             targets = [p for p in state.players if p.alive and p.attribute != "무뢰"]
             return self._fortune_burden_cleanup(state, targets, multiplier=2, payout=True, name=name)
-        if name == "화재 발생":
+        if card_id == 32:
             return self._fortune_burden_cleanup(state, [player], multiplier=1, payout=False, name=name)
-        if name == "산불 발생":
+        if card_id == 33:
             return self._fortune_burden_cleanup(state, [p for p in state.players if p.alive], multiplier=2, payout=False, name=name)
         if name == "이사가세요 - 2":
             return self._apply_fortune_arrival(state, player, player.position - 2, "backward_2", name)
@@ -3296,7 +3295,7 @@ class GameEngine:
         doctrine_pids = [
             pid
             for pid in state.current_round_order
-            if state.players[pid].alive and state.players[pid].current_character in {"교리 연구관", "교리 감독관"}
+            if state.players[pid].alive and is_doctrine_character(state.players[pid].current_character)
         ]
         if not doctrine_pids:
             return

@@ -55,13 +55,21 @@ from policy.decision.purchase import (
 from policy.decision.runtime_bridge import choose_active_flip_card_runtime, choose_burden_exchange_on_supply_runtime, choose_coin_placement_tile_runtime, choose_doctrine_relief_target_runtime, choose_draft_card_runtime, choose_final_character_runtime, choose_geo_bonus_runtime, choose_hidden_trick_card_runtime, choose_lap_reward_runtime, choose_mark_target_runtime, choose_movement_runtime, choose_purchase_tile_runtime, choose_specific_trick_reward_runtime, choose_trick_to_use_runtime
 from policy.character_traits import (
     escape_package_names,
+    doctrine_package_names,
+    disruption_package_names,
+    economy_package_names,
+    growth_package_names,
     is_active_money_drain_character,
     is_ajeon,
     is_assassin,
     is_bandit,
+    is_builder,
     is_eosa,
     is_builder_character,
     is_baksu,
+    is_chunokkun,
+    is_doctrine_character,
+    is_matchmaker,
     is_route_runner_character,
     is_cleanup_character,
     is_controller_character,
@@ -80,11 +88,8 @@ from policy.character_traits import (
     marker_package_names,
 )
 from policy.environment_traits import (
-    CLEANUP_THREAT_WEATHERS,
     FORTUNE_CLEANUP_CARD_MULTIPLIERS,
     FORTUNE_POSITIVE_CLEANUP_CARD_MULTIPLIERS,
-    WEATHER_SHARD_BONUS_WEATHERS,
-    WEATHER_TRICK_BONUS_WEATHERS,
     count_cleanup_fortunes,
     fortune_cleanup_deck_profile,
     has_color_rent_double_weather,
@@ -175,26 +180,11 @@ class BasePolicy:
         return True
 
     def _weather_character_adjustment(self, state: GameState, player: PlayerState, character_name: str) -> tuple[float, list[str]]:
-        score = 0.0
-        reasons: list[str] = []
-        active = set(getattr(state, "current_weather_effects", set()) or set())
-        if not active:
-            return score, reasons
-        if active & WEATHER_SHARD_BONUS_WEATHERS:
-            if character_name in {"산적", "탐관오리", "아전", "박수", "만신"}:
-                score += 0.6
-                reasons.append("weather_shard_synergy")
-            if character_name == "중매꾼":
-                score += 0.35
-                reasons.append("weather_shard_expansion")
-        if active & WEATHER_TRICK_BONUS_WEATHERS:
-            if character_name in {"파발꾼", "객주", "박수", "만신", "자객"}:
-                score += 0.55
-                reasons.append("weather_trick_synergy")
-            if character_name in {"중매꾼", "건설업자"}:
-                score += 0.25
-                reasons.append("weather_trick_setup")
-        return score, reasons
+        del player
+        return weather_character_adjustment(
+            getattr(state, "current_weather_effects", set()) or set(),
+            character_name,
+        )
 
     def _character_score_breakdown_v2(self, state: GameState, player: PlayerState, character_name: str) -> tuple[float, list[str]]:
         w = self._weights()
@@ -230,7 +220,7 @@ class BasePolicy:
         top_threat = threat_targets[0] if threat_targets else None
         land_race = self._early_land_race_context(state, player)
         baksu_online = is_baksu(player.current_character) and player.shards >= 6
-        manshin_online = character_name == "만신" and player.shards >= 8
+        manshin_online = is_mansin(character_name) and player.shards >= 8
         top_tags = self._predicted_opponent_archetypes(state, player, top_threat) if top_threat else set()
         exclusive_blocks = self._exclusive_blocks_owned(state, player.player_id)
         placeable = any(state.tile_owner[i] == player.player_id and state.tile_coins[i] < state.config.rules.token.max_coins_per_tile for i in player.visited_owned_tile_indices)
@@ -253,7 +243,7 @@ class BasePolicy:
             player,
         )
 
-        if character_name == "중매꾼":
+        if is_matchmaker(character_name):
             adjacent_value = self._matchmaker_adjacent_value(state, player)
             expansion += 1.15 + 0.75 * buy_value + adjacent_value
             if profile == "v3_gpt" and cleanup_pressure < 1.6 and liquidity["cash_after_reserve"] >= 0.0:
@@ -272,7 +262,7 @@ class BasePolicy:
             if player.shards <= 0:
                 expansion -= 0.55
                 reasons.append("matchmaker_adjacent_shard_gate")
-        if character_name == "건설업자":
+        if is_builder(character_name):
             build_value = self._builder_free_purchase_value(state, player)
             expansion += 1.18 + 0.68 * buy_value + 0.90 * build_value
             if profile == "v3_gpt" and cleanup_pressure < 1.6 and liquidity["cash_after_reserve"] >= 0.0:
@@ -287,7 +277,7 @@ class BasePolicy:
             if "무료 증정" in combo_names or "마당발" in combo_names:
                 combo += 1.2 + 0.45 * build_value
                 reasons.append("expansion_trick_combo")
-        if character_name == "사기꾼":
+        if is_swindler(character_name):
             enemy_tiles = sum(p.tiles_owned for p in self._alive_enemies(state, player))
             expansion += 1.2 + 0.25 * enemy_tiles
             if profile == "v3_gpt" and cleanup_pressure < 1.8 and liquidity["cash_after_reserve"] >= -0.5:
@@ -315,7 +305,7 @@ class BasePolicy:
             if scammer["finishes_own_monopoly"] > 0.0:
                 expansion += 1.2 * scammer["finishes_own_monopoly"]
                 reasons.append("finishes_monopoly_via_takeover")
-        if character_name == "어사":
+        if is_eosa(character_name):
             race_bonus = 1.35 * land_race["race_pressure"] + 0.55 * land_race["premium_unowned"]
             if profile == "v3_gpt" and land_race["early_round"] > 0.0:
                 race_bonus += 0.95 + 0.25 * land_race["behind_tiles"]
@@ -323,7 +313,7 @@ class BasePolicy:
             expansion += 0.35 * land_race["near_unowned"]
             if race_bonus > 0.0:
                 reasons.append("early_turn_order_land_race")
-        if character_name == "탐관오리":
+        if is_tamgwanori(character_name):
             race_bonus = 1.42 * land_race["race_pressure"] + 0.32 * max(0.0, player.shards - 2.0)
             if profile == "v3_gpt" and land_race["early_round"] > 0.0:
                 race_bonus += 1.05 + 0.20 * land_race["premium_unowned"]
@@ -331,7 +321,7 @@ class BasePolicy:
             economy += 0.18 * land_race["premium_unowned"]
             if race_bonus > 0.0:
                 reasons.append("early_turn_order_land_race")
-        if character_name == "추노꾼":
+        if is_chunokkun(character_name):
             disruption += 0.8
             if buy_value > 0:
                 disruption += 2.6
@@ -341,7 +331,7 @@ class BasePolicy:
                 reasons.append("leader_position_punish")
             if has_marks and any(op.cash >= 8 for op in legal_marks):
                 disruption += 1.1
-        if character_name == "객주":
+        if is_gakju(character_name):
             economy += 2.0 * cross_start + 1.2 * land_f * land_f_value + 0.25 * len(player.visited_owned_tile_indices)
             economy += 0.65 * float(lap_ctx["fast_window"]) + 0.45 * float(lap_ctx["rich_pool"])
             combo += 0.40 * float(lap_ctx["double_lap_threat"])
@@ -364,34 +354,34 @@ class BasePolicy:
                 economy -= penalty
                 combo -= 0.18 * cleanup_strategy.stage_score
                 reasons.append("cleanup_growth_lock")
-        if character_name == "파발꾼":
+        if is_pabalggun(character_name):
             economy += 1.0 * cross_start + 0.55 * land_f * land_f_value
             combo += 0.6 * sum(1 for n in combo_names if n in {"과속", "이럇!", "도움 닫기"})
             if combo > 0:
                 reasons.append("speed_combo")
-        if character_name == "탈출 노비":
+        if is_route_runner_character(character_name) and not is_pabalggun(character_name) and not is_gakju(character_name):
             economy += 0.3 * self._reachable_specials_with_one_short(state, player)
             if cross_start > 0.2:
                 combo += 0.8
                 reasons.append("escape_runner")
-        if character_name in {"산적", "아전", "탐관오리"}:
+        if is_bandit(character_name) or is_ajeon(character_name) or is_tamgwanori(character_name):
             economy += 0.35 * player.shards
             if "성물 수집가" in combo_names:
                 combo += 1.3
                 reasons.append("shard_combo")
-        if character_name == "아전":
+        if is_ajeon(character_name):
             disruption += 0.35 * float(stack_ctx["max_enemy_stack"]) + 0.70 * float(stack_ctx["max_enemy_owned_stack"]) + 0.18 * mobility_leverage
             if stack_ctx["max_enemy_owned_stack"] > 0:
                 reasons.append("stacked_enemy_burst_window")
-        if character_name == "자객":
+        if is_assassin(character_name):
             if has_marks and top_threat and ("expansion" in top_tags or "geo" in top_tags or "combo_ready" in top_tags or top_threat.tiles_owned >= 5):
                 disruption += 2.4 + 0.45 * leader_pressure
                 reasons.append("prevent_big_turn")
-        if character_name == "산적":
+        if is_bandit(character_name):
             if has_marks and top_threat and (top_threat.cash >= 12 or top_threat.tiles_owned >= 5):
                 disruption += 1.8 + 0.15 * player.shards + 0.35 * leader_pressure
                 reasons.append("cash_damage_value")
-        if character_name == "만신":
+        if is_mansin(character_name):
             if top_threat and "burden" in top_tags:
                 disruption += 2.0
                 reasons.append("burden_purge")
@@ -404,7 +394,7 @@ class BasePolicy:
             if legal_visible_burden_total > 0 and legal_low_cash_targets > 0:
                 disruption += 0.35 * legal_low_cash_targets
                 reasons.append("cash_fragile_cleanup")
-        if character_name == "박수":
+        if is_baksu(character_name):
             if burden_count >= 1:
                 combo += 1.0 + 0.45 * burden_count
                 survival += 1.4 + 1.05 * burden_count + 0.55 * cleanup_pressure
@@ -421,11 +411,11 @@ class BasePolicy:
                     survival -= penalty
                     combo -= 0.25
                     reasons.append("precheckpoint_baksu_needs_certainty")
-        if character_name == "어사":
+        if is_eosa(character_name):
             if top_threat and ("shard_attack" in top_tags or is_bandit(top_threat.current_character) or is_assassin(top_threat.current_character) or is_tamgwanori(top_threat.current_character) or is_swindler(top_threat.current_character)):
                 disruption += 1.8
                 reasons.append("muroe_counter")
-        if character_name in {"교리 연구관", "교리 감독관"}:
+        if character_name in self._DOCTRINE_NAMES:
             meta += 1.2
             marker_plan = self._leader_marker_flip_plan(state, player, top_threat) if top_threat else {"best_score": 0.0}
             if top_threat and ("expansion" in top_tags or "geo" in top_tags or top_threat.tiles_owned >= 5):
@@ -439,109 +429,109 @@ class BasePolicy:
                 survival += 0.30 + 0.28 * cleanup_strategy.controller_bias
                 meta += 0.10 * cleanup_strategy.stage_score
                 reasons.append("cleanup_controller_window")
-        if character_name in {"객주", "파발꾼", "사기꾼"}:
+        if is_gakju(character_name) or is_pabalggun(character_name) or is_swindler(character_name):
             economy += 0.15 * player.cash
-        elif character_name == "중매꾼":
+        elif is_matchmaker(character_name):
             economy += 0.10 * player.cash + 0.20 * self._matchmaker_adjacent_value(state, player)
-        elif character_name == "건설업자":
+        elif is_builder(character_name):
             economy += 0.09 * player.cash + 0.28 * self._builder_free_purchase_value(state, player)
-        if character_name in {"객주", "파발꾼", "탈출 노비"} and placeable:
+        if character_name in self._ESCAPE_NAMES and placeable:
             economy += 0.8
-        if character_name == "중매꾼" and own_near_complete > 0:
+        if is_matchmaker(character_name) and own_near_complete > 0:
             expansion += 2.25 * own_near_complete + 0.65 * own_claimable_blocks + 0.35 * self._matchmaker_adjacent_value(state, player)
             reasons.append("monopoly_finish_value")
-        if character_name == "건설업자" and own_near_complete > 0:
+        if is_builder(character_name) and own_near_complete > 0:
             expansion += 2.05 * own_near_complete + 0.45 * own_claimable_blocks + 0.45 * self._builder_free_purchase_value(state, player)
             reasons.append("monopoly_finish_value")
-        if character_name in {"객주", "파발꾼", "탈출 노비"} and own_claimable_blocks > 0:
+        if character_name in self._ESCAPE_NAMES and own_claimable_blocks > 0:
             economy += 0.65 * own_claimable_blocks
             reasons.append("monopoly_route_value")
-        if character_name == "중매꾼" and own_claimable_blocks > 0:
+        if is_matchmaker(character_name) and own_claimable_blocks > 0:
             economy += 0.55 * own_claimable_blocks + 0.20 * self._matchmaker_adjacent_value(state, player)
             reasons.append("monopoly_route_value")
-        if character_name == "건설업자" and own_claimable_blocks > 0:
+        if is_builder(character_name) and own_claimable_blocks > 0:
             economy += 0.45 * own_claimable_blocks + 0.25 * self._builder_free_purchase_value(state, player)
             reasons.append("monopoly_route_value")
-        if character_name == "사기꾼" and enemy_near_complete > 0:
+        if is_swindler(character_name) and enemy_near_complete > 0:
             disruption += 2.2 * enemy_near_complete + 0.45 * contested_blocks
             reasons.append("preempt_monopoly_takeover")
-        if character_name in {"추노꾼", "자객", "산적"} and enemy_near_complete > 0:
+        if enemy_near_complete > 0 and (is_chunokkun(character_name) or is_assassin(character_name) or is_bandit(character_name)):
             disruption += 1.6 * enemy_near_complete + 0.35 * deny_now
             reasons.append("deny_enemy_monopoly")
-        if character_name in {"파발꾼", "탈출 노비"} and deny_now > 0:
+        if (is_pabalggun(character_name) or (is_route_runner_character(character_name) and not is_gakju(character_name))) and deny_now > 0:
             survival += 0.55 * deny_now
             reasons.append("monopoly_danger_escape")
         if leader_emergency > 0.0 and top_threat and top_threat.player_id != player.player_id:
-            if character_name in {"자객", "산적", "추노꾼", "사기꾼", "박수", "만신", "어사"}:
+            if character_name in self._DISRUPTION_NAMES:
                 disruption += 1.55 + 0.55 * leader_emergency
                 if leader_is_solo:
                     disruption += 0.45
                 if leader_near_end:
                     disruption += 0.55
                 reasons.append("emergency_leader_denial")
-            if character_name in {"교리 연구관", "교리 감독관"}:
+            if character_name in self._DOCTRINE_NAMES:
                 meta += 1.45 + 0.50 * leader_emergency
                 disruption += 0.35 * leader_emergency
                 reasons.append("emergency_marker_denial")
-            if leader_near_end and character_name in {"중매꾼", "건설업자", "객주", "파발꾼"}:
+            if leader_near_end and character_name in {CARD_TO_NAMES[7][1], CARD_TO_NAMES[8][0], CARD_TO_NAMES[7][0], CARD_TO_NAMES[4][0]}:
                 expansion -= 0.85 + 0.25 * leader_emergency
                 economy -= 0.35 * leader_emergency
-                if character_name == "건설업자" and player.shards > 0:
+                if is_builder(character_name) and player.shards > 0:
                     expansion += 0.20
                 reasons.append("leader_race_deprioritized")
         # survival / risk
         leading = sum(1 for op in self._alive_enemies(state, player) if self._estimated_threat(state, player, player) >= self._estimated_threat(state, player, op)) == len(self._alive_enemies(state, player))
         if self._profile_from_mode() == "avoid_control":
-            if character_name in {"중매꾼", "건설업자", "사기꾼"} and (leading or top_threat and has_marks):
+            if character_name in {CARD_TO_NAMES[7][1], CARD_TO_NAMES[8][0], CARD_TO_NAMES[8][1]} and (leading or top_threat and has_marks):
                 survival -= 1.4
                 reasons.append("avoid_being_targeted")
-            if character_name in {"객주", "아전", "교리 연구관", "교리 감독관"}:
+            if character_name in {CARD_TO_NAMES[7][0], CARD_TO_NAMES[4][1]} | self._DOCTRINE_NAMES:
                 survival += 1.1
         profile = self._profile_from_mode()
         if profile == "control":
             finisher_window, finisher_reason = self._control_finisher_window(player)
             if leader_emergency > 0.0:
-                if character_name in {"사기꾼", "교리 연구관", "교리 감독관", "객주", "탈출 노비", "파발꾼", "어사"}:
+                if character_name in ({CARD_TO_NAMES[8][1], CARD_TO_NAMES[7][0], CARD_TO_NAMES[3][1], CARD_TO_NAMES[4][0], CARD_TO_NAMES[1][0]} | self._DOCTRINE_NAMES):
                     disruption += 0.55 + 0.30 * leader_emergency
                     meta += 0.15 * leader_emergency
                     reasons.append("control_efficient_denial")
-                if leader_near_end and character_name in {"교리 연구관", "교리 감독관", "사기꾼", "객주", "탈출 노비"}:
+                if leader_near_end and character_name in (self._DOCTRINE_NAMES | {CARD_TO_NAMES[8][1], CARD_TO_NAMES[7][0], CARD_TO_NAMES[3][1]}):
                     disruption += 0.55
                     survival += 0.25
                     reasons.append("control_endgame_lock")
-            elif buy_value > 0.0 and character_name in {"중매꾼", "건설업자", "사기꾼", "객주", "파발꾼"}:
+            elif buy_value > 0.0 and character_name in self._GROWTH_NAMES:
                 expansion += 0.45 + 0.20 * buy_value
                 economy += 0.20
-                if character_name == "중매꾼":
+                if is_matchmaker(character_name):
                     expansion += 0.22 + 0.10 * self._matchmaker_adjacent_value(state, player)
-                elif character_name == "건설업자":
+                elif is_builder(character_name):
                     expansion += 0.18 + 0.12 * self._builder_free_purchase_value(state, player)
                 reasons.append("control_keeps_pace")
             if finisher_window > 0.0:
-                if character_name in {"중매꾼", "건설업자", "사기꾼", "객주", "파발꾼"}:
+                if character_name in self._GROWTH_NAMES:
                     expansion += 0.85 + 0.35 * finisher_window + 0.18 * buy_value
                     economy += 0.35 + 0.18 * finisher_window
                     combo += 0.18 * finisher_window
                     reasons.append(f"control_finisher_window={finisher_reason}")
-                if character_name in {"자객", "산적", "추노꾼"}:
+                if character_name in {CARD_TO_NAMES[2][0], CARD_TO_NAMES[2][1], CARD_TO_NAMES[3][0]}:
                     disruption -= 0.45 + 0.15 * finisher_window
                     survival -= 0.10 * finisher_window
                     reasons.append("control_finisher_avoids_redundant_denial")
         if profile == "aggressive":
-            if character_name in {"중매꾼", "건설업자", "사기꾼", "추노꾼", "자객"}:
+            if character_name in {CARD_TO_NAMES[7][1], CARD_TO_NAMES[8][0], CARD_TO_NAMES[8][1], CARD_TO_NAMES[3][0], CARD_TO_NAMES[2][0]}:
                 combo += 0.9
                 reasons.append("aggressive_push")
         if profile == "token_opt":
             own_land = self._prob_land_on_placeable_own_tile(state, player)
             token_combo = self._token_teleport_combo_score(player)
-            if character_name in {"객주", "파발꾼", "탈출 노비"}:
+            if character_name in {CARD_TO_NAMES[7][0], CARD_TO_NAMES[4][0], CARD_TO_NAMES[3][1]}:
                 economy += 1.2 * cross_start + 0.7 * land_f * land_f_value
                 combo += token_combo
                 reasons.append("token_route_mobility")
-            if character_name in {"객주", "중매꾼", "건설업자", "사기꾼"}:
+            if character_name in {CARD_TO_NAMES[7][0], CARD_TO_NAMES[7][1], CARD_TO_NAMES[8][0], CARD_TO_NAMES[8][1]}:
                 economy += 1.4 * own_land
                 reasons.append("own_tile_token_arrival")
-            if character_name in {"자객", "추노꾼", "산적"} and top_threat and leader_pressure >= 2.5:
+            if (is_assassin(character_name) or is_chunokkun(character_name) or is_bandit(character_name)) and top_threat and leader_pressure >= 2.5:
                 disruption += 0.8 + 0.25 * leader_pressure
                 reasons.append("token_threshold_counter")
             if placeable:
@@ -552,16 +542,16 @@ class BasePolicy:
             token_combo = self._token_teleport_combo_score(player)
             token_window = self._best_token_window_value(state, player)
             distress_level = max(0.0, reserve_gap) + 0.75 * max(0.0, cleanup_pressure - 1.5) + 1.10 * max(0.0, money_distress - 0.9)
-            if character_name in {"파발꾼", "객주", "탈출 노비"}:
+            if character_name in self._ESCAPE_NAMES:
                 economy += 1.15 * cross_start + 0.70 * land_f * land_f_value
                 survival += 0.18 * distress_level
                 combo += 0.35 * token_combo
                 reasons.append("v3_route_loop")
-            if character_name in {"박수", "만신", "교리 감독관", "교리 연구관"}:
+            if character_name in ({CARD_TO_NAMES[6][0], CARD_TO_NAMES[6][1]} | self._DOCTRINE_NAMES):
                 survival += 0.55 + 0.18 * player.shards + 0.14 * burden_count + 0.18 * distress_level
                 meta += 0.22 * cleanup_pressure
                 reasons.append("v3_cleanup_anchor")
-            if character_name == "박수":
+            if is_baksu(character_name):
                 if player.shards >= 6:
                     combo += 0.95
                     reasons.append("v3_baksu_checkpoint")
@@ -573,23 +563,23 @@ class BasePolicy:
                 else:
                     economy += 0.10 * max(0, 5 - player.shards)
                     survival += 0.08 * max(0, 5 - player.shards)
-            if character_name == "아전":
+            if is_ajeon(character_name):
                 combo += 0.30 * float(stack_ctx["max_enemy_stack"]) + 0.55 * float(stack_ctx["max_enemy_owned_stack"]) + 0.12 * mobility_leverage
                 if stack_ctx["max_enemy_owned_stack"] > 0:
                     reasons.append("v3_ajeon_burst_window")
-            if character_name == "객주":
+            if is_gakju(character_name):
                 economy += 0.55 * float(lap_ctx["fast_window"]) + 0.45 * float(lap_ctx["rich_pool"])
                 combo += 0.28 * float(lap_ctx["double_lap_threat"]) + 0.10 * mobility_leverage
                 if lap_ctx["fast_window"] > 0.0 or lap_ctx["double_lap_threat"] > 0.0:
                     reasons.append("v3_gakju_lap_engine")
-            if character_name == "만신":
+            if is_mansin(character_name):
                 if player.shards >= 8:
                     combo += 0.85
                     reasons.append("v3_manshin_checkpoint")
                 else:
                     economy += 0.08 * max(0, 7 - player.shards)
                     survival += 0.10 * max(0, 7 - player.shards)
-            if character_name in {"중매꾼", "건설업자", "사기꾼"}:
+            if character_name in {CARD_TO_NAMES[7][1], CARD_TO_NAMES[8][0], CARD_TO_NAMES[8][1]}:
                 expansion += 0.20 * max(0.0, buy_value)
                 if reserve_gap > 0.0 or cleanup_pressure >= 1.8 or money_distress >= 1.0:
                     expansion -= 0.85 + 0.24 * reserve_gap + 0.16 * cleanup_pressure + 0.20 * max(0.0, money_distress - 1.0)
@@ -598,11 +588,11 @@ class BasePolicy:
                 elif own_land > 0.15 or token_window >= 1.25:
                     combo += 0.35
                     reasons.append("v3_expand_into_revisit")
-            if token_window >= 1.20 and character_name in {"객주", "파발꾼", "교리 연구관", "교리 감독관", "박수"}:
+            if token_window >= 1.20 and character_name in ({CARD_TO_NAMES[7][0], CARD_TO_NAMES[4][0], CARD_TO_NAMES[6][0]} | self._DOCTRINE_NAMES):
                 combo += 0.48 + 0.14 * token_window + 0.10 * distress_level
                 reasons.append("v3_token_window")
             if legal_visible_burden_total > 0.0 and (top_threat.cash if top_threat else 0) >= 0:
-                if character_name in {"박수", "만신", "산적", "자객", "추노꾼"}:
+                if character_name in {CARD_TO_NAMES[6][0], CARD_TO_NAMES[6][1], CARD_TO_NAMES[2][1], CARD_TO_NAMES[2][0], CARD_TO_NAMES[3][0]}:
                     disruption += 0.35 + 0.10 * legal_visible_burden_total + 0.06 * distress_level
                     reasons.append("v3_burden_attack_timing")
 
@@ -614,11 +604,11 @@ class BasePolicy:
             survival -= 0.55 * reserve_gap
             reasons.append(f"cash_dry={reserve_gap:.2f}")
         if profile == "control":
-            if reserve_gap > 0.0 and character_name in {"자객", "산적", "추노꾼"}:
+            if reserve_gap > 0.0 and character_name in {CARD_TO_NAMES[2][0], CARD_TO_NAMES[2][1], CARD_TO_NAMES[3][0]}:
                 disruption -= 0.35 * reserve_gap
                 survival -= 0.20 * reserve_gap
                 reasons.append("control_avoids_costly_denial_when_dry")
-            if reserve_gap <= 1.0 and character_name in {"사기꾼", "객주", "파발꾼", "탈출 노비"}:
+            if reserve_gap <= 1.0 and character_name in {CARD_TO_NAMES[8][1], CARD_TO_NAMES[7][0], CARD_TO_NAMES[4][0], CARD_TO_NAMES[3][1]}:
                 survival += 0.20
                 economy += 0.15
                 reasons.append("control_low_cost_stability")
@@ -629,7 +619,7 @@ class BasePolicy:
             expansion -= 0.45 * reserve_gap
             survival -= 0.25 * reserve_gap
             reasons.append("expansion_cash_drag")
-        if character_name in {"박수", "만신", "객주"} and liquidity["own_burden_cost"] > 0.0:
+        if character_name in {CARD_TO_NAMES[6][0], CARD_TO_NAMES[6][1], CARD_TO_NAMES[7][0]} and liquidity["own_burden_cost"] > 0.0:
             survival += 0.25 * liquidity["own_burden_cost"]
             reasons.append("burden_liquidity_cover")
         mark_risk, mark_reasons = self._public_mark_risk_breakdown(state, player, character_name)
@@ -664,16 +654,16 @@ class BasePolicy:
             if denial_snapshot["near_end"]:
                 score += 1.0
                 reasons.append("near_end_target")
-        if actor_name == "자객":
+        if is_assassin(actor_name):
             if "expansion" in tags or "geo" in tags or "combo_ready" in tags:
                 score += 3.0
                 reasons.append("prevent_big_turn")
-        elif actor_name == "산적":
+        elif is_bandit(actor_name):
             score += 0.25 * target.cash + 0.5 * player.shards
             if target.cash <= max(0, player.shards + 3):
                 score += 1.5
                 reasons.append("near_bankrupt_after_raid")
-        elif actor_name == "추노꾼":
+        elif is_chunokkun(actor_name):
             score += 0.8 * self._expected_buy_value(state, player)
             landing_owner = state.tile_owner[player.position]
             if landing_owner is not None and landing_owner != target.player_id:
@@ -682,12 +672,12 @@ class BasePolicy:
             if state.board[player.position] in {CellKind.F1, CellKind.F2, CellKind.S, CellKind.MALICIOUS}:
                 score += 1.2
                 reasons.append("force_special_tile")
-        elif actor_name == "박수":
+        elif is_baksu(actor_name):
             burden = sum(1 for c in player.trick_hand if c.name in {"무거운 짐", "가벼운 짐"})
             target_burden = self._visible_burden_count(player, target)
             score += 1.1 * burden + 0.9 * target_burden + 0.16 * max(0, 12 - target.cash)
             reasons.append("dump_burdens")
-        elif actor_name == "만신":
+        elif is_mansin(actor_name):
             burden = self._visible_burden_count(player, target)
             score += 2.1 * burden + 0.14 * max(0, 14 - target.cash)
             reasons.append("clear_target_burdens")
@@ -774,17 +764,17 @@ class BasePolicy:
                 score = -1.0
             if self._is_v2_mode():
                 current = player.current_character
-                if card.name in {"무료 증정", "마당발"} and current in {"중매꾼", "건설업자"}:
+                if card.name in {"무료 증정", "마당발"} and (is_matchmaker(current) or is_builder(current)):
                     score += 2.0
-                if card.name == "극심한 분리불안" and current in {"사기꾼", "객주"}:
+                if card.name == "극심한 분리불안" and (is_swindler(current) or is_gakju(current)):
                     score += 2.0
-                if card.name in {"과속", "이럇!", "도움 닫기"} and current == "파발꾼":
+                if card.name in {"과속", "이럇!", "도움 닫기"} and is_pabalggun(current):
                     score += 1.6
-                if card.name == "성물 수집가" and current in {"산적", "아전", "탐관오리"}:
+                if card.name == "성물 수집가" and (is_bandit(current) or is_ajeon(current) or is_tamgwanori(current)):
                     score += 1.7
                 if card.name == "번뜩임" and (sum(1 for c in hand if c.name in {"무거운 짐", "가벼운 짐"}) >= 2 or any(c.name not in {"무거운 짐", "가벼운 짐"} for c in hand)):
                     score += 1.0
-                if card.name in {"재뿌리기", "긴장감 조성"} and current in {"자객", "산적", "추노꾼"}:
+                if card.name in {"재뿌리기", "긴장감 조성"} and (is_assassin(current) or is_bandit(current) or is_chunokkun(current)):
                     score += 1.2
             details[card.name] = round(score, 3)
             if score > best_score:
@@ -896,10 +886,10 @@ class BasePolicy:
         raise NotImplementedError
 
     def _escape_package_names(self) -> set[str]:
-        return {"박수", "만신", "탈출 노비"}
+        return escape_package_names()
 
     def _marker_package_names(self) -> set[str]:
-        return {"교리 연구관", "교리 감독관"}
+        return marker_package_names()
 
     def _lap_reward_bundle(self, state: GameState, cash_unit_score: float, shard_unit_score: float, coin_unit_score: float, preferred: str | None = None) -> LapRewardDecision:
         rules = state.config.rules.lap_reward
@@ -950,7 +940,7 @@ class BasePolicy:
         if not rescue_pressure and not urgent_denial and controller_need <= 0.0:
             return bonus
         rescue_names = self._escape_package_names()
-        direct_denial_names = {"자객", "산적", "추노꾼", "사기꾼", "박수", "만신", "어사"}
+        direct_denial_names = self._DISRUPTION_NAMES
         marker_names = self._marker_package_names()
         available_markers = [name for name in candidate_names if name in marker_names]
         if not available_markers:
@@ -1014,17 +1004,17 @@ class BasePolicy:
         if self._is_v2_mode():
             cross_start = self._will_cross_start(state, player)
             land_f = self._will_land_on_f(state, player)
-            coin_score = (1.8 if actor_name in {"객주"} else 0.8) + 0.8 * cross_start
-            if actor_name == "중매꾼":
+            coin_score = (1.8 if is_gakju(actor_name) else 0.8) + 0.8 * cross_start
+            if is_matchmaker(actor_name):
                 coin_score += 0.55 + 0.25 * self._matchmaker_adjacent_value(state, player)
-            elif actor_name == "건설업자":
+            elif is_builder(actor_name):
                 coin_score += 0.70 + 0.40 * self._builder_free_purchase_value(state, player)
-            shard_score = (1.8 if actor_name in {"산적", "탐관오리", "아전"} else 0.6) + max(0.0, 0.7 * land_f * float(f_ctx["land_f_value"]))
-            if actor_name == "중매꾼" and player.shards < 2:
+            shard_score = (1.8 if (is_bandit(actor_name) or is_tamgwanori(actor_name) or is_ajeon(actor_name)) else 0.6) + max(0.0, 0.7 * land_f * float(f_ctx["land_f_value"]))
+            if is_matchmaker(actor_name) and player.shards < 2:
                 shard_score += 0.80
-            if actor_name == "박수" and self._failed_mark_fallback_metrics(player, 6)[0] > 0:
+            if is_baksu(actor_name) and self._failed_mark_fallback_metrics(player, 6)[0] > 0:
                 shard_score += 0.35
-            if actor_name == "만신" and self._failed_mark_fallback_metrics(player, 8)[0] > 0:
+            if is_mansin(actor_name) and self._failed_mark_fallback_metrics(player, 8)[0] > 0:
                 shard_score += 0.20
             cash_score = 0.5 + 0.25 * max(0, 9 - player.cash)
             cash_score += 1.75 * money_distress + 2.60 * two_turn_lethal + 0.55 * controller_need + 0.36 * burden_cost + 0.95 * cleanup_cash_gap + 0.55 * latent_cleanup_cost + 0.70 * expected_cleanup_cost + 0.35 * float(survival_ctx.get("downside_expected_cleanup_cost", 0.0))
@@ -1049,7 +1039,7 @@ class BasePolicy:
             return max([("cash", cash_score), ("shards", shard_score), ("coins", coin_score)], key=lambda x: x[1])[0]
         if player.cash < 8 or money_distress >= 0.95 or two_turn_lethal >= 0.16 or not bool(f_ctx["is_leader"]):
             return "cash"
-        if actor_name in {"산적", "탐관오리", "아전"}:
+        if is_bandit(actor_name) or is_tamgwanori(actor_name) or is_ajeon(actor_name):
             return "shards"
         return "coins"
 
@@ -1061,6 +1051,13 @@ class HeuristicPolicy(BasePolicy):
     PROFILE_REGISTRY = DEFAULT_PROFILE_REGISTRY
     character_values = PROFILE_REGISTRY.default_character_values
     V2_PROFILES = PROFILE_REGISTRY.profile_keys()
+
+    _GROWTH_NAMES = growth_package_names()
+    _ECONOMY_NAMES = economy_package_names()
+    _DISRUPTION_NAMES = disruption_package_names()
+    _DOCTRINE_NAMES = doctrine_package_names()
+    _ESCAPE_NAMES = escape_package_names()
+    _MARKER_NAMES = marker_package_names()
     VALID_CHARACTER_POLICIES = PROFILE_REGISTRY.valid_character_modes()
     VALID_LAP_POLICIES = PROFILE_REGISTRY.valid_lap_modes()
     PROFILE_WEIGHTS = PROFILE_REGISTRY.profile_weights
@@ -2166,9 +2163,9 @@ class HeuristicPolicy(BasePolicy):
             expansion_need += 0.45 * monopoly["own_claimable_blocks"]
         if leader.tiles_owned >= 6:
             expansion_need += 0.35 * max(1.0, leader.tiles_owned - 5.0)
-        add({"중매꾼", "건설업자"}, expansion_need, "leader_needs_expansion")
+        add(self._GROWTH_NAMES & {CARD_TO_NAMES[7][1], CARD_TO_NAMES[8][0]}, expansion_need, "leader_needs_expansion")
         if expansion_need > 0.0:
-            add({"사기꾼"}, 0.65 * expansion_need + 0.35 * monopoly["contested_blocks"], "leader_needs_takeover")
+            add({CARD_TO_NAMES[8][1]}, 0.65 * expansion_need + 0.35 * monopoly["contested_blocks"], "leader_needs_takeover")
 
         escape_need = 0.0
         if cross_start > 0.22 or land_f > 0.16:
@@ -2187,7 +2184,7 @@ class HeuristicPolicy(BasePolicy):
                 escape_need += 0.55 + 0.55 * cross_start
             if land_f > 0.12:
                 escape_need += 0.20 + 0.45 * land_f
-        add({"객주"}, escape_need, "leader_needs_lap_cash")
+        add({CARD_TO_NAMES[7][0]}, escape_need, "leader_needs_lap_cash")
         if is_gakju(leader.current_character):
             gakju_engine_core = (
                 0.90
@@ -2196,8 +2193,8 @@ class HeuristicPolicy(BasePolicy):
                 + 0.45 * float(leader_lap_ctx["rich_pool"])
                 + (0.55 if cross_start > 0.18 else 0.0)
             )
-            add({"객주"}, gakju_engine_core, "leader_gakju_engine_core")
-        add({"파발꾼", "탈출 노비"}, 0.82 * escape_need, "leader_needs_mobility_escape")
+            add({CARD_TO_NAMES[7][0]}, gakju_engine_core, "leader_gakju_engine_core")
+        add({CARD_TO_NAMES[4][0], CARD_TO_NAMES[3][1]}, 0.82 * escape_need, "leader_needs_mobility_escape")
 
         burden_need = 0.0
         own_burdens = leader_burden["own_burdens"]
@@ -2207,13 +2204,13 @@ class HeuristicPolicy(BasePolicy):
         if cleanup_pressure >= 2.5:
             burden_need += 0.35 * cleanup_pressure
         if burden_need > 0.0:
-            add({"박수"}, burden_need, "leader_needs_burden_dump")
-            add({"만신"}, 0.7 * burden_need + 0.2 * leader_burden["legal_visible_burden_total"], "leader_needs_burden_cleanup")
-            add({"객주", "탈출 노비"}, 0.18 * burden_need, "leader_needs_buffer_after_burden")
+            add({CARD_TO_NAMES[6][0]}, burden_need, "leader_needs_burden_dump")
+            add({CARD_TO_NAMES[6][1]}, 0.7 * burden_need + 0.2 * leader_burden["legal_visible_burden_total"], "leader_needs_burden_cleanup")
+            add({CARD_TO_NAMES[7][0], CARD_TO_NAMES[3][1]}, 0.18 * burden_need, "leader_needs_buffer_after_burden")
 
         if leader.shards >= 4:
             shard_need = 0.45 + 0.12 * leader.shards
-            add({"산적", "탐관오리", "아전"}, shard_need, "leader_needs_shard_conversion")
+            add({CARD_TO_NAMES[2][1], CARD_TO_NAMES[1][1], CARD_TO_NAMES[4][1]}, shard_need, "leader_needs_shard_conversion")
 
         return weights, reasons
 
@@ -2222,7 +2219,7 @@ class HeuristicPolicy(BasePolicy):
         opportunities: dict[int, dict[str, float | str]] = {}
         best_score = 0.0
         best_card: Optional[int] = None
-        denial_faces = {"자객", "산적", "추노꾼", "어사", "교리 연구관", "교리 감독관"}
+        denial_faces = self._DISRUPTION_NAMES | self._DOCTRINE_NAMES
         for card_no, (a, b) in CARD_TO_NAMES.items():
             current = state.active_by_card[card_no]
             flipped = b if current == a else a
@@ -2231,7 +2228,7 @@ class HeuristicPolicy(BasePolicy):
             delta = current_need - flipped_need
             score = delta
             if score > 0.0 and flipped in denial_faces:
-                score += 0.45 if flipped in {"자객", "산적", "추노꾼", "어사"} else 0.25
+                score += 0.45 if flipped in self._DISRUPTION_NAMES else 0.25
             opportunities[card_no] = {
                 "current": current,
                 "flipped": flipped,
@@ -2278,51 +2275,51 @@ class HeuristicPolicy(BasePolicy):
         score = self.character_values.get(target_name, 0.0)
         reasons = [f"public_base={score:.1f}"]
         target_attr = CHARACTERS[target_name].attribute if target_name in CHARACTERS else ""
-        growth_like = {"객주", "중매꾼", "건설업자", "파발꾼", "사기꾼"}
-        economy_like = {"탐관오리", "아전", "객주", "중매꾼", "건설업자"}
-        disruption_like = {"자객", "산적", "추노꾼", "박수", "만신", "어사"}
-        if actor_name == "자객":
+        growth_like = self._GROWTH_NAMES
+        economy_like = self._ECONOMY_NAMES
+        disruption_like = self._DISRUPTION_NAMES
+        if is_assassin(actor_name):
             if target_attr == "무뢰":
                 score += 0.8
                 reasons.append("reveal_muroe")
             if target_name in growth_like:
                 score += 1.4
                 reasons.append("public_growth_threat")
-        elif actor_name == "산적":
+        elif is_bandit(actor_name):
             score += 0.2 * player.shards
             reasons.append("bandit_shard_scale")
             if target_name in economy_like:
                 score += 1.2
                 reasons.append("public_economy_target")
-        elif actor_name == "추노꾼":
+        elif is_chunokkun(actor_name):
             if target_name in growth_like | economy_like:
                 score += 1.0
                 reasons.append("public_pull_value")
             if state.board[player.position] in {CellKind.F1, CellKind.F2, CellKind.S, CellKind.MALICIOUS}:
                 score += 0.8
                 reasons.append("force_special_tile")
-        elif actor_name == "박수":
+        elif is_baksu(actor_name):
             if target_name in growth_like:
                 score += 0.8
                 reasons.append("public_burden_dump_target")
-        elif actor_name == "만신":
+        elif is_mansin(actor_name):
             if target_name in disruption_like:
                 score += 0.8
                 reasons.append("public_cleanup_target")
         if self._profile_from_mode() == "control":
-            if actor_name == "산적":
+            if is_bandit(actor_name):
                 if target_name in economy_like | growth_like:
                     score += 1.0
                     reasons.append("control_profit_bandit_target")
-            elif actor_name == "박수":
+            elif is_baksu(actor_name):
                 if target_name in growth_like | economy_like:
                     score += 1.2
                     reasons.append("control_profit_burden_target")
-            elif actor_name == "만신":
+            elif is_mansin(actor_name):
                 if target_name in growth_like | economy_like:
                     score += 1.0
                     reasons.append("control_profit_cleanup_target")
-            elif actor_name == "추노꾼":
+            elif is_chunokkun(actor_name):
                 if target_name in growth_like | economy_like:
                     score += 0.9
                     reasons.append("control_profit_pull_target")
@@ -2456,17 +2453,17 @@ class HeuristicPolicy(BasePolicy):
         for target in legal_targets:
             value = 0.0
             visible_burden = self._visible_burden_count(player, target)
-            if actor_name == "산적":
+            if is_bandit(actor_name):
                 value += 0.18 * target.cash + 0.55 * player.shards + 0.35 * max(0.0, target.tiles_owned - 2.0)
-            elif actor_name == "박수":
+            elif is_baksu(actor_name):
                 value += 1.15 * visible_burden + 0.22 * max(0.0, 10.0 - target.cash) + 0.18 * max(0.0, target.tiles_owned - 2.0)
-            elif actor_name == "만신":
+            elif is_mansin(actor_name):
                 value += 1.45 * visible_burden + 0.18 * max(0.0, 12.0 - target.cash) + 0.14 * target.tiles_owned
-            elif actor_name == "추노꾼":
+            elif is_chunokkun(actor_name):
                 value += 0.45 * target.tiles_owned + 0.18 * target.cash
                 if state.board[player.position] in {CellKind.F1, CellKind.F2, CellKind.S, CellKind.MALICIOUS}:
                     value += 0.75
-            elif actor_name == "자객":
+            elif is_assassin(actor_name):
                 value += 0.20 * target.tiles_owned + 0.12 * target.cash + 0.55 * len(target.pending_marks)
             values.append(value)
         best = max(values) if values else 0.0
@@ -2576,16 +2573,18 @@ class HeuristicPolicy(BasePolicy):
         expected_loss = rent_metrics["hit_prob"] * rent_metrics["avg_cost"]
         worst_loss = rent_metrics["peak_cost"]
         active_names = {name for name in state.active_by_card.values() if name}
-        if known_character and "추노꾼" in active_names and character_name != "추노꾼":
-            exposure = self._mark_priority_exposure_factor("추노꾼", character_name)
-            profile = max(0.55, self._mark_target_profile_factor("추노꾼", character_name))
+        hunter_name = CARD_TO_NAMES[3][0]
+        bandit_name = CARD_TO_NAMES[2][1]
+        if known_character and hunter_name in active_names and not is_chunokkun(character_name):
+            exposure = self._mark_priority_exposure_factor(hunter_name, character_name)
+            profile = max(0.55, self._mark_target_profile_factor(hunter_name, character_name))
             if exposure > 0.0:
                 enemy_peak = max(self._enemy_rent_costs(state, player) or [0])
                 expected_loss += enemy_peak * 0.28 * exposure * profile
                 worst_loss = max(worst_loss, enemy_peak * exposure)
-        if known_character and "산적" in active_names and character_name != "산적":
-            exposure = self._mark_priority_exposure_factor("산적", character_name)
-            profile = max(0.55, self._mark_target_profile_factor("산적", character_name))
+        if known_character and bandit_name in active_names and not is_bandit(character_name):
+            exposure = self._mark_priority_exposure_factor(bandit_name, character_name)
+            profile = max(0.55, self._mark_target_profile_factor(bandit_name, character_name))
             if exposure > 0.0:
                 enemy_bandit_shards = max((p.shards for p in state.players if p.alive and is_bandit(p.current_character) and p.player_id != player.player_id), default=0)
                 expected_loss += enemy_bandit_shards * 0.35 * exposure * profile
@@ -2718,33 +2717,36 @@ class HeuristicPolicy(BasePolicy):
             name = opponent.current_character
             if not is_active_money_drain_character(name):
                 continue
-            if name == "탐관오리" and my_attr in {"관원", "상민"}:
+            if is_tamgwanori(name) and my_attr in {"관원", "상민"}:
                 contribution = 0.55 + 0.18 * max(1.0, float(opponent.shards)) + 0.08 * max(0.0, float(player.shards))
                 pressure += contribution
                 reasons.append(f"탐관오리:{contribution:.2f}")
-            elif name == "산적":
-                exposure = self._mark_priority_exposure_factor("산적", actor_name) if actor_name in CHARACTERS else 0.65
-                profile = max(0.55, self._mark_target_profile_factor("산적", actor_name)) if actor_name in CHARACTERS else 0.70
+            elif is_bandit(name):
+                bandit_name = CARD_TO_NAMES[2][1]
+                exposure = self._mark_priority_exposure_factor(bandit_name, actor_name) if actor_name in CHARACTERS else 0.65
+                profile = max(0.55, self._mark_target_profile_factor(bandit_name, actor_name)) if actor_name in CHARACTERS else 0.70
                 contribution = (0.45 + 0.16 * float(opponent.shards) + 0.08 * max(0.0, float(player.cash) - 6.0)) * exposure * profile
                 pressure += contribution
-                reasons.append(f"산적:{contribution:.2f}")
-            elif name == "추노꾼":
-                exposure = self._mark_priority_exposure_factor("추노꾼", actor_name) if actor_name in CHARACTERS else 0.65
-                profile = max(0.55, self._mark_target_profile_factor("추노꾼", actor_name)) if actor_name in CHARACTERS else 0.70
+                reasons.append(f"{bandit_name}:{contribution:.2f}")
+            elif is_chunokkun(name):
+                hunter_name = CARD_TO_NAMES[3][0]
+                exposure = self._mark_priority_exposure_factor(hunter_name, actor_name) if actor_name in CHARACTERS else 0.65
+                profile = max(0.55, self._mark_target_profile_factor(hunter_name, actor_name)) if actor_name in CHARACTERS else 0.70
                 contribution = (0.65 + 0.04 * float(enemy_peak_cost)) * exposure * profile
                 pressure += contribution
-                reasons.append(f"추노꾼:{contribution:.2f}")
-            elif name == "아전":
+                reasons.append(f"{hunter_name}:{contribution:.2f}")
+            elif is_ajeon(name):
                 same_tile_others = sum(1 for p in state.players if p.alive and p.player_id not in {player.player_id, opponent.player_id} and p.position == player.position)
                 contribution = 0.30 + 0.10 * float(opponent.shards) + 0.18 * float(same_tile_others)
                 pressure += contribution
                 reasons.append(f"아전:{contribution:.2f}")
-            elif name == "만신" and own_burden_cost > 0:
-                exposure = self._mark_priority_exposure_factor("만신", actor_name) if actor_name in CHARACTERS else 0.60
-                profile = max(0.55, self._mark_target_profile_factor("만신", actor_name)) if actor_name in CHARACTERS else 0.70
+            elif is_mansin(name) and own_burden_cost > 0:
+                manshin_name = CARD_TO_NAMES[6][1]
+                exposure = self._mark_priority_exposure_factor(manshin_name, actor_name) if actor_name in CHARACTERS else 0.60
+                profile = max(0.55, self._mark_target_profile_factor(manshin_name, actor_name)) if actor_name in CHARACTERS else 0.70
                 contribution = (0.35 + 0.20 * float(own_burden_cost)) * exposure * profile
                 pressure += contribution
-                reasons.append(f"만신:{contribution:.2f}")
+                reasons.append(f"{manshin_name}:{contribution:.2f}")
             visible = self._visible_trick_names(player, opponent)
             if visible & {"느슨함 혐오자", "극도의 느슨함 혐오자"}:
                 pressure += 0.25
@@ -2815,7 +2817,7 @@ class HeuristicPolicy(BasePolicy):
             + 0.25 * max(0.0, float(burden_context.get("expected_cleanup_gap", 0.0)) / 4.0)
             + 0.90 * max(0.0, float(burden_context.get("cleanup_cash_gap", 0.0)) / 4.0)
         )
-        if actor_name == "박수" and player.shards >= 6:
+        if is_baksu(actor_name) and player.shards >= 6:
             checkpoint_relief = 0.52 if player.shards >= 8 else 0.68
             hazard_score = max(0.0, hazard_score - (0.55 if player.shards < 8 else 0.95))
             cleanup_distress *= checkpoint_relief
@@ -2991,10 +2993,10 @@ class HeuristicPolicy(BasePolicy):
 
     def _survival_policy_character_advice(self, state: GameState, player: PlayerState, character_name: str, orchestrator: SurvivalOrchestratorState) -> tuple[float, list[str], bool, dict[str, object]]:
         purchase_floor = self._reachable_purchase_floor(state, player)
-        swindle_floor = self._reachable_swindle_floor(state, player) if character_name == "사기꾼" else None
+        swindle_floor = self._reachable_swindle_floor(state, player) if is_swindler(character_name) else None
         advice = evaluate_character_survival_advice(
             state=orchestrator,
-            is_growth=character_name in {"중매꾼", "건설업자", "사기꾼"},
+            is_growth=bool(character_name and character_name in self._GROWTH_NAMES),
             is_income=is_low_cash_income_character(character_name) or is_low_cash_escape_character(character_name),
             is_controller=is_low_cash_controller_character(character_name),
             is_cleanup=is_cleanup_character(character_name),
@@ -3103,7 +3105,7 @@ class HeuristicPolicy(BasePolicy):
         swindle_floor = self._reachable_swindle_floor(state, player)
         cleanup_strategy = self._cleanup_strategy_context(survival_ctx, player)
 
-        if character_name in {"중매꾼", "건설업자"}:
+        if is_matchmaker(character_name) or is_builder(character_name):
             operating_floor = reserve + (growth_floor if growth_floor is not None else 4.0)
             shortage = max(0.0, operating_floor - player.cash)
             if shortage > 0.0:
@@ -3118,7 +3120,7 @@ class HeuristicPolicy(BasePolicy):
                 penalty = 1.10 * money_distress + (0.55 if needs_income else 0.0)
                 adjustment -= penalty
                 reasons.append(f"growth_money_distress={penalty:.2f}")
-            if character_name == "중매꾼":
+            if is_matchmaker(character_name):
                 adjacent_value = self._matchmaker_adjacent_value(state, player)
                 if adjacent_value > 0.0:
                     bonus = 0.55 * adjacent_value
@@ -3130,7 +3132,7 @@ class HeuristicPolicy(BasePolicy):
                     penalty = 0.45 + 0.10 * min(5.0, growth_floor)
                     adjustment -= penalty
                     reasons.append(f"matchmaker_no_shard_adjacent={penalty:.2f}")
-            elif character_name == "건설업자":
+            elif is_builder(character_name):
                 build_value = self._builder_free_purchase_value(state, player)
                 if build_value > 0.0:
                     bonus = 0.90 + 0.65 * build_value
@@ -3140,7 +3142,7 @@ class HeuristicPolicy(BasePolicy):
                     penalty = 0.30
                     adjustment -= penalty
                     reasons.append(f"builder_no_free_build={penalty:.2f}")
-        elif character_name == "사기꾼":
+        elif is_swindler(character_name):
             if swindle_floor is None:
                 penalty = 1.4 + 0.60 * urgency
                 adjustment -= penalty
@@ -3180,7 +3182,7 @@ class HeuristicPolicy(BasePolicy):
         latent_cleanup_cost = float(survival_ctx.get("latent_cleanup_cost", 0.0))
         expected_cleanup_cost = float(survival_ctx.get("expected_cleanup_cost", 0.0))
         own_burden_cost = float(survival_ctx.get("own_burden_cost", 0.0))
-        if character_name == "박수" and own_burden_cost > 0.0:
+        if is_baksu(character_name) and own_burden_cost > 0.0:
             bonus = 1.20 + 0.35 * own_burden_cost + 0.55 * min(3.0, burden_cleanup_gap) + 0.30 * float(survival_ctx.get("public_cleanup_active", 0.0))
             if player.shards >= 6:
                 bonus += 1.60
@@ -3191,22 +3193,22 @@ class HeuristicPolicy(BasePolicy):
                 bonus += 0.55 * removed + 0.12 * payout
             adjustment += bonus
             reasons.append(f"burden_escape_value={bonus:.2f}")
-        if character_name == "만신" and own_burden_cost > 0.0:
+        if is_mansin(character_name) and own_burden_cost > 0.0:
             bonus = 0.80 + 0.22 * own_burden_cost + 0.35 * min(3.0, burden_cleanup_gap)
             removed, payout = self._failed_mark_fallback_metrics(player, 8)
             if removed > 0:
                 bonus += 0.45 * removed + 0.10 * payout
             adjustment += bonus
             reasons.append(f"burden_cleanup_value={bonus:.2f}")
-        if latent_cleanup_cost >= max(8.0, reserve + 2.0) and character_name in {"중매꾼", "건설업자", "사기꾼"}:
+        if latent_cleanup_cost >= max(8.0, reserve + 2.0) and (is_matchmaker(character_name) or is_builder(character_name) or is_swindler(character_name)):
             penalty = 0.90 + 0.12 * latent_cleanup_cost + 0.30 * urgency
             adjustment -= penalty
             reasons.append(f"cleanup_growth_lock={penalty:.2f}")
-        if cleanup_strategy.growth_locked and character_name in {"중매꾼", "건설업자", "사기꾼"}:
+        if cleanup_strategy.growth_locked and (is_matchmaker(character_name) or is_builder(character_name) or is_swindler(character_name)):
             penalty = 0.70 + 0.35 * cleanup_strategy.stage_score
             adjustment -= penalty
             reasons.append(f"cleanup_strategy_growth_lock={penalty:.2f}")
-        if urgency >= 2.0 and character_name in {"중매꾼", "건설업자", "사기꾼"}:
+        if urgency >= 2.0 and (is_matchmaker(character_name) or is_builder(character_name) or is_swindler(character_name)):
             panic_penalty = 1.85 + 0.35 * urgency
             adjustment -= panic_penalty
             reasons.append(f"panic_growth_lock={panic_penalty:.2f}")
@@ -3214,7 +3216,7 @@ class HeuristicPolicy(BasePolicy):
             reserve_bonus = 0.30 * reserve_gap
             adjustment += reserve_bonus
             reasons.append(f"reserve_escape_bias={reserve_bonus:.2f}")
-        if float(survival_ctx.get("two_turn_lethal_prob", 0.0)) >= 0.18 and character_name in {"중매꾼", "건설업자"}:
+        if float(survival_ctx.get("two_turn_lethal_prob", 0.0)) >= 0.18 and (is_matchmaker(character_name) or is_builder(character_name)):
             penalty = 0.80 + 1.80 * float(survival_ctx["two_turn_lethal_prob"])
             adjustment -= penalty
             reasons.append(f"two_turn_growth_lock={penalty:.2f}")
@@ -3276,14 +3278,14 @@ class HeuristicPolicy(BasePolicy):
         adjustment = 0.0
         strategic_mode = float(decisive_ctx.get("strategic_mode", 0.0))
         if strategic_mode <= 0.0:
-            if card.name in {"무료 증정", "마당발"} and (actor in {"중매꾼", "건설업자"} or {"무료 증정", "마당발"}.issubset(names)):
+            if card.name in {"무료 증정", "마당발"} and ((is_matchmaker(actor) or is_builder(actor)) or {"무료 증정", "마당발"}.issubset(names)):
                 adjustment -= 0.85
             if card.name in {"과속", "이럇!", "도움 닫기", "극심한 분리불안"}:
                 adjustment -= 0.55
-            if card.name in {"성물 수집가", "무역의 선물"} and actor in {"산적", "아전", "탐관오리"}:
+            if card.name in {"성물 수집가", "무역의 선물"} and (is_bandit(actor) or is_ajeon(actor) or is_tamgwanori(actor)):
                 adjustment -= 0.30
         if float(survival_ctx.get("survival_urgency", 0.0)) < 1.0 and float(survival_ctx.get("cleanup_cash_gap", 0.0)) <= 0.0:
-            if card.name in {"도움 닫기", "극심한 분리불안"} and actor in {"객주", "사기꾼"}:
+            if card.name in {"도움 닫기", "극심한 분리불안"} and (is_gakju(actor) or is_swindler(actor)):
                 adjustment -= 0.35
         return adjustment
 
@@ -3436,9 +3438,10 @@ class HeuristicPolicy(BasePolicy):
             pressure += corridor_term
             reasons.append(f"rent_corridor={metrics['corridor_density']:.2f}")
         active_names = {name for name in state.active_by_card.values() if name}
-        if known_character and "추노꾼" in active_names and character_name != "추노꾼":
-            exposure = self._mark_priority_exposure_factor("추노꾼", character_name)
-            profile = max(0.55, self._mark_target_profile_factor("추노꾼", character_name))
+        hunter_name = CARD_TO_NAMES[3][0]
+        if known_character and hunter_name in active_names and not is_chunokkun(character_name):
+            exposure = self._mark_priority_exposure_factor(hunter_name, character_name)
+            profile = max(0.55, self._mark_target_profile_factor(hunter_name, character_name))
             if exposure > 0.0:
                 enemy_peak = max(self._enemy_rent_costs(state, player) or [0])
                 hunter_term = exposure * profile * (0.30 + min(1.15, enemy_peak / cash_scale))
@@ -3456,17 +3459,17 @@ class HeuristicPolicy(BasePolicy):
         if pressure <= 0.0:
             return economy, combo, survival
         specials = self._reachable_specials_with_one_short(state, player)
-        if character_name == "파발꾼":
+        if is_pabalggun(character_name):
             survival += 2.35 * pressure + 0.45 * cross_start
             economy += 0.95 * pressure + 0.20 * land_f
             combo += 0.20 * pressure
             reasons.append("rent_escape_courier")
-        elif character_name == "탈출 노비":
+        elif character_name == CARD_TO_NAMES[3][1]:
             survival += 2.05 * pressure + 0.12 * specials
             economy += 0.55 * pressure + 0.10 * specials
             combo += 0.15 * pressure
             reasons.append("rent_escape_slave")
-        elif character_name == "객주":
+        elif is_gakju(character_name):
             survival += 1.70 * pressure + 0.40 * cross_start
             economy += 0.75 * pressure + 0.20 * land_f
             reasons.append("rent_escape_lap")
@@ -3483,13 +3486,13 @@ class HeuristicPolicy(BasePolicy):
             return 0.0
         score_delta = 0.0
         specials = self._reachable_specials_with_one_short(state, player)
-        if character_name == "파발꾼":
+        if is_pabalggun(character_name):
             score_delta += 4.0 * pressure
             reasons.append("rent_escape_courier")
-        elif character_name == "탈출 노비":
+        elif character_name == CARD_TO_NAMES[3][1]:
             score_delta += 3.4 * pressure + 0.15 * specials
             reasons.append("rent_escape_slave")
-        elif character_name == "객주":
+        elif is_gakju(character_name):
             score_delta += 2.8 * pressure
             reasons.append("rent_escape_lap")
         elif character_name in RENT_EXPANSION_CHARACTERS:
@@ -3534,94 +3537,94 @@ class HeuristicPolicy(BasePolicy):
                 near_unowned += 1
         uroe_blocked = self._has_uhsa_alive(state, exclude_player_id=player.player_id) and CHARACTERS[character_name].attribute == "무뢰"
 
-        if low_cash and character_name in {"객주", "아전", "박수", "만신"}:
+        if low_cash and (is_gakju(character_name) or is_ajeon(character_name) or is_baksu(character_name) or is_mansin(character_name)):
             score += 1.8
             reasons.append("low_cash_economy")
-        if very_low_cash and character_name in {"객주", "아전"}:
+        if very_low_cash and (is_gakju(character_name) or is_ajeon(character_name)):
             score += 1.4
             reasons.append("very_low_cash_recovery")
-        if character_name == "건설업자" and very_low_cash and player.shards >= 1:
+        if is_builder(character_name) and very_low_cash and player.shards >= 1:
             score += 1.0
             reasons.append("very_low_cash_free_build")
-        if near_unowned >= 2 and character_name == "중매꾼":
+        if near_unowned >= 2 and is_matchmaker(character_name):
             score += 1.10 + self._matchmaker_adjacent_value(state, player)
             reasons.append("near_unowned_expansion")
-        elif near_unowned >= 1 and character_name == "중매꾼":
+        elif near_unowned >= 1 and is_matchmaker(character_name):
             score += 0.55 + 0.50 * self._matchmaker_adjacent_value(state, player)
             reasons.append("some_expansion_value")
-        if near_unowned >= 2 and character_name == "건설업자":
+        if near_unowned >= 2 and is_builder(character_name):
             score += 0.95 + 0.75 * self._builder_free_purchase_value(state, player)
             reasons.append("near_unowned_expansion")
-        elif near_unowned >= 1 and character_name == "건설업자":
+        elif near_unowned >= 1 and is_builder(character_name):
             score += 0.45 + 0.45 * self._builder_free_purchase_value(state, player)
             reasons.append("some_expansion_value")
-        elif near_unowned >= 1 and character_name == "사기꾼":
+        elif near_unowned >= 1 and is_swindler(character_name):
             score += 0.8
             reasons.append("some_expansion_value")
-        if enemy_tiles >= 4 and character_name in {"사기꾼", "산적", "자객", "추노꾼"}:
+        if enemy_tiles >= 4 and (is_swindler(character_name) or is_bandit(character_name) or is_assassin(character_name) or is_chunokkun(character_name)):
             score += 1.2
             reasons.append("enemy_board_pressure")
-        if character_name == "사기꾼" and scammer["coin_value"] > 0.0:
+        if is_swindler(character_name) and scammer["coin_value"] > 0.0:
             score += 1.1 * scammer["coin_value"] + 0.35 * scammer["best_tile_coins"]
             reasons.append("takeover_coin_swing")
-        if character_name == "사기꾼" and scammer["blocks_enemy_monopoly"] > 0.0:
+        if is_swindler(character_name) and scammer["blocks_enemy_monopoly"] > 0.0:
             score += 1.6 * scammer["blocks_enemy_monopoly"]
             reasons.append("blocks_monopoly_with_coin_swing")
-        if character_name == "사기꾼" and scammer["finishes_own_monopoly"] > 0.0:
+        if is_swindler(character_name) and scammer["finishes_own_monopoly"] > 0.0:
             score += 1.4 * scammer["finishes_own_monopoly"]
             reasons.append("finishes_monopoly_via_takeover")
-        if own_near_complete > 0 and character_name == "중매꾼":
+        if own_near_complete > 0 and is_matchmaker(character_name):
             score += 2.05 * own_near_complete + 0.55 * own_claimable_blocks + 0.30 * self._matchmaker_adjacent_value(state, player)
             reasons.append("monopoly_finish_value")
-        if own_near_complete > 0 and character_name == "건설업자":
+        if own_near_complete > 0 and is_builder(character_name):
             score += 1.85 * own_near_complete + 0.40 * own_claimable_blocks + 0.45 * self._builder_free_purchase_value(state, player)
             reasons.append("monopoly_finish_value")
-        elif own_claimable_blocks > 0 and character_name in {"객주", "파발꾼", "탈출 노비"}:
+        elif own_claimable_blocks > 0 and (is_gakju(character_name) or is_pabalggun(character_name) or is_route_runner_character(character_name)):
             score += 0.8 * own_claimable_blocks
             reasons.append("monopoly_route_value")
-        if enemy_near_complete > 0 and character_name in {"사기꾼", "산적", "자객", "추노꾼"}:
+        if enemy_near_complete > 0 and (is_swindler(character_name) or is_bandit(character_name) or is_assassin(character_name) or is_chunokkun(character_name)):
             score += 1.8 * enemy_near_complete + 0.35 * contested_blocks
             reasons.append("deny_enemy_monopoly")
-        if player.shards >= 4 and character_name in {"산적", "아전"}:
+        if player.shards >= 4 and (is_bandit(character_name) or is_ajeon(character_name)):
             score += 1.0
             reasons.append("shard_synergy")
-        if character_name == "아전":
+        if is_ajeon(character_name):
             ajeon_burst = 0.55 * stack_ctx["max_enemy_stack"] + 0.85 * stack_ctx["max_enemy_owned_stack"] + 0.40 * mobility_leverage
             if ajeon_burst > 0.0:
                 score += ajeon_burst
                 reasons.append("stacked_enemy_burst_window")
-        if own_tile_income >= 2 and character_name == "객주":
+        if own_tile_income >= 2 and is_gakju(character_name):
             score += 1.2
             reasons.append("own_tile_coin_engine")
-        if character_name == "객주":
+        if is_gakju(character_name):
             lap_burst = 1.15 * lap_ctx["fast_window"] + 0.75 * lap_ctx["mobility"] + 1.25 * lap_ctx["rich_pool"] + 0.55 * lap_ctx["double_lap_threat"]
             if lap_burst > 0.0:
                 score += lap_burst
                 reasons.append("lap_engine_window")
-        if character_name == "박수" and own_burden >= 1:
+        if is_baksu(character_name) and own_burden >= 1:
             removed, payout = self._failed_mark_fallback_metrics(player, 6)
             score += 1.7 + 1.20 * own_burden + 0.55 * cleanup_pressure + 0.45 * removed + 0.10 * payout
             reasons.append("future_burden_escape")
             if legal_low_cash_targets > 0:
                 score += 0.35 * legal_low_cash_targets
                 reasons.append("burden_dump_fragile_target")
-        if character_name == "만신" and legal_visible_burden_total > 0:
+        if is_mansin(character_name) and legal_visible_burden_total > 0:
             removed, payout = self._failed_mark_fallback_metrics(player, 8)
             score += 1.4 + 1.15 * legal_visible_burden_total + 0.35 * legal_visible_burden_peak + 0.35 * removed + 0.08 * payout
             reasons.append("public_burden_cleanup")
             if legal_low_cash_targets > 0:
                 score += 0.35 * legal_low_cash_targets
                 reasons.append("cash_fragile_cleanup")
-        elif character_name == "만신" and cleanup_pressure >= 2.5 and has_mark_targets:
+        elif is_mansin(character_name) and cleanup_pressure >= 2.5 and has_mark_targets:
             score += 0.9
             reasons.append("future_fire_insurance")
-        if not has_mark_targets and character_name in {"자객", "산적", "추노꾼", "박수", "만신"}:
+        if not has_mark_targets and (is_assassin(character_name) or is_bandit(character_name) or is_chunokkun(character_name) or is_baksu(character_name) or is_mansin(character_name)):
             score -= 2.8
             reasons.append("no_mark_targets")
-        if self._reachable_specials_with_one_short(state, player) >= 4 and character_name == "탈출 노비":
+        if self._reachable_specials_with_one_short(state, player) >= 4 and is_route_runner_character(character_name) and not is_pabalggun(character_name) and not is_gakju(character_name):
             score += 1.0
             reasons.append("special_tile_reach")
-        if state.marker_owner_id != player.player_id and character_name in {"교리 연구관", "교리 감독관"}:
+        if state.marker_owner_id != player.player_id and is_doctrine_character(character_name):
             score += 0.4
             reasons.append("marker_control_value")
         if uroe_blocked:
@@ -3642,7 +3645,7 @@ class HeuristicPolicy(BasePolicy):
     def _target_score_breakdown(self, state: GameState, player: PlayerState, actor_name: str, target: PlayerState) -> tuple[float, list[str]]:
         score = self.character_values.get(target.current_character, 0.0)
         reasons = [f"target_base={score:.1f}"]
-        if actor_name == "자객":
+        if is_assassin(actor_name):
             score += 0.9 * len(target.pending_marks)
             if target.attribute == "무뢰":
                 score += 0.8
@@ -3650,11 +3653,11 @@ class HeuristicPolicy(BasePolicy):
             if target.tiles_owned >= 2:
                 score += 0.5
                 reasons.append("stall_owner")
-        elif actor_name == "산적":
+        elif is_bandit(actor_name):
             score += 0.7 * player.shards
             score += 0.15 * target.cash
             reasons.append("bandit_shard_scale")
-        elif actor_name == "추노꾼":
+        elif is_chunokkun(actor_name):
             landing_owner = state.tile_owner[player.position]
             if landing_owner is not None and landing_owner != target.player_id:
                 score += 1.6
@@ -3662,12 +3665,12 @@ class HeuristicPolicy(BasePolicy):
             if state.board[player.position] in {CellKind.F1, CellKind.F2, CellKind.S, CellKind.MALICIOUS}:
                 score += 1.0
                 reasons.append("force_special_tile")
-        elif actor_name == "박수":
+        elif is_baksu(actor_name):
             remaining = len(state.config.rules.dice.values) - len(target.used_dice_cards)
             burden = self._visible_burden_count(player, target)
             score += 0.4 * remaining + 0.9 * burden + 0.14 * max(0, 12 - target.cash)
             reasons.append("target_many_cards")
-        elif actor_name == "만신":
+        elif is_mansin(actor_name):
             remaining = len(state.config.rules.dice.values) - len(target.used_dice_cards)
             burden = self._visible_burden_count(player, target)
             score += 0.3 * max(0, 5 - remaining) + 2.0 * burden + 0.12 * max(0, 14 - target.cash)
@@ -3919,17 +3922,17 @@ class HeuristicPolicy(BasePolicy):
             profile = self._profile_from_mode(mode)
             preferred_override: str | None = None
             current_char = player.current_character
-            coin_score = (2.5 if placeable else -0.5) + (1.6 if current_char in {"객주", "사기꾼"} else 0.0) + 1.2 * cross_start
-            if current_char == "중매꾼":
+            coin_score = (2.5 if placeable else -0.5) + (1.6 if (is_gakju(current_char) or is_swindler(current_char)) else 0.0) + 1.2 * cross_start
+            if is_matchmaker(current_char):
                 coin_score += 0.9 + 0.35 * self._matchmaker_adjacent_value(state, player)
-            elif current_char == "건설업자":
+            elif is_builder(current_char):
                 coin_score += 1.00 + 0.55 * self._builder_free_purchase_value(state, player)
-            shard_score = 0.8 + (1.9 if current_char in {"산적", "탐관오리", "아전"} else 0.0) + 0.35 * max(0, 6 - player.shards) + max(0.0, 0.7 * land_f * float(f_ctx["land_f_value"]))
-            if current_char == "중매꾼" and player.shards < 2:
+            shard_score = 0.8 + (1.9 if (is_bandit(current_char) or is_tamgwanori(current_char) or is_ajeon(current_char)) else 0.0) + 0.35 * max(0, 6 - player.shards) + max(0.0, 0.7 * land_f * float(f_ctx["land_f_value"]))
+            if is_matchmaker(current_char) and player.shards < 2:
                 shard_score += 0.75 + 0.20 * max(0, 2 - player.shards)
-            if current_char == "박수":
+            if is_baksu(current_char):
                 shard_score += 0.25 * min(2, player.shards // 5 + 1)
-            if current_char == "만신":
+            if is_mansin(current_char):
                 shard_score += 0.18 * min(2, player.shards // 7 + 1)
             cash_score = 1.2 + 0.4 * max(0, 10 - player.cash)
             if survival_cash_pressure:
@@ -3941,7 +3944,7 @@ class HeuristicPolicy(BasePolicy):
             if not bool(f_ctx["is_leader"]):
                 cash_score += 0.45 + 0.30 * float(f_ctx["avoid_f_acceleration"])
                 shard_score -= 0.35 + 0.20 * float(f_ctx["avoid_f_acceleration"])
-            if current_char == "객주":
+            if is_gakju(current_char):
                 shard_score += max(0.0, 0.9 * land_f * float(f_ctx["land_f_value"]))
                 coin_score += 0.8 * cross_start
             if profile == "control":
@@ -4018,7 +4021,7 @@ class HeuristicPolicy(BasePolicy):
                 distress_level = max(0.0, 10.0 - player.cash) / 4.0 + 0.75 * max(0.0, cleanup_pressure - 1.5) + 1.20 * max(0.0, negative_risk - 0.15)
                 cash_score += 0.52 * max(0.0, 12.0 - player.cash) + 0.28 * float(survival_ctx.get("expected_cleanup_cost", 0.0)) + 0.16 * distress_level
                 shard_score += 0.68 + 0.38 * shard_checkpoint_need + max(0.0, 0.16 * land_f * float(f_ctx["land_f_value"]))
-                if player.current_character not in {"박수", "만신", "산적", "탐관오리", "아전"} and player.shards >= 5:
+                if not (is_baksu(player.current_character) or is_mansin(player.current_character) or is_bandit(player.current_character) or is_tamgwanori(player.current_character) or is_ajeon(player.current_character)) and player.shards >= 5:
                     shard_score -= 0.65 + 0.12 * max(0, player.shards - 5)
                 coin_score += 1.55 + 1.55 * own_land + 0.95 * token_window["window_score"]
                 if token_window["nearest_distance"] <= 4.0:
@@ -4043,7 +4046,7 @@ class HeuristicPolicy(BasePolicy):
                     if (
                         not cleanup_strategy.growth_locked
                         and (
-                            player.current_character not in {"박수", "만신"}
+                            not (is_baksu(player.current_character) or is_mansin(player.current_character))
                             or (is_baksu(player.current_character) and player.shards >= 6)
                             or (is_mansin(player.current_character) and player.shards >= 8)
                         )
@@ -4083,10 +4086,10 @@ class HeuristicPolicy(BasePolicy):
                     cash_score -= 0.20
                     shard_score -= 0.55
                     coin_score += 0.72
-                if current_char in {"객주", "파발꾼"} and cross_start > 0.25:
+                if (is_gakju(current_char) or is_pabalggun(current_char)) and cross_start > 0.25:
                     cash_score += 0.35
                     coin_score += 0.35
-                if current_char == "객주" and cross_start > 0.28 and float(self._lap_engine_context(state, player)["rich_pool"]) > 0.0 and not survival_cash_pressure:
+                if is_gakju(current_char) and cross_start > 0.28 and float(self._lap_engine_context(state, player)["rich_pool"]) > 0.0 and not survival_cash_pressure:
                     coin_score += 0.75
                     cash_score += 0.25
             cash_unit = cash_score / max(1.0, float(state.config.coins.lap_reward_cash))
@@ -4527,10 +4530,10 @@ class HeuristicPolicy(BasePolicy):
         return self._lap_reward_bundle(state, cash_unit, shard_unit, coin_unit, preferred=preferred)
 
     def _escape_package_names(self) -> set[str]:
-        return {"박수", "만신", "탈출 노비"}
+        return escape_package_names()
 
     def _marker_package_names(self) -> set[str]:
-        return {"교리 연구관", "교리 감독관"}
+        return marker_package_names()
 
     def _lap_reward_bundle(self, state: GameState, cash_unit_score: float, shard_unit_score: float, coin_unit_score: float, preferred: str | None = None) -> LapRewardDecision:
         rules = state.config.rules.lap_reward
@@ -4618,7 +4621,7 @@ class HeuristicPolicy(BasePolicy):
         if not rescue_pressure and not urgent_denial and controller_need <= 0.0:
             return bonus
         rescue_names = self._escape_package_names()
-        direct_denial_names = {"자객", "산적", "추노꾼", "사기꾼", "박수", "만신", "어사"}
+        direct_denial_names = {name for name in candidate_names if is_direct_denial_character(name)}
         marker_names = self._marker_package_names()
         available_markers = [name for name in candidate_names if name in marker_names]
         if not available_markers:
@@ -4823,16 +4826,16 @@ class HeuristicPolicy(BasePolicy):
                 deny = 0.0
                 for op in self._alive_enemies(state, player):
                     tags = self._predicted_opponent_archetypes(state, player, op)
-                    if flipped in {"자객", "산적", "객주", "중매꾼", "건설업자"} and ("expansion" in tags or "geo" in tags or "cash_rich" in tags):
+                    if (is_assassin(flipped) or is_bandit(flipped) or is_gakju(flipped) or is_matchmaker(flipped) or is_builder(flipped)) and ("expansion" in tags or "geo" in tags or "cash_rich" in tags):
                         deny += 0.6
-                    if current in {"중매꾼", "건설업자", "객주", "자객"} and ("expansion" in tags or "geo" in tags):
+                    if (is_matchmaker(current) or is_builder(current) or is_gakju(current) or is_assassin(current)) and ("expansion" in tags or "geo" in tags):
                         deny += 0.6
                 if denial_snapshot and denial_snapshot["emergency"] > 0.0:
-                    if flipped in {"자객", "산적", "추노꾼", "사기꾼", "박수", "만신", "어사"}:
+                    if is_direct_denial_character(flipped):
                         deny += 0.9 + 0.25 * float(denial_snapshot["emergency"])
-                    if flipped in {"교리 연구관", "교리 감독관"}:
+                    if is_doctrine_character(flipped):
                         deny += 0.8 + 0.3 * float(denial_snapshot["emergency"])
-                    if current in {"중매꾼", "건설업자", "객주", "파발꾼"} and denial_snapshot["near_end"]:
+                    if (is_matchmaker(current) or is_builder(current) or is_gakju(current) or is_pabalggun(current)) and denial_snapshot["near_end"]:
                         deny += 0.7
                 card_plan = opportunities.get(card_no, {})
                 counter_delta = float(card_plan.get("score", 0.0))
@@ -4847,7 +4850,7 @@ class HeuristicPolicy(BasePolicy):
                 if controller_need > 0.0 or money_distress > 0.0:
                     if is_active_money_drain_character(current) and not is_active_money_drain_character(flipped):
                         relief = 0.95 + 0.75 * controller_need + 0.35 * money_distress
-                        if current == "만신" and own_burden_cost > 0.0:
+                        if is_mansin(current) and own_burden_cost > 0.0:
                             relief += 0.25 * own_burden_cost
                         deny += relief
                         flipped_reasons = [f"money_relief_flip={relief:.2f}", *flipped_reasons]

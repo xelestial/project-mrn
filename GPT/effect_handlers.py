@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Optional
 
+from characters import CARD_TO_NAMES
 from config import CellKind
+from policy.character_traits import is_builder, is_doctrine_character
 from state import GameState, PlayerState
 from viewer.events import Phase
 
@@ -308,10 +310,10 @@ class EngineEffectHandlers:
         engine = self.engine
         previous_owner = state.marker_owner_id
         previous_direction = bool(getattr(state, "marker_draft_clockwise", True))
-        if player.current_character not in {"교리 연구관", "교리 감독관"}:
+        if not is_doctrine_character(player.current_character):
             return None
         state.marker_owner_id = player.player_id
-        state.marker_draft_clockwise = player.current_character == "교리 감독관"
+        state.marker_draft_clockwise = bool(player.current_character and player.current_character == CARD_TO_NAMES[5][1])
         # Rules: selecting doctrine manager can trigger a flip sequence even when marker owner does not change.
         state.pending_marker_flip_owner_id = state.marker_owner_id
         direction_label = "clockwise" if state.marker_draft_clockwise else "counterclockwise"
@@ -844,7 +846,7 @@ class EngineEffectHandlers:
         stats = engine._strategy_stats[player.player_id]
         if state.tile_purchase_blocked_turn_index.get(pos) == state.turn_index:
             return {'type': 'PURCHASE_BLOCKED_THIS_TURN', 'tile_kind': cell.name}
-        builder_free_purchase = player.current_character == "건설업자"
+        builder_free_purchase = is_builder(player.current_character)
         cost = 0 if (player.free_purchase_this_turn or player.trick_free_purchase_this_turn or builder_free_purchase) else state.config.rules.economy.purchase_cost_for(state, pos)
         player.free_purchase_this_turn = False
         player.trick_free_purchase_this_turn = False

@@ -6,8 +6,22 @@ This module exists to keep ai_policy.py focused on decision flow instead of
 scattered static tables. The values are intentionally behavior-preserving.
 """
 
-MARK_ACTOR_NAMES = {"자객", "산적", "추노꾼", "박수", "만신"}
-MARK_ACTOR_BASE_RISK = {"자객": 2.6, "산적": 2.0, "추노꾼": 1.8, "박수": 1.2, "만신": 1.0}
+from characters import CARD_TO_NAMES
+
+MARK_ACTOR_NAMES = {
+    CARD_TO_NAMES[2][0],
+    CARD_TO_NAMES[2][1],
+    CARD_TO_NAMES[3][0],
+    CARD_TO_NAMES[6][0],
+    CARD_TO_NAMES[6][1],
+}
+MARK_ACTOR_BASE_RISK = {
+    CARD_TO_NAMES[2][0]: 2.6,
+    CARD_TO_NAMES[2][1]: 2.0,
+    CARD_TO_NAMES[3][0]: 1.8,
+    CARD_TO_NAMES[6][0]: 1.2,
+    CARD_TO_NAMES[6][1]: 1.0,
+}
 MARK_PRIORITY_SAME_FACTOR = 0.35
 MARK_GUESS_TEMPERATURE = 1.8
 MARK_GUESS_UNIFORM_MIX_BASE = 0.30
@@ -30,10 +44,10 @@ MARK_GUESS_MARGIN_THRESHOLDS = {
     "token_opt": 0.09,
 }
 
-RENT_ESCAPE_CHARACTERS = {"파발꾼", "탈출 노비", "객주"}
-RENT_EXPANSION_CHARACTERS = {"중매꾼", "건설업자", "사기꾼"}
-RENT_FRAGILE_DISRUPTORS = {"자객", "산적", "추노꾼"}
+RENT_ESCAPE_CHARACTERS = {CARD_TO_NAMES[4][0], CARD_TO_NAMES[3][1], CARD_TO_NAMES[7][0]}
+RENT_EXPANSION_CHARACTERS = {CARD_TO_NAMES[7][1], CARD_TO_NAMES[8][0], CARD_TO_NAMES[8][1]}
+RENT_FRAGILE_DISRUPTORS = {CARD_TO_NAMES[2][0], CARD_TO_NAMES[2][1], CARD_TO_NAMES[3][0]}
 
-GROWTH_LIKE_CHARACTERS = {"객주", "중매꾼", "건설업자", "파발꾼", "사기꾼"}
-ECONOMY_LIKE_CHARACTERS = {"탐관오리", "아전", "객주", "중매꾼", "건설업자"}
-DISRUPTION_LIKE_CHARACTERS = {"자객", "산적", "추노꾼", "박수", "만신", "어사"}
+GROWTH_LIKE_CHARACTERS = {CARD_TO_NAMES[7][0], CARD_TO_NAMES[7][1], CARD_TO_NAMES[8][0], CARD_TO_NAMES[4][0], CARD_TO_NAMES[8][1]}
+ECONOMY_LIKE_CHARACTERS = {CARD_TO_NAMES[1][1], CARD_TO_NAMES[4][1], CARD_TO_NAMES[7][0], CARD_TO_NAMES[7][1], CARD_TO_NAMES[8][0]}
+DISRUPTION_LIKE_CHARACTERS = {CARD_TO_NAMES[2][0], CARD_TO_NAMES[2][1], CARD_TO_NAMES[3][0], CARD_TO_NAMES[6][0], CARD_TO_NAMES[6][1], CARD_TO_NAMES[1][0]}

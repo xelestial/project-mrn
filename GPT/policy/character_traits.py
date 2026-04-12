@@ -35,6 +35,22 @@ def is_mansin(name: str | None) -> bool:
     return is_card_face(name, 6, 1)
 
 
+def is_matchmaker(name: str | None) -> bool:
+    return is_card_face(name, 7, 1)
+
+
+def is_builder(name: str | None) -> bool:
+    return is_card_face(name, 8, 0)
+
+
+def is_doctrine_character(name: str | None) -> bool:
+    return is_card_face(name, 5, 0) or is_card_face(name, 5, 1)
+
+
+def is_fraudster(name: str | None) -> bool:
+    return is_card_face(name, 8, 1)
+
+
 def is_assassin(name: str | None) -> bool:
     return is_card_face(name, 2, 0)
 
@@ -123,6 +139,41 @@ def escape_package_names() -> set[str]:
 
 def marker_package_names() -> set[str]:
     return {CARD_TO_NAMES[5][0], CARD_TO_NAMES[5][1]}
+
+
+def doctrine_package_names() -> set[str]:
+    return marker_package_names()
+
+
+def disruption_package_names() -> set[str]:
+    return {
+        CARD_TO_NAMES[2][0],
+        CARD_TO_NAMES[2][1],
+        CARD_TO_NAMES[3][0],
+        CARD_TO_NAMES[6][0],
+        CARD_TO_NAMES[6][1],
+        CARD_TO_NAMES[1][0],
+    }
+
+
+def growth_package_names() -> set[str]:
+    return {
+        CARD_TO_NAMES[7][0],
+        CARD_TO_NAMES[7][1],
+        CARD_TO_NAMES[8][0],
+        CARD_TO_NAMES[4][0],
+        CARD_TO_NAMES[8][1],
+    }
+
+
+def economy_package_names() -> set[str]:
+    return {
+        CARD_TO_NAMES[1][1],
+        CARD_TO_NAMES[4][1],
+        CARD_TO_NAMES[7][0],
+        CARD_TO_NAMES[7][1],
+        CARD_TO_NAMES[8][0],
+    }
 
 
 def is_cleanup_character(name: str | None) -> bool:

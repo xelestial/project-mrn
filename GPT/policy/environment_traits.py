@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import csv
 from typing import Any, Iterable
+from functools import lru_cache
+from pathlib import Path
 
 from policy.character_traits import (
     is_ajeon,
@@ -15,30 +18,87 @@ from policy.character_traits import (
 )
 from weather_cards import COLOR_RENT_DOUBLE_WEATHERS
 
-CLEANUP_THREAT_WEATHERS = {"긴급 피난"}
-FORTUNE_CLEANUP_CARD_MULTIPLIERS = {"화재 발생": 1.0, "산불 발생": 2.0}
-FORTUNE_POSITIVE_CLEANUP_CARD_MULTIPLIERS = {"자원 순환": -1.0, "모두의 순환": -1.0}
-WEATHER_SHARD_BONUS_WEATHERS = {"풍년든 가을", "기우제", "성물의 날"}
-WEATHER_TRICK_BONUS_WEATHERS = {"잔꾀 부리기"}
+from weather_cards import load_weather_definitions
 
-FORTUNE_FIRE_CARD = "화재 발생"
-FORTUNE_WILDFIRE_CARD = "산불 발생"
-FORTUNE_RECYCLE_CARD = "자원 순환"
-FORTUNE_PUBLIC_RECYCLE_CARD = "모두의 순환"
+LEGACY_FORTUNE_NAME_ALIASES = {
+    "자원 순환": "자원 재활용",
+    "모두의 순환": "모두의 재활용",
+}
+
+
+def _fortune_csv_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "fortune.csv"
+
+
+@lru_cache(maxsize=1)
+def _weather_ids_by_name() -> dict[str, int]:
+    return {card.name: index for index, card in enumerate(load_weather_definitions(), start=1)}
+
+
+@lru_cache(maxsize=1)
+def _fortune_ids_by_name() -> dict[str, int]:
+    with _fortune_csv_path().open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        mapping: dict[str, int] = {}
+        card_id = 1
+        for row in reader:
+            raw_name = " ".join((row.get("이름") or "").split())
+            raw_effect = (row.get("효과") or "").strip()
+            raw_copies = (row.get("카드 장수") or "").strip()
+            if not raw_name or not raw_effect or not raw_copies:
+                continue
+            mapping[raw_name] = card_id
+            card_id += 1
+        return mapping
+
+
+def weather_id_for_name(name: str | None) -> int | None:
+    if not isinstance(name, str):
+        return None
+    normalized = name.strip()
+    if not normalized:
+        return None
+    return _weather_ids_by_name().get(normalized)
+
+
+def fortune_card_id_for_name(name: str | None) -> int | None:
+    if not isinstance(name, str):
+        return None
+    normalized = name.strip()
+    if not normalized:
+        return None
+    normalized = LEGACY_FORTUNE_NAME_ALIASES.get(normalized, normalized)
+    return _fortune_ids_by_name().get(normalized)
+
+
+CLEANUP_THREAT_WEATHER_IDS = {15}
+FORTUNE_CLEANUP_CARD_MULTIPLIERS = {32: 1.0, 33: 2.0}
+FORTUNE_POSITIVE_CLEANUP_CARD_MULTIPLIERS = {30: -1.0, 31: -1.0}
+WEATHER_SHARD_BONUS_WEATHER_IDS = {3, 7, 10}
+WEATHER_TRICK_BONUS_WEATHER_IDS = {12}
 
 
 def is_cleanup_threat_weather(name: str) -> bool:
-    return name in CLEANUP_THREAT_WEATHERS
+    return weather_id_for_name(name) in CLEANUP_THREAT_WEATHER_IDS
+
+
+def _weather_id_set(active_weathers: Iterable[str]) -> set[int]:
+    result: set[int] = set()
+    for name in active_weathers or ():
+        weather_id = weather_id_for_name(name)
+        if weather_id is not None:
+            result.add(weather_id)
+    return result
 
 
 def weather_character_adjustment(active_weathers: Iterable[str], character_name: str) -> tuple[float, list[str]]:
-    active = set(active_weathers or ())
+    active = _weather_id_set(active_weathers)
     if not active:
         return 0.0, []
 
     score = 0.0
     reasons: list[str] = []
-    if active & WEATHER_SHARD_BONUS_WEATHERS:
+    if active & WEATHER_SHARD_BONUS_WEATHER_IDS:
         if (
             is_bandit(character_name)
             or is_tamgwanori(character_name)
@@ -51,7 +111,7 @@ def weather_character_adjustment(active_weathers: Iterable[str], character_name:
         if is_card_face(character_name, 7, 1):
             score += 0.35
             reasons.append("weather_shard_expansion")
-    if active & WEATHER_TRICK_BONUS_WEATHERS:
+    if active & WEATHER_TRICK_BONUS_WEATHER_IDS:
         if (
             is_pabalggun(character_name)
             or is_gakju(character_name)
@@ -70,14 +130,14 @@ def weather_character_adjustment(active_weathers: Iterable[str], character_name:
 def count_cleanup_fortunes(cards: list[Any]) -> tuple[int, int, int, int]:
     fire = wildfire = recycle = public_recycle = 0
     for card in cards:
-        name = getattr(card, "name", "")
-        if name == FORTUNE_FIRE_CARD:
+        card_id = fortune_card_id_for_name(getattr(card, "name", ""))
+        if card_id == 32:
             fire += 1
-        elif name == FORTUNE_WILDFIRE_CARD:
+        elif card_id == 33:
             wildfire += 1
-        elif name == FORTUNE_RECYCLE_CARD:
+        elif card_id == 30:
             recycle += 1
-        elif name == FORTUNE_PUBLIC_RECYCLE_CARD:
+        elif card_id == 31:
             public_recycle += 1
     return fire, wildfire, recycle, public_recycle
 
@@ -113,7 +173,7 @@ def fortune_cleanup_deck_profile(draw_pile: list[Any], discard_pile: list[Any]) 
             return 0.0
         total = 0.0
         for card in cards:
-            total += cleanup_cards.get(getattr(card, "name", ""), 0.0)
+            total += cleanup_cards.get(fortune_card_id_for_name(getattr(card, "name", "")), 0.0)
         return total / len(cards)
 
     def _expected_negative_multiplier(cards: list[Any]) -> float:
@@ -121,7 +181,7 @@ def fortune_cleanup_deck_profile(draw_pile: list[Any], discard_pile: list[Any]) 
             return 0.0
         total = 0.0
         for card in cards:
-            total += max(0.0, cleanup_cards.get(getattr(card, "name", ""), 0.0))
+            total += max(0.0, cleanup_cards.get(fortune_card_id_for_name(getattr(card, "name", "")), 0.0))
         return total / len(cards)
 
     source = draw_pile if draw_pile else discard_pile

@@ -4,6 +4,15 @@ import math
 from typing import Optional
 
 from characters import CARD_TO_NAMES, CHARACTERS
+from policy.character_traits import (
+    is_assassin,
+    is_bandit,
+    is_baksu,
+    is_builder,
+    is_chunokkun,
+    is_mansin,
+    is_matchmaker,
+)
 from policy_groups import (
     DISRUPTION_LIKE_CHARACTERS,
     ECONOMY_LIKE_CHARACTERS,
@@ -131,28 +140,28 @@ def mark_priority_exposure_factor(actor_name: str, target_name: str) -> float:
 
 def mark_target_profile_factor(actor_name: str, target_name: str) -> float:
     target_attr = CHARACTERS[target_name].attribute
-    if actor_name == "자객":
+    if is_assassin(actor_name):
         if target_attr == "무뢰":
             return 1.35
         if target_name in GROWTH_LIKE_CHARACTERS:
             return 1.15
         return 0.7
-    if actor_name == "산적":
+    if is_bandit(actor_name):
         if target_name in ECONOMY_LIKE_CHARACTERS:
             return 1.2
         if target_name in GROWTH_LIKE_CHARACTERS:
             return 0.95
         return 0.65
-    if actor_name == "추노꾼":
+    if is_chunokkun(actor_name):
         if target_name in GROWTH_LIKE_CHARACTERS or target_name in ECONOMY_LIKE_CHARACTERS:
             return 1.0
         return 0.7
-    if actor_name == "박수":
+    if is_baksu(actor_name):
         if target_name in GROWTH_LIKE_CHARACTERS:
             return 0.95
         return 0.6
-    if actor_name == "만신":
-        if target_name in DISRUPTION_LIKE_CHARACTERS or target_name == "중매꾼":
+    if is_mansin(actor_name):
+        if target_name in DISRUPTION_LIKE_CHARACTERS or is_matchmaker(target_name) or is_builder(target_name):
             return 0.9
         return 0.55
     return 0.0
