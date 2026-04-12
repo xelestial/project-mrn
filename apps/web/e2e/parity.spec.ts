@@ -134,6 +134,7 @@ async function installMockRuntime(
       status: string;
       host_token: string;
       join_tokens: Record<string, string>;
+      initial_active_by_card?: Record<string, string>;
       seats?: Array<{ seat: number; seat_type: "human" | "ai"; ai_profile?: string | null; player_id?: number | null; connected?: boolean }>;
       parameter_manifest?: ManifestRecord;
     }>;
@@ -154,6 +155,7 @@ async function installMockRuntime(
         status: string;
         round_index?: number;
         turn_index?: number;
+        initial_active_by_card?: Record<string, string>;
         seats?: Array<{ seat: number; seat_type: "human" | "ai"; ai_profile?: string | null; player_id?: number | null; connected?: boolean }>;
         parameter_manifest?: ManifestRecord;
       }
@@ -211,6 +213,7 @@ async function installMockRuntime(
             status: created.status ?? "waiting",
             round_index: 0,
             turn_index: 0,
+            initial_active_by_card: created.initial_active_by_card ?? null,
             seats: created.seats ?? [],
             parameter_manifest: manifest ?? null,
           });
@@ -349,7 +352,7 @@ async function installMockRuntime(
   );
 }
 
-test("quick start human vs ai enters match and surfaces the first human prompt", async ({ page }) => {
+test("quick start human vs ai surfaces first prompt, weather, and initial active faces", async ({ page }) => {
   const manifest = buildManifest({
     hash: "quick_start_hash_001",
     topology: "ring",
@@ -363,6 +366,16 @@ test("quick start human vs ai enters match and surfaces the first human prompt",
     "2": "seat2_quick_join",
     "3": "seat3_quick_join",
     "4": "seat4_quick_join",
+  };
+  const initialActiveByCard = {
+    "1": "어사",
+    "2": "자객",
+    "3": "추노꾼",
+    "4": "파발꾼",
+    "5": "교리 연구관",
+    "6": "박수",
+    "7": "객주",
+    "8": "건설업자",
   };
 
   await installMockRuntime(page, {
@@ -441,6 +454,7 @@ test("quick start human vs ai enters match and surfaces the first human prompt",
         status: "waiting",
         host_token: hostToken,
         join_tokens: joinTokens,
+        initial_active_by_card: initialActiveByCard,
         seats: [
           { seat: 1, seat_type: "human", connected: false, player_id: null },
           { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced" },
@@ -465,6 +479,7 @@ test("quick start human vs ai enters match and surfaces the first human prompt",
         status: "in_progress",
         round_index: 1,
         turn_index: 1,
+        initial_active_by_card: initialActiveByCard,
         seats: [
           { seat: 1, seat_type: "human", connected: true, player_id: 1 },
           { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced" },
@@ -486,6 +501,9 @@ test("quick start human vs ai enters match and surfaces the first human prompt",
   await expect(page.getByText("손패 전체 5장 / 히든 0장")).toBeVisible();
   await expect(page.getByText("현재 라운드 날씨")).toBeVisible();
   await expect(page.getByText("긴급 피난 / 모든 짐 제거 비용이 2배가 됩니다").first()).toBeVisible();
+  const activeStrip = page.getByTestId("active-character-strip");
+  await expect(activeStrip).toContainText("어사");
+  await expect(activeStrip).toContainText("자객");
   await expect(page.getByText("교리 연구관", { exact: true })).toBeVisible();
 });
 
