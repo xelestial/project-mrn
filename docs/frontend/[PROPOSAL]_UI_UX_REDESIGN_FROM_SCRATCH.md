@@ -541,3 +541,7 @@ App
 ### 결론
 
 이 문서는 지금 프로젝트에 꼭 필요한 청사진이다. 다만 "지금 바로 전면 적용"이 아니라 "모든 후속 UI 판단의 기준 문서"로 두는 것이 가장 적절하다.
+Status: ARCHIVED_REFERENCE_ONLY
+
+This proposal is not the current execution source of truth.
+Use `docs/1_READ_FIRST_GAME_STABILIZATION_AND_RUNTIME_GUIDE.md` and active frontend docs first.

@@ -13,7 +13,8 @@ Read in this order:
 Notes:
 
 - frontend rendering should increasingly depend on backend selector output
-- the proposal docs remain as rationale and design direction
+- proposal and report docs are historical references only
+- do not reopen older proposal docs as execution source unless the active guide explicitly points to them
 
 ## Dev Server And Backend Port Injection
 

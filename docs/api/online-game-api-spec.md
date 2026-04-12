@@ -781,8 +781,11 @@ Implemented baseline fields:
 Implemented delivery points:
 
 - `POST /sessions` response (`data.parameter_manifest`)
+- `POST /sessions` response (`data.initial_active_by_card`)
 - `GET /sessions/{id}` response (`data.parameter_manifest`)
+- `GET /sessions/{id}` response (`data.initial_active_by_card`)
 - `POST /sessions/{id}/start` response (`data.parameter_manifest`)
+- `POST /sessions/{id}/start` response (`data.initial_active_by_card`)
 - stream event `event_type=parameter_manifest` emitted on session start
 
 Remaining hardening:

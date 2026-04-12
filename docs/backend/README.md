@@ -15,3 +15,9 @@ Canonical backend references:
 
 - `docs/backend/runtime-logging-policy.md`
 - `docs/engineering/[PLAN]_BACKEND_SELECTOR_AND_MIDDLEWARE_VIEWMODEL_MIGRATION.md`
+
+Operational defaults:
+
+- backend standard local port: `8000`
+- frontend standard local dev port: `4174`
+- frontend should only point elsewhere through explicit env injection (`MRN_WEB_API_PORT`, `MRN_WEB_API_HOST`, `MRN_WEB_API_TARGET`)

@@ -451,3 +451,7 @@ Codex는 "빠르게 고쳐야 한다"고 했지만, 5958aa6 패치로 `trick_til
 | 5 | BUG-05 | 30분 | 재설계 일정이 불확실하면 |
 | — | BUG-01 | 서버 확인 후 | 지금 불가 |
 | — | BUG-04, BUG-06 | 재설계 때 | 지금 수정하면 중복 |
+Status: ARCHIVED_REFERENCE_ONLY
+
+This proposal is not the current execution source of truth.
+Use `docs/1_READ_FIRST_GAME_STABILIZATION_AND_RUNTIME_GUIDE.md` and active frontend docs first.

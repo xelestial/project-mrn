@@ -1,7 +1,7 @@
 # Human + External AI Playtest Checklist
 
 Status: ACTIVE  
-Updated: 2026-04-07
+Updated: 2026-04-12
 
 ## Goal
 
@@ -20,7 +20,7 @@ The preferred stronger worker path is:
 1. Start the stronger external worker:
 
 ```bash
-.venv311/bin/python tools/run_external_ai_worker.py \
+.venv/bin/python tools/run_external_ai_worker.py \
   --host 127.0.0.1 \
   --port 8011 \
   --worker-id local-priority-bot \
@@ -32,13 +32,13 @@ The preferred stronger worker path is:
 2. Start the server:
 
 ```bash
-.venv311/bin/python -m uvicorn apps.server.src.app:app --host 127.0.0.1 --port 8001
+.venv/bin/python -m uvicorn apps.server.src.app:app --host 127.0.0.1 --port 8000
 ```
 
 3. Smoke-check the worker contract before opening the web app:
 
 ```bash
-.venv311/bin/python tools/check_external_ai_endpoint.py \
+.venv/bin/python tools/check_external_ai_endpoint.py \
   --base-url http://127.0.0.1:8011 \
   --require-ready \
   --require-profile priority_scored \
@@ -53,7 +53,14 @@ The preferred stronger worker path is:
 
 ```bash
 cd apps/web
-npm run dev -- --host 127.0.0.1 --port 4173
+npm run dev -- --host 127.0.0.1 --port 4174
+```
+
+If backend is not on the standard local port, inject it explicitly:
+
+```bash
+cd apps/web
+MRN_WEB_API_PORT=8011 npm run dev -- --host 127.0.0.1 --port 4174
 ```
 
 ## Session Config

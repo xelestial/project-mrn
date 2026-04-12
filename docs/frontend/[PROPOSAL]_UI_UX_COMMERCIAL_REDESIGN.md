@@ -1495,3 +1495,7 @@ height: 4 × 52px = 208px; flex-shrink: 0;
 ### 결론
 
 이 문서는 즉시 구현 문서라기보다, 연출과 정보 위계를 정할 때 참고할 상용 UX 레퍼런스 문서로 채택하는 것이 적절하다. 특히 보드 우선, 현재 행동자 강조, 중요 이벤트 인터럽트라는 세 축은 후속 개선의 핵심 기준으로 삼을 가치가 있다.
+Status: ARCHIVED_REFERENCE_ONLY
+
+This proposal is not the current execution source of truth.
+Use `docs/1_READ_FIRST_GAME_STABILIZATION_AND_RUNTIME_GUIDE.md` and active frontend docs first.

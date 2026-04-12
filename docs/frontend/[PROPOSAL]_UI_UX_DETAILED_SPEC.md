@@ -913,3 +913,7 @@ export function selectTurnEventFeed(
 ### 결론
 
 이 문서는 세부 치수의 절대 사양이라기보다, 현행 UI를 더 읽히게 만들기 위한 강한 레이아웃 가이드로 채택하는 것이 적절하다.
+Status: ARCHIVED_REFERENCE_ONLY
+
+This proposal is not the current execution source of truth.
+Use `docs/1_READ_FIRST_GAME_STABILIZATION_AND_RUNTIME_GUIDE.md` and active frontend docs first.

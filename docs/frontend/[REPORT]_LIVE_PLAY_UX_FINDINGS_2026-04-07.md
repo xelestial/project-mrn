@@ -124,3 +124,7 @@ Session: sess_0ed27a677f80
 | 5 | BUG-02 | ~2시간 | "Preparing your turn" 공백 |
 | 6 | BUG-11 | 재설계 때 | 타임라인 위치 — EventFeed로 대체 |
 | 7 | BUG-03 | ~1시간 | 잔꾀 레이블 분리 |
+Status: ARCHIVED_REFERENCE_ONLY
+
+This report is historical evidence, not the current execution source of truth.
+Use active guides before reopening findings from this file.

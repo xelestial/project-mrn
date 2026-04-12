@@ -1,7 +1,7 @@
 # Turn Structure & Order Source Map
 
 Status: `ACTIVE`  
-Updated: `2026-04-03`  
+Updated: `2026-04-12`  
 Scope: `GPT` 엔진 턴 진행 순서(라운드 시작 포함)와 로그 생성 지점(소스/메서드/함수)
 
 ## 목적
@@ -63,6 +63,7 @@ Scope: `GPT` 엔진 턴 진행 순서(라운드 시작 포함)와 로그 생성 
 3. `round_start` 시각 이벤트 emit
 4. 날씨 적용
    - `_apply_round_weather`
+   - 현재는 직접 구현이 아니라 `weather.round.apply` 이벤트 버스 래퍼
    - runtime row: `weather_round`
 5. `weather_reveal` 시각 이벤트 emit
 6. 드래프트
@@ -74,7 +75,8 @@ Scope: `GPT` 엔진 턴 진행 순서(라운드 시작 포함)와 로그 생성 
 관련 소스:
 
 - `_resolve_marker_flip` (`GPT/engine.py:389`)
-- `_apply_round_weather` (`GPT/engine.py:404 부근`)
+- `_apply_round_weather` (`GPT/engine.py`)
+- `EngineEffectHandlers.apply_round_weather` (`GPT/effect_handlers.py`)
 - `_run_draft` (`GPT/engine.py:579`)
 - `round_order` 로그 기록 (`GPT/engine.py:551`)
 
