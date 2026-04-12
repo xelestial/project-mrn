@@ -1008,6 +1008,7 @@ class _LocalHumanDecisionClient:
         )
         self.policy._ask = self._ask  # type: ignore[method-assign]
         self._gateway = gateway
+        self._active_call = None
 
     @property
     def prompt_seq(self) -> int:
@@ -1020,12 +1021,27 @@ class _LocalHumanDecisionClient:
             self.policy._prompt_seq += 1  # type: ignore[attr-defined]
 
     def _ask(self, prompt: dict, parser, fallback_fn):
-        return self._gateway.resolve_human_prompt(prompt, parser, fallback_fn)
+        envelope = dict(prompt)
+        active_call = self._active_call
+        if active_call is not None:
+            request = getattr(active_call, "request", None)
+            if request is not None:
+                envelope.setdefault("request_type", getattr(request, "request_type", None))
+                envelope.setdefault("player_id", getattr(request, "player_id", None))
+                envelope.setdefault("fallback_policy", getattr(request, "fallback_policy", None))
+                prompt_context = dict(envelope.get("public_context") or {})
+                request_context = dict(getattr(request, "public_context", {}) or {})
+                envelope["public_context"] = {**prompt_context, **request_context}
+        return self._gateway.resolve_human_prompt(envelope, parser, fallback_fn)
 
     def resolve(self, call):
         if self.policy is None:
             raise AttributeError(call.invocation.method_name)
-        return getattr(self.policy, call.invocation.method_name)(*call.invocation.args, **call.invocation.kwargs)
+        self._active_call = call
+        try:
+            return getattr(self.policy, call.invocation.method_name)(*call.invocation.args, **call.invocation.kwargs)
+        finally:
+            self._active_call = None
 
 
 class _ServerDecisionClientRouter:

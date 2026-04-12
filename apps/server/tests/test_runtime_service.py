@@ -17,6 +17,7 @@ from apps.server.src.services.decision_gateway import (
     serialize_ai_choice_id,
 )
 from apps.server.src.services.runtime_service import RuntimeService
+from apps.server.src.services.runtime_service import _LocalHumanDecisionClient
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
 from apps.server.src.services.prompt_service import PromptService
@@ -246,6 +247,115 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(context["draft_phase"], 2)
         self.assertEqual(context["draft_phase_label"], "draft_phase_2")
         self.assertEqual(context["active_by_card"], {1: "산적", 2: "건설업자"})
+
+    def test_local_human_prompt_merges_gateway_public_context_for_hidden_trick(self) -> None:
+        class _Gateway:
+            def __init__(self) -> None:
+                self.prompt = None
+
+            def resolve_human_prompt(self, prompt, parser, fallback_fn):
+                del parser, fallback_fn
+                self.prompt = dict(prompt)
+                return None
+
+        class _DummyAi:
+            def choose_hidden_trick_card(self, state, player, hand):
+                del state, player, hand
+                return None
+
+        weather = type("Weather", (), {"name": "긴고 긴 겨울", "effect": "종료를 1칸 앞당깁니다."})()
+        state = type(
+            "State",
+            (),
+            {
+                "rounds_completed": 0,
+                "turn_index": 0,
+                "active_by_card": {1: "탐관오리", 2: "중매꾼", 3: "산적", 4: "꼬리 감독관"},
+                "current_weather": weather,
+            },
+        )()
+        card_a = type("Card", (), {"deck_index": 41, "name": "가벼운 짐", "description": "desc-a"})()
+        card_b = type("Card", (), {"deck_index": 42, "name": "건강 검진", "description": "desc-b"})()
+        player = type(
+            "Player",
+            (),
+            {
+                "player_id": 0,
+                "cash": 11,
+                "position": 14,
+                "shards": 3,
+                "hidden_trick_deck_index": 42,
+                "trick_hand": [card_a, card_b],
+            },
+        )()
+
+        gateway = _Gateway()
+        client = _LocalHumanDecisionClient(human_seats=[0], ai_fallback=_DummyAi(), gateway=gateway)
+        invocation = build_decision_invocation("choose_hidden_trick_card", (state, player, [card_a, card_b]), {})
+        call = build_routed_decision_call(invocation, fallback_policy="required")
+
+        client.resolve(call)
+
+        self.assertIsNotNone(gateway.prompt)
+        prompt = gateway.prompt
+        public_context = prompt.get("public_context", {})
+        self.assertEqual(public_context.get("active_by_card"), {1: "탐관오리", 2: "중매꾼", 3: "산적", 4: "꼬리 감독관"})
+        self.assertEqual(public_context.get("weather_name"), "긴고 긴 겨울")
+        self.assertEqual(public_context.get("weather_effect"), "종료를 1칸 앞당깁니다.")
+        self.assertEqual(public_context.get("hidden_trick_deck_index"), 42)
+        self.assertEqual(len(public_context.get("full_hand", [])), 2)
+
+    def test_local_human_prompt_merges_gateway_public_context_for_draft(self) -> None:
+        class _Gateway:
+            def __init__(self) -> None:
+                self.prompt = None
+
+            def resolve_human_prompt(self, prompt, parser, fallback_fn):
+                del parser, fallback_fn
+                self.prompt = dict(prompt)
+                return 1
+
+        class _DummyAi:
+            def choose_draft_card(self, state, player, offered_cards):
+                del state, player, offered_cards
+                return 1
+
+        weather = type("Weather", (), {"name": "술선 수법", "effect": "징표를 가진 참가자는 3냥을 은행에 지불합니다."})()
+        state = type(
+            "State",
+            (),
+            {
+                "rounds_completed": 0,
+                "turn_index": 0,
+                "active_by_card": {
+                    1: "탐관오리",
+                    2: "중매꾼",
+                    3: "산적",
+                    4: "꼬리 감독관",
+                    5: "교리 연구관",
+                    6: "만신",
+                    7: "객주",
+                    8: "건설업자",
+                },
+                "current_weather": weather,
+            },
+        )()
+        player = type("Player", (), {"player_id": 0, "cash": 20, "position": 5, "shards": 4, "drafted_cards": []})()
+
+        gateway = _Gateway()
+        client = _LocalHumanDecisionClient(human_seats=[0], ai_fallback=_DummyAi(), gateway=gateway)
+        invocation = build_decision_invocation("choose_draft_card", (state, player, [1, 2, 3, 4]), {})
+        call = build_routed_decision_call(invocation, fallback_policy="required")
+
+        client.resolve(call)
+
+        self.assertIsNotNone(gateway.prompt)
+        public_context = gateway.prompt.get("public_context", {})
+        self.assertEqual(public_context.get("active_by_card", {}).get(6), "만신")
+        self.assertEqual(public_context.get("weather_name"), "술선 수법")
+        self.assertEqual(public_context.get("weather_effect"), "징표를 가진 참가자는 3냥을 은행에 지불합니다.")
+        self.assertEqual(public_context.get("draft_phase"), 1)
+        self.assertEqual(public_context.get("offered_count"), 4)
 
     def test_mark_target_context_uses_public_active_faces_for_future_slots(self) -> None:
         state = type(

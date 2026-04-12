@@ -98,3 +98,28 @@ def test_game_engine_emits_visual_stream_that_validates() -> None:
     assert {"round_start", "weather_reveal", "draft_pick", "final_character_choice"} <= event_types
     assert {"turn_start", "trick_window_open", "trick_window_closed", "dice_roll", "player_move", "turn_end_snapshot"} <= event_types
     # trick_used is optional per run; the validator already enforces payload shape when emitted.
+
+
+def test_round_boundary_visual_events_carry_active_faces() -> None:
+    stream = VisEventStream()
+    policy = HeuristicPolicy("heuristic_v3_gpt", "heuristic_v3_gpt", rng=random.Random(123))
+    engine = GameEngine(
+        DEFAULT_CONFIG,
+        policy,
+        rng=random.Random(123),
+        enable_logging=False,
+        event_stream=stream,
+    )
+
+    engine.run()
+    events = stream.to_list()
+
+    round_start = next(event for event in events if event["event_type"] == "round_start")
+    weather_reveal = next(event for event in events if event["event_type"] == "weather_reveal")
+    round_order = next(event for event in events if event["event_type"] == "round_order")
+    turn_end = next(event for event in events if event["event_type"] == "turn_end_snapshot")
+
+    assert len(round_start["active_by_card"]) == 8
+    assert len(weather_reveal["active_by_card"]) == 8
+    assert len(round_order["active_by_card"]) == 8
+    assert len(turn_end["snapshot"]["active_by_card"]) == 8

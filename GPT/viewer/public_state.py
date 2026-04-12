@@ -153,4 +153,5 @@ def build_turn_end_snapshot(state: Any) -> dict:
     return {
         "players": [build_player_public_state(p, state).to_dict() for p in state.players],
         "board": build_board_public_state(state).to_dict(),
+        "active_by_card": dict(getattr(state, "active_by_card", {}) or {}),
     }
