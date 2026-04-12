@@ -1,4 +1,4 @@
-﻿import { CSSProperties, FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { mergeSessionManifest } from "./domain/manifest/manifestRehydrate";
 import {
   characterAbilityLabelsFromManifestLabels,
