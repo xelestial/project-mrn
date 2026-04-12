@@ -589,73 +589,11 @@ class GameEngine:
         self._draw_tricks(state, target, count)
         return {"player": target.player_id + 1, "count": len(target.trick_hand) - before, "discarded": discarded}
 
-    def _apply_round_weather(self, state: GameState) -> None:
-        card = self._draw_weather_card(state)
-        self._weather_history.append(card.name)
-        state.current_weather = card
-        state.current_weather_effects = {card.name}
-        state.weather_discard_pile.append(card)
-        event = {"event": "weather_round", "round_index": state.rounds_completed + 1, "weather": card.name, "effect": card.effect}
-        details = []
-
-        if card.name == "외세의 침략":
-            for p in state.players:
-                if p.alive:
-                    out = self._pay_or_bankrupt(state, p, 2, None)
-                    details.append({"player": p.player_id + 1, **out})
-        elif card.name == "솔선 수범":
-            owner = self._weather_marker_owner(state)
-            if owner is not None:
-                details.append({"player": owner.player_id + 1, **self._pay_or_bankrupt(state, owner, 3, None)})
-        elif card.name == "기우제":
-            owner = self._weather_marker_owner(state)
-            if owner is not None:
-                owner.shards += 1
-                self._strategy_stats[owner.player_id]["shards_gained_lap"] += 1
-                self._change_f(state, -1, reason="weather_effect", source="기우제")
-                details.append({"player": owner.player_id + 1, "shards_delta": 1, "f_delta": -1})
-        elif card.name == "구휼의 상징":
-            owner = self._weather_marker_owner(state)
-            if owner is not None:
-                owner.cash += 4
-                details.append({"player": owner.player_id + 1, "cash_delta": 4})
-        elif card.name == "잔꾀 부리기":
-            for p in state.players:
-                if p.alive:
-                    details.append(self._weather_gain_tricks(state, p, 1, redraw=False))
-        elif card.name == "전략 변경":
-            for p in state.players:
-                if p.alive:
-                    need = max(0, 5 - len(p.trick_hand))
-                    details.append(self._weather_gain_tricks(state, p, need, redraw=False))
-        elif card.name == "모든 것을 자원으로":
-            details.append(self._fortune_burden_cleanup(state, [p for p in state.players if p.alive], multiplier=2, payout=True, name=card.name))
-        elif card.name == "긴급 피난":
-            details.append(self._fortune_burden_cleanup(state, [p for p in state.players if p.alive], multiplier=2, payout=False, name=card.name))
-        elif card.name == "배신의 징표":
-            # 룰 정합성 업데이트: 해당 날씨는 현재 버전에서 효과를 적용하지 않는다.
-            details.append({"effect": "disabled_no_op"})
-        elif card.name == "밤인데 낮처럼 밝아요":
-            self._change_f(state, -3, reason="weather_effect", source="밤인데 낮처럼 밝아요")
-            details.append({"f_delta": -3})
-        elif card.name == "길고 긴 겨울":
-            self._change_f(state, -1, reason="weather_effect", source="길고 긴 겨울")
-            details.append({"f_delta": -1})
-        elif card.name == "맑고 포근한 하루":
-            ordered = self._alive_ids_from_marker_direction(state)
-            for pid in ordered:
-                p = state.players[pid]
-                used = sorted(p.used_dice_cards)
-                if not used:
-                    details.append({"player": p.player_id + 1, "recovered": None})
-                    continue
-                recovered = used[0]
-                p.used_dice_cards.discard(recovered)
-                details.append({"player": p.player_id + 1, "recovered": recovered})
-
-        if details:
-            event["details"] = details
-        self._log(event)
+    def _apply_round_weather(self, state: GameState) -> dict:
+        result = self.events.emit_first_non_none("weather.round.apply", state)
+        if result is None:
+            raise RuntimeError("weather.round.apply handler returned no result")
+        return result
 
     def _apply_weather_same_tile_bonus(self, state: GameState, player: PlayerState, event: dict) -> dict:
         co = [p for p in state.players if p.alive and p.player_id != player.player_id and p.position == player.position]

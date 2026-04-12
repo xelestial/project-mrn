@@ -88,16 +88,26 @@ Primary files:
 
 Flow:
 
-1. engine emits domain event such as `weather_reveal`, `fortune_drawn`, `trick_used`
-2. backend reveal and scene selectors derive public situation fields
-3. frontend renders those public fields in weather, theater, prompt, and board HUD
+1. engine requests effect execution through the event bus for gameplay effects such as round weather
+2. default effect handlers apply gameplay state changes
+3. engine emits domain event such as `weather_reveal`, `fortune_drawn`, `trick_used`
+4. backend reveal and scene selectors derive public situation fields
+5. frontend renders those public fields in weather, theater, prompt, and board HUD
 
 Primary files:
 
 - `GPT/engine.py`
+- `GPT/event_system.py`
+- `GPT/effect_handlers.py`
 - `apps/server/src/domain/view_state/reveal_selector.py`
 - `apps/server/src/domain/view_state/scene_selector.py`
 - `apps/web/src/domain/selectors/streamSelectors.ts`
+
+Important current note:
+
+- `weather.round.apply` is now single-sourced through the event bus
+- the earlier dead duplicate in `GPT/engine.py` has been removed
+- as of the 2026-04-12 audit, the remaining default effect-handler registrations are all referenced by engine event emission paths
 
 ### 2.5 Animation pipeline
 
@@ -130,7 +140,18 @@ Important note:
   - `_start_new_round(state, initial=False)`
   - `_take_turn(state, player)`
   - `_emit_vis(event_type, phase, player, state, **payload)`
+  - `_apply_round_weather(state)` now acts as an event-bus wrapper, not a direct weather implementation
   - parameter rule: gameplay ids should be emitted as stable numbers or enums where possible
+
+- `GPT/event_system.py`
+  - `EventDispatcher.register(event_name, handler)`
+  - `EventDispatcher.emit_first_non_none(event_name, *args, **kwargs)`
+  - rule: engine effect entrypoints should dispatch through this layer when a handler path exists
+
+- `GPT/effect_handlers.py`
+  - `EngineEffectHandlers.register_default_handlers(dispatcher)`
+  - `apply_round_weather(state)`
+  - rule: effect logic should live here when the corresponding engine path is event-driven
 
 ### Backend runtime
 
@@ -186,6 +207,10 @@ Current caution:
 Validation rule:
 
 - every startup, round-start, and prompt-critical event should keep enough data for backend selectors to derive stable public state
+- whenever an engine method is converted to an event-bus wrapper, tests must prove:
+  - the dispatcher path is actually used
+  - the default handler still reproduces gameplay behavior
+  - custom handler override remains possible
 
 ### Backend selectors
 
@@ -257,6 +282,22 @@ Primary files:
 - `apps/server/src/services/stream_service.py`
 
 ## 7. API Summary
+
+## 8. Dead-code And Convergence Notes
+
+Human summary:
+
+- Not every historical effect path was fully event-driven.
+- Weather had drifted into a split state:
+  - direct implementation in `GPT/engine.py`
+  - registered-but-unused implementation in `GPT/effect_handlers.py`
+- That split has been corrected.
+
+Current rule of thumb:
+
+- if an engine path calls `emit_first_non_none(...)`, the effect body should not also exist as a second independently maintained implementation in engine
+- wrappers are acceptable
+- duplicated gameplay branches are not
 
 ### REST
 

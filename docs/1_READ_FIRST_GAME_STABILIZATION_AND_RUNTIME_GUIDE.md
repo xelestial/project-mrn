@@ -73,6 +73,11 @@ Current evidence collected on 2026-04-12:
 - Backend/Python candidate audit:
   - `vulture apps/server/src GPT --min-confidence 80` produced candidate findings, mostly in `GPT/ai_policy.py`
   - these are candidates, not confirmed removals
+- Event-bus convergence audit:
+  - `weather.round.apply` used to exist in both `GPT/engine.py` and `GPT/effect_handlers.py`
+  - that duplication has now been removed from `GPT/engine.py`
+  - round weather is now applied through the event bus only
+  - current scan shows the remaining default effect-handler registrations are referenced by engine `emit_first_non_none(...)` calls
 - Non-code junk:
   - `docs/.DS_Store` was present and should not be treated as meaningful project content
 
@@ -114,6 +119,9 @@ Rule for cleanup:
   - test-only artifact
   - false positive
   - intentionally retained compatibility path
+- Current confirmed cleanup:
+  - weather application no longer has a dead duplicate implementation
+  - engine wrapper remains, but actual logic lives in the event handler path
 
 ### Phase E. Contract documentation
 

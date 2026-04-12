@@ -1,4 +1,6 @@
 import unittest
+import re
+from pathlib import Path
 
 from config import DEFAULT_CONFIG, CellKind
 from engine import GameEngine
@@ -59,6 +61,12 @@ class EventEffectIntegrationTests(unittest.TestCase):
         self.assertIn('bankruptcy.resolve', names)
         self.assertIn('trick.card.resolve', names)
 
+    def test_registered_default_effect_events_are_referenced_by_engine(self):
+        names = self.engine.events.registered_event_names()
+        engine_source = Path("GPT/engine.py").read_text(encoding="utf-8")
+        missing = [name for name in names if not re.search(re.escape(name), engine_source)]
+        self.assertEqual(missing, [], f"unreferenced default effect events: {missing}")
+
     def test_purchase_can_be_overridden_by_custom_event_handler(self):
         land_pos = next(i for i, cell in enumerate(self.state.board) if cell in (CellKind.T2, CellKind.T3))
         cell = self.state.board[land_pos]
@@ -118,6 +126,16 @@ class EventEffectIntegrationTests(unittest.TestCase):
         self.engine.events.register('payment.resolve', lambda state, player, cost, receiver: {'cost': cost, 'paid': True, 'bankrupt': False, 'custom': True})
         result = self.engine._pay_or_bankrupt(self.state, self.player, 3, None)
         self.assertTrue(result['custom'])
+
+    def test_round_weather_can_be_overridden(self):
+        self.engine.events.clear('weather.round.apply')
+        self.engine.events.register(
+            'weather.round.apply',
+            lambda state: {'type': 'CUSTOM_WEATHER', 'name': '테스트 날씨', 'effect': 'override', 'details': []},
+        )
+        result = self.engine._apply_round_weather(self.state)
+        self.assertEqual(result['type'], 'CUSTOM_WEATHER')
+        self.assertEqual(result['name'], '테스트 날씨')
 
 
 

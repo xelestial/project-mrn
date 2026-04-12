@@ -50,47 +50,76 @@ class EngineEffectHandlers:
         state.weather_discard_pile.append(card)
         event = {'event': 'weather_round', 'round_index': state.rounds_completed + 1, 'weather': card.name, 'effect': card.effect}
         details = []
-        if card.name == '말이 살찌는 계절':
-            details.append({'effect': 'extra_die', 'delta': 1})
-        elif card.name == '추운 겨울날':
-            details.append({'effect': 'lap_block', 'penalty_cash': 2})
-        elif card.name == '풍년든 가을':
-            details.append({'effect': 'lap_shard_bonus', 'delta': 1})
-        elif card.name == '성물의 날':
-            details.append({'effect': 'lap_shard_bonus', 'delta': 1})
-        elif card.name == '공개 잔꾀':
-            owner = engine._weather_marker_owner(state)
-            details.append({'effect': 'marker_visible_tricks', 'target_player': None if owner is None else owner.player_id + 1})
-        elif card.name == '전략 변경':
+        if card.name == '외세의 침략':
+            for p in state.players:
+                if p.alive:
+                    out = engine._pay_or_bankrupt(state, p, 2, None)
+                    details.append({'player': p.player_id + 1, **out})
+        elif card.name == '솔선 수범':
             owner = engine._weather_marker_owner(state)
             if owner is not None:
-                before = len(owner.trick_hand)
-                need = max(0, 5 - len(owner.trick_hand))
-                if need > 0:
-                    engine._draw_tricks(state, owner, need)
-                details.append({'effect': 'marker_trick_refill', 'target_player': owner.player_id + 1, 'before': before, 'after': len(owner.trick_hand)})
-        elif card.name == '배신의 징표':
-            # 룰 정합성 업데이트: 해당 날씨는 현재 버전에서 효과를 적용하지 않는다.
-            details.append({'effect': 'disabled_no_op'})
-        elif card.name == '맑고 포근한 하루':
+                details.append({'player': owner.player_id + 1, **engine._pay_or_bankrupt(state, owner, 3, None)})
+        elif card.name == '기우제':
             owner = engine._weather_marker_owner(state)
-            if owner is not None and owner.used_dice_cards:
-                recovered = min(owner.used_dice_cards)
-                owner.used_dice_cards.remove(recovered)
-                details.append({'effect': 'recover_smallest_used_dice_card', 'target_player': owner.player_id + 1, 'value': recovered})
-        elif card.name == '긴급 피난':
+            if owner is not None:
+                owner.shards += 1
+                engine._strategy_stats[owner.player_id]['shards_gained_lap'] += 1
+                engine._change_f(state, -1, reason='weather_effect', source='기우제')
+                details.append({'player': owner.player_id + 1, 'shards_delta': 1, 'f_delta': -1})
+        elif card.name == '구휼의 상징':
+            owner = engine._weather_marker_owner(state)
+            if owner is not None:
+                owner.cash += 4
+                details.append({'player': owner.player_id + 1, 'cash_delta': 4})
+        elif card.name == '잔꾀 부리기':
             for p in state.players:
                 if p.alive:
                     details.append(engine._weather_gain_tricks(state, p, 1, redraw=False))
-        elif card.name == '길고 긴 겨울':
+        elif card.name == '전략 변경':
             for p in state.players:
                 if p.alive:
                     need = max(0, 5 - len(p.trick_hand))
                     details.append(engine._weather_gain_tricks(state, p, need, redraw=False))
-        elif card.name == '재활용의 날':
-            details.append(engine._fortune_burden_cleanup(state, [p for p in state.players if p.alive], multiplier=2, payout=True, name=card.name))
-        elif card.name == '산불의 날':
-            details.append(engine._fortune_burden_cleanup(state, [p for p in state.players if p.alive], multiplier=2, payout=False, name=card.name))
+        elif card.name == '모든 것을 자원으로':
+            details.append(
+                engine._fortune_burden_cleanup(
+                    state,
+                    [p for p in state.players if p.alive],
+                    multiplier=2,
+                    payout=True,
+                    name=card.name,
+                )
+            )
+        elif card.name == '긴급 피난':
+            details.append(
+                engine._fortune_burden_cleanup(
+                    state,
+                    [p for p in state.players if p.alive],
+                    multiplier=2,
+                    payout=False,
+                    name=card.name,
+                )
+            )
+        elif card.name == '배신의 징표':
+            # 룰 정합성 업데이트: 해당 날씨는 현재 버전에서 효과를 적용하지 않는다.
+            details.append({'effect': 'disabled_no_op'})
+        elif card.name == '밤인데 낮처럼 밝아요':
+            engine._change_f(state, -3, reason='weather_effect', source='밤인데 낮처럼 밝아요')
+            details.append({'f_delta': -3})
+        elif card.name == '길고 긴 겨울':
+            engine._change_f(state, -1, reason='weather_effect', source='길고 긴 겨울')
+            details.append({'f_delta': -1})
+        elif card.name == '맑고 포근한 하루':
+            ordered = engine._alive_ids_from_marker_direction(state)
+            for pid in ordered:
+                p = state.players[pid]
+                used = sorted(p.used_dice_cards)
+                if not used:
+                    details.append({'player': p.player_id + 1, 'recovered': None})
+                    continue
+                recovered = used[0]
+                p.used_dice_cards.discard(recovered)
+                details.append({'player': p.player_id + 1, 'recovered': recovered})
         if details:
             event['details'] = details
         engine._log(event)
@@ -190,83 +219,6 @@ class EngineEffectHandlers:
             disputed_rent = state.config.rules.economy.rent_cost_for(state, pos)
             disputed = engine._pay_or_bankrupt(state, player, disputed_rent, None)
             if not player.alive:
-                return engine._apply_weather_same_tile_bonus(state, player, {'type': 'DISPUTED_BANKRUPTCY', 'tile_kind': cell.name, 'rent': disputed_rent, **disputed})
-        purchase = engine._try_purchase_tile(state, player, pos, cell)
-        if disputed is not None:
-            purchase['weather_disputed_rent'] = {'rent': disputed_rent, **disputed}
-        if player.current_character == '중매꾼' and player.alive and purchase.get('type') == 'PURCHASE':
-            extra = engine._matchmaker_buy_adjacent(state, player, pos)
-            if extra is not None:
-                purchase['adjacent_bought'] = [extra]
-        elif player.trick_one_extra_adjacent_buy_this_turn and player.alive:
-            extra = engine._buy_one_adjacent_same_block(state, player, pos)
-            if extra is not None:
-                purchase['trick_adjacent_bought'] = extra
-            player.trick_one_extra_adjacent_buy_this_turn = False
-        co = [p for p in state.players if p.alive and p.player_id != player.player_id and p.position == pos]
-        if co:
-            if player.trick_same_tile_cash2_this_turn:
-                gain = 2 * len(co)
-                player.cash += gain
-                purchase['trick_same_tile_cash_gain'] = gain
-            if player.trick_same_tile_shard_rake_this_turn:
-                total = 0
-                details = []
-                for op in co:
-                    amt = player.shards
-                    out = engine._pay_or_bankrupt(state, op, amt, player.player_id) if amt > 0 else {'paid': True, 'amount': 0}
-                    total += amt if out.get('paid') else 0
-                    details.append({'player': op.player_id + 1, 'amount': amt, 'paid': out.get('paid', True)})
-                purchase['trick_same_tile_shard_rake'] = {'total': total, 'details': details}
-        return engine._apply_weather_same_tile_bonus(state, player, purchase)
-
-    def handle_own_tile_landing(self, state: GameState, player: PlayerState, pos: int, cell: CellKind) -> dict:
-        self._ensure_stats(state)
-        engine = self.engine
-        stats = engine._strategy_stats[player.player_id]
-        stats['own_tile_visits'] += 1
-        if player.trick_one_extra_adjacent_buy_this_turn:
-            extra = engine._buy_one_adjacent_same_block(state, player, pos)
-            player.trick_one_extra_adjacent_buy_this_turn = False
-        else:
-            extra = None
-        before_hand = player.hand_coins
-        gain = state.config.rules.token.coins_from_visiting_own_tile
-        if player.current_character == '객주':
-            gain += 1
-        player.hand_coins += gain
-        stats['coins_gained_own_tile'] += gain
-        player.visited_owned_tile_indices.add(pos)
-        placed = engine._place_hand_coins_if_possible(state, player)
-        event = {'type': 'OWN_TILE', 'tile_kind': cell.name, 'coin_gain': gain, 'hand_before_gain': before_hand, 'placed': placed}
-        if extra is not None:
-            event['trick_adjacent_bought'] = extra
-        co = [p for p in state.players if p.alive and p.player_id != player.player_id and p.position == pos]
-        if co:
-            if player.trick_same_tile_cash2_this_turn:
-                gain_cash = 2 * len(co)
-                player.cash += gain_cash
-                event['trick_same_tile_cash_gain'] = gain_cash
-            if player.trick_same_tile_shard_rake_this_turn:
-                total = 0
-                details = []
-                for op in co:
-                    amt = player.shards
-                    out = engine._pay_or_bankrupt(state, op, amt, player.player_id) if amt > 0 else {'paid': True, 'amount': 0}
-                    total += amt if out.get('paid') else 0
-                    details.append({'player': op.player_id + 1, 'amount': amt, 'paid': out.get('paid', True)})
-                event['trick_same_tile_shard_rake'] = {'total': total, 'details': details}
-        return engine._apply_weather_same_tile_bonus(state, player, event)
-
-
-    def handle_unowned_landing(self, state: GameState, player: PlayerState, pos: int, cell: CellKind) -> dict:
-        engine = self.engine
-        purchase = None
-        disputed = None
-        if engine._has_weather(state, '대규모 민란') and cell in (CellKind.T2, CellKind.T3):
-            disputed_rent = state.config.rules.economy.rent_cost_for(state, pos)
-            disputed = engine._pay_or_bankrupt(state, player, disputed_rent, None)
-            if not player.alive:
                 return engine._apply_weather_same_tile_bonus(
                     state,
                     player,
@@ -351,140 +303,6 @@ class EngineEffectHandlers:
                     details.append({'player': op.player_id + 1, 'amount': amt, 'paid': out.get('paid', True)})
                 event['trick_same_tile_shard_rake'] = {'total': total, 'details': details}
         return engine._apply_weather_same_tile_bonus(state, player, event)
-
-    def handle_rent_payment(self, state: GameState, player: PlayerState, pos: int, owner: int) -> dict:
-        engine = self.engine
-        self._ensure_stats(state)
-        stats = engine._strategy_stats[player.player_id]
-        rent = engine._effective_rent(state, pos, player, owner)
-        if player.trick_all_rent_waiver_this_turn:
-            rent = 0
-        elif player.rent_waiver_count_this_turn > 0:
-            player.rent_waiver_count_this_turn -= 1
-            rent = 0
-        stats['rent_paid'] += 1
-        outcome = engine._pay_or_bankrupt(state, player, rent, owner)
-        event = {'type': 'RENT', 'tile_kind': state.board[pos].name, 'owner': owner + 1, 'rent': rent, **outcome}
-        if player.trick_one_extra_adjacent_buy_this_turn and player.alive and outcome.get('paid'):
-            extra = engine._buy_one_adjacent_same_block(state, player, pos)
-            if extra is not None:
-                event['trick_adjacent_bought'] = extra
-            player.trick_one_extra_adjacent_buy_this_turn = False
-        if (
-            player.current_character == '중매꾼'
-            and player.alive
-            and outcome.get('paid')
-        ):
-            extra = engine._matchmaker_buy_adjacent(state, player, pos)
-            if extra is not None:
-                event.setdefault('adjacent_bought', []).append(extra)
-        co = [p for p in state.players if p.alive and p.player_id != player.player_id and p.position == pos]
-        if co:
-            if player.trick_same_tile_cash2_this_turn:
-                gain_cash = 2 * len(co)
-                player.cash += gain_cash
-                event['trick_same_tile_cash_gain'] = gain_cash
-            if player.trick_same_tile_shard_rake_this_turn:
-                total = 0
-                details = []
-                for op in co:
-                    amt = player.shards
-                    out = engine._pay_or_bankrupt(state, op, amt, player.player_id) if amt > 0 else {'paid': True, 'amount': 0}
-                    total += amt if out.get('paid') else 0
-                    details.append({'player': op.player_id + 1, 'amount': amt, 'paid': out.get('paid', True)})
-                event['trick_same_tile_shard_rake'] = {'total': total, 'details': details}
-        result = engine._apply_weather_same_tile_bonus(state, player, event)
-        engine._emit_vis(
-            "rent_paid",
-            Phase.ECONOMY,
-            player.player_id + 1,
-            state,
-            payer_player_id=player.player_id + 1,
-            owner_player_id=owner + 1,
-            tile_index=pos,
-            base_amount=rent,
-            final_amount=rent if outcome.get('paid') else 0,
-            modifiers=result,
-        )
-        return result
-
-    def handle_tile_character_effect(self, state: GameState, player: PlayerState, pos: int, owner: Optional[int]) -> Optional[dict]:
-        engine = self.engine
-        cell = state.board[pos]
-        if owner is not None and player.current_character == '아전' and owner != player.player_id:
-            others = [p for p in state.players if p.alive and p.player_id != player.player_id and p.position == pos]
-            if others:
-                total = 0
-                for op in others:
-                    engine._pay_or_bankrupt(state, op, player.shards, player.player_id)
-                    total += player.shards
-                engine._strategy_stats[player.player_id]['shard_income_cash'] += total
-                return engine._apply_weather_same_tile_bonus(
-                    state,
-                    player,
-                    {'type': 'AJEON_LAND', 'others': [p.player_id + 1 for p in others], 'collected_per_player': player.shards, 'total': total},
-                )
-        if owner is not None and player.current_character == '사기꾼' and not engine._is_muroe_skill_blocked(state, player):
-            base_rent = engine._effective_rent(state, pos, player, owner)
-            swindle_multiplier = 2 if player.shards >= 8 else 3
-            rent = base_rent * swindle_multiplier
-            if rent > 0 and hasattr(engine.policy, "should_attempt_swindle") and not engine.policy.should_attempt_swindle(state, player, pos, owner, float(rent)):
-                engine._log(
-                    {
-                        "event": "policy_action",
-                        "event_kind": "policy_action",
-                        "type": "SWINDLE_SKIP_POLICY",
-                        "reason": "survival_gate",
-                        "player": player.player_id + 1,
-                        "target_owner": owner + 1,
-                        "required_cost": float(rent),
-                        "position": pos,
-                        "tile_kind": cell.name,
-                        "turn_index": state.turn_index,
-                        "round_index": state.rounds_completed,
-                    }
-                )
-                return None
-            outcome = engine._pay_or_bankrupt(state, player, rent, owner)
-            if outcome['paid']:
-                if engine._takeover_blocked(state, pos, player.player_id):
-                    return engine._apply_weather_same_tile_bonus(
-                        state,
-                        player,
-                        {
-                            'type': 'SWINDLE_BLOCKED',
-                            'tile_kind': cell.name,
-                            'from': owner + 1,
-                            'reason': 'monopoly_protected',
-                            'swindle_multiplier': swindle_multiplier,
-                            **outcome,
-                        },
-                    )
-                prev_owner = owner
-                state.tile_owner[pos] = player.player_id
-                state.players[prev_owner].tiles_owned -= 1
-                player.tiles_owned += 1
-                transferred = state.tile_coins[pos]
-                state.players[prev_owner].score_coins_placed -= transferred
-                player.score_coins_placed += transferred
-                return engine._apply_weather_same_tile_bonus(
-                    state,
-                    player,
-                    {
-                        'type': 'SWINDLE_TAKEOVER',
-                        'tile_kind': cell.name,
-                        'from': prev_owner + 1,
-                        'swindle_multiplier': swindle_multiplier,
-                        **outcome,
-                        'coins_taken': transferred,
-                    },
-                )
-            return engine._apply_weather_same_tile_bonus(
-                state,
-                player,
-                {'type': 'SWINDLE_FAIL', 'tile_kind': cell.name, 'swindle_multiplier': swindle_multiplier, **outcome},
-            )
-        return None
 
     def handle_marker_management(self, state: GameState, player: PlayerState) -> dict | None:
         engine = self.engine
