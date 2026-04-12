@@ -65,6 +65,7 @@ export type CreateSessionResult = {
   join_tokens: Record<string, string>;
   seats?: SeatPublic[];
   parameter_manifest?: ParameterManifest;
+  initial_active_by_card?: Record<string, string>;
 };
 
 export type PublicSessionResult = {
@@ -77,6 +78,7 @@ export type PublicSessionResult = {
   started_at?: string | null;
   seats?: SeatPublic[];
   parameter_manifest?: ParameterManifest;
+  initial_active_by_card?: Record<string, string>;
 };
 
 export type JoinSessionResult = {

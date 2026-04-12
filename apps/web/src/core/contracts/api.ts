@@ -48,6 +48,7 @@ export type CreateSessionResponse = {
   join_tokens: Record<string, string>;
   created_at: string;
   parameter_manifest?: ParameterManifest;
+  initial_active_by_card?: Record<string, string>;
 };
 
 export type SessionView = {
@@ -58,6 +59,7 @@ export type SessionView = {
   created_at: string;
   started_at?: string | null;
   parameter_manifest?: ParameterManifest;
+  initial_active_by_card?: Record<string, string>;
   seats: Array<{
     seat: number;
     seat_type: string;

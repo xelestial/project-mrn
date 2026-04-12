@@ -250,6 +250,7 @@ export function App() {
   const [displayNameInput, setDisplayNameInput] = useState("Player");
   const [sessions, setSessions] = useState<PublicSessionResult[]>([]);
   const [sessionManifest, setSessionManifest] = useState<ParameterManifest | null>(null);
+  const [sessionInitialActiveByCard, setSessionInitialActiveByCard] = useState<Record<string, string> | null>(null);
   const [localPlayerId, setLocalPlayerId] = useState<number | null>(null);
   const inferredPlayerId = inferPlayerIdFromSessionToken(token);
   const effectivePlayerId = localPlayerId ?? inferredPlayerId;
@@ -496,11 +497,11 @@ export function App() {
         : "-";
   const activeCharacterSlots = useMemo(
     () =>
-      selectActiveCharacterSlots(stream.messages, effectivePlayerId, selectorText).map((slot) => ({
+      selectActiveCharacterSlots(stream.messages, effectivePlayerId, selectorText, sessionInitialActiveByCard).map((slot) => ({
         ...slot,
         ability: slot.character ? characterAbilityLabels[slot.character] ?? "-" : null,
       })),
-    [stream.messages, effectivePlayerId, selectorText, characterAbilityLabels]
+    [stream.messages, effectivePlayerId, selectorText, sessionInitialActiveByCard, characterAbilityLabels]
   );
   const knownActiveCharacterCount = activeCharacterSlots.filter((slot) => Boolean(slot.character)).length;
   const markTargetActorName =
@@ -617,6 +618,7 @@ export function App() {
   useEffect(() => {
     if (!sessionId.trim()) {
       setSessionManifest(null);
+      setSessionInitialActiveByCard(null);
       return;
     }
     let active = true;
@@ -624,6 +626,7 @@ export function App() {
       .then((data) => {
         if (active) {
           setSessionManifest(data.parameter_manifest ?? null);
+          setSessionInitialActiveByCard(data.initial_active_by_card ?? null);
         }
       })
       .catch(() => {
@@ -974,6 +977,7 @@ export function App() {
         },
       });
       setSessionManifest(created.parameter_manifest ?? null);
+      setSessionInitialActiveByCard(created.initial_active_by_card ?? null);
       setSessionInput(created.session_id);
       setSessionId(created.session_id);
       setTokenInput("");
@@ -1015,6 +1019,7 @@ export function App() {
         },
       });
       setSessionManifest(created.parameter_manifest ?? null);
+      setSessionInitialActiveByCard(created.initial_active_by_card ?? null);
       await startSession({ sessionId: created.session_id, hostToken: created.host_token });
       const runtimeState = await getRuntimeStatus(created.session_id);
       setRuntime(runtimeState.runtime);
@@ -1073,6 +1078,7 @@ export function App() {
       await startSession({ sessionId: created.session_id, hostToken: created.host_token });
 
       setSessionManifest(created.parameter_manifest ?? null);
+      setSessionInitialActiveByCard(created.initial_active_by_card ?? null);
       setSessionInput(created.session_id);
       setSessionId(created.session_id);
       setTokenInput(joined.session_token);
@@ -1104,6 +1110,7 @@ export function App() {
     try {
       const started = await startSession({ sessionId: current, hostToken: hostTokenInput.trim() });
       setSessionManifest(started.parameter_manifest ?? null);
+      setSessionInitialActiveByCard(started.initial_active_by_card ?? null);
       setSessionId(current);
       setNotice(app.notices.startSession(current));
       await refreshSessions();
@@ -1170,6 +1177,7 @@ export function App() {
     setLocalPlayerId(null);
     const selected = sessions.find((session) => session.session_id === id);
     setSessionManifest(selected?.parameter_manifest ?? null);
+    setSessionInitialActiveByCard(selected?.initial_active_by_card ?? null);
     setNotice(app.notices.useSession(id));
     if (route === "match") {
       window.location.hash = buildMatchHash(id);

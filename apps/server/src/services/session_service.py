@@ -3,6 +3,7 @@ from __future__ import annotations
 import secrets
 import uuid
 from dataclasses import asdict
+import random
 
 from apps.server.src.domain.session_models import (
     ParticipantClientType,
@@ -18,6 +19,7 @@ from apps.server.src.services.parameter_service import (
     PublicManifestBuilder,
 )
 from apps.server.src.services.persistence import SessionStore
+from apps.server.src.services.engine_config_factory import EngineConfigFactory
 
 
 class SessionStateError(ValueError):
@@ -154,6 +156,7 @@ class SessionService:
             "abort_reason": session.abort_reason,
             "seats": [self._seat_public(s) for s in session.seats],
             "parameter_manifest": dict(session.parameter_manifest),
+            "initial_active_by_card": self._initial_active_by_card(session),
         }
 
     def verify_session_token(self, session_id: str, token: str | None) -> dict:
@@ -187,6 +190,17 @@ class SessionService:
         data["host_token"] = session.host_token
         data["join_tokens"] = {str(k): v for k, v in session.join_tokens.items()}
         return data
+
+    @staticmethod
+    def _initial_active_by_card(session: Session) -> dict[int, str]:
+        config = EngineConfigFactory().create(session.resolved_parameters)
+        runtime = dict(session.resolved_parameters.get("runtime", {}))
+        seed = int(runtime.get("seed", session.config.get("seed", 42)))
+        if config.characters.randomize_starting_active_by_card:
+            from characters import randomized_active_by_card
+
+            return dict(randomized_active_by_card(random.Random(seed)))
+        return dict(config.characters.starting_active_by_card)
 
     @staticmethod
     def _seat_public(seat: SeatConfig) -> dict:

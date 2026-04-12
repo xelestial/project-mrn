@@ -2434,6 +2434,27 @@ function selectRawActiveCharacterSlotsWithoutSnapshot(messages: InboundMessage[]
   });
 }
 
+function selectFallbackActiveCharacterSlotsFromMap(
+  rawActiveByCard: Record<string, string> | Record<number, string> | null | undefined
+): ActiveCharacterSlotViewModel[] {
+  const activeByCard: Record<number, string> = {};
+  mergeActiveByCard(activeByCard, rawActiveByCard);
+  return Array.from({ length: 8 }, (_, index) => {
+    const slot = index + 1;
+    const character =
+      typeof activeByCard[slot] === "string" && activeByCard[slot].trim().length > 0 ? activeByCard[slot] : null;
+    return {
+      slot,
+      playerId: null,
+      label: null,
+      character,
+      inactiveCharacter: character ? oppositeCharacterForSlot(slot, character) : null,
+      isCurrentActor: false,
+      isLocalPlayer: false,
+    };
+  });
+}
+
 function selectBackendMarkTargetCharacterSlots(messages: InboundMessage[]): MarkTargetSlotViewModel[] | null {
   const entry = selectLatestBackendViewStateEntry(messages);
   if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
@@ -2834,18 +2855,23 @@ export function selectDerivedPlayers(
 export function selectActiveCharacterSlots(
   messages: InboundMessage[],
   currentLocalPlayerId: number | null = null,
-  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT,
+  initialActiveByCard: Record<string, string> | Record<number, string> | null = null
 ): ActiveCharacterSlotViewModel[] {
+  const fallbackSlots = selectFallbackActiveCharacterSlotsFromMap(initialActiveByCard);
+  const fallbackKnownCount = fallbackSlots.filter((slot) => Boolean(slot.character)).length;
   const snapshot = selectLiveSnapshot(messages, text);
   if (!snapshot) {
     const backendSlots = selectBackendActiveCharacterSlots(messages, currentLocalPlayerId);
     const rawSlots = selectRawActiveCharacterSlotsWithoutSnapshot(messages);
     const backendKnownCount = backendSlots?.filter((slot) => Boolean(slot.character)).length ?? 0;
     const rawKnownCount = rawSlots.filter((slot) => Boolean(slot.character)).length;
-    if (!backendSlots || backendKnownCount < rawKnownCount) {
-      return rawSlots;
+    let bestSlots = backendKnownCount >= rawKnownCount && backendSlots ? backendSlots : rawSlots;
+    const bestKnownCount = bestSlots.filter((slot) => Boolean(slot.character)).length;
+    if (fallbackKnownCount > bestKnownCount) {
+      bestSlots = fallbackSlots;
     }
-    return backendSlots;
+    return bestSlots;
   }
   const derivedPlayers = selectDerivedPlayers(messages, currentLocalPlayerId, text);
   const actor = derivedPlayers.find((player) => player.isCurrentActor) ?? null;
@@ -2877,7 +2903,12 @@ export function selectActiveCharacterSlots(
   }
   const backendKnownCount = backendSlots.filter((slot) => Boolean(slot.character)).length;
   const rawKnownCount = rawSlots.filter((slot) => Boolean(slot.character)).length;
-  return backendKnownCount >= rawKnownCount ? backendSlots : rawSlots;
+  let bestSlots = backendKnownCount >= rawKnownCount ? backendSlots : rawSlots;
+  const bestKnownCount = bestSlots.filter((slot) => Boolean(slot.character)).length;
+  if (fallbackKnownCount > bestKnownCount) {
+    bestSlots = fallbackSlots;
+  }
+  return bestSlots;
 }
 
 export function selectMarkTargetCharacterSlots(

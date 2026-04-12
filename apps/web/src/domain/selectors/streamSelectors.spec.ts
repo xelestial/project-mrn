@@ -1683,6 +1683,21 @@ describe("streamSelectors", () => {
     ]);
   });
 
+  it("falls back to session-provided initial active faces before stream events arrive", () => {
+    expect(
+      selectActiveCharacterSlots([], 1, undefined, {
+        "1": "어사",
+        "2": "산적",
+        "3": "탈출 노비",
+        "4": "아전",
+        "5": "교리 감독관",
+        "6": "만신",
+        "7": "중매꾼",
+        "8": "사기꾼",
+      }).map((slot) => slot.character)
+    ).toEqual(["어사", "산적", "탈출 노비", "아전", "교리 감독관", "만신", "중매꾼", "사기꾼"]);
+  });
+
   it("ignores stale backend mark-target projections when a newer raw prompt arrives", () => {
     const messages: InboundMessage[] = [
       {

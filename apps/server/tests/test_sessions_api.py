@@ -162,6 +162,7 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(created.status_code, 200)
         created_data = created.json()["data"]
         self.assertIn("parameter_manifest", created_data)
+        self.assertIn("initial_active_by_card", created_data)
         self.assertIn("manifest_hash", created_data["parameter_manifest"])
         session_id = created_data["session_id"]
 
@@ -169,6 +170,7 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(fetched.status_code, 200)
         fetched_data = fetched.json()["data"]
         self.assertIn("parameter_manifest", fetched_data)
+        self.assertEqual(fetched_data["initial_active_by_card"], created_data["initial_active_by_card"])
         self.assertEqual(
             fetched_data["parameter_manifest"]["manifest_hash"],
             created_data["parameter_manifest"]["manifest_hash"],
