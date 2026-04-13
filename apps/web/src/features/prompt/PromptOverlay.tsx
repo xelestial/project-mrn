@@ -1350,15 +1350,7 @@ export function PromptOverlay({
 
         {isMarkTarget ? (
           <section className="prompt-section prompt-hand-stage">
-            <div
-              className={`prompt-choices prompt-choices-mark ${compactChoices ? "prompt-choices-compact" : ""}`}
-              style={{
-                gridTemplateColumns: `repeat(${Math.max(
-                  1,
-                  displayedMarkChoices.filter((choice) => choice.choiceId !== "none").length
-                )}, minmax(0, 1fr))`,
-              }}
-            >
+            <div className={`prompt-choices prompt-choices-mark ${compactChoices ? "prompt-choices-compact" : ""}`}>
               {displayedMarkChoices
                 .filter((choice) => choice.choiceId !== "none")
                 .map((choice) => {

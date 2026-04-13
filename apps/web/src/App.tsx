@@ -1535,8 +1535,8 @@ export function App() {
                               </div>
                             ) : null}
                             <div className="match-table-weather-main">
-                              <h4>{weatherHeadline}</h4>
-                              {weatherDetail ? <p>{weatherDetail}</p> : null}
+                              <h4 data-testid="board-weather-headline">{weatherHeadline}</h4>
+                              {weatherDetail ? <p data-testid="board-weather-detail">{weatherDetail}</p> : null}
                             </div>
                           </div>
                         </article>
@@ -1618,6 +1618,7 @@ export function App() {
                           {activeCharacterSlots.map((card) => (
                             <article
                               key={card.slot}
+                              data-testid={`active-character-slot-${card.slot}`}
                               className={`match-table-active-character-card ${
                                 card.isCurrentActor ? "match-table-active-character-card-actor" : ""
                               } ${card.isLocalPlayer ? "match-table-active-character-card-local" : ""} ${

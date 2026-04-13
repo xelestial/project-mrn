@@ -40,7 +40,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run focused browser runtime tests
-        run: npx playwright test e2e/parity.spec.ts --grep "quick start human vs ai surfaces first prompt, weather, and initial active faces|purchase and mark prompts render dedicated decision cards"
+        run: npm run e2e:parity
 
       - name: Upload Playwright report
         if: always()

@@ -1,7 +1,32 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { weatherEffectForDisplayName } from "../src/domain/catalogs/gameplayCatalog";
+
+const WEATHER_EFFECT_BY_NAME: Record<string, string> = {
+  "긴급 피난": "모든 짐 제거 비용이 2배가 됩니다.",
+};
+
+function weatherEffectForDisplayName(name: string | null | undefined): string | null {
+  if (typeof name !== "string") {
+    return null;
+  }
+  return WEATHER_EFFECT_BY_NAME[name] ?? null;
+}
+
+async function expectLocatorsToShareSingleRow(elements: Locator[]) {
+  const boxes = await Promise.all(
+    elements.map(async (element) => {
+      await element.scrollIntoViewIfNeeded();
+      return element.boundingBox();
+    }),
+  );
+  const numericBoxes = boxes.filter((box): box is NonNullable<typeof box> => box !== null);
+  expect(numericBoxes.length).toBe(elements.length);
+  const baselineY = numericBoxes[0]?.y ?? 0;
+  for (const box of numericBoxes) {
+    expect(Math.abs(box.y - baselineY)).toBeLessThanOrEqual(2);
+  }
+}
 
 type FixtureRecord = {
   id: string;
@@ -135,6 +160,7 @@ async function installMockRuntime(
       status: string;
       host_token: string;
       join_tokens: Record<string, string>;
+      initial_active_by_card?: Record<string, string>;
       seats?: Array<{ seat: number; seat_type: "human" | "ai"; ai_profile?: string | null; player_id?: number | null; connected?: boolean }>;
       parameter_manifest?: ManifestRecord;
     }>;
@@ -155,6 +181,7 @@ async function installMockRuntime(
         status: string;
         round_index?: number;
         turn_index?: number;
+        initial_active_by_card?: Record<string, string>;
         seats?: Array<{ seat: number; seat_type: "human" | "ai"; ai_profile?: string | null; player_id?: number | null; connected?: boolean }>;
         parameter_manifest?: ManifestRecord;
       }
@@ -169,6 +196,30 @@ async function installMockRuntime(
       const joinResultMap = (joinResults as Record<string, Record<string, unknown>> | undefined) ?? {};
       const startedSessionMap = (startedSessions as Record<string, Record<string, unknown>> | undefined) ?? {};
       const sessionSnapshots = new Map<string, Record<string, unknown>>();
+
+      for (const created of pendingCreates) {
+        const sessionId = String(created.session_id);
+        const manifest = (created.parameter_manifest as ManifestRecord | undefined) ?? manifests[sessionId];
+        if (manifest) {
+          manifests[sessionId] = manifest;
+        }
+        sessionSnapshots.set(sessionId, {
+          session_id: sessionId,
+          status: created.status ?? "waiting",
+          round_index: 0,
+          turn_index: 0,
+          initial_active_by_card: created.initial_active_by_card ?? null,
+          seats: created.seats ?? [],
+          parameter_manifest: manifest ?? null,
+        });
+      }
+
+      for (const [sessionId, started] of Object.entries(startedSessionMap)) {
+        sessionSnapshots.set(sessionId, {
+          ...(sessionSnapshots.get(sessionId) ?? {}),
+          ...started,
+        });
+      }
 
       function response(data: unknown, status = 200): Response {
         return new Response(
@@ -212,6 +263,7 @@ async function installMockRuntime(
             status: created.status ?? "waiting",
             round_index: 0,
             turn_index: 0,
+            initial_active_by_card: created.initial_active_by_card ?? null,
             seats: created.seats ?? [],
             parameter_manifest: manifest ?? null,
           });
@@ -230,6 +282,7 @@ async function installMockRuntime(
             status: snapshot?.status ?? "in_progress",
             round_index: snapshot?.round_index ?? 1,
             turn_index: snapshot?.turn_index ?? 1,
+            initial_active_by_card: (snapshot?.initial_active_by_card as Record<string, string> | undefined) ?? null,
             seats:
               (snapshot?.seats as Array<Record<string, unknown>> | undefined) ??
               manifest?.seats?.allowed?.map((seat) => ({
@@ -279,6 +332,8 @@ async function installMockRuntime(
             status: sessionSnapshots.get(sessionId)?.status ?? "in_progress",
             round_index: sessionSnapshots.get(sessionId)?.round_index ?? 1,
             turn_index: sessionSnapshots.get(sessionId)?.turn_index ?? 1,
+            initial_active_by_card:
+              (sessionSnapshots.get(sessionId)?.initial_active_by_card as Record<string, string> | undefined) ?? null,
             seats: sessionSnapshots.get(sessionId)?.seats ?? [],
             parameter_manifest: sessionSnapshots.get(sessionId)?.parameter_manifest ?? manifests[sessionId],
           }));
@@ -365,6 +420,16 @@ test("quick start human vs ai enters match and surfaces the first human prompt",
     "3": "seat3_quick_join",
     "4": "seat4_quick_join",
   };
+  const initialActiveByCard = {
+    "1": "어사",
+    "2": "자객",
+    "3": "추노꾼",
+    "4": "파발꾼",
+    "5": "교리 연구관",
+    "6": "박수",
+    "7": "객주",
+    "8": "건설업자",
+  };
 
   await installMockRuntime(page, {
     sessionManifests: { [sessionId]: manifest },
@@ -442,6 +507,7 @@ test("quick start human vs ai enters match and surfaces the first human prompt",
         status: "waiting",
         host_token: hostToken,
         join_tokens: joinTokens,
+        initial_active_by_card: initialActiveByCard,
         seats: [
           { seat: 1, seat_type: "human", connected: false, player_id: null },
           { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced" },
@@ -466,6 +532,7 @@ test("quick start human vs ai enters match and surfaces the first human prompt",
         status: "in_progress",
         round_index: 1,
         turn_index: 1,
+        initial_active_by_card: initialActiveByCard,
         seats: [
           { seat: 1, seat_type: "human", connected: true, player_id: 1 },
           { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced" },
@@ -481,15 +548,271 @@ test("quick start human vs ai enters match and surfaces the first human prompt",
   await page.getByRole("button", { name: "사람 1 + AI 3 빠른 시작" }).click();
 
   await expect(page).toHaveURL(/#\/match/);
-  await expect(page.getByTestId("board-weather-summary")).toBeVisible();
-  await expect(page.getByTestId("core-action-flow-panel")).toBeVisible();
-  await expect(page.getByText("선택 요청: 히든 잔꾀 지정")).toBeVisible();
-  await expect(page.getByText("손패 전체 5장 / 히든 0장")).toBeVisible();
-  await expect(page.getByText("현재 라운드 날씨")).toBeVisible();
   const weatherSummary = page.getByTestId("board-weather-summary");
-  await expect(weatherSummary).toContainText("긴급 피난");
-  await expect(weatherSummary).toContainText(weatherEffectForDisplayName("긴급 피난") ?? "");
-  await expect(page.getByText("교리 연구관", { exact: true })).toBeVisible();
+  await expect(weatherSummary).toBeVisible();
+  await expect(page.getByTestId("core-action-flow-panel")).toBeVisible();
+  await expect(page.getByTestId("prompt-overlay")).toHaveAttribute("data-prompt-type", "hidden_trick_card");
+  await expect(page.getByTestId("trick-choice-10")).toBeVisible();
+  await expect(page.getByTestId("trick-choice-11")).toBeVisible();
+  await expect(page.getByTestId("trick-choice-12")).toBeVisible();
+  await expect(page.getByTestId("trick-choice-13")).toBeVisible();
+  await expect(page.getByTestId("trick-choice-14")).toBeVisible();
+  await expect(page.getByTestId("board-weather-headline")).toHaveText("긴급 피난");
+  await expect(page.getByTestId("board-weather-detail")).toHaveText(weatherEffectForDisplayName("긴급 피난") ?? "");
+  const activeStrip = page.getByTestId("active-character-strip");
+  await expect(page.getByTestId("active-character-slot-1")).toContainText("어사");
+  await expect(page.getByTestId("active-character-slot-2")).toContainText("자객");
+  await expect(page.getByTestId("active-character-slot-5")).toContainText("교리 연구관");
+  await expect(page.getByTestId("active-character-slot-8")).toContainText("건설업자");
+  await expect(activeStrip).toContainText("어사");
+  await expect(activeStrip).toContainText("자객");
+  await expect(activeStrip).toContainText("교리 연구관");
+  await expect(activeStrip).toContainText("건설업자");
+  await expectLocatorsToShareSingleRow([
+    page.getByTestId("prompt-choice-10"),
+    page.getByTestId("prompt-choice-11"),
+    page.getByTestId("prompt-choice-12"),
+    page.getByTestId("prompt-choice-13"),
+    page.getByTestId("prompt-choice-14"),
+  ]);
+});
+
+test("session payload initial active faces hydrate the active strip before stream events arrive", async ({ page }) => {
+  const sessionId = "sess_initial_active_payload";
+  const manifest = buildManifest({
+    hash: "initial_active_faces_hash_001",
+    topology: "ring",
+    tileCount: 40,
+    seats: [1, 2, 3, 4],
+  });
+  const initialActiveByCard = {
+    "1": "탐관오리",
+    "2": "산적",
+    "3": "탈출 노비",
+    "4": "아전",
+    "5": "교리 감독관",
+    "6": "만신",
+    "7": "중매꾼",
+    "8": "사기꾼",
+  };
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [],
+    },
+    createSessionQueue: [
+      {
+        session_id: sessionId,
+        status: "in_progress",
+        host_token: "host_initial_active_payload",
+        join_tokens: { "1": "seat1", "2": "seat2", "3": "seat3", "4": "seat4" },
+        initial_active_by_card: initialActiveByCard,
+        seats: [
+          { seat: 1, seat_type: "human", connected: true, player_id: 1 },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced" },
+          { seat: 3, seat_type: "ai", connected: true, player_id: 3, ai_profile: "balanced" },
+          { seat: 4, seat_type: "ai", connected: true, player_id: 4, ai_profile: "balanced" },
+        ],
+        parameter_manifest: manifest,
+      },
+    ],
+  });
+
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_initial_active_demo`);
+  const activeStrip = page.getByTestId("active-character-strip");
+  await expect(page.getByTestId("active-character-slot-1")).toContainText("탐관오리");
+  await expect(page.getByTestId("active-character-slot-2")).toContainText("산적");
+  await expect(page.getByTestId("active-character-slot-5")).toContainText("교리 감독관");
+  await expect(page.getByTestId("active-character-slot-8")).toContainText("사기꾼");
+  await expect(activeStrip).toContainText("탐관오리");
+  await expect(activeStrip).toContainText("산적");
+  await expect(activeStrip).toContainText("교리 감독관");
+  await expect(activeStrip).toContainText("사기꾼");
+});
+
+test("draft prompt keeps active strip hydrated before any flip events arrive", async ({ page }) => {
+  const sessionId = "sess_draft_prompt_active_faces";
+  const manifest = buildManifest({
+    hash: "draft_prompt_active_faces_hash_001",
+    topology: "ring",
+    tileCount: 40,
+    seats: [1, 2, 3, 4],
+  });
+  const initialActiveByCard = {
+    "1": "어사",
+    "2": "산적",
+    "3": "탈출 노비",
+    "4": "아전",
+    "5": "교리 감독관",
+    "6": "박수",
+    "7": "객주",
+    "8": "건설업자",
+  };
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({
+          seq: 1,
+          sessionId,
+          payload: {
+            event_type: "parameter_manifest",
+            parameter_manifest: manifest,
+          },
+        }),
+        eventMessage({
+          seq: 2,
+          sessionId,
+          payload: {
+            event_type: "round_start",
+            round_index: 1,
+          },
+        }),
+        eventMessage({
+          seq: 3,
+          sessionId,
+          payload: {
+            event_type: "weather_reveal",
+            weather_name: "긴급 피난",
+          },
+        }),
+        {
+          type: "prompt",
+          seq: 4,
+          session_id: sessionId,
+          server_time_ms: 1_700_000_000_304,
+          payload: {
+            request_id: "req_draft_ui_1",
+            request_type: "draft_card",
+            player_id: 1,
+            timeout_ms: 300000,
+            public_context: {
+              draft_phase: 1,
+              offered_count: 4,
+              offered_names: ["탐관오리", "중매꾼", "산적", "교리 감독관"],
+            },
+            choices: [
+              { choice_id: "draft_tamgwanori", title: "탐관오리", description: "속성 - 관원, 상민: 속성 인물은 탐관오리에게 미리내 조각 2개마다 1냥 지급하고 이동 시 주사위 1개를 추가하여 굴림" },
+              { choice_id: "draft_matchmaker", title: "중매꾼", description: "능력1: 인접 토지 추가 매입(기본 2배) / 능력2: 조각 8+이면 인접 토지 추가 매입 1배" },
+              { choice_id: "draft_bandit", title: "산적", description: "지목 - 지목 인물은 산적의 미리내 조각 1개마다 1냥 지급" },
+              { choice_id: "draft_doctrine_guard", title: "교리 감독관", description: "능력1: 라운드 종료 시 보라 징표 획득(드래프트 전달: 시계) / 능력2: 조각 8+이면 짐 1장 제거" },
+            ],
+          },
+        },
+      ],
+    },
+    createSessionQueue: [
+      {
+        session_id: sessionId,
+        status: "in_progress",
+        host_token: "host_draft_prompt_active_faces",
+        join_tokens: { "1": "seat1", "2": "seat2", "3": "seat3", "4": "seat4" },
+        initial_active_by_card: initialActiveByCard,
+        seats: [
+          { seat: 1, seat_type: "human", connected: true, player_id: 1 },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced" },
+          { seat: 3, seat_type: "ai", connected: true, player_id: 3, ai_profile: "balanced" },
+          { seat: 4, seat_type: "ai", connected: true, player_id: 4, ai_profile: "balanced" },
+        ],
+        parameter_manifest: manifest,
+      },
+    ],
+  });
+
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_draft_demo`);
+  await expect(page.getByTestId("prompt-overlay")).toHaveAttribute("data-prompt-type", "draft_card");
+  await expect(page.getByTestId("board-weather-headline")).toHaveText("긴급 피난");
+  await expect(page.getByTestId("board-weather-detail")).toHaveText(weatherEffectForDisplayName("긴급 피난") ?? "");
+  await expect(page.getByTestId("active-character-slot-1")).toContainText("어사");
+  await expect(page.getByTestId("active-character-slot-2")).toContainText("산적");
+  await expect(page.getByTestId("active-character-slot-4")).toContainText("아전");
+  await expect(page.getByTestId("active-character-slot-8")).toContainText("건설업자");
+  await expectLocatorsToShareSingleRow([
+    page.getByTestId("character-choice-draft_tamgwanori"),
+    page.getByTestId("character-choice-draft_matchmaker"),
+    page.getByTestId("character-choice-draft_bandit"),
+    page.getByTestId("character-choice-draft_doctrine_guard"),
+  ]);
+});
+
+test("round start shows weather and active strip before any prompt appears", async ({ page }) => {
+  const sessionId = "sess_round_start_status";
+  const manifest = buildManifest({
+    hash: "round_start_status_hash_001",
+    topology: "ring",
+    tileCount: 40,
+    seats: [1, 2, 3, 4],
+  });
+  const initialActiveByCard = {
+    "1": "탐관오리",
+    "2": "자객",
+    "3": "추노꾼",
+    "4": "아전",
+    "5": "교리 감독관",
+    "6": "박수",
+    "7": "객주",
+    "8": "건설업자",
+  };
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({
+          seq: 1,
+          sessionId,
+          payload: {
+            event_type: "parameter_manifest",
+            parameter_manifest: manifest,
+          },
+        }),
+        eventMessage({
+          seq: 2,
+          sessionId,
+          payload: {
+            event_type: "round_start",
+            round_index: 1,
+          },
+        }),
+        eventMessage({
+          seq: 3,
+          sessionId,
+          payload: {
+            event_type: "weather_reveal",
+            weather_name: "긴급 피난",
+          },
+        }),
+      ],
+    },
+    createSessionQueue: [
+      {
+        session_id: sessionId,
+        status: "in_progress",
+        host_token: "host_round_start_status",
+        join_tokens: { "1": "seat1", "2": "seat2", "3": "seat3", "4": "seat4" },
+        initial_active_by_card: initialActiveByCard,
+        seats: [
+          { seat: 1, seat_type: "human", connected: true, player_id: 1 },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced" },
+          { seat: 3, seat_type: "ai", connected: true, player_id: 3, ai_profile: "balanced" },
+          { seat: 4, seat_type: "ai", connected: true, player_id: 4, ai_profile: "balanced" },
+        ],
+        parameter_manifest: manifest,
+      },
+    ],
+  });
+
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_round_start_demo`);
+  await expect(page.getByTestId("prompt-overlay")).toHaveCount(0);
+  await expect(page.getByTestId("board-weather-headline")).toHaveText("긴급 피난");
+  await expect(page.getByTestId("board-weather-detail")).toHaveText(weatherEffectForDisplayName("긴급 피난") ?? "");
+  await expect(page.getByTestId("active-character-slot-1")).toContainText("탐관오리");
+  await expect(page.getByTestId("active-character-slot-2")).toContainText("자객");
+  await expect(page.getByTestId("active-character-slot-5")).toContainText("교리 감독관");
+  await expect(page.getByTestId("active-character-slot-8")).toContainText("건설업자");
+  await expect(page.getByTestId("active-character-strip")).toContainText("8/8 공개");
 });
 
 test("movement prompt supports dice_* contract choices and card-mode selection", async ({ page }) => {
@@ -578,6 +901,16 @@ test("purchase and mark prompts render dedicated decision cards", async ({ page 
     tileCount: 40,
     seats: [1, 2, 3, 4],
   });
+  const initialActiveByCard = {
+    "1": "어사",
+    "2": "자객",
+    "3": "추노꾼",
+    "4": "아전",
+    "5": "교리 감독관",
+    "6": "만신",
+    "7": "객주",
+    "8": "건설업자",
+  };
 
   await installMockRuntime(page, {
     sessionManifests: {
@@ -594,9 +927,17 @@ test("purchase and mark prompts render dedicated decision cards", async ({ page 
             parameter_manifest: manifest,
           },
         }),
+        eventMessage({
+          seq: 2,
+          sessionId: purchaseSession,
+          payload: {
+            event_type: "round_start",
+            round_index: 1,
+          },
+        }),
         {
           type: "prompt",
-          seq: 2,
+          seq: 3,
           session_id: purchaseSession,
           server_time_ms: 1_700_000_000_102,
           payload: {
@@ -626,9 +967,36 @@ test("purchase and mark prompts render dedicated decision cards", async ({ page 
             parameter_manifest: manifest,
           },
         }),
+        eventMessage({
+          seq: 2,
+          sessionId: markSession,
+          payload: {
+            event_type: "round_start",
+            round_index: 1,
+          },
+        }),
+        eventMessage({
+          seq: 3,
+          sessionId: markSession,
+          payload: {
+            event_type: "weather_reveal",
+            weather_name: "긴급 피난",
+          },
+        }),
+        eventMessage({
+          seq: 4,
+          sessionId: markSession,
+          payload: {
+            event_type: "turn_start",
+            round_index: 1,
+            turn_index: 1,
+            acting_player_id: 1,
+            character: "자객",
+          },
+        }),
         {
           type: "prompt",
-          seq: 2,
+          seq: 5,
           session_id: markSession,
           server_time_ms: 1_700_000_000_202,
           payload: {
@@ -659,6 +1027,36 @@ test("purchase and mark prompts render dedicated decision cards", async ({ page 
         },
       ],
     },
+    startedSessions: {
+      [purchaseSession]: {
+        session_id: purchaseSession,
+        status: "in_progress",
+        round_index: 1,
+        turn_index: 1,
+        initial_active_by_card: initialActiveByCard,
+        seats: [
+          { seat: 1, seat_type: "human", connected: true, player_id: 1 },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced" },
+          { seat: 3, seat_type: "ai", connected: true, player_id: 3, ai_profile: "balanced" },
+          { seat: 4, seat_type: "ai", connected: true, player_id: 4, ai_profile: "balanced" },
+        ],
+        parameter_manifest: manifest,
+      },
+      [markSession]: {
+        session_id: markSession,
+        status: "in_progress",
+        round_index: 1,
+        turn_index: 1,
+        initial_active_by_card: initialActiveByCard,
+        seats: [
+          { seat: 1, seat_type: "human", connected: true, player_id: 1 },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced" },
+          { seat: 3, seat_type: "ai", connected: true, player_id: 3, ai_profile: "balanced" },
+          { seat: 4, seat_type: "ai", connected: true, player_id: 4, ai_profile: "balanced" },
+        ],
+        parameter_manifest: manifest,
+      },
+    },
   });
 
   await page.goto(`/#/match?session=${purchaseSession}&token=session_p1_purchase_demo`);
@@ -668,8 +1066,19 @@ test("purchase and mark prompts render dedicated decision cards", async ({ page 
 
   await page.goto(`/#/match?session=${markSession}&token=session_p1_mark_demo`);
   await expect(page.getByTestId("prompt-overlay")).toHaveAttribute("data-prompt-type", "mark_target");
+  await expect(page.getByTestId("board-weather-headline")).toHaveText("긴급 피난");
+  await expect(page.getByTestId("board-weather-detail")).toHaveText(weatherEffectForDisplayName("긴급 피난") ?? "");
+  await expect(page.getByTestId("active-character-slot-1")).toContainText("어사");
+  await expect(page.getByTestId("active-character-slot-2")).toContainText("자객");
+  await expect(page.getByTestId("active-character-slot-6")).toContainText("만신");
+  await expect(page.getByTestId("active-character-slot-8")).toContainText("건설업자");
   await expect(page.getByTestId("mark-choice-mark_p2")).toContainText("만신 / P2");
   await expect(page.getByTestId("mark-choice-mark_p2")).toContainText("대상 인물 / 플레이어: 만신 / P2");
+  await expectLocatorsToShareSingleRow([
+    page.getByTestId("mark-choice-none"),
+    page.getByTestId("mark-choice-mark_p2"),
+    page.getByTestId("mark-choice-mark_p4"),
+  ]);
 });
 
 test("non-default topology fixture renders line board and 3-seat lobby options", async ({ page }) => {
