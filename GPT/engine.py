@@ -2228,7 +2228,7 @@ class GameEngine:
 
     def _resolve_move(self, state: GameState, player: PlayerState, decision: MovementDecision) -> tuple[int, dict]:
         char = player.current_character
-        # Continuous passive from 탐관오리 selected by someone else.
+        # Continuous passive from the opposite face of character slot 1 selected by someone else.
         extra_passive_die = 0
         for p in state.players:
             if (

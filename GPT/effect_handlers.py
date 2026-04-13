@@ -4,7 +4,14 @@ from typing import Optional
 
 from characters import CARD_TO_NAMES
 from config import CellKind
-from policy.character_traits import is_builder, is_doctrine_character
+from policy.character_traits import (
+    is_ajeon,
+    is_builder,
+    is_doctrine_character,
+    is_gakju,
+    is_matchmaker,
+    is_swindler,
+)
 from state import GameState, PlayerState
 from viewer.events import Phase
 
@@ -230,7 +237,7 @@ class EngineEffectHandlers:
         if disputed is not None:
             purchase['weather_disputed_rent'] = {'rent': disputed_rent, **disputed}
         if (
-            player.current_character == '중매꾼'
+            is_matchmaker(player.current_character)
             and player.alive
             and purchase.get('type') != 'DISPUTED_BANKRUPTCY'
         ):
@@ -270,7 +277,7 @@ class EngineEffectHandlers:
         else:
             extra = None
         if (
-            player.current_character == '중매꾼'
+            is_matchmaker(player.current_character)
             and player.alive
         ):
             matchmaker_extra = engine._matchmaker_buy_adjacent(state, player, pos)
@@ -278,7 +285,7 @@ class EngineEffectHandlers:
             matchmaker_extra = None
         before_hand = player.hand_coins
         gain = state.config.rules.token.coins_from_visiting_own_tile
-        if player.current_character == '객주':
+        if is_gakju(player.current_character):
             gain += 1
         player.hand_coins += gain
         stats['coins_gained_own_tile'] += gain
@@ -931,7 +938,7 @@ class EngineEffectHandlers:
                 event['trick_adjacent_bought'] = extra
             player.trick_one_extra_adjacent_buy_this_turn = False
         if (
-            player.current_character == '중매꾼'
+            is_matchmaker(player.current_character)
             and player.alive
             and outcome.get('paid')
         ):
@@ -971,7 +978,7 @@ class EngineEffectHandlers:
     def handle_tile_character_effect(self, state: GameState, player: PlayerState, pos: int, owner: Optional[int]) -> Optional[dict]:
         engine = self.engine
         cell = state.board[pos]
-        if owner is not None and player.current_character == '아전' and owner != player.player_id:
+        if owner is not None and is_ajeon(player.current_character) and owner != player.player_id:
             others = [p for p in state.players if p.alive and p.player_id != player.player_id and p.position == pos]
             if others:
                 total = 0
@@ -980,7 +987,7 @@ class EngineEffectHandlers:
                     total += player.shards
                 engine._strategy_stats[player.player_id]['shard_income_cash'] += total
                 return engine._apply_weather_same_tile_bonus(state, player, {'type': 'AJEON_LAND', 'others': [p.player_id + 1 for p in others], 'collected_per_player': player.shards, 'total': total})
-        if owner is not None and player.current_character == '사기꾼' and not engine._is_muroe_skill_blocked(state, player):
+        if owner is not None and is_swindler(player.current_character) and not engine._is_muroe_skill_blocked(state, player):
             base_rent = engine._effective_rent(state, pos, player, owner)
             swindle_multiplier = 2 if player.shards >= 8 else 3
             rent = base_rent * swindle_multiplier

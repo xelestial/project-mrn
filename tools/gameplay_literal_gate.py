@@ -30,10 +30,6 @@ def _is_domain_logic_file(path: Path, root: Path) -> bool:
         "apps/web/src/domain/characters/prioritySlots.ts",
         "apps/server/src/domain/gameplay_catalog.py",
         "apps/server/src/domain/view_state/player_selector.py",
-        "GPT/policy_groups.py",
-        "GPT/policy_mark_utils.py",
-        "GPT/policy/environment_traits.py",
-        "GPT/policy/decision/purchase.py",
     }:
         return False
     return rel.startswith("apps/web/src/domain/") or rel.startswith("apps/server/src/domain/")
@@ -42,11 +38,27 @@ def _is_domain_logic_file(path: Path, root: Path) -> bool:
 def _is_runtime_logic_file(path: Path, root: Path) -> bool:
     rel = path.relative_to(root).as_posix()
     return rel in {
+        "GPT/ai_policy.py",
+        "GPT/effect_handlers.py",
+        "GPT/engine.py",
         "GPT/policy_groups.py",
         "GPT/policy_mark_utils.py",
         "GPT/policy/environment_traits.py",
+        "GPT/policy/evaluator/character_scoring.py",
+        "GPT/policy/profile/presets.py",
         "GPT/policy/decision/purchase.py",
     }
+
+
+ALLOWED_LITERAL_EXCEPTIONS: dict[str, set[str]] = {
+    "GPT/policy/environment_traits.py": {
+        "자원 순환",
+        "자원 재활용",
+        "모두의 순환",
+        "모두의 재활용",
+    },
+    "GPT/engine.py": {"어사"},
+}
 
 
 def _character_literals(catalog: dict) -> set[str]:
@@ -73,10 +85,13 @@ def _check_domain_literals(paths: list[Path], root: Path, catalog: dict) -> list
     for path in paths:
         if not path.is_file() or not (_is_domain_logic_file(path, root) or _is_runtime_logic_file(path, root)):
             continue
+        rel = path.relative_to(root).as_posix()
         text = path.read_text(encoding="utf-8")
         for literal in literals:
+            if literal in ALLOWED_LITERAL_EXCEPTIONS.get(rel, set()):
+                continue
             if literal in text:
-                failures.append(f"gameplay name literal '{literal}' must not appear in domain logic file: {path.relative_to(root).as_posix()}")
+                failures.append(f"gameplay name literal '{literal}' must not appear in domain logic file: {rel}")
                 break
     return failures
 

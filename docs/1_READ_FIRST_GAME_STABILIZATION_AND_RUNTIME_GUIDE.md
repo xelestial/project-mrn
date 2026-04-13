@@ -61,6 +61,15 @@ Target direction:
 - rule evaluation should use stable ids such as `card_no`, `character_slot`, `tile_kind`, `effect_id`, `prompt_type`
 - human-readable names should be injected at rendering or presentation boundaries only
 
+Enforcement rule:
+
+- `tools/gameplay_literal_gate.py` is the policy gate for this workstream
+- runtime/domain files must not add new Korean gameplay-name comparisons
+- the only current runtime exceptions are:
+  - compatibility fortune aliases in `GPT/policy/environment_traits.py`
+  - the `"어사"` reason string in engine logs
+- if a future change needs a new exception, it must be documented here first
+
 ### 2. Hardcoded rule reconstruction
 
 Some logic is still reconstructed in frontend or selector glue using:
@@ -135,6 +144,7 @@ Rule for cleanup:
 - Current confirmed cleanup:
   - weather application no longer has a dead duplicate implementation
   - engine wrapper remains, but actual logic lives in the event handler path
+  - policy runtime helpers now resolve character/fortune logic through shared ids and catalogs rather than direct Korean-name branching
 
 ### Phase E. Contract documentation
 

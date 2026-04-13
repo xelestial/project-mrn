@@ -2707,7 +2707,7 @@ class HeuristicPolicy(BasePolicy):
             if is_tamgwanori(name) and my_attr in {"관원", "상민"}:
                 contribution = 0.55 + 0.18 * max(1.0, float(opponent.shards)) + 0.08 * max(0.0, float(player.shards))
                 pressure += contribution
-                reasons.append(f"탐관오리:{contribution:.2f}")
+                reasons.append(f"card1_opposite:{contribution:.2f}")
             elif is_bandit(name):
                 bandit_name = CARD_TO_NAMES[2][1]
                 exposure = self._mark_priority_exposure_factor(bandit_name, actor_name) if actor_name in CHARACTERS else 0.65
@@ -2726,7 +2726,7 @@ class HeuristicPolicy(BasePolicy):
                 same_tile_others = sum(1 for p in state.players if p.alive and p.player_id not in {player.player_id, opponent.player_id} and p.position == player.position)
                 contribution = 0.30 + 0.10 * float(opponent.shards) + 0.18 * float(same_tile_others)
                 pressure += contribution
-                reasons.append(f"아전:{contribution:.2f}")
+                reasons.append(f"card4_opposite:{contribution:.2f}")
             elif is_mansin(name) and own_burden_cost > 0:
                 manshin_name = CARD_TO_NAMES[6][1]
                 exposure = self._mark_priority_exposure_factor(manshin_name, actor_name) if actor_name in CHARACTERS else 0.60

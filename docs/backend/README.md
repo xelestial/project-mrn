@@ -21,3 +21,9 @@ Operational defaults:
 - backend standard local port: `8000`
 - frontend standard local dev port: `4174`
 - frontend should only point elsewhere through explicit env injection (`MRN_WEB_API_PORT`, `MRN_WEB_API_HOST`, `MRN_WEB_API_TARGET`)
+
+Runtime safety rules:
+
+- gameplay rule code should compare canonical ids, not localized Korean names
+- the repository policy gate for this is `tools/gameplay_literal_gate.py`
+- allowed runtime exceptions are limited to compatibility alias resolution and explicit log-label strings documented in `docs/1_READ_FIRST_GAME_STABILIZATION_AND_RUNTIME_GUIDE.md`
