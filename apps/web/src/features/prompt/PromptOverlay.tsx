@@ -1151,8 +1151,10 @@ export function PromptOverlay({
     >
         <div className="prompt-head">
           <div className="prompt-head-copy">
-            <h2>{promptText.headTitle(promptLabel)}</h2>
-            <p className="prompt-helper">{promptHelp}</p>
+            <h2 data-testid="prompt-overlay-title">{promptText.headTitle(promptLabel)}</h2>
+            <p className="prompt-helper" data-testid="prompt-overlay-helper">
+              {promptHelp}
+            </p>
           </div>
           <div className="prompt-head-actions">
             <div className="prompt-head-meta" data-testid="prompt-head-meta">
@@ -1162,7 +1164,7 @@ export function PromptOverlay({
                 </span>
               ))}
             </div>
-            <button type="button" onClick={onToggleCollapse}>
+            <button type="button" onClick={onToggleCollapse} data-testid="prompt-overlay-collapse">
               {promptText.collapse}
             </button>
           </div>

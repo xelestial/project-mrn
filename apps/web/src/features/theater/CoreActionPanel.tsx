@@ -62,7 +62,12 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
       </div>
 
       {latest ? (
-        <article className={`${actorToneClass(latest)} core-action-hero-${latestKind}`}>
+        <article
+          className={`${actorToneClass(latest)} core-action-hero-${latestKind}`}
+          data-testid="core-action-latest"
+          data-latest-event-code={latest.eventCode}
+          data-latest-kind={latestKind}
+        >
           <div className="core-action-hero-meta">
             <span>{latest.actor}</span>
             <span className="core-action-chip">{theater.actionKind[latestKind]}</span>
@@ -70,13 +75,13 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
             <span>{theater.latestPublicAction}</span>
             <span>#{latest.seq}</span>
           </div>
-          <strong>{latest.label}</strong>
-          <p>{theater.panelLead[latestKind]}</p>
+          <strong data-testid="core-action-latest-title">{latest.label}</strong>
+          <p data-testid="core-action-latest-detail">{theater.panelLead[latestKind]}</p>
           <div className="core-action-detail-list">
             {splitCoreActionDetail(latest.detail, theater.noDetail).map((line, index) => (
               <div key={`latest-${latest.seq}-${index}`} className="core-action-detail-item">
                 <span>{theater.detailHeading[latestKind]}</span>
-                <strong>{line}</strong>
+                <strong data-testid={index === 0 ? "core-action-latest-detail-line-0" : undefined}>{line}</strong>
               </div>
             ))}
           </div>
@@ -96,19 +101,31 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
                 className={`core-action-result-card core-action-result-card-${scene.kind} ${
                   scene.isLatest ? "core-action-result-card-latest" : ""
                 }`}
-                data-testid={scene.isLatest ? "core-action-result-card" : undefined}
+                data-testid={scene.isLatest ? "core-action-result-card" : `core-action-result-card-${index + 1}`}
+                data-result-event-code={scene.eventCode}
+                data-result-kind={scene.kind}
               >
                 <div className="core-action-result-head">
                   <strong>{theater.payoffBeatIndex(index + 1, payoffScenes.length, scene.phaseLabel)}</strong>
-                  <span>{scene.actor}</span>
+                  <span data-testid={scene.isLatest ? "core-action-result-actor" : `core-action-result-actor-${index + 1}`}>{scene.actor}</span>
                 </div>
-                <p>{scene.headline}</p>
+                <p data-testid={scene.isLatest ? "core-action-result-title" : `core-action-result-title-${index + 1}`}>{scene.headline}</p>
                 <small className="core-action-result-caption">{resultHeadline(scene.kind, theater)}</small>
                 <div className="core-action-detail-list">
                   {splitCoreActionDetail(scene.detail, theater.noDetail).map((line, index) => (
                     <div key={`result-${scene.seq}-${index}`} className="core-action-detail-item">
                       <span>{theater.detailHeading[scene.kind]}</span>
-                      <strong>{line}</strong>
+                      <strong
+                        data-testid={
+                          scene.isLatest && index === 0
+                            ? "core-action-result-detail-line-0"
+                            : index === 0
+                              ? `core-action-result-detail-line-0-${scene.seq}`
+                              : undefined
+                        }
+                      >
+                        {line}
+                      </strong>
                     </div>
                   ))}
                 </div>
@@ -128,11 +145,17 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
             {turnFlowItems.map((item, index) => {
               const kind = classifyCoreAction(item, theater);
               return (
-                <div key={`journey-${item.seq}`} className={`core-action-journey-step core-action-journey-step-${kind}`}>
+                <div
+                  key={`journey-${item.seq}`}
+                  className={`core-action-journey-step core-action-journey-step-${kind}`}
+                  data-testid={`core-action-journey-step-${index + 1}`}
+                  data-journey-event-code={item.eventCode}
+                  data-journey-kind={kind}
+                >
                   <span className="core-action-journey-index">0{index + 1}</span>
                   <span className="core-action-chip">{theater.actionKind[kind]}</span>
-                  <strong>{item.label}</strong>
-                  <small>{headlineCoreActionDetail(item, theater)}</small>
+                  <strong data-testid={`core-action-journey-step-title-${index + 1}`}>{item.label}</strong>
+                  <small data-testid={`core-action-journey-step-detail-${index + 1}`}>{headlineCoreActionDetail(item, theater)}</small>
                 </div>
               );
             })}

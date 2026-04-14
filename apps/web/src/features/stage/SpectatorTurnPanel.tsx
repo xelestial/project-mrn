@@ -31,6 +31,7 @@ type JourneyCard = {
 };
 
 type PersistentPayoff = {
+  key: string;
   title: string;
   detail: string;
   tone: "economy" | "effect";
@@ -69,6 +70,14 @@ function hasWorkerStatus(model: TurnStageViewModel): boolean {
     model.externalAiAttemptCount !== null ||
     model.externalAiAttemptLimit !== null
   );
+}
+
+function dataAttrValue(value: string | number | null | undefined): string | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  const normalized = String(value).trim();
+  return normalized ? normalized : undefined;
 }
 
 export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: SpectatorTurnPanelProps) {
@@ -150,21 +159,22 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
         : app.spectatorNeutralSummary([model.currentBeatDetail, latestActionDetail]);
   let persistentPayoff: PersistentPayoff | null = null;
   if (hasValue(model.rentSummary)) {
-    persistentPayoff = { title: rentEventLabel, detail: model.rentSummary, tone: "economy" };
+    persistentPayoff = { key: "rent", title: rentEventLabel, detail: model.rentSummary, tone: "economy" };
   } else if (hasValue(model.purchaseSummary)) {
-    persistentPayoff = { title: purchaseEventLabel, detail: model.purchaseSummary, tone: "economy" };
+    persistentPayoff = { key: "purchase", title: purchaseEventLabel, detail: model.purchaseSummary, tone: "economy" };
   } else if (hasValue(model.lapRewardSummary)) {
-    persistentPayoff = { title: lapRewardEventLabel, detail: model.lapRewardSummary, tone: "economy" };
+    persistentPayoff = { key: "lap-reward", title: lapRewardEventLabel, detail: model.lapRewardSummary, tone: "economy" };
   } else if (hasValue(model.fortuneResolvedSummary || model.fortuneSummary)) {
     persistentPayoff = {
+      key: "fortune-effect",
       title: fortuneResolvedEventLabel,
       detail: model.fortuneResolvedSummary || model.fortuneSummary,
       tone: "effect",
     };
   } else if (hasValue(model.fortuneDrawSummary)) {
-    persistentPayoff = { title: fortuneDrawEventLabel, detail: model.fortuneDrawSummary, tone: "effect" };
+    persistentPayoff = { key: "fortune-draw", title: fortuneDrawEventLabel, detail: model.fortuneDrawSummary, tone: "effect" };
   } else if (hasValue(model.trickSummary)) {
-    persistentPayoff = { title: turnStage.fields.trick, detail: model.trickSummary, tone: "effect" };
+    persistentPayoff = { key: "trick", title: turnStage.fields.trick, detail: model.trickSummary, tone: "effect" };
   }
   const spotlightCards: SpotlightCard[] = [];
   const payoffBeats: SpectatorPayoffBeat[] = [];
@@ -376,22 +386,24 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
       <div className="spectator-turn-grid">
         <article className="spectator-turn-card spectator-turn-card-hero" data-testid="spectator-turn-scene">
           <span>{app.spectatorFields.beat}</span>
-          <strong>{valueOrDash(model.currentBeatLabel)}</strong>
-          <small>{valueOrDash(latestActionTitle === "-" ? spotlightSummary : app.spectatorHeadlineSummary(latestActionTitle, spotlightSummary))}</small>
+          <strong data-testid="spectator-turn-scene-title">{valueOrDash(model.currentBeatLabel)}</strong>
+          <small data-testid="spectator-turn-scene-detail">
+            {valueOrDash(latestActionTitle === "-" ? spotlightSummary : app.spectatorHeadlineSummary(latestActionTitle, spotlightSummary))}
+          </small>
         </article>
         <article className="spectator-turn-card" data-testid="spectator-turn-weather">
           <span>{app.spectatorFields.weather}</span>
-          <strong>{valueOrDash(model.weatherName)}</strong>
-          <small>{valueOrDash(model.weatherEffect)}</small>
+          <strong data-testid="spectator-turn-weather-name">{valueOrDash(model.weatherName)}</strong>
+          <small data-testid="spectator-turn-weather-detail">{valueOrDash(model.weatherEffect)}</small>
         </article>
         <article className="spectator-turn-card" data-testid="spectator-turn-character">
           <span>{app.spectatorFields.character}</span>
-          <strong>{valueOrDash(model.character)}</strong>
+          <strong data-testid="spectator-turn-character-name">{valueOrDash(model.character)}</strong>
         </article>
         <article className="spectator-turn-card" data-testid="spectator-turn-action">
           <span>{app.spectatorFields.action}</span>
-          <strong>{valueOrDash(latestActionTitle)}</strong>
-          <small>{valueOrDash(latestActionDetail)}</small>
+          <strong data-testid="spectator-turn-action-title">{valueOrDash(latestActionTitle)}</strong>
+          <small data-testid="spectator-turn-action-detail">{valueOrDash(latestActionDetail)}</small>
         </article>
       {latestActionTitle !== "-" ? (
           <article
@@ -399,32 +411,43 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
             data-testid="spectator-turn-payoff"
           >
             <span>{payoffTitle}</span>
-            <strong>{valueOrDash(payoffSummary)}</strong>
-            <small>{valueOrDash(latestActionTitle)}</small>
+            <strong data-testid="spectator-turn-payoff-title">{valueOrDash(payoffSummary)}</strong>
+            <small data-testid="spectator-turn-payoff-detail">{valueOrDash(latestActionTitle)}</small>
           </article>
         ) : null}
         <article className="spectator-turn-card" data-testid="spectator-turn-prompt">
           <span>{app.spectatorFields.prompt}</span>
-          <strong>{valueOrDash(model.promptSummary)}</strong>
-          <small>{valueOrDash(model.currentBeatDetail)}</small>
+          <strong data-testid="spectator-turn-prompt-title">{valueOrDash(model.promptSummary)}</strong>
+          <small data-testid="spectator-turn-prompt-detail">{valueOrDash(model.currentBeatDetail)}</small>
         </article>
         {hasWorkerStatus(model) ? (
           <article
             className={`spectator-turn-card spectator-turn-card-worker spectator-turn-card-worker-${model.externalAiResolutionStatus || "idle"}`}
             data-testid="spectator-turn-worker"
+            data-worker-id={dataAttrValue(model.externalAiWorkerId)}
+            data-worker-failure-code={dataAttrValue(model.externalAiFailureCode)}
+            data-worker-fallback-mode={dataAttrValue(model.externalAiFallbackMode)}
+            data-worker-resolution-status={dataAttrValue(model.externalAiResolutionStatus)}
+            data-worker-ready-state={dataAttrValue(model.externalAiReadyState)}
+            data-worker-policy-mode={dataAttrValue(model.externalAiPolicyMode)}
+            data-worker-adapter={dataAttrValue(model.externalAiWorkerAdapter)}
+            data-worker-policy-class={dataAttrValue(model.externalAiPolicyClass)}
+            data-worker-decision-style={dataAttrValue(model.externalAiDecisionStyle)}
+            data-worker-attempt-count={dataAttrValue(model.externalAiAttemptCount)}
+            data-worker-attempt-limit={dataAttrValue(model.externalAiAttemptLimit)}
           >
             <span>{app.spectatorFields.worker}</span>
-            <strong>{valueOrDash(turnStage.workerStatusLabel(model.externalAiResolutionStatus))}</strong>
-            <small>{valueOrDash(workerStatusDetail)}</small>
+            <strong data-testid="spectator-turn-worker-title">{valueOrDash(turnStage.workerStatusLabel(model.externalAiResolutionStatus))}</strong>
+            <small data-testid="spectator-turn-worker-detail">{valueOrDash(workerStatusDetail)}</small>
           </article>
         ) : null}
         <article className="spectator-turn-card" data-testid="spectator-turn-move">
           <span>{app.spectatorFields.move}</span>
-          <strong>{valueOrDash(model.moveSummary)}</strong>
+          <strong data-testid="spectator-turn-move-title">{valueOrDash(model.moveSummary)}</strong>
         </article>
         <article className="spectator-turn-card" data-testid="spectator-turn-landing">
           <span>{app.spectatorFields.landing}</span>
-          <strong>{valueOrDash(model.landingSummary)}</strong>
+          <strong data-testid="spectator-turn-landing-title">{valueOrDash(model.landingSummary)}</strong>
         </article>
       </div>
 
@@ -447,12 +470,18 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
           </div>
           <div className="core-action-payoff-strip">
             {payoffBeats.map((beat, index) => (
-              <article key={beat.key} className={`core-action-result-card core-action-result-card-${beat.tone}`}>
+              <article
+                key={beat.key}
+                className={`core-action-result-card core-action-result-card-${beat.tone}`}
+                data-testid={`spectator-turn-payoff-step-${index + 1}`}
+                data-beat-key={beat.key}
+                data-beat-tone={beat.tone}
+              >
                 <div className="core-action-result-head">
                   <strong>{turnStage.sequenceIndex(index + 1, payoffBeats.length)}</strong>
-                  <span>{beat.title}</span>
+                  <span data-testid={`spectator-turn-payoff-step-title-${index + 1}`}>{beat.title}</span>
                 </div>
-                <p>{valueOrDash(beat.detail)}</p>
+                <p data-testid={`spectator-turn-payoff-step-detail-${index + 1}`}>{valueOrDash(beat.detail)}</p>
               </article>
             ))}
           </div>
@@ -467,10 +496,16 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
           </div>
           <div className="core-action-journey-strip">
             {journeyCards.map((card, index) => (
-              <article key={card.key} className={`core-action-journey-step core-action-journey-step-${card.tone}`}>
+              <article
+                key={card.key}
+                className={`core-action-journey-step core-action-journey-step-${card.tone}`}
+                data-testid={`spectator-turn-journey-step-${index + 1}`}
+                data-step-key={card.key}
+                data-step-tone={card.tone}
+              >
                 <span className="core-action-journey-index">{`0${index + 1}`}</span>
-                <strong>{card.label}</strong>
-                <small>{valueOrDash(card.detail)}</small>
+                <strong data-testid={`spectator-turn-journey-step-title-${index + 1}`}>{card.label}</strong>
+                <small data-testid={`spectator-turn-journey-step-detail-${index + 1}`}>{valueOrDash(card.detail)}</small>
               </article>
             ))}
           </div>
@@ -481,17 +516,19 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
         <article
           className={`spectator-turn-card spectator-turn-card-payoff spectator-turn-card-payoff-${persistentPayoff.tone}`}
           data-testid="spectator-turn-result"
+          data-result-key={persistentPayoff.key}
+          data-result-tone={persistentPayoff.tone}
         >
           <span>{app.spectatorFields.action}</span>
-          <strong>{valueOrDash(persistentPayoff.title)}</strong>
-          <small>{valueOrDash(persistentPayoff.detail)}</small>
+          <strong data-testid="spectator-turn-result-title">{valueOrDash(persistentPayoff.title)}</strong>
+          <small data-testid="spectator-turn-result-detail">{valueOrDash(persistentPayoff.detail)}</small>
         </article>
       ) : null}
 
       {hasValue(model.turnEndSummary) ? (
         <article className="spectator-turn-card spectator-turn-card-handoff" data-testid="spectator-turn-handoff">
           <span>{turnEndLabel}</span>
-          <strong>{valueOrDash(model.turnEndSummary)}</strong>
+          <strong data-testid="spectator-turn-handoff-title">{valueOrDash(model.turnEndSummary)}</strong>
           <small>{app.spectatorDescription}</small>
         </article>
       ) : null}

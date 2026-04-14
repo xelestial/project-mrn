@@ -1406,8 +1406,10 @@ export function App() {
           }`}
           data-testid="turn-notice-banner"
         >
-          <strong>{effectiveTurnBanner.text}</strong>
-          {effectiveTurnBanner.detail && effectiveTurnBanner.detail !== "-" ? <small>{effectiveTurnBanner.detail}</small> : null}
+          <strong data-testid="turn-notice-banner-title">{effectiveTurnBanner.text}</strong>
+          {effectiveTurnBanner.detail && effectiveTurnBanner.detail !== "-" ? (
+            <small data-testid="turn-notice-banner-detail">{effectiveTurnBanner.detail}</small>
+          ) : null}
         </section>
       ) : null}
 
@@ -1439,6 +1441,9 @@ export function App() {
                 <article
                   key={`${item.seq}-${item.eventCode}`}
                   data-testid={`board-event-reveal-${item.eventCode}-${index + 1}`}
+                  data-event-code={item.eventCode}
+                  data-event-tone={item.tone}
+                  data-event-seq={item.seq}
                   className={`match-table-event-card match-table-event-card-${item.tone} ${
                     index === currentTurnRevealItems.length - 1 ? "match-table-event-card-latest" : ""
                   }`}
@@ -1448,8 +1453,8 @@ export function App() {
                       {locale === "ko" ? `${index + 1}단계` : `Step ${index + 1}`}
                     </span>
                   </div>
-                  <strong>{item.label}</strong>
-                  <p>{item.detail}</p>
+                  <strong data-testid={`board-event-reveal-title-${item.eventCode}-${index + 1}`}>{item.label}</strong>
+                  <p data-testid={`board-event-reveal-detail-${item.eventCode}-${index + 1}`}>{item.detail}</p>
                 </article>
               ))}
             </div>

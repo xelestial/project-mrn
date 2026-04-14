@@ -445,11 +445,13 @@ test("human quick start surfaces turn banner and first prompt through stable ids
   await expect(page.getByTestId("core-action-panel")).toBeVisible();
   await expect(page.getByTestId("turn-notice-banner")).toBeVisible();
   await expect(page.getByTestId("prompt-overlay")).toBeVisible();
+  await expect(page.getByTestId("prompt-overlay-title")).toBeVisible();
+  await expect(page.getByTestId("prompt-overlay-helper")).toBeVisible();
+  await expect(page.getByTestId("prompt-head-meta")).toBeVisible();
   await expect(page.getByRole("button", { name: "Debug log" })).toHaveCount(1);
-  await expect(page.getByTestId("trick-choice-10-0")).toBeVisible();
+  await expect(page.getByTestId("trick-choice-10-0")).toContainText("Scout Route");
   await expect(page.getByTestId("trick-choice-14-4")).toBeVisible();
-  await expect(page.getByTestId("prompt-overlay")).toContainText("Scout Route");
-  await expect(page.getByTestId("prompt-overlay")).not.toContainText("Request ID");
+  await expect(page.getByTestId("prompt-head-meta")).not.toContainText("Request ID");
 });
 
 test("remote turn keeps spectator continuity visible and does not open a local prompt", async ({ page }) => {
@@ -523,29 +525,29 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await page.goto(`/#/match?session=${sessionId}&token=session_p1_remote_runtime`);
 
   await expect(page.getByTestId("turn-notice-banner")).toBeVisible();
-  await expect(page.getByTestId("turn-notice-banner")).toContainText("P2 (Bandit)'s turn");
+  await expect(page.getByTestId("turn-notice-banner-title")).toContainText("P2 (Bandit)'s turn");
   await expect(page.getByTestId("turn-notice-banner")).not.toContainText("Tile purchased");
   await expect(page.getByTestId("board-event-reveal-stack")).toBeVisible();
-  await expect(page.getByTestId("board-event-reveal-dice_roll-1")).toContainText("Movement value");
-  await expect(page.getByTestId("board-event-reveal-player_move-2")).toContainText("Player move");
-  await expect(page.getByTestId("board-event-reveal-landing_resolved-3")).toBeVisible();
-  await expect(page.getByTestId("board-event-reveal-tile_purchased-4")).toContainText("Tile purchased");
-  await expect(page.getByTestId("board-reveal-spotlight-tile_purchased")).toContainText("Bought tile 7 for 2");
-  await expect(page.getByTestId("board-weather-summary")).toContainText("Cold Front");
+  await expect(page.getByTestId("board-event-reveal-dice_roll-1")).toHaveAttribute("data-event-code", "dice_roll");
+  await expect(page.getByTestId("board-event-reveal-player_move-2")).toHaveAttribute("data-event-code", "player_move");
+  await expect(page.getByTestId("board-event-reveal-landing_resolved-3")).toHaveAttribute("data-event-code", "landing_resolved");
+  await expect(page.getByTestId("board-event-reveal-tile_purchased-4")).toHaveAttribute("data-event-code", "tile_purchased");
+  await expect(page.getByTestId("board-reveal-spotlight-detail-tile_purchased")).toContainText("Bought tile 7 for 2");
+  await expect(page.getByTestId("board-weather-headline")).toHaveText("Cold Front");
   await expect(page.getByTestId("board-move-start-badge")).toBeVisible();
   await expect(page.getByTestId("board-move-end-badge")).toBeVisible();
   await expect(page.getByTestId("board-moving-pawn-ghost")).toBeVisible();
   await expect(page.getByTestId("board-path-step-3")).toBeVisible();
   await expect(page.getByTestId("board-actor-banner")).toBeVisible();
   await expect(page.getByTestId("core-action-panel")).toBeVisible();
-  await expect(page.getByTestId("core-action-payoff-sequence")).toContainText("Bought tile 7 for 2");
+  await expect(page.getByTestId("core-action-result-detail-line-0")).toContainText("Bought tile 7 for 2");
   await expect(page.getByTestId("core-action-journey")).toBeVisible();
   await expect(page.getByTestId("core-action-result-card")).toBeVisible();
   await expect(page.getByTestId("turn-stage-actor-status")).toHaveCount(0);
   await expect(page.getByTestId("prompt-overlay")).toHaveCount(0);
-  await expect(page.getByTestId("core-action-journey")).toContainText("P2");
-  await expect(page.getByTestId("core-action-journey")).toContainText("Landing resolved");
-  await expect(page.getByTestId("core-action-panel")).toContainText("P2 turn closed");
+  await expect(page.getByTestId("core-action-journey-step-1")).toHaveAttribute("data-journey-event-code", "dice_roll");
+  await expect(page.getByTestId("core-action-journey-step-3")).toHaveAttribute("data-journey-event-code", "landing_resolved");
+  await expect(page.getByTestId("core-action-latest")).toHaveAttribute("data-latest-event-code", "turn_end_snapshot");
 });
 
 test("remote turn keeps lap reward, mark, and flip effects visible through spectator and stage panels", async ({ page }) => {
@@ -594,11 +596,10 @@ test("remote turn keeps lap reward, mark, and flip effects visible through spect
 
   await page.goto(`/#/match?session=${sessionId}&token=session_p1_remote_effect_runtime`);
 
-  await expect(page.getByTestId("spectator-turn-spotlight")).toContainText("Cold Front");
-  await expect(page.getByTestId("spectator-turn-spotlight")).toContainText("P3");
-  await expect(page.getByTestId("spectator-turn-spotlight")).toContainText("Courier");
-  await expect(page.getByTestId("spectator-turn-journey")).toContainText("Card flip");
-  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Card flip");
+  await expect(page.getByTestId("spectator-turn-weather-name")).toHaveText("Cold Front");
+  await expect(page.getByTestId("spectator-turn-character-name")).toHaveText("Courier");
+  await expect(page.getByTestId("spectator-turn-journey-step-1")).toHaveAttribute("data-step-key", "flip");
+  await expect(page.getByTestId("spectator-turn-payoff-step-1")).toHaveAttribute("data-beat-key", "flip");
 });
 
 test("mixed participant seats with external ai descriptors still load match runtime cleanly", async ({ page }) => {
@@ -674,8 +675,8 @@ test("mixed participant seats with external ai descriptors still load match runt
   await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_runtime`);
 
   await expect(page.getByTestId("spectator-turn-panel")).toBeVisible();
-  await expect(page.getByTestId("spectator-turn-character")).toContainText("Surveyor");
-  await expect(page.getByTestId("spectator-turn-weather")).toContainText("Dry Season");
+  await expect(page.getByTestId("spectator-turn-character-name")).toHaveText("Surveyor");
+  await expect(page.getByTestId("spectator-turn-weather-name")).toHaveText("Dry Season");
   await expect(page.getByTestId("prompt-overlay")).toHaveCount(0);
 });
 
@@ -735,12 +736,15 @@ test("remote timeout fallback stays visible in spectator and stage flow", async 
 
   await page.goto(`/#/match?session=${sessionId}&token=session_p1_remote_timeout_runtime`);
 
+  const workerCard = page.getByTestId("spectator-turn-worker");
+  const journeyStep1 = page.getByTestId("spectator-turn-journey-step-1");
   await expect(page.getByTestId("spectator-turn-panel")).toBeVisible();
-  await expect(page.getByTestId("spectator-turn-journey")).toContainText("Timeout fallback");
-  await expect(page.getByTestId("spectator-turn-journey")).toContainText("prod-bot-1");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("local fallback");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("local_ai");
-  await expect(page.getByTestId("spectator-turn-prompt")).toContainText("Timeout fallback / defaulted to local AI");
+  await expect(journeyStep1).toHaveAttribute("data-step-key", "worker");
+  await expect(journeyStep1).toHaveAttribute("data-step-tone", "decision");
+  await expect(workerCard).toHaveAttribute("data-worker-id", "prod-bot-1");
+  await expect(workerCard).toHaveAttribute("data-worker-fallback-mode", "local_ai");
+  await expect(workerCard).toHaveAttribute("data-worker-resolution-status", "resolved_by_local_fallback");
+  await expect(page.getByTestId("spectator-turn-prompt-title")).toContainText("Timeout fallback / defaulted to local AI");
 });
 
 test("mixed participant runtime keeps timeout and payoff continuity through handoff", async ({ page }) => {
@@ -842,14 +846,19 @@ test("mixed participant runtime keeps timeout and payoff continuity through hand
 
   await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_continuity_runtime`);
 
+  const workerCard = page.getByTestId("spectator-turn-worker");
+  const journeyStep1 = page.getByTestId("spectator-turn-journey-step-1");
   await expect(page.getByTestId("spectator-turn-panel")).toBeVisible();
-  await expect(page.getByTestId("spectator-turn-journey")).toContainText("Timeout fallback");
-  await expect(page.getByTestId("spectator-turn-journey")).toContainText("prod-bot-1");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("prod-bot-1");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("local fallback");
-  await expect(page.getByTestId("spectator-turn-result")).toContainText("Bought tile 9 for 4");
-  await expect(page.getByTestId("spectator-turn-handoff")).toContainText("P3 turn closed");
-  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Bought tile 9 for 4");
+  await expect(journeyStep1).toHaveAttribute("data-step-key", "worker");
+  await expect(journeyStep1).toHaveAttribute("data-step-tone", "decision");
+  await expect(workerCard).toHaveAttribute("data-worker-id", "prod-bot-1");
+  await expect(workerCard).toHaveAttribute("data-worker-failure-code", "external_ai_timeout");
+  await expect(workerCard).toHaveAttribute("data-worker-fallback-mode", "local_ai");
+  await expect(page.getByTestId("spectator-turn-result")).toHaveAttribute("data-result-key", "purchase");
+  await expect(page.getByTestId("spectator-turn-result")).toHaveAttribute("data-result-tone", "economy");
+  await expect(page.getByTestId("spectator-turn-handoff")).toBeVisible();
+  await expect(page.getByTestId("spectator-turn-payoff-step-1")).toHaveAttribute("data-beat-key", "purchase");
+  await expect(page.getByTestId("spectator-turn-payoff-step-1")).toHaveAttribute("data-beat-tone", "economy");
 });
 
 test("mixed participant runtime keeps worker success then fallback visible across consecutive turns", async ({ page }) => {
@@ -980,16 +989,18 @@ test("mixed participant runtime keeps worker success then fallback visible acros
 
   await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_worker_handoff_runtime`);
 
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("prod-bot-1");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("local fallback");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("attempt 3");
-  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Participant status");
-  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("prod-bot-1");
-  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("priority_score_v1");
-  await expect(page.getByTestId("spectator-turn-journey")).toContainText("Participant status");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("external_ai_timeout");
-  await expect(page.getByTestId("spectator-turn-worker")).toContainText("PriorityScoredPolicy");
-  await expect(page.getByTestId("spectator-turn-payoff-sequence")).toContainText("Bought tile 11 for 3");
+  const workerCard = page.getByTestId("spectator-turn-worker");
+  await expect(workerCard).toHaveAttribute("data-worker-id", "prod-bot-1");
+  await expect(workerCard).toHaveAttribute("data-worker-attempt-count", "3");
+  await expect(workerCard).toHaveAttribute("data-worker-failure-code", "external_ai_timeout");
+  await expect(workerCard).toHaveAttribute("data-worker-policy-class", "PriorityScoredPolicy");
+  await expect(workerCard).toHaveAttribute("data-worker-adapter", "priority_score_v1");
+  await expect(page.getByTestId("spectator-turn-payoff-step-1")).toHaveAttribute("data-beat-key", "worker");
+  await expect(page.getByTestId("spectator-turn-payoff-step-1")).toHaveAttribute("data-beat-tone", "effect");
+  await expect(page.getByTestId("spectator-turn-journey-step-1")).toHaveAttribute("data-step-key", "worker");
+  await expect(page.getByTestId("spectator-turn-journey-step-1")).toHaveAttribute("data-step-tone", "decision");
+  await expect(page.getByTestId("spectator-turn-payoff-step-2")).toHaveAttribute("data-beat-key", "purchase");
+  await expect(page.getByTestId("spectator-turn-payoff-step-2")).toHaveAttribute("data-beat-tone", "economy");
 });
 
 test("mixed participant runtime keeps timeout fallback and weather continuity visible", async ({ page }) => {
@@ -1091,13 +1102,13 @@ test("mixed participant runtime keeps timeout fallback and weather continuity vi
 
   await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_worker_not_ready_runtime`);
 
-  await expect(page.getByTestId("board-weather-summary")).toContainText("Dry Season");
+  await expect(page.getByTestId("board-weather-headline")).toHaveText("Dry Season");
   await expect(page.getByTestId("board-event-reveal-stack")).toBeVisible();
-  await expect(page.getByTestId("board-event-reveal-rent_paid-1")).toContainText("P3 paid P1 5");
-  await expect(page.getByTestId("board-reveal-spotlight-rent_paid")).toContainText("P3 paid P1 5 on tile 13");
-  await expect(page.getByTestId("core-action-payoff-sequence")).toContainText("P3 paid P1 5 on tile 13");
-  await expect(page.getByTestId("core-action-panel")).toContainText("Decision timeout fallback");
-  await expect(page.getByTestId("core-action-panel")).toContainText("Timeout fallback");
+  await expect(page.getByTestId("board-event-reveal-rent_paid-1")).toHaveAttribute("data-event-code", "rent_paid");
+  await expect(page.getByTestId("board-reveal-spotlight-detail-rent_paid")).toContainText("P3 paid P1 5 on tile 13");
+  await expect(page.getByTestId("core-action-result-detail-line-0")).toContainText("P3 paid P1 5 on tile 13");
+  await expect(page.getByTestId("core-action-latest")).toHaveAttribute("data-latest-event-code", "turn_end_snapshot");
+  await expect(page.getByTestId("core-action-latest")).toHaveAttribute("data-latest-kind", "effect");
 });
 
 test("mixed participant runtime keeps a long worker-success to fallback chain readable", async ({ page }) => {
@@ -1234,12 +1245,13 @@ test("mixed participant runtime keeps a long worker-success to fallback chain re
   await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_long_chain_runtime`);
 
   await expect(page.getByTestId("board-event-reveal-stack")).toBeVisible();
-  await expect(page.getByTestId("board-event-reveal-rent_paid-1")).toContainText("P3 paid P1 6");
-  await expect(page.getByTestId("board-weather-summary")).toContainText("Cold Front");
-  await expect(page.getByTestId("core-action-panel")).toContainText("P3 fallback turn closed");
-  await expect(page.getByTestId("core-action-payoff-sequence")).toContainText("P3 paid P1 6 on tile 15");
-  await expect(page.getByTestId("core-action-panel")).toContainText("Lucky Wind");
-  await expect(page.getByTestId("core-action-panel")).toContainText("Gain 2 cash");
+  await expect(page.getByTestId("board-event-reveal-rent_paid-1")).toHaveAttribute("data-event-code", "rent_paid");
+  await expect(page.getByTestId("board-weather-headline")).toHaveText("Cold Front");
+  await expect(page.getByTestId("core-action-latest")).toHaveAttribute("data-latest-event-code", "turn_end_snapshot");
+  await expect(page.getByTestId("core-action-result-card")).toHaveAttribute("data-result-event-code", "fortune_resolved");
+  await expect(page.getByTestId("core-action-result-card")).toHaveAttribute("data-result-kind", "effect");
+  await expect(page.getByTestId("core-action-result-card-2")).toHaveAttribute("data-result-event-code", "fortune_drawn");
+  await expect(page.getByTestId("core-action-result-card-2")).toHaveAttribute("data-result-kind", "effect");
 });
 
 test("mixed participant runtime keeps repeated fallback continuity readable across longer chains", async ({ page }) => {
@@ -1321,16 +1333,17 @@ test("mixed participant runtime keeps repeated fallback continuity readable acro
   await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_repeated_fallback_chain`);
 
   await expect(page.getByTestId("turn-notice-banner")).toBeVisible();
-  await expect(page.getByTestId("turn-notice-banner")).toContainText("Fortune resolved");
-  await expect(page.getByTestId("turn-notice-banner")).toContainText("Gain 1 shard.");
-  await expect(page.getByTestId("board-weather-summary")).toContainText("Monsoon");
+  await expect(page.getByTestId("turn-notice-banner-title")).toContainText("Fortune resolved");
+  await expect(page.getByTestId("turn-notice-banner-detail")).toContainText("Gain 1 shard.");
+  await expect(page.getByTestId("board-weather-headline")).toHaveText("Monsoon");
   await expect(page.getByTestId("board-event-reveal-stack")).toBeVisible();
-  await expect(page.getByTestId("board-event-reveal-fortune_resolved-1")).toContainText("Gain 1 shard.");
-  await expect(page.getByTestId("board-reveal-spotlight-fortune_resolved")).toContainText("Gain 1 shard.");
-  await expect(page.getByTestId("core-action-payoff-sequence")).toContainText("Fortune effect");
-  await expect(page.getByTestId("core-action-payoff-sequence")).toContainText("Gain 1 shard.");
-  await expect(page.getByTestId("core-action-journey")).toContainText("Decision timeout fallback");
-  await expect(page.getByTestId("core-action-panel")).toContainText("P3 fallback fortune closed");
+  await expect(page.getByTestId("board-event-reveal-fortune_resolved-1")).toHaveAttribute("data-event-code", "fortune_resolved");
+  await expect(page.getByTestId("board-reveal-spotlight-detail-fortune_resolved")).toContainText("Gain 1 shard.");
+  await expect(page.getByTestId("core-action-result-card")).toHaveAttribute("data-result-event-code", "fortune_resolved");
+  await expect(page.getByTestId("core-action-result-card")).toHaveAttribute("data-result-kind", "effect");
+  await expect(page.getByTestId("core-action-journey-step-1")).toHaveAttribute("data-journey-event-code", "decision_timeout_fallback");
+  await expect(page.getByTestId("core-action-journey-step-1")).toHaveAttribute("data-journey-kind", "decision");
+  await expect(page.getByTestId("core-action-latest")).toHaveAttribute("data-latest-event-code", "turn_end_snapshot");
 });
 
 test("locale toggle persists across reload", async ({ page }) => {

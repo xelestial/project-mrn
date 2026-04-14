@@ -485,8 +485,14 @@ export function BoardPanel({
                     className={`tile-reveal-spotlight tile-reveal-spotlight-${revealFocus?.tone ?? "effect"}`}
                     data-testid={`board-reveal-spotlight-${revealFocus?.eventCode ?? "event"}`}
                   >
-                    <strong>{revealFocus?.label ?? "-"}</strong>
-                    {revealFocus?.detail && revealFocus.detail !== "-" ? <small>{revealFocus.detail}</small> : null}
+                    <strong data-testid={`board-reveal-spotlight-title-${revealFocus?.eventCode ?? "event"}`}>
+                      {revealFocus?.label ?? "-"}
+                    </strong>
+                    {revealFocus?.detail && revealFocus.detail !== "-" ? (
+                      <small data-testid={`board-reveal-spotlight-detail-${revealFocus?.eventCode ?? "event"}`}>
+                        {revealFocus.detail}
+                      </small>
+                    ) : null}
                   </div>
                 ) : null}
                 {shouldShowLiveTag ? (
@@ -557,8 +563,10 @@ export function BoardPanel({
             className={`board-reveal-panel board-reveal-panel-${revealFocus.tone}`}
             data-testid={`board-reveal-spotlight-${revealFocus.eventCode}`}
           >
-            <strong>{revealFocus.label}</strong>
-            {revealFocus.detail && revealFocus.detail !== "-" ? <p>{revealFocus.detail}</p> : null}
+            <strong data-testid={`board-reveal-spotlight-title-${revealFocus.eventCode}`}>{revealFocus.label}</strong>
+            {revealFocus.detail && revealFocus.detail !== "-" ? (
+              <p data-testid={`board-reveal-spotlight-detail-${revealFocus.eventCode}`}>{revealFocus.detail}</p>
+            ) : null}
           </div>
         ) : null}
         {overlayContent ? <div className="board-overlay-content">{overlayContent}</div> : null}

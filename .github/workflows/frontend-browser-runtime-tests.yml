@@ -39,8 +39,11 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      - name: Run focused browser runtime tests
+      - name: Run focused browser parity tests
         run: npm run e2e:parity
+
+      - name: Run focused human runtime browser tests
+        run: npm run e2e:human-runtime
 
       - name: Upload Playwright report
         if: always()
