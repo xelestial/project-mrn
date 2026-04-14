@@ -1405,6 +1405,9 @@ export function App() {
             effectiveTurnBanner.variant === "interrupt" ? "turn-notice-banner-interrupt" : "turn-notice-banner-turn"
           }`}
           data-testid="turn-notice-banner"
+          data-banner-variant={effectiveTurnBanner.variant}
+          data-banner-has-detail={effectiveTurnBanner.detail && effectiveTurnBanner.detail !== "-" ? "true" : "false"}
+          data-banner-player-id={currentActorId ? String(currentActorId) : undefined}
         >
           <strong data-testid="turn-notice-banner-title">{effectiveTurnBanner.text}</strong>
           {effectiveTurnBanner.detail && effectiveTurnBanner.detail !== "-" ? (
@@ -1539,7 +1542,11 @@ export function App() {
                                 ))}
                               </div>
                             ) : null}
-                            <div className="match-table-weather-main">
+                            <div
+                              className="match-table-weather-main"
+                              data-weather-name={hasReadableValue(weatherHeadline) ? weatherHeadline : undefined}
+                              data-weather-detail={hasReadableValue(weatherDetail) ? weatherDetail : undefined}
+                            >
                               <h4 data-testid="board-weather-headline">{weatherHeadline}</h4>
                               {weatherDetail ? <p data-testid="board-weather-detail">{weatherDetail}</p> : null}
                             </div>

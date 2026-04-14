@@ -1297,6 +1297,8 @@ export function PromptOverlay({
                   key={card.key}
                   className={`prompt-choice-card ${card.isHidden ? "hand-card-hidden" : ""}`}
                   data-testid={`trick-choice-${card.key}`}
+                  data-card-name={card.name}
+                  data-card-visibility={card.isHidden ? "hidden" : "public"}
                   disabled={busy || !card.isUsable || !card.choiceId}
                   onClick={() => {
                     if (card.choiceId) {

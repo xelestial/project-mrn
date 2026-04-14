@@ -391,12 +391,21 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
             {valueOrDash(latestActionTitle === "-" ? spotlightSummary : app.spectatorHeadlineSummary(latestActionTitle, spotlightSummary))}
           </small>
         </article>
-        <article className="spectator-turn-card" data-testid="spectator-turn-weather">
+        <article
+          className="spectator-turn-card"
+          data-testid="spectator-turn-weather"
+          data-weather-name={dataAttrValue(model.weatherName)}
+          data-weather-detail={dataAttrValue(model.weatherEffect)}
+        >
           <span>{app.spectatorFields.weather}</span>
           <strong data-testid="spectator-turn-weather-name">{valueOrDash(model.weatherName)}</strong>
           <small data-testid="spectator-turn-weather-detail">{valueOrDash(model.weatherEffect)}</small>
         </article>
-        <article className="spectator-turn-card" data-testid="spectator-turn-character">
+        <article
+          className="spectator-turn-card"
+          data-testid="spectator-turn-character"
+          data-character-name={dataAttrValue(model.character)}
+        >
           <span>{app.spectatorFields.character}</span>
           <strong data-testid="spectator-turn-character-name">{valueOrDash(model.character)}</strong>
         </article>
