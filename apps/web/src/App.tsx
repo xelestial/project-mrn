@@ -346,6 +346,29 @@ export function App() {
         ? turnStage.weatherEffect
         : "";
   const weatherHudPills: string[] = [];
+  const manifestHash = typeof sessionManifest?.manifest_hash === "string" ? sessionManifest.manifest_hash : "";
+  const manifestStartingCash =
+    typeof sessionManifest?.economy?.starting_cash === "number" ? String(sessionManifest.economy.starting_cash) : "";
+  const manifestStartingShards =
+    typeof sessionManifest?.resources?.starting_shards === "number" ? String(sessionManifest.resources.starting_shards) : "";
+  const manifestDiceValues =
+    Array.isArray(sessionManifest?.dice?.values) && sessionManifest.dice.values.length > 0
+      ? sessionManifest.dice.values.join(",")
+      : "";
+  const manifestSeatAllowed =
+    Array.isArray(sessionManifest?.seats?.allowed) && sessionManifest.seats.allowed.length > 0
+      ? sessionManifest.seats.allowed.join(",")
+      : "";
+  const manifestTileCount =
+    typeof sessionManifest?.board?.tile_count === "number"
+      ? String(sessionManifest.board.tile_count)
+      : Array.isArray(sessionManifest?.board?.tiles)
+        ? String(sessionManifest.board.tiles.length)
+        : "";
+  const manifestTopology =
+    typeof sessionManifest?.board?.topology === "string" && sessionManifest.board.topology.trim()
+      ? sessionManifest.board.topology
+      : "";
 
   const activePrompt = selectActivePrompt(stream.messages);
   const activePromptLabel = activePrompt ? promptLabelForType(activePrompt.requestType) : null;
@@ -1414,6 +1437,21 @@ export function App() {
             <small data-testid="turn-notice-banner-detail">{effectiveTurnBanner.detail}</small>
           ) : null}
         </section>
+      ) : null}
+
+      {route !== "lobby" ? (
+        <section
+          data-testid="runtime-manifest-metadata"
+          aria-hidden="true"
+          hidden
+          data-manifest-hash={manifestHash || undefined}
+          data-starting-cash={manifestStartingCash || undefined}
+          data-starting-shards={manifestStartingShards || undefined}
+          data-dice-values={manifestDiceValues || undefined}
+          data-seat-allowed={manifestSeatAllowed || undefined}
+          data-board-topology={manifestTopology || undefined}
+          data-tile-count={manifestTileCount || undefined}
+        />
       ) : null}
 
       {route !== "lobby" &&

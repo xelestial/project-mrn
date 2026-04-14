@@ -47,6 +47,12 @@ export type ParameterManifest = {
     max_cards_per_turn?: number;
     use_one_card_plus_one_die?: boolean;
   };
+  economy?: {
+    starting_cash?: number;
+  };
+  resources?: {
+    starting_shards?: number;
+  };
   labels?: Record<string, unknown>;
 };
 

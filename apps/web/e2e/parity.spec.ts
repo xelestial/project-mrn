@@ -1174,7 +1174,9 @@ test("manifest-hash reconnect fixture rehydrates projection after session switch
 
   await page.goto("/#/match?session=sess_b");
   await expect(page.locator(".tile-card")).toHaveCount(7);
-  await expect(page.locator(".timeline-item small").first()).toContainText(manifestB.manifest_hash.slice(0, 8));
+  await expect(page.getByTestId("runtime-manifest-metadata")).toHaveAttribute("data-manifest-hash", manifestB.manifest_hash);
+  await expect(page.getByTestId("runtime-manifest-metadata")).toHaveAttribute("data-board-topology", "line");
+  await expect(page.getByTestId("runtime-manifest-metadata")).toHaveAttribute("data-tile-count", "7");
   await page.getByRole("button", { name: "로비" }).click();
   await expect(page.locator("label:has-text('참가 좌석') option")).toHaveCount(3);
 });
@@ -1214,10 +1216,12 @@ test("parameter matrix fixture rehydrates seat/economy/dice assumptions", async 
   await page.goto("/#/match?session=sess_matrix");
   await page.getByRole("button", { name: "Raw 보기" }).click();
   await expect(page.locator(".tile-card")).toHaveCount(5);
-  await expect(page.locator(".timeline-item small").first()).toContainText(manifest.manifest_hash.slice(0, 8));
-  await expect(page.locator("pre").first()).toContainText('"starting_cash": 55');
-  await expect(page.locator("pre").first()).toContainText('"starting_shards": 7');
-  await expect(page.locator("pre").first()).toContainText('"values": [');
+  await expect(page.getByTestId("runtime-manifest-metadata")).toHaveAttribute("data-manifest-hash", manifest.manifest_hash);
+  await expect(page.getByTestId("runtime-manifest-metadata")).toHaveAttribute("data-starting-cash", "55");
+  await expect(page.getByTestId("runtime-manifest-metadata")).toHaveAttribute("data-starting-shards", "7");
+  await expect(page.getByTestId("runtime-manifest-metadata")).toHaveAttribute("data-dice-values", "2,4,8");
+  await expect(page.getByTestId("runtime-manifest-metadata")).toHaveAttribute("data-seat-allowed", "1,2");
+  await expect(page.getByTestId("runtime-manifest-metadata")).toHaveAttribute("data-tile-count", "5");
   await page.getByRole("button", { name: "로비" }).click();
   await expect(page.locator("label:has-text('참가 좌석') option")).toHaveCount(2);
 });
