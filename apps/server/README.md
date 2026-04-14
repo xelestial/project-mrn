@@ -10,5 +10,4 @@ Initial scope:
 
 Run target (planned):
 
-`uvicorn apps.server.src.app:app --reload --port 8000`
-
+`uvicorn apps.server.src.app:app --reload --port 9090`

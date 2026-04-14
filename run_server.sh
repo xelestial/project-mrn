@@ -2,14 +2,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PYTHON_BIN="${ROOT_DIR}/.venv311/bin/python"
+PYTHON_BIN="${ROOT_DIR}/.venv/bin/python"
 HOST="${MRN_SERVER_HOST:-127.0.0.1}"
-PORT="${MRN_SERVER_PORT:-8001}"
+PORT="${MRN_SERVER_PORT:-9090}"
 HEALTH_URL="http://${HOST}:${PORT}/health"
 
 if [[ ! -x "${PYTHON_BIN}" ]]; then
   echo "Missing Python runtime: ${PYTHON_BIN}" >&2
-  echo "Create /Users/sil/Workspace/project-mrn/.venv311 first." >&2
+  echo "Create /Users/sil/Workspace/project-mrn/.venv first." >&2
   exit 1
 fi
 

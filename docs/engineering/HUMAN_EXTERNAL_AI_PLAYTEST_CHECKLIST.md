@@ -32,7 +32,7 @@ The preferred stronger worker path is:
 2. Start the server:
 
 ```bash
-.venv/bin/python -m uvicorn apps.server.src.app:app --host 127.0.0.1 --port 8000
+.venv/bin/python -m uvicorn apps.server.src.app:app --host 127.0.0.1 --port 9090
 ```
 
 3. Smoke-check the worker contract before opening the web app:
@@ -53,14 +53,14 @@ The preferred stronger worker path is:
 
 ```bash
 cd apps/web
-npm run dev -- --host 127.0.0.1 --port 4174
+npm run dev -- --host 127.0.0.1 --port 9000
 ```
 
 If backend is not on the standard local port, inject it explicitly:
 
 ```bash
 cd apps/web
-MRN_WEB_API_PORT=8011 npm run dev -- --host 127.0.0.1 --port 4174
+MRN_WEB_API_PORT=8011 npm run dev -- --host 127.0.0.1 --port 9000
 ```
 
 ## Session Config

@@ -18,8 +18,8 @@ Canonical backend references:
 
 Operational defaults:
 
-- backend standard local port: `8000`
-- frontend standard local dev port: `4174`
+- backend standard local port: `9090`
+- frontend standard local dev port: `9000`
 - frontend should only point elsewhere through explicit env injection (`MRN_WEB_API_PORT`, `MRN_WEB_API_HOST`, `MRN_WEB_API_TARGET`)
 
 Runtime safety rules:

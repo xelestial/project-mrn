@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const PORT = 4173;
+const PORT = 9000;
 const HOST = "127.0.0.1";
 
 export default defineConfig({

@@ -3,7 +3,7 @@
   "title": "Line topology with 3 seats",
   "goal": "Verify board projection and lobby seat options adapt to non-default manifest values.",
   "preconditions": [
-    "Backend server is running on port 8000.",
+    "Backend server is running on port 9090.",
     "Web app is running with Vite dev server.",
     "Open app in browser and navigate to Lobby."
   ],

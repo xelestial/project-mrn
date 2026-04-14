@@ -4,18 +4,18 @@ setlocal
 set "ROOT_DIR=%~dp0"
 if "%ROOT_DIR:~-1%"=="\" set "ROOT_DIR=%ROOT_DIR:~0,-1%"
 
-set "PYTHON_BIN=%ROOT_DIR%\.venv311\Scripts\python.exe"
+set "PYTHON_BIN=%ROOT_DIR%\.venv\Scripts\python.exe"
 set "HOST=%MRN_SERVER_HOST%"
 set "PORT=%MRN_SERVER_PORT%"
 set "HEALTH_URL=http://%HOST%:%PORT%/health"
 
 if "%HOST%"=="" set "HOST=127.0.0.1"
-if "%PORT%"=="" set "PORT=8001"
+if "%PORT%"=="" set "PORT=9090"
 set "HEALTH_URL=http://%HOST%:%PORT%/health"
 
 if not exist "%PYTHON_BIN%" (
   echo Missing Python runtime: %PYTHON_BIN%
-  echo Create %ROOT_DIR%\.venv311 first.
+  echo Create %ROOT_DIR%\.venv first.
   exit /b 1
 )
 
