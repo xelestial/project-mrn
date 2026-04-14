@@ -1617,7 +1617,12 @@ export function App() {
                         </div>
                       </section>
 
-                      <section className="match-table-active-strip" data-testid="active-character-strip">
+                      <section
+                        className="match-table-active-strip"
+                        data-testid="active-character-strip"
+                        data-known-count={String(knownActiveCharacterCount)}
+                        data-slot-count={String(activeCharacterSlots.length)}
+                      >
                         <div className="match-table-card-head">
                           <strong>{locale === "ko" ? "현재 활성 등장인물" : "Current active character"}</strong>
                           <span>
@@ -1631,6 +1636,11 @@ export function App() {
                             <article
                               key={card.slot}
                               data-testid={`active-character-slot-${card.slot}`}
+                              data-character-name={card.character ?? undefined}
+                              data-inactive-character={card.inactiveCharacter ?? undefined}
+                              data-slot-label={card.label ?? undefined}
+                              data-player-id={card.playerId !== null ? String(card.playerId) : undefined}
+                              data-is-current-actor={card.isCurrentActor ? "true" : undefined}
                               className={`match-table-active-character-card ${
                                 card.isCurrentActor ? "match-table-active-character-card-actor" : ""
                               } ${card.isLocalPlayer ? "match-table-active-character-card-local" : ""} ${

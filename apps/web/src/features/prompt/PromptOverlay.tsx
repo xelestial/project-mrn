@@ -574,6 +574,9 @@ function EmphasisChoiceGrid({
             key={choice.choiceId}
             className={`prompt-choice-card prompt-choice-card-emphasis ${secondary ? "prompt-choice-card-secondary" : ""}`}
             data-testid={`${testIdPrefix}-${choice.choiceId}`}
+            data-choice-id={choice.choiceId}
+            data-choice-title={normalized.title}
+            data-choice-description={normalized.description || undefined}
             onClick={() => onSelectChoice(choice.choiceId)}
             disabled={busy}
           >
@@ -1241,6 +1244,9 @@ export function PromptOverlay({
                 type="button"
                 className="prompt-primary-action"
                 data-testid="movement-submit"
+                data-choice-id={movementMode === "roll" ? movement.rollChoice?.choiceId ?? "roll" : movementSelectedChoice?.choiceId ?? undefined}
+                data-movement-mode={movementMode}
+                data-selected-cards={movementMode === "cards" && selectedCards.length > 0 ? selectedCards.join(",") : undefined}
                 disabled={busy || (movementMode === "cards" && !movementSelectedChoice)}
                 onClick={onSubmitMovement}
               >
@@ -1365,6 +1371,10 @@ export function PromptOverlay({
                     key={choice.choiceId}
                     className="prompt-choice-card prompt-choice-card-emphasis prompt-choice-card-mark"
                     data-testid={`mark-choice-${choice.choiceId}`}
+                    data-choice-id={choice.choiceId}
+                    data-target-character={target.character || undefined}
+                    data-target-player-id={target.playerId !== null ? String(target.playerId) : undefined}
+                    data-target-card-no={target.cardNo !== null ? String(target.cardNo) : undefined}
                     onClick={() => onSelectChoice(choice.choiceId)}
                     disabled={busy}
                   >
@@ -1384,6 +1394,8 @@ export function PromptOverlay({
                       key={choice.choiceId}
                       className="prompt-secondary-action"
                       data-testid={`mark-choice-${choice.choiceId}`}
+                      data-choice-id={choice.choiceId}
+                      data-choice-title={markChoiceTitle(choice, promptText)}
                       onClick={() => onSelectChoice(choice.choiceId)}
                       disabled={busy}
                     >
