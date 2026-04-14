@@ -7,6 +7,16 @@ from pathlib import Path
 from typing import Tuple
 
 
+TRICK_RELIC_COLLECTOR_ID = 1
+TRICK_HEAVY_BURDEN_ID = 2
+TRICK_LIGHT_BURDEN_ID = 3
+TRICK_HEALTH_CHECK_ID = 4
+TRICK_PREFERENTIAL_PASS_ID = 8
+TRICK_FREE_GIFT_ID = 9
+TRICK_FLASH_ID = 26
+TRICK_WILDFIRE_ID = 28
+
+
 @dataclass(frozen=True, slots=True)
 class TrickCardDef:
     copies: int
@@ -22,7 +32,7 @@ class TrickCard:
 
     @property
     def is_burden(self) -> bool:
-        return self.name in {"무거운 짐", "가벼운 짐"}
+        return trick_card_id_for_name(self.name) in {TRICK_HEAVY_BURDEN_ID, TRICK_LIGHT_BURDEN_ID}
 
     @property
     def is_anytime(self) -> bool:
@@ -32,9 +42,10 @@ class TrickCard:
 
     @property
     def burden_cost(self) -> int:
-        if self.name == "무거운 짐":
+        card_id = trick_card_id_for_name(self.name)
+        if card_id == TRICK_HEAVY_BURDEN_ID:
             return 4
-        if self.name == "가벼운 짐":
+        if card_id == TRICK_LIGHT_BURDEN_ID:
             return 2
         return 0
 
@@ -68,6 +79,20 @@ def _load_trick_definitions_cached(csv_path_str: str) -> Tuple[TrickCardDef, ...
 
 def load_trick_definitions(csv_path: str | Path | None = None) -> list[TrickCardDef]:
     return list(_load_trick_definitions_cached(str(_resolve_csv_path(csv_path))))
+
+
+@lru_cache(maxsize=None)
+def _trick_ids_by_name(csv_path_str: str) -> dict[str, int]:
+    return {card_def.name: index for index, card_def in enumerate(_load_trick_definitions_cached(csv_path_str), start=1)}
+
+
+def trick_card_id_for_name(name: str | None, csv_path: str | Path | None = None) -> int | None:
+    if not isinstance(name, str):
+        return None
+    normalized = " ".join(name.split())
+    if not normalized:
+        return None
+    return _trick_ids_by_name(str(_resolve_csv_path(csv_path))).get(normalized)
 
 
 @lru_cache(maxsize=None)

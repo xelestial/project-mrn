@@ -19,6 +19,8 @@ describe("manifest reconnect flow", () => {
             manifest_hash: "hash_old",
             board: { topology: "ring", tile_count: 40 },
             seats: { allowed: [1, 2, 3, 4] },
+            economy: { starting_cash: 20 },
+            resources: { starting_shards: 4 },
             labels: { tile_kind_labels: { S: "운수" } },
           },
         },
@@ -49,6 +51,8 @@ describe("manifest reconnect flow", () => {
               tiles: [{ tile_index: 0, tile_kind: "F1", zone_color: "", purchase_cost: null, rent_cost: null }],
             },
             seats: { allowed: [1, 2, 3] },
+            economy: { starting_cash: 55 },
+            resources: { starting_shards: 7 },
             labels: { tile_kind_labels: { S: "운수", F1: "종료 - 1" } },
           },
         },
@@ -73,6 +77,8 @@ describe("manifest reconnect flow", () => {
     expect(merged.manifest_hash).toBe("hash_new");
     expect(merged.board?.topology).toBe("line");
     expect(merged.seats?.allowed).toEqual([1, 2, 3]);
+    expect(merged.economy?.starting_cash).toBe(55);
+    expect(merged.resources?.starting_shards).toBe(7);
     expect(merged.labels).toEqual({
       tile_kind_labels: {
         S: "운수",
@@ -81,4 +87,3 @@ describe("manifest reconnect flow", () => {
     });
   });
 });
-

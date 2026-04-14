@@ -14,7 +14,13 @@ from config import CellKind, GameConfig
 from policy_mark_utils import ordered_public_mark_targets
 from state import GameState, PlayerState
 from fortune_cards import FortuneCard
-from trick_cards import TrickCard
+from trick_cards import (
+    TRICK_FREE_GIFT_ID,
+    TRICK_PREFERENTIAL_PASS_ID,
+    TRICK_RELIC_COLLECTOR_ID,
+    TrickCard,
+    trick_card_id_for_name,
+)
 from weather_cards import WeatherCard, COLOR_RENT_DOUBLE_WEATHERS
 from event_system import EventDispatcher
 from effect_handlers import EngineEffectHandlers
@@ -32,7 +38,44 @@ from policy.character_traits import (
     is_pabalggun,
     is_tamgwanori,
 )
-from policy.environment_traits import fortune_card_id_for_name
+from policy.environment_traits import (
+    FORTUNE_BLESSED_DICE_ID,
+    FORTUNE_BITTER_ENVY_ID,
+    FORTUNE_CURSED_DICE_ID,
+    FORTUNE_DONATION_ANGEL_ID,
+    FORTUNE_DRUNK_RIDING_ID,
+    FORTUNE_GOOD_FOR_OTHERS_ID,
+    FORTUNE_HALF_PRICE_SALE_ID,
+    FORTUNE_HIGH_PERFORMANCE_BONUS_ID,
+    FORTUNE_IRRESISTIBLE_DEAL_ID,
+    FORTUNE_LAND_THIEF_ID,
+    FORTUNE_LONG_TRIP_ID,
+    FORTUNE_METEOR_FALL_ID,
+    FORTUNE_MOVE_BACK_2_ID,
+    FORTUNE_MOVE_BACK_3_ID,
+    FORTUNE_PARTY_ID,
+    FORTUNE_PERFORMANCE_BONUS_ID,
+    FORTUNE_PIG_DREAM_ID,
+    FORTUNE_PIOUS_MARKER_ID,
+    FORTUNE_POOR_CONSTRUCTION_ID,
+    FORTUNE_REST_STOP_ID,
+    FORTUNE_SAFE_MOVE_ID,
+    FORTUNE_SHORT_TRIP_ID,
+    FORTUNE_SUBSCRIPTION_WIN_ID,
+    FORTUNE_SUSPICIOUS_DRINK_ID,
+    FORTUNE_TAKEOVER_BACK_2_ID,
+    FORTUNE_TAKEOVER_BACK_3_ID,
+    FORTUNE_TRAFFIC_VIOLATION_ID,
+    FORTUNE_UNBEARABLE_SMILE_ID,
+    FORTUNE_VERY_SUSPICIOUS_DRINK_ID,
+    FORTUNE_BEAST_HEART_ID,
+    FORTUNE_CUT_IN_LINE_ID,
+    WEATHER_FATTENED_HORSES_ID,
+    WEATHER_HUNTING_SEASON_ID,
+    WEATHER_LOVE_AND_FRIENDSHIP_ID,
+    fortune_card_id_for_name,
+    has_weather_id,
+)
 from policy_hooks import PolicyDecisionLogHook
 from rule_script_engine import RuleScriptEngine
 from viewer.events import Phase, VisEvent
@@ -585,7 +628,7 @@ class GameEngine:
         return name in state.current_weather_effects
 
     def _weather_extra_dice(self, state: GameState) -> int:
-        return 1 if self._has_weather(state, "말이 살찌는 계절") else 0
+        return 1 if has_weather_id(state.current_weather_effects, WEATHER_FATTENED_HORSES_ID) else 0
 
     def _weather_marker_owner(self, state: GameState) -> PlayerState | None:
         if not state.players:
@@ -612,7 +655,7 @@ class GameEngine:
 
     def _apply_weather_same_tile_bonus(self, state: GameState, player: PlayerState, event: dict) -> dict:
         co = [p for p in state.players if p.alive and p.player_id != player.player_id and p.position == player.position]
-        if self._has_weather(state, "사랑과 우정") and co:
+        if has_weather_id(state.current_weather_effects, WEATHER_LOVE_AND_FRIENDSHIP_ID) and co:
             gain = 4 * len(co)
             player.cash += gain
             event["weather_same_tile_cash_gain"] = gain
@@ -884,7 +927,7 @@ class GameEngine:
         self._resolve_pending_marks(state, player)
         if not player.alive:
             return
-        if self._has_weather(state, "말이 살찌는 계절"):
+        if has_weather_id(state.current_weather_effects, WEATHER_FATTENED_HORSES_ID):
             player.extra_dice_count_this_turn += 1
         self._apply_character_start(state, player)
         if not player.alive:
@@ -1684,7 +1727,7 @@ class GameEngine:
         stats["mark_attempts"] = stats.get("mark_attempts", 0) + 1
         if outcome == "success":
             stats["mark_successes"] = stats.get("mark_successes", 0) + 1
-            if state is not None and self._has_weather(state, "사냥의 계절"):
+            if state is not None and has_weather_id(state.current_weather_effects, WEATHER_HUNTING_SEASON_ID):
                 source = state.players[source_pid]
                 if source.attribute == "무뢰" and source.alive:
                     source.cash += 4
@@ -2185,7 +2228,8 @@ class GameEngine:
         def my_value(card: TrickCard) -> int:
             return -10 if card.is_burden else 10 - card.burden_cost
         def their_value(card: TrickCard) -> int:
-            return 20 if card.is_burden else 10 + (2 if card.name in {"무료 증정", "우대권", "성물 수집가"} else 0)
+            card_id = trick_card_id_for_name(card.name)
+            return 20 if card.is_burden else 10 + (2 if card_id in {TRICK_FREE_GIFT_ID, TRICK_PREFERENTIAL_PASS_ID, TRICK_RELIC_COLLECTOR_ID} else 0)
         def visible_cards(op: PlayerState) -> list[TrickCard]:
             cards = list(op.public_trick_cards())
             return cards if cards else list(op.trick_hand)
@@ -2785,40 +2829,40 @@ class GameEngine:
             return self._fortune_burden_cleanup(state, [player], multiplier=1, payout=False, name=name)
         if card_id == 33:
             return self._fortune_burden_cleanup(state, [p for p in state.players if p.alive], multiplier=2, payout=False, name=name)
-        if name == "이사가세요 - 2":
+        if card_id == FORTUNE_MOVE_BACK_2_ID:
             return self._apply_fortune_arrival(state, player, player.position - 2, "backward_2", name)
-        if name == "이사가세요 - 3":
+        if card_id == FORTUNE_MOVE_BACK_3_ID:
             return self._apply_fortune_arrival(state, player, player.position - 3, "backward_3", name)
-        if name == "인수하세요 - 2":
+        if card_id == FORTUNE_TAKEOVER_BACK_2_ID:
             return self._fortune_takeover_backward(state, player, 2, name)
-        if name == "인수하세요 - 3":
+        if card_id == FORTUNE_TAKEOVER_BACK_3_ID:
             return self._fortune_takeover_backward(state, player, 3, name)
-        if name == "성과금":
+        if card_id == FORTUNE_PERFORMANCE_BONUS_ID:
             gain = player.shards
             player.cash += gain
             self._strategy_stats[player.player_id]["shard_income_cash"] += gain
             return {"type": "CASH_GAIN", "cash_delta": gain, "formula": "shards*1"}
-        if name == "높은 성과금":
+        if card_id == FORTUNE_HIGH_PERFORMANCE_BONUS_ID:
             gain = player.shards * 2
             player.cash += gain
             self._strategy_stats[player.player_id]["shard_income_cash"] += gain
             return {"type": "CASH_GAIN", "cash_delta": gain, "formula": "shards*2"}
-        if name == "신호 위반":
+        if card_id == FORTUNE_TRAFFIC_VIOLATION_ID:
             cost = 6 + (2 if self._is_muroe(player) else 0)
             return {"type": "BANK_PAY", **self._pay_or_bankrupt(state, player, cost, None)}
-        if name == "음주 승마":
+        if card_id == FORTUNE_DRUNK_RIDING_ID:
             return {"type": "BANK_PAY", **self._pay_or_bankrupt(state, player, 10, None)}
-        if name == "청약 당첨":
+        if card_id == FORTUNE_SUBSCRIPTION_WIN_ID:
             pos = self._select_empty_block_tile(state)
             if pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_empty_block"}
             return {"type": "SUBSCRIPTION", "selection": pos, "purchase": self._try_purchase_tile(state, player, pos, state.board[pos])}
-        if name == "부실 공사":
+        if card_id == FORTUNE_POOR_CONSTRUCTION_ID:
             pos = self._select_owned_tile(state, player.player_id, highest=True)
             if pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_owned_tile"}
             return {"type": "LOSE_TILE", "transfer": self._transfer_tile(state, pos, None)}
-        if name == "땅 도둑":
+        if card_id == FORTUNE_LAND_THIEF_ID:
             if self._is_muroe(player):
                 pos = self._select_owned_tile(state, player.player_id, highest=False)
                 if pos is None:
@@ -2831,7 +2875,7 @@ class GameEngine:
             if tr.get("blocked_by_monopoly"):
                 return {"type": "NO_EFFECT", "reason": "monopoly_protected", "attempt": "steal_tile", "pos": pos}
             return {"type": "STEAL_TILE", "transfer": tr}
-        if name == "기부천사":
+        if card_id == FORTUNE_DONATION_ANGEL_ID:
             pos = self._select_owned_tile(state, player.player_id, highest=False)
             if pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_owned_tile"}
@@ -2839,15 +2883,15 @@ class GameEngine:
             if tr.get("blocked_by_monopoly"):
                 return {"type": "NO_EFFECT", "reason": "monopoly_protected", "attempt": "give_tile", "pos": pos}
             return {"type": "GIVE_TILE", "transfer": tr}
-        if name == "화려한 잔치":
+        if card_id == FORTUNE_PARTY_ID:
             return self._fortune_party(state, player, amount=2, reverse=self._is_muroe(player), name=name)
-        if name == "수상한 음료":
+        if card_id == FORTUNE_SUSPICIOUS_DRINK_ID:
             roll = self._roll_standard_move(state, player, explicit_dice_count=None)
             return {"type": "ROLL_ARRIVAL", **roll, "arrival": self._apply_fortune_arrival(state, player, player.position + roll["move"], "suspicious_drink", name)}
-        if name == "아주 수상한 음료":
+        if card_id == FORTUNE_VERY_SUSPICIOUS_DRINK_ID:
             roll = self._roll_standard_move(state, player, explicit_dice_count=2)
             return {"type": "ROLL_ARRIVAL", **roll, "arrival": self._apply_fortune_arrival(state, player, player.position + roll["move"], "very_suspicious_drink", name)}
-        if name == "반액대매출":
+        if card_id == FORTUNE_HALF_PRICE_SALE_ID:
             pos = self._select_owned_tile(state, player.player_id, highest=True)
             if pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_owned_tile"}
@@ -2856,31 +2900,31 @@ class GameEngine:
             tr = self._transfer_tile(state, pos, None)
             state.tile_coins[pos] = 0
             return {"type": "SELL_HALF", "cash_delta": sale, "transfer": tr}
-        if name == "축복 주사위":
+        if card_id == FORTUNE_BLESSED_DICE_ID:
             d1, d2 = self.rng.randint(1,6), self.rng.randint(1,6)
             total = d1 + d2
             gain = 18 if total == 12 else total
             player.cash += gain
             return {"type": "BLESS_DICE", "dice": [d1,d2], "cash_delta": gain}
-        if name == "저주 주사위":
+        if card_id == FORTUNE_CURSED_DICE_ID:
             d1, d2 = self.rng.randint(1,6), self.rng.randint(1,6)
             total = d1 + d2
             cost = 18 if total == 2 else total
             return {"type": "CURSE_DICE", "dice": [d1,d2], **self._pay_or_bankrupt(state, player, cost, None)}
-        if name == "남 좋은 일":
+        if card_id == FORTUNE_GOOD_FOR_OTHERS_ID:
             affected = 0
             for op in state.players:
                 if op.alive and op.player_id != player.player_id:
                     op.cash += 4
                     affected += 1
             return {"type": "OTHERS_GAIN", "amount": 4, "affected_players": affected}
-        if name == "배가 아픈 일":
+        if card_id == FORTUNE_BITTER_ENVY_ID:
             marker_owner = state.players[state.marker_owner_id]
             if marker_owner.turns_taken >= state.rounds_completed + 1:
                 return {"type": "NO_EFFECT", "reason": "marker_owner_turn_passed"}
             marker_owner.free_purchase_this_turn = True
             return {"type": "MARKER_FREE_PURCHASE", "target_player": marker_owner.player_id + 1}
-        if name == "참을 수 없는 미소":
+        if card_id == FORTUNE_UNBEARABLE_SMILE_ID:
             for op in state.players:
                 if not op.alive or op.player_id == player.player_id:
                     continue
@@ -2889,7 +2933,7 @@ class GameEngine:
                 if not op.alive:
                     return {"type": "OTHERS_BANK_PAY", "failed_player": op.player_id + 1, "amount": 3 * mult}
             return {"type": "OTHERS_BANK_PAY", "amount": 3}
-        if name == "거절할 수 없는 거래":
+        if card_id == FORTUNE_IRRESISTIBLE_DEAL_ID:
             own = self._select_owned_tile(state, player.player_id, highest=False)
             other = self._select_other_player_tile(state, player, highest=True)
             if own is None or other is None:
@@ -2906,7 +2950,7 @@ class GameEngine:
             if t1.get("blocked_by_monopoly") or t2.get("blocked_by_monopoly"):
                 return {"type": "TRADE_FAIL", "reason": "monopoly_protected", "own_to_other": t1, "other_to_self": t2}
             return {"type": "FORCED_TRADE", "extra_payment": extra, "own_to_other": t1, "other_to_self": t2}
-        if name == "경건한 징표":
+        if card_id == FORTUNE_PIOUS_MARKER_ID:
             if state.marker_owner_id == player.player_id:
                 pos = self._select_empty_block_tile(state)
                 if pos is None:
@@ -2915,44 +2959,44 @@ class GameEngine:
                 player.tiles_owned += 1
                 return {"type": "PIOUS_MARKER_GAIN_TILE", "pos": pos}
             return {"type": "PAY_MARKER_OWNER", **self._pay_or_bankrupt(state, player, 4, state.marker_owner_id)}
-        if name == "야수의 심장":
+        if card_id == FORTUNE_BEAST_HEART_ID:
             return self._fortune_beast_heart(state, player)
-        if name == "짧은 여행":
+        if card_id == FORTUNE_SHORT_TRIP_ID:
             pos = self._find_extreme_player_position(state, player, nearest=True)
             if pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_other_players"}
             return self._apply_fortune_arrival(state, player, pos, "nearest_player", name)
-        if name == "끼어들기":
+        if card_id == FORTUNE_CUT_IN_LINE_ID:
             pos = self._find_extreme_player_position(state, player, nearest=True)
             if pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_other_players"}
             if self._is_japin_or_muroe(player):
                 return self._apply_fortune_arrival(state, player, pos, "nearest_player_arrival", name)
             return self._apply_fortune_move_only(state, player, pos, "nearest_player_move", name)
-        if name == "긴 여행":
+        if card_id == FORTUNE_LONG_TRIP_ID:
             pos = self._find_extreme_player_position(state, player, nearest=False)
             if pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_other_players"}
             return self._apply_fortune_arrival(state, player, pos, "furthest_player", name)
-        if name in {"휴게소", "휴게소 ", " 휴게소"}:
+        if card_id == FORTUNE_REST_STOP_ID:
             pos = self._find_extreme_owned_tile(state, player, nearest=True)
             if pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_owned_tiles"}
             if self._is_japin_or_muroe(player):
                 pos = (pos + 1) % board_len
             return self._apply_fortune_arrival(state, player, pos, "nearest_owned_tile", name)
-        if name == "안전 이동":
+        if card_id == FORTUNE_SAFE_MOVE_ID:
             pos = self._find_extreme_owned_tile(state, player, nearest=False)
             if pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_owned_tiles"}
             if self._is_japin_or_muroe(player):
                 pos = (pos + 1) % board_len
             return self._apply_fortune_arrival(state, player, pos, "furthest_owned_tile", name)
-        if name == "운석 낙하":
-            self._change_f(state, 2, reason="fortune_effect", source="운석 낙하", actor_pid=player.player_id)
+        if card_id == FORTUNE_METEOR_FALL_ID:
+            self._change_f(state, 2, reason="fortune_effect", source=name, actor_pid=player.player_id)
             player.shards += 2
             return {"type": "METEOR", "f_delta": 2, "shards_delta": 2}
-        if name == "돼지 꿈":
+        if card_id == FORTUNE_PIG_DREAM_ID:
             remaining = [v for v in self.config.rules.dice.values if v not in player.used_dice_cards]
             gained = []
             for _ in range(2):

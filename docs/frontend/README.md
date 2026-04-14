@@ -15,6 +15,29 @@ Notes:
 - frontend rendering should increasingly depend on backend selector output
 - proposal and report docs are historical references only
 - do not reopen older proposal docs as execution source unless the active guide explicitly points to them
+- session bootstrap should prefer session payload + selector metadata over localized text inference
+- browser runtime regressions are checked by the GitHub Actions workflow `frontend-browser-runtime-tests`
+
+## Frontend Runtime Contracts
+
+Canonical runtime bootstrap inputs:
+
+1. session REST payload
+   - `parameter_manifest`
+   - `initial_active_by_card`
+2. replay / websocket event stream
+   - `session_start`
+   - `parameter_manifest`
+   - `view_state.active_slots`
+3. frontend manifest rehydration
+   - `apps/web/src/domain/manifest/manifestRehydrate.ts`
+   - must preserve board, seats, dice, economy, and resources from the latest known manifest
+
+Frontend selectors should render:
+
+- active strip from `view_state.active_slots`, with session `initial_active_by_card` as the pre-stream fallback
+- weather headline/detail from structured fields, not from concatenated display strings
+- prompt choice rows from `data-*` / selector metadata, not from broad text blocks
 
 ## Dev Server And Backend Port Injection
 
@@ -37,3 +60,24 @@ Priority order:
 1. `MRN_WEB_API_TARGET`
 2. `MRN_WEB_API_HOST` + `MRN_WEB_API_PORT`
 3. default `http://127.0.0.1:8000`
+
+## Browser Runtime CI
+
+Primary frontend browser checks:
+
+```bash
+cd /Users/sil/Workspace/project-mrn/apps/web
+npm run e2e:parity -- --list
+npm run e2e:human-runtime -- --list
+```
+
+Canonical workflow:
+
+- `.github/workflows/frontend-browser-runtime-tests.yml`
+
+The workflow is expected to cover:
+
+- initial active-face hydration
+- draft / mark / purchase prompt layout
+- weather headline/detail rendering
+- runtime theater/spectator structure

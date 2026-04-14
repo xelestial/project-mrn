@@ -34,6 +34,12 @@ function createLatest(overrides?: Partial<ParameterManifestViewModel>): Paramete
       maxCardsPerTurn: 2,
       useOneCardPlusOneDie: true,
     },
+    economy: {
+      startingCash: 20,
+    },
+    resources: {
+      startingShards: 4,
+    },
     ...overrides,
   };
 }
@@ -71,6 +77,8 @@ describe("mergeSessionManifest", () => {
     expect(merged.board?.topology).toBe("line");
     expect(merged.board?.tiles?.[0]?.tile_kind).toBe("F1");
     expect(merged.seats?.allowed).toEqual([1, 2, 3]);
+    expect(merged.economy?.starting_cash).toBe(20);
+    expect(merged.resources?.starting_shards).toBe(4);
     expect(merged.labels).toEqual({
       tile_kind_labels: {
         F1: "End - 1",
@@ -98,6 +106,32 @@ describe("mergeSessionManifest", () => {
         T2: "Land",
       },
     });
+  });
+
+  it("preserves previous economy and resources when latest manifest omits them", () => {
+    const previous: ParameterManifest = {
+      manifest_version: 1,
+      manifest_hash: "old_hash",
+      source_fingerprints: {},
+      version: "v1",
+      economy: {
+        starting_cash: 55,
+      },
+      resources: {
+        starting_shards: 7,
+      },
+    };
+
+    const merged = mergeSessionManifest(
+      previous,
+      createLatest({
+        economy: {},
+        resources: {},
+      })
+    );
+
+    expect(merged.economy?.starting_cash).toBe(55);
+    expect(merged.resources?.starting_shards).toBe(7);
   });
 
   it("returns previous reference when manifest hash is unchanged", () => {

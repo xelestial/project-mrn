@@ -2,7 +2,7 @@
 
 Status: ACTIVE  
 Audience: Human readers  
-Updated: 2026-04-12
+Updated: 2026-04-14
 
 This file is written for humans.
 
@@ -75,6 +75,7 @@ Flow:
    - current active character strip
    - player face labels
    - mark-target prompt candidates
+5. before stream hydration completes, frontend may seed the strip from session REST field `initial_active_by_card`
 
 Primary files:
 
@@ -83,6 +84,7 @@ Primary files:
 - `apps/server/src/routes/sessions.py`
 - `apps/server/src/domain/view_state/player_selector.py`
 - `apps/web/src/domain/selectors/streamSelectors.ts`
+- `apps/web/src/domain/manifest/manifestRehydrate.ts`
 
 ### 2.4 Weather / fortune / trick display pipeline
 
@@ -189,11 +191,12 @@ Selector rule:
 
 - `apps/web/src/domain/selectors/streamSelectors.ts`
 - `apps/web/src/domain/selectors/promptSelectors.ts`
+- `apps/web/src/domain/manifest/manifestRehydrate.ts`
 
 Current caution:
 
-- these files still contain fallback logic that reads names and titles
-- this is one of the main stabilization targets
+- these files still contain small fallback branches that read display text when canonical fields are missing
+- canonical ids and structured metadata should remain the first-choice source of truth
 
 ## 4. Unit Tests And Validation Rules
 
@@ -228,11 +231,25 @@ Validation rule:
 - `apps/web/src/domain/selectors/streamSelectors.spec.ts`
 - `apps/web/src/domain/selectors/promptSelectors.spec.ts`
 - `apps/web/src/domain/characters/prioritySlots.spec.ts`
+- `apps/web/src/domain/manifest/manifestRehydrate.spec.ts`
+- `apps/web/src/domain/manifest/manifestReconnectFlow.spec.ts`
 
 Validation rule:
 
 - frontend selector tests should mirror backend projection shape and prompt payload shape
 - frontend tests should not silently rely on translated label text as game logic input
+- manifest tests should prove reconnect / replay merges preserve board, seats, dice, economy, and resources
+
+### Browser runtime checks
+
+- `apps/web/e2e/parity.spec.ts`
+- `apps/web/e2e/human_play_runtime.spec.ts`
+- `.github/workflows/frontend-browser-runtime-tests.yml`
+
+Validation rule:
+
+- browser runtime checks should prefer `data-testid` and `data-*` assertions over broad localized text blocks
+- active strip, weather, prompt rows, and runtime theater are all expected to expose CI-visible structure
 
 ## 5. Gameplay Processing Order
 
@@ -318,6 +335,10 @@ Current rule of thumb:
 - raw event payloads remain canonical
 - additive `view_state` must be safe to consume directly
 - prompts must include canonical ids where available
+- session REST payloads should expose:
+  - `parameter_manifest`
+  - `initial_active_by_card`
+- frontend bootstrap should not wait for the first prompt just to discover active faces
 - UI labels should be presentation fields, not logic keys
 
 Reference:

@@ -35,6 +35,14 @@ export function mergeSessionManifest(
       max_cards_per_turn: latest.dice.maxCardsPerTurn ?? previous?.dice?.max_cards_per_turn,
       use_one_card_plus_one_die: latest.dice.useOneCardPlusOneDie ?? previous?.dice?.use_one_card_plus_one_die,
     },
+    economy: {
+      ...(previous?.economy ?? {}),
+      starting_cash: latest.economy.startingCash ?? previous?.economy?.starting_cash,
+    },
+    resources: {
+      ...(previous?.resources ?? {}),
+      starting_shards: latest.resources.startingShards ?? previous?.resources?.starting_shards,
+    },
     labels: Object.keys(latest.labels).length > 0 ? latest.labels : previous?.labels,
   };
 }

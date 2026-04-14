@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import csv
 from pathlib import Path
 
 WEATHER_ASSERT_TEMPLATE = r'getByText\(\s*["\']{name}\s*/\s*[^"\']+["\']\s*\)'
@@ -14,6 +15,17 @@ def _project_root() -> Path:
 
 def _load_catalog(root: Path) -> dict:
     return json.loads((root / "packages" / "ui-domain" / "gameplay_catalog.json").read_text(encoding="utf-8"))
+
+
+def _load_named_card_values(csv_path: Path) -> set[str]:
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        values: set[str] = set()
+        for row in reader:
+            name = " ".join((row.get("이름") or "").split())
+            if name:
+                values.add(name)
+        return values
 
 
 def _tracked_files(root: Path) -> list[Path]:
@@ -71,6 +83,14 @@ def _character_literals(catalog: dict) -> set[str]:
     return literals
 
 
+def _weather_literals(root: Path) -> set[str]:
+    return _load_named_card_values(root / "GPT" / "weather.csv")
+
+
+def _fortune_literals(root: Path) -> set[str]:
+    return _load_named_card_values(root / "GPT" / "fortune.csv")
+
+
 def _weather_join_patterns(catalog: dict) -> list[re.Pattern[str]]:
     patterns: list[re.Pattern[str]] = []
     for weather in catalog["weather_cards"]:
@@ -96,6 +116,23 @@ def _check_domain_literals(paths: list[Path], root: Path, catalog: dict) -> list
     return failures
 
 
+def _check_runtime_weather_fortune_literals(paths: list[Path], root: Path) -> list[str]:
+    failures: list[str] = []
+    literals = _weather_literals(root) | _fortune_literals(root)
+    for path in paths:
+        if not path.is_file() or not _is_runtime_logic_file(path, root):
+            continue
+        rel = path.relative_to(root).as_posix()
+        text = path.read_text(encoding="utf-8")
+        for literal in literals:
+            if literal in ALLOWED_LITERAL_EXCEPTIONS.get(rel, set()):
+                continue
+            if literal in text:
+                failures.append(f"weather/fortune literal '{literal}' must not appear in runtime logic file: {rel}")
+                break
+    return failures
+
+
 def _check_brittle_weather_assertions(paths: list[Path], root: Path, catalog: dict) -> list[str]:
     failures: list[str] = []
     patterns = _weather_join_patterns(catalog)
@@ -115,7 +152,11 @@ def main() -> int:
     root = _project_root()
     tracked = _tracked_files(root)
     catalog = _load_catalog(root)
-    failures = _check_domain_literals(tracked, root, catalog) + _check_brittle_weather_assertions(tracked, root, catalog)
+    failures = (
+        _check_domain_literals(tracked, root, catalog)
+        + _check_runtime_weather_fortune_literals(tracked, root)
+        + _check_brittle_weather_assertions(tracked, root, catalog)
+    )
     if failures:
         print("FAIL: gameplay literal gate violations detected:")
         for failure in failures:

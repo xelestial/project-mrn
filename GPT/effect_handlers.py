@@ -12,7 +12,38 @@ from policy.character_traits import (
     is_matchmaker,
     is_swindler,
 )
+from policy.environment_traits import (
+    WEATHER_ALL_TO_RESOURCES_ID,
+    WEATHER_BETRAYAL_MARKER_ID,
+    WEATHER_BRIGHT_NIGHT_ID,
+    WEATHER_CLEAR_WARM_DAY_ID,
+    WEATHER_COLD_WINTER_DAY_ID,
+    WEATHER_EMERGENCY_EVACUATION_ID,
+    WEATHER_FOREIGN_INVASION_ID,
+    WEATHER_HARVEST_AUTUMN_ID,
+    WEATHER_HOLY_RELIC_DAY_ID,
+    WEATHER_LEAD_BY_EXAMPLE_ID,
+    WEATHER_LONG_WINTER_ID,
+    WEATHER_MASS_UPRISING_ID,
+    WEATHER_RAINMAKING_ID,
+    WEATHER_RELIEF_SYMBOL_ID,
+    WEATHER_STRATEGY_SHIFT_ID,
+    WEATHER_TRICKSTER_DAY_ID,
+    has_weather_id,
+    weather_id_for_name,
+)
 from state import GameState, PlayerState
+from trick_cards import (
+    TRICK_FLASH_ID,
+    TRICK_FREE_GIFT_ID,
+    TRICK_HEALTH_CHECK_ID,
+    TRICK_HEAVY_BURDEN_ID,
+    TRICK_LIGHT_BURDEN_ID,
+    TRICK_PREFERENTIAL_PASS_ID,
+    TRICK_RELIC_COLLECTOR_ID,
+    TRICK_WILDFIRE_ID,
+    trick_card_id_for_name,
+)
 from viewer.events import Phase
 
 
@@ -53,43 +84,44 @@ class EngineEffectHandlers:
     def apply_round_weather(self, state: GameState) -> dict:
         engine = self.engine
         card = engine._draw_weather_card(state)
+        card_id = weather_id_for_name(card.name)
         engine._weather_history.append(card.name)
         state.current_weather = card
         state.current_weather_effects = {card.name}
         state.weather_discard_pile.append(card)
         event = {'event': 'weather_round', 'round_index': state.rounds_completed + 1, 'weather': card.name, 'effect': card.effect}
         details = []
-        if card.name == '외세의 침략':
+        if card_id == WEATHER_FOREIGN_INVASION_ID:
             for p in state.players:
                 if p.alive:
                     out = engine._pay_or_bankrupt(state, p, 2, None)
                     details.append({'player': p.player_id + 1, **out})
-        elif card.name == '솔선 수범':
+        elif card_id == WEATHER_LEAD_BY_EXAMPLE_ID:
             owner = engine._weather_marker_owner(state)
             if owner is not None:
                 details.append({'player': owner.player_id + 1, **engine._pay_or_bankrupt(state, owner, 3, None)})
-        elif card.name == '기우제':
+        elif card_id == WEATHER_RAINMAKING_ID:
             owner = engine._weather_marker_owner(state)
             if owner is not None:
                 owner.shards += 1
                 engine._strategy_stats[owner.player_id]['shards_gained_lap'] += 1
-                engine._change_f(state, -1, reason='weather_effect', source='기우제')
+                engine._change_f(state, -1, reason='weather_effect', source=card.name)
                 details.append({'player': owner.player_id + 1, 'shards_delta': 1, 'f_delta': -1})
-        elif card.name == '구휼의 상징':
+        elif card_id == WEATHER_RELIEF_SYMBOL_ID:
             owner = engine._weather_marker_owner(state)
             if owner is not None:
                 owner.cash += 4
                 details.append({'player': owner.player_id + 1, 'cash_delta': 4})
-        elif card.name == '잔꾀 부리기':
+        elif card_id == WEATHER_TRICKSTER_DAY_ID:
             for p in state.players:
                 if p.alive:
                     details.append(engine._weather_gain_tricks(state, p, 1, redraw=False))
-        elif card.name == '전략 변경':
+        elif card_id == WEATHER_STRATEGY_SHIFT_ID:
             for p in state.players:
                 if p.alive:
                     need = max(0, 5 - len(p.trick_hand))
                     details.append(engine._weather_gain_tricks(state, p, need, redraw=False))
-        elif card.name == '모든 것을 자원으로':
+        elif card_id == WEATHER_ALL_TO_RESOURCES_ID:
             details.append(
                 engine._fortune_burden_cleanup(
                     state,
@@ -99,7 +131,7 @@ class EngineEffectHandlers:
                     name=card.name,
                 )
             )
-        elif card.name == '긴급 피난':
+        elif card_id == WEATHER_EMERGENCY_EVACUATION_ID:
             details.append(
                 engine._fortune_burden_cleanup(
                     state,
@@ -109,16 +141,16 @@ class EngineEffectHandlers:
                     name=card.name,
                 )
             )
-        elif card.name == '배신의 징표':
+        elif card_id == WEATHER_BETRAYAL_MARKER_ID:
             # 룰 정합성 업데이트: 해당 날씨는 현재 버전에서 효과를 적용하지 않는다.
             details.append({'effect': 'disabled_no_op'})
-        elif card.name == '밤인데 낮처럼 밝아요':
-            engine._change_f(state, -3, reason='weather_effect', source='밤인데 낮처럼 밝아요')
+        elif card_id == WEATHER_BRIGHT_NIGHT_ID:
+            engine._change_f(state, -3, reason='weather_effect', source=card.name)
             details.append({'f_delta': -3})
-        elif card.name == '길고 긴 겨울':
-            engine._change_f(state, -1, reason='weather_effect', source='길고 긴 겨울')
+        elif card_id == WEATHER_LONG_WINTER_ID:
+            engine._change_f(state, -1, reason='weather_effect', source=card.name)
             details.append({'f_delta': -1})
-        elif card.name == '맑고 포근한 하루':
+        elif card_id == WEATHER_CLEAR_WARM_DAY_ID:
             ordered = engine._alive_ids_from_marker_direction(state)
             for pid in ordered:
                 p = state.players[pid]
@@ -224,7 +256,7 @@ class EngineEffectHandlers:
         engine = self.engine
         purchase = None
         disputed = None
-        if engine._has_weather(state, '대규모 민란') and cell in (CellKind.T2, CellKind.T3):
+        if has_weather_id(state.current_weather_effects, WEATHER_MASS_UPRISING_ID) and cell in (CellKind.T2, CellKind.T3):
             disputed_rent = state.config.rules.economy.rent_cost_for(state, pos)
             disputed = engine._pay_or_bankrupt(state, player, disputed_rent, None)
             if not player.alive:
@@ -487,8 +519,8 @@ class EngineEffectHandlers:
 
     def handle_lap_reward(self, state: GameState, player: PlayerState) -> dict:
         engine = self.engine
-        if player.block_start_reward_this_turn or engine._has_weather(state, "추운 겨울날"):
-            if engine._has_weather(state, "추운 겨울날"):
+        if player.block_start_reward_this_turn or has_weather_id(state.current_weather_effects, WEATHER_COLD_WINTER_DAY_ID):
+            if has_weather_id(state.current_weather_effects, WEATHER_COLD_WINTER_DAY_ID):
                 outcome = engine._pay_or_bankrupt(state, player, 2, None)
                 return {"choice": "blocked_by_weather", "cash_penalty": 2, **outcome}
             return {"choice": "blocked"}
@@ -497,9 +529,9 @@ class EngineEffectHandlers:
         stats = engine._strategy_stats[player.player_id]
         rules = state.config.rules.lap_reward
         shard_bonus = 0
-        if engine._has_weather(state, "풍년든 가을"):
+        if has_weather_id(state.current_weather_effects, WEATHER_HARVEST_AUTUMN_ID):
             shard_bonus += 1
-        if engine._has_weather(state, "성물의 날"):
+        if has_weather_id(state.current_weather_effects, WEATHER_HOLY_RELIC_DAY_ID):
             shard_bonus += 1
 
         cash_units = max(0, int(getattr(decision, "cash_units", 0)))
@@ -666,14 +698,15 @@ class EngineEffectHandlers:
     def handle_trick_card(self, state: GameState, player: PlayerState, card) -> dict:
         engine = self.engine
         name = card.name
-        if name == "성물 수집가":
+        card_id = trick_card_id_for_name(name)
+        if card_id == TRICK_RELIC_COLLECTOR_ID:
             player.extra_shard_gain_this_turn += 1
             return {"type": "TURN_BUFF", "extra_shards": 1}
-        if name == "건강 검진":
+        if card_id == TRICK_HEALTH_CHECK_ID:
             state.global_rent_half_this_turn = True
             engine._log({"event": "trick_global_rent_halved", "player": player.player_id + 1})
             return {"type": "GLOBAL_RENT_HALF_THIS_TURN"}
-        if name == "우대권":
+        if card_id == TRICK_PREFERENTIAL_PASS_ID:
             player.trick_all_rent_waiver_this_turn = True
             return {"type": "RENT_WAIVER_ALL_TURN"}
         if name == "뇌고왕":
@@ -682,7 +715,7 @@ class EngineEffectHandlers:
         if name == "뇌절왕":
             player.trick_zone_chain_this_turn = True
             return {"type": "ZONE_CHAIN_THIS_TURN"}
-        if name == "무료 증정":
+        if card_id == TRICK_FREE_GIFT_ID:
             player.trick_free_purchase_this_turn = True
             return {"type": "FREE_PURCHASE_ONCE"}
         if name == "신의뜻":
@@ -703,7 +736,7 @@ class EngineEffectHandlers:
         if name == "도움 닫기":
             player.trick_encounter_boost_this_turn = True
             return {"type": "ENCOUNTER_BOOST_THIS_TURN"}
-        if name == "번뜩임":
+        if card_id == TRICK_FLASH_ID:
             return engine._apply_flash_trade(state, player)
         if name == "재뿌리기":
             candidates = [i for i, owner in enumerate(state.tile_owner) if owner is not None and owner != player.player_id]
@@ -766,7 +799,7 @@ class EngineEffectHandlers:
             player.shards += 1
             engine._change_f(state, 1, reason="trick_effect", source="아주 큰 화목 난로", actor_pid=player.player_id)
             return {"type": "SHARD_AND_F", "shards": 1, "f_delta": 1}
-        if name == "거대한 산불":
+        if card_id == TRICK_WILDFIRE_ID:
             player.shards += 2
             engine._change_f(state, 2, reason="trick_effect", source="거대한 산불", actor_pid=player.player_id)
             return {"type": "SHARD_AND_F", "shards": 2, "f_delta": 2}
@@ -793,7 +826,7 @@ class EngineEffectHandlers:
         if name == "호객꾼":
             player.trick_obstacle_this_round = True
             return {"type": "OBSTACLE_THIS_ROUND"}
-        if name in {"무거운 짐", "가벼운 짐"}:
+        if card_id in {TRICK_HEAVY_BURDEN_ID, TRICK_LIGHT_BURDEN_ID}:
             if player.cash < card.burden_cost:
                 return {"type": "FAIL", "reason": "insufficient_cash", "cost": card.burden_cost}
             player.cash -= card.burden_cost

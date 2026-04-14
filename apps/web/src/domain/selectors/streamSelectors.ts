@@ -287,6 +287,12 @@ export type ParameterManifestViewModel = {
     maxCardsPerTurn?: number;
     useOneCardPlusOneDie?: boolean;
   };
+  economy: {
+    startingCash?: number;
+  };
+  resources: {
+    startingShards?: number;
+  };
 };
 
 export type StreamSelectorTextResources = Pick<LocaleMessages, "eventLabel" | "promptType" | "stream" | "turnStage">;
@@ -3272,6 +3278,26 @@ function normalizeDice(manifestRaw: Record<string, unknown>): ParameterManifestV
   };
 }
 
+function normalizeEconomy(manifestRaw: Record<string, unknown>): ParameterManifestViewModel["economy"] {
+  const raw = isRecord(manifestRaw["economy"]) ? manifestRaw["economy"] : null;
+  if (!raw) {
+    return {};
+  }
+  return {
+    startingCash: typeof raw["starting_cash"] === "number" ? raw["starting_cash"] : undefined,
+  };
+}
+
+function normalizeResources(manifestRaw: Record<string, unknown>): ParameterManifestViewModel["resources"] {
+  const raw = isRecord(manifestRaw["resources"]) ? manifestRaw["resources"] : null;
+  if (!raw) {
+    return {};
+  }
+  return {
+    startingShards: typeof raw["starting_shards"] === "number" ? raw["starting_shards"] : undefined,
+  };
+}
+
 function manifestFromPayload(payload: Record<string, unknown>): ParameterManifestViewModel | null {
   const manifestRaw = manifestRecordFromPayload(payload);
   if (!manifestRaw) {
@@ -3291,6 +3317,8 @@ function manifestFromPayload(payload: Record<string, unknown>): ParameterManifes
     seatAllowed: normalizeSeatAllowed(manifestRaw),
     labels: normalizeManifestLabels(manifestRaw),
     dice: normalizeDice(manifestRaw),
+    economy: normalizeEconomy(manifestRaw),
+    resources: normalizeResources(manifestRaw),
   };
 }
 

@@ -4,7 +4,7 @@ Canonical document path for the current runtime API contract.
 
 Status: `ACTIVE`  
 Owner: `Shared`  
-Updated: `2026-03-31`  
+Updated: `2026-04-14`  
 Parents:
 - `docs/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
 - `PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
@@ -90,7 +90,23 @@ Response `data`:
     "1": "seat1_tok_x",
     "4": "seat4_tok_x"
   },
-  "created_at": "2026-03-29T13:00:00Z"
+  "created_at": "2026-03-29T13:00:00Z",
+  "parameter_manifest": {
+    "manifest_hash": "hash_x",
+    "board": { "topology": "ring", "tile_count": 40 },
+    "economy": { "starting_cash": 20 },
+    "resources": { "starting_shards": 4 }
+  },
+  "initial_active_by_card": {
+    "1": "어사",
+    "2": "자객",
+    "3": "추노꾼",
+    "4": "아전",
+    "5": "교리 감독관",
+    "6": "박수",
+    "7": "객주",
+    "8": "건설업자"
+  }
 }
 ```
 
@@ -108,7 +124,13 @@ Response `data`:
       "status": "waiting",
       "round_index": 0,
       "turn_index": 0,
-      "created_at": "2026-03-29T13:00:00Z"
+      "created_at": "2026-03-29T13:00:00Z",
+      "parameter_manifest": {
+        "manifest_hash": "hash_x"
+      },
+      "initial_active_by_card": {
+        "1": "어사"
+      }
     }
   ]
 }
@@ -131,7 +153,23 @@ Response `data`:
     { "seat": 2, "seat_type": "ai", "connected": true, "player_id": 2 },
     { "seat": 3, "seat_type": "ai", "connected": true, "player_id": 3 },
     { "seat": 4, "seat_type": "human", "connected": false, "player_id": 4 }
-  ]
+  ],
+  "parameter_manifest": {
+    "manifest_hash": "hash_x",
+    "board": { "topology": "ring", "tile_count": 40 },
+    "economy": { "starting_cash": 20 },
+    "resources": { "starting_shards": 4 }
+  },
+  "initial_active_by_card": {
+    "1": "어사",
+    "2": "자객",
+    "3": "추노꾼",
+    "4": "아전",
+    "5": "교리 감독관",
+    "6": "박수",
+    "7": "객주",
+    "8": "건설업자"
+  }
 }
 ```
 
@@ -179,7 +217,23 @@ Response `data`:
 {
   "session_id": "sess_abc123",
   "status": "in_progress",
-  "started_at": "2026-03-29T13:05:00Z"
+  "started_at": "2026-03-29T13:05:00Z",
+  "parameter_manifest": {
+    "manifest_hash": "hash_x",
+    "board": { "topology": "ring", "tile_count": 40 },
+    "economy": { "starting_cash": 20 },
+    "resources": { "starting_shards": 4 }
+  },
+  "initial_active_by_card": {
+    "1": "어사",
+    "2": "자객",
+    "3": "추노꾼",
+    "4": "아전",
+    "5": "교리 감독관",
+    "6": "박수",
+    "7": "객주",
+    "8": "건설업자"
+  }
 }
 ```
 

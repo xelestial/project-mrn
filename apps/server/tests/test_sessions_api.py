@@ -403,12 +403,17 @@ class SessionsApiTests(unittest.TestCase):
             state.runtime_service.start_runtime = original  # type: ignore[assignment]
         self.assertEqual(started.status_code, 200)
         started_manifest = started.json()["data"]["parameter_manifest"]
+        started_active_by_card = started.json()["data"]["initial_active_by_card"]
         self.assertEqual(started_manifest["seats"]["allowed"], [1, 2])
         self.assertEqual(started_manifest["board"]["topology"], "line")
         self.assertEqual(started_manifest["economy"]["starting_cash"], 55)
         self.assertEqual(started_manifest["resources"]["starting_shards"], 7)
         self.assertEqual(started_manifest["dice"]["values"], [2, 4, 8])
         self.assertEqual(started_manifest["dice"]["max_cards_per_turn"], 1)
+        self.assertEqual(len(started_active_by_card), 8)
+        self.assertTrue(
+            all(str(started_active_by_card.get(str(slot)) or started_active_by_card.get(slot) or "").strip() for slot in range(1, 9))
+        )
 
     def test_start_session_starts_runtime_when_human_seat_is_connected(self) -> None:
         from apps.server.src import state
