@@ -357,6 +357,13 @@ Current release aligned the simulator with the latest validated rules and added 
 - AI purchase tuning: `v3_gpt` now lets safe growth buys override small token-window waits, and logs the override as `safe_growth_beats_token_wait`.
 - AI trace coverage: `trick_use`, `hide_trick`, and `trick_reward` now emit canonical `DecisionTrace` payloads, so trick-family choices are included in offline decision-log analysis.
 
+## 0.7.61v3 - 2026-04-15
+- GPT-only cleanup pass: `random`/`arena` profile aliases now resolve through the default profile registry without breaking runtime debug/trick-choice paths.
+- GPT survival cleanup: pure growth hard-blocking now only applies to actual expansion faces, so `객주` lap-engine choices are no longer vetoed as if they were `중매꾼`/`건설업자`/`사기꾼`.
+- GPT reserve cleanup: `박수` online/stable shard checkpoints were aligned across survival guard and purchase exceptions (`5` online, `7` very stable).
+- test harness cleanup: replay/live/human-play pytest modules now assert on error lists instead of returning them, removing legacy `PytestReturnNotNoneWarning` noise.
+- test import cleanup: shared GPT/CLAUDE path/bootstrap logic now lives in `test_import_bootstrap.py`, with root/package `conftest.py` files delegating to the same helper.
+
 ## 0.7.59
 - Added external JSON ruleset loading (`ruleset.json`) for injected `GameRules`.
 - Added `game_rules_loader.py` and CLI `--ruleset` support in simulation/batch entrypoints.

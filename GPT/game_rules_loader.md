@@ -21,3 +21,6 @@ The ruleset loader now reads and writes `economy`, `resources`, `dice`, and `spe
 
 ### 0.7.61 ruleset schema
 `economy.land_profiles` is now loaded from JSON and becomes the authoritative numeric source for land purchase/rent values.
+
+### 0.7.62 path resolution
+Relative ruleset file paths now resolve from the module directory when the caller runs from a different working directory.

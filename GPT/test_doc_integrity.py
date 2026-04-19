@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from test_import_bootstrap import bootstrap_local_test_imports
+
+bootstrap_local_test_imports(__file__)
+
+
 import unittest
 
 from doc_integrity import SOURCE_DOC_PAIRS, summarize_integrity

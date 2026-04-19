@@ -1,3 +1,7 @@
+from test_import_bootstrap import bootstrap_local_test_imports
+
+bootstrap_local_test_imports(__file__)
+
 from policy.decision.active_flip import ActiveFlipDebugPayload, resolve_random_active_flip_choice, resolve_scored_active_flip_choice, build_active_flip_debug_payload
 from policy.decision.character_choice import CharacterChoiceCandidate, NamedCharacterChoicePolicy, build_character_choice_debug_payload, build_named_character_choice_policy, build_uniform_random_character_choice_debug_payload, decide_character_choice, evaluate_character_choice, evaluate_named_character_choice, evaluate_named_character_choice_with_policy, run_named_character_choice_with_policy, summarize_character_choice_debug
 from policy.decision.coin_placement import choose_coin_placement_tile_id
@@ -3151,6 +3155,8 @@ def test_evaluate_v2_profile_rules_captures_control_and_token_paths() -> None:
             leader_is_solo=True,
             leader_near_end=True,
             top_threat_present=True,
+            top_threat_tiles_owned=6,
+            top_threat_cash=12,
             leader_pressure=3.0,
             buy_value=2.0,
             finisher_window=1.5,
@@ -3182,6 +3188,8 @@ def test_evaluate_v2_profile_rules_captures_control_and_token_paths() -> None:
             leader_is_solo=False,
             leader_near_end=False,
             top_threat_present=True,
+            top_threat_tiles_owned=4,
+            top_threat_cash=8,
             leader_pressure=3.0,
             buy_value=1.0,
             finisher_window=0.0,

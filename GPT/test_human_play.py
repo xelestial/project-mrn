@@ -12,20 +12,31 @@ Tests (no real browser needed):
 """
 from __future__ import annotations
 
+import functools
 import json
 import sys
 import threading
 import time
 import urllib.request
-from pathlib import Path
 from types import SimpleNamespace
 
-sys.path.insert(0, str(Path(__file__).parent))
+from test_import_bootstrap import bootstrap_local_test_imports
+
+bootstrap_local_test_imports(__file__)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _assert_error_list(test_fn):
+    @functools.wraps(test_fn)
+    def _wrapped(*args, **kwargs):
+        errors = test_fn(*args, **kwargs)
+        assert not errors, "\n".join(errors)
+
+    return _wrapped
 
 def _start_human_server(seed: int = 99, port: int = 18866, human_seat: int = 0,
                          human_seats: list[int] | None = None,
@@ -1223,6 +1234,33 @@ def test_status_endpoint(port: int) -> list[str]:
     except Exception as e:
         errors.append(f"GET /status failed: {e}")
     return errors
+
+
+if "pytest" in sys.modules:
+    _PYTEST_ERROR_LIST_TESTS = [
+        "test_play_html_renderer",
+        "test_human_policy_multiple_human_seats",
+        "test_human_policy_ai_seat",
+        "test_human_policy_prompt_and_response",
+        "test_human_policy_final_character_returns_name",
+        "test_human_policy_mark_target_uses_public_active_faces",
+        "test_human_policy_matchmaker_purchase_context_keeps_landing_tile_and_legal_targets",
+        "test_human_policy_geo_bonus_prompt",
+        "test_human_policy_doctrine_relief_prompt",
+        "test_human_policy_specific_trick_reward_prompt",
+        "test_human_policy_active_flip_prompt",
+        "test_human_policy_active_flip_requires_marker_owner",
+        "test_human_policy_trick_to_use_full_hand_context",
+        "test_human_policy_hidden_trick_requires_selection",
+        "test_human_policy_burden_exchange_prompt",
+        "test_human_policy_runaway_step_choice_prompt",
+        "test_prompt_endpoint_idle",
+        "test_decision_no_prompt",
+        "test_play_html_endpoint",
+        "test_status_endpoint",
+    ]
+    for _test_name in _PYTEST_ERROR_LIST_TESTS:
+        globals()[_test_name] = _assert_error_list(globals()[_test_name])
 
 
 # ---------------------------------------------------------------------------

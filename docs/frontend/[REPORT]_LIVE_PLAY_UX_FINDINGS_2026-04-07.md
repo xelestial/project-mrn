@@ -1,9 +1,13 @@
 # [REPORT] 실제 플레이 UI/UX 발견 사항
 
-Status: REPORT
-Date: 2026-04-07
+Status: ARCHIVED_REFERENCE_ONLY
+Date: 2026-04-15
 Method: 로컬 서버 기동 + Chrome 직접 플레이 (1 human + 3 AI, Round 1 Turn 2까지)
 Session: sess_0ed27a677f80
+
+Do not use as an execution source.
+Use:
+- `docs/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md`
 
 ---
 

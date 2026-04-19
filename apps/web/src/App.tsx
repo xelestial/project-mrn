@@ -1,4 +1,4 @@
-import { CSSProperties, FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { mergeSessionManifest } from "./domain/manifest/manifestRehydrate";
 import {
   characterAbilityLabelsFromManifestLabels,
@@ -36,11 +36,24 @@ import { useI18n } from "./i18n/useI18n";
 import type { InboundMessage } from "./core/contracts/stream";
 import {
   createSession,
+  createRoom,
   getRuntimeStatus,
+  getRoom,
   getSession,
+  getApiBaseUrl,
   joinSession,
+  joinRoom,
+  leaveRoom,
   listSessions,
+  listRooms,
+  normalizeServerBaseUrl,
+  type SeatPublic,
+  type PublicRoomResult,
   startSession,
+  startRoom,
+  setApiBaseUrl,
+  setRoomReady,
+  resumeRoom,
   type ParameterManifest,
   type PublicSessionResult,
   type RuntimeStatusResult,
@@ -51,6 +64,9 @@ type ViewRoute = "lobby" | "match";
 const LOBBY_HASH = "#/lobby";
 const MATCH_HASH = "#/match";
 const SESSION_TOKEN_STORAGE_PREFIX = "mrn:sessionToken:";
+const ROOM_SERVER_STORAGE_KEY = "mrn:roomServer";
+const ROOM_NUMBER_STORAGE_KEY = "mrn:roomNumber";
+const ROOM_TOKEN_STORAGE_KEY = "mrn:roomToken";
 const MAX_SESSION_SEED = 2_147_483_647;
 function parseRouteFromHash(hash: string): ViewRoute {
   if (hash.startsWith(MATCH_HASH)) {
@@ -151,6 +167,40 @@ function saveStoredSessionToken(sessionId: string, token: string | undefined): v
   window.sessionStorage.removeItem(tokenStorageKey(normalized));
 }
 
+function loadStoredRoomServer(): string {
+  const stored = window.sessionStorage.getItem(ROOM_SERVER_STORAGE_KEY);
+  return normalizeServerBaseUrl(stored || "http://127.0.0.1:9090");
+}
+
+function saveStoredRoomServer(serverBaseUrl: string): void {
+  window.sessionStorage.setItem(ROOM_SERVER_STORAGE_KEY, normalizeServerBaseUrl(serverBaseUrl));
+}
+
+function loadStoredRoomNumber(): number | null {
+  const raw = window.sessionStorage.getItem(ROOM_NUMBER_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function loadStoredRoomToken(): string | null {
+  const raw = window.sessionStorage.getItem(ROOM_TOKEN_STORAGE_KEY);
+  return raw && raw.trim() ? raw.trim() : null;
+}
+
+function saveStoredRoomMembership(roomNo: number | null, token: string | null, serverBaseUrl: string): void {
+  saveStoredRoomServer(serverBaseUrl);
+  if (roomNo && token) {
+    window.sessionStorage.setItem(ROOM_NUMBER_STORAGE_KEY, String(roomNo));
+    window.sessionStorage.setItem(ROOM_TOKEN_STORAGE_KEY, token);
+    return;
+  }
+  window.sessionStorage.removeItem(ROOM_NUMBER_STORAGE_KEY);
+  window.sessionStorage.removeItem(ROOM_TOKEN_STORAGE_KEY);
+}
+
 function shouldHideCharacterForPrompt(requestType: string): boolean {
   return requestType === "draft_card" || requestType === "final_character" || requestType === "final_character_choice";
 }
@@ -180,11 +230,65 @@ function waitingPlayerLabel(locale: string): string {
 }
 
 function localPlayerBadgeLabel(locale: string): string {
-  return isKoreanLocale(locale) ? "[나]" : "[Me]";
+  return isKoreanLocale(locale) ? "나" : "Me";
 }
 
 function currentTurnBadgeLabel(locale: string): string {
   return isKoreanLocale(locale) ? "현재 차례" : "Current turn";
+}
+
+function playerIdentityGlyph(character: string | null | undefined, displayName: string, seatType: SeatPublic["seat_type"] | null, seat: number): string {
+  if (hasReadableValue(character)) {
+    return Array.from(character!.trim())[0] ?? String(seat);
+  }
+  if (seatType === "ai") {
+    return "AI";
+  }
+  const normalized = displayName.trim();
+  return (normalized ? Array.from(normalized)[0] : [String(seat)])[0] ?? String(seat);
+}
+
+function eventToneIcon(tone: CurrentTurnRevealItem["tone"]): string {
+  switch (tone) {
+    case "move":
+      return "→";
+    case "economy":
+      return "¤";
+    case "effect":
+      return "✦";
+  }
+}
+
+function eventToneLabel(tone: CurrentTurnRevealItem["tone"], locale: string): string {
+  const ko = isKoreanLocale(locale);
+  switch (tone) {
+    case "move":
+      return ko ? "이동" : "Move";
+    case "economy":
+      return ko ? "경제" : "Economy";
+    case "effect":
+      return ko ? "효과" : "Effect";
+  }
+}
+
+function eventToneForEventCode(eventCode: string): CurrentTurnRevealItem["tone"] {
+  if (eventCode === "tile_purchased" || eventCode === "rent_paid" || eventCode === "lap_reward_chosen") {
+    return "economy";
+  }
+  if (eventCode === "dice_roll" || eventCode === "player_move") {
+    return "move";
+  }
+  return "effect";
+}
+
+function seatTypeBadgeLabel(seatType: SeatPublic["seat_type"] | null | undefined, locale: string): string | null {
+  if (seatType === "human") {
+    return isKoreanLocale(locale) ? "사람" : "Human";
+  }
+  if (seatType === "ai") {
+    return "AI";
+  }
+  return null;
 }
 
 function sessionInfoToggleLabel(locale: string, expanded: boolean): string {
@@ -234,6 +338,9 @@ export function App() {
   const [tokenInput, setTokenInput] = useState("");
   const [sessionId, setSessionId] = useState("");
   const [token, setToken] = useState<string | undefined>(undefined);
+  const [serverBaseInput, setServerBaseInput] = useState(() => loadStoredRoomServer());
+  const [serverBaseUrl, setServerBaseUrl] = useState(() => loadStoredRoomServer());
+  const [serverConnected, setServerConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [runtime, setRuntime] = useState<RuntimeStatusResult["runtime"]>({ status: "-" });
   const [notice, setNotice] = useState("");
@@ -243,21 +350,27 @@ export function App() {
   const [seatCountInput, setSeatCountInput] = useState("4");
   const [aiProfile, setAiProfile] = useState("balanced");
   const [seedInput, setSeedInput] = useState("");
+  const [roomTitleInput, setRoomTitleInput] = useState("MRN Room");
+  const [hostSeatInput, setHostSeatInput] = useState("1");
   const [hostTokenInput, setHostTokenInput] = useState("");
   const [lastJoinTokens, setLastJoinTokens] = useState<Record<string, string>>({});
   const [joinSeatInput, setJoinSeatInput] = useState("1");
   const [joinTokenInput, setJoinTokenInput] = useState("");
   const [displayNameInput, setDisplayNameInput] = useState("Player");
   const [sessions, setSessions] = useState<PublicSessionResult[]>([]);
+  const [rooms, setRooms] = useState<PublicRoomResult[]>([]);
+  const [activeRoomNo, setActiveRoomNo] = useState<number | null>(() => loadStoredRoomNumber());
+  const [roomMemberToken, setRoomMemberToken] = useState<string | null>(() => loadStoredRoomToken());
+  const [activeRoom, setActiveRoom] = useState<PublicRoomResult | null>(null);
+  const [activeRoomSeat, setActiveRoomSeat] = useState<number | null>(null);
   const [sessionManifest, setSessionManifest] = useState<ParameterManifest | null>(null);
   const [sessionInitialActiveByCard, setSessionInitialActiveByCard] = useState<Record<string, string> | null>(null);
+  const [sessionSeats, setSessionSeats] = useState<SeatPublic[] | null>(null);
   const [localPlayerId, setLocalPlayerId] = useState<number | null>(null);
   const inferredPlayerId = inferPlayerIdFromSessionToken(token);
   const effectivePlayerId = localPlayerId ?? inferredPlayerId;
 
   const [compactDensity, setCompactDensity] = useState(false);
-  const [boardOverlayFrame, setBoardOverlayFrame] = useState<{ viewportLeft: number; viewportWidth: number } | null>(null);
-  const [eventOverlayLayout, setEventOverlayLayout] = useState<{ bottom: number; maxHeight: number } | null>(null);
   const [sessionInfoExpanded, setSessionInfoExpanded] = useState(false);
   const [showRawMessages, setShowRawMessages] = useState(false);
   const [promptCollapsed, setPromptCollapsed] = useState(false);
@@ -274,13 +387,12 @@ export function App() {
     detail: string;
     variant: "turn" | "interrupt";
   } | null>(null);
-  const handTrayDockRef = useRef<HTMLElement | null>(null);
   const debugWindowRef = useRef<Window | null>(null);
   const lastTurnBannerSeqRef = useRef<number>(0);
   const lastRevealBannerSeqRef = useRef<number>(0);
   const promptSubmitRequestIdRef = useRef<string | null>(null);
 
-  const stream = useGameStream({ sessionId, token });
+  const stream = useGameStream({ sessionId, token, baseUrl: serverBaseUrl });
   const eventQueue = useEventQueue();
   const selectorText = useMemo(
     () => ({
@@ -307,6 +419,43 @@ export function App() {
     [stream.messages, selectorText]
   );
   const latestCurrentTurnReveal = currentTurnRevealItems[currentTurnRevealItems.length - 1] ?? null;
+  const fallbackRevealSpotlight = useMemo(() => {
+    if (currentTurnRevealItems.length > 0) {
+      return null;
+    }
+    const candidate = coreActionFeed.find((item) =>
+      [
+        "tile_purchased",
+        "rent_paid",
+        "lap_reward_chosen",
+        "fortune_drawn",
+        "fortune_resolved",
+        "landing_resolved",
+        "trick_used",
+        "mark_resolved",
+        "marker_flip",
+        "marker_transferred",
+      ].includes(item.eventCode)
+    );
+    if (!candidate) {
+      return null;
+    }
+    const detail = hasReadableValue(candidate.detail) ? candidate.detail : candidate.label;
+    if (!hasReadableValue(detail)) {
+      return null;
+    }
+    return {
+      seq: candidate.seq,
+      eventCode: candidate.eventCode,
+      label: candidate.label,
+      detail,
+      tone: eventToneForEventCode(candidate.eventCode),
+      focusTileIndex: null,
+      isInterrupt: false,
+    } satisfies CurrentTurnRevealItem;
+  }, [coreActionFeed, currentTurnRevealItems]);
+  const eventFeedSpotlightItem = latestCurrentTurnReveal ?? fallbackRevealSpotlight;
+  const eventFeedHistoryItems = currentTurnRevealItems.slice(0, -1);
 
   const currentActorId = selectCurrentActorPlayerId(stream.messages);
   const markerOwnerPlayerId = snapshot?.markerOwnerPlayerId ?? null;
@@ -426,10 +575,62 @@ export function App() {
     return map;
   }, [derivedPlayers]);
 
-  const orderedSeatIds = useMemo(
-    () => markerOrderedPlayers.map((player) => player.playerId),
-    [markerOrderedPlayers]
-  );
+  const orderedSeatEntries = useMemo(() => {
+    const sessionSeatEntries = (sessionSeats ?? [])
+      .slice()
+      .sort((left, right) => left.seat - right.seat)
+      .map((seat) => ({
+        seat: seat.seat,
+        playerId: seat.player_id ?? null,
+        seatType: seat.seat_type,
+        connected: seat.connected ?? null,
+      }));
+    const knownSeatsByPlayerId = new Map(
+      sessionSeatEntries
+        .filter((seat): seat is { seat: number; playerId: number; seatType: SeatPublic["seat_type"]; connected: boolean | null } => seat.playerId !== null)
+        .map((seat) => [seat.playerId, seat])
+    );
+    const usedSeats = new Set<number>();
+    const ordered: Array<{
+      seat: number;
+      playerId: number | null;
+      seatType: SeatPublic["seat_type"] | null;
+      connected: boolean | null;
+    }> = [];
+
+    for (const player of markerOrderedPlayers) {
+      const matchedSeat = knownSeatsByPlayerId.get(player.playerId);
+      if (matchedSeat) {
+        ordered.push(matchedSeat);
+        usedSeats.add(matchedSeat.seat);
+        continue;
+      }
+      ordered.push({
+        seat: player.playerId,
+        playerId: player.playerId,
+        seatType: null,
+        connected: true,
+      });
+      usedSeats.add(player.playerId);
+    }
+
+    for (const seat of sessionSeatEntries) {
+      if (!usedSeats.has(seat.seat)) {
+        ordered.push(seat);
+      }
+    }
+
+    if (ordered.length === 0) {
+      return derivedPlayers.map((player) => ({
+        seat: player.playerId,
+        playerId: player.playerId,
+        seatType: null,
+        connected: true,
+      }));
+    }
+
+    return ordered;
+  }, [derivedPlayers, markerOrderedPlayers, sessionSeats]);
 
   const joinSeatOptions = (sessionManifest?.seats?.allowed ?? [])
     .slice()
@@ -477,29 +678,40 @@ export function App() {
           }
         : null;
   const effectiveTurnBanner =
-    turnBanner && turnBanner.variant === "turn" && visiblePrompt && boardTurnOverlay
-      ? {
-          ...turnBanner,
-          text: boardTurnOverlay.text,
-          detail:
-            boardTurnOverlay.detail && boardTurnOverlay.detail !== "-" ? boardTurnOverlay.detail : turnBanner.detail,
-        }
-      : turnBanner;
+    turnBanner?.variant === "turn" && (visiblePrompt || passivePrompt || waitingForMyPrompt)
+      ? null
+      : turnBanner && turnBanner.variant === "turn" && boardTurnOverlay
+        ? {
+            ...turnBanner,
+            text: boardTurnOverlay.text,
+            detail:
+              boardTurnOverlay.detail && boardTurnOverlay.detail !== "-" ? boardTurnOverlay.detail : turnBanner.detail,
+          }
+        : turnBanner;
   const overlayHandCards = useMemo(
     () => selectCurrentHandTrayCards(stream.messages, locale, effectivePlayerId),
     [stream.messages, locale, effectivePlayerId]
   );
-  const overlayHandTitle = locale === "ko" ? "현재 잔꾀 패" : "Current trick hand";
+  const overlayHandTitle = locale === "ko" ? "잔꾀 패" : "Trick hand";
   const overlayHandSubtitle =
     actionablePromptBehavior?.normalizedRequestType === "burden_exchange_batch"
       ? locale === "ko"
-        ? "처리할 짐 카드를 확인하고 아래 패에서 대상을 고르세요."
-        : "Check the current burden and use the tray below to pick the target card."
-      : locale === "ko"
-        ? "이름과 효과를 같이 보면서 현재 손패를 확인합니다."
-        : "Keep the current hand visible with both name and effect text.";
+        ? "처리할 짐을 아래에서 고르세요."
+        : "Pick the burden target below."
+      : null;
   const hasBoardBottomDock =
     Boolean(passivePrompt) || waitingForMyPrompt || Boolean(actionablePrompt) || overlayHandCards.length > 0;
+  const shouldHidePromptCompanionEvents =
+    visibleActionablePrompt?.behavior.normalizedRequestType === "burden_exchange_batch" ||
+    visibleActionablePrompt?.behavior.normalizedRequestType === "active_flip";
+  const showPublicEventFeed =
+    route !== "lobby" &&
+    Boolean(eventFeedSpotlightItem) &&
+    !(
+      visibleActionablePrompt &&
+      visibleActionablePrompt.surface.blocksPublicEvents === true &&
+      shouldHidePromptCompanionEvents
+    );
   const decisionWaitingTitle = currentPromptLabel && currentPromptLabel !== "-" ? currentPromptLabel : tableSceneTitle;
   const decisionWaitingLines = Array.from(
     new Set(
@@ -545,6 +757,11 @@ export function App() {
   );
 
   useEffect(() => {
+    setApiBaseUrl(serverBaseUrl);
+    saveStoredRoomServer(serverBaseUrl);
+  }, [serverBaseUrl]);
+
+  useEffect(() => {
     const onHashChange = () => {
       const parsed = parseHashState(window.location.hash);
       setRoute(parsed.route);
@@ -575,6 +792,77 @@ export function App() {
     }
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
+
+  useEffect(() => {
+    if (!activeRoomNo || !roomMemberToken) {
+      setActiveRoom(null);
+      setActiveRoomSeat(null);
+      return;
+    }
+    let active = true;
+    void resumeRoom({ roomNo: activeRoomNo, roomMemberToken })
+      .then((room) => {
+        if (!active) {
+          return;
+        }
+        setActiveRoom(room);
+        setActiveRoomSeat(room.member_seat);
+        setServerConnected(true);
+        if (room.session_id && room.session_token) {
+          setSessionInput(room.session_id);
+          setSessionId(room.session_id);
+          setTokenInput(room.session_token);
+          setToken(room.session_token);
+          setLocalPlayerId(inferPlayerIdFromSessionToken(room.session_token));
+          navigateRoute("match");
+        }
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+        setActiveRoom(null);
+        setActiveRoomNo(null);
+        setRoomMemberToken(null);
+        setActiveRoomSeat(null);
+        saveStoredRoomMembership(null, null, serverBaseUrl);
+      });
+    return () => {
+      active = false;
+    };
+  }, [activeRoomNo, roomMemberToken, serverBaseUrl]);
+
+  useEffect(() => {
+    if (!activeRoomNo || !roomMemberToken || route !== "lobby") {
+      return;
+    }
+    let active = true;
+    const tick = async () => {
+      try {
+        const room = await resumeRoom({ roomNo: activeRoomNo, roomMemberToken });
+        if (!active) {
+          return;
+        }
+        setActiveRoom(room);
+        setActiveRoomSeat(room.member_seat);
+        if (room.session_id && room.session_token) {
+          setSessionInput(room.session_id);
+          setSessionId(room.session_id);
+          setTokenInput(room.session_token);
+          setToken(room.session_token);
+          setLocalPlayerId(inferPlayerIdFromSessionToken(room.session_token));
+          navigateRoute("match");
+        }
+      } catch {
+        // ignore transient room refresh failures
+      }
+    };
+    const id = window.setInterval(() => void tick(), 3000);
+    return () => {
+      active = false;
+      window.clearInterval(id);
+    };
+  }, [activeRoomNo, roomMemberToken, route]);
 
   useEffect(() => {
     const seat = Number(joinSeatInput) || 1;
@@ -642,6 +930,7 @@ export function App() {
     if (!sessionId.trim()) {
       setSessionManifest(null);
       setSessionInitialActiveByCard(null);
+      setSessionSeats(null);
       return;
     }
     let active = true;
@@ -650,6 +939,7 @@ export function App() {
         if (active) {
           setSessionManifest(data.parameter_manifest ?? null);
           setSessionInitialActiveByCard(data.initial_active_by_card ?? null);
+          setSessionSeats(data.seats ?? null);
         }
       })
       .catch(() => {
@@ -961,6 +1251,182 @@ export function App() {
     }
   };
 
+  const refreshRooms = async () => {
+    try {
+      const result = await listRooms();
+      setRooms(result.rooms);
+      setServerConnected(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to refresh rooms.");
+      setServerConnected(false);
+    }
+  };
+
+  const connectServer = async () => {
+    const normalized = normalizeServerBaseUrl(serverBaseInput);
+    setBusy(true);
+    setError("");
+    setNotice("");
+    setServerBaseUrl(normalized);
+    setApiBaseUrl(normalized);
+    try {
+      const result = await listRooms();
+      setRooms(result.rooms);
+      setServerConnected(true);
+      setNotice(locale === "ko" ? `서버에 연결했습니다: ${normalized}` : `Connected to ${normalized}`);
+    } catch (e) {
+      setServerConnected(false);
+      setError(e instanceof Error ? e.message : "Failed to connect to server.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onCreateRoom = async () => {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const seed = resolveSessionSeed(seedInput);
+      const seats = seatTypes.map((seatType, index) => ({
+        seat: index + 1,
+        seat_type: seatType,
+        ai_profile: seatType === "ai" ? aiProfile : undefined,
+      }));
+      const created = await createRoom({
+        roomTitle: roomTitleInput.trim() || "MRN Room",
+        hostSeat: Number(hostSeatInput) || 1,
+        nickname: displayNameInput.trim() || "Player",
+        seats,
+        config: {
+          seed,
+          seat_limits: {
+            min: 1,
+            max: seats.length,
+            allowed: Array.from({ length: seats.length }, (_, idx) => idx + 1),
+          },
+        },
+      });
+      setActiveRoom(created.room);
+      setActiveRoomNo(created.room.room_no);
+      setRoomMemberToken(created.room_member_token);
+      setActiveRoomSeat(created.seat);
+      saveStoredRoomMembership(created.room.room_no, created.room_member_token, serverBaseUrl);
+      setNotice(locale === "ko" ? `방 #${created.room.room_no} 생성 완료` : `Created room #${created.room.room_no}`);
+      await refreshRooms();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create room.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onJoinRoom = async (roomNo: number, seat: number) => {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const joined = await joinRoom({
+        roomNo,
+        seat,
+        nickname: displayNameInput.trim() || "Player",
+      });
+      setActiveRoom(joined.room);
+      setActiveRoomNo(joined.room.room_no);
+      setRoomMemberToken(joined.room_member_token);
+      setActiveRoomSeat(joined.seat);
+      saveStoredRoomMembership(joined.room.room_no, joined.room_member_token, serverBaseUrl);
+      setNotice(locale === "ko" ? `방 #${roomNo}에 참가했습니다.` : `Joined room #${roomNo}.`);
+      await refreshRooms();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to join room.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onToggleRoomReady = async (ready: boolean) => {
+    if (!activeRoomNo || !roomMemberToken) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const room = await setRoomReady({
+        roomNo: activeRoomNo,
+        roomMemberToken,
+        ready,
+      });
+      setActiveRoom(room);
+      await refreshRooms();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to change ready state.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onLeaveRoom = async () => {
+    if (!activeRoomNo || !roomMemberToken) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await leaveRoom({ roomNo: activeRoomNo, roomMemberToken });
+      setActiveRoom(null);
+      setActiveRoomNo(null);
+      setRoomMemberToken(null);
+      setActiveRoomSeat(null);
+      saveStoredRoomMembership(null, null, serverBaseUrl);
+      setNotice(locale === "ko" ? "방에서 나왔습니다." : "Left the room.");
+      await refreshRooms();
+    } catch (e) {
+      setActiveRoom(null);
+      setActiveRoomNo(null);
+      setRoomMemberToken(null);
+      setActiveRoomSeat(null);
+      saveStoredRoomMembership(null, null, serverBaseUrl);
+      setError(e instanceof Error ? e.message : "Failed to leave room.");
+      await refreshRooms();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onStartRoom = async () => {
+    if (!activeRoomNo || !roomMemberToken || !activeRoomSeat) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const started = await startRoom({
+        roomNo: activeRoomNo,
+        roomMemberToken,
+      });
+      const roomSessionToken = started.session_tokens[String(activeRoomSeat)];
+      setActiveRoom(started.room);
+      if (roomSessionToken) {
+        setSessionInput(started.session_id);
+        setSessionId(started.session_id);
+        setTokenInput(roomSessionToken);
+        setToken(roomSessionToken);
+        setLocalPlayerId(inferPlayerIdFromSessionToken(roomSessionToken));
+        navigateRoute("match");
+      }
+      setNotice(locale === "ko" ? `방 #${activeRoomNo} 게임 시작` : `Started room #${activeRoomNo}`);
+      await refreshRooms();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to start room.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onConnect = (event: FormEvent) => {
     event.preventDefault();
     setError("");
@@ -1001,6 +1467,7 @@ export function App() {
       });
       setSessionManifest(created.parameter_manifest ?? null);
       setSessionInitialActiveByCard(created.initial_active_by_card ?? null);
+      setSessionSeats(created.seats ?? null);
       setSessionInput(created.session_id);
       setSessionId(created.session_id);
       setTokenInput("");
@@ -1043,6 +1510,7 @@ export function App() {
       });
       setSessionManifest(created.parameter_manifest ?? null);
       setSessionInitialActiveByCard(created.initial_active_by_card ?? null);
+      setSessionSeats(created.seats ?? null);
       await startSession({ sessionId: created.session_id, hostToken: created.host_token });
       const runtimeState = await getRuntimeStatus(created.session_id);
       setRuntime(runtimeState.runtime);
@@ -1102,6 +1570,7 @@ export function App() {
 
       setSessionManifest(created.parameter_manifest ?? null);
       setSessionInitialActiveByCard(created.initial_active_by_card ?? null);
+      setSessionSeats(created.seats ?? null);
       setSessionInput(created.session_id);
       setSessionId(created.session_id);
       setTokenInput(joined.session_token);
@@ -1134,6 +1603,7 @@ export function App() {
       const started = await startSession({ sessionId: current, hostToken: hostTokenInput.trim() });
       setSessionManifest(started.parameter_manifest ?? null);
       setSessionInitialActiveByCard(started.initial_active_by_card ?? null);
+      setSessionSeats(started.seats ?? null);
       setSessionId(current);
       setNotice(app.notices.startSession(current));
       await refreshSessions();
@@ -1174,6 +1644,7 @@ export function App() {
       });
       setSessionInput(current);
       setSessionId(current);
+      setSessionSeats(snapshotLocal.seats ?? null);
       setTokenInput(joined.session_token);
       setToken(joined.session_token);
       setLocalPlayerId(joined.player_id);
@@ -1201,6 +1672,7 @@ export function App() {
     const selected = sessions.find((session) => session.session_id === id);
     setSessionManifest(selected?.parameter_manifest ?? null);
     setSessionInitialActiveByCard(selected?.initial_active_by_card ?? null);
+    setSessionSeats(selected?.seats ?? null);
     setNotice(app.notices.useSession(id));
     if (route === "match") {
       window.location.hash = buildMatchHash(id);
@@ -1300,43 +1772,6 @@ export function App() {
     }
     setPromptBusy(true);
   };
-
-  const boardBoundedFixedStyle = boardOverlayFrame
-    ? ({
-        left: `${boardOverlayFrame.viewportLeft}px`,
-        width: `${boardOverlayFrame.viewportWidth}px`,
-      } as CSSProperties)
-    : undefined;
-
-  useLayoutEffect(() => {
-    const node = handTrayDockRef.current;
-    if (!node || route === "lobby" || overlayHandCards.length === 0) {
-      setEventOverlayLayout(null);
-      return;
-    }
-
-    const updateEventOverlayLayout = () => {
-      const rect = node.getBoundingClientRect();
-      const nextBottom = Math.max(24, Math.round(window.innerHeight - rect.top + 12));
-      const nextMaxHeight = Math.max(140, Math.round(rect.top - 132));
-      setEventOverlayLayout((prev) =>
-        prev && prev.bottom === nextBottom && prev.maxHeight === nextMaxHeight
-          ? prev
-          : { bottom: nextBottom, maxHeight: nextMaxHeight }
-      );
-    };
-
-    updateEventOverlayLayout();
-    const resizeObserver = new ResizeObserver(() => {
-      updateEventOverlayLayout();
-    });
-    resizeObserver.observe(node);
-    window.addEventListener("resize", updateEventOverlayLayout);
-    return () => {
-      resizeObserver.disconnect();
-      window.removeEventListener("resize", updateEventOverlayLayout);
-    };
-  }, [overlayHandCards.length, route]);
 
   return (
     <main className={`page ${compactDensity ? "page-compact" : ""} ${route === "match" ? "page-match" : ""}`}>
@@ -1454,95 +1889,33 @@ export function App() {
         />
       ) : null}
 
-      {route !== "lobby" &&
-      currentTurnRevealItems.length > 0 &&
-      !(visibleActionablePrompt && (visibleActionablePrompt.surface.blocksPublicEvents ?? true)) ? (
-        <section
-          className="match-table-event-overlay"
-          style={
-            {
-              ...(boardBoundedFixedStyle ?? {}),
-              ...(eventOverlayLayout
-                ? {
-                    bottom: `${eventOverlayLayout.bottom}px`,
-                    maxHeight: `${eventOverlayLayout.maxHeight}px`,
-                  }
-                : {}),
-              ...(boardBoundedFixedStyle ? { transform: "none" } : {}),
-            }
-          }
-        >
-          <section className="match-table-event-stack" data-testid="board-event-reveal-stack">
-            <div className="match-table-card-head">
-              <strong>{locale === "ko" ? "공개 이벤트" : "Public events"}</strong>
-              <span>{locale === "ko" ? "이번 턴 순서" : "This turn order"}</span>
-            </div>
-            <div className="match-table-event-list">
-              {currentTurnRevealItems.map((item, index) => (
-                <article
-                  key={`${item.seq}-${item.eventCode}`}
-                  data-testid={`board-event-reveal-${item.eventCode}-${index + 1}`}
-                  data-event-code={item.eventCode}
-                  data-event-tone={item.tone}
-                  data-event-seq={item.seq}
-                  className={`match-table-event-card match-table-event-card-${item.tone} ${
-                    index === currentTurnRevealItems.length - 1 ? "match-table-event-card-latest" : ""
-                  }`}
-                >
-                  <div className="match-table-event-meta">
-                    <span className="match-table-event-index">
-                      {locale === "ko" ? `${index + 1}단계` : `Step ${index + 1}`}
-                    </span>
-                  </div>
-                  <strong data-testid={`board-event-reveal-title-${item.eventCode}-${index + 1}`}>{item.label}</strong>
-                  <p data-testid={`board-event-reveal-detail-${item.eventCode}-${index + 1}`}>{item.detail}</p>
-                </article>
-              ))}
-            </div>
-          </section>
-        </section>
-      ) : null}
-
       {route === "lobby" ? (
         <LobbyView
           busy={busy}
-          seedInput={seedInput}
-          seatCountInput={seatCountInput}
-          aiProfile={aiProfile}
+          locale={locale}
+          serverBaseInput={serverBaseInput}
+          serverConnected={serverConnected}
+          roomTitleInput={roomTitleInput}
+          nicknameInput={displayNameInput}
+          hostSeatInput={hostSeatInput}
           seatTypes={seatTypes}
-          sessionInput={sessionInput}
-          hostTokenInput={hostTokenInput}
-          joinSeatInput={joinSeatInput}
-          joinSeatOptions={joinSeatOptions.length > 0 ? joinSeatOptions : seatTypes.map((_, index) => String(index + 1))}
-          joinTokenInput={joinTokenInput}
-          displayNameInput={displayNameInput}
-          tokenInput={tokenInput}
+          activeRoom={activeRoom}
+          activeRoomSeat={activeRoomSeat}
+          rooms={rooms}
           notice={notice}
           error={error}
-          lastJoinTokens={lastJoinTokens}
-          sessions={sessions}
-          onSeedInput={setSeedInput}
-          onSeatCountInput={setSeatCountInput}
-          onAiProfile={setAiProfile}
+          onServerBaseInput={setServerBaseInput}
+          onConnectServer={connectServer}
+          onRoomTitleInput={setRoomTitleInput}
+          onNicknameInput={setDisplayNameInput}
+          onHostSeatInput={setHostSeatInput}
           onSeatTypeChange={onSeatTypeChange}
-          onCreateCustomSession={onCreateCustomSession}
-          onCreateAndStartAi={onCreateAndStartAi}
-          onQuickStartHumanVsAi={onQuickStartHumanVsAi}
-          onSessionInput={setSessionInput}
-          onHostTokenInput={setHostTokenInput}
-          onStartByHostToken={onStartByHostToken}
-          onJoinSeatInput={setJoinSeatInput}
-          onJoinTokenInput={setJoinTokenInput}
-          onDisplayNameInput={setDisplayNameInput}
-          onJoinSeat={onJoinSeat}
-          onUseToken={(seat, value) => {
-            setJoinSeatInput(seat);
-            setJoinTokenInput(value);
-          }}
-          onConnect={onConnect}
-          onTokenInput={setTokenInput}
-          onRefreshSessions={refreshSessions}
-          onUseSession={onUseSession}
+          onCreateRoom={onCreateRoom}
+          onRefreshRooms={refreshRooms}
+          onJoinRoom={onJoinRoom}
+          onToggleReady={onToggleRoomReady}
+          onStartRoom={onStartRoom}
+          onLeaveRoom={onLeaveRoom}
         />
       ) : (
         <>
@@ -1559,7 +1932,6 @@ export function App() {
               turnBanner={boardTurnOverlay}
               showTurnOverlay={false}
               minimalHeader
-              onOverlayFrameChange={setBoardOverlayFrame}
               overlayContent={
                 <div className="match-table-overlay">
                   <div className="match-table-overlay-top">
@@ -1592,62 +1964,98 @@ export function App() {
                         </article>
 
                         <div className="match-table-player-strip" data-testid="match-player-strip">
-                          {orderedSeatIds.map((playerId) => {
-                            const player = playersById.get(playerId) ?? null;
+                          {orderedSeatEntries.map((seatEntry) => {
+                            const player = seatEntry.playerId !== null ? playersById.get(seatEntry.playerId) ?? null : null;
+                            const playerId = seatEntry.playerId;
+                            const seatType = seatEntry.seatType;
+                            const seatTypeLabel = seatTypeBadgeLabel(seatType, locale);
                             const isCurrentActor = playerId === currentActorId;
                             const isLocalPlayer = playerId === effectivePlayerId;
-                            const characterLabel =
-                              player?.currentCharacterFace && player.currentCharacterFace !== "-"
-                                ? player.currentCharacterFace
-                                : isCurrentActor && hasReadableValue(playerStageFallbackLabel)
-                                  ? stageInProgressLabel(playerStageFallbackLabel, locale)
-                                  : hasReadableValue(playerStageFallbackLabel)
+                            const isPromptActive = isCurrentActor && hasReadableValue(playerStageFallbackLabel);
+                            const displayName =
+                              player?.displayName && player.displayName !== "-"
+                                ? player.displayName
+                                : seatType === "ai"
+                                  ? `AI ${seatEntry.seat}`
+                                  : `Player ${seatEntry.seat}`;
+                            const knownCharacterName =
+                              player?.currentCharacterFace && player.currentCharacterFace !== "-" ? player.currentCharacterFace : null;
+                            const characterStatus =
+                              isCurrentActor && hasReadableValue(playerStageFallbackLabel)
+                                ? stageInProgressLabel(playerStageFallbackLabel, locale)
+                                : seatType === "ai"
+                                  ? waitingPlayerLabel(locale)
+                                  : seatType === "human" && !seatEntry.connected
                                     ? waitingPlayerLabel(locale)
-                                    : "-";
-                            const displayName = player?.displayName && player.displayName !== "-" ? player.displayName : `Player ${playerId}`;
+                                    : hasReadableValue(playerStageFallbackLabel)
+                                      ? waitingPlayerLabel(locale)
+                                      : "-";
+                            const personaHeadline = knownCharacterName ?? displayName;
+                            const personaSupportingLine = knownCharacterName ? displayName : characterStatus;
+                            const personaGlyph = playerIdentityGlyph(knownCharacterName, displayName, seatType, seatEntry.seat);
+                            const playerStats = [
+                              { key: "cash", tone: "cash", label: locale === "ko" ? "현금" : "Cash", value: player?.cash ?? "-" },
+                              { key: "shards", tone: "shards", label: locale === "ko" ? "조각" : "Shard", value: player?.shards ?? "-" },
+                              { key: "land", tone: "land", label: locale === "ko" ? "토지" : "Land", value: player?.ownedTileCount ?? "-" },
+                              { key: "trick", tone: "trick", label: locale === "ko" ? "잔꾀" : "Trick", value: player?.trickCount ?? "-" },
+                              { key: "hand", tone: "coins", label: locale === "ko" ? "손승" : "Hand", value: player?.handCoins ?? "-" },
+                              { key: "board", tone: "coins", label: locale === "ko" ? "배승" : "Board", value: player?.placedCoins ?? "-" },
+                              { key: "score", tone: "score", label: locale === "ko" ? "총점" : "Score", value: player?.totalScore ?? "-" },
+                            ] as const;
                             return (
                               <article
-                                key={playerId}
+                                key={`${seatEntry.seat}-${playerId ?? "pending"}`}
                                 className={`match-table-player-card ${isCurrentActor ? "match-table-player-card-actor" : ""} ${
-                                  isLocalPlayer ? "match-table-player-card-local" : ""
-                                }`}
-                                style={{ "--player-accent": playerColor(playerId) } as CSSProperties}
+                                  isPromptActive ? "match-table-player-card-active-prompt" : ""
+                                } ${isLocalPlayer ? "match-table-player-card-local" : ""}`}
+                                style={{ "--player-accent": playerColor(playerId ?? seatEntry.seat) } as CSSProperties}
                               >
-                                <div className="match-table-player-head">
-                                  <div className="match-table-player-head-main">
-                                    <strong>{`P${playerId}`}</strong>
-                                    {player?.isMarkerOwner ?? (playerId === markerOwnerPlayerId) ? (
-                                      <span
-                                        className="match-table-player-badge match-table-player-badge-marker"
-                                        title={locale === "ko" ? "현재 징표 소유자" : "Current marker owner"}
-                                      >
-                                        👑
-                                      </span>
-                                    ) : null}
-                                    {isLocalPlayer ? (
-                                      <span className="match-table-player-badge match-table-player-badge-local">
-                                        {localPlayerBadgeLabel(locale)}
-                                      </span>
-                                    ) : null}
+                                <div className="match-table-player-identity">
+                                  <div className="match-table-player-emblem" aria-hidden="true">
+                                    <span className="match-table-player-emblem-glyph">{personaGlyph}</span>
+                                    <small className="match-table-player-emblem-seat">{`P${seatEntry.seat}`}</small>
                                   </div>
-                                  <div className="match-table-player-head-side">
-                                    {isCurrentActor ? (
-                                      <span className="match-table-player-badge match-table-player-badge-actor">
-                                        {currentTurnBadgeLabel(locale)}
-                                      </span>
-                                    ) : null}
-                                    <span>{displayName}</span>
+                                  <div className="match-table-player-identity-body">
+                                    <div className="match-table-player-head">
+                                      <div className="match-table-player-head-main">
+                                        {player?.isMarkerOwner ?? (playerId === markerOwnerPlayerId) ? (
+                                          <span
+                                            className="match-table-player-badge match-table-player-badge-marker"
+                                            title={locale === "ko" ? "현재 징표 소유자" : "Current marker owner"}
+                                          >
+                                            👑
+                                          </span>
+                                        ) : null}
+                                        {seatTypeLabel ? (
+                                          <span className="match-table-player-badge match-table-player-badge-seat-type">
+                                            {seatTypeLabel}
+                                          </span>
+                                        ) : null}
+                                        {isLocalPlayer ? (
+                                          <span className="match-table-player-badge match-table-player-badge-local">
+                                            {localPlayerBadgeLabel(locale)}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                      <div className="match-table-player-head-side">
+                                        <span>{displayName}</span>
+                                      </div>
+                                    </div>
+                                    <strong className="match-table-player-persona">{personaHeadline}</strong>
+                                    <p className="match-table-player-character">{personaSupportingLine}</p>
                                   </div>
                                 </div>
-                                <p className="match-table-player-character">{characterLabel}</p>
                                 <div className="match-table-player-stats">
-                                  <small>{`현금 ${player?.cash ?? "-"}`}</small>
-                                  <small>{`조각 ${player?.shards ?? "-"}`}</small>
-                                  <small>{`토지 ${player?.ownedTileCount ?? "-"}`}</small>
-                                  <small>{`잔꾀 ${player?.trickCount ?? "-"}`}</small>
-                                  <small>{`손승점 ${player?.handCoins ?? "-"}`}</small>
-                                  <small>{`배치승점 ${player?.placedCoins ?? "-"}`}</small>
-                                  <small>{`총점 ${player?.totalScore ?? "-"}`}</small>
+                                  {playerStats.map((stat) => (
+                                    <small
+                                      key={stat.key}
+                                      className={`match-table-player-stat match-table-player-stat-${stat.tone}`}
+                                      data-stat-tone={stat.tone}
+                                    >
+                                      <span className="match-table-player-stat-label">{stat.label}</span>
+                                      <strong className="match-table-player-stat-value">{stat.value}</strong>
+                                    </small>
+                                  ))}
                                 </div>
                               </article>
                             );
@@ -1690,12 +2098,12 @@ export function App() {
                                 } as CSSProperties
                               }
                             >
-                              <span className="match-table-active-character-slot">
-                                {locale === "ko" ? `${card.slot}번` : `#${card.slot}`}
-                              </span>
-                              <strong className="match-table-active-character-name">
-                                {card.character ?? "-"}
-                              </strong>
+                              <div className="match-table-active-character-heading">
+                                <span className="match-table-active-character-slot">{`#${card.slot}`}</span>
+                                <strong className="match-table-active-character-name">
+                                  {card.character ?? "-"}
+                                </strong>
+                              </div>
                               <span
                                 className={`match-table-active-character-meta ${
                                   card.character ? "match-table-active-character-meta-active" : ""
@@ -1711,59 +2119,144 @@ export function App() {
                       </section>
                     </section>
                   </div>
-                  {hasBoardBottomDock ? (
+                  {hasBoardBottomDock || showPublicEventFeed ? (
                     <div
                       className={`match-table-overlay-middle ${
                         overlayHandCards.length > 0 ? "match-table-overlay-middle-with-hand-tray" : ""
                       }`}
                     >
-                      <div className="match-table-prompt-wrap match-table-prompt-floating">
-                        {passivePrompt ? (
-                          <section className="panel passive-prompt-card match-table-passive" data-testid="passive-prompt-card">
-                            <div className="passive-prompt-head">
-                              <div>
-                                <h2>{app.passivePromptTitle}</h2>
-                                <p>
-                                  {app.passivePromptSummary(
-                                    passivePrompt.playerId,
-                                    promptLabelForType(passivePrompt.requestType),
-                                    promptSecondsLeft
-                                  )}
-                                </p>
+                      <div className="match-table-overlay-middle-stack">
+                        {hasBoardBottomDock ? (
+                          <div className="match-table-prompt-wrap match-table-prompt-floating">
+                            {passivePrompt ? (
+                              <section className="panel passive-prompt-card match-table-passive" data-testid="passive-prompt-card">
+                                <div className="passive-prompt-head">
+                                  <div>
+                                    <h2>{app.passivePromptTitle}</h2>
+                                    <p>
+                                      {app.passivePromptSummary(
+                                        passivePrompt.playerId,
+                                        promptLabelForType(passivePrompt.requestType),
+                                        promptSecondsLeft
+                                      )}
+                                    </p>
+                                  </div>
+                                  <div className="passive-prompt-badge">
+                                    <span className="spinner" aria-hidden="true" />
+                                  </div>
+                                </div>
+                              </section>
+                            ) : null}
+                            {waitingForMyPrompt ? (
+                              <section className="panel waiting-panel match-table-waiting" data-testid="my-turn-waiting-panel">
+                                <div className="waiting-panel-head">
+                                  <div>
+                                    <h2>{decisionWaitingTitle}</h2>
+                                    {decisionWaitingLines.map((line) => (
+                                      <p key={line}>{line}</p>
+                                    ))}
+                                  </div>
+                                  <span className="spinner" aria-hidden="true" />
+                                </div>
+                              </section>
+                            ) : null}
+                            {visibleActionablePrompt ? (
+                              <div className="match-table-prompt-shell">
+                                <PromptOverlay
+                                  prompt={visibleActionablePrompt}
+                                  markTargetCandidates={markTargetDisplaySlots}
+                                  collapsed={promptCollapsed}
+                                  busy={promptUiBusy}
+                                  secondsLeft={promptSecondsLeft}
+                                  feedbackMessage={promptFeedbackMessage}
+                                  compactChoices={compactDensity}
+                                  onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
+                                  onSelectChoice={onSelectPromptChoice}
+                                />
                               </div>
-                              <div className="passive-prompt-badge">
-                                <span className="spinner" aria-hidden="true" />
-                              </div>
-                            </div>
-                          </section>
-                        ) : null}
-                        {waitingForMyPrompt ? (
-                          <section className="panel waiting-panel match-table-waiting" data-testid="my-turn-waiting-panel">
-                            <div className="waiting-panel-head">
-                              <div>
-                                <h2>{decisionWaitingTitle}</h2>
-                                {decisionWaitingLines.map((line) => (
-                                  <p key={line}>{line}</p>
-                                ))}
-                              </div>
-                              <span className="spinner" aria-hidden="true" />
-                            </div>
-                          </section>
-                        ) : null}
-                        {visibleActionablePrompt ? (
-                          <div className="match-table-prompt-shell">
-                            <PromptOverlay
-                              prompt={visibleActionablePrompt}
-                              markTargetCandidates={markTargetDisplaySlots}
-                              collapsed={promptCollapsed}
-                              busy={promptUiBusy}
-                              secondsLeft={promptSecondsLeft}
-                              feedbackMessage={promptFeedbackMessage}
-                              compactChoices={compactDensity}
-                              onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
-                              onSelectChoice={onSelectPromptChoice}
-                            />
+                            ) : null}
                           </div>
+                        ) : null}
+                        {showPublicEventFeed ? (
+                          <section className="match-table-event-overlay">
+                            <section className="match-table-event-stack" data-testid="board-event-reveal-stack">
+                              <div className="match-table-card-head">
+                                <strong>{locale === "ko" ? "공개 이벤트" : "Public events"}</strong>
+                                <span>{locale === "ko" ? "이번 턴 흐름" : "This turn flow"}</span>
+                              </div>
+                              {eventFeedSpotlightItem ? (
+                                <article
+                                  className={`match-table-event-spotlight match-table-event-spotlight-${eventFeedSpotlightItem.tone}`}
+                                  data-testid={`board-event-spotlight-${eventFeedSpotlightItem.eventCode}`}
+                                  data-event-tone={eventFeedSpotlightItem.tone}
+                                  data-event-seq={eventFeedSpotlightItem.seq}
+                                >
+                                  <div className="match-table-event-meta">
+                                    <span className={`match-table-event-tone match-table-event-tone-${eventFeedSpotlightItem.tone}`}>
+                                      <span className="match-table-event-icon" aria-hidden="true">
+                                        {eventToneIcon(eventFeedSpotlightItem.tone)}
+                                      </span>
+                                      <span>{eventToneLabel(eventFeedSpotlightItem.tone, locale)}</span>
+                                    </span>
+                                    <span className="match-table-event-live-badge">
+                                      {latestCurrentTurnReveal
+                                        ? locale === "ko"
+                                          ? "방금 결과"
+                                          : "Latest result"
+                                        : locale === "ko"
+                                          ? "최근 결과"
+                                          : "Recent result"}
+                                    </span>
+                                  </div>
+                                  <strong
+                                    className="match-table-event-spotlight-title"
+                                    data-testid={`board-event-spotlight-title-${eventFeedSpotlightItem.eventCode}`}
+                                  >
+                                    {eventFeedSpotlightItem.label}
+                                  </strong>
+                                  <p
+                                    className="match-table-event-spotlight-detail"
+                                    data-testid={`board-event-spotlight-detail-${eventFeedSpotlightItem.eventCode}`}
+                                  >
+                                    {eventFeedSpotlightItem.detail}
+                                  </p>
+                                </article>
+                              ) : null}
+                              {eventFeedHistoryItems.length > 0 ? (
+                                <div className="match-table-event-list match-table-event-history">
+                                  {eventFeedHistoryItems.map((item, index) => (
+                                    <article
+                                      key={`${item.seq}-${item.eventCode}`}
+                                      data-testid={`board-event-reveal-${item.eventCode}-${index + 1}`}
+                                      data-event-code={item.eventCode}
+                                      data-event-tone={item.tone}
+                                      data-event-seq={item.seq}
+                                      className={`match-table-event-card match-table-event-card-${item.tone}`}
+                                      style={{ "--event-order": String(index + 1) } as CSSProperties}
+                                    >
+                                      <div className="match-table-event-meta">
+                                        <span className={`match-table-event-tone match-table-event-tone-${item.tone}`}>
+                                          <span className="match-table-event-icon" aria-hidden="true">
+                                            {eventToneIcon(item.tone)}
+                                          </span>
+                                          <span>{eventToneLabel(item.tone, locale)}</span>
+                                        </span>
+                                        <span className="match-table-event-index">
+                                          {locale === "ko" ? `${index + 1}단계` : `Step ${index + 1}`}
+                                        </span>
+                                      </div>
+                                      <div className="match-table-event-headline-row">
+                                        <strong data-testid={`board-event-reveal-title-${item.eventCode}-${index + 1}`}>
+                                          {item.label}
+                                        </strong>
+                                      </div>
+                                      <p data-testid={`board-event-reveal-detail-${item.eventCode}-${index + 1}`}>{item.detail}</p>
+                                    </article>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </section>
+                          </section>
                         ) : null}
                       </div>
                     </div>
@@ -1771,13 +2264,14 @@ export function App() {
                   {overlayHandCards.length > 0 ? (
                     <div className="match-table-overlay-bottom">
                       <section
-                        ref={handTrayDockRef}
-                        className="match-table-hand-tray match-table-hand-tray-docked"
+                        className={`match-table-hand-tray match-table-hand-tray-docked ${
+                          overlayHandSubtitle ? "" : "match-table-hand-tray-minimal"
+                        }`}
                         data-testid="board-hand-tray"
                       >
                         <div className="match-table-hand-tray-head">
                           <strong>{overlayHandTitle}</strong>
-                          <small>{overlayHandSubtitle}</small>
+                          {overlayHandSubtitle ? <small>{overlayHandSubtitle}</small> : null}
                         </div>
                         <div className="match-table-hand-tray-grid">
                           {overlayHandCards.map((card) => (
@@ -1789,9 +2283,11 @@ export function App() {
                             >
                               <div className="match-table-hand-card-top">
                                 <strong>{card.title}</strong>
-                                <span>{card.hidden ? (locale === "ko" ? "히든" : "Hidden") : ""}</span>
+                                <span className="match-table-hand-card-badge">
+                                  {card.hidden ? (locale === "ko" ? "히든" : "Hidden") : ""}
+                                </span>
                               </div>
-                              <p>{card.effect}</p>
+                              <p className="match-table-hand-card-effect">{card.effect}</p>
                             </article>
                           ))}
                         </div>

@@ -1,18 +1,29 @@
 """Phase 2 replay projection and renderer tests."""
 from __future__ import annotations
 
+import functools
 import json
 import random
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+from test_import_bootstrap import bootstrap_local_test_imports
+
+bootstrap_local_test_imports(__file__)
 
 from viewer.renderers.html_renderer import render_html
 from viewer.renderers.markdown_renderer import render_markdown
 from viewer.renderers.phrase_dict import EVENT_LABELS_KO, LANDING_TYPE_LABELS_KO
 from viewer.replay import ReplayProjection, TurnReplay
 from viewer.stream import VisEventStream
+
+
+def _assert_error_list(test_fn):
+    @functools.wraps(test_fn)
+    def _wrapped(*args, **kwargs):
+        errors = test_fn(*args, **kwargs)
+        assert not errors, "\n".join(errors)
+
+    return _wrapped
 
 
 def _run_game(seed: int) -> VisEventStream:
@@ -429,6 +440,21 @@ def test_jsonl_roundtrip(events: list[dict]) -> list[str]:
         os.unlink(tmp_path)
 
     return errors
+
+
+if "pytest" in sys.modules:
+    _PYTEST_ERROR_LIST_TESTS = [
+        "test_projection_basic",
+        "test_snapshots",
+        "test_key_events",
+        "test_rounds",
+        "test_phrase_dictionary_completeness",
+        "test_markdown_renderer",
+        "test_html_renderer",
+        "test_jsonl_roundtrip",
+    ]
+    for _test_name in _PYTEST_ERROR_LIST_TESTS:
+        globals()[_test_name] = _assert_error_list(globals()[_test_name])
 
 
 def proj_turns_preview(events: list[dict]) -> list[TurnReplay]:

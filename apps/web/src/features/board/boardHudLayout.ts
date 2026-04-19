@@ -18,6 +18,10 @@ export type BoardHudFrame = {
   viewportTop: number;
   viewportWidth: number;
   viewportHeight: number;
+  promptTopInset: number;
+  handTrayTopInset: number;
+  handTrayBottomGap: number;
+  handTrayHeight: number;
 };
 
 export type BoardHudLayoutInput = {
@@ -26,6 +30,9 @@ export type BoardHudLayoutInput = {
   bottomTileRect?: RectLike | null;
   leftTileRect?: RectLike | null;
   rightTileRect?: RectLike | null;
+  promptTopTileRect?: RectLike | null;
+  handTrayTopTileRect?: RectLike | null;
+  handTrayBottomTileRect?: RectLike | null;
 };
 
 function clampToPixels(value: number): number {
@@ -41,6 +48,9 @@ export function computeBoardHudFrame({
   bottomTileRect = null,
   leftTileRect = null,
   rightTileRect = null,
+  promptTopTileRect = null,
+  handTrayTopTileRect = null,
+  handTrayBottomTileRect = null,
 }: BoardHudLayoutInput): BoardHudFrame | null {
   if (!scrollRect || !leftTileRect || !rightTileRect) {
     return null;
@@ -52,6 +62,11 @@ export function computeBoardHudFrame({
   const safeBottomGap = bottomTileRect ? clampToPixels(scrollRect.bottom - bottomTileRect.bottom) : 0;
   const safeLeft = clampToPixels(leftTileRect.left - scrollRect.left);
   const safeRightGap = clampToPixels(scrollRect.right - rightTileRect.right);
+  const promptTop = promptTopTileRect ? clampToPixels(promptTopTileRect.top - scrollRect.top) : safeTop;
+  const handTrayTop = handTrayTopTileRect ? clampToPixels(handTrayTopTileRect.top - scrollRect.top) : boardHeight - safeBottomGap;
+  const handTrayBottom = handTrayBottomTileRect
+    ? clampToPixels(handTrayBottomTileRect.bottom - scrollRect.top)
+    : boardHeight - safeBottomGap;
 
   return {
     boardWidth,
@@ -64,6 +79,10 @@ export function computeBoardHudFrame({
     viewportTop: clampToPixels(scrollRect.top + safeTop),
     viewportWidth: clampToPixels(boardWidth - safeLeft - safeRightGap),
     viewportHeight: clampToPixels(boardHeight - safeTop - safeBottomGap),
+    promptTopInset: clampToPixels(promptTop - safeTop),
+    handTrayTopInset: clampToPixels(handTrayTop - safeTop),
+    handTrayBottomGap: handTrayBottomTileRect ? clampToPixels(scrollRect.bottom - handTrayBottomTileRect.bottom) : safeBottomGap,
+    handTrayHeight: clampToPixels(handTrayBottom - handTrayTop),
   };
 }
 
@@ -84,6 +103,10 @@ export function sameBoardHudFrame(left: BoardHudFrame | null, right: BoardHudFra
     left.viewportLeft === right.viewportLeft &&
     left.viewportTop === right.viewportTop &&
     left.viewportWidth === right.viewportWidth &&
-    left.viewportHeight === right.viewportHeight
+    left.viewportHeight === right.viewportHeight &&
+    left.promptTopInset === right.promptTopInset &&
+    left.handTrayTopInset === right.handTrayTopInset &&
+    left.handTrayBottomGap === right.handTrayBottomGap &&
+    left.handTrayHeight === right.handTrayHeight
   );
 }

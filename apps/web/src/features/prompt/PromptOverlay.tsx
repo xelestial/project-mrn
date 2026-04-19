@@ -68,6 +68,12 @@ type CharacterPickOption = NonNullable<PromptViewModel["surface"]["characterPick
 
 type ChoiceGridVariant = "default" | "target" | "decision" | "reward";
 type SummaryPillValue = string | null | undefined;
+type PromptPillTone = "neutral" | "player" | "timer" | "resource" | "decision" | "target" | "danger" | "success";
+type ChoiceBodyParts = {
+  eyebrow: string | null;
+  summary: string;
+  detail: string | null;
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
@@ -102,6 +108,40 @@ function cleanCardDescription(value: string): string {
   return value
     .replace(/\[([^\]]{1,20})\]\s*/g, (_, tag: string) => `${tag.trim()}: `)
     .trim();
+}
+
+function splitChoiceBodyText(value: string): ChoiceBodyParts {
+  const cleaned = cleanCardDescription(value).trim();
+  if (!cleaned) {
+    return { eyebrow: null, summary: "", detail: null };
+  }
+
+  const labeledMatch = /^([^:]{1,16}):\s*(.+)$/.exec(cleaned);
+  if (labeledMatch) {
+    const eyebrow = labeledMatch[1].trim();
+    const remainder = labeledMatch[2].trim();
+    const segments = remainder.split(/\s*\/\s*/).filter(Boolean);
+    return {
+      eyebrow,
+      summary: segments[0] ?? remainder,
+      detail: segments.length > 1 ? segments.slice(1).join(" / ") : null,
+    };
+  }
+
+  const slashSegments = cleaned.split(/\s*\/\s*/).filter(Boolean);
+  if (slashSegments.length > 1) {
+    return {
+      eyebrow: null,
+      summary: slashSegments[0],
+      detail: slashSegments.slice(1).join(" / "),
+    };
+  }
+
+  return {
+    eyebrow: null,
+    summary: cleaned,
+    detail: null,
+  };
 }
 
 function sortChoicesForDisplay(choices: PromptChoiceViewModel[]): PromptChoiceViewModel[] {
@@ -198,6 +238,50 @@ function nonEmptyPills(values: Array<string | null | undefined>): string[] {
     .filter((value) => value.length > 0 && value !== "-");
 }
 
+function classifyPromptPill(value: string, source: "head" | "summary", index = 0): PromptPillTone {
+  const normalized = value.trim().toLowerCase();
+  if (source === "head") {
+    return index === 0 ? "player" : "timer";
+  }
+  if (
+    normalized.includes("현금") ||
+    normalized.includes("cash") ||
+    normalized.includes("조각") ||
+    normalized.includes("shard") ||
+    normalized.includes("승점") ||
+    normalized.includes("coin") ||
+    normalized.includes("reward")
+  ) {
+    return "resource";
+  }
+  if (
+    normalized.includes("남은") ||
+    normalized.includes("remaining") ||
+    normalized.includes("budget") ||
+    normalized.includes("selected") ||
+    normalized.includes("선택")
+  ) {
+    return "decision";
+  }
+  if (
+    normalized.includes("대상") ||
+    normalized.includes("target") ||
+    normalized.includes("타일") ||
+    normalized.includes("tiles") ||
+    normalized.includes("범위") ||
+    normalized.includes("scope")
+  ) {
+    return "target";
+  }
+  if (normalized.includes("cost") || normalized.includes("위험") || normalized.includes("exceed")) {
+    return "danger";
+  }
+  if (/^p\d+/.test(normalized)) {
+    return "player";
+  }
+  return "neutral";
+}
+
 function SummaryPills({ values }: { values: SummaryPillValue[] }) {
   const pills = nonEmptyPills(values);
   if (pills.length === 0) {
@@ -205,8 +289,8 @@ function SummaryPills({ values }: { values: SummaryPillValue[] }) {
   }
   return (
     <div className="prompt-summary-pill-row">
-      {pills.map((pill) => (
-        <span key={pill} className="prompt-summary-pill">
+      {pills.map((pill, index) => (
+        <span key={pill} className="prompt-summary-pill" data-tone={classifyPromptPill(pill, "summary", index)}>
           {pill}
         </span>
       ))}
@@ -421,9 +505,18 @@ function markChoiceDescription(choice: PromptChoiceViewModel, promptText: Prompt
   if (choice.choiceId === "none") {
     return cleanDisplayText(promptText.mark.noneDescription);
   }
+  const targetCharacter = asString(choice.value?.["target_character"]);
   const targetPlayerId = asNumber(choice.value?.["target_player_id"]);
+  const targetCardNo = asNumber(choice.value?.["target_card_no"]);
+  if (targetCharacter && targetPlayerId !== null) {
+    const displayCardNo = targetCardNo !== null ? `#${targetCardNo}` : "등장인물";
+    return `지목 대상: P${targetPlayerId} / ${displayCardNo} ${targetCharacter}에게 효과를 적용합니다.`;
+  }
   if (targetPlayerId !== null) {
-    return `P${targetPlayerId}`;
+    return `지목 대상: P${targetPlayerId} / 이 플레이어에게 효과를 적용합니다.`;
+  }
+  if (targetCharacter) {
+    return `지목 대상: ${targetCharacter} / 이 등장인물에게 효과를 적용합니다.`;
   }
   return "";
 }
@@ -567,6 +660,7 @@ function EmphasisChoiceGrid({
     >
       {group.map((choice) => {
         const normalized = normalizeChoiceText(prompt, choice, promptText);
+        const body = splitChoiceBodyText(normalized.description);
         const secondary = isSecondaryChoice(choice);
         return (
           <button
@@ -585,7 +679,13 @@ function EmphasisChoiceGrid({
               {secondary ? <span className="prompt-choice-badge">{promptText.secondaryChoiceBadge}</span> : null}
             </div>
             {renderExtra ? renderExtra(choice) : null}
-            {normalized.description ? <small>{cleanCardDescription(normalized.description)}</small> : null}
+            {normalized.description ? (
+              <div className="prompt-choice-body">
+                {body.eyebrow ? <span className="prompt-choice-eyebrow">{body.eyebrow}</span> : null}
+                {body.summary ? <p className="prompt-choice-summary">{body.summary}</p> : null}
+                {body.detail ? <small className="prompt-choice-detail">{body.detail}</small> : null}
+              </div>
+            ) : null}
           </button>
         );
       })}
@@ -1152,17 +1252,20 @@ export function PromptOverlay({
       role="region"
       aria-busy={busy}
     >
-        <div className="prompt-head">
-          <div className="prompt-head-copy">
-            <h2 data-testid="prompt-overlay-title">{promptText.headTitle(promptLabel)}</h2>
-            <p className="prompt-helper" data-testid="prompt-overlay-helper">
-              {promptHelp}
-            </p>
-          </div>
-          <div className="prompt-head-actions">
+        <div className="prompt-topbar">
+          {promptTimeRatio !== null ? (
+            <div className="prompt-timebar prompt-timebar-top" aria-hidden="true">
+              <span style={{ width: `${promptTimeRatio}%` }} />
+            </div>
+          ) : (
+            <div className="prompt-timebar prompt-timebar-top prompt-timebar-top-idle" aria-hidden="true">
+              <span style={{ width: "0%" }} />
+            </div>
+          )}
+          <div className="prompt-topbar-side">
             <div className="prompt-head-meta" data-testid="prompt-head-meta">
-              {headMetaPills.map((pill) => (
-                <span key={pill} className="prompt-head-pill">
+              {headMetaPills.map((pill, index) => (
+                <span key={pill} className="prompt-head-pill" data-tone={classifyPromptPill(pill, "head", index)}>
                   {pill}
                 </span>
               ))}
@@ -1170,6 +1273,21 @@ export function PromptOverlay({
             <button type="button" onClick={onToggleCollapse} data-testid="prompt-overlay-collapse">
               {promptText.collapse}
             </button>
+          </div>
+        </div>
+
+        <div className="prompt-head">
+          <div className="prompt-head-copy">
+            <h2 data-testid="prompt-overlay-title">{promptText.headTitle(promptLabel)}</h2>
+            <p className="prompt-helper" data-testid="prompt-overlay-helper">
+              {promptHelp}
+            </p>
+            {feedbackMessage ? <p className="prompt-head-status prompt-head-status-error">{cleanDisplayText(feedbackMessage)}</p> : null}
+            {busy ? (
+              <p className="prompt-head-status prompt-head-status-busy">
+                <span className="spinner" aria-hidden="true" /> {promptText.busy}
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -1182,13 +1300,8 @@ export function PromptOverlay({
                 <p>{cleanDisplayText(promptText.movement.cardGuide(movement.canUseTwoCards ? 2 : 1))}</p>
               ) : null}
               <div className="prompt-summary-pill-row">
-                {weatherName ? (
-                  <span className="prompt-summary-pill">
-                    {promptText.context.currentWeather}: {weatherName}
-                  </span>
-                ) : null}
                 {movementMode === "cards" ? (
-                  <span className="prompt-summary-pill">
+                  <span className="prompt-summary-pill" data-tone="decision">
                     {promptText.context.selectedCards}:{" "}
                     {selectedCards.length > 0 ? selectedCards.join(" + ") : promptText.context.noneSelected}
                   </span>
@@ -1261,12 +1374,12 @@ export function PromptOverlay({
         ) : null}
 
         {(prompt.requestType === "trick_to_use" || prompt.requestType === "hidden_trick_card") && trickChoices ? (
-          <section className="prompt-section prompt-hand-stage">
+          <section className="prompt-section prompt-hand-stage prompt-hand-stage-trick">
             <div className="prompt-section-summary">
               <div className="prompt-inline-summary">
                 <p>{cleanDisplayText(prompt.requestType === "trick_to_use" ? promptText.trick.usePrompt : promptText.trick.hiddenPrompt)}</p>
                 <div className="prompt-summary-pill-row">
-                  <span className="prompt-summary-pill">
+                  <span className="prompt-summary-pill" data-tone="resource">
                     {promptText.trick.handSummary(
                       typeof prompt.publicContext["total_hand_count"] === "number"
                         ? (prompt.publicContext["total_hand_count"] as number)
@@ -1347,9 +1460,18 @@ export function PromptOverlay({
                     data-testid={`character-choice-${choice.choiceId}`}
                     onClick={() => onSelectChoice(choice.choiceId)}
                     disabled={busy}
-                  >
+                >
                   <strong>{choice.name}</strong>
-                  <small>{cleanCardDescription(choice.description)}</small>
+                  {(() => {
+                    const body = splitChoiceBodyText(choice.description);
+                    return (
+                      <div className="prompt-choice-body">
+                        {body.eyebrow ? <span className="prompt-choice-eyebrow">{body.eyebrow}</span> : null}
+                        {body.summary ? <p className="prompt-choice-summary">{body.summary}</p> : null}
+                        {body.detail ? <small className="prompt-choice-detail">{body.detail}</small> : null}
+                      </div>
+                    );
+                  })()}
                 </button>
               ))}
             </div>
@@ -1365,6 +1487,7 @@ export function PromptOverlay({
                 .filter((choice) => choice.choiceId !== "none")
                 .map((choice) => {
                 const target = markChoiceTarget(choice);
+                const body = splitChoiceBodyText(markChoiceDescription(choice, promptText));
                 return (
                   <button
                     type="button"
@@ -1379,7 +1502,11 @@ export function PromptOverlay({
                     disabled={busy}
                   >
                     <strong>{markChoiceTitle(choice, promptText)}</strong>
-                    {target.playerId !== null ? <small>{`P${target.playerId}`}</small> : null}
+                    <div className="prompt-choice-body">
+                      {body.eyebrow ? <span className="prompt-choice-eyebrow">{body.eyebrow}</span> : null}
+                      <p className="prompt-choice-summary">{body.summary}</p>
+                      {body.detail ? <small className="prompt-choice-detail">{body.detail}</small> : null}
+                    </div>
                   </button>
                 );
               })}
@@ -1428,15 +1555,15 @@ export function PromptOverlay({
             <div className="prompt-section-summary">
               <div className="prompt-summary-pill-row">
                 {rewardBudget !== null ? (
-                  <span className="prompt-summary-pill">{`${promptText.context.rewardBudget}: ${lapRewardSpentPoints}/${rewardBudget}`}</span>
+                  <span className="prompt-summary-pill" data-tone="decision">{`${promptText.context.rewardBudget}: ${lapRewardSpentPoints}/${rewardBudget}`}</span>
                 ) : null}
                 {lapRewardRemaining !== null ? (
-                  <span className="prompt-summary-pill">
+                  <span className="prompt-summary-pill" data-tone="resource">
                     {isKoreanLocale(locale) ? `남은 포인트: ${lapRewardRemaining}` : `Remaining points: ${lapRewardRemaining}`}
                   </span>
                 ) : null}
                 {rewardPoolSummary ? (
-                  <span className="prompt-summary-pill">{`${promptText.context.rewardPools}: ${rewardPoolSummary}`}</span>
+                  <span className="prompt-summary-pill" data-tone="resource">{`${promptText.context.rewardPools}: ${rewardPoolSummary}`}</span>
                 ) : null}
               </div>
             </div>
@@ -1551,7 +1678,7 @@ export function PromptOverlay({
               const tileIndex = asNumber(choice.value?.["tile_index"]);
               return tileIndex !== null ? (
                 <div className="prompt-summary-pill-row">
-                  <span className="prompt-summary-pill">{tileLabel(tileIndex)}</span>
+                  <span className="prompt-summary-pill" data-tone="target">{tileLabel(tileIndex)}</span>
                 </div>
               ) : null;
             }}
@@ -1571,7 +1698,18 @@ export function PromptOverlay({
                   onClick={() => onToggleActiveFlipChoice(choice.choiceId)}
                 >
                   <strong>{choice.title}</strong>
-                  {choiceDescription(choice, promptText) ? <small>{choiceDescription(choice, promptText)}</small> : null}
+                  {choiceDescription(choice, promptText) ? (
+                    (() => {
+                      const body = splitChoiceBodyText(choiceDescription(choice, promptText));
+                      return (
+                        <div className="prompt-choice-body">
+                          {body.eyebrow ? <span className="prompt-choice-eyebrow">{body.eyebrow}</span> : null}
+                          {body.summary ? <p className="prompt-choice-summary">{body.summary}</p> : null}
+                          {body.detail ? <small className="prompt-choice-detail">{body.detail}</small> : null}
+                        </div>
+                      );
+                    })()
+                  ) : null}
                   {selectedActiveFlipChoiceIds.includes(choice.choiceId) ? (
                     <small className="prompt-choice-footnote prompt-choice-footnote-selected">
                       {locale.startsWith("ko") ? "선택됨" : "Selected"}
@@ -1595,7 +1733,16 @@ export function PromptOverlay({
                 >
                   <strong>{activeFlipFinishChoice.title}</strong>
                   {choiceDescription(activeFlipFinishChoice, promptText) ? (
-                    <small>{choiceDescription(activeFlipFinishChoice, promptText)}</small>
+                    (() => {
+                      const body = splitChoiceBodyText(choiceDescription(activeFlipFinishChoice, promptText));
+                      return (
+                        <div className="prompt-choice-body">
+                          {body.eyebrow ? <span className="prompt-choice-eyebrow">{body.eyebrow}</span> : null}
+                          {body.summary ? <p className="prompt-choice-summary">{body.summary}</p> : null}
+                          {body.detail ? <small className="prompt-choice-detail">{body.detail}</small> : null}
+                        </div>
+                      );
+                    })()
                   ) : null}
                   <small
                     className={`prompt-choice-footnote ${
@@ -1617,7 +1764,7 @@ export function PromptOverlay({
         ) : null}
 
         {isBurdenExchange ? (
-          <section className="prompt-section prompt-burden-stage">
+          <section className="prompt-section prompt-burden-stage prompt-burden-stage-compact">
             <div className="prompt-section-summary">
               <SummaryPills
                 values={[
@@ -1758,7 +1905,11 @@ export function PromptOverlay({
               return pills.length > 0 ? (
                 <div className="prompt-summary-pill-row">
                   {pills.map((pill) => (
-                    <span key={`${choice.choiceId}-${pill}`} className="prompt-summary-pill">
+                    <span
+                      key={`${choice.choiceId}-${pill}`}
+                      className="prompt-summary-pill"
+                      data-tone={classifyPromptPill(pill, "summary")}
+                    >
                       {pill}
                     </span>
                   ))}
@@ -1791,7 +1942,11 @@ export function PromptOverlay({
               return pills.length > 0 ? (
                 <div className="prompt-summary-pill-row">
                   {pills.map((pill) => (
-                    <span key={`${choice.choiceId}-${pill}`} className="prompt-summary-pill">
+                    <span
+                      key={`${choice.choiceId}-${pill}`}
+                      className="prompt-summary-pill"
+                      data-tone={classifyPromptPill(pill, "summary")}
+                    >
                       {pill}
                     </span>
                   ))}
@@ -1820,7 +1975,7 @@ export function PromptOverlay({
               const targetPlayerId = asNumber(choice.value?.["target_player_id"]);
               return targetPlayerId !== null ? (
                 <div className="prompt-summary-pill-row">
-                  <span className="prompt-summary-pill">P{targetPlayerId}</span>
+                  <span className="prompt-summary-pill" data-tone="player">P{targetPlayerId}</span>
                 </div>
               ) : null;
             }}
@@ -1858,7 +2013,6 @@ export function PromptOverlay({
             summaryPills={[
               `${promptText.context.currentPosition}: ${tileLabel(movementPosition)}`,
               `${promptText.context.currentShards}: ${currentShards ?? "-"}`,
-              weatherName ? `${promptText.context.currentWeather}: ${weatherName}` : null,
             ]}
           />
         ) : null}
@@ -1878,20 +2032,6 @@ export function PromptOverlay({
           </section>
         ) : null}
 
-        </div>
-
-        <div className="prompt-footer">
-          {feedbackMessage ? <p className="notice err">{cleanDisplayText(feedbackMessage)}</p> : null}
-          {busy ? (
-            <p className="notice ok">
-              <span className="spinner" aria-hidden="true" /> {promptText.busy}
-            </p>
-          ) : null}
-          {promptTimeRatio !== null ? (
-            <div className="prompt-timebar" aria-hidden="true">
-              <span style={{ width: `${promptTimeRatio}%` }} />
-            </div>
-          ) : null}
         </div>
     </section>
   );

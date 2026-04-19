@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from multi_agent.base_agent import AbstractPlayerAgent
-from multi_agent.claude_agent import ClaudePlayerAgent
-from multi_agent.gpt_agent import GptPlayerAgent
+from .base_agent import AbstractPlayerAgent
+from .claude_agent import ClaudePlayerAgent
+from .gpt_agent import GptPlayerAgent
 
 _CLAUDE_V2_PROFILES = {
     "control",

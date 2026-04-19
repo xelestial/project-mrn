@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gameStreamReducer, initialGameStreamState } from "./gameStreamReducer";
+import { gameStreamReducer, initialGameStreamState, MAX_STREAM_MESSAGES } from "./gameStreamReducer";
 
 describe("gameStreamReducer", () => {
   it("updates status", () => {
@@ -9,18 +9,18 @@ describe("gameStreamReducer", () => {
     expect(next.manifestHash).toBeNull();
   });
 
-  it("tracks last sequence and caps message list to 50", () => {
+  it("tracks last sequence and caps message list to the configured max", () => {
     let state = initialGameStreamState;
-    for (let i = 1; i <= 60; i += 1) {
+    for (let i = 1; i <= MAX_STREAM_MESSAGES + 10; i += 1) {
       state = gameStreamReducer(state, {
         type: "message",
         message: { type: "event", seq: i, session_id: "s1", payload: { n: i } },
       });
     }
-    expect(state.lastSeq).toBe(60);
-    expect(state.messages).toHaveLength(50);
+    expect(state.lastSeq).toBe(MAX_STREAM_MESSAGES + 10);
+    expect(state.messages).toHaveLength(MAX_STREAM_MESSAGES);
     expect(state.messages[0].seq).toBe(11);
-    expect(state.messages[49].seq).toBe(60);
+    expect(state.messages[MAX_STREAM_MESSAGES - 1]?.seq).toBe(MAX_STREAM_MESSAGES + 10);
   });
 
   it("buffers out-of-order messages and flushes contiguous sequence", () => {

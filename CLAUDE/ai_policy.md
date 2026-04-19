@@ -1,5 +1,8 @@
 # ai_policy.py
 
+## 0.7.62 note
+Control-profile scoring now more clearly favors growth follow-ups after a disruption window and recognizes profit-positive mark pressure separately from pure denial.
+
 - 역할: 정책/휴리스틱 선택 로직을 제공한다.
 - 최신 변경: 구매 가능성과 기대 구매가치를 계산할 때 `T2/T3` 고정 가격 대신 보드 위치별 가격표(`purchase_cost_for`)를 사용한다.
 - 최신 변경: 지목 대상 선택은 더 이상 상대의 숨겨진 `current_character`를 직접 보지 않고, 공개 정보(내 캐릭터/이미 지난 턴 캐릭터/자객 공개 캐릭터)를 제외한 공개 추측 후보군에서만 고른다. 따라서 `mark_success_rate`는 실제 추측 적중률로 해석한다.

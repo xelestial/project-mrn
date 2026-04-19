@@ -41,7 +41,6 @@ type BoardPanelProps = {
   showTurnOverlay: boolean;
   minimalHeader?: boolean;
   overlayContent?: ReactNode;
-  onOverlayFrameChange?: ((frame: { viewportLeft: number; viewportWidth: number } | null) => void) | undefined;
 };
 
 type BoardText = ReturnType<typeof useI18n>["board"];
@@ -84,6 +83,36 @@ function costLabel(cost: number | null, rent: number | null, boardText: BoardTex
   return boardText.costLabel(cost, rent);
 }
 
+function tileSurfaceClass(kind: string): string {
+  switch (kind) {
+    case "S":
+      return "tile-kind-fortune";
+    case "F1":
+    case "F2":
+      return "tile-kind-finish";
+    case "T3":
+      return "tile-kind-premium";
+    case "T2":
+    default:
+      return "tile-kind-land";
+  }
+}
+
+function tileLandmarkGlyph(kind: string): string {
+  switch (kind) {
+    case "S":
+      return "✦";
+    case "F1":
+    case "F2":
+      return "◆";
+    case "T3":
+      return "▲";
+    case "T2":
+    default:
+      return "●";
+  }
+}
+
 export function BoardPanel({
   snapshot,
   manifestTiles,
@@ -97,7 +126,6 @@ export function BoardPanel({
   showTurnOverlay,
   minimalHeader = false,
   overlayContent = null,
-  onOverlayFrameChange,
 }: BoardPanelProps) {
   const { board } = useI18n();
   const tiles = (snapshot?.tiles && snapshot.tiles.length > 0 ? snapshot.tiles : manifestTiles ?? []).slice();
@@ -111,12 +139,17 @@ export function BoardPanel({
   const overlayBottomAnchorTileRef = useRef<HTMLElement | null>(null);
   const overlayLeftAnchorTileRef = useRef<HTMLElement | null>(null);
   const overlayRightAnchorTileRef = useRef<HTMLElement | null>(null);
-  const lastOverlayFrameRef = useRef<{ viewportLeft: number; viewportWidth: number } | null>(null);
+  const promptTopAnchorTileRef = useRef<HTMLElement | null>(null);
+  const handTrayTopAnchorTileRef = useRef<HTMLElement | null>(null);
+  const handTrayBottomAnchorTileRef = useRef<HTMLElement | null>(null);
   const [hudFrame, setHudFrame] = useState<ReturnType<typeof computeBoardHudFrame> | null>(null);
   const overlayTopAnchorTileIndex = tiles.some((tile) => tile.tileIndex === 39) ? 39 : null;
   const overlayBottomAnchorTileIndex = tiles.some((tile) => tile.tileIndex === 31) ? 31 : null;
-  const overlayLeftAnchorTileIndex = tiles.some((tile) => tile.tileIndex === 2) ? 2 : null;
-  const overlayRightAnchorTileIndex = tiles.some((tile) => tile.tileIndex === 8) ? 8 : null;
+  const overlayLeftAnchorTileIndex = tiles.some((tile) => tile.tileIndex === 1) ? 1 : null;
+  const overlayRightAnchorTileIndex = tiles.some((tile) => tile.tileIndex === 9) ? 9 : null;
+  const promptTopAnchorTileIndex = tiles.some((tile) => tile.tileIndex === 36) ? 36 : null;
+  const handTrayTopAnchorTileIndex = tiles.some((tile) => tile.tileIndex === 32) ? 32 : null;
+  const handTrayBottomAnchorTileIndex = tiles.some((tile) => tile.tileIndex === 31) ? 31 : null;
   const hudScale = computeBoardHudScale({
     boardWidth: hudFrame?.boardWidth ?? 0,
     boardHeight: hudFrame?.boardHeight ?? 0,
@@ -132,6 +165,10 @@ export function BoardPanel({
           "--board-overlay-safe-bottom-gap": `${hudFrame.safeBottomGap}px`,
           "--board-overlay-safe-left": `${hudFrame.safeLeft}px`,
           "--board-overlay-safe-right-gap": `${hudFrame.safeRightGap}px`,
+          "--board-hud-prompt-top-inset": `${hudFrame.promptTopInset}px`,
+          "--board-hud-hand-tray-top-inset": `${hudFrame.handTrayTopInset}px`,
+          "--board-hud-hand-tray-bottom-gap": `${hudFrame.handTrayBottomGap}px`,
+          "--board-hud-hand-tray-height": `${hudFrame.handTrayHeight}px`,
         }
       : {}),
     "--board-scene-scale": String(hudScale.sceneScale),
@@ -168,44 +205,40 @@ export function BoardPanel({
     const bottomTileNode = overlayBottomAnchorTileRef.current;
     const leftTileNode = overlayLeftAnchorTileRef.current;
     const rightTileNode = overlayRightAnchorTileRef.current;
+    const promptTopNode = promptTopAnchorTileRef.current;
+    const handTrayTopNode = handTrayTopAnchorTileRef.current;
+    const handTrayBottomNode = handTrayBottomAnchorTileRef.current;
     if (!scrollNode || (!topTileNode && !bottomTileNode && !leftTileNode && !rightTileNode)) {
       setHudFrame((prev) => (prev === null ? prev : null));
-      if (lastOverlayFrameRef.current !== null) {
-        lastOverlayFrameRef.current = null;
-        onOverlayFrameChange?.(null);
-      }
       return;
     }
 
     const updateOverlaySafeBounds = () => {
+      const leftTileRect = leftTileNode?.getBoundingClientRect() ?? null;
+      const rightTileRect = rightTileNode?.getBoundingClientRect() ?? null;
       const nextHudFrame = computeBoardHudFrame({
         scrollRect: scrollNode.getBoundingClientRect(),
         topTileRect: topTileNode?.getBoundingClientRect() ?? null,
         bottomTileRect: bottomTileNode?.getBoundingClientRect() ?? null,
-        leftTileRect: leftTileNode?.getBoundingClientRect() ?? null,
-        rightTileRect: rightTileNode?.getBoundingClientRect() ?? null,
+        leftTileRect:
+          leftTileRect === null
+            ? null
+            : {
+                ...leftTileRect.toJSON(),
+                left: leftTileRect.right,
+              },
+        rightTileRect:
+          rightTileRect === null
+            ? null
+            : {
+                ...rightTileRect.toJSON(),
+                right: rightTileRect.left,
+              },
+        promptTopTileRect: promptTopNode?.getBoundingClientRect() ?? null,
+        handTrayTopTileRect: handTrayTopNode?.getBoundingClientRect() ?? null,
+        handTrayBottomTileRect: handTrayBottomNode?.getBoundingClientRect() ?? null,
       });
       setHudFrame((prev) => (sameBoardHudFrame(prev, nextHudFrame) ? prev : nextHudFrame));
-      if (nextHudFrame !== null) {
-        const nextFrame = {
-          viewportLeft: nextHudFrame.viewportLeft,
-          viewportWidth: nextHudFrame.viewportWidth,
-        };
-        const previousFrame = lastOverlayFrameRef.current;
-        if (
-          previousFrame === null ||
-          previousFrame.viewportLeft !== nextFrame.viewportLeft ||
-          previousFrame.viewportWidth !== nextFrame.viewportWidth
-        ) {
-          lastOverlayFrameRef.current = nextFrame;
-          onOverlayFrameChange?.(nextFrame);
-        }
-      } else {
-        if (lastOverlayFrameRef.current !== null) {
-          lastOverlayFrameRef.current = null;
-          onOverlayFrameChange?.(null);
-        }
-      }
     };
 
     updateOverlaySafeBounds();
@@ -226,6 +259,15 @@ export function BoardPanel({
     if (rightTileNode) {
       resizeObserver.observe(rightTileNode);
     }
+    if (promptTopNode) {
+      resizeObserver.observe(promptTopNode);
+    }
+    if (handTrayTopNode) {
+      resizeObserver.observe(handTrayTopNode);
+    }
+    if (handTrayBottomNode) {
+      resizeObserver.observe(handTrayBottomNode);
+    }
     window.addEventListener("resize", updateOverlaySafeBounds);
 
     return () => {
@@ -233,11 +275,13 @@ export function BoardPanel({
       window.removeEventListener("resize", updateOverlaySafeBounds);
     };
   }, [
-    onOverlayFrameChange,
     overlayBottomAnchorTileIndex,
     overlayLeftAnchorTileIndex,
+    handTrayBottomAnchorTileIndex,
+    handTrayTopAnchorTileIndex,
     overlayRightAnchorTileIndex,
     overlayTopAnchorTileIndex,
+    promptTopAnchorTileIndex,
   ]);
 
   const pawnFallback = new Map<number, number[]>();
@@ -409,6 +453,7 @@ export function BoardPanel({
             const kindLabel = tileKindLabel(tile.tileKind, board, tileKindLabels);
             const isFortune = tile.tileKind === "S";
             const isFinish = tile.tileKind === "F1" || tile.tileKind === "F2";
+            const tileKindClass = tileSurfaceClass(tile.tileKind);
             const actorOnTile =
               stageFocus.actorPlayerId !== null &&
               tilePawns.includes(stageFocus.actorPlayerId) &&
@@ -430,13 +475,23 @@ export function BoardPanel({
                   if (tile.tileIndex === overlayRightAnchorTileIndex) {
                     overlayRightAnchorTileRef.current = node;
                   }
+                  if (tile.tileIndex === promptTopAnchorTileIndex) {
+                    promptTopAnchorTileRef.current = node;
+                  }
+                  if (tile.tileIndex === handTrayTopAnchorTileIndex) {
+                    handTrayTopAnchorTileRef.current = node;
+                  }
+                  if (tile.tileIndex === handTrayBottomAnchorTileIndex) {
+                    handTrayBottomAnchorTileRef.current = node;
+                  }
                 }}
                 className={`tile-card ${isMoveFrom ? "tile-move-from" : ""} ${isMoveTo ? "tile-move-to" : ""} ${
                   isFortune ? "tile-fortune" : ""
                 } ${isMoveTrail ? "tile-move-trail" : ""} ${
                   pathStep !== null ? "tile-move-has-path" : ""
-                } ${isFinish ? "tile-finish" : ""} ${isStageCandidate ? "tile-stage-candidate" : ""}`}
+                } ${isFinish ? "tile-finish" : ""} ${tileKindClass} ${isStageCandidate ? "tile-stage-candidate" : ""}`}
                 data-focus-kind={isStageFocus ? stageFocus.currentBeatKind : undefined}
+                data-tile-kind={tile.tileKind}
                 style={{
                   gridRow: position.row,
                   gridColumn: position.col,
@@ -504,13 +559,23 @@ export function BoardPanel({
                 <div className="tile-zone-strip" style={{ backgroundColor: zoneColorToCss(tile.zoneColor ?? "", board) }} />
                 <div className="tile-head">
                   <strong>{tile.tileIndex + 1}</strong>
-                  {!isFortune && !isFinish ? <span>{kindLabel}</span> : null}
+                  <span className="tile-kind-chip">
+                    <span className="tile-kind-chip-icon" aria-hidden="true">
+                      {tileLandmarkGlyph(tile.tileKind)}
+                    </span>
+                    <span>{kindLabel}</span>
+                  </span>
                 </div>
                 {isFortune || isFinish ? (
-                  <div className="tile-special-center">{kindLabel}</div>
+                  <div className="tile-special-center">
+                    <span className="tile-special-icon" aria-hidden="true">
+                      {tileLandmarkGlyph(tile.tileKind)}
+                    </span>
+                    <strong>{kindLabel}</strong>
+                  </div>
                 ) : (
                   <div className="tile-body">
-                    <small>{costLabel(tile.purchaseCost, tile.rentCost, board)}</small>
+                    <small className="tile-cost-pill">{costLabel(tile.purchaseCost, tile.rentCost, board)}</small>
                   </div>
                 )}
                 <div className="tile-foot">

@@ -35,6 +35,7 @@ class SeatConfig:
     participant_client: ParticipantClientType | None = None
     participant_config: dict = field(default_factory=dict)
     player_id: int | None = None
+    display_name: str | None = None
     connected: bool = False
 
 

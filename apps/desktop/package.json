@@ -1,0 +1,41 @@
+{
+  "name": "@mrn/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Standalone MRN desktop client shell",
+  "author": "OpenAI Codex",
+  "main": "main.mjs",
+  "type": "module",
+  "scripts": {
+    "start": "electron .",
+    "dev": "MRN_ELECTRON_DEV_SERVER_URL=http://127.0.0.1:9000 electron .",
+    "build:renderer": "cd ../web && npm run build",
+    "dist": "npm run build:renderer && ELECTRON_CACHE=../../.cache/electron ELECTRON_BUILDER_CACHE=../../.cache/electron-builder electron-builder"
+  },
+  "build": {
+    "appId": "com.mrn.desktop",
+    "productName": "MRN Client",
+    "files": [
+      "main.mjs",
+      "preload.mjs",
+      "../web/dist/**/*"
+    ],
+    "directories": {
+      "buildResources": "build"
+    },
+    "mac": {
+      "target": [
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
+  },
+  "devDependencies": {
+    "electron": "^35.1.4",
+    "electron-builder": "^25.1.8"
+  }
+}

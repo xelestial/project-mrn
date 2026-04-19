@@ -4,6 +4,7 @@ from apps.server.src.config.runtime_settings import load_runtime_settings
 from apps.server.src.infra.structured_log import configure_structured_logging
 from apps.server.src.services.persistence import JsonFileSessionStore, JsonFileStreamStore
 from apps.server.src.services.prompt_service import PromptService
+from apps.server.src.services.room_service import RoomService
 from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
@@ -33,6 +34,7 @@ session_service = SessionService(
 stream_service = StreamService(
     stream_store=stream_store,
     max_persisted_sessions=runtime_settings.stream_store_max_sessions,
+    player_name_resolver=lambda session_id: session_service.player_display_names(session_id),
 )
 prompt_service = PromptService()
 runtime_service = RuntimeService(
@@ -41,3 +43,8 @@ runtime_service = RuntimeService(
     prompt_service=prompt_service,
     watchdog_timeout_ms=runtime_settings.runtime_watchdog_timeout_ms,
 )
+room_service = RoomService(
+    session_service=session_service,
+    room_store=session_store,
+)
+runtime_service.add_session_finished_callback(room_service.handle_session_finished)

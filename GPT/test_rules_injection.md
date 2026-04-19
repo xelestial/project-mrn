@@ -17,3 +17,6 @@ The test suite checks both explicit injection behavior and legacy field synchron
 
 ## 0.7.60 note
 Coverage now includes stage 3 sync checks for economy/resources/dice/special-tile rule injection.
+Bootstrap note: tests pin their own package directory on import so GPT and CLAUDE suites can run together without cross-package module reuse.
+
+- 2026-04-15 sync: custom lap reward injection coverage now pins `points_budget` and `coins_point_cost` alongside reward amount so the injected four-coin payout remains legal under the stage-3 budget rules.

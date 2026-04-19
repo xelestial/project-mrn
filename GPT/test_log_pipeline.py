@@ -1,3 +1,7 @@
+from test_import_bootstrap import bootstrap_local_test_imports
+
+bootstrap_local_test_imports(__file__)
+
 from log_pipeline import (
     extract_turn_feature_rows,
     train_logistic_model,

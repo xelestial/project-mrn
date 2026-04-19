@@ -1,8 +1,11 @@
 # [ACTIVE] UI/UX Priority One Page
 
-Status: ACTIVE  
-Updated: 2026-04-09  
+Status: CLOSED_SUPERSEDED  
+Updated: 2026-04-15  
 Source: merged from Claude proposals + Codex review
+
+Superseded by:
+- `docs/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md`
 
 ## Purpose
 

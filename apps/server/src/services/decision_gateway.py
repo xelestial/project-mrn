@@ -6,6 +6,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Callable, Literal
 
 DecisionProvider = Literal["human", "ai"]
@@ -19,9 +20,30 @@ ChoiceParser = Callable[[str, tuple[Any, ...], dict[str, Any], Any, Any], Any]
 def _ensure_gpt_import_path() -> None:
     root = Path(__file__).resolve().parents[4]
     gpt_dir = root / "GPT"
+    claude_dir = root / "CLAUDE"
     gpt_text = str(gpt_dir)
-    if gpt_text not in sys.path:
-        sys.path.insert(0, gpt_text)
+    if gpt_text in sys.path:
+        sys.path.remove(gpt_text)
+    sys.path.insert(0, gpt_text)
+    for name, module in list(sys.modules.items()):
+        if isinstance(module, ModuleType) and _module_belongs_to_root(module, claude_dir):
+            sys.modules.pop(name, None)
+
+
+def _module_belongs_to_root(module: ModuleType, root_dir: Path) -> bool:
+    module_file = getattr(module, "__file__", None)
+    if isinstance(module_file, str):
+        try:
+            return Path(module_file).resolve().is_relative_to(root_dir)
+        except OSError:
+            return False
+    module_path = getattr(module, "__path__", None)
+    if module_path is None:
+        return False
+    try:
+        return any(Path(entry).resolve().is_relative_to(root_dir) for entry in module_path)
+    except OSError:
+        return False
 
 
 @dataclass(frozen=True)
@@ -464,6 +486,45 @@ def _build_hidden_trick_context(
     return {}
 
 
+def _build_trick_redraw_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    del state, player
+    hand = _arg_or_kw(args, kwargs, 2, "hand")
+    source = str(_arg_or_kw(args, kwargs, 3, "source") or "")
+    if isinstance(hand, list):
+        return {
+            "hand_count": len(hand),
+            "source": source,
+            "hand_names": [getattr(card, "name", str(card)) for card in hand],
+        }
+    return {"source": source} if source else {}
+
+
+def _build_dice_card_value_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    del state
+    candidates = _arg_or_kw(args, kwargs, 2, "candidates")
+    source = str(_arg_or_kw(args, kwargs, 3, "source") or "")
+    values = [int(value) for value in candidates if isinstance(value, int)] if isinstance(candidates, list) else []
+    return _trim_public_context(
+        {
+            "candidate_count": len(values),
+            "candidate_values": values,
+            "source": source,
+            "player_position": getattr(player, "position", None),
+            "player_cash": getattr(player, "cash", None),
+        }
+    )
+
+
 def _build_trick_to_use_context(
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
@@ -804,6 +865,45 @@ def _parse_final_character_choice(choice_id: str, args: tuple[Any, ...], kwargs:
     raise ValueError("invalid_final_character_choice_id")
 
 
+def _build_integer_choices(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+    index: int,
+    key: str,
+    *,
+    value_key: str,
+    title_prefix: str,
+    description_prefix: str,
+    include_none: bool,
+) -> list[dict[str, Any]]:
+    del state, player
+    values = list(_arg_or_kw(args, kwargs, index, key) or [])
+    choices: list[dict[str, Any]] = []
+    if include_none:
+        choices.append(_choice_payload("none", title="Skip"))
+    for raw_value in values:
+        if not isinstance(raw_value, int):
+            continue
+        choices.append(
+            _choice_payload(
+                str(raw_value),
+                title=f"{title_prefix} {raw_value}",
+                description=f"{description_prefix} {raw_value}.",
+                value={value_key: raw_value},
+            )
+        )
+    return choices
+
+
+def _parse_integer_choice(choice_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> Any:
+    del args, kwargs, state, player
+    if choice_id == "none":
+        return None
+    return int(choice_id)
+
+
 def _build_hand_choices(args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any, index: int, key: str, *, include_none: bool) -> list[dict[str, Any]]:
     del state
     hand = list(_arg_or_kw(args, kwargs, index, key) or [])
@@ -1105,6 +1205,13 @@ METHOD_SPECS: dict[str, DecisionMethodSpec] = {
         lambda args, kwargs, state, player: _build_hand_choices(args, kwargs, state, player, 2, "hand", include_none=False),
         _parse_hand_card_choice,
     ),
+    "choose_trick_redraw_card": DecisionMethodSpec(
+        "trick_redraw_card",
+        _serialize_trick_like_choice,
+        _build_trick_redraw_context,
+        lambda args, kwargs, state, player: _build_hand_choices(args, kwargs, state, player, 2, "hand", include_none=True),
+        _parse_hand_card_choice,
+    ),
     "choose_mark_target": DecisionMethodSpec("mark_target", _serialize_default_choice, _build_mark_target_context, _build_mark_target_choices, _parse_mark_target_choice),
     "choose_coin_placement_tile": DecisionMethodSpec(
         "coin_placement",
@@ -1163,6 +1270,24 @@ METHOD_SPECS: dict[str, DecisionMethodSpec] = {
             _choice_payload("minus_one", title="Roll one die", description="Reduce the roll to one die this turn.", value={"dice_mode": "minus_one"}),
         ],
         choice_parser=_parse_string_choice,
+    ),
+    "choose_dice_card_value": DecisionMethodSpec(
+        "dice_card_value",
+        _serialize_default_choice,
+        _build_dice_card_value_context,
+        lambda args, kwargs, state, player: _build_integer_choices(
+            args,
+            kwargs,
+            state,
+            player,
+            2,
+            "candidates",
+            value_key="dice_value",
+            title_prefix="Dice card",
+            description_prefix="Recover dice card",
+            include_none=False,
+        ),
+        _parse_integer_choice,
     ),
 }
 
@@ -1364,6 +1489,7 @@ def build_decision_resolved_payload(
     *,
     request_id: str,
     player_id: int,
+    request_type: str | None,
     resolution: str,
     choice_id: str | None,
     provider: DecisionProvider,
@@ -1375,6 +1501,7 @@ def build_decision_resolved_payload(
         "event_type": "decision_resolved",
         "request_id": request_id,
         "player_id": player_id,
+        "request_type": request_type,
         "resolution": resolution,
         "choice_id": choice_id,
         "provider": provider,
@@ -1390,6 +1517,7 @@ def build_decision_timeout_fallback_payload(
     *,
     request_id: str,
     player_id: int,
+    request_type: str | None,
     fallback_policy: str,
     fallback_execution: str | None,
     fallback_choice_id: str | None,
@@ -1401,6 +1529,7 @@ def build_decision_timeout_fallback_payload(
         "event_type": "decision_timeout_fallback",
         "request_id": request_id,
         "player_id": player_id,
+        "request_type": request_type,
         "fallback_policy": fallback_policy,
         "fallback_execution": fallback_execution,
         "fallback_choice_id": fallback_choice_id,
@@ -1466,6 +1595,7 @@ class DecisionGateway:
         *,
         request_id: str,
         player_id: int,
+        request_type: str,
         resolution: str,
         choice_id: str | None,
         provider: DecisionProvider,
@@ -1476,6 +1606,7 @@ class DecisionGateway:
             build_decision_resolved_payload(
                 request_id=request_id,
                 player_id=player_id,
+                request_type=request_type,
                 resolution=resolution,
                 choice_id=choice_id,
                 provider=provider,
@@ -1490,6 +1621,7 @@ class DecisionGateway:
         *,
         request_id: str,
         player_id: int,
+        request_type: str,
         fallback_policy: str,
         fallback_execution: str | None,
         fallback_choice_id: str | None,
@@ -1501,6 +1633,7 @@ class DecisionGateway:
             build_decision_timeout_fallback_payload(
                 request_id=request_id,
                 player_id=player_id,
+                request_type=request_type,
                 fallback_policy=fallback_policy,
                 fallback_execution=fallback_execution,
                 fallback_choice_id=fallback_choice_id,
@@ -1516,6 +1649,7 @@ class DecisionGateway:
         timeout_ms = max(1, int(envelope.get("timeout_ms", 300000)))
         player_id = int(envelope.get("player_id", 0))
         fallback_policy = str(envelope.get("fallback_policy", "timeout_fallback"))
+        request_type = str(envelope.get("request_type", ""))
         public_context = dict(envelope.get("public_context") or {})
 
         envelope["request_id"] = request_id
@@ -1567,6 +1701,7 @@ class DecisionGateway:
             self._publish_decision_resolved(
                 request_id=request_id,
                 player_id=player_id,
+                request_type=request_type,
                 resolution="timeout_fallback",
                 choice_id=fallback_result.get("choice_id"),
                 provider="human",
@@ -1575,6 +1710,7 @@ class DecisionGateway:
             self._publish_decision_timeout_fallback(
                 request_id=request_id,
                 player_id=player_id,
+                request_type=request_type,
                 fallback_policy=fallback_policy,
                 fallback_execution=fallback_result.get("status"),
                 fallback_choice_id=fallback_result.get("choice_id"),
@@ -1589,6 +1725,7 @@ class DecisionGateway:
             self._publish_decision_resolved(
                 request_id=request_id,
                 player_id=player_id,
+                request_type=request_type,
                 resolution="parser_error_fallback",
                 choice_id=str(response.get("choice_id", "")),
                 provider="human",
@@ -1599,6 +1736,7 @@ class DecisionGateway:
         self._publish_decision_resolved(
             request_id=request_id,
             player_id=int(response.get("player_id", player_id)),
+            request_type=request_type,
             resolution="accepted",
             choice_id=str(response.get("choice_id", "")),
             provider="human",
@@ -1630,6 +1768,7 @@ class DecisionGateway:
         self._publish_decision_resolved(
             request_id=request_id,
             player_id=player_id,
+            request_type=request_type,
             resolution="accepted",
             choice_id=choice_serializer(result),
             provider="ai",

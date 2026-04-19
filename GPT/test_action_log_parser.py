@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from test_import_bootstrap import bootstrap_local_test_imports
+
+bootstrap_local_test_imports(__file__)
+
+
 from action_log_parser import bundles_for_player, decision_rows, parse_action_log
 from turn_advantage import build_advantage_snapshots
 

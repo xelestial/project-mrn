@@ -115,10 +115,20 @@ class EngineEffectHandlers:
         elif card_id == WEATHER_TRICKSTER_DAY_ID:
             for p in state.players:
                 if p.alive:
+                    redraw_card = engine._choose_trick_redraw_card(state, p, list(p.trick_hand), card.name)
+                    if redraw_card is not None:
+                        engine._discard_trick(state, p, redraw_card)
                     details.append(engine._weather_gain_tricks(state, p, 1, redraw=False))
         elif card_id == WEATHER_STRATEGY_SHIFT_ID:
             for p in state.players:
                 if p.alive:
+                    max_redraws = len(p.trick_hand)
+                    for _ in range(max_redraws):
+                        redraw_card = engine._choose_trick_redraw_card(state, p, list(p.trick_hand), card.name)
+                        if redraw_card is None:
+                            break
+                        engine._discard_trick(state, p, redraw_card)
+                        engine._weather_gain_tricks(state, p, 1, redraw=False)
                     need = max(0, 5 - len(p.trick_hand))
                     details.append(engine._weather_gain_tricks(state, p, need, redraw=False))
         elif card_id == WEATHER_ALL_TO_RESOURCES_ID:
@@ -154,13 +164,11 @@ class EngineEffectHandlers:
             ordered = engine._alive_ids_from_marker_direction(state)
             for pid in ordered:
                 p = state.players[pid]
-                used = sorted(p.used_dice_cards)
-                if not used:
+                recovered = engine._recover_dice_cards(state, p, 1, card.name)
+                if not recovered:
                     details.append({'player': p.player_id + 1, 'recovered': None})
                     continue
-                recovered = used[0]
-                p.used_dice_cards.discard(recovered)
-                details.append({'player': p.player_id + 1, 'recovered': recovered})
+                details.append({'player': p.player_id + 1, 'recovered': recovered[0]})
         if details:
             event['details'] = details
         engine._log(event)

@@ -97,7 +97,6 @@ class SessionService:
         return session
 
     def join_session(self, session_id: str, seat: int, join_token: str, display_name: str | None = None) -> dict:
-        del display_name  # reserved for future profile storage
         session = self.get_session(session_id)
         if session.status != SessionStatus.WAITING:
             raise SessionStateError("session_not_joinable")
@@ -113,6 +112,11 @@ class SessionService:
             raise SessionStateError("seat_already_joined")
 
         seat_cfg.player_id = seat
+        seat_cfg.display_name = (
+            str(display_name).strip()[:24]
+            if isinstance(display_name, str) and display_name.strip()
+            else f"Player {seat}"
+        )
         seat_cfg.connected = False
         session_token = self._new_token(f"session_p{seat}")
         session.session_tokens[seat] = session_token
@@ -121,6 +125,7 @@ class SessionService:
             "session_id": session.session_id,
             "seat": seat,
             "player_id": seat_cfg.player_id,
+            "display_name": seat_cfg.display_name,
             "session_token": session_token,
             "role": "seat",
         }
@@ -169,6 +174,16 @@ class SessionService:
                 return {"role": "seat", "seat": seat, "player_id": seat_cfg.player_id}
         raise SessionStateError("invalid_session_token")
 
+    def player_display_names(self, session_id: str) -> dict[int, str]:
+        session = self.get_session(session_id)
+        result: dict[int, str] = {}
+        for seat in session.seats:
+            if seat.player_id is None:
+                continue
+            if seat.display_name and seat.display_name.strip():
+                result[int(seat.player_id)] = seat.display_name.strip()
+        return result
+
     def mark_connected(self, session_id: str, seat: int, connected: bool) -> None:
         session = self.get_session(session_id)
         seat_cfg = self._find_seat(session, seat)
@@ -184,6 +199,13 @@ class SessionService:
         if session.status == SessionStatus.IN_PROGRESS:
             session.status = SessionStatus.FINISHED
             self._persist_sessions()
+
+    def expire_session_tokens(self, session_id: str) -> None:
+        session = self.get_session(session_id)
+        session.session_tokens = {}
+        session.host_token = ""
+        session.join_tokens = {}
+        self._persist_sessions()
 
     def to_create_result(self, session: Session) -> dict:
         data = self.to_public(session)
@@ -323,6 +345,7 @@ class SessionService:
                     "participant_client": seat.participant_client.value if seat.participant_client is not None else None,
                     "participant_config": dict(seat.participant_config),
                     "player_id": seat.player_id,
+                    "display_name": seat.display_name,
                     "connected": seat.connected,
                 }
                 for seat in session.seats
@@ -356,6 +379,7 @@ class SessionService:
                     participant_client=ParticipantClientType(str(item.get("participant_client", ParticipantClientType.HUMAN_HTTP.value if seat_type == SeatType.HUMAN else ParticipantClientType.LOCAL_AI.value))),
                     participant_config=dict(item.get("participant_config", {})),
                     player_id=int(item["player_id"]) if item.get("player_id") is not None else None,
+                    display_name=item.get("display_name"),
                     connected=bool(item.get("connected", False)),
                 )
             )

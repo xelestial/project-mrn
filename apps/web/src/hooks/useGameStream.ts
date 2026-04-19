@@ -6,9 +6,10 @@ import { StreamClient } from "../infra/ws/StreamClient";
 type UseGameStreamArgs = {
   sessionId: string;
   token?: string;
+  baseUrl?: string;
 };
 
-export function useGameStream({ sessionId, token }: UseGameStreamArgs): {
+export function useGameStream({ sessionId, token, baseUrl }: UseGameStreamArgs): {
   status: ConnectionStatus;
   lastSeq: number;
   messages: InboundMessage[];
@@ -67,9 +68,9 @@ export function useGameStream({ sessionId, token }: UseGameStreamArgs): {
       activeSessionRef.current = normalized;
       lastResumeRequestAtRef.current = 0;
     }
-    client.connect({ sessionId: normalized, token, onOpenResumeSeq: lastSeqRef.current });
+    client.connect({ sessionId: normalized, token, onOpenResumeSeq: lastSeqRef.current, baseUrl });
     return () => client.disconnect();
-  }, [client, sessionId, token]);
+  }, [baseUrl, client, sessionId, token]);
 
   const sendDecision = (args: {
     requestId: string;

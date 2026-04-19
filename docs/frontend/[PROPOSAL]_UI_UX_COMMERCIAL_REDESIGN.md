@@ -1,9 +1,13 @@
 # [PROPOSAL] UI/UX 상용 게임 레퍼런스 기반 재설계
 
-Status: PROPOSAL
-Updated: 2026-04-07
+Status: ARCHIVED_REFERENCE_ONLY
+Updated: 2026-04-15
 Author: Claude
 Scope: apps/web — 상용 디지털 보드게임 UX 패턴 적용
+
+Do not use as an execution source.
+Use:
+- `docs/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md`
 
 ---
 

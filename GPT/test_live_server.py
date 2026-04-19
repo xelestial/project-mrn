@@ -11,15 +11,26 @@ Tests (no real browser, no network sockets in CI):
 """
 from __future__ import annotations
 
+import functools
 import json
 import random
 import sys
 import threading
 import time
 import urllib.request
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+from test_import_bootstrap import bootstrap_local_test_imports
+
+bootstrap_local_test_imports(__file__)
+
+
+def _assert_error_list(test_fn):
+    @functools.wraps(test_fn)
+    def _wrapped(*args, **kwargs):
+        errors = test_fn(*args, **kwargs)
+        assert not errors, "\n".join(errors)
+
+    return _wrapped
 
 
 def _start_server(seed: int = 42, port: int = 18765, turn_delay: float = 0.0):
@@ -160,6 +171,19 @@ def test_live_html_renderer() -> list[str]:
     if "/events" not in html:
         errors.append("live HTML does not reference /events")
     return errors
+
+
+if "pytest" in sys.modules:
+    _PYTEST_ERROR_LIST_TESTS = [
+        "test_game_completes",
+        "test_status_endpoint",
+        "test_events_endpoint_full",
+        "test_events_since_slicing",
+        "test_viewer_html",
+        "test_live_html_renderer",
+    ]
+    for _test_name in _PYTEST_ERROR_LIST_TESTS:
+        globals()[_test_name] = _assert_error_list(globals()[_test_name])
 
 
 # ── Main ──────────────────────────────────────────────────────────────────

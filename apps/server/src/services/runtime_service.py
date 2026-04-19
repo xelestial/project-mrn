@@ -9,6 +9,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
@@ -48,7 +49,13 @@ class RuntimeService:
         self._last_activity_ms: dict[str, int] = {}
         self._fallback_history: dict[str, list[dict]] = {}
         self._watchdog_timeout_ms = int(watchdog_timeout_ms)
+        self._session_finished_callbacks: list = []
         self._initialize_recovery_state()
+
+    def add_session_finished_callback(self, callback) -> None:
+        if callback is None:
+            return
+        self._session_finished_callbacks.append(callback)
 
     async def start_runtime(self, session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
         existing = self._runtime_tasks.get(session_id)
@@ -147,6 +154,8 @@ class RuntimeService:
                 policy_mode,
             )
             self._session_service.finish_session(session_id)
+            for callback in list(self._session_finished_callbacks):
+                callback(session_id)
             self._status[session_id] = {"status": "finished"}
             self._touch_activity(session_id)
             log_event("runtime_finished", session_id=session_id)
@@ -315,9 +324,14 @@ class RuntimeService:
     def _ensure_gpt_import_path() -> None:
         root = Path(__file__).resolve().parents[4]
         gpt_dir = root / "GPT"
+        claude_dir = root / "CLAUDE"
         gpt_text = str(gpt_dir)
-        if gpt_text not in sys.path:
-            sys.path.insert(0, gpt_text)
+        if gpt_text in sys.path:
+            sys.path.remove(gpt_text)
+        sys.path.insert(0, gpt_text)
+        for name, module in list(sys.modules.items()):
+            if isinstance(module, ModuleType) and _module_belongs_to_root(module, claude_dir):
+                sys.modules.pop(name, None)
 
     def _initialize_recovery_state(self) -> None:
         try:
@@ -334,6 +348,22 @@ class RuntimeService:
                     "reason": "runtime_task_missing_after_restart",
                 },
             )
+
+
+def _module_belongs_to_root(module: ModuleType, root_dir: Path) -> bool:
+    module_file = getattr(module, "__file__", None)
+    if isinstance(module_file, str):
+        try:
+            return Path(module_file).resolve().is_relative_to(root_dir)
+        except OSError:
+            return False
+    module_path = getattr(module, "__path__", None)
+    if module_path is None:
+        return False
+    try:
+        return any(Path(entry).resolve().is_relative_to(root_dir) for entry in module_path)
+    except OSError:
+        return False
 
 
 class _ServerDecisionPolicyBridge:
@@ -999,6 +1029,7 @@ class _LocalHumanDecisionClient:
         if not human_seats:
             self.policy = None
             return
+        RuntimeService._ensure_gpt_import_path()
         from viewer.human_policy import HumanHttpPolicy
 
         self.policy = HumanHttpPolicy(

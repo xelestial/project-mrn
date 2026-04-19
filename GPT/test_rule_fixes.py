@@ -1,3 +1,7 @@
+from test_import_bootstrap import bootstrap_local_test_imports
+
+bootstrap_local_test_imports(__file__)
+
 import json
 import random
 import unittest
@@ -49,6 +53,12 @@ class DummyPolicy(BasePolicy):
     def choose_trick_tile_target(self, state, player, card_name, candidate_tiles, target_scope="any"):
         return candidate_tiles[0] if candidate_tiles else None
 
+    def choose_trick_redraw_card(self, state, player, hand, source):
+        return None
+
+    def choose_dice_card_value(self, state, player, candidates, source):
+        return candidates[0] if candidates else None
+
 
 class TargetPolicy(DummyPolicy):
     def __init__(self, target_name=None):
@@ -64,6 +74,35 @@ class PabalModePolicy(DummyPolicy):
 
     def choose_pabal_dice_mode(self, state, player):
         return self._mode
+
+
+class FixedDiceCardPolicy(DummyPolicy):
+    def __init__(self, picks):
+        self._picks = list(picks)
+
+    def choose_dice_card_value(self, state, player, candidates, source):
+        if not candidates:
+            return None
+        if not self._picks:
+            return candidates[0]
+        pick = self._picks.pop(0)
+        return pick if pick in candidates else candidates[0]
+
+
+class FixedTrickRedrawPolicy(DummyPolicy):
+    def __init__(self, deck_indexes):
+        self._deck_indexes = list(deck_indexes)
+
+    def choose_trick_redraw_card(self, state, player, hand, source):
+        if not self._deck_indexes:
+            return None
+        target = self._deck_indexes.pop(0)
+        if target is None:
+            return None
+        for card in hand:
+            if getattr(card, "deck_index", None) == target:
+                return card
+        return None
 
 
 class FixedRandom(random.Random):
@@ -144,12 +183,95 @@ class RuleFixTests(unittest.TestCase):
                 "cards_used": 0, "card_turns": 0, "single_card_turns": 0, "pair_card_turns": 0,
                 "lap_cash_choices": 0, "lap_coin_choices": 0, "lap_shard_choices": 0,
                 "coins_gained_own_tile": 0, "coins_placed": 0,
-                "character": "", "shards_gained_f": 0, "shards_gained_lap": 0,
+                "character": "", "shards_gained_f": 0, "shards_gained_lap": 0, "shard_income_cash": 0,
                 "draft_cards": [], "marked_target_names": [],
             }
             for _ in range(DEFAULT_CONFIG.player_count)
         ]
         return state
+
+    def test_fortune_lucky_day_draws_two_fortunes_on_s_tile(self):
+        engine = self.make_engine()
+        state = self.make_state(engine)
+        player = state.players[0]
+        player.position = first_special_position(state, CellKind.S)
+        state.current_weather_effects = {"운수 좋은 날"}
+        state.fortune_draw_pile = [
+            FortuneCard(deck_index=2, name="성과금", effect=""),
+            FortuneCard(deck_index=1, name="성과금", effect=""),
+        ]
+        player.shards = 2
+
+        result = engine._resolve_landing(state, player)
+
+        self.assertEqual(result["type"], "FORTUNE_CHAIN")
+        self.assertEqual(result["count"], 2)
+        self.assertEqual(len(result["cards"]), 2)
+        self.assertEqual(player.cash, DEFAULT_CONFIG.economy.starting_cash + 4)
+
+    def test_clear_warm_day_recovers_selected_used_dice_card(self):
+        engine = self.make_engine(policy=FixedDiceCardPolicy([4]))
+        state = self.make_state(engine)
+        player = state.players[0]
+        player.used_dice_cards = {2, 4}
+        state.marker_owner_id = player.player_id
+        state.marker_draft_clockwise = True
+        weather = type("Weather", (), {"name": "맑고 포근한 하루", "effect": ""})()
+        state.weather_draw_pile = [weather]
+
+        result = engine.effect_handlers.apply_round_weather(state)
+
+        self.assertEqual(result["type"], "WEATHER")
+        self.assertNotIn(4, player.used_dice_cards)
+        self.assertIn(2, player.used_dice_cards)
+
+    def test_pig_dream_recovers_selected_used_dice_cards(self):
+        engine = self.make_engine(policy=FixedDiceCardPolicy([5, 2]))
+        state = self.make_state(engine)
+        player = state.players[0]
+        player.used_dice_cards = {2, 4, 5}
+
+        result = engine._apply_fortune_card_impl(
+            state,
+            player,
+            FortuneCard(deck_index=999, name="돼지 꿈", effect=""),
+        )
+
+        self.assertEqual(result["type"], "GAIN_DICE_CARDS")
+        self.assertEqual(result["cards"], [5, 2])
+        self.assertEqual(player.used_dice_cards, {4})
+
+    def test_suspicious_drink_uses_single_die(self):
+        engine = self.make_engine(rng=FixedRandom([6]))
+        state = self.make_state(engine)
+        player = state.players[0]
+        player.position = 0
+
+        result = engine._apply_fortune_card_impl(
+            state,
+            player,
+            FortuneCard(deck_index=999, name="수상한 음료", effect=""),
+        )
+
+        self.assertEqual(result["type"], "ROLL_ARRIVAL")
+        self.assertEqual(result["dice"], [6])
+        self.assertEqual(result["move"], 6)
+
+    def test_trickster_day_can_discard_and_redraw_one_trick(self):
+        engine = self.make_engine(policy=FixedTrickRedrawPolicy([11]))
+        state = self.make_state(engine)
+        player = state.players[0]
+        original = [TrickCard(deck_index=11, name="기존 잔꾀", description=""), TrickCard(deck_index=12, name="보유 잔꾀", description="")]
+        player.trick_hand = list(original)
+        state.trick_draw_pile = [TrickCard(deck_index=99, name="새 잔꾀", description="")]
+
+        weather = type("Weather", (), {"name": "잔꾀 부리기", "effect": ""})()
+        state.weather_draw_pile = [weather]
+
+        result = engine.effect_handlers.apply_round_weather(state)
+
+        self.assertEqual(result["type"], "WEATHER")
+        self.assertEqual([card.deck_index for card in player.trick_hand], [12, 99])
 
     def test_eosa_blocks_only_other_muroe_skills_and_not_same_card_tamgwan(self):
         engine = self.make_engine(rng=FixedRandom([2, 3]))
@@ -1327,21 +1449,21 @@ class TrickSystemTests(unittest.TestCase):
         class BatchFlipPolicy(DummyPolicy):
             def choose_active_flip_card(self, state, player, flippable_cards):
                 del state, player, flippable_cards
-                return [0, 1]
+                return [1, 2]
 
         engine = self.make_engine(policy=BatchFlipPolicy())
         state = self.make_state(engine)
         state.pending_marker_flip_owner_id = 0
         state.marker_owner_id = 0
-        state.active_by_card = {0: CARD_TO_NAMES[0][0], 1: CARD_TO_NAMES[1][0]}
+        state.active_by_card = {1: CARD_TO_NAMES[1][0], 2: CARD_TO_NAMES[2][0]}
 
         result = engine.effect_handlers.handle_marker_flip(state)
 
         self.assertEqual(state.pending_marker_flip_owner_id, None)
         self.assertEqual(result["event"], "marker_flip_sequence")
-        self.assertEqual(result["cards"], [0, 1])
+        self.assertEqual(result["cards"], [1, 2])
         flip_rows = [row for row in engine._action_log if row.get("event") == "marker_flip"]
-        self.assertEqual([row.get("card_no") for row in flip_rows[-2:]], [0, 1])
+        self.assertEqual([row.get("card_no") for row in flip_rows[-2:]], [1, 2])
 
     def test_trick_phase_uses_only_one_card_per_turn(self):
         class FirstUsablePolicy(DummyPolicy):

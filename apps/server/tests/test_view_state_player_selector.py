@@ -491,6 +491,69 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
             ["어사", "자객", "추노꾼", "아전", "교리 감독관", "박수", "객주", "건설업자"],
         )
 
+    def test_player_view_state_keeps_character_hidden_until_turn_start(self) -> None:
+        messages = [
+            {
+                "type": "event",
+                "seq": 1,
+                "session_id": "s1",
+                "server_time_ms": 1,
+                "payload": {
+                    "event_type": "turn_end_snapshot",
+                    "snapshot": {
+                        "players": [
+                            {"player_id": 1, "display_name": "P1"},
+                            {"player_id": 2, "display_name": "P2"},
+                        ],
+                        "board": {"marker_owner_player_id": 1},
+                    },
+                },
+            },
+            {
+                "type": "event",
+                "seq": 2,
+                "session_id": "s1",
+                "server_time_ms": 2,
+                "payload": {
+                    "event_type": "decision_requested",
+                    "player_id": 1,
+                    "request_type": "final_character",
+                    "public_context": {"actor_name": "객주"},
+                },
+            },
+            {
+                "type": "prompt",
+                "seq": 3,
+                "session_id": "s1",
+                "server_time_ms": 3,
+                "payload": {
+                    "player_id": 1,
+                    "request_type": "final_character",
+                    "public_context": {"actor_name": "객주"},
+                },
+            },
+        ]
+
+        hidden_view = build_player_view_state(messages)
+        self.assertEqual([item["current_character_face"] for item in hidden_view["items"]], ["-", "-"])
+
+        messages.append(
+            {
+                "type": "event",
+                "seq": 4,
+                "session_id": "s1",
+                "server_time_ms": 4,
+                "payload": {
+                    "event_type": "turn_start",
+                    "acting_player_id": 1,
+                    "character": "객주",
+                },
+            }
+        )
+
+        revealed_view = build_player_view_state(messages)
+        self.assertEqual(revealed_view["items"][0]["current_character_face"], "객주")
+
 
 def _project_root():
     from pathlib import Path

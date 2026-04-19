@@ -71,6 +71,7 @@ from policy.environment_traits import (
     FORTUNE_BEAST_HEART_ID,
     FORTUNE_CUT_IN_LINE_ID,
     WEATHER_FATTENED_HORSES_ID,
+    WEATHER_FORTUNE_LUCKY_DAY_ID,
     WEATHER_HUNTING_SEASON_ID,
     WEATHER_LOVE_AND_FRIENDSHIP_ID,
     fortune_card_id_for_name,
@@ -161,6 +162,7 @@ class GameEngine:
         self._vis_step: int = 0
         self._vis_session_id: str = ""
         self._vis_buffer: list[tuple[str, str, int | None, dict[str, Any]]] | None = None
+        self._suppress_hidden_trick_selection: bool = False
         self.events = EventDispatcher()
         self.events.set_trace_hook(self._trace_semantic_event)
         self.rule_scripts = RuleScriptEngine(self, getattr(config, "rule_scripts_path", None))
@@ -329,7 +331,7 @@ class GameEngine:
         self.rng.shuffle(state.trick_draw_pile)
         self.rng.shuffle(state.weather_draw_pile)
         for p in state.players:
-            self._draw_tricks(state, p, 5)
+            self._draw_tricks(state, p, 5, sync_visibility=False)
         self._log({
             "event": "initial_public_tricks",
             "players": [
@@ -541,6 +543,9 @@ class GameEngine:
             return
         if any(c.deck_index == player.hidden_trick_deck_index for c in player.trick_hand):
             return
+        if self._suppress_hidden_trick_selection:
+            player.hidden_trick_deck_index = None
+            return
         chosen = None
         if hasattr(self.policy, "choose_hidden_trick_card"):
             chosen = self.policy.choose_hidden_trick_card(state, player, list(player.trick_hand))
@@ -558,6 +563,11 @@ class GameEngine:
             player.hidden_trick_deck_index = chosen.deck_index
             return
         player.hidden_trick_deck_index = self.rng.choice(player.trick_hand).deck_index
+
+    def _refresh_hidden_trick_slots(self, state: GameState) -> None:
+        for player in state.players:
+            if player.alive:
+                self._sync_trick_visibility(state, player)
 
     def _public_trick_snapshot(self, player: PlayerState) -> dict:
         return {
@@ -692,6 +702,7 @@ class GameEngine:
         state.tile_rent_modifiers_this_turn = {}
         state.current_weather = None
         state.current_weather_effects = set()
+        self._suppress_hidden_trick_selection = True
         self._resolve_marker_flip(state)
         alive_ids = [p.player_id + 1 for p in state.players if p.alive]
         self._emit_vis(
@@ -720,6 +731,8 @@ class GameEngine:
             active_by_card=dict(state.active_by_card),
         )
         self._run_draft(state)
+        self._suppress_hidden_trick_selection = False
+        self._refresh_hidden_trick_slots(state)
         alive = [p for p in state.players if p.alive]
         alive.sort(key=lambda p: (CHARACTERS[p.current_character].priority, p.player_id))
         state.current_round_order = [p.player_id for p in alive]
@@ -1828,7 +1841,16 @@ class GameEngine:
             if candidate != target_character or not isinstance(card_no, int):
                 continue
             return self._find_future_mark_target_holder_by_card_no(state, source, card_no)
-        return None
+        fallback_target = self._find_player_by_character(
+            state,
+            target_character,
+            exclude=source.player_id,
+            source_pid=source.player_id,
+            future_only=True,
+        )
+        if fallback_target is not None:
+            return fallback_target
+        return self._find_player_by_character(state, target_character, exclude=source.player_id)
 
     def _find_player_by_character(self, state: GameState, character_name: Optional[str], exclude: Optional[int] = None, source_pid: Optional[int] = None, future_only: bool = False) -> Optional[PlayerState]:
         if not character_name:
@@ -1850,7 +1872,7 @@ class GameEngine:
         return None
 
 
-    def _draw_tricks(self, state: GameState, player: PlayerState, count: int) -> list[TrickCard]:
+    def _draw_tricks(self, state: GameState, player: PlayerState, count: int, *, sync_visibility: bool = True) -> list[TrickCard]:
         drawn: list[TrickCard] = []
         for _ in range(count):
             if not state.trick_draw_pile:
@@ -1863,8 +1885,70 @@ class GameEngine:
             card = state.trick_draw_pile.pop()
             player.trick_hand.append(card)
             drawn.append(card)
-        self._sync_trick_visibility(state, player)
+        if sync_visibility:
+            self._sync_trick_visibility(state, player)
         return drawn
+
+    def _choose_trick_redraw_card(self, state: GameState, player: PlayerState, hand: list[TrickCard], source: str) -> TrickCard | None:
+        if not hand:
+            return None
+        chosen = self._request_decision(
+            "choose_trick_redraw_card",
+            state,
+            player,
+            list(hand),
+            source,
+            fallback=lambda: None,
+        )
+        if chosen is None:
+            return None
+        for card in hand:
+            if getattr(card, "deck_index", None) == getattr(chosen, "deck_index", None):
+                return card
+        return None
+
+    def _choose_dice_card_value(
+        self,
+        state: GameState,
+        player: PlayerState,
+        candidates: list[int],
+        source: str,
+    ) -> int | None:
+        legal = sorted({int(value) for value in candidates if isinstance(value, int)})
+        if not legal:
+            return None
+        chosen = self._request_decision(
+            "choose_dice_card_value",
+            state,
+            player,
+            list(legal),
+            source,
+            fallback=lambda: legal[0],
+        )
+        try:
+            selected = int(chosen)
+        except Exception:
+            return legal[0]
+        return selected if selected in legal else legal[0]
+
+    def _recover_dice_cards(
+        self,
+        state: GameState,
+        player: PlayerState,
+        count: int,
+        source: str,
+    ) -> list[int]:
+        recovered: list[int] = []
+        for _ in range(max(0, count)):
+            candidates = sorted(int(value) for value in player.used_dice_cards)
+            if not candidates:
+                break
+            selected = self._choose_dice_card_value(state, player, candidates, source)
+            if selected is None or selected not in player.used_dice_cards:
+                break
+            player.used_dice_cards.discard(selected)
+            recovered.append(selected)
+        return recovered
 
     def _remove_trick_from_hand(self, state: GameState, player: PlayerState, card: TrickCard) -> TrickCard | None:
         for i, held in enumerate(player.trick_hand):
@@ -2790,6 +2874,18 @@ class GameEngine:
         return sorted(owned, key=lambda pos: (self._distance_abs(player.position, pos), pos), reverse=not nearest)[0]
 
     def _resolve_fortune_tile(self, state: GameState, player: PlayerState) -> dict:
+        draw_count = 2 if has_weather_id(state.current_weather_effects, WEATHER_FORTUNE_LUCKY_DAY_ID) else 1
+        if draw_count > 1:
+            cards: list[dict[str, Any]] = []
+            resolutions: list[dict[str, Any]] = []
+            for _ in range(draw_count):
+                resolved = self._resolve_fortune_tile_single(state, player)
+                cards.append(dict(resolved["card"]))
+                resolutions.append(dict(resolved["resolution"]))
+            return {"type": "FORTUNE_CHAIN", "count": draw_count, "cards": cards, "resolutions": resolutions}
+        return self._resolve_fortune_tile_single(state, player)
+
+    def _resolve_fortune_tile_single(self, state: GameState, player: PlayerState) -> dict:
         result = self.events.emit_first_non_none("fortune.draw.resolve", state, player)
         if result is not None:
             return result
@@ -2853,7 +2949,15 @@ class GameEngine:
         if card_id == FORTUNE_DRUNK_RIDING_ID:
             return {"type": "BANK_PAY", **self._pay_or_bankrupt(state, player, 10, None)}
         if card_id == FORTUNE_SUBSCRIPTION_WIN_ID:
-            pos = self._select_empty_block_tile(state)
+            pos = self._request_decision(
+                "choose_trick_tile_target",
+                state,
+                player,
+                name,
+                list(self._empty_block_tile_candidates(state)),
+                "empty_block_purchase",
+                fallback=lambda: self._select_empty_block_tile(state),
+            )
             if pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_empty_block"}
             return {"type": "SUBSCRIPTION", "selection": pos, "purchase": self._try_purchase_tile(state, player, pos, state.board[pos])}
@@ -2864,11 +2968,28 @@ class GameEngine:
             return {"type": "LOSE_TILE", "transfer": self._transfer_tile(state, pos, None)}
         if card_id == FORTUNE_LAND_THIEF_ID:
             if self._is_muroe(player):
-                pos = self._select_owned_tile(state, player.player_id, highest=False)
+                own_candidates = self._owned_tile_candidates(state, player.player_id)
+                pos = self._request_decision(
+                    "choose_trick_tile_target",
+                    state,
+                    player,
+                    name,
+                    list(own_candidates),
+                    "own_tile_give_marker",
+                    fallback=lambda: self._select_owned_tile(state, player.player_id, highest=False),
+                )
                 if pos is None:
                     return {"type": "NO_EFFECT", "reason": "muroe_no_owned_tile"}
                 return {"type": "MUROE_GIVE_TILE", "transfer": self._transfer_tile(state, pos, state.marker_owner_id)}
-            pos = self._select_other_player_tile(state, player, highest=True)
+            pos = self._request_decision(
+                "choose_trick_tile_target",
+                state,
+                player,
+                name,
+                list(self._other_player_tile_candidates(state, player)),
+                "other_owned_tile_takeover",
+                fallback=lambda: self._select_other_player_tile(state, player, highest=True),
+            )
             if pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_other_tile"}
             tr = self._transfer_tile(state, pos, player.player_id)
@@ -2876,7 +2997,15 @@ class GameEngine:
                 return {"type": "NO_EFFECT", "reason": "monopoly_protected", "attempt": "steal_tile", "pos": pos}
             return {"type": "STEAL_TILE", "transfer": tr}
         if card_id == FORTUNE_DONATION_ANGEL_ID:
-            pos = self._select_owned_tile(state, player.player_id, highest=False)
+            pos = self._request_decision(
+                "choose_trick_tile_target",
+                state,
+                player,
+                name,
+                list(self._owned_tile_candidates(state, player.player_id)),
+                "own_tile_donation",
+                fallback=lambda: self._select_owned_tile(state, player.player_id, highest=False),
+            )
             if pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_owned_tile"}
             tr = self._transfer_tile(state, pos, state.marker_owner_id)
@@ -2886,7 +3015,7 @@ class GameEngine:
         if card_id == FORTUNE_PARTY_ID:
             return self._fortune_party(state, player, amount=2, reverse=self._is_muroe(player), name=name)
         if card_id == FORTUNE_SUSPICIOUS_DRINK_ID:
-            roll = self._roll_standard_move(state, player, explicit_dice_count=None)
+            roll = self._roll_standard_move(state, player, explicit_dice_count=1)
             return {"type": "ROLL_ARRIVAL", **roll, "arrival": self._apply_fortune_arrival(state, player, player.position + roll["move"], "suspicious_drink", name)}
         if card_id == FORTUNE_VERY_SUSPICIOUS_DRINK_ID:
             roll = self._roll_standard_move(state, player, explicit_dice_count=2)
@@ -2914,7 +3043,7 @@ class GameEngine:
         if card_id == FORTUNE_GOOD_FOR_OTHERS_ID:
             affected = 0
             for op in state.players:
-                if op.alive and op.player_id != player.player_id:
+                if op.alive and op.player_id != player.player_id and op.attribute != "무뢰":
                     op.cash += 4
                     affected += 1
             return {"type": "OTHERS_GAIN", "amount": 4, "affected_players": affected}
@@ -2934,8 +3063,24 @@ class GameEngine:
                     return {"type": "OTHERS_BANK_PAY", "failed_player": op.player_id + 1, "amount": 3 * mult}
             return {"type": "OTHERS_BANK_PAY", "amount": 3}
         if card_id == FORTUNE_IRRESISTIBLE_DEAL_ID:
-            own = self._select_owned_tile(state, player.player_id, highest=False)
-            other = self._select_other_player_tile(state, player, highest=True)
+            own = self._request_decision(
+                "choose_trick_tile_target",
+                state,
+                player,
+                name,
+                list(self._owned_tile_candidates(state, player.player_id)),
+                "trade_own_tile",
+                fallback=lambda: self._select_owned_tile(state, player.player_id, highest=False),
+            )
+            other = self._request_decision(
+                "choose_trick_tile_target",
+                state,
+                player,
+                name,
+                list(self._other_player_tile_candidates(state, player)),
+                "trade_other_tile",
+                fallback=lambda: self._select_other_player_tile(state, player, highest=True),
+            )
             if own is None or other is None:
                 return {"type": "NO_EFFECT", "reason": "missing_trade_target"}
             other_owner = state.tile_owner[other]
@@ -2952,7 +3097,15 @@ class GameEngine:
             return {"type": "FORCED_TRADE", "extra_payment": extra, "own_to_other": t1, "other_to_self": t2}
         if card_id == FORTUNE_PIOUS_MARKER_ID:
             if state.marker_owner_id == player.player_id:
-                pos = self._select_empty_block_tile(state)
+                pos = self._request_decision(
+                    "choose_trick_tile_target",
+                    state,
+                    player,
+                    name,
+                    list(self._empty_block_tile_candidates(state)),
+                    "marker_empty_block_gain",
+                    fallback=lambda: self._select_empty_block_tile(state),
+                )
                 if pos is None:
                     return {"type": "NO_EFFECT", "reason": "no_empty_block"}
                 state.tile_owner[pos] = player.player_id
@@ -2997,17 +3150,35 @@ class GameEngine:
             player.shards += 2
             return {"type": "METEOR", "f_delta": 2, "shards_delta": 2}
         if card_id == FORTUNE_PIG_DREAM_ID:
-            remaining = [v for v in self.config.rules.dice.values if v not in player.used_dice_cards]
-            gained = []
-            for _ in range(2):
-                if not remaining:
-                    break
-                pick = self.rng.choice(remaining)
-                remaining.remove(pick)
-                player.used_dice_cards.discard(pick)
-                gained.append(pick)
+            gained = self._recover_dice_cards(state, player, 2, "fortune_pig_dream")
             return {"type": "GAIN_DICE_CARDS", "cards": gained}
         return {"type": "UNIMPLEMENTED", "name": name}
+
+    def _empty_block_tile_candidates(self, state: GameState) -> list[int]:
+        candidates: list[int] = []
+        for idx, owner in enumerate(state.tile_owner):
+            if owner is not None:
+                continue
+            if state.board[idx] not in {CellKind.T2, CellKind.T3}:
+                continue
+            if state.block_ids[idx] <= 0:
+                continue
+            candidates.append(idx)
+        return candidates
+
+    def _owned_tile_candidates(self, state: GameState, owner_id: int) -> list[int]:
+        return [
+            idx
+            for idx, tile_owner in enumerate(state.tile_owner)
+            if tile_owner == owner_id and state.board[idx] in {CellKind.T2, CellKind.T3}
+        ]
+
+    def _other_player_tile_candidates(self, state: GameState, player: PlayerState) -> list[int]:
+        return [
+            idx
+            for idx, tile_owner in enumerate(state.tile_owner)
+            if tile_owner is not None and tile_owner != player.player_id and state.board[idx] in {CellKind.T2, CellKind.T3}
+        ]
 
     def _default_fortune_burden_cleanup(self, state: GameState, targets: list[PlayerState], multiplier: int, payout: bool, name: str) -> dict:
         affected = []

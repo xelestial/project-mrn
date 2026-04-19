@@ -8,3 +8,4 @@
 - 제외 카드 1장, 보조 4장, 역순 선택, 생존자만 최종 인물 선택이라는 특수 규칙을 고정한다.
 
 - 수정 규칙: 대응 소스 수정 시 이 문서도 함께 갱신한다.
+Bootstrap note: tests pin their own package directory on import so GPT and CLAUDE suites can run together without cross-package module reuse.

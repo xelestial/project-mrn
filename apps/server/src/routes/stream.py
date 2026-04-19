@@ -18,6 +18,59 @@ from apps.server.src.services.session_service import SessionNotFoundError, Sessi
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["stream"])
 
+_PRIVATE_DECISION_REQUEST_TYPES = {"draft_card", "final_character", "final_character_choice", "hidden_trick_card"}
+
+
+def _event_type(message: dict[str, Any]) -> str:
+    payload = message.get("payload")
+    if not isinstance(payload, dict):
+        return ""
+    value = payload.get("event_type")
+    return value.strip().lower() if isinstance(value, str) else ""
+
+
+def _request_type(payload: dict[str, Any]) -> str:
+    value = payload.get("request_type")
+    return value.strip().lower() if isinstance(value, str) else ""
+
+
+def _copy_message(message: dict[str, Any]) -> dict[str, Any]:
+    cloned = dict(message)
+    payload = cloned.get("payload")
+    cloned["payload"] = dict(payload) if isinstance(payload, dict) else {}
+    return cloned
+
+
+def _filter_stream_message(message: dict[str, Any], auth_ctx: dict[str, Any]) -> dict[str, Any] | None:
+    message_type = str(message.get("type", "")).strip().lower()
+    payload = message.get("payload")
+    payload = payload if isinstance(payload, dict) else {}
+    target_player_id = payload.get("player_id")
+    viewer_player_id = auth_ctx.get("player_id")
+    viewer_is_target = auth_ctx.get("role") == "seat" and target_player_id == viewer_player_id
+
+    if message_type in {"prompt", "decision_ack"}:
+        return _copy_message(message) if viewer_is_target else None
+
+    if message_type != "event":
+        return _copy_message(message)
+
+    event_type = _event_type(message)
+    request_type = _request_type(payload)
+    if event_type in {"decision_requested", "decision_resolved", "decision_timeout_fallback"} and request_type in _PRIVATE_DECISION_REQUEST_TYPES:
+        return _copy_message(message) if viewer_is_target else None
+
+    if event_type == "final_character_choice" and not viewer_is_target:
+        return None
+
+    if event_type == "draft_pick" and not viewer_is_target:
+        filtered = _copy_message(message)
+        filtered["payload"].pop("picked_card", None)
+        filtered["payload"].pop("choice_id", None)
+        return filtered
+
+    return _copy_message(message)
+
 
 @router.get("/{session_id}/stream-capability")
 def stream_capability(session_id: str) -> dict:
@@ -143,6 +196,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                     build_decision_resolved_payload(
                         request_id=pending.request_id,
                         player_id=pending.player_id,
+                        request_type=str(pending.payload.get("request_type") or ""),
                         resolution="timeout_fallback",
                         choice_id=fallback_result.get("choice_id"),
                         provider="human",
@@ -156,6 +210,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                     build_decision_timeout_fallback_payload(
                         request_id=pending.request_id,
                         player_id=pending.player_id,
+                        request_type=str(pending.payload.get("request_type") or ""),
                         fallback_policy=str(fallback_policy),
                         fallback_execution=fallback_result.get("status"),
                         fallback_choice_id=fallback_result.get("choice_id"),
@@ -192,15 +247,9 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                 message = await asyncio.wait_for(subscriber_queue.get(), timeout=sender_poll_timeout_sec)
             except asyncio.TimeoutError:
                 continue
-            message_type = str(message.get("type", "")).strip().lower()
-            payload = message.get("payload", {})
-            target_player_id = payload.get("player_id") if isinstance(payload, dict) else None
-            if message_type in {"prompt", "decision_ack"}:
-                if auth_ctx.get("role") != "seat":
-                    continue
-                if target_player_id != auth_ctx.get("player_id"):
-                    continue
-            await websocket.send_json(message)
+            filtered = _filter_stream_message(message, auth_ctx)
+            if filtered is not None:
+                await websocket.send_json(filtered)
 
     heart = asyncio.create_task(_heartbeat())
     sender = asyncio.create_task(_sender())
@@ -233,7 +282,9 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                     last_seq = oldest_seq - 1
                 replay = await stream_service.replay_from(session_id, last_seq)
                 for item in replay:
-                    await websocket.send_json(item.to_dict())
+                    filtered = _filter_stream_message(item.to_dict(), auth_ctx)
+                    if filtered is not None:
+                        await websocket.send_json(filtered)
                 log_event(
                     "stream_resume",
                     session_id=session_id,

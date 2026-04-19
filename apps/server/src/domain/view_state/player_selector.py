@@ -80,10 +80,6 @@ def _merge_prompt_context_active_by_card(target: dict[int, str], public_context:
     if not record:
         return
     _merge_active_by_card(target, record.get("active_by_card"))
-    actor_name = _string(record.get("actor_name"))
-    actor_slot = _priority_slot_for_character(actor_name)
-    if actor_slot is not None:
-        target[actor_slot] = actor_name
     target_pairs = record.get("target_pairs")
     if not isinstance(target_pairs, list):
         return
@@ -201,13 +197,10 @@ def _to_player_item(raw: dict[str, Any]) -> DerivedPlayerItemViewState | None:
 
 
 def _latest_actor_character(messages: list[dict[str, Any]]) -> str | None:
-    active_prompt = latest_active_prompt(messages)
-    if active_prompt:
-        actor_name = _string((_record(active_prompt.get("public_context")) or {}).get("actor_name"))
-        if actor_name:
-            return actor_name
     for message in reversed(messages):
         payload = _record(message.get("payload")) or {}
+        if _event_type(payload) != "turn_start":
+            continue
         actor_name = _string(payload.get("character", payload.get("actor_name")))
         if actor_name:
             return actor_name

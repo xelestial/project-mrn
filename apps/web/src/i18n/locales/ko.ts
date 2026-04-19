@@ -802,7 +802,7 @@ export const koLocale = {
       rollMode: "주사위 굴리기",
       cardMode: "주사위 카드 사용",
       cardGuide: (limit: number) => `사용할 주사위 카드를 선택하세요. 최대 ${limit}장까지 사용할 수 있습니다.`,
-      rollButton: "주사위 굴리기",
+      rollButton: "굴리기 확정",
       rollWithCardsButton: (cards: number[]) => `주사위 굴리기(주사위 카드 ${cards.join(", ")} 사용)`,
       selectCardsFirst: "주사위 카드를 먼저 선택하세요.",
     },

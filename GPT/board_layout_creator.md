@@ -16,3 +16,6 @@ Externalized board-level metadata includes:
 
 ### 0.7.61 structure-only board layout
 Board layout JSON/CSV may now omit `purchase_cost` and `rent_cost` and provide `economy_profile` instead. This keeps board layout structural while ruleset JSON remains numeric.
+
+### 0.7.62 path resolution
+Relative layout paths now fall back to the module directory so tests and tooling work even when the current working directory is the repository root.

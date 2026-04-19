@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import unittest
 
+from apps.server.src.routes.stream import _filter_stream_message
+
 try:
     from fastapi.testclient import TestClient
     from apps.server.src.app import app
@@ -532,6 +534,67 @@ class StreamApiTests(unittest.TestCase):
 
         event_types = [m.get("payload", {}).get("event_type") for m in replayed]
         self.assertEqual(event_types, ["decision_requested", "decision_resolved", "player_move"])
+
+    def test_filter_stream_message_hides_private_draft_details_from_other_viewers(self) -> None:
+        seat1_auth = {"role": "seat", "player_id": 1}
+        seat2_auth = {"role": "seat", "player_id": 2}
+        spectator_auth = {"role": "spectator", "player_id": None}
+
+        draft_requested = {
+            "type": "event",
+            "payload": {
+                "event_type": "decision_requested",
+                "player_id": 1,
+                "request_type": "draft_card",
+                "public_context": {"offered_names": ["객주", "박수", "자객"]},
+            },
+        }
+        draft_resolved = {
+            "type": "event",
+            "payload": {
+                "event_type": "decision_resolved",
+                "player_id": 1,
+                "request_type": "draft_card",
+                "choice_id": "7",
+            },
+        }
+        draft_pick = {
+            "type": "event",
+            "payload": {
+                "event_type": "draft_pick",
+                "player_id": 1,
+                "acting_player_id": 1,
+                "picked_card": 7,
+            },
+        }
+        final_choice = {
+            "type": "event",
+            "payload": {
+                "event_type": "final_character_choice",
+                "player_id": 1,
+                "acting_player_id": 1,
+                "character": "객주",
+            },
+        }
+
+        self.assertIsNotNone(_filter_stream_message(draft_requested, seat1_auth))
+        self.assertIsNone(_filter_stream_message(draft_requested, seat2_auth))
+        self.assertIsNone(_filter_stream_message(draft_requested, spectator_auth))
+
+        self.assertIsNotNone(_filter_stream_message(draft_resolved, seat1_auth))
+        self.assertIsNone(_filter_stream_message(draft_resolved, seat2_auth))
+        self.assertIsNone(_filter_stream_message(draft_resolved, spectator_auth))
+
+        filtered_seat2_draft = _filter_stream_message(draft_pick, seat2_auth)
+        filtered_spectator_draft = _filter_stream_message(draft_pick, spectator_auth)
+        self.assertIsNotNone(filtered_seat2_draft)
+        self.assertIsNotNone(filtered_spectator_draft)
+        self.assertNotIn("picked_card", filtered_seat2_draft["payload"])
+        self.assertNotIn("picked_card", filtered_spectator_draft["payload"])
+
+        self.assertIsNotNone(_filter_stream_message(final_choice, seat1_auth))
+        self.assertIsNone(_filter_stream_message(final_choice, seat2_auth))
+        self.assertIsNone(_filter_stream_message(final_choice, spectator_auth))
 
     def test_resume_replays_manifest_with_non_default_topology_and_seat_profile(self) -> None:
         from apps.server.src import state

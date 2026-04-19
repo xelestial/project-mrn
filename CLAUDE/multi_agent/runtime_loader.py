@@ -30,12 +30,19 @@ class LoadedPolicyRuntime:
 
         # Save current state
         saved_modules = {name: sys.modules.get(name) for name in self._modules}
+        saved_side_effects = {
+            name: module
+            for name, module in list(sys.modules.items())
+            if _is_side_effect_key(name) and name not in self._modules
+        }
         path_had = root_str in sys.path
         if path_had:
             sys.path.remove(root_str)
         sys.path.insert(0, root_str)
 
         # Inject
+        for name in saved_side_effects:
+            sys.modules.pop(name, None)
         for plain_name, module in self._modules.items():
             sys.modules[plain_name] = module
 
@@ -54,6 +61,8 @@ class LoadedPolicyRuntime:
                     sys.modules.pop(name, None)
                 else:
                     sys.modules[name] = original
+            for name, module in saved_side_effects.items():
+                sys.modules[name] = module
 
 
 _RUNTIME_CACHE: dict[tuple[str, str, tuple[str, ...]], LoadedPolicyRuntime] = {}

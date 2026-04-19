@@ -1,5 +1,7 @@
 type SeatType = "human" | "ai";
 
+let apiBaseUrl = "";
+
 export type SeatInput = {
   seat: number;
   seat_type: SeatType;
@@ -61,6 +63,7 @@ export type SeatPublic = {
   seat_type: SeatType;
   ai_profile?: string | null;
   player_id?: number | null;
+  display_name?: string | null;
   connected?: boolean;
 };
 
@@ -111,6 +114,84 @@ export type RuntimeStatusResult = {
   };
 };
 
+export type RoomSeatPublic = {
+  seat: number;
+  seat_type: SeatType;
+  ai_profile?: string | null;
+  player_id?: number | null;
+  nickname?: string | null;
+  ready?: boolean;
+  connected?: boolean | null;
+};
+
+export type PublicRoomResult = {
+  room_no: number;
+  room_title: string;
+  status: string;
+  host_seat: number;
+  session_id?: string | null;
+  created_at?: string;
+  started_at?: string | null;
+  human_joined_count: number;
+  human_total_count: number;
+  human_ready_count: number;
+  seats: RoomSeatPublic[];
+};
+
+export type CreateRoomResult = {
+  room: PublicRoomResult;
+  room_member_token: string;
+  seat: number;
+  nickname: string;
+};
+
+export type JoinRoomResult = {
+  room: PublicRoomResult;
+  room_member_token: string;
+  seat: number;
+  nickname: string;
+};
+
+export type ListRoomsResult = {
+  rooms: PublicRoomResult[];
+};
+
+export type StartRoomResult = {
+  room: PublicRoomResult;
+  session_id: string;
+  session_tokens: Record<string, string>;
+};
+
+export type ResumeRoomResult = PublicRoomResult & {
+  member_seat: number;
+  member_nickname: string;
+  session_token?: string;
+};
+
+export function normalizeServerBaseUrl(value: string | null | undefined): string {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) {
+    return "http://127.0.0.1:9090";
+  }
+  if (/^https?:\/\//i.test(raw)) {
+    return raw.replace(/\/+$/, "");
+  }
+  return `http://${raw}`.replace(/\/+$/, "");
+}
+
+export function setApiBaseUrl(value: string): void {
+  apiBaseUrl = normalizeServerBaseUrl(value);
+}
+
+export function getApiBaseUrl(): string {
+  return normalizeServerBaseUrl(apiBaseUrl);
+}
+
+function buildApiUrl(path: string): string {
+  const base = getApiBaseUrl();
+  return `${base}${path}`;
+}
+
 function extractErrorMessage(payload: ErrorEnvelope | null | undefined, status: number): string {
   const directMessage = payload?.error?.message;
   if (typeof directMessage === "string" && directMessage.trim()) {
@@ -134,7 +215,7 @@ function extractErrorMessage(payload: ErrorEnvelope | null | undefined, status: 
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(buildApiUrl(path), {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -200,4 +281,88 @@ export async function startSession(args: { sessionId: string; hostToken: string 
 
 export async function getRuntimeStatus(sessionId: string): Promise<RuntimeStatusResult> {
   return requestJson<RuntimeStatusResult>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/runtime-status`);
+}
+
+export async function createRoom(args: {
+  roomTitle: string;
+  hostSeat: number;
+  nickname: string;
+  seats: SeatInput[];
+  config?: Record<string, unknown>;
+}): Promise<CreateRoomResult> {
+  return requestJson<CreateRoomResult>("/api/v1/rooms", {
+    method: "POST",
+    body: JSON.stringify({
+      room_title: args.roomTitle,
+      host_seat: args.hostSeat,
+      nickname: args.nickname,
+      seats: args.seats,
+      config: args.config ?? {},
+    }),
+  });
+}
+
+export async function listRooms(): Promise<ListRoomsResult> {
+  return requestJson<ListRoomsResult>("/api/v1/rooms");
+}
+
+export async function getRoom(roomNo: number): Promise<PublicRoomResult> {
+  return requestJson<PublicRoomResult>(`/api/v1/rooms/${roomNo}`);
+}
+
+export async function joinRoom(args: {
+  roomNo: number;
+  seat: number;
+  nickname: string;
+}): Promise<JoinRoomResult> {
+  return requestJson<JoinRoomResult>(`/api/v1/rooms/${args.roomNo}/join`, {
+    method: "POST",
+    body: JSON.stringify({
+      seat: args.seat,
+      nickname: args.nickname,
+    }),
+  });
+}
+
+export async function setRoomReady(args: {
+  roomNo: number;
+  roomMemberToken: string;
+  ready: boolean;
+}): Promise<PublicRoomResult> {
+  return requestJson<PublicRoomResult>(`/api/v1/rooms/${args.roomNo}/ready`, {
+    method: "POST",
+    body: JSON.stringify({
+      room_member_token: args.roomMemberToken,
+      ready: args.ready,
+    }),
+  });
+}
+
+export async function leaveRoom(args: { roomNo: number; roomMemberToken: string }): Promise<PublicRoomResult> {
+  return requestJson<PublicRoomResult>(`/api/v1/rooms/${args.roomNo}/leave`, {
+    method: "POST",
+    body: JSON.stringify({
+      room_member_token: args.roomMemberToken,
+    }),
+  });
+}
+
+export async function resumeRoom(args: {
+  roomNo: number;
+  roomMemberToken: string;
+}): Promise<ResumeRoomResult> {
+  const params = new URLSearchParams({ room_member_token: args.roomMemberToken });
+  return requestJson<ResumeRoomResult>(`/api/v1/rooms/${args.roomNo}/resume?${params.toString()}`);
+}
+
+export async function startRoom(args: {
+  roomNo: number;
+  roomMemberToken: string;
+}): Promise<StartRoomResult> {
+  return requestJson<StartRoomResult>(`/api/v1/rooms/${args.roomNo}/start`, {
+    method: "POST",
+    body: JSON.stringify({
+      room_member_token: args.roomMemberToken,
+    }),
+  });
 }

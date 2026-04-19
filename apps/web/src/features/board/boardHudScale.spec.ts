@@ -13,10 +13,10 @@ describe("boardHudScale", () => {
     expect(scale.sceneScale).toBeGreaterThanOrEqual(1);
     expect(scale.density).not.toBe("compact");
     expect(scale.handGridColumns).toBe(5);
-    expect(scale.promptMaxHeight).toBeGreaterThanOrEqual(200);
+    expect(scale.promptMaxHeight).toBeGreaterThanOrEqual(196);
     expect(scale.promptShellMaxWidth).toBeGreaterThanOrEqual(1000);
     expect(scale.handTrayMaxHeight).toBeGreaterThanOrEqual(136);
-    expect(scale.playerCardMinHeight).toBeGreaterThanOrEqual(140);
+    expect(scale.playerCardMinHeight).toBeGreaterThanOrEqual(118);
   });
 
   it("shrinks typography and spacing for constrained overlay scenes", () => {

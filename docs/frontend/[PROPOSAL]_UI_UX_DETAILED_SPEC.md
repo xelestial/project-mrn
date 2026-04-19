@@ -1,9 +1,13 @@
 # [PROPOSAL] UI/UX 세부 상세 계획
 
-Status: PROPOSAL
-Updated: 2026-04-07
+Status: ARCHIVED_REFERENCE_ONLY
+Updated: 2026-04-15
 Author: Claude
 Scope: 실제 치수와 컴포넌트 동작이 명시된 구현 가능한 상세 사양
+
+Do not use as an execution source.
+Use:
+- `docs/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md`
 
 ---
 

@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from test_import_bootstrap import bootstrap_local_test_imports
+
+bootstrap_local_test_imports(__file__)
+
+
 import random
 import unittest
 
@@ -17,7 +22,7 @@ class _CoinLapPolicy(BasePolicy):
 
 class RuleInjectionTest(unittest.TestCase):
     def test_custom_lap_reward_rules_are_injected(self):
-        rules = GameRules(lap_reward=LapRewardRules(cash=9, coins=4, shards=7))
+        rules = GameRules(lap_reward=LapRewardRules(cash=9, coins=4, shards=7, points_budget=4, coins_point_cost=1))
         cfg = GameConfig(rules=rules)
         state = GameState.create(cfg)
         player = state.players[0]

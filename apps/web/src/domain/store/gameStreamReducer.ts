@@ -13,6 +13,8 @@ export type GameStreamAction =
   | { type: "message"; message: InboundMessage }
   | { type: "reset" };
 
+export const MAX_STREAM_MESSAGES = 400;
+
 export const initialGameStreamState: GameStreamState = {
   status: "idle",
   lastSeq: 0,
@@ -22,7 +24,7 @@ export const initialGameStreamState: GameStreamState = {
 };
 
 function withCappedMessages(messages: InboundMessage[]): InboundMessage[] {
-  return messages.length <= 400 ? messages : messages.slice(messages.length - 400);
+  return messages.length <= MAX_STREAM_MESSAGES ? messages : messages.slice(messages.length - MAX_STREAM_MESSAGES);
 }
 
 function extractManifestHash(message: InboundMessage): string | null {

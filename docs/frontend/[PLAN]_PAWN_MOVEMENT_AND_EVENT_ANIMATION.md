@@ -1,8 +1,11 @@
 # [PLAN] 말 이동 및 게임 이벤트 애니메이션 구현 계획
 
-Status: PLAN
-Date: 2026-04-07
+Status: CLOSED_MERGED
+Date: 2026-04-15
 Scope: BoardPanel.tsx, styles.css, App.tsx
+
+Merged into:
+- `docs/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md`
 
 ---
 

@@ -1,4 +1,9 @@
 from __future__ import annotations
+
+from test_import_bootstrap import bootstrap_local_test_imports
+
+bootstrap_local_test_imports(__file__)
+
 """multi_agent 패키지 통합 테스트."""
 
 import random

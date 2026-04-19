@@ -1,9 +1,13 @@
 # [PROPOSAL] UI/UX 처음부터 재설계
 
-Status: PROPOSAL
-Updated: 2026-04-07
+Status: ARCHIVED_REFERENCE_ONLY
+Updated: 2026-04-15
 Author: Claude
 Scope: 상용 보드게임 수준의 플레이 경험을 기준으로 한 전면 재설계안
+
+Do not use as an execution source.
+Use:
+- `docs/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md`
 
 ---
 

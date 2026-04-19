@@ -8,7 +8,7 @@
     5,
     6
   ],
-  "manifest_hash": "539043e0844554c3a5a1d96a15c55302d7869d669fa5fc615a034422bf4432be",
+  "manifest_hash": "365035b7570ecd6f569a0bbf2d4cb4906ece9654678c7b8df7139ab2bdb71235",
   "manifest_version": 1,
   "seat_limits": {
     "allowed": [
@@ -27,7 +27,7 @@
     "config": "9673810ca29d8ec25af560b183c8210a2e642fd6edcf85d9ed3c713943614f49",
     "fortune_cards": "465536fd3f0cd94ae45c42bfb11df9ba185d56c421a10b0e72decde6cc71190c",
     "ruleset": "236759d28f43e8893f0b0f99cb1d92fe395886aa4470aad7fdc29680d8c2a616",
-    "trick_cards": "28d2302f16edbde8b452256404c4a422720ea0e0dc4587b4d260946bfeb7060d",
+    "trick_cards": "d1c1dc7b18826a8146a7895dae87b9e36fa3b5e46d2fc91d29b54e0c9c3f6409",
     "weather_cards": "0e8e30c6540927d01d1388abf724794107f09ad103a25b08c176b035332b6310"
   }
 }

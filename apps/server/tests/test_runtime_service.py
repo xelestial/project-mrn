@@ -5,7 +5,10 @@ import socket
 import threading
 import time
 import unittest
+import warnings
 from unittest.mock import patch
+
+import pytest
 
 from apps.server.src.services.decision_gateway import (
     build_decision_invocation,
@@ -21,6 +24,25 @@ from apps.server.src.services.runtime_service import _LocalHumanDecisionClient
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
 from apps.server.src.services.prompt_service import PromptService
+
+
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:websockets\\.legacy is deprecated.*:DeprecationWarning"),
+    pytest.mark.filterwarnings(
+        "ignore:websockets\\.server\\.WebSocketServerProtocol is deprecated:DeprecationWarning"
+    ),
+]
+
+warnings.filterwarnings(
+    "ignore",
+    message="websockets\\.legacy is deprecated.*",
+    category=DeprecationWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message="websockets\\.server\\.WebSocketServerProtocol is deprecated",
+    category=DeprecationWarning,
+)
 
 
 class RuntimeServiceTests(unittest.TestCase):
@@ -1821,7 +1843,18 @@ class RuntimeServiceTests(unittest.TestCase):
 
     def test_http_external_transport_reaches_real_worker_over_localhost(self) -> None:
         try:
-            import uvicorn
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message="websockets\\.legacy is deprecated.*",
+                    category=DeprecationWarning,
+                )
+                warnings.filterwarnings(
+                    "ignore",
+                    message="websockets\\.server\\.WebSocketServerProtocol is deprecated",
+                    category=DeprecationWarning,
+                )
+                import uvicorn
         except ModuleNotFoundError:
             self.skipTest("uvicorn is not installed in this environment")
 
@@ -1899,7 +1932,18 @@ class RuntimeServiceTests(unittest.TestCase):
 
     def test_http_external_transport_reaches_real_priority_worker_over_localhost(self) -> None:
         try:
-            import uvicorn
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message="websockets\\.legacy is deprecated.*",
+                    category=DeprecationWarning,
+                )
+                warnings.filterwarnings(
+                    "ignore",
+                    message="websockets\\.server\\.WebSocketServerProtocol is deprecated",
+                    category=DeprecationWarning,
+                )
+                import uvicorn
         except ModuleNotFoundError:
             self.skipTest("uvicorn is not installed in this environment")
 

@@ -12,6 +12,12 @@ class SessionStore(Protocol):
     def save_sessions(self, sessions: list[dict]) -> None:
         ...
 
+    def load_room_state(self) -> dict:
+        ...
+
+    def save_room_state(self, state: dict[str, Any]) -> None:
+        ...
+
 
 class StreamStore(Protocol):
     def load_stream_state(self) -> dict[str, Any]:
@@ -37,6 +43,25 @@ class JsonFileSessionStore:
     def save_sessions(self, sessions: list[dict]) -> None:
         payload = self._read_json()
         payload["sessions"] = sessions
+        self._write_json(payload)
+
+    def load_room_state(self) -> dict:
+        payload = self._read_json()
+        room_state = payload.get("room_state")
+        if isinstance(room_state, dict):
+            return room_state
+        rooms = payload.get("rooms")
+        next_room_no = payload.get("next_room_no")
+        legacy: dict[str, Any] = {}
+        if isinstance(rooms, list):
+            legacy["rooms"] = rooms
+        if isinstance(next_room_no, int):
+            legacy["next_room_no"] = next_room_no
+        return legacy
+
+    def save_room_state(self, state: dict[str, Any]) -> None:
+        payload = self._read_json()
+        payload["room_state"] = state
         self._write_json(payload)
 
     def _read_json(self) -> dict:

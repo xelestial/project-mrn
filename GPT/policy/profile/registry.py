@@ -8,7 +8,11 @@ from policy.profile.spec import PolicyProfileSpec
 class PolicyProfileRegistry:
     def __init__(self, specs: Iterable[PolicyProfileSpec], default_profile_key: str = "balanced") -> None:
         self._specs: dict[str, PolicyProfileSpec] = {}
-        self._profile_aliases: dict[str, str] = {"heuristic_v1": default_profile_key}
+        self._profile_aliases: dict[str, str] = {
+            "heuristic_v1": default_profile_key,
+            "random": default_profile_key,
+            "arena": default_profile_key,
+        }
         self._character_mode_aliases: dict[str, str] = {"heuristic_v1": "heuristic_v1", "random": "random", "arena": "arena"}
         self._lap_mode_aliases: dict[str, str] = {
             "heuristic_v1": "heuristic_v1",

@@ -1,5 +1,8 @@
 # engine.py
 
+## 0.7.62 note
+Mark-target resolution now has a safe character-name fallback for test and tooling contexts where the public future-order view is not initialized.
+
 `GameEngine` orchestrates turns, emits semantic events, and builds `GameResult`.
 
 As of v0.7.51, the engine also attaches an event-bus trace layer so emitted

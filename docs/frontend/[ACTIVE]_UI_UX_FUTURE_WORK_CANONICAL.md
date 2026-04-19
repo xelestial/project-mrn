@@ -1,0 +1,305 @@
+# [ACTIVE] UI/UX Future Work Canonical
+
+Status: COMPLETED  
+Updated: 2026-04-16  
+Owner: Codex
+
+## Purpose
+
+This is the only frontend UI/UX execution document that should be used going forward.
+
+It merges and replaces the scattered open work that used to live across:
+
+- `docs/frontend/[ACTIVE]_UI_UX_PRIORITY_ONE_PAGE.md`
+- `docs/frontend/[PLAN]_BOARD_COORDINATE_SYSTEM_AND_HUD_LAYOUT_STABILIZATION.md`
+- `docs/frontend/[PLAN]_LIVE_PLAY_STATE_AND_DECISION_RECOVERY.md`
+- `docs/frontend/[PLAN]_PAWN_MOVEMENT_AND_EVENT_ANIMATION.md`
+- `docs/frontend/[REPORT]_UI_UX_VALIDATION_AND_COMMERCIAL_BENCHMARK_2026-04-15.md`
+
+Older proposal and report docs remain only as archived references.
+
+## How To Use This Doc
+
+Use this document for:
+
+- understanding what work was executed in the latest UI/UX stabilization pass
+- checking the completion baseline before adding new frontend UI work
+- avoiding reopening already-merged execution docs
+
+Do not reopen older UI/UX docs as execution sources unless this document explicitly tells you to.
+
+---
+
+## Current State
+
+The current frontend is no longer in “start from scratch” territory.
+
+What is already good enough to keep:
+
+- board-first composition is in place
+- the top player strip is compact enough for desktop play
+- the prompt shell is vertically tighter than before
+- hand tray and prompt overlap are much better controlled
+- current actor/local player emphasis exists
+
+What was completed in this pass:
+
+1. semantic color hierarchy across HUD, prompt, and player identity
+2. remaining layout ownership cleanup around board-owned overlay layout
+3. live-play correctness hardening for visible seat/player rendering during runtime startup
+4. event/result feed semantic styling and motion polish
+5. browser-based validation recovery with real 1920x1080 play verification through live prompts
+6. board landmark strengthening for tile-type readability
+7. choice-card hierarchy redesign with summary/detail separation
+8. result spotlight fallback so recent purchase/effect beats remain visible across prompt transitions
+
+Open scheduled items:
+
+- none
+
+---
+
+## Rules
+
+1. Do not restart the UI from zero.
+2. Keep the board as the visual hero.
+3. Prefer selector/contract fixes before CSS if the state shown is wrong.
+4. Reduce chrome before increasing panel size.
+5. Use semantic color roles, not arbitrary color variation.
+
+---
+
+## Execution Backlog
+
+### P0. Semantic Color Refactor
+
+Status: DONE (2026-04-15)
+
+Goal:
+- move from one navy-heavy UI to a commercial-style semantic palette while keeping the same dark overall mood
+
+Implement:
+- add semantic CSS tokens in `apps/web/src/styles.css`
+- split visual roles into:
+  - board/base surfaces
+  - decision/prompt surfaces
+  - economy success/danger accents
+  - stable player identity accents
+
+Minimum token set:
+- `--ui-surface-base`
+- `--ui-surface-raised`
+- `--ui-surface-board`
+- `--ui-accent-decision`
+- `--ui-accent-success`
+- `--ui-accent-danger`
+- `--ui-player-1`
+- `--ui-player-2`
+- `--ui-player-3`
+- `--ui-player-4`
+
+Definition of done:
+- prompt shell no longer reads like the same surface as the neutral HUD
+- player strip reads by seat color faster than by text
+- gain/loss/risk cues are understandable without reading every chip
+
+### P0. Prompt And Choice Hierarchy
+
+Status: DONE (2026-04-15)
+
+Goal:
+- make the prompt the warm, obvious action surface without making it larger again
+
+Implement:
+- keep the top timer bar as the primary prompt header signal
+- restyle prompt pills by semantic role
+- make the primary action button visually distinct from passive controls
+- keep effect text readable by reducing supporting chrome first
+
+Targets:
+- `apps/web/src/features/prompt/PromptOverlay.tsx`
+- `apps/web/src/styles.css`
+
+Definition of done:
+- the active decision area is visually dominant over neutral HUD panels
+- prompt chips have at least three readable semantic groups: neutral, active, gain/loss
+
+### P0. Player Strip Identity Upgrade
+
+Status: DONE (2026-04-15)
+
+Goal:
+- make player recognition color-led and peripheral-vision friendly
+
+Implement:
+- strengthen per-player accent rail or header tint
+- keep `나`, seat type, and marker ownership small but clear
+- let active/local states lean on player color before extra labels
+
+Targets:
+- `apps/web/src/App.tsx`
+- `apps/web/src/styles.css`
+
+Definition of done:
+- each seat is recognizable in under a second
+- the currently relevant player does not require reading every card
+
+### P1. Hand Tray Density Cleanup
+
+Status: DONE (2026-04-15)
+
+Goal:
+- fit long trick descriptions more reliably without growing the tray
+
+Implement:
+- remove one unnecessary chrome layer around the tray
+- keep card text top-aligned
+- shrink title/support copy before shrinking effect copy
+- tune line-height and padding before changing tray height
+
+Targets:
+- `apps/web/src/App.tsx`
+- `apps/web/src/features/prompt/PromptOverlay.tsx`
+- `apps/web/src/styles.css`
+
+Definition of done:
+- no common trick description is clipped at 1920x1080
+- tray remains within the board-safe bottom band
+
+### P1. Layout Ownership Cleanup
+
+Status: DONE (2026-04-15)
+
+Goal:
+- finish the remaining board/HUD anchoring cleanup so layout rules do not stay split across viewport guesses and board-owned values
+
+Implement:
+- move remaining prompt/tray/event-lane compensations out of `App.tsx`
+- consolidate safe-band ownership around board layout metadata
+
+Targets:
+- `apps/web/src/App.tsx`
+- board layout related styles and measurement hooks
+
+Definition of done:
+- prompt anchoring, public event lane placement, and tray bottom alignment are not controlled by scattered viewport magic numbers
+
+### P1. Live-Play Correctness And Selector Hardening
+
+Status: DONE (2026-04-15)
+
+Goal:
+- ensure UI improvements sit on truthful runtime state
+
+Implement:
+- finish legal purchase candidate handling
+- preserve correct arrival / purchase / follow-up order
+- keep spend/result timing truthful
+- ensure stable trick card identity through all relevant prompt flows
+- continue moving selector truth to backend-derived models where appropriate
+
+Primary areas:
+- `apps/server/src/services/decision_gateway.py`
+- `apps/web/src/domain/selectors/streamSelectors.ts`
+- `apps/web/src/domain/selectors/promptSelectors.ts`
+- `apps/web/src/features/prompt/PromptOverlay.tsx`
+
+Definition of done:
+- no duplicate-card ambiguity
+- no invalid purchase prompts
+- no visible “money changed before result resolved” confusion
+
+### P2. Event Feed And Outcome Semantics
+
+Status: DONE (2026-04-15)
+
+Goal:
+- make the turn narrative easier to scan without adding more clutter
+
+Implement:
+- add or refine a concise event/result feed
+- color-code gain/loss/risk outcomes
+- reserve large type for the dramatic beat, not for constant status
+
+Definition of done:
+- a spectator can understand the last important turn beat from one glance
+
+### P2. Pawn Movement And Event Animation
+
+Status: DONE (2026-04-15)
+
+Goal:
+- add motion polish only after layout and correctness work are stable
+
+Implement:
+- refine pawn path travel
+- align reveal/event timing with turn beats
+- keep animations readable rather than flashy
+
+Source material:
+- `docs/frontend/[PLAN]_PAWN_MOVEMENT_AND_EVENT_ANIMATION.md` is now reference-only
+
+Definition of done:
+- movement and outcome reveals add clarity instead of delaying decision readability
+
+### P2. Browser Visual Verification Recovery
+
+Status: DONE (2026-04-15)
+
+Goal:
+- restore true browser-based UI validation
+
+Current blocker:
+- local browser launch and MCP browser session stability are preventing reliable visual E2E verification
+
+Implement:
+- recover a stable browser runtime path
+- rerun 1920x1080 visual checks through 2-3 turns
+- verify prompt, tray, player strip, and board event readability in actual play
+
+Definition of done:
+- the latest UI pass is verified in a real browser, not only by CSS/code inspection
+
+---
+
+## Verification Baseline
+
+Latest completion pass included:
+
+1. `npm run test` in `apps/web`
+2. `npm run build` in `apps/web`
+3. real Playwright MCP verification at `1920x1080`
+4. live interaction through multiple prompt transitions
+5. post-fix browser console check with `0` errors
+
+---
+
+## Closed And Superseded Docs
+
+These docs should no longer be used as execution sources:
+
+- `docs/frontend/[ACTIVE]_UI_UX_PRIORITY_ONE_PAGE.md`
+- `docs/frontend/[PLAN]_BOARD_COORDINATE_SYSTEM_AND_HUD_LAYOUT_STABILIZATION.md`
+- `docs/frontend/[PLAN]_LIVE_PLAY_STATE_AND_DECISION_RECOVERY.md`
+- `docs/frontend/[PLAN]_PAWN_MOVEMENT_AND_EVENT_ANIMATION.md`
+- `docs/frontend/[REPORT]_UI_UX_VALIDATION_AND_COMMERCIAL_BENCHMARK_2026-04-15.md`
+
+These docs remain historical/reference only:
+
+- `docs/frontend/[PROPOSAL]_UI_UX_COMMERCIAL_REDESIGN.md`
+- `docs/frontend/[PROPOSAL]_UI_UX_DETAILED_SPEC.md`
+- `docs/frontend/[PROPOSAL]_UI_UX_ISSUE_FIX_PLAN.md`
+- `docs/frontend/[PROPOSAL]_UI_UX_REDESIGN_FROM_SCRATCH.md`
+- `docs/frontend/[REPORT]_LIVE_PLAY_UX_FINDINGS_2026-04-07.md`
+
+---
+
+## Success Criteria
+
+This canonical document can be considered complete when:
+
+1. color hierarchy is semantic and commercially readable
+2. prompt, tray, and player strip stay readable at 1920x1080
+3. remaining layout ownership drift is removed
+4. live-play prompt correctness issues are closed
+5. browser-based visual verification is running again

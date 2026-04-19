@@ -1,12 +1,30 @@
 # [WORKLOG] Implementation Journal
 
 Status: ACTIVE  
-Updated: 2026-04-07
+Updated: 2026-04-15
 
 ## Rules
 
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
+
+## 2026-04-15
+
+### Entry 010
+
+- Scope: GPT-only cleanup pass after excluding CLAUDE from the verification target.
+- Done:
+  - aligned GPT survival hard-blocking so only true expansion faces are vetoed, fixing `객주` draft/final-character regressions
+  - aligned `박수` shard checkpoints across survival guard and purchase exceptions (`5` online / `7` more stable)
+  - updated GPT regression fixtures for new `V2ProfileInputs` fields, real marker card ids, and rule-injection lap reward budgets
+  - removed `PytestReturnNotNoneWarning` noise from the legacy human-play/live-server/replay suites by wrapping error-list tests with assert-based pytest adapters
+  - deduplicated GPT/CLAUDE test-root bootstrapping through shared `test_import_bootstrap.py`
+  - suppressed third-party `uvicorn`/`websockets` deprecation warnings in the affected runtime-service integration tests
+- Validation:
+  - `./.venv/bin/python -m pytest GPT -q`
+  - `./.venv/bin/python -m pytest apps/server/tests -q`
+  - `cd apps/web && npm run test`
+  - `cd apps/web && npm run build`
 
 ## 2026-04-04
 
@@ -3768,6 +3786,30 @@ Updated: 2026-04-07
   - `.venv311/bin/python -m pytest GPT/test_rule_fixes.py -k 'selector_prompt or geo_bonus or coin_placement' -q`
   - `cd apps/web && npm run test -- src/domain/selectors/promptSelectors.spec.ts`
   - `cd apps/web && npm run build`
+
+## 2026-04-16 Room / Dedicated Server / Electron Client Architecture Plan
+
+- What changed:
+  - added the new cross-cutting architecture plan:
+    - `docs/engineering/[PLAN]_ROOM_SERVER_CLIENT_ELECTRON_ARCHITECTURE.md`
+  - the plan defines the next multiplayer product shape around:
+    - dedicated server and client separation
+    - room-first lifecycle above gameplay sessions
+    - room number monotonic allocation and active-room title uniqueness
+    - room-scoped auth / reconnection / token invalidation
+    - ready/start custom-lobby flow with AI seats always ready
+    - Electron standalone client packaging as the primary user-facing shell
+    - nickname assignment on room create/join, with nickname as the primary in-game player-card identity
+  - updated doc indexes so backend/frontend reading order now points to the new architecture plan
+- Why:
+  - the current session/bootstrap model is still optimized for local debugging and mixed host/join token flows rather than real human-vs-human multiplayer
+  - the next implementation phase needs one canonical design source before code changes begin across server, transport, lobby UX, and desktop packaging
+- API / contract impact:
+  - design-only in this step
+  - planned future public contract moves from raw session bootstrap toward:
+    - `server -> rooms -> room membership -> game session`
+- Validation:
+  - no code tests run
 
 ## 2026-04-10 Backend Selector Migration Phase 3.12 Prompt Surface Core Action Completion
 

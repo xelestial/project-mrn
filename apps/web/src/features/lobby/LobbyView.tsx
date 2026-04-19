@@ -1,273 +1,229 @@
-import { FormEvent, useState } from "react";
-import { type PublicSessionResult } from "../../infra/http/sessionApi";
-import { useI18n } from "../../i18n/useI18n";
+import { type PublicRoomResult } from "../../infra/http/sessionApi";
 
 export type LobbySeatType = "human" | "ai";
 
 type LobbyViewProps = {
   busy: boolean;
-  seedInput: string;
-  seatCountInput: string;
-  aiProfile: string;
+  locale: string;
+  serverBaseInput: string;
+  serverConnected: boolean;
+  roomTitleInput: string;
+  nicknameInput: string;
+  hostSeatInput: string;
   seatTypes: LobbySeatType[];
-  sessionInput: string;
-  hostTokenInput: string;
-  joinSeatInput: string;
-  joinSeatOptions: string[];
-  joinTokenInput: string;
-  displayNameInput: string;
-  tokenInput: string;
+  activeRoom: PublicRoomResult | null;
+  activeRoomSeat: number | null;
+  rooms: PublicRoomResult[];
   notice: string;
   error: string;
-  lastJoinTokens: Record<string, string>;
-  sessions: PublicSessionResult[];
-  onSeedInput: (value: string) => void;
-  onSeatCountInput: (value: string) => void;
-  onAiProfile: (value: string) => void;
+  onServerBaseInput: (value: string) => void;
+  onConnectServer: () => void;
+  onRoomTitleInput: (value: string) => void;
+  onNicknameInput: (value: string) => void;
+  onHostSeatInput: (value: string) => void;
   onSeatTypeChange: (index: number, value: LobbySeatType) => void;
-  onCreateCustomSession: () => void;
-  onCreateAndStartAi: () => void;
-  onQuickStartHumanVsAi: () => void;
-  onSessionInput: (value: string) => void;
-  onHostTokenInput: (value: string) => void;
-  onStartByHostToken: () => void;
-  onJoinSeatInput: (value: string) => void;
-  onJoinTokenInput: (value: string) => void;
-  onDisplayNameInput: (value: string) => void;
-  onJoinSeat: () => void;
-  onUseToken: (seat: string, token: string) => void;
-  onConnect: (event: FormEvent) => void;
-  onTokenInput: (value: string) => void;
-  onRefreshSessions: () => void;
-  onUseSession: (sessionId: string) => void;
+  onCreateRoom: () => void;
+  onRefreshRooms: () => void;
+  onJoinRoom: (roomNo: number, seat: number) => void;
+  onToggleReady: (ready: boolean) => void;
+  onStartRoom: () => void;
+  onLeaveRoom: () => void;
 };
+
+function isKoreanLocale(locale: string): boolean {
+  return locale.toLowerCase().startsWith("ko");
+}
 
 export function LobbyView({
   busy,
-  seedInput,
-  seatCountInput,
-  aiProfile,
+  locale,
+  serverBaseInput,
+  serverConnected,
+  roomTitleInput,
+  nicknameInput,
+  hostSeatInput,
   seatTypes,
-  sessionInput,
-  hostTokenInput,
-  joinSeatInput,
-  joinSeatOptions,
-  joinTokenInput,
-  displayNameInput,
-  tokenInput,
+  activeRoom,
+  activeRoomSeat,
+  rooms,
   notice,
   error,
-  lastJoinTokens,
-  sessions,
-  onSeedInput,
-  onSeatCountInput,
-  onAiProfile,
+  onServerBaseInput,
+  onConnectServer,
+  onRoomTitleInput,
+  onNicknameInput,
+  onHostSeatInput,
   onSeatTypeChange,
-  onCreateCustomSession,
-  onCreateAndStartAi,
-  onQuickStartHumanVsAi,
-  onSessionInput,
-  onHostTokenInput,
-  onStartByHostToken,
-  onJoinSeatInput,
-  onJoinTokenInput,
-  onDisplayNameInput,
-  onJoinSeat,
-  onUseToken,
-  onConnect,
-  onTokenInput,
-  onRefreshSessions,
-  onUseSession,
+  onCreateRoom,
+  onRefreshRooms,
+  onJoinRoom,
+  onToggleReady,
+  onStartRoom,
+  onLeaveRoom,
 }: LobbyViewProps) {
-  const { lobby } = useI18n();
-  const [collapsed, setCollapsed] = useState({
-    controls: false,
-    stream: true,
-    sessions: false,
-  });
+  const ko = isKoreanLocale(locale);
+  const activeSeat = activeRoom?.seats.find((seat) => seat.seat === activeRoomSeat) ?? null;
+  const canStart =
+    activeRoom?.status === "waiting" &&
+    activeRoomSeat === activeRoom?.host_seat &&
+    activeRoom.human_joined_count === activeRoom.human_total_count &&
+    activeRoom.human_ready_count === activeRoom.human_total_count;
 
   return (
-    <>
+    <div className="lobby-shell">
       <section className="panel">
         <div className="panel-head">
-          <h2>{lobby.controlsTitle}</h2>
-          <button
-            type="button"
-            className="route-tab"
-            onClick={() => setCollapsed((prev) => ({ ...prev, controls: !prev.controls }))}
-          >
-            {collapsed.controls ? lobby.expand : lobby.collapse}
-          </button>
+          <h2>{ko ? "서버 연결" : "Server Connection"}</h2>
         </div>
-        {collapsed.controls ? null : (
-          <div className="lobby-grid">
-            <div>
-              <h3>{lobby.createSessionTitle}</h3>
-              <p>{lobby.createSessionDescription}</p>
-              <label>
-                {lobby.fields.seed}
-                <input value={seedInput} onChange={(e) => onSeedInput(e.target.value)} />
-              </label>
-              <label>
-                {lobby.fields.seatCount}
-                <input value={seatCountInput} onChange={(e) => onSeatCountInput(e.target.value)} />
-              </label>
-              <label>
-                {lobby.fields.aiProfile}
-                <input value={aiProfile} onChange={(e) => onAiProfile(e.target.value)} />
-              </label>
-              <div className="seat-grid">
-                {seatTypes.map((seatType, idx) => (
-                  <label key={`seat-${idx + 1}`}>
-                    {lobby.values.seat(String(idx + 1))}
-                    <select
-                      value={seatType}
-                      onChange={(e) => onSeatTypeChange(idx, e.target.value === "human" ? "human" : "ai")}
-                    >
-                      <option value="human">{lobby.values.human}</option>
-                      <option value="ai">{lobby.values.ai}</option>
-                    </select>
-                  </label>
-                ))}
-              </div>
-              <div className="actions">
-                <button type="button" data-testid="quick-start-human-vs-ai" disabled={busy} onClick={onQuickStartHumanVsAi}>
-                  {lobby.buttons.quickStartHumanVsAi}
-                </button>
-                <button type="button" disabled={busy} onClick={onCreateCustomSession}>
-                  {lobby.buttons.createCustomSession}
-                </button>
-                <button type="button" disabled={busy} onClick={onCreateAndStartAi}>
-                  {lobby.buttons.createAndStartAi}
-                </button>
-              </div>
-            </div>
+        <div className="lobby-grid">
+          <label>
+            {ko ? "서버 주소" : "Server address"}
+            <input
+              value={serverBaseInput}
+              onChange={(event) => onServerBaseInput(event.target.value)}
+              placeholder={ko ? "예: http://127.0.0.1:9090" : "e.g. http://127.0.0.1:9090"}
+            />
+          </label>
+          <div className="actions">
+            <button type="button" disabled={busy} onClick={onConnectServer}>
+              {serverConnected ? (ko ? "다시 확인" : "Reconnect") : ko ? "연결" : "Connect"}
+            </button>
+            <button type="button" disabled={busy} onClick={onRefreshRooms}>
+              {ko ? "방 목록 새로고침" : "Refresh rooms"}
+            </button>
+          </div>
+        </div>
+        {notice ? <p className="notice ok">{notice}</p> : null}
+        {error ? <p className="notice err">{error}</p> : null}
+      </section>
 
-            <div>
-              <h3>{lobby.hostJoinTitle}</h3>
-              <p>{lobby.hostJoinDescription}</p>
-              <label>
-                {lobby.fields.sessionId}
-                <input value={sessionInput} onChange={(e) => onSessionInput(e.target.value)} placeholder={lobby.placeholders.sessionId} />
-              </label>
-              <label>
-                {lobby.fields.hostToken}
-                <input value={hostTokenInput} onChange={(e) => onHostTokenInput(e.target.value)} placeholder={lobby.placeholders.hostToken} />
-              </label>
-              <div className="actions">
-                <button type="button" disabled={busy} onClick={onStartByHostToken}>
-                  {lobby.buttons.startSession}
-                </button>
-              </div>
-              <label>
-                {lobby.fields.joinSeat}
-                <select value={joinSeatInput} onChange={(e) => onJoinSeatInput(e.target.value)}>
-                  {joinSeatOptions.map((seat) => (
-                    <option key={`seat-option-${seat}`} value={seat}>
-                      {lobby.values.seat(seat)}
-                    </option>
-                  ))}
+      <section className="panel">
+        <div className="panel-head">
+          <h2>{ko ? "방 만들기" : "Create Room"}</h2>
+        </div>
+        <div className="lobby-grid">
+          <label>
+            {ko ? "닉네임" : "Nickname"}
+            <input value={nicknameInput} onChange={(event) => onNicknameInput(event.target.value)} />
+          </label>
+          <label>
+            {ko ? "방 제목" : "Room title"}
+            <input value={roomTitleInput} onChange={(event) => onRoomTitleInput(event.target.value)} />
+          </label>
+          <label>
+            {ko ? "호스트 좌석" : "Host seat"}
+            <select value={hostSeatInput} onChange={(event) => onHostSeatInput(event.target.value)}>
+              {seatTypes.map((_, index) => (
+                <option key={`host-seat-${index + 1}`} value={String(index + 1)}>
+                  {ko ? `${index + 1}번 좌석` : `Seat ${index + 1}`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="seat-grid">
+            {seatTypes.map((seatType, index) => (
+              <label key={`seat-type-${index + 1}`}>
+                {ko ? `${index + 1}번 좌석` : `Seat ${index + 1}`}
+                <select
+                  value={seatType}
+                  onChange={(event) => onSeatTypeChange(index, event.target.value === "human" ? "human" : "ai")}
+                >
+                  <option value="human">{ko ? "사람" : "Human"}</option>
+                  <option value="ai">AI</option>
                 </select>
               </label>
-              <label>
-                {lobby.fields.joinToken}
-                <input value={joinTokenInput} onChange={(e) => onJoinTokenInput(e.target.value)} placeholder={lobby.placeholders.joinToken} />
-              </label>
-              <label>
-                {lobby.fields.displayName}
-                <input value={displayNameInput} onChange={(e) => onDisplayNameInput(e.target.value)} />
-              </label>
-              <div className="actions">
-                <button type="button" disabled={busy} onClick={onJoinSeat}>
-                  {lobby.buttons.joinAndConnect}
-                </button>
-              </div>
-              {Object.keys(lastJoinTokens).length > 0 ? (
-                <div className="token-list">
-                  <p className="mono">{lobby.labels.latestCreateTokens}</p>
-                  <div className="token-actions">
-                    {Object.entries(lastJoinTokens).map(([seat, value]) => (
-                      <button key={`token-${seat}`} type="button" onClick={() => onUseToken(seat, value)}>
-                        {lobby.buttons.useSeatToken(seat)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        )}
-      </section>
-
-      <section className="panel">
-        <div className="panel-head">
-          <h2>{lobby.streamTitle}</h2>
-          <button
-            type="button"
-            className="route-tab"
-            onClick={() => setCollapsed((prev) => ({ ...prev, stream: !prev.stream }))}
-          >
-            {collapsed.stream ? lobby.expand : lobby.collapse}
-          </button>
-        </div>
-        {collapsed.stream ? null : (
-          <>
-            <form onSubmit={onConnect} className="form">
-              <label>
-                {lobby.fields.sessionId}
-                <input value={sessionInput} onChange={(e) => onSessionInput(e.target.value)} placeholder={lobby.placeholders.sessionId} />
-              </label>
-              <label>
-                {lobby.fields.sessionToken}
-                <input
-                  value={tokenInput}
-                  onChange={(e) => onTokenInput(e.target.value)}
-                  placeholder={lobby.placeholders.sessionToken}
-                />
-              </label>
-              <div className="actions">
-                <button type="submit" disabled={busy}>
-                  {lobby.buttons.connect}
-                </button>
-                <button type="button" onClick={onRefreshSessions} disabled={busy}>
-                  {lobby.buttons.refreshSessions}
-                </button>
-              </div>
-            </form>
-            {notice ? <p className="notice ok">{notice}</p> : null}
-            {error ? <p className="notice err">{error}</p> : null}
-          </>
-        )}
-      </section>
-
-      <section className="panel">
-        <div className="panel-head">
-          <h2>{lobby.sessionListTitle(sessions.length)}</h2>
-          <button
-            type="button"
-            className="route-tab"
-            onClick={() => setCollapsed((prev) => ({ ...prev, sessions: !prev.sessions }))}
-          >
-            {collapsed.sessions ? lobby.expand : lobby.collapse}
-          </button>
-        </div>
-        {collapsed.sessions ? null : (
-          <div className="timeline">
-            {sessions.map((session) => (
-              <article key={session.session_id} className="timeline-item">
-                <strong>{session.session_id}</strong>
-                <span>{session.status}</span>
-                <small>
-                  R{session.round_index ?? 0} / T{session.turn_index ?? 0}
-                </small>
-                <button type="button" onClick={() => onUseSession(session.session_id)}>
-                  {lobby.buttons.useSession}
-                </button>
-              </article>
             ))}
           </div>
-        )}
+          <div className="actions">
+            <button type="button" disabled={busy || !serverConnected} onClick={onCreateRoom}>
+              {ko ? "방 만들기" : "Create room"}
+            </button>
+          </div>
+        </div>
       </section>
-    </>
+
+      <section className="panel">
+        <div className="panel-head">
+          <h2>{ko ? `공개 방 (${rooms.length})` : `Open Rooms (${rooms.length})`}</h2>
+        </div>
+        <div className="timeline">
+          {rooms.map((room) => (
+            <article key={`room-${room.room_no}`} className="timeline-item">
+              <strong>
+                #{room.room_no} · {room.room_title}
+              </strong>
+              <span>
+                {ko ? `사람 ${room.human_joined_count}/${room.human_total_count} · 준비 ${room.human_ready_count}` : `Humans ${room.human_joined_count}/${room.human_total_count} · Ready ${room.human_ready_count}`}
+              </span>
+              <small>{room.status}</small>
+              <div className="token-actions">
+                {room.seats
+                  .filter((seat) => seat.seat_type === "human" && seat.player_id == null)
+                  .map((seat) => (
+                    <button
+                      key={`room-${room.room_no}-seat-${seat.seat}`}
+                      type="button"
+                      disabled={busy || !serverConnected}
+                      onClick={() => onJoinRoom(room.room_no, seat.seat)}
+                    >
+                      {ko ? `${seat.seat}번 좌석 참가` : `Join seat ${seat.seat}`}
+                    </button>
+                  ))}
+              </div>
+            </article>
+          ))}
+          {rooms.length === 0 ? <p>{ko ? "열린 방이 없습니다." : "No rooms are open."}</p> : null}
+        </div>
+      </section>
+
+      {activeRoom ? (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>
+              {ko ? "현재 방" : "Current Room"} #{activeRoom.room_no} · {activeRoom.room_title}
+            </h2>
+          </div>
+          <div className="timeline">
+            {activeRoom.seats.map((seat) => {
+              const isMine = activeRoomSeat === seat.seat;
+              const seatStatus =
+                seat.seat_type === "ai"
+                  ? "AI"
+                  : seat.player_id == null
+                    ? ko ? "빈 좌석" : "Open"
+                    : seat.ready
+                      ? ko ? "준비 완료" : "Ready"
+                      : ko ? "대기 중" : "Waiting";
+              return (
+                <article key={`active-room-seat-${seat.seat}`} className="timeline-item">
+                  <strong>
+                    {ko ? `${seat.seat}번 좌석` : `Seat ${seat.seat}`} · {seat.nickname ?? (seat.seat_type === "ai" ? "AI" : ko ? "미참가" : "Open")}
+                  </strong>
+                  <span>{seat.seat_type === "ai" ? "AI" : ko ? "사람" : "Human"}</span>
+                  <small>{isMine ? (ko ? "내 좌석" : "My seat") : seatStatus}</small>
+                </article>
+              );
+            })}
+          </div>
+          <div className="actions">
+            {activeSeat && activeSeat.seat_type === "human" ? (
+              <button
+                type="button"
+                disabled={busy || activeRoom.status !== "waiting"}
+                onClick={() => onToggleReady(!(activeSeat.ready === true))}
+              >
+                {activeSeat.ready ? (ko ? "준비 해제" : "Unready") : ko ? "준비" : "Ready"}
+              </button>
+            ) : null}
+            <button type="button" disabled={busy || !canStart} onClick={onStartRoom}>
+              {ko ? "게임 시작" : "Start game"}
+            </button>
+            <button type="button" disabled={busy || activeRoom.status !== "waiting"} onClick={onLeaveRoom}>
+              {ko ? "방 나가기" : "Leave room"}
+            </button>
+          </div>
+        </section>
+      ) : null}
+    </div>
   );
 }

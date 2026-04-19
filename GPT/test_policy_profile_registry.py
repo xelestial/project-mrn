@@ -1,3 +1,7 @@
+from test_import_bootstrap import bootstrap_local_test_imports
+
+bootstrap_local_test_imports(__file__)
+
 from ai_policy import ArenaPolicy, HeuristicPolicy
 from policy.profile.presets import DEFAULT_PROFILE_REGISTRY
 

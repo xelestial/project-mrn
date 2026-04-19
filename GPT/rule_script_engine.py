@@ -27,6 +27,8 @@ class RuleScriptEngine:
 
     def _load(self, path: str) -> dict[str, list[dict[str, Any]]]:
         p = Path(path)
+        if not p.is_absolute() and not p.exists():
+            p = Path(__file__).resolve().parent / p
         if not p.exists():
             return {}
         data = json.loads(p.read_text(encoding="utf-8"))

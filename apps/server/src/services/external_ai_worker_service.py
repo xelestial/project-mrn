@@ -2,15 +2,37 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import ModuleType
 from typing import Any
+
+
+def _module_belongs_to_root(module: ModuleType, root_dir: Path) -> bool:
+    module_file = getattr(module, "__file__", None)
+    if isinstance(module_file, str):
+        try:
+            return Path(module_file).resolve().is_relative_to(root_dir)
+        except OSError:
+            return False
+    module_path = getattr(module, "__path__", None)
+    if module_path is None:
+        return False
+    try:
+        return any(Path(entry).resolve().is_relative_to(root_dir) for entry in module_path)
+    except OSError:
+        return False
 
 
 def _ensure_gpt_import_path() -> None:
     root = Path(__file__).resolve().parents[4]
     gpt_dir = root / "GPT"
+    claude_dir = root / "CLAUDE"
     gpt_text = str(gpt_dir)
-    if gpt_text not in sys.path:
-        sys.path.insert(0, gpt_text)
+    if gpt_text in sys.path:
+        sys.path.remove(gpt_text)
+    sys.path.insert(0, gpt_text)
+    for name, module in list(sys.modules.items()):
+        if isinstance(module, ModuleType) and _module_belongs_to_root(module, claude_dir):
+            sys.modules.pop(name, None)
 
 
 def _as_int(value: Any) -> int | None:
@@ -118,6 +140,7 @@ class ReferenceHeuristicDecisionAdapter:
         "trick_to_use",
         "purchase_tile",
         "hidden_trick_card",
+        "trick_redraw_card",
         "mark_target",
         "coin_placement",
         "geo_bonus",
@@ -126,6 +149,7 @@ class ReferenceHeuristicDecisionAdapter:
         "specific_trick_reward",
         "burden_exchange",
         "pabal_dice_mode",
+        "dice_card_value",
     ]
     capabilities = [
         "choice_id_response",
@@ -169,6 +193,11 @@ class ReferenceHeuristicDecisionAdapter:
         if request_type in {"draft_card", "final_character", "hidden_trick_card", "trick_to_use"}:
             return _best_scored_usable_non_secondary_choice_id(by_id, ids) or _first_usable_non_secondary_choice_id(by_id, ids)
 
+        if request_type == "trick_redraw_card":
+            if "none" in by_id:
+                return "none"
+            return _best_scored_usable_non_secondary_choice_id(by_id, ids) or _first_usable_non_secondary_choice_id(by_id, ids)
+
         if request_type == "purchase_tile":
             cost = _as_int(public_context.get("cost")) or _as_int(public_context.get("tile_purchase_cost")) or 0
             cash = _as_int(public_context.get("player_cash")) or 0
@@ -201,6 +230,12 @@ class ReferenceHeuristicDecisionAdapter:
                 return "plus_one"
             if "minus_one" in by_id:
                 return "minus_one"
+            return _first_non_secondary_choice_id(by_id, ids)
+
+        if request_type == "dice_card_value":
+            scored = _best_scored_usable_non_secondary_choice_id(by_id, ids)
+            if scored is not None:
+                return scored
             return _first_non_secondary_choice_id(by_id, ids)
 
         if request_type == "burden_exchange":

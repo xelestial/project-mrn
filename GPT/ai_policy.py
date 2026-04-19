@@ -501,22 +501,31 @@ class BasePolicy:
                     survival += 0.25
                     reasons.append("control_endgame_lock")
             elif buy_value > 0.0 and character_name in self._GROWTH_NAMES:
-                expansion += 0.45 + 0.20 * buy_value
-                economy += 0.20
+                expansion += 0.80 + 0.30 * buy_value
+                economy += 0.30
                 if is_matchmaker(character_name):
-                    expansion += 0.22 + 0.10 * self._matchmaker_adjacent_value(state, player)
+                    expansion += 0.28 + 0.12 * self._matchmaker_adjacent_value(state, player)
                 elif is_builder(character_name):
-                    expansion += 0.18 + 0.12 * self._builder_free_purchase_value(state, player)
+                    expansion += 0.24 + 0.15 * self._builder_free_purchase_value(state, player)
                 reasons.append("control_keeps_pace")
+            elif character_name in {CARD_TO_NAMES[2][0], CARD_TO_NAMES[3][0]}:
+                disruption -= 1.05
+                survival -= 0.15
+                reasons.append("control_deprioritizes_raw_denial")
+            if is_bandit(character_name) and has_marks and top_threat and top_threat.player_id != player.player_id:
+                profit_mark_window = max(0.0, min(6.0, float(top_threat.cash) / 4.0) + 0.35 * float(top_threat.tiles_owned))
+                disruption += 0.55 + 0.20 * profit_mark_window
+                economy += 0.20 + 0.12 * profit_mark_window
+                reasons.append("control_profit_mark_window")
             if finisher_window > 0.0:
                 if character_name in self._GROWTH_NAMES:
-                    expansion += 0.85 + 0.35 * finisher_window + 0.18 * buy_value
-                    economy += 0.35 + 0.18 * finisher_window
-                    combo += 0.18 * finisher_window
+                    expansion += 1.00 + 0.42 * finisher_window + 0.22 * buy_value
+                    economy += 0.42 + 0.20 * finisher_window
+                    combo += 0.22 * finisher_window
                     reasons.append(f"control_finisher_window={finisher_reason}")
-                if character_name in {CARD_TO_NAMES[2][0], CARD_TO_NAMES[2][1], CARD_TO_NAMES[3][0]}:
-                    disruption -= 0.45 + 0.15 * finisher_window
-                    survival -= 0.10 * finisher_window
+                if character_name in {CARD_TO_NAMES[2][0], CARD_TO_NAMES[3][0]}:
+                    disruption -= 0.70 + 0.22 * finisher_window
+                    survival -= 0.12 * finisher_window
                     reasons.append("control_finisher_avoids_redundant_denial")
         if profile == "aggressive":
             if character_name in {CARD_TO_NAMES[7][1], CARD_TO_NAMES[8][0], CARD_TO_NAMES[8][1], CARD_TO_NAMES[3][0], CARD_TO_NAMES[2][0]}:
@@ -2881,8 +2890,8 @@ class HeuristicPolicy(BasePolicy):
         worst_cleanup_cost = float(survival_ctx.get("worst_cleanup_cost", 0.0))
         active_cleanup_cost = float(survival_ctx.get("active_cleanup_cost", 0.0))
         money_distress = float(survival_ctx.get("money_distress", 0.0))
-        baksu_online = is_baksu(player.current_character) and player.shards >= 6
-        baksu_stable = is_baksu(player.current_character) and player.shards >= 8
+        baksu_online = is_baksu(player.current_character) and player.shards >= 5
+        baksu_stable = is_baksu(player.current_character) and player.shards >= 7
         if baksu_online:
             own_burdens = max(0.0, own_burdens - (2.0 if baksu_stable else 1.0))
             latent_cleanup_cost *= 0.55 if baksu_stable else 0.72
@@ -2922,7 +2931,7 @@ class HeuristicPolicy(BasePolicy):
                 return "cleanup_downside_floor"
         if latent_cleanup_cost >= max(8.0, reserve + 3.0) and remaining_cash < reserve + 3.0:
             return "latent_cleanup_floor"
-        distress_buffer = reserve + (1.5 if (is_baksu(player.current_character) and player.shards >= 8) else 2.5 if (is_baksu(player.current_character) and player.shards >= 6) else 4.0)
+        distress_buffer = reserve + (1.5 if (is_baksu(player.current_character) and player.shards >= 7) else 2.5 if (is_baksu(player.current_character) and player.shards >= 5) else 4.0)
         if (money_distress >= 1.0 or two_turn_lethal_prob >= 0.18) and remaining_cash < distress_buffer:
             return "distress_operating_floor"
         if worst_cleanup_cost >= max(16.0, reserve + 6.0) and remaining_cash < reserve + 5.0:
@@ -2983,7 +2992,7 @@ class HeuristicPolicy(BasePolicy):
         swindle_floor = self._reachable_swindle_floor(state, player) if is_swindler(character_name) else None
         advice = evaluate_character_survival_advice(
             state=orchestrator,
-            is_growth=bool(character_name and character_name in self._GROWTH_NAMES),
+            is_growth=is_growth_character(character_name),
             is_income=is_low_cash_income_character(character_name) or is_low_cash_escape_character(character_name),
             is_controller=is_low_cash_controller_character(character_name),
             is_cleanup=is_cleanup_character(character_name),

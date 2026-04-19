@@ -1,8 +1,11 @@
 # [PLAN] Board Coordinate System And HUD Layout Stabilization
 
-Status: ACTIVE  
-Updated: 2026-04-10  
+Status: CLOSED_MERGED  
+Updated: 2026-04-15  
 Owner: Codex
+
+Merged into:
+- `docs/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md`
 
 ## Purpose
 

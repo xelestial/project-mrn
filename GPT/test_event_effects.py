@@ -1,3 +1,7 @@
+from test_import_bootstrap import bootstrap_local_test_imports
+
+bootstrap_local_test_imports(__file__)
+
 import unittest
 import re
 from pathlib import Path
@@ -179,12 +183,12 @@ class EventEffectIntegrationTests(unittest.TestCase):
         result = self.engine._apply_fortune_card(self.state, self.player, card)
         self.assertEqual(result['type'], 'CUSTOM_FORTUNE')
 
-    def test_good_thing_fortune_always_gives_other_players_four_cash(self):
+    def test_good_thing_fortune_skips_muroe_players(self):
         actor = self.state.players[0]
         actor.current_character = "산적"
         actor.cash = 20
         self.state.players[1].cash = 5
-        self.state.players[1].current_character = "객주"
+        self.state.players[1].current_character = "산적"
         self.state.players[2].cash = 7
         self.state.players[2].current_character = "교리 감독관"
         self.state.players[3].cash = 9
@@ -198,9 +202,9 @@ class EventEffectIntegrationTests(unittest.TestCase):
 
         self.assertEqual(result["type"], "OTHERS_GAIN")
         self.assertEqual(result["amount"], 4)
-        self.assertEqual(result["affected_players"], 3)
+        self.assertEqual(result["affected_players"], 2)
         self.assertEqual(actor.cash, 20)
-        self.assertEqual(self.state.players[1].cash, 9)
+        self.assertEqual(self.state.players[1].cash, 5)
         self.assertEqual(self.state.players[2].cash, 11)
         self.assertEqual(self.state.players[3].cash, 13)
 

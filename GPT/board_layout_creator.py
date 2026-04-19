@@ -22,6 +22,19 @@ class BoardLayoutLoadError(ValueError):
     pass
 
 
+_MODULE_DIR = Path(__file__).resolve().parent
+
+
+def _resolve_layout_path(path: str | Path) -> Path:
+    candidate = Path(path)
+    if candidate.is_absolute() or candidate.exists():
+        return candidate
+    fallback = _MODULE_DIR / candidate
+    if fallback.exists():
+        return fallback
+    return candidate
+
+
 def _parse_kind(raw: str) -> CellKind:
     try:
         return KIND_NAME_MAP[raw.strip().upper()]
@@ -58,19 +71,19 @@ def build_board_config_from_rows(tile_rows: Iterable[dict], *, layout_metadata: 
 
 
 def load_layout_metadata_json(path: str | Path) -> dict:
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    payload = json.loads(_resolve_layout_path(path).read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise BoardLayoutLoadError("Board layout metadata JSON must be an object")
     return payload
 
 
 def _default_sidecar_metadata_path(csv_path: str | Path) -> Path:
-    csv_path = Path(csv_path)
+    csv_path = _resolve_layout_path(csv_path)
     return csv_path.with_name(f"{csv_path.stem}_meta.json")
 
 
 def load_board_config_from_json(path: str | Path) -> BoardConfig:
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    payload = json.loads(_resolve_layout_path(path).read_text(encoding="utf-8"))
     if not isinstance(payload, dict) or "tiles" not in payload:
         raise BoardLayoutLoadError("JSON board layout must be an object with a 'tiles' field")
     if not isinstance(payload["tiles"], list):
@@ -79,11 +92,12 @@ def load_board_config_from_json(path: str | Path) -> BoardConfig:
 
 
 def load_board_config_from_csv(path: str | Path, *, metadata_path: str | Path | None = None) -> BoardConfig:
-    with Path(path).open("r", encoding="utf-8", newline="") as f:
+    resolved_path = _resolve_layout_path(path)
+    with resolved_path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
     layout_metadata = None
-    resolved_meta = Path(metadata_path) if metadata_path else _default_sidecar_metadata_path(path)
+    resolved_meta = _resolve_layout_path(metadata_path) if metadata_path else _default_sidecar_metadata_path(resolved_path)
     if resolved_meta.exists():
         layout_metadata = load_layout_metadata_json(resolved_meta)
     return build_board_config_from_rows(rows, layout_metadata=layout_metadata)

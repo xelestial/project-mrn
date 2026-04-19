@@ -233,6 +233,8 @@ def score_character_v2(policy: Any, state: Any, player: Any, character_name: str
                 leader_is_solo=leader_is_solo,
                 leader_near_end=leader_near_end,
                 top_threat_present=top_threat is not None,
+                top_threat_tiles_owned=int(getattr(top_threat, "tiles_owned", 0) or 0),
+                top_threat_cash=int(getattr(top_threat, "cash", 0) or 0),
                 leader_pressure=leader_pressure,
                 buy_value=buy_value,
                 finisher_window=finisher_window,

@@ -1,5 +1,7 @@
 # test_rule_fixes.py
 
+Recent rule-fix coverage includes mark bookkeeping and control-profile scoring expectations around disruption vs growth follow-up windows.
+
 룰 수정 회귀 테스트 문서.
 
 ## 2026-03-27 수정
@@ -37,3 +39,4 @@ Rule tests cover purchase-time token placement max 1, takeover coin transfer, an
 - 최신 변경: `중매꾼`은 인접 추가 매입 시에만 조각 1개가 필요하다. `건설업자`는 기본 착지 매입에서 조각 1개를 내면 무료 건설을 하며, 조각이 없으면 일반 비용을 낸다.
 
 - 2026-03-26: cleanup risk tests now cover next-draw vs full-cycle probability tracking and end-turn probabilistic cleanup pressure.
+Bootstrap note: tests pin their own package directory on import so GPT and CLAUDE suites can run together without cross-package module reuse.

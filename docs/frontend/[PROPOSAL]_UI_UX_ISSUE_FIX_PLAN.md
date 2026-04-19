@@ -1,9 +1,13 @@
 # [PROPOSAL] UI/UX 즉시 수정 계획
 
-Status: PROPOSAL
-Updated: 2026-04-07
+Status: ARCHIVED_REFERENCE_ONLY
+Updated: 2026-04-15
 Author: Claude
 Scope: apps/web — 현재 구현 기준 즉시 수정 가능한 문제들
+
+Do not use as an execution source.
+Use:
+- `docs/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md`
 
 ---
 

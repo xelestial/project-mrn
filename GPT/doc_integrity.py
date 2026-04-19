@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterable
 
 DOC_MTIME_EPSILON_SECONDS = 1.0
+_MODULE_DIR = Path(__file__).resolve().parent
 
 SOURCE_DOC_PAIRS = {
     "ai_policy.py": "ai_policy.md",
@@ -49,7 +50,7 @@ class IntegrityItem:
 
 
 def iter_integrity_items(root: str | Path = ".") -> list[IntegrityItem]:
-    root = Path(root)
+    root = _MODULE_DIR if str(root) == "." else Path(root)
     items: list[IntegrityItem] = []
     for source_name, doc_name in SOURCE_DOC_PAIRS.items():
         src = root / source_name

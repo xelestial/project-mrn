@@ -20,3 +20,4 @@
 Default config assertions now cover lap reward values 5/3/3 and purchase-time token placement enablement.
 
 - Added summary reliability coverage for missing final characters, null numeric fields, and character-choice-count based aggregation.
+Bootstrap note: tests pin their own package directory on import so GPT and CLAUDE suites can run together without cross-package module reuse.

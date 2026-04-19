@@ -114,6 +114,8 @@ class V2ProfileInputs:
     leader_is_solo: bool
     leader_near_end: bool
     top_threat_present: bool
+    top_threat_tiles_owned: int
+    top_threat_cash: int
     leader_pressure: float
     buy_value: float
     finisher_window: float
@@ -514,22 +516,34 @@ def evaluate_v2_profile_rules(
                 survival += 0.25
                 reasons.append("control_endgame_lock")
         elif inputs.buy_value > 0.0 and character_name in {MATCHMAKER, BUILDER, SWINDLER, INNKEEPER, RUNNER}:
-            expansion += 0.45 + 0.20 * inputs.buy_value
-            economy += 0.20
+            expansion += 0.80 + 0.30 * inputs.buy_value
+            economy += 0.30
             if character_name == MATCHMAKER:
-                expansion += 0.22 + 0.10 * inputs.matchmaker_adjacent_value
+                expansion += 0.28 + 0.12 * inputs.matchmaker_adjacent_value
             elif character_name == BUILDER:
-                expansion += 0.18 + 0.12 * inputs.builder_free_purchase_value
+                expansion += 0.24 + 0.15 * inputs.builder_free_purchase_value
             reasons.append("control_keeps_pace")
+        elif character_name in {ASSASSIN, TRACKER}:
+            disruption -= 1.05
+            survival -= 0.15
+            reasons.append("control_deprioritizes_raw_denial")
+        if character_name == BANDIT and inputs.has_marks and inputs.top_threat_present:
+            profit_window = max(
+                0.0,
+                min(6.0, float(inputs.top_threat_cash) / 4.0) + 0.35 * float(inputs.top_threat_tiles_owned),
+            )
+            disruption += 0.55 + 0.20 * profit_window
+            economy += 0.20 + 0.12 * profit_window
+            reasons.append("control_profit_mark_window")
         if inputs.finisher_window > 0.0:
             if character_name in {MATCHMAKER, BUILDER, SWINDLER, INNKEEPER, RUNNER}:
-                expansion += 0.85 + 0.35 * inputs.finisher_window + 0.18 * inputs.buy_value
-                economy += 0.35 + 0.18 * inputs.finisher_window
-                combo += 0.18 * inputs.finisher_window
+                expansion += 1.00 + 0.42 * inputs.finisher_window + 0.22 * inputs.buy_value
+                economy += 0.42 + 0.20 * inputs.finisher_window
+                combo += 0.22 * inputs.finisher_window
                 reasons.append(f"control_finisher_window={inputs.finisher_reason}")
-            if character_name in {ASSASSIN, BANDIT, TRACKER}:
-                disruption -= 0.45 + 0.15 * inputs.finisher_window
-                survival -= 0.10 * inputs.finisher_window
+            if character_name in {ASSASSIN, TRACKER}:
+                disruption -= 0.70 + 0.22 * inputs.finisher_window
+                survival -= 0.12 * inputs.finisher_window
                 reasons.append("control_finisher_avoids_redundant_denial")
 
     if inputs.profile == "aggressive":

@@ -1,8 +1,11 @@
 # [PLAN] Live Play State And Decision Recovery
 
-Status: ACTIVE  
-Updated: 2026-04-09  
+Status: CLOSED_MERGED  
+Updated: 2026-04-15  
 Owner: Codex
+
+Merged into:
+- `docs/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md`
 
 ## Purpose
 

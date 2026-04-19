@@ -36,6 +36,7 @@ class StreamService:
         queue_size: int = 256,
         stream_store: StreamStore | None = None,
         max_persisted_sessions: int = 200,
+        player_name_resolver=None,
     ) -> None:
         self._max_buffer = max_buffer
         self._queue_size = queue_size
@@ -46,11 +47,13 @@ class StreamService:
         self._drop_counts: dict[str, int] = defaultdict(int)
         self._lock = asyncio.Lock()
         self._stream_store = stream_store
+        self._player_name_resolver = player_name_resolver
         self._load_from_store()
 
     async def publish(self, session_id: str, msg_type: str, payload: dict) -> StreamMessage:
         async with self._lock:
             enriched_payload = dict(payload)
+            self._inject_display_names(session_id, enriched_payload)
             history = [item.to_dict() for item in self._buffers.get(session_id, [])]
             projected = project_view_state(
                 [
@@ -223,3 +226,31 @@ class StreamService:
             reverse=True,
         )
         return set(ordered[: self._max_persisted_sessions])
+
+    def _inject_display_names(self, session_id: str, payload: dict) -> None:
+        if self._player_name_resolver is None:
+            return
+        try:
+            names = dict(self._player_name_resolver(session_id) or {})
+        except Exception:
+            return
+        if not names:
+            return
+        self._apply_names_to_player_list(payload.get("players"), names)
+        snapshot = payload.get("snapshot")
+        if isinstance(snapshot, dict):
+            self._apply_names_to_player_list(snapshot.get("players"), names)
+
+    @staticmethod
+    def _apply_names_to_player_list(players: object, names: dict[int, str]) -> None:
+        if not isinstance(players, list):
+            return
+        for item in players:
+            if not isinstance(item, dict):
+                continue
+            player_id = item.get("player_id")
+            if not isinstance(player_id, int):
+                continue
+            display_name = names.get(player_id)
+            if display_name:
+                item["display_name"] = display_name

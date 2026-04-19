@@ -1,5 +1,7 @@
 # test_rule_fixes.py
 
+Recent rule-fix coverage includes mark bookkeeping and control-profile scoring expectations around disruption vs growth follow-up windows.
+
 룰 수정 회귀 테스트 문서.
 
 ## 이번 갱신
@@ -39,3 +41,6 @@ Rule tests cover purchase-time token placement max 1, takeover coin transfer, an
 - 어사/탐관오리는 같은 카드이므로 동시 존재 가정 테스트를 두지 않는다.
 
 - 탐관오리 공납 회귀 테스트는 탐관오리 자신의 조각 5개일 때 2냥 공납과 추가 주사위를 확인한다.
+Bootstrap note: tests pin their own package directory on import so GPT and CLAUDE suites can run together without cross-package module reuse.
+
+- 2026-04-15 sync: marker flip batch regression now uses real card ids (`1`, `2`) instead of the removed zero-based card placeholder.

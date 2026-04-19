@@ -6,15 +6,13 @@ Read in this order:
 
 1. `docs/1_READ_FIRST_GAME_STABILIZATION_AND_RUNTIME_GUIDE.md`
 2. `docs/engineering/1_HUMAN_GAME_PIPELINES_AND_RUNTIME_REFERENCE.md`
-3. `docs/frontend/[ACTIVE]_UI_UX_PRIORITY_ONE_PAGE.md`
-4. `docs/frontend/[PLAN]_BOARD_COORDINATE_SYSTEM_AND_HUD_LAYOUT_STABILIZATION.md`
-5. `docs/frontend/[PLAN]_LIVE_PLAY_STATE_AND_DECISION_RECOVERY.md`
+3. `docs/engineering/[PLAN]_ROOM_SERVER_CLIENT_ELECTRON_ARCHITECTURE.md`
+4. `docs/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md`
 
 Notes:
 
 - frontend rendering should increasingly depend on backend selector output
-- proposal and report docs are historical references only
-- do not reopen older proposal docs as execution source unless the active guide explicitly points to them
+- old frontend UI/UX plan, proposal, and report docs are closed or reference-only unless the canonical document explicitly points back to them
 - session bootstrap should prefer session payload + selector metadata over localized text inference
 - browser runtime regressions are checked by the GitHub Actions workflow `frontend-browser-runtime-tests`
 

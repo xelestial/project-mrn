@@ -8,6 +8,19 @@ from typing import Any
 from game_rules import DiceRules, EconomyRules, EndConditionRules, ForceSaleRules, GameRules, LapRewardRules, ResourceRules, SpecialTileRules, TakeoverRules, TokenRules
 
 
+_MODULE_DIR = Path(__file__).resolve().parent
+
+
+def _resolve_ruleset_path(path: str | Path) -> Path:
+    candidate = Path(path)
+    if candidate.is_absolute() or candidate.exists():
+        return candidate
+    fallback = _MODULE_DIR / candidate
+    if fallback.exists():
+        return fallback
+    return candidate
+
+
 def _pick(raw: dict[str, Any], *keys: str, default: Any = None) -> Any:
     for key in keys:
         if key in raw:
@@ -97,7 +110,7 @@ def rules_from_dict(raw: dict[str, Any] | None) -> GameRules:
 def load_ruleset(path: str | None) -> GameRules | None:
     if not path:
         return None
-    p = Path(path)
+    p = _resolve_ruleset_path(path)
     if not p.exists():
         return None
     data = json.loads(p.read_text(encoding='utf-8'))
@@ -121,5 +134,5 @@ def rules_to_dict(rules: GameRules) -> dict[str, Any]:
 
 
 def save_ruleset(path: str | Path, rules: GameRules) -> None:
-    p = Path(path)
+    p = _resolve_ruleset_path(path)
     p.write_text(json.dumps(rules_to_dict(rules), ensure_ascii=False, indent=2), encoding='utf-8')

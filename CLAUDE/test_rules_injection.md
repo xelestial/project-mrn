@@ -17,3 +17,4 @@ The test suite checks both explicit injection behavior and legacy field synchron
 
 ## 0.7.60 note
 Coverage now includes stage 3 sync checks for economy/resources/dice/special-tile rule injection.
+Bootstrap note: tests pin their own package directory on import so GPT and CLAUDE suites can run together without cross-package module reuse.

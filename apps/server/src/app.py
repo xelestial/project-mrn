@@ -4,19 +4,29 @@ import json
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.routes.health import router as health_router
 from apps.server.src.routes.prompts import router as prompts_router
+from apps.server.src.routes.rooms import router as rooms_router
 from apps.server.src.routes.sessions import router as sessions_router
 from apps.server.src.routes.stream import router as stream_router
 
 app = FastAPI(title="MRN Online Game Server", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(health_router)
 app.include_router(sessions_router)
+app.include_router(rooms_router)
 app.include_router(stream_router)
 app.include_router(prompts_router)
 

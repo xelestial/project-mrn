@@ -1,17 +1,19 @@
 import type { ConnectionStatus, InboundMessage, OutboundMessage } from "../../core/contracts/stream";
 
 export class StreamClient {
+  private baseUrl = "";
   private socket: WebSocket | null = null;
   private onMessageHandlers: Array<(message: InboundMessage) => void> = [];
   private onStatusHandlers: Array<(status: ConnectionStatus) => void> = [];
   private reconnectTimer: number | null = null;
   private reconnectAttempt = 0;
   private closedByUser = false;
-  private lastConnectParams: { sessionId: string; token?: string; onOpenResumeSeq?: number } | null = null;
+  private lastConnectParams: { sessionId: string; token?: string; onOpenResumeSeq?: number; baseUrl?: string } | null = null;
 
-  connect(params: { sessionId: string; token?: string; onOpenResumeSeq?: number }): void {
+  connect(params: { sessionId: string; token?: string; onOpenResumeSeq?: number; baseUrl?: string }): void {
     this.closedByUser = false;
     this.lastConnectParams = params;
+    this.baseUrl = params.baseUrl ?? this.baseUrl;
     this.clearReconnectTimer();
     if (this.socket) {
       this.socket.onclose = null;
@@ -22,9 +24,7 @@ export class StreamClient {
     }
     this.emitStatus("connecting");
     const tokenQuery = params.token ? `?token=${encodeURIComponent(params.token)}` : "";
-    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const host = window.location.host;
-    const url = `${protocol}://${host}/api/v1/sessions/${encodeURIComponent(params.sessionId)}/stream${tokenQuery}`;
+    const url = this.buildSocketUrl(params.sessionId, tokenQuery);
     this.socket = new WebSocket(url);
 
     this.socket.onopen = () => {
@@ -118,5 +118,19 @@ export class StreamClient {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+  }
+
+  private buildSocketUrl(sessionId: string, tokenQuery: string): string {
+    const fallbackOrigin =
+      typeof window !== "undefined" &&
+      typeof window.location?.origin === "string" &&
+      window.location.origin.trim()
+        ? window.location.origin
+        : "http://127.0.0.1:9090";
+    const rawBase = (this.baseUrl || fallbackOrigin).trim();
+    const normalizedBase = rawBase.replace(/\/+$/, "");
+    const base = /^https?:\/\//i.test(normalizedBase) ? normalizedBase : `http://${normalizedBase}`;
+    const wsBase = base.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:");
+    return `${wsBase}/api/v1/sessions/${encodeURIComponent(sessionId)}/stream${tokenQuery}`;
   }
 }
