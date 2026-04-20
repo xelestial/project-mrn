@@ -457,7 +457,8 @@ export function App() {
   const eventFeedSpotlightItem = latestCurrentTurnReveal ?? fallbackRevealSpotlight;
   const eventFeedHistoryItems = currentTurnRevealItems.slice(0, -1);
 
-  const currentActorId = selectCurrentActorPlayerId(stream.messages);
+  const currentActorId =
+    turnStage.currentBeatEventCode === "game_end" ? null : selectCurrentActorPlayerId(stream.messages);
   const markerOwnerPlayerId = snapshot?.markerOwnerPlayerId ?? null;
   const isMyTurn = currentActorId !== null && effectivePlayerId !== null && currentActorId === effectivePlayerId;
   const actorLabel = currentActorId !== null ? `P${currentActorId}` : turnStage.actor;
@@ -666,7 +667,12 @@ export function App() {
   const visiblePrompt = activePrompt ?? null;
   const visiblePromptLabel = activePromptLabel;
   const boardTurnOverlay =
-    visiblePrompt && visiblePrompt.requestType
+    turnStage.currentBeatEventCode === "game_end"
+      ? {
+          text: turnStage.currentBeatLabel,
+          detail: hasReadableValue(turnStage.currentBeatDetail) ? turnStage.currentBeatDetail : turnStage.currentBeatLabel,
+        }
+      : visiblePrompt && visiblePrompt.requestType
       ? {
           text: promptProgressText(visiblePrompt.requestType, visiblePromptLabel, locale),
           detail: visiblePromptLabel && visiblePromptLabel !== "-" ? visiblePromptLabel : boardTurnOverlayDetail,
@@ -677,6 +683,19 @@ export function App() {
             detail: boardTurnOverlayDetail,
           }
         : null;
+  const gameEndSpotlight =
+    turnStage.currentBeatEventCode === "game_end"
+      ? {
+          seq: Number.MAX_SAFE_INTEGER,
+          eventCode: "game_end",
+          label: turnStage.currentBeatLabel,
+          detail: hasReadableValue(turnStage.currentBeatDetail) ? turnStage.currentBeatDetail : turnStage.currentBeatLabel,
+          tone: eventToneForEventCode("game_end"),
+          focusTileIndex: null,
+          isInterrupt: true,
+        }
+      : null;
+  const effectiveEventFeedSpotlightItem = gameEndSpotlight ?? eventFeedSpotlightItem;
   const effectiveTurnBanner =
     turnBanner?.variant === "turn" && (visiblePrompt || passivePrompt || waitingForMyPrompt)
       ? null
@@ -2184,19 +2203,19 @@ export function App() {
                                 <strong>{locale === "ko" ? "공개 이벤트" : "Public events"}</strong>
                                 <span>{locale === "ko" ? "이번 턴 흐름" : "This turn flow"}</span>
                               </div>
-                              {eventFeedSpotlightItem ? (
+                              {effectiveEventFeedSpotlightItem ? (
                                 <article
-                                  className={`match-table-event-spotlight match-table-event-spotlight-${eventFeedSpotlightItem.tone}`}
-                                  data-testid={`board-event-spotlight-${eventFeedSpotlightItem.eventCode}`}
-                                  data-event-tone={eventFeedSpotlightItem.tone}
-                                  data-event-seq={eventFeedSpotlightItem.seq}
+                                  className={`match-table-event-spotlight match-table-event-spotlight-${effectiveEventFeedSpotlightItem.tone}`}
+                                  data-testid={`board-event-spotlight-${effectiveEventFeedSpotlightItem.eventCode}`}
+                                  data-event-tone={effectiveEventFeedSpotlightItem.tone}
+                                  data-event-seq={effectiveEventFeedSpotlightItem.seq}
                                 >
                                   <div className="match-table-event-meta">
-                                    <span className={`match-table-event-tone match-table-event-tone-${eventFeedSpotlightItem.tone}`}>
+                                    <span className={`match-table-event-tone match-table-event-tone-${effectiveEventFeedSpotlightItem.tone}`}>
                                       <span className="match-table-event-icon" aria-hidden="true">
-                                        {eventToneIcon(eventFeedSpotlightItem.tone)}
+                                        {eventToneIcon(effectiveEventFeedSpotlightItem.tone)}
                                       </span>
-                                      <span>{eventToneLabel(eventFeedSpotlightItem.tone, locale)}</span>
+                                      <span>{eventToneLabel(effectiveEventFeedSpotlightItem.tone, locale)}</span>
                                     </span>
                                     <span className="match-table-event-live-badge">
                                       {latestCurrentTurnReveal
@@ -2210,15 +2229,15 @@ export function App() {
                                   </div>
                                   <strong
                                     className="match-table-event-spotlight-title"
-                                    data-testid={`board-event-spotlight-title-${eventFeedSpotlightItem.eventCode}`}
+                                    data-testid={`board-event-spotlight-title-${effectiveEventFeedSpotlightItem.eventCode}`}
                                   >
-                                    {eventFeedSpotlightItem.label}
+                                    {effectiveEventFeedSpotlightItem.label}
                                   </strong>
                                   <p
                                     className="match-table-event-spotlight-detail"
-                                    data-testid={`board-event-spotlight-detail-${eventFeedSpotlightItem.eventCode}`}
+                                    data-testid={`board-event-spotlight-detail-${effectiveEventFeedSpotlightItem.eventCode}`}
                                   >
-                                    {eventFeedSpotlightItem.detail}
+                                    {effectiveEventFeedSpotlightItem.detail}
                                   </p>
                                 </article>
                               ) : null}

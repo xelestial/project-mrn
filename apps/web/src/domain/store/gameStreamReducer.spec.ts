@@ -39,6 +39,205 @@ describe("gameStreamReducer", () => {
     expect(state.messages.map((m) => m.seq)).toEqual([1, 2]);
   });
 
+  it("fast-forwards across seat-private sequence gaps when a newer projected prompt arrives", () => {
+    let state = initialGameStreamState;
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: { type: "heartbeat", seq: 19, session_id: "s1", payload: {} },
+    });
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: { event_type: "session_created", view_state: {} },
+      },
+    });
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "event",
+        seq: 12,
+        session_id: "s1",
+        payload: { event_type: "weather_reveal", view_state: {} },
+      },
+    });
+    expect(state.lastSeq).toBe(12);
+    expect(state.messages.map((message) => message.seq)).toEqual([1, 12]);
+
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "event",
+        seq: 17,
+        session_id: "s1",
+        payload: { event_type: "draft_pick", view_state: { prompt: { active: null } } },
+      },
+    });
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "prompt",
+        seq: 18,
+        session_id: "s1",
+        payload: {
+          request_id: "req_2",
+          request_type: "draft_card",
+          player_id: 2,
+          view_state: {
+            prompt: {
+              active: {
+                request_id: "req_2",
+                request_type: "draft_card",
+                player_id: 2,
+                choices: [],
+              },
+            },
+          },
+        },
+      },
+    });
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "event",
+        seq: 19,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_requested",
+          request_id: "req_2",
+          request_type: "draft_card",
+          player_id: 2,
+          view_state: {
+            prompt: {
+              active: {
+                request_id: "req_2",
+                request_type: "draft_card",
+                player_id: 2,
+                choices: [],
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(state.lastSeq).toBe(19);
+    expect(state.messages.map((message) => message.seq)).toEqual([1, 12, 17, 18, 19]);
+  });
+
+  it("skips heartbeat-only pending gaps before a projected prompt arrives", () => {
+    let state = initialGameStreamState;
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "event",
+        seq: 27,
+        session_id: "s1",
+        payload: { event_type: "decision_resolved", view_state: { prompt: { last_feedback: { status: "accepted" } } } },
+      },
+    });
+
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: { type: "heartbeat", seq: 31, session_id: "s1", payload: {} },
+    });
+
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "prompt",
+        seq: 38,
+        session_id: "s1",
+        payload: {
+          request_id: "req_hidden",
+          request_type: "hidden_trick_card",
+          player_id: 1,
+          view_state: {
+            prompt: {
+              active: {
+                request_id: "req_hidden",
+                request_type: "hidden_trick_card",
+                player_id: 1,
+                choices: [],
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(state.lastSeq).toBe(38);
+    expect(state.messages.map((message) => message.seq)).toEqual([27, 38]);
+  });
+
+  it("fast-forwards to a single projected end-state message across a missing private gap", () => {
+    let state = initialGameStreamState;
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "event",
+        seq: 312,
+        session_id: "s1",
+        payload: {
+          event_type: "fortune_resolved",
+          view_state: { turn_stage: { current_beat_event_code: "fortune_resolved" } },
+        },
+      },
+    });
+
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "event",
+        seq: 314,
+        session_id: "s1",
+        payload: {
+          event_type: "game_end",
+          view_state: {
+            turn_stage: { current_beat_event_code: "game_end" },
+            scene: { situation: { headline_event_code: "game_end" } },
+          },
+        },
+      },
+    });
+
+    expect(state.lastSeq).toBe(314);
+    expect(state.messages.map((message) => message.seq)).toEqual([312, 314]);
+  });
+
+  it("ignores heartbeat messages so a same-seq projected event can still land", () => {
+    let state = initialGameStreamState;
+
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: { type: "heartbeat", seq: 314, session_id: "s1", payload: {} },
+    });
+
+    expect(state).toEqual(initialGameStreamState);
+
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "event",
+        seq: 314,
+        session_id: "s1",
+        payload: {
+          event_type: "game_end",
+          view_state: {
+            turn_stage: { current_beat_event_code: "game_end" },
+            scene: { situation: { headline_event_code: "game_end" } },
+          },
+        },
+      },
+    });
+
+    expect(state.lastSeq).toBe(314);
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]?.payload).toMatchObject({ event_type: "game_end" });
+  });
+
   it("ignores duplicate/old sequence messages", () => {
     let state = initialGameStreamState;
     state = gameStreamReducer(state, {

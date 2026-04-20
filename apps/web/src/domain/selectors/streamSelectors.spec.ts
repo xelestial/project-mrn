@@ -1913,6 +1913,79 @@ describe("streamSelectors", () => {
     });
   });
 
+  it("keeps live snapshot round-turn-marker metadata aligned with newer backend view_state", () => {
+    const snapshot = selectLiveSnapshot([
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_end_snapshot",
+          round_index: 1,
+          turn_index: 4,
+          snapshot: {
+            players: [
+              { player_id: 1, display_name: "Player 1", character: "객주", alive: true, position: 0, cash: 20, shards: 4 },
+              { player_id: 4, display_name: "Player 4", character: "건설업자", alive: true, position: 0, cash: 20, shards: 4 },
+            ],
+            board: {
+              marker_owner_player_id: 4,
+              f_value: 0,
+              tiles: [{ tile_index: 0, score_coin_count: 0, owner_player_id: null, pawn_player_ids: [1, 4] }],
+            },
+          },
+        },
+      },
+      {
+        type: "prompt",
+        seq: 2,
+        session_id: "s1",
+        payload: {
+          request_type: "draft_card",
+          player_id: 1,
+          request_id: "req-1",
+          prompt: "draft",
+          choices: [],
+          view_state: {
+            turn_stage: {
+              round_index: 2,
+              turn_index: 1,
+            },
+            board: {
+              f_value: 3,
+            },
+            players: {
+              items: [
+                {
+                  player_id: 1,
+                  display_name: "Player 1",
+                  cash: 17,
+                  shards: 4,
+                  owned_tile_count: 1,
+                  trick_count: 5,
+                  hand_coins: 0,
+                  placed_coins: 0,
+                  total_score: 0,
+                  priority_slot: 8,
+                  current_character_face: "사기꾼",
+                  is_marker_owner: true,
+                  is_current_actor: true,
+                },
+              ],
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(snapshot).toMatchObject({
+      round: 2,
+      turn: 1,
+      markerOwnerPlayerId: 1,
+      fValue: 3,
+    });
+  });
+
   it("collects current-turn reveal events in public order for the board HUD", () => {
     const items = selectCurrentTurnRevealItems([
       {
@@ -2098,6 +2171,53 @@ describe("streamSelectors", () => {
       focusTileIndex: 12,
     });
     expect(items[0].detail).toContain("P3");
+  });
+
+  it("uses the revealed fortune card name when the resolved detail has no summary", () => {
+    const items = selectCurrentTurnRevealItems([
+      {
+        type: "event",
+        seq: 950,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 9,
+          turn_index: 5,
+          acting_player_id: 4,
+          character: "만신",
+        },
+      },
+      {
+        type: "event",
+        seq: 951,
+        session_id: "s1",
+        payload: {
+          event_type: "fortune_drawn",
+          round_index: 9,
+          turn_index: 5,
+          acting_player_id: 4,
+          card_name: "저주 주사위",
+        },
+      },
+      {
+        type: "event",
+        seq: 952,
+        session_id: "s1",
+        payload: {
+          event_type: "fortune_resolved",
+          round_index: 9,
+          turn_index: 5,
+          acting_player_id: 4,
+          resolution: { type: "CURSE_DICE" },
+          card_name: "저주 주사위",
+        },
+      },
+    ], 3);
+
+    expect(items.at(-1)?.eventCode).toBe("fortune_resolved");
+    expect(items.at(-1)?.detail).toContain("저주 주사위");
+    expect(items.at(-1)?.detail).not.toMatch(/\/\s*-$/
+    );
   });
 
   it("builds timeline labels from recent messages", () => {
@@ -3669,6 +3789,54 @@ describe("streamSelectors", () => {
     expect(stage.fortuneSummary).toContain("Dice +2");
   });
 
+  it("falls back to the revealed fortune card when the resolved summary is blank", () => {
+    const stage = selectTurnStage([
+      {
+        type: "event",
+        seq: 505,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 6,
+          turn_index: 5,
+          acting_player_id: 4,
+          character: "만신",
+        },
+      },
+      {
+        type: "event",
+        seq: 506,
+        session_id: "s1",
+        payload: {
+          event_type: "fortune_drawn",
+          round_index: 6,
+          turn_index: 5,
+          acting_player_id: 4,
+          card_name: "저주 주사위",
+        },
+      },
+      {
+        type: "event",
+        seq: 507,
+        session_id: "s1",
+        payload: {
+          event_type: "fortune_resolved",
+          round_index: 6,
+          turn_index: 5,
+          acting_player_id: 4,
+          resolution: {
+            type: "CURSE_DICE",
+          },
+        },
+      },
+    ]);
+
+    expect(stage.fortuneDrawSummary).toContain("저주 주사위");
+    expect(stage.fortuneResolvedSummary).toContain("저주 주사위");
+    expect(stage.fortuneResolvedSummary).not.toMatch(/\/\s*-$/
+    );
+  });
+
   it("keeps turn end snapshot as the closing beat of the current turn", () => {
     const stage = selectTurnStage([
       {
@@ -3889,7 +4057,109 @@ describe("streamSelectors", () => {
     expect(stage.turn).toBe(1);
     expect(stage.currentBeatKind).toBe("decision");
     expect(stage.currentBeatLabel).toBe("드래프트 인물 선택");
+    expect(stage.currentBeatEventCode).toBe("prompt_active");
     expect(stage.progressTrail).toEqual(["턴 시작", "드래프트 인물 선택"]);
+  });
+
+  it("preserves backend-projected game end as the current beat", () => {
+    const stage = selectTurnStage([
+      {
+        type: "event",
+        seq: 900,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 3,
+          turn_index: 8,
+          acting_player_id: 4,
+          character: "객주",
+        },
+      },
+      {
+        type: "event",
+        seq: 901,
+        session_id: "s1",
+        payload: {
+          event_type: "game_end",
+          view_state: {
+            turn_stage: {
+              turn_start_seq: 900,
+              actor_player_id: 4,
+              round_index: 3,
+              turn_index: 8,
+              character: "객주",
+              weather_name: "-",
+              weather_effect: "-",
+              current_beat_kind: "system",
+              current_beat_event_code: "game_end",
+              current_beat_request_type: "-",
+              current_beat_seq: 901,
+              focus_tile_index: null,
+              focus_tile_indices: [],
+              prompt_request_type: "-",
+              external_ai_worker_id: "-",
+              external_ai_failure_code: "-",
+              external_ai_fallback_mode: "-",
+              external_ai_resolution_status: "-",
+              external_ai_attempt_count: null,
+              external_ai_attempt_limit: null,
+              external_ai_ready_state: "-",
+              external_ai_policy_mode: "-",
+              external_ai_worker_adapter: "-",
+              external_ai_policy_class: "-",
+              external_ai_decision_style: "-",
+              actor_cash: 0,
+              actor_shards: 0,
+              actor_hand_coins: 0,
+              actor_placed_coins: 0,
+              actor_total_score: 0,
+              actor_owned_tile_count: 0,
+              progress_codes: ["turn_start", "game_end"],
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(stage.currentBeatEventCode).toBe("game_end");
+    expect(stage.currentBeatLabel).toBe("게임 종료");
+    expect(stage.progressTrail.at(-1)).toBe("게임 종료");
+  });
+
+  it("clears the current actor when the backend turn stage says the game ended", () => {
+    const actorPlayerId = selectCurrentActorPlayerId([
+      {
+        type: "event",
+        seq: 910,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          acting_player_id: 4,
+          round_index: 3,
+          turn_index: 8,
+          view_state: {
+            turn_stage: {
+              current_beat_event_code: "turn_start",
+            },
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 911,
+        session_id: "s1",
+        payload: {
+          event_type: "game_end",
+          view_state: {
+            turn_stage: {
+              current_beat_event_code: "game_end",
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(actorPlayerId).toBeNull();
   });
 
   it("prefers backend-projected turn stage focus and external ai status", () => {

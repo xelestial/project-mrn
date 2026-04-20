@@ -65,6 +65,7 @@ export type TurnStageViewModel = {
   weatherName: string;
   weatherEffect: string;
   currentBeatKind: "move" | "economy" | "effect" | "decision" | "system";
+  currentBeatEventCode: string;
   focusTileIndex: number | null;
   focusTileIndices: number[];
   diceSummary: string;
@@ -721,7 +722,10 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
     return text.stream.actorDetail(actorFromPayload(payload, text), text.stream.fortuneDrawn(cardName));
   }
   if (eventType === "fortune_resolved") {
-    const summary = asString(payload["summary"] ?? payload["resolution"] ?? payload["card_name"]);
+    let summary = asString(payload["summary"] ?? payload["resolution"] ?? payload["card_name"]);
+    if (summary === "-") {
+      summary = asString(payload["card_name"] ?? payload["card"]);
+    }
     return text.stream.actorDetail(actorFromPayload(payload, text), text.stream.fortuneResolved(summary));
   }
 
@@ -1209,6 +1213,11 @@ function sameRoundTurn(payload: Record<string, unknown>, targetRound: number | n
   return current.round === targetRound && current.turn === targetTurn;
 }
 
+function isMissingRenderedDetail(detail: string): boolean {
+  const trimmed = detail.trim();
+  return trimmed === "" || trimmed === "-" || /\/\s*-$/.test(trimmed);
+}
+
 function detailFromEventCode(
   payload: Record<string, unknown>,
   eventCode: string,
@@ -1415,6 +1424,7 @@ export function selectTurnStage(
     weatherName: weather.name,
     weatherEffect: weather.effect,
     currentBeatKind: "system",
+    currentBeatEventCode: "-",
     focusTileIndex: null,
     focusTileIndices: [],
     diceSummary: "-",
@@ -1488,6 +1498,7 @@ export function selectTurnStage(
     turn: roundTurn.turn,
     character: asString(startMessage.payload["character"] ?? startMessage.payload["actor_name"]),
     currentBeatKind: "system",
+    currentBeatEventCode: "turn_start",
     focusTileIndex: null,
     currentBeatLabel: eventLabelForCode("turn_start", text.eventLabel),
     currentBeatDetail: actorPlayerId === null ? "-" : text.turnStage.turnStartDetail(playerLabel(actorPlayerId, text)),
@@ -1495,6 +1506,7 @@ export function selectTurnStage(
   const trail: string[] = [eventLabelForCode("turn_start", text.eventLabel)];
 
   const updateBeat = (
+    eventCode: string,
     label: string,
     detail: string,
     kind: TurnStageViewModel["currentBeatKind"],
@@ -1503,6 +1515,7 @@ export function selectTurnStage(
     model.latestActionLabel = label;
     model.latestActionDetail = detail || "-";
     model.currentBeatKind = kind;
+    model.currentBeatEventCode = eventCode;
     if (focusTileIndex !== null) {
       model.focusTileIndex = focusTileIndex;
       model.focusTileIndices = [focusTileIndex];
@@ -1590,6 +1603,7 @@ export function selectTurnStage(
     }
     if (CORE_EVENT_CODES.has(eventCode) && eventCode !== "turn_end_snapshot") {
       updateBeat(
+        eventCode,
         pickMessageLabel(message, text),
         detailFromEventCode(message.payload, eventCode, text) || "-",
         turnBeatKindFromEventCode(eventCode),
@@ -1621,6 +1635,7 @@ export function selectTurnStage(
       model.promptSummary = detail;
       model.promptRequestType = asString(message.payload["request_type"]);
       updateBeat(
+        eventCode,
         pickMessageLabel(message, text),
         detail || "-",
         "decision",
@@ -1643,6 +1658,7 @@ export function selectTurnStage(
       model.promptSummary = detail;
       model.promptRequestType = asString(message.payload["request_type"]);
       updateBeat(
+        eventCode,
         pickMessageLabel(message, text),
         detail || "-",
         "decision",
@@ -1665,6 +1681,7 @@ export function selectTurnStage(
       model.promptSummary = detail;
       model.promptRequestType = asString(message.payload["request_type"]);
       updateBeat(
+        eventCode,
         pickMessageLabel(message, text),
         detail || "-",
         "system",
@@ -1691,6 +1708,7 @@ export function selectTurnStage(
       const detail = detailFromEventCode(message.payload, eventCode, text);
       model.turnEndSummary = detail;
       updateBeat(
+        eventCode,
         pickMessageLabel(message, text),
         detail || "-",
         "system",
@@ -1714,7 +1732,20 @@ export function selectTurnStage(
       continue;
     }
     if (eventCode === "fortune_resolved") {
-      const detail = detailFromEventCode(message.payload, eventCode, text);
+      let detail = detailFromEventCode(message.payload, eventCode, text);
+      if (isMissingRenderedDetail(detail)) {
+        detail = detailFromEventCode(
+          {
+            ...message.payload,
+            summary: message.payload["card_name"] ?? message.payload["card"] ?? message.payload["summary"],
+          },
+          eventCode,
+          text
+        );
+      }
+      if (isMissingRenderedDetail(detail) && model.fortuneDrawSummary !== "-") {
+        detail = model.fortuneDrawSummary;
+      }
       model.fortuneResolvedSummary = detail;
       model.fortuneSummary = detail;
       model.effectSummary = detail;
@@ -1762,6 +1793,7 @@ export function selectTurnStage(
     model.weatherName = backendTurnStage.weatherName;
     model.weatherEffect = backendTurnStage.weatherEffect;
     model.currentBeatKind = backendTurnStage.currentBeatKind;
+    model.currentBeatEventCode = backendTurnStage.currentBeatEventCode;
     model.focusTileIndex = backendTurnStage.focusTileIndex;
     model.focusTileIndices = backendTurnStage.focusTileIndices;
     model.promptRequestType = backendTurnStage.promptRequestType;
@@ -2345,6 +2377,8 @@ function selectBackendDerivedPlayers(
   if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
     return null;
   }
+  const backendTurnStage = selectBackendTurnStage(messages);
+  const gameEnded = backendTurnStage?.currentBeatEventCode === "game_end";
   const players = isRecord(entry.viewState["players"]) ? entry.viewState["players"] : null;
   const items = Array.isArray(players?.["items"]) ? players["items"] : null;
   if (!items || items.length === 0) {
@@ -2379,7 +2413,7 @@ function selectBackendDerivedPlayers(
             ? item["current_character_face"]
             : "-",
         isMarkerOwner: item["is_marker_owner"] === true,
-        isCurrentActor: item["is_current_actor"] === true,
+        isCurrentActor: !gameEnded && item["is_current_actor"] === true,
         isLocalPlayer: currentLocalPlayerId === playerId,
       };
     })
@@ -2394,6 +2428,8 @@ function selectBackendActiveCharacterSlots(
   if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
     return null;
   }
+  const backendTurnStage = selectBackendTurnStage(messages);
+  const gameEnded = backendTurnStage?.currentBeatEventCode === "game_end";
   const activeSlots = isRecord(entry.viewState["active_slots"]) ? entry.viewState["active_slots"] : null;
   const items = Array.isArray(activeSlots?.["items"]) ? activeSlots["items"] : null;
   if (!items || items.length === 0) {
@@ -2414,7 +2450,7 @@ function selectBackendActiveCharacterSlots(
           typeof item["inactive_character"] === "string" && item["inactive_character"].trim()
             ? item["inactive_character"]
             : null,
-        isCurrentActor: item["is_current_actor"] === true,
+        isCurrentActor: !gameEnded && item["is_current_actor"] === true,
         isLocalPlayer: playerId !== null && currentLocalPlayerId === playerId,
       };
     })
@@ -2671,6 +2707,41 @@ function selectBackendBoardTiles(messages: InboundMessage[]): Pick<TileViewModel
   return mapped.length > 0 ? mapped : null;
 }
 
+function selectBackendSnapshotProjection(
+  messages: InboundMessage[]
+): Pick<SnapshotViewModel, "round" | "turn" | "markerOwnerPlayerId" | "fValue"> | null {
+  const entry = selectLatestBackendViewStateEntry(messages);
+  if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
+    return null;
+  }
+
+  const viewState = entry.viewState;
+  const board = isRecord(viewState["board"]) ? viewState["board"] : null;
+  const scene = isRecord(viewState["scene"]) ? viewState["scene"] : null;
+  const situation = isRecord(scene?.["situation"]) ? scene["situation"] : null;
+  const turnStage = isRecord(viewState["turn_stage"]) ? viewState["turn_stage"] : null;
+  const players = isRecord(viewState["players"]) ? viewState["players"] : null;
+  const playerItems = Array.isArray(players?.["items"]) ? players["items"] : [];
+
+  const markerOwnerPlayerId =
+    numberOrNull(board?.["marker_owner_player_id"]) ??
+    playerItems.find((item): item is Record<string, unknown> => isRecord(item) && item["is_marker_owner"] === true)?.["player_id"];
+
+  return {
+    round:
+      numberOrNull(turnStage?.["round_index"]) ??
+      numberOrNull(situation?.["round_index"]) ??
+      0,
+    turn:
+      numberOrNull(turnStage?.["turn_index"]) ??
+      numberOrNull(situation?.["turn_index"]) ??
+      0,
+    markerOwnerPlayerId:
+      typeof markerOwnerPlayerId === "number" ? markerOwnerPlayerId : null,
+    fValue: numberOrNull(board?.["f_value"]) ?? 0,
+  };
+}
+
 type BackendTurnStageProjection = {
   turnStartSeq: number | null;
   actorPlayerId: number | null;
@@ -2819,6 +2890,10 @@ export function selectLivePlayers(
 }
 
 export function selectCurrentActorPlayerId(messages: InboundMessage[]): number | null {
+  const backendTurnStage = selectBackendTurnStage(messages);
+  if (backendTurnStage?.currentBeatEventCode === "game_end") {
+    return null;
+  }
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const payload = messages[i].payload;
     const acting = payload["acting_player_id"] ?? payload["player_id"];
@@ -3008,14 +3083,29 @@ export function selectLiveSnapshot(
   );
   const tiles = entry.snapshot.tiles.map((tile) => ({ ...tile, pawnPlayerIds: [] as number[] }));
 
+  let round = entry.snapshot.round;
+  let turn = entry.snapshot.turn;
   let markerOwnerPlayerId = entry.snapshot.markerOwnerPlayerId;
   let markerDraftDirection = entry.snapshot.markerDraftDirection;
+  let fValue = entry.snapshot.fValue;
   let currentRoundOrder = [...entry.snapshot.currentRoundOrder];
   const activeByCard = collectActiveByCardUntil(messages, entry.index);
   for (let i = entry.index + 1; i < messages.length; i += 1) {
     const message = messages[i];
     if (message.type === "prompt") {
       const publicContext = isRecord(message.payload["public_context"]) ? message.payload["public_context"] : null;
+      const contextRound = numberOrNull(publicContext?.["round_index"]);
+      const contextTurn = numberOrNull(publicContext?.["turn_index"]);
+      const contextFValue = numberOrNull(publicContext?.["f_value"]);
+      if (contextRound !== null) {
+        round = contextRound;
+      }
+      if (contextTurn !== null) {
+        turn = contextTurn;
+      }
+      if (contextFValue !== null) {
+        fValue = contextFValue;
+      }
       mergePromptContextActiveByCard(activeByCard, publicContext);
       mergeMarkTargetPromptActiveByCard(activeByCard, message.payload);
       continue;
@@ -3030,6 +3120,18 @@ export function selectLiveSnapshot(
     const eventActorId = numberOrNull(message.payload["acting_player_id"] ?? message.payload["player_id"]);
     const eventActor = eventActorId !== null ? playerMap.get(eventActorId) : null;
     const publicContext = isRecord(message.payload["public_context"]) ? message.payload["public_context"] : null;
+    const eventRound = numberOrNull(publicContext?.["round_index"] ?? message.payload["round_index"]);
+    const eventTurn = numberOrNull(publicContext?.["turn_index"] ?? message.payload["turn_index"]);
+    const eventFValue = numberOrNull(publicContext?.["f_value"] ?? message.payload["f_value"]);
+    if (eventRound !== null) {
+      round = eventRound;
+    }
+    if (eventTurn !== null) {
+      turn = eventTurn;
+    }
+    if (eventFValue !== null) {
+      fValue = eventFValue;
+    }
     const contextMarkerDirection = markerDraftDirectionFromRecord(publicContext);
     if (contextMarkerDirection) {
       markerDraftDirection = contextMarkerDirection;
@@ -3127,6 +3229,7 @@ export function selectLiveSnapshot(
   }
   mergeNormalizedPromptActiveByCard(messages, activeByCard);
 
+  const backendSnapshotProjection = selectBackendSnapshotProjection(messages);
   const backendBoardTiles = selectBackendBoardTiles(messages);
 
   for (const tile of tiles) {
@@ -3166,8 +3269,11 @@ export function selectLiveSnapshot(
 
   return {
     ...entry.snapshot,
-    markerOwnerPlayerId,
+    round: backendSnapshotProjection?.round ?? round,
+    turn: backendSnapshotProjection?.turn ?? turn,
+    markerOwnerPlayerId: backendSnapshotProjection?.markerOwnerPlayerId ?? markerOwnerPlayerId,
     markerDraftDirection,
+    fValue: backendSnapshotProjection?.fValue ?? fValue,
     currentRoundOrder,
     activeByCard,
     players: normalizedPlayers,
