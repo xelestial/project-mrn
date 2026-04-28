@@ -2257,6 +2257,20 @@ class GameEngine:
     def _is_trick_phase_usable(self, card: TrickCard) -> bool:
         return True
 
+    def _trick_hand_context(self, player: PlayerState) -> list[dict[str, object]]:
+        hidden_deck_index = getattr(player, "hidden_trick_deck_index", None)
+        return [
+            {
+                "deck_index": getattr(card, "deck_index", None),
+                "name": getattr(card, "name", str(card)),
+                "card_description": getattr(card, "description", ""),
+                "description": getattr(card, "description", ""),
+                "is_hidden": hidden_deck_index is not None and getattr(card, "deck_index", None) == hidden_deck_index,
+                "is_usable": self._is_trick_phase_usable(card),
+            }
+            for card in player.trick_hand
+        ]
+
     def _use_trick_phase(self, state: GameState, player: PlayerState) -> None:
         if not hasattr(self.policy, "choose_trick_to_use"):
             return
@@ -2294,6 +2308,14 @@ class GameEngine:
                 card_description=card.description,
                 card_deck_index=card.deck_index,
                 resolution=resolution,
+                full_hand=self._trick_hand_context(player),
+                hand_count=len(player.trick_hand),
+                public_tricks=player.public_trick_names(),
+                hidden_trick_count=player.hidden_trick_count(),
+                player_cash=player.cash,
+                player_shards=player.shards,
+                f_value=state.f_value,
+                snapshot=build_turn_end_snapshot(state),
             )
             return True
 
@@ -2529,14 +2551,12 @@ class GameEngine:
             current_start = old_pos
             current_move = total_move
             while True:
-                new_total_steps = player.total_steps + current_move
-                old_laps = player.total_steps // board_len
-                new_laps = new_total_steps // board_len
-                player.total_steps = new_total_steps
+                laps_crossed = max(0, (current_start + current_move) // board_len)
+                player.total_steps += current_move
                 player.position = (current_start + current_move) % board_len
 
                 lap_events: List[dict] = []
-                for _ in range(new_laps - old_laps):
+                for _ in range(laps_crossed):
                     lap_events.append(self._apply_lap_reward(state, player))
                     if is_gakju(player.current_character):
                         geo_result = self._apply_geo_bonus(player, lap_events[-1])
@@ -2566,7 +2586,7 @@ class GameEngine:
                     "start_pos": current_start,
                     "end_pos": player.position,
                     "move": current_move,
-                    "laps_gained": new_laps - old_laps,
+                    "laps_gained": laps_crossed,
                     "lap_events": lap_events,
                     "landing": landing_event,
                 })

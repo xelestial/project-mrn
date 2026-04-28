@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { boardGridForTileCount, boardSizeForTileCount, projectTilePosition, ringPosition } from "./boardProjection";
+import {
+  boardGridForTileCount,
+  boardSizeForTileCount,
+  projectTilePosition,
+  projectTileQuarterview,
+  quarterviewBoardGeometry,
+  quarterviewFacingForLane,
+  quarterviewFacingForTileStep,
+  quarterviewIdleFacingForPosition,
+  quarterviewLaneModels,
+  quarterviewTilePolygons,
+  ringPosition,
+} from "./boardProjection";
 
 function uniqueKey(row: number, col: number): string {
   return `${row}:${col}`;
@@ -57,5 +69,108 @@ describe("boardProjection", () => {
       expect(p.col).toBeLessThanOrEqual(tileCount);
     }
     expect(projected.map((p) => p.col)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it("projects ring tiles into a bounded quarterview diamond", () => {
+    const tileCount = 40;
+    const projected = Array.from({ length: tileCount }, (_, i) => projectTileQuarterview(i, tileCount, "ring"));
+    for (const point of projected) {
+      expect(point.xPercent).toBeGreaterThanOrEqual(0);
+      expect(point.xPercent).toBeLessThanOrEqual(100);
+      expect(point.yPercent).toBeGreaterThanOrEqual(0);
+      expect(point.yPercent).toBeLessThanOrEqual(100);
+      expect(point.zIndex).toBeGreaterThan(1000);
+    }
+    expect(projected[0].lane).toBe("bottom");
+    expect(projected[11].lane).toBe("left");
+    expect(projected[20].lane).toBe("top");
+    expect(projected[31].lane).toBe("right");
+    expect(projected[0].yPercent).toBeGreaterThan(projected[20].yPercent);
+  });
+
+  it("derives a flattened quarterview geometry from split x/y spreads", () => {
+    const geometry = quarterviewBoardGeometry(boardSizeForTileCount(40));
+    expect(geometry.xSpreadPercent).toBeGreaterThan(geometry.ySpreadPercent);
+    expect(geometry.boardAspectRatio).toBeGreaterThan(1);
+    expect(geometry.tileAngleDeg).toBeGreaterThan(18);
+    expect(geometry.tileAngleDeg).toBeLessThan(30);
+    expect(geometry.tileInlinePercent * geometry.boardAspectRatio).toBeGreaterThan(geometry.tileBlockPercent);
+    expect(geometry.tileBlockPercent).toBeGreaterThan(0);
+  });
+
+  it("groups quarterview ring tiles into lane-owned visual strips", () => {
+    const lanes = quarterviewLaneModels(40, "ring");
+    expect(lanes.map((lane) => lane.lane)).toEqual(["top", "right", "bottom", "left"]);
+    expect(lanes.flatMap((lane) => lane.cells).map((cell) => cell.tileIndex).sort((a, b) => a - b)).toEqual(
+      Array.from({ length: 40 }, (_, i) => i)
+    );
+    expect(lanes.every((lane) => lane.lengthPercent > 0 && lane.thicknessPercent > 0)).toBe(true);
+    expect(lanes.every((lane) => Math.abs(lane.rotationDeg) < 45)).toBe(true);
+    expect(lanes.find((lane) => lane.lane === "top")?.cells.length).toBe(11);
+    expect(lanes.find((lane) => lane.lane === "right")?.cells.length).toBe(9);
+  });
+
+  it("keeps lane-owned visual strip centers on the four diamond sides", () => {
+    const lanes = quarterviewLaneModels(40, "ring");
+    const top = lanes.find((lane) => lane.lane === "top");
+    const right = lanes.find((lane) => lane.lane === "right");
+    const bottom = lanes.find((lane) => lane.lane === "bottom");
+    const left = lanes.find((lane) => lane.lane === "left");
+
+    expect(top?.centerXPercent).toBeGreaterThan(50);
+    expect(top?.centerYPercent).toBeLessThan(50);
+    expect(right?.centerXPercent).toBeGreaterThan(50);
+    expect(right?.centerYPercent).toBeGreaterThan(50);
+    expect(bottom?.centerXPercent).toBeLessThan(50);
+    expect(bottom?.centerYPercent).toBeGreaterThan(50);
+    expect(left?.centerXPercent).toBeLessThan(50);
+    expect(left?.centerYPercent).toBeLessThan(50);
+  });
+
+  it("builds one projected polygon per ring tile without lane guide ownership", () => {
+    const polygons = quarterviewTilePolygons(40, "ring");
+    expect(polygons).toHaveLength(40);
+    expect(polygons.every((polygon) => polygon.points.length === 4)).toBe(true);
+    expect(polygons.every((polygon) => polygon.bboxWidth > 0 && polygon.bboxHeight > 0)).toBe(true);
+    expect(
+      polygons.every((polygon) =>
+        Object.values(polygon.contentTransform).every((value) => Number.isFinite(value))
+      )
+    ).toBe(true);
+    expect(polygons.map((polygon) => polygon.tileIndex).sort((a, b) => a - b)).toEqual(
+      Array.from({ length: 40 }, (_, i) => i)
+    );
+    expect(Math.min(...polygons.flatMap((polygon) => polygon.points.map((point) => point.x)))).toBeGreaterThanOrEqual(0);
+    expect(Math.max(...polygons.flatMap((polygon) => polygon.points.map((point) => point.x)))).toBeLessThanOrEqual(1000);
+    expect(Math.min(...polygons.flatMap((polygon) => polygon.points.map((point) => point.y)))).toBeGreaterThanOrEqual(0);
+    expect(Math.max(...polygons.flatMap((polygon) => polygon.points.map((point) => point.y)))).toBeLessThanOrEqual(1000);
+  });
+
+  it("projects line tiles into quarterview points without changing order", () => {
+    const projected = Array.from({ length: 4 }, (_, i) => projectTileQuarterview(i, 4, "line"));
+    expect(projected.map((p) => p.lane)).toEqual(["line", "line", "line", "line"]);
+    expect(projected.map((p) => p.xPercent)).toEqual([...projected.map((p) => p.xPercent)].sort((a, b) => a - b));
+    expect(projected.every((p) => p.yPercent === 50)).toBe(true);
+  });
+
+  it("maps quarterview lanes to stable idle facings", () => {
+    expect(quarterviewFacingForLane("top")).toBe("back-right");
+    expect(quarterviewFacingForLane("right")).toBe("front-right");
+    expect(quarterviewFacingForLane("bottom")).toBe("front-left");
+    expect(quarterviewFacingForLane("left")).toBe("back-left");
+  });
+
+  it("splits top and bottom idle facings by diamond side", () => {
+    expect(quarterviewIdleFacingForPosition({ lane: "top", xPercent: 35 })).toBe("back-left");
+    expect(quarterviewIdleFacingForPosition({ lane: "top", xPercent: 65 })).toBe("back-right");
+    expect(quarterviewIdleFacingForPosition({ lane: "bottom", xPercent: 35 })).toBe("front-right");
+    expect(quarterviewIdleFacingForPosition({ lane: "bottom", xPercent: 65 })).toBe("front-left");
+  });
+
+  it("maps tile steps to the matching quarterview movement facing", () => {
+    expect(quarterviewFacingForTileStep(0, 1, 40, "ring")).toBe("back-left");
+    expect(quarterviewFacingForTileStep(10, 11, 40, "ring")).toBe("back-right");
+    expect(quarterviewFacingForTileStep(20, 21, 40, "ring")).toBe("front-right");
+    expect(quarterviewFacingForTileStep(30, 31, 40, "ring")).toBe("front-left");
   });
 });

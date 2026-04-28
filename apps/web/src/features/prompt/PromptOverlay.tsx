@@ -1,9 +1,12 @@
 import { KeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import type { PromptChoiceViewModel, PromptViewModel } from "../../domain/selectors/promptSelectors";
 import { promptHelperForType } from "../../domain/labels/promptHelperCatalog";
 import { promptLabelForType } from "../../domain/labels/promptTypeCatalog";
+import { prioritySlotForCharacterName } from "../../domain/catalogs/gameplayCatalog";
 import type { LocaleMessages } from "../../i18n/types";
 import { useI18n } from "../../i18n/useI18n";
+import characterPortraitSpriteUrl from "../../assets/characters/character-card-portraits-sprite.png";
 import { isSpecializedPromptType } from "./promptSurfaceCatalog";
 
 type PromptOverlayProps = {
@@ -26,6 +29,37 @@ type PromptOverlayProps = {
 type PromptText = LocaleMessages["prompt"];
 type PromptTypeText = LocaleMessages["promptType"];
 type PromptHelperText = LocaleMessages["promptHelper"];
+
+const CHARACTER_PORTRAIT_INDEX: Record<string, number> = {
+  어사: 0,
+  탐관오리: 1,
+  자객: 2,
+  산적: 3,
+  추노꾼: 4,
+  "탈출 노비": 5,
+  탈출노비: 5,
+  파발꾼: 6,
+  아전: 7,
+  "교리 연구관": 8,
+  교리연구관: 8,
+  "교리 감독관": 9,
+  교리감독관: 9,
+  박수: 10,
+  만신: 11,
+  객주: 12,
+  중매꾼: 13,
+  건설업자: 14,
+  사기꾼: 15,
+};
+
+function portraitIndexForCharacter(name: string): number {
+  const normalized = name.trim();
+  const direct = CHARACTER_PORTRAIT_INDEX[normalized];
+  if (direct !== undefined) {
+    return direct;
+  }
+  return Math.abs(Array.from(normalized).reduce((sum, char) => sum + char.charCodeAt(0), 0)) % 16;
+}
 
 type MovementChoiceParts = {
   rollChoice: PromptChoiceViewModel | null;
@@ -110,6 +144,21 @@ function cleanCardDescription(value: string): string {
     .trim();
 }
 
+function isInternalAbilityLabel(value: string): boolean {
+  return /^(능력\s*[12]|ability\s*[12])$/i.test(value.trim());
+}
+
+function stripInternalAbilityLabel(value: string): string {
+  const trimmed = value.trim();
+  const labeledMatch = /^([^:]{1,16}):\s*(.+)$/.exec(trimmed);
+  if (!labeledMatch) {
+    return trimmed;
+  }
+
+  const label = labeledMatch[1].trim();
+  return isInternalAbilityLabel(label) ? labeledMatch[2].trim() : trimmed;
+}
+
 function splitChoiceBodyText(value: string): ChoiceBodyParts {
   const cleaned = cleanCardDescription(value).trim();
   if (!cleaned) {
@@ -120,20 +169,20 @@ function splitChoiceBodyText(value: string): ChoiceBodyParts {
   if (labeledMatch) {
     const eyebrow = labeledMatch[1].trim();
     const remainder = labeledMatch[2].trim();
-    const segments = remainder.split(/\s*\/\s*/).filter(Boolean);
+    const segments = remainder.split(/\s*\/\s*/).map(stripInternalAbilityLabel).filter(Boolean);
     return {
-      eyebrow,
+      eyebrow: isInternalAbilityLabel(eyebrow) ? null : eyebrow,
       summary: segments[0] ?? remainder,
-      detail: segments.length > 1 ? segments.slice(1).join(" / ") : null,
+      detail: segments.length > 1 ? segments.slice(1).join("\n") : null,
     };
   }
 
-  const slashSegments = cleaned.split(/\s*\/\s*/).filter(Boolean);
+  const slashSegments = cleaned.split(/\s*\/\s*/).map(stripInternalAbilityLabel).filter(Boolean);
   if (slashSegments.length > 1) {
     return {
       eyebrow: null,
       summary: slashSegments[0],
-      detail: slashSegments.slice(1).join(" / "),
+      detail: slashSegments.slice(1).join("\n"),
     };
   }
 
@@ -505,20 +554,11 @@ function markChoiceDescription(choice: PromptChoiceViewModel, promptText: Prompt
   if (choice.choiceId === "none") {
     return cleanDisplayText(promptText.mark.noneDescription);
   }
-  const targetCharacter = asString(choice.value?.["target_character"]);
   const targetPlayerId = asNumber(choice.value?.["target_player_id"]);
-  const targetCardNo = asNumber(choice.value?.["target_card_no"]);
-  if (targetCharacter && targetPlayerId !== null) {
-    const displayCardNo = targetCardNo !== null ? `#${targetCardNo}` : "등장인물";
-    return `지목 대상: P${targetPlayerId} / ${displayCardNo} ${targetCharacter}에게 효과를 적용합니다.`;
-  }
   if (targetPlayerId !== null) {
-    return `지목 대상: P${targetPlayerId} / 이 플레이어에게 효과를 적용합니다.`;
+    return `P${targetPlayerId}의 이 등장인물에게 효과를 적용합니다.`;
   }
-  if (targetCharacter) {
-    return `지목 대상: ${targetCharacter} / 이 등장인물에게 효과를 적용합니다.`;
-  }
-  return "";
+  return "이 등장인물에게 효과를 적용합니다.";
 }
 
 function markChoiceTarget(choice: PromptChoiceViewModel): {
@@ -875,11 +915,10 @@ export function PromptOverlay({
     }
     const orderedSurfaceCandidates = prompt.surface.markTarget?.candidates ?? [];
     if (orderedSurfaceCandidates.length > 0) {
-      const noneChoices = orderedChoices.filter((choice) => choice.choiceId === "none");
       const matchedChoices = orderedSurfaceCandidates
         .map((candidate) => orderedChoiceMap.get(candidate.choiceId) ?? null)
         .filter((choice): choice is PromptChoiceViewModel => choice !== null);
-      return [...matchedChoices, ...noneChoices];
+      return matchedChoices;
     }
     const noneChoices = orderedChoices.filter((choice) => choice.choiceId === "none");
     const fallbackChoices = orderedChoices.filter((choice) => choice.choiceId !== "none");
@@ -899,7 +938,7 @@ export function PromptOverlay({
     const matchedChoices = markTargetCandidates
       .map((candidate) => choiceByCharacter.get(candidate.character) ?? null)
       .filter((choice): choice is PromptChoiceViewModel => choice !== null);
-    return [...matchedChoices, ...noneChoices];
+    return matchedChoices.length > 0 ? matchedChoices : noneChoices;
   }, [prompt, orderedChoices, orderedChoiceMap, markTargetCandidates]);
 
   useEffect(() => {
@@ -1451,28 +1490,66 @@ export function PromptOverlay({
                 }));
 
               return (
-            <div className={`prompt-choices ${compactChoices ? "prompt-choices-compact" : ""}`}>
+            <div className={`prompt-choices prompt-character-card-grid ${compactChoices ? "prompt-choices-compact" : ""}`}>
               {characterPickOptions.map((choice) => (
+                (() => {
+                  const body = splitChoiceBodyText(choice.description);
+                  const prioritySlot = prioritySlotForCharacterName(choice.name);
+                  const cardLabel = isKoreanLocale(locale) ? "인물 카드" : "Character card";
+                  const priorityLabel = isKoreanLocale(locale) ? "우선권" : "Priority";
+                  const abilityLabel = isKoreanLocale(locale) ? "특수 능력" : "Special ability";
+                  const attributeText =
+                    body.eyebrow && !isInternalAbilityLabel(body.eyebrow)
+                      ? body.eyebrow
+                      : isKoreanLocale(locale)
+                        ? "인물"
+                        : "Character";
+                  const portraitIndex = portraitIndexForCharacter(choice.name);
+                  const portraitCol = portraitIndex % 4;
+                  const portraitRow = Math.floor(portraitIndex / 4);
+
+                  return (
                   <button
                     type="button"
                     key={choice.choiceId}
-                    className="prompt-choice-card prompt-choice-card-emphasis"
+                    className="prompt-choice-card prompt-choice-card-emphasis prompt-character-card"
                     data-testid={`character-choice-${choice.choiceId}`}
                     onClick={() => onSelectChoice(choice.choiceId)}
                     disabled={busy}
                 >
-                  <strong>{choice.name}</strong>
-                  {(() => {
-                    const body = splitChoiceBodyText(choice.description);
-                    return (
-                      <div className="prompt-choice-body">
-                        {body.eyebrow ? <span className="prompt-choice-eyebrow">{body.eyebrow}</span> : null}
-                        {body.summary ? <p className="prompt-choice-summary">{body.summary}</p> : null}
-                        {body.detail ? <small className="prompt-choice-detail">{body.detail}</small> : null}
+                    <div className="prompt-character-card-frame">
+                      <div className="prompt-character-card-top">
+                        <span className="prompt-character-card-label">{cardLabel}</span>
+                        <span className="prompt-character-card-priority">
+                          {priorityLabel} {prioritySlot ?? "-"}
+                        </span>
                       </div>
-                    );
-                  })()}
-                </button>
+                      <div
+                        className="prompt-character-card-art"
+                        aria-hidden="true"
+                        style={
+                          {
+                            "--character-portrait-url": `url(${characterPortraitSpriteUrl})`,
+                            "--character-portrait-x": `${portraitCol * 33.333333}%`,
+                            "--character-portrait-y": `${portraitRow * 33.333333}%`,
+                          } as CSSProperties
+                        }
+                      >
+                        <span>{Array.from(choice.name.trim())[0] ?? "?"}</span>
+                      </div>
+                      <div className="prompt-character-card-body">
+                        <strong>{choice.name}</strong>
+                        <span className="prompt-character-card-attribute">{attributeText}</span>
+                        <div className="prompt-choice-body">
+                          <span className="prompt-choice-eyebrow">{abilityLabel}</span>
+                          {body.summary ? <p className="prompt-choice-summary">{body.summary}</p> : null}
+                          {body.detail ? <small className="prompt-choice-detail">{body.detail}</small> : null}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                  );
+                })()
               ))}
             </div>
               );
@@ -1501,7 +1578,14 @@ export function PromptOverlay({
                     onClick={() => onSelectChoice(choice.choiceId)}
                     disabled={busy}
                   >
-                    <strong>{markChoiceTitle(choice, promptText)}</strong>
+                    <div className="prompt-choice-topline">
+                      <strong>{markChoiceTitle(choice, promptText)}</strong>
+                      <span className="prompt-choice-badge">{locale === "ko" ? "지목 대상" : "Target"}</span>
+                    </div>
+                    <div className="prompt-summary-pill-row prompt-summary-pill-row-compact">
+                      {target.playerId !== null ? <span className="prompt-summary-pill" data-tone="player">P{target.playerId}</span> : null}
+                      {target.cardNo !== null ? <span className="prompt-summary-pill" data-tone="target">#{target.cardNo}</span> : null}
+                    </div>
                     <div className="prompt-choice-body">
                       {body.eyebrow ? <span className="prompt-choice-eyebrow">{body.eyebrow}</span> : null}
                       <p className="prompt-choice-summary">{body.summary}</p>

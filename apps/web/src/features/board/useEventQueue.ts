@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export type GameEventKind =
+  | "weather"
+  | "dice"
+  | "move"
+  | "purchase"
   | "rent_pay"
   | "rent_receive"
   | "rent_observe"
+  | "fortune"
   | "lap_complete"
   | "bankruptcy"
+  | "trick"
+  | "mark_success"
   | "economy";
 
 export type GameEvent = {
@@ -13,14 +20,23 @@ export type GameEvent = {
   label: string;
   detail: string;
   seq: number;
+  diceValues?: number[];
+  diceTotal?: number | null;
 };
 
 const DISPLAY_DURATION_MS: Record<GameEventKind, number> = {
+  weather: 3000,
+  dice: 2000,
+  move: 2400,
+  purchase: 2200,
   rent_pay: 3000,
   rent_receive: 2500,
   rent_observe: 2000,
+  fortune: 3000,
   lap_complete: 2500,
   bankruptcy: 3500,
+  trick: 3000,
+  mark_success: 3400,
   economy: 2000,
 };
 

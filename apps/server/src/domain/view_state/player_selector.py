@@ -186,6 +186,8 @@ def _to_player_item(raw: dict[str, Any]) -> DerivedPlayerItemViewState | None:
         "shards": _number(raw.get("shards")) or 0,
         "owned_tile_count": _number(raw.get("owned_tile_count")) or 0,
         "trick_count": _number(raw.get("trick_count")) or (len(public_tricks) + hidden_trick_count),
+        "hidden_trick_count": hidden_trick_count,
+        "public_tricks": public_tricks,
         "hand_coins": hand_coins,
         "placed_coins": placed_coins,
         "total_score": total_score,

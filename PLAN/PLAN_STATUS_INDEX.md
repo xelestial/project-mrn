@@ -44,11 +44,16 @@ Those themes should reopen only if a concrete regression or rollout need appears
 
 ## Remaining Open Work
 
-Open work is operational, not architectural:
+Open work is operational, not architectural. The previously listed items were closed on 2026-04-25:
 
-1. attach a real stronger external worker/service endpoint
-2. run human + local AI + external AI playtests
-3. fix only the concrete UI/UX gaps found in those playtests
+1. external worker/service endpoint smoke: closed with `priority_score_v1` worker health + `/decide` check.
+2. human + local AI + external AI playtest startup: closed with `sess_a0e25380c58f`.
+3. concrete UI/UX gaps from that pass: closed for the `No mark` contract mismatch and mark success reveal stack.
+4. quick-start / prompt payload / parity E2E drift: closed by restoring the quick-start lobby action, accepting legacy `choices` prompt payloads, and updating parity checks to the current quarter-view UI.
+
+Current open work:
+
+1. none. Reopen only if a new concrete regression appears in browser playtest evidence.
 
 ## Rule For New Work
 

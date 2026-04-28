@@ -1,83 +1,71 @@
-import { useEffect, useRef, useState } from "react";
 import type { LastMoveViewModel } from "../../domain/selectors/streamSelectors";
+import { useStepPathAnimation } from "./useStepPathAnimation";
 
 export type PawnAnimPhase = "idle" | "moving" | "arrived";
 
 export type PawnAnimState = {
   animPlayerId: number | null;
   animTileIndex: number | null;
+  animPreviousTileIndex: number | null;
+  animStepIndex: number;
   animPhase: PawnAnimPhase;
 };
 
 const IDLE: PawnAnimState = {
   animPlayerId: null,
   animTileIndex: null,
+  animPreviousTileIndex: null,
+  animStepIndex: -1,
   animPhase: "idle",
 };
 
 const STEP_MS = 260;
 const ARRIVED_LINGER_MS = 1200;
 
-export function usePawnAnimation(lastMove: LastMoveViewModel | null): PawnAnimState {
-  const [state, setState] = useState<PawnAnimState>(IDLE);
-  const seenKeyRef = useRef<string | null>(null);
-  // Keep a stable ref to the current lastMove to avoid stale closure issues
-  const lastMoveRef = useRef<LastMoveViewModel | null>(null);
-  lastMoveRef.current = lastMove;
-
-  const moveKey = lastMove
-    ? `${lastMove.playerId}-${lastMove.fromTileIndex}-${lastMove.toTileIndex}`
-    : null;
-
-  useEffect(() => {
-    if (!moveKey || !lastMoveRef.current) {
-      seenKeyRef.current = null;
-      return;
+function buildFallbackPath(fromTileIndex: number | null, toTileIndex: number | null, tileCount: number): number[] {
+  if (fromTileIndex === null || toTileIndex === null || fromTileIndex === toTileIndex || tileCount <= 0) {
+    return [];
+  }
+  const normalizedCount = Math.max(1, tileCount);
+  const normalizedTo = ((toTileIndex % normalizedCount) + normalizedCount) % normalizedCount;
+  const steps: number[] = [];
+  let cursor = ((fromTileIndex % normalizedCount) + normalizedCount) % normalizedCount;
+  for (let guard = 0; guard < normalizedCount; guard += 1) {
+    cursor = (cursor + 1) % normalizedCount;
+    steps.push(cursor);
+    if (cursor === normalizedTo) {
+      return steps;
     }
+  }
+  return [normalizedTo];
+}
 
-    // Already processed this exact move
-    if (seenKeyRef.current === moveKey) return;
-    seenKeyRef.current = moveKey;
+export function usePawnAnimation(lastMove: LastMoveViewModel | null, tileCount = 0, startDelayMs = 0): PawnAnimState {
+  const pathSteps =
+    lastMove?.pathTileIndices && lastMove.pathTileIndices.length > 0
+      ? lastMove.pathTileIndices
+      : buildFallbackPath(lastMove?.fromTileIndex ?? null, lastMove?.toTileIndex ?? null, tileCount);
+  const animation = useStepPathAnimation(
+    lastMove && pathSteps.length > 0
+      ? {
+          id: lastMove.playerId,
+          fromStep: lastMove.fromTileIndex,
+          toStep: lastMove.toTileIndex,
+          pathSteps,
+          key: `${lastMove.playerId}-${lastMove.fromTileIndex}-${lastMove.toTileIndex}-${pathSteps.join(",")}`,
+        }
+      : null,
+    { stepMs: STEP_MS, arrivedLingerMs: ARRIVED_LINGER_MS, startDelayMs }
+  );
 
-    const lm = lastMoveRef.current;
-    const steps = lm.pathTileIndices;
-
-    // No path data — skip step animation (fallback arc will show)
-    if (!steps || steps.length === 0) return;
-
-    let stepIndex = 0;
-    let arrivedTimer: number | null = null;
-
-    setState({
-      animPlayerId: lm.playerId,
-      animTileIndex: steps[0],
-      animPhase: "moving",
-    });
-
-    const interval = setInterval(() => {
-      stepIndex++;
-
-      if (stepIndex >= steps.length) {
-        clearInterval(interval);
-        setState({
-          animPlayerId: lm.playerId,
-          animTileIndex: lm.toTileIndex,
-          animPhase: "arrived",
-        });
-        arrivedTimer = window.setTimeout(() => {
-          setState(IDLE);
-        }, ARRIVED_LINGER_MS);
-        return;
-      }
-
-      setState((prev) => ({ ...prev, animTileIndex: steps[stepIndex] }));
-    }, STEP_MS);
-
-    return () => {
-      clearInterval(interval);
-      if (arrivedTimer !== null) window.clearTimeout(arrivedTimer);
-    };
-  }, [moveKey]); // stable key-based dep
-
-  return state;
+  if (animation.animId === null || animation.animStep === null) {
+    return IDLE;
+  }
+  return {
+    animPlayerId: animation.animId,
+    animTileIndex: animation.animStep,
+    animPreviousTileIndex: animation.animPreviousStep,
+    animStepIndex: animation.animStepIndex,
+    animPhase: animation.animPhase,
+  };
 }

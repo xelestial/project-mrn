@@ -768,6 +768,91 @@ describe("promptSelectors", () => {
     ]);
   });
 
+  it("shows public trick hand from player state before the first local prompt", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "session_start",
+          players: [
+            {
+              player_id: 1,
+              public_tricks: ["무거운 짐", "가벼운 짐", "월척회", "화목 난로"],
+              hidden_trick_count: 1,
+            },
+          ],
+        },
+      },
+    ];
+
+    expect(selectCurrentHandTrayCards(messages, "ko", 1)).toEqual([
+      {
+        key: "public-1-0-무거운 짐",
+        title: "무거운 짐",
+        effect: "공개된 잔꾀입니다.",
+        serial: "",
+        hidden: false,
+        currentTarget: false,
+      },
+      {
+        key: "public-1-1-가벼운 짐",
+        title: "가벼운 짐",
+        effect: "공개된 잔꾀입니다.",
+        serial: "",
+        hidden: false,
+        currentTarget: false,
+      },
+      {
+        key: "public-1-2-월척회",
+        title: "월척회",
+        effect: "공개된 잔꾀입니다.",
+        serial: "",
+        hidden: false,
+        currentTarget: false,
+      },
+      {
+        key: "public-1-3-화목 난로",
+        title: "화목 난로",
+        effect: "공개된 잔꾀입니다.",
+        serial: "",
+        hidden: false,
+        currentTarget: false,
+      },
+      {
+        key: "hidden-1-0",
+        title: "비공개 잔꾀",
+        effect: "아직 공개되지 않은 잔꾀입니다.",
+        serial: "",
+        hidden: true,
+        currentTarget: false,
+      },
+    ]);
+  });
+
+  it("does not add a phantom hidden trick before hidden selection when five public tricks are visible", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "session_start",
+          players: [
+            {
+              player_id: 1,
+              public_tricks: ["무거운 짐", "가벼운 짐", "월척회", "화목 난로", "건강 검진"],
+              hidden_trick_count: 1,
+            },
+          ],
+        },
+      },
+    ];
+
+    expect(selectCurrentHandTrayCards(messages, "ko", 1)).toHaveLength(5);
+  });
+
   it("prefers the latest state-bearing hand tray over an older backend projection", () => {
     const messages: InboundMessage[] = [
       {

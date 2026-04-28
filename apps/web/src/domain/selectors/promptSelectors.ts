@@ -242,6 +242,16 @@ function stringOrEmpty(value: unknown): string {
   return typeof value === "string" && value.trim() ? String(value) : "";
 }
 
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item) => {
+    const text = stringOrEmpty(item);
+    return text ? [text] : [];
+  });
+}
+
 function isKoreanLocale(locale: string): boolean {
   return locale.toLowerCase().startsWith("ko");
 }
@@ -1180,12 +1190,15 @@ export function selectActivePrompt(messages: InboundMessage[]): PromptViewModel 
     if (isPromptClosed(messages, i, requestId, requestType, playerId)) {
       continue;
     }
+    const choicesRaw = Array.isArray(promptMessage.payload["legal_choices"])
+      ? promptMessage.payload["legal_choices"]
+      : promptMessage.payload["choices"];
     return {
       requestId,
       requestType,
       playerId,
       timeoutMs: typeof promptMessage.payload["timeout_ms"] === "number" ? promptMessage.payload["timeout_ms"] : 30000,
-      choices: parseChoices(promptMessage.payload["legal_choices"]),
+      choices: parseChoices(choicesRaw),
       publicContext: isRecord(promptMessage.payload["public_context"]) ? { ...promptMessage.payload["public_context"] } : {},
       behavior: parsePromptBehavior(
         null,
@@ -1196,7 +1209,7 @@ export function selectActivePrompt(messages: InboundMessage[]): PromptViewModel 
         null,
         requestType,
         isRecord(promptMessage.payload["public_context"]) ? promptMessage.payload["public_context"] : {},
-        promptMessage.payload["legal_choices"]
+        choicesRaw
       ),
     };
   }
@@ -1280,13 +1293,88 @@ function selectBackendHandTrayCards(messages: InboundMessage[]): HandTrayCardVie
   });
 }
 
+function playerRecordFromPayload(payload: Record<string, unknown>, preferredPlayerId: number): Record<string, unknown> | null {
+  const viewState = isRecord(payload["view_state"]) ? payload["view_state"] : null;
+  const viewStatePlayers = isRecord(viewState?.["players"]) ? viewState["players"] : null;
+  const viewStateItems = Array.isArray(viewStatePlayers?.["items"]) ? viewStatePlayers["items"] : null;
+  const snapshot = isRecord(payload["snapshot"]) ? payload["snapshot"] : null;
+  const snapshotPlayers = Array.isArray(snapshot?.["players"]) ? snapshot["players"] : null;
+  const rootPlayers = Array.isArray(payload["players"]) ? payload["players"] : null;
+  const candidates = [viewStateItems, snapshotPlayers, rootPlayers];
+
+  for (const source of candidates) {
+    if (!source) {
+      continue;
+    }
+    const match = source.find((item) => {
+      if (!isRecord(item)) {
+        return false;
+      }
+      const rawPlayerId = item["player_id"] ?? item["playerId"] ?? item["id"];
+      return rawPlayerId === preferredPlayerId;
+    });
+    if (isRecord(match)) {
+      return match;
+    }
+  }
+  return null;
+}
+
+function handTrayCardsFromPlayerPublicState(
+  messages: InboundMessage[],
+  locale: string,
+  preferredPlayerId: number
+): HandTrayCardViewModel[] {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const payload = isRecord(messages[i].payload) ? messages[i].payload : null;
+    if (!payload) {
+      continue;
+    }
+    const player = playerRecordFromPayload(payload, preferredPlayerId);
+    if (!player) {
+      continue;
+    }
+    const publicTricks = stringList(player["public_tricks"]).slice(0, 5);
+    const rawHiddenTrickCount = Math.max(
+      typeof player["hidden_trick_count"] === "number" ? player["hidden_trick_count"] : 0,
+      typeof player["trick_count"] === "number" ? player["trick_count"] - publicTricks.length : 0
+    );
+    const hiddenTrickCount = Math.min(Math.max(0, 5 - publicTricks.length), rawHiddenTrickCount);
+    if (publicTricks.length + hiddenTrickCount <= 0) {
+      continue;
+    }
+    const publicEffect = isKoreanLocale(locale) ? "공개된 잔꾀입니다." : "Public trick card.";
+    const hiddenTitle = isKoreanLocale(locale) ? "비공개 잔꾀" : "Hidden trick";
+    const hiddenEffect = isKoreanLocale(locale) ? "아직 공개되지 않은 잔꾀입니다." : "This trick has not been revealed yet.";
+    return [
+      ...publicTricks.map((title, index) => ({
+        key: `public-${preferredPlayerId}-${index}-${title}`,
+        title,
+        effect: publicEffect,
+        serial: "",
+        hidden: false,
+        currentTarget: false,
+      })),
+      ...Array.from({ length: hiddenTrickCount }).map((_, index) => ({
+        key: `hidden-${preferredPlayerId}-${index}`,
+        title: hiddenTitle,
+        effect: hiddenEffect,
+        serial: "",
+        hidden: true,
+        currentTarget: false,
+      })),
+    ];
+  }
+  return [];
+}
+
 export function selectCurrentHandTrayCards(
   messages: InboundMessage[],
   locale: string,
   preferredPlayerId: number | null
 ): HandTrayCardViewModel[] {
   const backendHandTray = selectBackendHandTrayCards(messages);
-  if (backendHandTray) {
+  if (backendHandTray && backendHandTray.length > 0) {
     return backendHandTray;
   }
 
@@ -1321,7 +1409,7 @@ export function selectCurrentHandTrayCards(
     }
   }
 
-  return [];
+  return handTrayCardsFromPlayerPublicState(messages, locale, preferredPlayerId);
 }
 
 type SelectPromptInteractionArgs = {

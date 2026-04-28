@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
+from pathlib import Path
 
 import uvicorn
 
@@ -17,6 +19,11 @@ def main() -> None:
     parser.add_argument("--log-level", default="info")
     parser.add_argument("--reload", action="store_true")
     args = parser.parse_args()
+
+    project_root = Path(__file__).resolve().parents[1]
+    root_text = str(project_root)
+    if root_text not in sys.path:
+        sys.path.insert(0, root_text)
 
     os.environ["MRN_EXTERNAL_AI_WORKER_ID"] = args.worker_id
     os.environ["MRN_EXTERNAL_AI_POLICY_MODE"] = args.policy_mode

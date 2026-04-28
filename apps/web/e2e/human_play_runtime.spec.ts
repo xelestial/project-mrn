@@ -109,6 +109,16 @@ function eventMessage(args: {
   };
 }
 
+async function openPublicEvents(page: Page): Promise<void> {
+  await expect(page.getByTestId("board-event-reveal-stack")).toHaveCount(0);
+  const toggle = page.locator(".match-table-event-toggle");
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByTestId("board-event-reveal-stack")).toBeVisible();
+}
+
 async function installMockRuntime(
   page: Page,
   args: {
@@ -526,7 +536,7 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await expect(page.getByTestId("turn-notice-banner")).toBeVisible();
   await expect(page.getByTestId("turn-notice-banner")).toHaveAttribute("data-banner-variant", "turn");
   await expect(page.getByTestId("turn-notice-banner")).toHaveAttribute("data-banner-player-id", "2");
-  await expect(page.getByTestId("board-event-reveal-stack")).toBeVisible();
+  await openPublicEvents(page);
   await expect(page.getByTestId("board-event-reveal-dice_roll-1")).toHaveAttribute("data-event-code", "dice_roll");
   await expect(page.getByTestId("board-event-reveal-player_move-2")).toHaveAttribute("data-event-code", "player_move");
   await expect(page.getByTestId("board-event-reveal-landing_resolved-3")).toHaveAttribute("data-event-code", "landing_resolved");
@@ -1103,7 +1113,7 @@ test("mixed participant runtime keeps timeout fallback and weather continuity vi
   await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_worker_not_ready_runtime`);
 
   await expect(page.getByTestId("board-weather-summary")).toHaveAttribute("data-weather-name", "Dry Season");
-  await expect(page.getByTestId("board-event-reveal-stack")).toBeVisible();
+  await openPublicEvents(page);
   await expect(page.getByTestId("board-event-reveal-rent_paid-1")).toHaveAttribute("data-event-code", "rent_paid");
   await expect(page.getByTestId("board-reveal-spotlight-rent_paid")).toBeVisible();
   await expect(page.getByTestId("core-action-result-card")).toHaveAttribute("data-result-event-code", "rent_paid");
@@ -1245,7 +1255,7 @@ test("mixed participant runtime keeps a long worker-success to fallback chain re
 
   await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_long_chain_runtime`);
 
-  await expect(page.getByTestId("board-event-reveal-stack")).toBeVisible();
+  await openPublicEvents(page);
   await expect(page.getByTestId("board-event-reveal-rent_paid-1")).toHaveAttribute("data-event-code", "rent_paid");
   await expect(page.getByTestId("board-weather-summary")).toHaveAttribute("data-weather-name", "Cold Front");
   await expect(page.getByTestId("core-action-latest")).toHaveAttribute("data-latest-event-code", "turn_end_snapshot");
@@ -1337,7 +1347,7 @@ test("mixed participant runtime keeps repeated fallback continuity readable acro
   await expect(page.getByTestId("turn-notice-banner")).toHaveAttribute("data-banner-variant", "interrupt");
   await expect(page.getByTestId("turn-notice-banner")).toHaveAttribute("data-banner-has-detail", "true");
   await expect(page.getByTestId("board-weather-summary")).toHaveAttribute("data-weather-name", "Monsoon");
-  await expect(page.getByTestId("board-event-reveal-stack")).toBeVisible();
+  await openPublicEvents(page);
   await expect(page.getByTestId("board-event-reveal-fortune_resolved-1")).toHaveAttribute("data-event-code", "fortune_resolved");
   await expect(page.getByTestId("board-reveal-spotlight-fortune_resolved")).toBeVisible();
   await expect(page.getByTestId("core-action-result-card")).toHaveAttribute("data-result-event-code", "fortune_resolved");

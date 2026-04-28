@@ -8,6 +8,55 @@ Updated: 2026-04-15
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-04-26
+
+### Entry 011
+
+- Scope: match board top-view diamond stabilization and responsive HUD compaction.
+- Done:
+  - replaced the quarter-view ring projection with a symmetric top-view diamond coordinate model
+  - derived ring tile side length from board projection spacing so edge and finish tiles lock into the same diamond geometry
+  - removed rail/guide visuals from the ring board and made the board scale from viewport-constrained square dimensions
+  - moved round/turn/marker into the session summary bar and repositioned weather to the top-left HUD slot
+  - compacted player cards, active-character rows, and character standees so HUD panels waste less space and pawns render at a consistent size
+  - rebuilt ring tile contents around a fixed flex layout for header, value/special body, owner/score, and pawn slots
+  - moved the weather HUD out of the player-grid flow and anchored it to the visual board container's top-left area
+  - redesigned the match HUD grid so player, active-character, event, and prompt panels occupy fixed rail areas without overlap
+  - let the central prompt/waiting panel use the full prompt map column width and removed the old absolute center/calc width positioning
+  - reduced match shell padding and viewport budgets to recover more board size
+  - redesigned the active-character strip as a responsive eight-slot roster with character marks, names, and status text
+  - tightened player-card rails and match overlay gutters so board tiles can render larger inside the viewport
+  - reduced player-to-map gutter and expanded top-view ring spread so tiles use more of the available map container
+  - documented the next flattened-quarterview board expansion plan, including split x/y projection, derived tile angle, rectangular tile sizing, HUD adaptation, tests, and rollback criteria
+  - implemented flattened-quarterview geometry with split x/y spreads, aspect-ratio-aware tile angle derivation, rectangular tile sizing, and CSS variables from `BoardPanel`
+  - corrected the first disconnected rectangular-tile pass by switching to projection-derived compressed diamond cells with visual join overlap
+  - restored a subtle continuous board base under the real tiles so the ring reads as one connected map surface rather than separated cards
+  - updated match board CSS so ring tiles render as wider, lower information cells while preserving the fixed internal tile content slots
+  - retuned flattened-quarterview x/y spread and board aspect ratio to improve tile information readability without breaking the connected map surface
+  - removed the active-character roster icon column so each entry gives more width to character name/status text
+- Validation:
+  - `cd apps/web && npm run test -- src/features/board/boardProjection.spec.ts`
+  - `cd apps/web && npm run build`
+  - in-app browser check at `http://127.0.0.1:9000/#/match` after Vite selected port 9000
+- Post-evaluation failure note:
+  - The 2026-04-26 strict tile-principle pass is visually wrong against the user's two tile rules.
+  - Rule breach 1: a tile lane still reads as many independent rotated cards rather than one continuous straight-edged lane. Even if the mathematical centers line up, the visible surfaces, outlines, shadows, and per-tile rendering make the lane look segmented instead of a single straight exterior line.
+  - Rule breach 2: the board is not fully protected from HUD intrusion. The weather panel still enters the upper-left board/tile visual area, so the board cannot be treated as an always-visible, unobscured play surface.
+  - Why this mistake happened:
+    - I optimized the existing absolute-positioned tile cards instead of changing ownership of the visual surface. That was the wrong abstraction: independent absolute tiles cannot reliably guarantee a continuous row exterior once transforms, outlines, shadows, antialiasing, and responsive scaling are involved.
+    - I treated "40 tile DOM nodes rendered with no console errors" and "roughly inside the viewport" as sufficient validation. That ignored the user's stricter visual invariants: straight lane exterior, complete tile adjacency, and no HUD covering the board.
+    - I compensated for clipping by shrinking and shifting the board with viewport-safe constants, which preserved technical fit but made the board smaller and left excessive unused space. This improved containment while damaging usability and did not address the underlying lane-continuity problem.
+  - Corrective requirement for the next pass:
+    - Render each lane from a lane-owned continuous geometry layer, then place tile information inside that lane. The visible lane exterior must be owned by the row/side, not by forty individually transformed tile cards.
+    - HUD panels must be placed outside board-safe bounds, with weather/prompt collision tested visually against the actual tile area.
+  - Follow-up redesign document:
+    - `docs/engineering/[PLAN]_LANE_OWNED_BOARD_REDESIGN.md`
+  - Implementation validation failure during lane-owned pass:
+    - In-app browser check at `http://127.0.0.1:9000/#/match` rendered 4 lane strips and 40 lane cells with no console errors, but the visible board failed because the right and lower board areas were clipped outside the viewport.
+    - The lane-owned surface fixed the worst "floating individual cards" read for the visible portion, but the board-safe size was still based on inherited viewport compensation constants. That means the geometry ownership was improved while containment ownership remained wrong.
+    - Lesson: after changing the board surface owner, size/safe bounds must be recalculated from the full lane extents. Reusing the old board container width budget can still clip the continuous lanes because a rotated strip extends beyond the center-to-center diamond points.
+    - Corrective action: tune the board safe width/height around the lane strip extents, then browser-verify clipping before judging visual success.
+
 ## 2026-04-15
 
 ### Entry 010
@@ -3786,6 +3835,125 @@ Updated: 2026-04-15
   - `.venv311/bin/python -m pytest GPT/test_rule_fixes.py -k 'selector_prompt or geo_bonus or coin_placement' -q`
   - `cd apps/web && npm run test -- src/domain/selectors/promptSelectors.spec.ts`
   - `cd apps/web && npm run build`
+
+## 2026-04-26 Board HUD Grid Area Layout Stabilization
+
+- What changed:
+  - Reworked the live match HUD overlay in `apps/web/src/styles.css` so the main match surface uses fixed CSS grid areas instead of absolute-positioned HUD children.
+  - Player cards, round weather, active character rail, prompt area, public event rail, and bottom hand tray now occupy named grid areas:
+    - top-left / top-center / top-right
+    - middle-left / middle-center / middle-right
+    - bottom-left / bottom-center / bottom-right
+  - Added responsive grid-area fallbacks for narrower desktop/tablet and mobile widths so the HUD stacks predictably while preserving component content behavior.
+- Why:
+  - the prior layout anchored every HUD panel with independent absolute offsets, making the reference-style structure fragile across viewport sizes
+  - the new grid contract keeps placement stable and lets the viewport resize the layout through grid tracks instead of per-panel coordinates
+- API / contract impact:
+  - none; CSS-only layout change
+- Validation:
+  - `cd apps/web && npm run build`
+  - local browser quick-start match at `http://127.0.0.1:5173/`
+
+## 2026-04-26 Top-View Diamond Board Layout
+
+- What changed:
+  - Replaced the visible quarterview lane presentation with the real tile cards arranged directly on a top-view diamond projection.
+  - Disabled the separate quarterview visual-lane layer and kept rails hidden, so the board is no longer built from an extra guide/rail surface.
+  - Constrained the live ring board to a square-ish board area and adjusted the ring projection to a top-view diamond scale.
+  - Kept existing tile card information, ownership, stage focus, and pawn/standee positioning on the same projected tile coordinates.
+- Why:
+  - the reference-style board should read as one top-view diamond made of the tiles themselves, not as a quarterview track laid over a guide rail
+- API / contract impact:
+  - none; frontend rendering/projection presentation only
+- Validation:
+  - `cd apps/web && npm run test -- src/features/board/boardProjection.spec.ts`
+  - `cd apps/web && npm run build`
+  - in-app browser quick-start match check at `http://127.0.0.1:5173/#/match`; console error list empty
+
+## 2026-04-26 Quarterview Board Reference-Like Guide Cleanup
+
+- What changed:
+  - Removed the visible quarterview rail guide layer so the board reads as tile-to-tile connected lanes instead of tiles sitting on a separate guide strip.
+  - Added a shared diamond clip and mitered lane ends to reduce corner overrun where the four board sides meet.
+  - Kept the richer tile content layer intact: tile number, kind, purchase / rent, owner, and score metadata remain present on the visual tiles.
+- Why:
+  - the reference-like board shape depends on the four tile lanes reading as one diamond; the separate guide rail made the corners look like crossed, disconnected parts
+- API / contract impact:
+  - none; CSS presentation only
+- Validation:
+  - `cd apps/web && npm run test -- src/features/board/boardProjection.spec.ts`
+  - `cd apps/web && npm run build`
+  - in-app browser quick-start match check at `http://127.0.0.1:5173/#/match`; console error list empty
+
+## 2026-04-26 Quarterview Board Diamond Track Connection
+
+- What changed:
+  - Updated the quarterview board track sizing so all four visual lanes share one projected diamond side length instead of sizing each side from `tileCount * fixedTileWidth`.
+  - Increased the quarterview tile height and track height so each tile can carry more of the existing board information without collapsing.
+  - Restored visible tile metadata on the quarterview layer:
+    - tile index
+    - kind label
+    - purchase / rent label when applicable
+    - owner label
+    - score coin label when present
+- Why:
+  - the earlier quarterview lane layout produced four visually separate rail segments rather than one connected diamond-shaped board
+  - the compact visual tile layer had dropped too much of the original tile information
+- API / contract impact:
+  - none; React markup and CSS presentation only
+- Validation:
+  - `cd apps/web && npm run build`
+  - local browser quick-start match visual check at `http://127.0.0.1:5173/`
+
+## 2026-04-26 Narrow Viewport Board Visibility Check
+
+- What changed:
+  - During in-app browser inspection, found that the stacked HUD layout at narrow viewport widths could still sit as an absolute overlay on top of the board.
+  - Updated the `max-width: 980px` layout so `board-overlay-content` participates in normal document flow and the board scroll shell switches to a vertical flex layout.
+  - The board now appears first, with the stacked HUD surfaces following underneath on narrow screens instead of hiding the board.
+- Why:
+  - the previous mobile override preserved the desktop overlay layer and caused the prompt/player HUD stack to cover the diamond board
+- API / contract impact:
+  - none; CSS-only responsive layout fix
+- Validation:
+  - `cd apps/web && npm run build`
+  - in-app browser quick-start match screen check; console error list empty
+
+## 2026-04-28 1920x1080 Board Reference Validation Failure
+
+- Validation attempted:
+  - restarted local web/server runtime on `127.0.0.1:9000` and `127.0.0.1:9090`
+  - opened a quick-start match at `1920x1080`
+  - captured `match-1920-board-initial.png`
+- Failed result:
+  - the lane-owned board stayed connected, but the board occupied only about `840x532` pixels and sat too far left
+  - the collapsed decision prompt stretched across the map column and crossed the tile lanes, reducing tile readability
+  - the right side of the viewport was mostly empty, so the layout did not match the reference goal of using the available horizontal space for a larger board
+- Lesson:
+  - the narrow-viewport clipping fix reused one right-safe budget for every desktop width; that over-reserves space on `1920x1080`
+  - collapsed prompt placement must be treated like a reference-style central sign inside the board's empty center, not like a full-width HUD rail
+- Corrective direction:
+  - add a wide-desktop safe-space budget so the board can grow until it approaches the player-card rails
+  - constrain collapsed prompt width/height and center it in the diamond's empty inner area without crossing the lane strips
+
+## 2026-04-28 Projection-Owned Board And Character Portrait Pass
+
+- What changed:
+  - replaced the visible lane-owned board surface with a projection-owned SVG tile layer
+  - added `quarterviewTilePolygons` so each visible board tile is calculated as a projected four-point polygon from one logical board plane
+  - removed visible lane strip ownership from the active board render; browser validation now reports `40` projected tiles and `0` lane strips
+  - kept the old tile card nodes as non-visual anchors for existing focus, HUD, and standee positioning during this transition
+  - generated a sixteen-character 2:3 portrait sprite sheet for the full gameplay catalog and wired character-pick cards to use those illustrations instead of the old one-letter mark
+  - mapped the previously missing faces (`탐관오리`, `산적`, `사기꾼`, and the rest of the catalog) and corrected the shaman portraits so `박수` reads as a male shaman while `만신` reads as a female shaman
+  - adjusted character-pick prompt height and card sizing so the enlarged 2:3 portraits remain responsive without pushing the card body outside the prompt surface
+- Why:
+  - the reference board is not four independent guide rails; it is a single top-view board plane compressed through a quarterview-style projection
+  - character choice cards need a real scalable visual asset, not a fixed text placeholder, while preserving choice metadata and ability text
+- Validation:
+  - `cd apps/web && npm run test -- src/features/board/boardProjection.spec.ts`
+  - `cd apps/web && npm run build`
+  - browser 1920x1080 AI-session check: `40` `.board-projected-tile`, `0` `.board-lane-strip`, no console errors
+  - browser 1920x1080 human draft prompt check: character cards render generated 2:3 portraits and keep visible card metadata/ability text
 
 ## 2026-04-16 Room / Dedicated Server / Electron Client Architecture Plan
 

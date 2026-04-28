@@ -1497,6 +1497,44 @@ class TrickSystemTests(unittest.TestCase):
         ]
         self.assertEqual(len(trick_events), 1)
 
+    def test_trick_used_visual_event_carries_immediate_state(self):
+        class FireStovePolicy(DummyPolicy):
+            def choose_trick_to_use(self, state, player, hand):
+                for card in hand:
+                    if card.name == "아주 큰 화목 난로":
+                        return card
+                return hand[0] if hand else None
+
+        stream = VisEventStream()
+        engine = GameEngine(
+            DEFAULT_CONFIG,
+            FireStovePolicy(),
+            rng=random.Random(0),
+            enable_logging=True,
+            event_stream=stream,
+        )
+        engine._vis_buffer = None
+        state = self.make_state(engine)
+        player = state.players[0]
+        engine._strategy_stats[player.player_id].update(
+            {"tricks_used": 0, "anytime_tricks_used": 0, "regular_tricks_used": 0}
+        )
+        player.trick_hand = [card for card in build_trick_deck() if card.name == "아주 큰 화목 난로"][:1]
+        player.trick_hand.append(TrickCard(deck_index=999, name="건강 검진", description="통행료 절반"))
+        before_shards = player.shards
+        before_f = state.f_value
+
+        engine._use_trick_phase(state, player)
+
+        event = stream.by_type("trick_used")[-1].to_dict()
+        self.assertEqual(player.shards, before_shards + 1)
+        self.assertEqual(state.f_value, before_f + 1)
+        self.assertEqual(event["player_shards"], player.shards)
+        self.assertEqual(event["f_value"], state.f_value)
+        self.assertEqual([card["name"] for card in event["full_hand"]], ["건강 검진"])
+        self.assertEqual(event["snapshot"]["players"][0]["shards"], player.shards)
+        self.assertEqual(event["snapshot"]["board"]["f_value"], state.f_value)
+
     def test_hogaekkun_slowdown_reduces_effective_move_when_crossed(self):
         engine = self.make_engine(policy=DummyPolicy())
         state = self.make_state(engine)
@@ -2005,6 +2043,35 @@ class TrickRuleAuditTests(unittest.TestCase):
 
         self.assertEqual(result["shards_delta"], DEFAULT_CONFIG.rules.lap_reward.shards)
         self.assertEqual(player.shards - start_shards, DEFAULT_CONFIG.rules.lap_reward.shards)
+
+    def test_lap_reward_uses_board_path_not_drifted_total_steps(self):
+        engine = self.make_engine()
+        state = self.make_state()
+        player = state.players[0]
+        board_len = len(state.board)
+        player.position = board_len - 2
+        player.total_steps = board_len - 1
+
+        with patch.object(engine, "_apply_lap_reward", side_effect=AssertionError("lap reward should not trigger on tile 39")):
+            with patch.object(engine, "_resolve_landing", return_value={"type": "TEST"}):
+                engine._advance_player(state, player, 1, {"mode": "test"})
+
+        self.assertEqual(player.position, board_len - 1)
+
+    def test_lap_reward_still_triggers_when_board_path_crosses_start(self):
+        engine = self.make_engine()
+        state = self.make_state()
+        player = state.players[0]
+        board_len = len(state.board)
+        player.position = board_len - 1
+        player.total_steps = 1
+
+        with patch.object(engine, "_apply_lap_reward", return_value={"choice": "cash", "cash_delta": 1}) as reward:
+            with patch.object(engine, "_resolve_landing", return_value={"type": "TEST"}):
+                engine._advance_player(state, player, 1, {"mode": "test"})
+
+        self.assertEqual(player.position, 0)
+        self.assertEqual(reward.call_count, 1)
 
     def test_lap_reward_point_cost_defaults_follow_rule_document(self):
         rules = DEFAULT_CONFIG.rules.lap_reward

@@ -198,6 +198,8 @@ type BackendDerivedPlayerItem = {
   shards: number;
   owned_tile_count: number;
   trick_count: number;
+  hidden_trick_count?: number;
+  public_tricks?: string[];
   hand_coins: number;
   placed_coins: number;
   total_score: number;
@@ -728,6 +730,12 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
     }
     return text.stream.actorDetail(actorFromPayload(payload, text), text.stream.fortuneResolved(summary));
   }
+  if (eventType === "trick_used") {
+    const cardName = asString(payload["card_name"] ?? payload["card"] ?? payload["trick_name"] ?? payload["name"]);
+    const effect = asString(payload["card_description"] ?? payload["description"] ?? payload["effect_text"] ?? payload["summary"]);
+    const trickText = [cardName, effect].filter((part) => part !== "-").join(" / ");
+    return text.stream.actorDetail(actorFromPayload(payload, text), trickText || eventLabelForCode("trick_used", text.eventLabel));
+  }
 
   const summary = payload["summary"];
   if (typeof summary === "string" && summary.trim()) {
@@ -799,6 +807,7 @@ const CORE_EVENT_CODES = new Set<string>([
   "lap_reward_chosen",
   "fortune_drawn",
   "fortune_resolved",
+  "mark_resolved",
   "mark_queued",
   "mark_target_none",
   "mark_target_missing",
@@ -811,23 +820,37 @@ const CORE_EVENT_CODES = new Set<string>([
 const CURRENT_TURN_REVEAL_EVENT_CODES = new Set<string>([
   "weather_reveal",
   "dice_roll",
+  "trick_used",
   "player_move",
   "landing_resolved",
   "tile_purchased",
   "rent_paid",
+  "lap_reward_chosen",
   "fortune_drawn",
   "fortune_resolved",
+  "mark_queued",
+  "mark_resolved",
+  "marker_flip",
+  "marker_transferred",
+  "bankruptcy",
 ]);
 
 const CURRENT_TURN_REVEAL_ORDER: Record<string, number> = {
   weather_reveal: 10,
   dice_roll: 20,
+  trick_used: 25,
   player_move: 30,
   landing_resolved: 40,
   rent_paid: 50,
   tile_purchased: 50,
+  lap_reward_chosen: 58,
   fortune_drawn: 60,
   fortune_resolved: 70,
+  mark_queued: 76,
+  mark_resolved: 78,
+  marker_flip: 80,
+  marker_transferred: 82,
+  bankruptcy: 90,
 };
 
 const PROMPT_EVENT_CODES = new Set<string>(["decision_requested", "decision_resolved", "decision_timeout_fallback"]);
@@ -1910,26 +1933,131 @@ export function selectCurrentTurnRevealItems(
   return items.slice(-safeLimit);
 }
 
-export function selectLastMove(messages: InboundMessage[]): LastMoveViewModel | null {
-  const backendMove = selectBackendLastMove(messages);
-  if (backendMove) {
-    return backendMove;
-  }
+export function selectCurrentRoundRevealItems(
+  messages: InboundMessage[],
+  limit = 24,
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): CurrentTurnRevealItem[] {
+  const safeLimit = Math.max(1, limit);
+  let roundStartIndex = -1;
+  let targetRound: number | null = null;
+
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
-    if (message.type !== "event" || messageKindFromPayload(message.payload) !== "player_move") {
+    if (message.type !== "event") {
+      continue;
+    }
+    const eventCode = messageKindFromPayload(message.payload);
+    if (eventCode === "round_start") {
+      roundStartIndex = i;
+      targetRound = numberOrNull(message.payload["round_index"]);
+      break;
+    }
+    if (targetRound === null) {
+      targetRound = numberOrNull(message.payload["round_index"]);
+    }
+  }
+
+  if (targetRound === null) {
+    return [];
+  }
+
+  const startIndex = roundStartIndex >= 0 ? roundStartIndex + 1 : 0;
+  const items: CurrentTurnRevealItem[] = [];
+  for (let i = startIndex; i < messages.length; i += 1) {
+    const message = messages[i];
+    if (message.type !== "event") {
+      continue;
+    }
+    if (numberOrNull(message.payload["round_index"]) !== targetRound) {
+      continue;
+    }
+    const eventCode = messageKindFromPayload(message.payload);
+    if (!CURRENT_TURN_REVEAL_EVENT_CODES.has(eventCode)) {
+      continue;
+    }
+    items.push({
+      seq: message.seq,
+      eventCode,
+      label: pickMessageLabel(message, text),
+      detail: pickMessageDetail(message, text) || "-",
+      tone:
+        eventCode === "dice_roll" || eventCode === "player_move"
+          ? "move"
+          : eventCode === "tile_purchased" ||
+              eventCode === "rent_paid" ||
+              eventCode === "lap_reward_chosen" ||
+              eventCode === "bankruptcy"
+            ? "economy"
+            : "effect",
+      focusTileIndex: focusTileIndexFromPayload(message.payload, eventCode),
+      isInterrupt:
+        eventCode === "weather_reveal" ||
+        eventCode === "fortune_drawn" ||
+        eventCode === "fortune_resolved" ||
+        eventCode === "trick_used",
+    });
+  }
+
+  return items.slice(-safeLimit);
+}
+
+export function selectLastMove(messages: InboundMessage[]): LastMoveViewModel | null {
+  const latestTurnStartSeq = latestTurnStartSequence(messages);
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.seq < latestTurnStartSeq) {
+      break;
+    }
+    if (message.type !== "event") {
+      continue;
+    }
+    const eventCode = messageKindFromPayload(message.payload);
+    if (!isMovementBearingEvent(eventCode)) {
+      continue;
+    }
+    const fromTileIndex = numberOrNull(
+      message.payload["from_tile_index"] ?? message.payload["from_tile"] ?? message.payload["from_pos"] ?? message.payload["start_pos"]
+    );
+    const toTileIndex = numberOrNull(
+      message.payload["to_tile_index"] ??
+        message.payload["to_tile"] ??
+        message.payload["to_pos"] ??
+        message.payload["end_pos"] ??
+        message.payload["target_pos"] ??
+        message.payload["position"]
+    );
+    if (fromTileIndex === null || toTileIndex === null || fromTileIndex === toTileIndex) {
       continue;
     }
     const rawPath = Array.isArray(message.payload["path"]) ? message.payload["path"] : [];
     const pathTileIndices = rawPath.filter((value): value is number => typeof value === "number");
     return {
       playerId: numberOrNull(message.payload["acting_player_id"] ?? message.payload["player_id"]),
-      fromTileIndex: numberOrNull(message.payload["from_tile_index"] ?? message.payload["from_tile"] ?? message.payload["from_pos"]),
-      toTileIndex: numberOrNull(message.payload["to_tile_index"] ?? message.payload["to_tile"] ?? message.payload["to_pos"]),
+      fromTileIndex,
+      toTileIndex,
       pathTileIndices,
     };
   }
-  return null;
+  if (Number.isFinite(latestTurnStartSeq)) {
+    return null;
+  }
+  const backendMove = selectBackendLastMove(messages);
+  return backendMove && backendMove.fromTileIndex !== backendMove.toTileIndex ? backendMove : null;
+}
+
+function latestTurnStartSequence(messages: InboundMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.type === "event" && messageKindFromPayload(message.payload) === "turn_start") {
+      return message.seq;
+    }
+  }
+  return Number.NEGATIVE_INFINITY;
+}
+
+function isMovementBearingEvent(eventCode: string): boolean {
+  return eventCode === "player_move" || eventCode === "fortune_resolved" || eventCode === "trick_used" || eventCode === "mark_resolved";
 }
 
 function toPlayerViewModel(raw: unknown): PlayerViewModel | null {
@@ -2403,9 +2531,9 @@ function selectBackendDerivedPlayers(
         handCoins: typeof item["hand_coins"] === "number" ? item["hand_coins"] : 0,
         placedCoins: typeof item["placed_coins"] === "number" ? item["placed_coins"] : 0,
         totalScore: typeof item["total_score"] === "number" ? item["total_score"] : 0,
-        hiddenTrickCount: 0,
+        hiddenTrickCount: typeof item["hidden_trick_count"] === "number" ? item["hidden_trick_count"] : 0,
         ownedTileCount: typeof item["owned_tile_count"] === "number" ? item["owned_tile_count"] : 0,
-        publicTricks: [] as string[],
+        publicTricks: stringArray(item["public_tricks"]),
         trickCount: typeof item["trick_count"] === "number" ? item["trick_count"] : 0,
         prioritySlot: typeof item["priority_slot"] === "number" ? item["priority_slot"] : null,
         currentCharacterFace:

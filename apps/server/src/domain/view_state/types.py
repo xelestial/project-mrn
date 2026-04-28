@@ -13,6 +13,8 @@ class DerivedPlayerItemViewState(TypedDict):
     shards: int
     owned_tile_count: int
     trick_count: int
+    hidden_trick_count: int
+    public_tricks: list[str]
     hand_coins: int
     placed_coins: int
     total_score: int
@@ -86,9 +88,11 @@ class BoardTileViewState(TypedDict):
     pawn_player_ids: list[int]
 
 
-class BoardViewState(TypedDict):
+class BoardViewState(TypedDict, total=False):
     last_move: BoardLastMoveViewState | None
     tiles: list[BoardTileViewState]
+    f_value: int | float | None
+    marker_owner_player_id: int | None
 
 
 class PromptChoiceItemViewState(TypedDict):

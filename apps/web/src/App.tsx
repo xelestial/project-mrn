@@ -15,6 +15,7 @@ import {
   selectActiveCharacterSlots,
   selectCoreActionFeed,
   selectCurrentActorPlayerId,
+  selectCurrentRoundRevealItems,
   selectCurrentTurnRevealItems,
   selectDerivedPlayers,
   selectLastMove,
@@ -28,6 +29,7 @@ import {
 } from "./domain/selectors/streamSelectors";
 import { BoardPanel } from "./features/board/BoardPanel";
 import { GameEventOverlay } from "./features/board/GameEventOverlay";
+import privateCharacterSealUrl from "./assets/private-character-seal.svg";
 import { useEventQueue } from "./features/board/useEventQueue";
 import { LobbyView, type LobbySeatType } from "./features/lobby/LobbyView";
 import { PromptOverlay } from "./features/prompt/PromptOverlay";
@@ -155,6 +157,16 @@ function escapeDebugHtml(value: string): string {
     .replaceAll("\"", "&quot;");
 }
 
+function debugMessageKey(message: InboundMessage): string {
+  return [
+    message.session_id,
+    message.seq,
+    message.type,
+    message.server_time_ms ?? "",
+    JSON.stringify(message.payload),
+  ].join(":");
+}
+
 function saveStoredSessionToken(sessionId: string, token: string | undefined): void {
   const normalized = sessionId.trim();
   if (!normalized) {
@@ -237,17 +249,6 @@ function currentTurnBadgeLabel(locale: string): string {
   return isKoreanLocale(locale) ? "현재 차례" : "Current turn";
 }
 
-function playerIdentityGlyph(character: string | null | undefined, displayName: string, seatType: SeatPublic["seat_type"] | null, seat: number): string {
-  if (hasReadableValue(character)) {
-    return Array.from(character!.trim())[0] ?? String(seat);
-  }
-  if (seatType === "ai") {
-    return "AI";
-  }
-  const normalized = displayName.trim();
-  return (normalized ? Array.from(normalized)[0] : [String(seat)])[0] ?? String(seat);
-}
-
 function eventToneIcon(tone: CurrentTurnRevealItem["tone"]): string {
   switch (tone) {
     case "move":
@@ -279,6 +280,72 @@ function eventToneForEventCode(eventCode: string): CurrentTurnRevealItem["tone"]
     return "move";
   }
   return "effect";
+}
+
+function rentOverlayKindForPlayer(
+  detail: string,
+  playerId: number | null
+): "rent_pay" | "rent_receive" | "rent_observe" {
+  if (playerId === null) {
+    return "rent_observe";
+  }
+  const playerToken = `P${playerId}`;
+  const escapedToken = playerToken.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const payerPattern = new RegExp(`\\b${escapedToken}\\b\\s*(?:->|paid\\b)`);
+  const receiverPattern = new RegExp(`(?:->|paid\\s+P\\d+\\s+to\\s+)\\s*\\b${escapedToken}\\b|\\bpaid\\s+\\b${escapedToken}\\b`);
+  if (payerPattern.test(detail)) {
+    return "rent_pay";
+  }
+  if (receiverPattern.test(detail)) {
+    return "rent_receive";
+  }
+  return "rent_observe";
+}
+
+function appNumberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function appRecordOrNull(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function diceOverlayValues(payload: Record<string, unknown>): { values: number[]; total: number | null } {
+  const rawValues = Array.isArray(payload["dice_values"])
+    ? payload["dice_values"]
+    : Array.isArray(payload["dice"])
+      ? payload["dice"]
+      : [];
+  const values = rawValues.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const total =
+    appNumberOrNull(payload["dice_total"]) ??
+    appNumberOrNull(payload["total_move"]) ??
+    appNumberOrNull(payload["total"]) ??
+    (values.length > 0 ? values.reduce((sum, value) => sum + value, 0) : null);
+  return { values: values.length > 0 ? values : total !== null ? [total] : [], total };
+}
+
+function movementOverlayDetail(payload: Record<string, unknown>, locale: string): string | null {
+  const playerId = appNumberOrNull(payload["acting_player_id"] ?? payload["player_id"]);
+  const from =
+    appNumberOrNull(payload["from_tile_index"]) ??
+    appNumberOrNull(payload["from_tile"]) ??
+    appNumberOrNull(payload["from_pos"]) ??
+    appNumberOrNull(payload["start_pos"]);
+  const to =
+    appNumberOrNull(payload["to_tile_index"]) ??
+    appNumberOrNull(payload["to_tile"]) ??
+    appNumberOrNull(payload["to_pos"]) ??
+    appNumberOrNull(payload["end_pos"]) ??
+    appNumberOrNull(payload["target_pos"]) ??
+    appNumberOrNull(payload["position"]);
+  if (from === null || to === null || from === to) {
+    return null;
+  }
+  const actor = playerId === null ? (locale === "ko" ? "말" : "Pawn") : `P${playerId}`;
+  return locale === "ko"
+    ? `${actor} ${from + 1}번 타일에서 ${to + 1}번 타일로 이동`
+    : `${actor} moved from tile ${from + 1} to tile ${to + 1}`;
 }
 
 function seatTypeBadgeLabel(seatType: SeatPublic["seat_type"] | null | undefined, locale: string): string | null {
@@ -313,7 +380,7 @@ function promptProgressText(requestType: string, promptLabel: string | null, loc
     case "movement":
       return ko ? "이동값 고르는 중..." : "Choosing movement...";
     case "purchase_tile":
-      return ko ? "토지 구매 결정 중..." : "Deciding tile purchase...";
+      return ko ? "땅 사기 결정 중..." : "Deciding tile purchase...";
     case "trick_to_use":
       return ko ? "잔꾀 고르는 중..." : "Choosing trick...";
     case "mark_target":
@@ -332,7 +399,7 @@ function promptProgressText(requestType: string, promptLabel: string | null, loc
 }
 
 export function App() {
-  const { app, eventLabel, promptType, stream: streamText, turnStage: turnStageText, locale, setLocale } = useI18n();
+  const { app, board: boardText, eventLabel, promptType, stream: streamText, turnStage: turnStageText, locale, setLocale } = useI18n();
   const [route, setRoute] = useState<ViewRoute>(() => parseHashState(window.location.hash).route);
   const [sessionInput, setSessionInput] = useState("");
   const [tokenInput, setTokenInput] = useState("");
@@ -372,7 +439,10 @@ export function App() {
 
   const [compactDensity, setCompactDensity] = useState(false);
   const [sessionInfoExpanded, setSessionInfoExpanded] = useState(false);
+  const [weatherExpanded, setWeatherExpanded] = useState(false);
   const [showRawMessages, setShowRawMessages] = useState(false);
+  const [publicEventFeedOpen, setPublicEventFeedOpen] = useState(false);
+  const [debugMessages, setDebugMessages] = useState<InboundMessage[]>([]);
   const [promptCollapsed, setPromptCollapsed] = useState(false);
   const [promptBusy, setPromptBusy] = useState(false);
   const [promptRequestId, setPromptRequestId] = useState("");
@@ -388,6 +458,7 @@ export function App() {
     variant: "turn" | "interrupt";
   } | null>(null);
   const debugWindowRef = useRef<Window | null>(null);
+  const debugMessageKeysRef = useRef<Set<string>>(new Set());
   const lastTurnBannerSeqRef = useRef<number>(0);
   const lastRevealBannerSeqRef = useRef<number>(0);
   const promptSubmitRequestIdRef = useRef<string | null>(null);
@@ -418,7 +489,12 @@ export function App() {
     () => selectCurrentTurnRevealItems(stream.messages, 6, selectorText),
     [stream.messages, selectorText]
   );
+  const currentRoundRevealItems = useMemo(
+    () => selectCurrentRoundRevealItems(stream.messages, 24, selectorText),
+    [stream.messages, selectorText]
+  );
   const latestCurrentTurnReveal = currentTurnRevealItems[currentTurnRevealItems.length - 1] ?? null;
+  const latestCurrentRoundReveal = currentRoundRevealItems[currentRoundRevealItems.length - 1] ?? null;
   const fallbackRevealSpotlight = useMemo(() => {
     if (currentTurnRevealItems.length > 0) {
       return null;
@@ -454,8 +530,8 @@ export function App() {
       isInterrupt: false,
     } satisfies CurrentTurnRevealItem;
   }, [coreActionFeed, currentTurnRevealItems]);
-  const eventFeedSpotlightItem = latestCurrentTurnReveal ?? fallbackRevealSpotlight;
-  const eventFeedHistoryItems = currentTurnRevealItems.slice(0, -1);
+  const eventFeedSpotlightItem = latestCurrentRoundReveal ?? latestCurrentTurnReveal ?? fallbackRevealSpotlight;
+  const eventFeedHistoryItems = currentRoundRevealItems.slice(0, -1);
 
   const currentActorId =
     turnStage.currentBeatEventCode === "game_end" ? null : selectCurrentActorPlayerId(stream.messages);
@@ -577,61 +653,31 @@ export function App() {
   }, [derivedPlayers]);
 
   const orderedSeatEntries = useMemo(() => {
+    const derivedPlayerIds = new Set(derivedPlayers.map((player) => player.playerId));
     const sessionSeatEntries = (sessionSeats ?? [])
       .slice()
       .sort((left, right) => left.seat - right.seat)
       .map((seat) => ({
         seat: seat.seat,
-        playerId: seat.player_id ?? null,
+        playerId: seat.player_id ?? (derivedPlayerIds.has(seat.seat) ? seat.seat : null),
         seatType: seat.seat_type,
         connected: seat.connected ?? null,
       }));
-    const knownSeatsByPlayerId = new Map(
-      sessionSeatEntries
-        .filter((seat): seat is { seat: number; playerId: number; seatType: SeatPublic["seat_type"]; connected: boolean | null } => seat.playerId !== null)
-        .map((seat) => [seat.playerId, seat])
-    );
-    const usedSeats = new Set<number>();
-    const ordered: Array<{
-      seat: number;
-      playerId: number | null;
-      seatType: SeatPublic["seat_type"] | null;
-      connected: boolean | null;
-    }> = [];
 
-    for (const player of markerOrderedPlayers) {
-      const matchedSeat = knownSeatsByPlayerId.get(player.playerId);
-      if (matchedSeat) {
-        ordered.push(matchedSeat);
-        usedSeats.add(matchedSeat.seat);
-        continue;
-      }
-      ordered.push({
-        seat: player.playerId,
-        playerId: player.playerId,
-        seatType: null,
-        connected: true,
-      });
-      usedSeats.add(player.playerId);
+    if (sessionSeatEntries.length > 0) {
+      return sessionSeatEntries;
     }
 
-    for (const seat of sessionSeatEntries) {
-      if (!usedSeats.has(seat.seat)) {
-        ordered.push(seat);
-      }
-    }
-
-    if (ordered.length === 0) {
-      return derivedPlayers.map((player) => ({
+    return derivedPlayers
+      .slice()
+      .sort((left, right) => left.playerId - right.playerId)
+      .map((player) => ({
         seat: player.playerId,
         playerId: player.playerId,
         seatType: null,
         connected: true,
       }));
-    }
-
-    return ordered;
-  }, [derivedPlayers, markerOrderedPlayers, sessionSeats]);
+  }, [derivedPlayers, sessionSeats]);
 
   const joinSeatOptions = (sessionManifest?.seats?.allowed ?? [])
     .slice()
@@ -720,17 +766,11 @@ export function App() {
       : null;
   const hasBoardBottomDock =
     Boolean(passivePrompt) || waitingForMyPrompt || Boolean(actionablePrompt) || overlayHandCards.length > 0;
-  const shouldHidePromptCompanionEvents =
-    visibleActionablePrompt?.behavior.normalizedRequestType === "burden_exchange_batch" ||
-    visibleActionablePrompt?.behavior.normalizedRequestType === "active_flip";
-  const showPublicEventFeed =
+  const hasPublicEventFeed =
     route !== "lobby" &&
     Boolean(eventFeedSpotlightItem) &&
-    !(
-      visibleActionablePrompt &&
-      visibleActionablePrompt.surface.blocksPublicEvents === true &&
-      shouldHidePromptCompanionEvents
-    );
+    !visibleActionablePrompt;
+  const showPublicEventFeed = hasPublicEventFeed && publicEventFeedOpen;
   const decisionWaitingTitle = currentPromptLabel && currentPromptLabel !== "-" ? currentPromptLabel : tableSceneTitle;
   const decisionWaitingLines = Array.from(
     new Set(
@@ -1001,11 +1041,24 @@ export function App() {
     if (!promptBusy || !promptInteraction.shouldReleaseSubmission) {
       return;
     }
+    const keepBurdenExchangeQueue =
+      burdenExchangeQueuedPlayerId !== null &&
+      actionablePromptBehavior?.normalizedRequestType === "burden_exchange_batch" &&
+      actionablePromptBehavior.autoContinue === true &&
+      actionablePrompt?.playerId === burdenExchangeQueuedPlayerId;
     setPromptBusy(false);
-    setBurdenExchangeQueuedDeckIndexes([]);
-    setBurdenExchangeQueuedPlayerId(null);
+    if (!keepBurdenExchangeQueue) {
+      setBurdenExchangeQueuedDeckIndexes([]);
+      setBurdenExchangeQueuedPlayerId(null);
+    }
     promptSubmitRequestIdRef.current = null;
-  }, [promptBusy, promptInteraction.shouldReleaseSubmission]);
+  }, [
+    actionablePrompt,
+    actionablePromptBehavior,
+    burdenExchangeQueuedPlayerId,
+    promptBusy,
+    promptInteraction.shouldReleaseSubmission,
+  ]);
 
   useEffect(() => {
     if (burdenExchangeQueuedPlayerId === null) {
@@ -1120,20 +1173,50 @@ export function App() {
     if (latestCurrentTurnReveal.seq <= lastEnqueuedRevealSeqRef.current) return;
 
     const { eventCode, label, detail, seq } = latestCurrentTurnReveal;
-    if (eventCode === "rent_paid") {
+    const sourcePayload = appRecordOrNull(stream.messages.find((message) => message.seq === seq)?.payload);
+    if (eventCode === "weather_reveal") {
       lastEnqueuedRevealSeqRef.current = seq;
-      // Determine pay/receive from perspective of local player
-      // detail already contains the human-readable rent description from the selector
-      const kind =
-        effectivePlayerId !== null && detail.includes(`P${effectivePlayerId}`)
-          ? "rent_pay"
-          : "rent_observe";
+      eventQueue.enqueue({ kind: "weather", label, detail });
+    } else if (eventCode === "dice_roll") {
+      lastEnqueuedRevealSeqRef.current = seq;
+      const dice = sourcePayload ? diceOverlayValues(sourcePayload) : { values: [], total: null };
+      eventQueue.enqueue({ kind: "dice", label, detail, diceValues: dice.values, diceTotal: dice.total });
+    } else if (eventCode === "tile_purchased") {
+      lastEnqueuedRevealSeqRef.current = seq;
+      eventQueue.enqueue({ kind: "purchase", label, detail });
+    } else if (eventCode === "rent_paid") {
+      lastEnqueuedRevealSeqRef.current = seq;
+      const kind = rentOverlayKindForPlayer(detail, effectivePlayerId);
       eventQueue.enqueue({ kind, label, detail });
     } else if (eventCode === "lap_reward_chosen") {
       lastEnqueuedRevealSeqRef.current = seq;
       eventQueue.enqueue({ kind: "lap_complete", label, detail });
+    } else if (eventCode === "fortune_drawn" || eventCode === "fortune_resolved") {
+      lastEnqueuedRevealSeqRef.current = seq;
+      const moveDetail = sourcePayload ? movementOverlayDetail(sourcePayload, locale) : null;
+      if (moveDetail) {
+        eventQueue.enqueue({ kind: "move", label: locale === "ko" ? "운수 이동" : "Fortune move", detail: moveDetail });
+      }
+      eventQueue.enqueue({ kind: "fortune", label, detail });
+    } else if (eventCode === "trick_used") {
+      lastEnqueuedRevealSeqRef.current = seq;
+      const moveDetail = sourcePayload ? movementOverlayDetail(sourcePayload, locale) : null;
+      if (moveDetail) {
+        eventQueue.enqueue({ kind: "move", label: locale === "ko" ? "잔꾀 이동" : "Trick move", detail: moveDetail });
+      }
+      eventQueue.enqueue({ kind: "trick", label, detail });
+    } else if (eventCode === "mark_resolved" || eventCode === "mark_queued") {
+      lastEnqueuedRevealSeqRef.current = seq;
+      const moveDetail = sourcePayload ? movementOverlayDetail(sourcePayload, locale) : null;
+      if (moveDetail) {
+        eventQueue.enqueue({ kind: "move", label: locale === "ko" ? "지목 이동" : "Mark move", detail: moveDetail });
+      }
+      eventQueue.enqueue({ kind: "mark_success", label, detail });
+    } else if (eventCode === "bankruptcy") {
+      lastEnqueuedRevealSeqRef.current = seq;
+      eventQueue.enqueue({ kind: "bankruptcy", label, detail });
     }
-  }, [latestCurrentTurnReveal, effectivePlayerId, eventQueue]);
+  }, [latestCurrentTurnReveal, effectivePlayerId, eventQueue, locale, stream.messages]);
 
   useEffect(() => {
     if (route !== "match" || stream.status !== "connected") {
@@ -1146,6 +1229,40 @@ export function App() {
     const safeHash = buildMatchHash(sessionId.trim());
     window.history.replaceState(null, "", safeHash);
   }, [route, sessionId, stream.status]);
+
+  useEffect(() => {
+    if (!hasPublicEventFeed && publicEventFeedOpen) {
+      setPublicEventFeedOpen(false);
+    }
+  }, [hasPublicEventFeed, publicEventFeedOpen]);
+
+  useEffect(() => {
+    debugMessageKeysRef.current.clear();
+    setDebugMessages([]);
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (stream.messages.length === 0) {
+      return;
+    }
+    setDebugMessages((previousMessages) => {
+      let changed = false;
+      const nextMessages = [...previousMessages];
+      for (const message of stream.messages) {
+        if (sessionId.trim() && message.session_id !== sessionId.trim()) {
+          continue;
+        }
+        const key = debugMessageKey(message);
+        if (debugMessageKeysRef.current.has(key)) {
+          continue;
+        }
+        debugMessageKeysRef.current.add(key);
+        nextMessages.push(message);
+        changed = true;
+      }
+      return changed ? nextMessages : previousMessages;
+    });
+  }, [sessionId, stream.messages]);
 
   useEffect(() => {
     if (!showRawMessages) {
@@ -1164,7 +1281,14 @@ export function App() {
       return;
     }
     debugWindowRef.current = popup;
-    const timelineMarkup = timeline
+    const debugTimeline = selectTimeline(debugMessages, Math.max(debugMessages.length, compactDensity ? 24 : 40), selectorText);
+    const debugCoreActionFeed = selectCoreActionFeed(
+      debugMessages,
+      effectivePlayerId,
+      Math.max(debugMessages.length, compactDensity ? 10 : 14),
+      selectorText
+    );
+    const timelineMarkup = debugTimeline
       .slice()
       .sort((left, right) => right.seq - left.seq)
       .map(
@@ -1176,7 +1300,7 @@ export function App() {
         `
       )
       .join("");
-    const coreActionMarkup = coreActionFeed
+    const coreActionMarkup = debugCoreActionFeed
       .slice()
       .sort((left, right) => right.seq - left.seq)
       .map(
@@ -1188,7 +1312,7 @@ export function App() {
         `
       )
       .join("");
-    const rawMarkup = stream.messages
+    const rawMarkup = debugMessages
       .slice()
       .reverse()
       .map((message) => `<pre>${escapeDebugHtml(JSON.stringify(message, null, 2))}</pre>`)
@@ -1222,16 +1346,16 @@ export function App() {
           <main>
             <aside>
               <h1>Debug Log</h1>
-              <div class="meta">session=${escapeDebugHtml(sessionId || "-")} / runtime=${escapeDebugHtml(runtime.status)} / seq=${stream.lastSeq}</div>
+              <div class="meta">session=${escapeDebugHtml(sessionId || "-")} / runtime=${escapeDebugHtml(runtime.status)} / seq=${stream.lastSeq} / accumulated=${debugMessages.length}</div>
               <h2>Timeline</h2>
               ${timelineMarkup || "<p>-</p>"}
             </aside>
             <div class="core">
-              <h2>Recent Public Action (${coreActionFeed.length})</h2>
+              <h2>Public Action (${debugCoreActionFeed.length})</h2>
               ${coreActionMarkup || "<p>-</p>"}
             </div>
             <section>
-              <h2>Raw Messages (${stream.messages.length})</h2>
+              <h2>Raw Messages (${debugMessages.length})</h2>
               ${rawMarkup || "<p>-</p>"}
             </section>
           </main>
@@ -1246,7 +1370,17 @@ export function App() {
       }
     }, 1000);
     return () => window.clearInterval(syncClosed);
-  }, [coreActionFeed, locale, runtime.status, sessionId, showRawMessages, stream.lastSeq, stream.messages, timeline]);
+  }, [
+    compactDensity,
+    debugMessages,
+    effectivePlayerId,
+    locale,
+    runtime.status,
+    selectorText,
+    sessionId,
+    showRawMessages,
+    stream.lastSeq,
+  ]);
 
   useEffect(() => {
     saveStoredSessionToken(sessionId, token);
@@ -1836,6 +1970,11 @@ export function App() {
           <div className="match-global-left">
             <div className="match-global-summary-line">
               <strong>{sessionId ? `Session ${sessionId}` : app.topSummaryEmpty}</strong>
+              {snapshot ? (
+                <span className="match-global-round">
+                  {boardText.roundTurnMarker(snapshot.round, snapshot.turn, snapshot.markerOwnerPlayerId, Math.max(0, 15 - snapshot.fValue))}
+                </span>
+              ) : null}
               {sessionInfoExpanded ? (
                 <small>{`${runtime.status} · ${currentActorText !== "-" ? currentActorText : app.topSummaryEmpty}`}</small>
               ) : null}
@@ -1930,6 +2069,7 @@ export function App() {
           onHostSeatInput={setHostSeatInput}
           onSeatTypeChange={onSeatTypeChange}
           onCreateRoom={onCreateRoom}
+          onQuickStartHumanVsAi={onQuickStartHumanVsAi}
           onRefreshRooms={refreshRooms}
           onJoinRoom={onJoinRoom}
           onToggleReady={onToggleRoomReady}
@@ -1956,7 +2096,17 @@ export function App() {
                   <div className="match-table-overlay-top">
                     <section className="match-table-stage-header">
                       <section className="match-table-topline">
-                        <article className="match-table-weather-bar" data-testid="board-weather-summary">
+                        <article
+                          className={`match-table-weather-bar${weatherExpanded ? " match-table-weather-bar-expanded" : ""}`}
+                          data-testid="board-weather-summary"
+                          data-weather-name={hasReadableValue(weatherHeadline) ? weatherHeadline : undefined}
+                          data-weather-detail={hasReadableValue(weatherDetail) ? weatherDetail : undefined}
+                          tabIndex={0}
+                          onPointerEnter={() => setWeatherExpanded(true)}
+                          onPointerLeave={() => setWeatherExpanded(false)}
+                          onFocus={() => setWeatherExpanded(true)}
+                          onBlur={() => setWeatherExpanded(false)}
+                        >
                           <div className="match-table-card-head">
                             <strong>{turnStageText.weatherTitle}</strong>
                             <span>{turnStageText.weatherBadge}</span>
@@ -1988,17 +2138,31 @@ export function App() {
                             const playerId = seatEntry.playerId;
                             const seatType = seatEntry.seatType;
                             const seatTypeLabel = seatTypeBadgeLabel(seatType, locale);
-                            const isCurrentActor = playerId === currentActorId;
-                            const isLocalPlayer = playerId === effectivePlayerId;
+                            const isCurrentActor =
+                              playerId !== null && currentActorId !== null && playerId === currentActorId;
+                            const isLocalPlayer =
+                              playerId !== null && effectivePlayerId !== null && playerId === effectivePlayerId;
                             const isPromptActive = isCurrentActor && hasReadableValue(playerStageFallbackLabel);
+                            const hideCharacterEmblem = shouldHideCharacterForPrompt(turnStage.promptRequestType);
+                            const knownCharacterName =
+                              !hideCharacterEmblem &&
+                              player?.isCurrentActor &&
+                              player?.currentCharacterFace &&
+                              player.currentCharacterFace !== "-"
+                                ? player.currentCharacterFace
+                                : null;
+                            const rawDisplayName =
+                              player?.displayName && player.displayName !== "-" ? player.displayName : "";
+                            const rawDisplayNameLooksLikeCharacter =
+                              hasReadableValue(rawDisplayName) && Object.prototype.hasOwnProperty.call(characterAbilityLabels, rawDisplayName);
                             const displayName =
-                              player?.displayName && player.displayName !== "-"
-                                ? player.displayName
+                              hasReadableValue(rawDisplayName) &&
+                              rawDisplayName !== knownCharacterName &&
+                              !rawDisplayNameLooksLikeCharacter
+                                ? rawDisplayName
                                 : seatType === "ai"
                                   ? `AI ${seatEntry.seat}`
                                   : `Player ${seatEntry.seat}`;
-                            const knownCharacterName =
-                              player?.currentCharacterFace && player.currentCharacterFace !== "-" ? player.currentCharacterFace : null;
                             const characterStatus =
                               isCurrentActor && hasReadableValue(playerStageFallbackLabel)
                                 ? stageInProgressLabel(playerStageFallbackLabel, locale)
@@ -2009,9 +2173,18 @@ export function App() {
                                     : hasReadableValue(playerStageFallbackLabel)
                                       ? waitingPlayerLabel(locale)
                                       : "-";
-                            const personaHeadline = knownCharacterName ?? displayName;
-                            const personaSupportingLine = knownCharacterName ? displayName : characterStatus;
-                            const personaGlyph = playerIdentityGlyph(knownCharacterName, displayName, seatType, seatEntry.seat);
+                            const personaHeadline = displayName;
+                            const personaSupportingLine = characterStatus;
+                            const privateCharacterLabel = locale === "ko" ? "비공개" : "Hidden";
+                            const publicTrickNames = player?.publicTricks ?? [];
+                            const rawHiddenTrickCount = Math.max(
+                              player?.hiddenTrickCount ?? 0,
+                              (player?.trickCount ?? 0) - publicTrickNames.length
+                            );
+                            const hiddenTrickCount = Math.min(Math.max(0, 5 - publicTrickNames.length), rawHiddenTrickCount);
+                            const trickPeekCardCount = publicTrickNames.length + hiddenTrickCount;
+                            const shouldShowTrickPeek = !isLocalPlayer && trickPeekCardCount > 0;
+                            const hiddenTrickLabel = locale === "ko" ? "비공개 잔꾀" : "Hidden trick";
                             const playerStats = [
                               { key: "cash", tone: "cash", label: locale === "ko" ? "현금" : "Cash", value: player?.cash ?? "-" },
                               { key: "shards", tone: "shards", label: locale === "ko" ? "조각" : "Shard", value: player?.shards ?? "-" },
@@ -2024,20 +2197,37 @@ export function App() {
                             return (
                               <article
                                 key={`${seatEntry.seat}-${playerId ?? "pending"}`}
+                                data-testid={`match-player-card-${seatEntry.seat}`}
                                 className={`match-table-player-card ${isCurrentActor ? "match-table-player-card-actor" : ""} ${
                                   isPromptActive ? "match-table-player-card-active-prompt" : ""
                                 } ${isLocalPlayer ? "match-table-player-card-local" : ""}`}
+                                tabIndex={shouldShowTrickPeek ? 0 : undefined}
                                 style={{ "--player-accent": playerColor(playerId ?? seatEntry.seat) } as CSSProperties}
                               >
                                 <div className="match-table-player-identity">
-                                  <div className="match-table-player-emblem" aria-hidden="true">
-                                    <span className="match-table-player-emblem-glyph">{personaGlyph}</span>
-                                    <small className="match-table-player-emblem-seat">{`P${seatEntry.seat}`}</small>
+                                  <div
+                                    className={`match-table-player-emblem ${
+                                      knownCharacterName ? "match-table-player-emblem-revealed" : "match-table-player-emblem-hidden"
+                                    }`}
+                                    aria-label={
+                                      knownCharacterName
+                                        ? `${locale === "ko" ? "선택 인물" : "Selected character"} ${knownCharacterName}`
+                                        : privateCharacterLabel
+                                    }
+                                  >
+                                    {knownCharacterName ? (
+                                      <span className="match-table-player-emblem-glyph">
+                                        {Array.from(knownCharacterName.trim())[0] ?? "?"}
+                                      </span>
+                                    ) : (
+                                      <img src={privateCharacterSealUrl} alt="" className="match-table-player-emblem-secret" />
+                                    )}
                                   </div>
                                   <div className="match-table-player-identity-body">
                                     <div className="match-table-player-head">
                                       <div className="match-table-player-head-main">
-                                        {player?.isMarkerOwner ?? (playerId === markerOwnerPlayerId) ? (
+                                        {player?.isMarkerOwner ??
+                                        (playerId !== null && markerOwnerPlayerId !== null && playerId === markerOwnerPlayerId) ? (
                                           <span
                                             className="match-table-player-badge match-table-player-badge-marker"
                                             title={locale === "ko" ? "현재 징표 소유자" : "Current marker owner"}
@@ -2057,7 +2247,7 @@ export function App() {
                                         ) : null}
                                       </div>
                                       <div className="match-table-player-head-side">
-                                        <span>{displayName}</span>
+                                        <span>{`PLAYER ${seatEntry.seat}`}</span>
                                       </div>
                                     </div>
                                     <strong className="match-table-player-persona">{personaHeadline}</strong>
@@ -2076,6 +2266,49 @@ export function App() {
                                     </small>
                                   ))}
                                 </div>
+                                {shouldShowTrickPeek ? (
+                                  <section
+                                    className="match-table-player-trick-peek"
+                                    data-testid={`player-${playerId ?? seatEntry.seat}-trick-peek`}
+                                    aria-label={
+                                      locale === "ko"
+                                        ? `P${seatEntry.seat} 보유 잔꾀`
+                                        : `P${seatEntry.seat} trick cards`
+                                    }
+                                  >
+                                    <div className="match-table-player-trick-peek-head">
+                                      <strong>{locale === "ko" ? "보유 잔꾀" : "Trick cards"}</strong>
+                                      <span>
+                                        {locale === "ko"
+                                          ? `공개 ${publicTrickNames.length} / 비공개 ${hiddenTrickCount}`
+                                          : `Public ${publicTrickNames.length} / Hidden ${hiddenTrickCount}`}
+                                      </span>
+                                    </div>
+                                    <div className="match-table-player-trick-peek-grid">
+                                      {publicTrickNames.map((trickName, index) => (
+                                        <article
+                                          key={`public-${trickName}-${index}`}
+                                          className="match-table-player-trick-mini-card match-table-player-trick-mini-card-public"
+                                          data-card-visibility="public"
+                                        >
+                                          <small>{locale === "ko" ? "공개패" : "Public"}</small>
+                                          <strong>{trickName}</strong>
+                                        </article>
+                                      ))}
+                                      {Array.from({ length: hiddenTrickCount }).map((_, index) => (
+                                        <article
+                                          key={`hidden-${index}`}
+                                          className="match-table-player-trick-mini-card match-table-player-trick-mini-card-hidden"
+                                          data-card-visibility="hidden"
+                                          aria-label={hiddenTrickLabel}
+                                        >
+                                          <div className="match-table-player-trick-card-back" aria-hidden="true" />
+                                          <strong>{hiddenTrickLabel}</strong>
+                                        </article>
+                                      ))}
+                                    </div>
+                                  </section>
+                                ) : null}
                               </article>
                             );
                           })}
@@ -2117,28 +2350,30 @@ export function App() {
                                 } as CSSProperties
                               }
                             >
-                              <div className="match-table-active-character-heading">
-                                <span className="match-table-active-character-slot">{`#${card.slot}`}</span>
-                                <strong className="match-table-active-character-name">
-                                  {card.character ?? "-"}
-                                </strong>
+                              <div className="match-table-active-character-body">
+                                <div className="match-table-active-character-heading">
+                                  <span className="match-table-active-character-slot">{`#${card.slot}`}</span>
+                                  <strong className="match-table-active-character-name">
+                                    {card.character ?? "-"}
+                                  </strong>
+                                </div>
+                                <span
+                                  className={`match-table-active-character-meta ${
+                                    card.character ? "match-table-active-character-meta-active" : ""
+                                  }`}
+                                >
+                                  {[card.inactiveCharacter, card.label, card.isCurrentActor ? currentTurnBadgeLabel(locale) : null]
+                                    .filter(Boolean)
+                                    .join(" · ") || "-"}
+                                </span>
                               </div>
-                              <span
-                                className={`match-table-active-character-meta ${
-                                  card.character ? "match-table-active-character-meta-active" : ""
-                                }`}
-                              >
-                                {[card.inactiveCharacter, card.label, card.isCurrentActor ? currentTurnBadgeLabel(locale) : null]
-                                  .filter(Boolean)
-                                  .join(" · ") || "-"}
-                              </span>
                             </article>
                           ))}
                         </div>
                       </section>
                     </section>
                   </div>
-                  {hasBoardBottomDock || showPublicEventFeed ? (
+                  {hasBoardBottomDock ? (
                     <div
                       className={`match-table-overlay-middle ${
                         overlayHandCards.length > 0 ? "match-table-overlay-middle-with-hand-tray" : ""
@@ -2196,121 +2431,148 @@ export function App() {
                             ) : null}
                           </div>
                         ) : null}
-                        {showPublicEventFeed ? (
-                          <section className="match-table-event-overlay">
-                            <section className="match-table-event-stack" data-testid="board-event-reveal-stack">
-                              <div className="match-table-card-head">
-                                <strong>{locale === "ko" ? "공개 이벤트" : "Public events"}</strong>
-                                <span>{locale === "ko" ? "이번 턴 흐름" : "This turn flow"}</span>
-                              </div>
-                              {effectiveEventFeedSpotlightItem ? (
-                                <article
-                                  className={`match-table-event-spotlight match-table-event-spotlight-${effectiveEventFeedSpotlightItem.tone}`}
-                                  data-testid={`board-event-spotlight-${effectiveEventFeedSpotlightItem.eventCode}`}
-                                  data-event-tone={effectiveEventFeedSpotlightItem.tone}
-                                  data-event-seq={effectiveEventFeedSpotlightItem.seq}
-                                >
-                                  <div className="match-table-event-meta">
-                                    <span className={`match-table-event-tone match-table-event-tone-${effectiveEventFeedSpotlightItem.tone}`}>
-                                      <span className="match-table-event-icon" aria-hidden="true">
-                                        {eventToneIcon(effectiveEventFeedSpotlightItem.tone)}
-                                      </span>
-                                      <span>{eventToneLabel(effectiveEventFeedSpotlightItem.tone, locale)}</span>
-                                    </span>
-                                    <span className="match-table-event-live-badge">
-                                      {latestCurrentTurnReveal
-                                        ? locale === "ko"
-                                          ? "방금 결과"
-                                          : "Latest result"
-                                        : locale === "ko"
-                                          ? "최근 결과"
-                                          : "Recent result"}
-                                    </span>
-                                  </div>
-                                  <strong
-                                    className="match-table-event-spotlight-title"
-                                    data-testid={`board-event-spotlight-title-${effectiveEventFeedSpotlightItem.eventCode}`}
-                                  >
-                                    {effectiveEventFeedSpotlightItem.label}
-                                  </strong>
-                                  <p
-                                    className="match-table-event-spotlight-detail"
-                                    data-testid={`board-event-spotlight-detail-${effectiveEventFeedSpotlightItem.eventCode}`}
-                                  >
-                                    {effectiveEventFeedSpotlightItem.detail}
-                                  </p>
-                                </article>
-                              ) : null}
-                              {eventFeedHistoryItems.length > 0 ? (
-                                <div className="match-table-event-list match-table-event-history">
-                                  {eventFeedHistoryItems.map((item, index) => (
-                                    <article
-                                      key={`${item.seq}-${item.eventCode}`}
-                                      data-testid={`board-event-reveal-${item.eventCode}-${index + 1}`}
-                                      data-event-code={item.eventCode}
-                                      data-event-tone={item.tone}
-                                      data-event-seq={item.seq}
-                                      className={`match-table-event-card match-table-event-card-${item.tone}`}
-                                      style={{ "--event-order": String(index + 1) } as CSSProperties}
-                                    >
-                                      <div className="match-table-event-meta">
-                                        <span className={`match-table-event-tone match-table-event-tone-${item.tone}`}>
-                                          <span className="match-table-event-icon" aria-hidden="true">
-                                            {eventToneIcon(item.tone)}
-                                          </span>
-                                          <span>{eventToneLabel(item.tone, locale)}</span>
-                                        </span>
-                                        <span className="match-table-event-index">
-                                          {locale === "ko" ? `${index + 1}단계` : `Step ${index + 1}`}
-                                        </span>
-                                      </div>
-                                      <div className="match-table-event-headline-row">
-                                        <strong data-testid={`board-event-reveal-title-${item.eventCode}-${index + 1}`}>
-                                          {item.label}
-                                        </strong>
-                                      </div>
-                                      <p data-testid={`board-event-reveal-detail-${item.eventCode}-${index + 1}`}>{item.detail}</p>
-                                    </article>
-                                  ))}
-                                </div>
-                              ) : null}
-                            </section>
-                          </section>
-                        ) : null}
                       </div>
                     </div>
                   ) : null}
+                  {hasPublicEventFeed ? (
+                    <button
+                      type="button"
+                      className={`match-table-event-toggle ${publicEventFeedOpen ? "match-table-event-toggle-open" : ""}`}
+                      aria-expanded={publicEventFeedOpen}
+                      aria-controls="match-table-public-event-panel"
+                      onClick={() => setPublicEventFeedOpen((isOpen) => !isOpen)}
+                    >
+                      <span className="match-table-event-toggle-track" aria-hidden="true">
+                        <span className="match-table-event-toggle-thumb" />
+                      </span>
+                      <span className="match-table-event-toggle-label">
+                        {locale === "ko" ? "공개 이벤트" : "Public events"}
+                      </span>
+                    </button>
+                  ) : null}
+                  {showPublicEventFeed ? (
+                    <section className="match-table-event-overlay">
+                      <section
+                        id="match-table-public-event-panel"
+                        className="match-table-event-stack"
+                        data-testid="board-event-reveal-stack"
+                      >
+                        <div className="match-table-card-head">
+                          <strong>{locale === "ko" ? "공개 이벤트" : "Public events"}</strong>
+                          <span>{locale === "ko" ? "이번 턴 흐름" : "This turn flow"}</span>
+                        </div>
+                        {effectiveEventFeedSpotlightItem ? (
+                          <article
+                            className={`match-table-event-spotlight match-table-event-spotlight-${effectiveEventFeedSpotlightItem.tone}`}
+                            data-testid={`board-event-spotlight-${effectiveEventFeedSpotlightItem.eventCode}`}
+                            data-event-tone={effectiveEventFeedSpotlightItem.tone}
+                            data-event-seq={effectiveEventFeedSpotlightItem.seq}
+                          >
+                            <div className="match-table-event-meta">
+                              <span className={`match-table-event-tone match-table-event-tone-${effectiveEventFeedSpotlightItem.tone}`}>
+                                <span className="match-table-event-icon" aria-hidden="true">
+                                  {eventToneIcon(effectiveEventFeedSpotlightItem.tone)}
+                                </span>
+                                <span>{eventToneLabel(effectiveEventFeedSpotlightItem.tone, locale)}</span>
+                              </span>
+                              <span className="match-table-event-live-badge">
+                                {latestCurrentTurnReveal
+                                  ? locale === "ko"
+                                    ? "방금 결과"
+                                    : "Latest result"
+                                  : locale === "ko"
+                                    ? "최근 결과"
+                                    : "Recent result"}
+                              </span>
+                            </div>
+                            <strong
+                              className="match-table-event-spotlight-title"
+                              data-testid={`board-event-spotlight-title-${effectiveEventFeedSpotlightItem.eventCode}`}
+                            >
+                              {effectiveEventFeedSpotlightItem.label}
+                            </strong>
+                            <p
+                              className="match-table-event-spotlight-detail"
+                              data-testid={`board-event-spotlight-detail-${effectiveEventFeedSpotlightItem.eventCode}`}
+                            >
+                              {effectiveEventFeedSpotlightItem.detail}
+                            </p>
+                          </article>
+                        ) : null}
+                        {eventFeedHistoryItems.length > 0 ? (
+                          <div className="match-table-event-list match-table-event-history">
+                            {eventFeedHistoryItems.map((item, index) => (
+                              <article
+                                key={`${item.seq}-${item.eventCode}`}
+                                data-testid={`board-event-reveal-${item.eventCode}-${index + 1}`}
+                                data-event-code={item.eventCode}
+                                data-event-tone={item.tone}
+                                data-event-seq={item.seq}
+                                className={`match-table-event-card match-table-event-card-${item.tone}`}
+                                style={{ "--event-order": String(index + 1) } as CSSProperties}
+                              >
+                                <div className="match-table-event-meta">
+                                  <span className={`match-table-event-tone match-table-event-tone-${item.tone}`}>
+                                    <span className="match-table-event-icon" aria-hidden="true">
+                                      {eventToneIcon(item.tone)}
+                                    </span>
+                                    <span>{eventToneLabel(item.tone, locale)}</span>
+                                  </span>
+                                  <span className="match-table-event-index">
+                                    {locale === "ko" ? `${index + 1}단계` : `Step ${index + 1}`}
+                                  </span>
+                                </div>
+                                <div className="match-table-event-headline-row">
+                                  <strong data-testid={`board-event-reveal-title-${item.eventCode}-${index + 1}`}>{item.label}</strong>
+                                </div>
+                                <p data-testid={`board-event-reveal-detail-${item.eventCode}-${index + 1}`}>{item.detail}</p>
+                              </article>
+                            ))}
+                          </div>
+                        ) : null}
+                      </section>
+                    </section>
+                  ) : null}
                   {overlayHandCards.length > 0 ? (
                     <div className="match-table-overlay-bottom">
-                      <section
-                        className={`match-table-hand-tray match-table-hand-tray-docked ${
-                          overlayHandSubtitle ? "" : "match-table-hand-tray-minimal"
-                        }`}
-                        data-testid="board-hand-tray"
-                      >
-                        <div className="match-table-hand-tray-head">
-                          <strong>{overlayHandTitle}</strong>
-                          {overlayHandSubtitle ? <small>{overlayHandSubtitle}</small> : null}
-                        </div>
-                        <div className="match-table-hand-tray-grid">
-                          {overlayHandCards.map((card) => (
-                            <article
-                              key={card.key}
-                              className={`match-table-hand-card ${card.hidden ? "match-table-hand-card-hidden" : ""} ${
-                                card.currentTarget ? "match-table-hand-card-current" : ""
-                              }`}
-                            >
-                              <div className="match-table-hand-card-top">
-                                <strong>{card.title}</strong>
-                                <span className="match-table-hand-card-badge">
-                                  {card.hidden ? (locale === "ko" ? "히든" : "Hidden") : ""}
-                                </span>
-                              </div>
-                              <p className="match-table-hand-card-effect">{card.effect}</p>
-                            </article>
-                          ))}
-                        </div>
-                      </section>
+                      <div className="match-table-hand-shell">
+                        <section
+                          className={`match-table-hand-tray match-table-hand-tray-docked ${
+                            overlayHandSubtitle ? "" : "match-table-hand-tray-minimal"
+                          }`}
+                          data-testid="board-hand-tray"
+                        >
+                          <div className="match-table-hand-tray-head">
+                            <strong>{overlayHandTitle}</strong>
+                            {overlayHandSubtitle ? <small>{overlayHandSubtitle}</small> : null}
+                          </div>
+                          <div
+                            className="match-table-hand-tray-grid"
+                            style={
+                              {
+                                "--hand-card-columns": Math.max(1, Math.min(6, overlayHandCards.length)),
+                              } as CSSProperties
+                            }
+                          >
+                            {overlayHandCards.map((card) => (
+                              <article
+                                key={card.key}
+                                className={`match-table-hand-card ${card.hidden ? "match-table-hand-card-hidden" : ""} ${
+                                  card.currentTarget ? "match-table-hand-card-current" : ""
+                                }`}
+                              >
+                                <div className="match-table-hand-card-top">
+                                  <strong>{card.title}</strong>
+                                  <span className="match-table-hand-card-badge">
+                                    {card.hidden ? (locale === "ko" ? "히든" : "Hidden") : ""}
+                                  </span>
+                                </div>
+                                <p className="match-table-hand-card-effect">{card.effect}</p>
+                              </article>
+                            ))}
+                          </div>
+                        </section>
+                      </div>
                     </div>
                   ) : null}
                 </div>

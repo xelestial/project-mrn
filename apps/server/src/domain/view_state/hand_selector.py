@@ -75,6 +75,17 @@ def build_hand_tray_view_state(messages: list[dict[str, Any]]) -> HandTrayViewSt
             return {"cards": active_cards}
 
     for message in reversed(messages):
+        if message.get("type") != "event":
+            continue
+        payload = _record(message.get("payload")) or {}
+        if payload.get("event_type") != "trick_used":
+            continue
+        cards = _cards_from_public_context(payload)
+        if cards:
+            return {"cards": cards}
+        return {"cards": []}
+
+    for message in reversed(messages):
         if message.get("type") != "prompt":
             continue
         payload = _record(message.get("payload")) or {}

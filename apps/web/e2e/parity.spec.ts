@@ -190,6 +190,7 @@ async function installMockRuntime(
 ): Promise<void> {
   await page.addInitScript(
     ({ sessionManifests, sessionEvents, createSessionQueue, joinResults, startedSessions }) => {
+      window.localStorage.setItem("mrn:web:locale", "ko");
       const manifests = sessionManifests as Record<string, ManifestRecord>;
       const eventsBySession = sessionEvents as Record<string, StreamMessage[]>;
       const pendingCreates = [...(createSessionQueue as Array<Record<string, unknown>> | undefined ?? [])];
@@ -535,9 +536,9 @@ test("quick start human vs ai enters match and surfaces the first human prompt",
         initial_active_by_card: initialActiveByCard,
         seats: [
           { seat: 1, seat_type: "human", connected: true, player_id: 1 },
-          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced" },
-          { seat: 3, seat_type: "ai", connected: true, player_id: 3, ai_profile: "balanced" },
-          { seat: 4, seat_type: "ai", connected: true, player_id: 4, ai_profile: "balanced" },
+          { seat: 2, seat_type: "ai", connected: true, player_id: null, ai_profile: "balanced" },
+          { seat: 3, seat_type: "ai", connected: true, player_id: null, ai_profile: "balanced" },
+          { seat: 4, seat_type: "ai", connected: true, player_id: null, ai_profile: "balanced" },
         ],
         parameter_manifest: manifest,
       },
@@ -550,13 +551,12 @@ test("quick start human vs ai enters match and surfaces the first human prompt",
   await expect(page).toHaveURL(/#\/match/);
   const weatherSummary = page.getByTestId("board-weather-summary");
   await expect(weatherSummary).toBeVisible();
-  await expect(page.getByTestId("core-action-flow-panel")).toBeVisible();
   await expect(page.getByTestId("prompt-overlay")).toHaveAttribute("data-prompt-type", "hidden_trick_card");
-  await expect(page.getByTestId("trick-choice-10")).toBeVisible();
-  await expect(page.getByTestId("trick-choice-11")).toBeVisible();
-  await expect(page.getByTestId("trick-choice-12")).toBeVisible();
-  await expect(page.getByTestId("trick-choice-13")).toBeVisible();
-  await expect(page.getByTestId("trick-choice-14")).toBeVisible();
+  await expect(page.getByTestId("trick-choice-10-0")).toBeVisible();
+  await expect(page.getByTestId("trick-choice-11-1")).toBeVisible();
+  await expect(page.getByTestId("trick-choice-12-2")).toBeVisible();
+  await expect(page.getByTestId("trick-choice-13-3")).toBeVisible();
+  await expect(page.getByTestId("trick-choice-14-4")).toBeVisible();
   await expect(weatherSummary).toHaveAttribute("data-weather-name", "긴급 피난");
   await expect(weatherSummary).toHaveAttribute("data-weather-detail", weatherEffectForDisplayName("긴급 피난") ?? "");
   const activeStrip = page.getByTestId("active-character-strip");
@@ -567,11 +567,11 @@ test("quick start human vs ai enters match and surfaces the first human prompt",
   await expect(activeStrip).toHaveAttribute("data-known-count", "8");
   await expect(activeStrip).toHaveAttribute("data-slot-count", "8");
   await expectLocatorsToShareSingleRow([
-    page.getByTestId("prompt-choice-10"),
-    page.getByTestId("prompt-choice-11"),
-    page.getByTestId("prompt-choice-12"),
-    page.getByTestId("prompt-choice-13"),
-    page.getByTestId("prompt-choice-14"),
+    page.getByTestId("trick-choice-10-0"),
+    page.getByTestId("trick-choice-11-1"),
+    page.getByTestId("trick-choice-12-2"),
+    page.getByTestId("trick-choice-13-3"),
+    page.getByTestId("trick-choice-14-4"),
   ]);
 });
 
@@ -625,6 +625,14 @@ test("session payload initial active faces hydrate the active strip before strea
   await expect(page.getByTestId("active-character-slot-8")).toHaveAttribute("data-character-name", "사기꾼");
   await expect(activeStrip).toHaveAttribute("data-known-count", "8");
   await expect(activeStrip).toHaveAttribute("data-slot-count", "8");
+  await expect(page.getByTestId("match-player-card-1")).toContainText("나");
+  for (const seat of [2, 3, 4]) {
+    const playerCard = page.getByTestId(`match-player-card-${seat}`);
+    await expect(playerCard).not.toContainText("나");
+    await expect(playerCard).not.toContainText("👑");
+    await expect(playerCard).not.toHaveClass(/match-table-player-card-local/);
+    await expect(playerCard).not.toHaveClass(/match-table-player-card-actor/);
+  }
 });
 
 test("draft prompt keeps active strip hydrated before any flip events arrive", async ({ page }) => {
@@ -734,6 +742,11 @@ test("draft prompt keeps active strip hydrated before any flip events arrive", a
     page.getByTestId("character-choice-draft_bandit"),
     page.getByTestId("character-choice-draft_doctrine_guard"),
   ]);
+  await expect(page.getByTestId("character-choice-draft_matchmaker")).not.toContainText("능력1");
+  await expect(page.getByTestId("character-choice-draft_matchmaker")).not.toContainText("능력2");
+  await expect(page.getByTestId("character-choice-draft_matchmaker")).toContainText("조각 8+이면 인접 토지 추가 매입 1배");
+  await expect(page.getByTestId("character-choice-draft_doctrine_guard")).not.toContainText("능력2");
+  await expect(page.getByTestId("character-choice-draft_doctrine_guard")).toContainText("조각 8+이면 짐 1장 제거");
 });
 
 test("round start shows weather and active strip before any prompt appears", async ({ page }) => {
@@ -1066,7 +1079,7 @@ test("purchase and mark prompts render dedicated decision cards", async ({ page 
 
   await page.goto(`/#/match?session=${purchaseSession}&token=session_p1_purchase_demo`);
   await expect(page.getByTestId("prompt-overlay")).toHaveAttribute("data-prompt-type", "purchase_tile");
-  await expect(page.getByTestId("purchase-choice-yes")).toHaveAttribute("data-choice-title", "토지 구매");
+  await expect(page.getByTestId("purchase-choice-yes")).toHaveAttribute("data-choice-title", "땅 사기");
   await expect(page.getByTestId("purchase-choice-no")).toHaveAttribute("data-choice-title", "구매 없이 턴 종료");
 
   await page.goto(`/#/match?session=${markSession}&token=session_p1_mark_demo`);
@@ -1082,8 +1095,8 @@ test("purchase and mark prompts render dedicated decision cards", async ({ page 
   await expect(page.getByTestId("active-character-slot-8")).toHaveAttribute("data-character-name", "건설업자");
   await expect(page.getByTestId("mark-choice-mark_p2")).toHaveAttribute("data-target-character", "만신");
   await expect(page.getByTestId("mark-choice-mark_p2")).toHaveAttribute("data-target-player-id", "2");
+  await expect(page.getByTestId("mark-choice-none")).toHaveCount(0);
   await expectLocatorsToShareSingleRow([
-    page.getByTestId("mark-choice-none"),
     page.getByTestId("mark-choice-mark_p2"),
     page.getByTestId("mark-choice-mark_p4"),
   ]);

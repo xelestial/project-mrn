@@ -23,6 +23,7 @@ type LobbyViewProps = {
   onHostSeatInput: (value: string) => void;
   onSeatTypeChange: (index: number, value: LobbySeatType) => void;
   onCreateRoom: () => void;
+  onQuickStartHumanVsAi: () => void;
   onRefreshRooms: () => void;
   onJoinRoom: (roomNo: number, seat: number) => void;
   onToggleReady: (ready: boolean) => void;
@@ -55,6 +56,7 @@ export function LobbyView({
   onHostSeatInput,
   onSeatTypeChange,
   onCreateRoom,
+  onQuickStartHumanVsAi,
   onRefreshRooms,
   onJoinRoom,
   onToggleReady,
@@ -137,6 +139,9 @@ export function LobbyView({
           <div className="actions">
             <button type="button" disabled={busy || !serverConnected} onClick={onCreateRoom}>
               {ko ? "방 만들기" : "Create room"}
+            </button>
+            <button type="button" disabled={busy} onClick={onQuickStartHumanVsAi}>
+              {ko ? "사람 1 + AI 3 빠른 시작" : "Quick start: 1 human + 3 AI"}
             </button>
           </div>
         </div>

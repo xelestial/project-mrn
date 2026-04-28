@@ -47,14 +47,14 @@ describe("coreActionScene", () => {
       [
         item({ seq: 14, eventCode: "fortune_resolved", label: "운수 처리", detail: "P2 / 이동 +2" }),
         item({ seq: 13, eventCode: "fortune_drawn", label: "운수 공개", detail: "P2 / 도약의 바람" }),
-        item({ seq: 12, eventCode: "tile_purchased", label: "토지 구매", detail: "P2 / 9번 칸 구매 / 비용 5" }),
+        item({ seq: 12, eventCode: "tile_purchased", label: "땅 사기", detail: "P2 / 9번 칸 구매 / 비용 5" }),
         item({ seq: 11, eventCode: "player_move", label: "말 이동", detail: "4번 -> 9번 / 경로 5칸" }),
       ],
       koLocale.theater
     );
 
     expect(scenes.map((scene) => scene.eventCode)).toEqual(["tile_purchased", "fortune_drawn", "fortune_resolved"]);
-    expect(scenes.map((scene) => scene.phaseLabel)).toEqual(["구매 결과", "운수 공개", "운수 효과"]);
+    expect(scenes.map((scene) => scene.phaseLabel)).toEqual(["땅 산 결과", "운수 공개", "운수 효과"]);
     expect(scenes.map((scene) => scene.headline)).toEqual(["P2", "P2", "P2"]);
     expect(scenes.map((scene) => scene.isLatest)).toEqual([false, false, true]);
   });

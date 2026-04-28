@@ -11,7 +11,7 @@ describe("promptTypeCatalog", () => {
 
   it("maps known prompt types to Korean labels", () => {
     expect(promptLabelForType("movement")).toBe("이동값 결정");
-    expect(promptLabelForType("trick_to_use")).toBe("잔꾀 사용");
+    expect(promptLabelForType("trick_to_use")).toBe("잔꾀 쓰기");
     expect(promptLabelForType("final_character")).toBe("최종 캐릭터 선택");
   });
 

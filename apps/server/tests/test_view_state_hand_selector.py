@@ -116,3 +116,67 @@ class ViewStateHandSelectorTests(unittest.TestCase):
                 ]
             },
         )
+
+    def test_build_hand_tray_view_state_uses_trick_used_remaining_hand(self) -> None:
+        view_state = build_hand_tray_view_state(
+            [
+                {
+                    "type": "prompt",
+                    "seq": 1,
+                    "session_id": "s1",
+                    "server_time_ms": 1,
+                    "payload": {
+                        "request_id": "req_trick_1",
+                        "request_type": "trick_to_use",
+                        "player_id": 1,
+                        "public_context": {
+                            "full_hand": [
+                                {"deck_index": 11, "name": "아주 큰 화목 난로", "card_description": "조각 +1"},
+                                {"deck_index": 12, "name": "건강 검진", "card_description": "통행료 절반"},
+                            ]
+                        },
+                    },
+                },
+                {
+                    "type": "decision_ack",
+                    "seq": 2,
+                    "session_id": "s1",
+                    "server_time_ms": 2,
+                    "payload": {"request_id": "req_trick_1", "status": "accepted"},
+                },
+                {
+                    "type": "event",
+                    "seq": 3,
+                    "session_id": "s1",
+                    "server_time_ms": 3,
+                    "payload": {
+                        "event_type": "trick_used",
+                        "acting_player_id": 1,
+                        "full_hand": [
+                            {
+                                "deck_index": 12,
+                                "name": "건강 검진",
+                                "card_description": "통행료 절반",
+                                "is_hidden": False,
+                            }
+                        ],
+                    },
+                },
+            ]
+        )
+
+        self.assertEqual(
+            view_state,
+            {
+                "cards": [
+                    {
+                        "key": "12-0-건강 검진",
+                        "name": "건강 검진",
+                        "description": "통행료 절반",
+                        "deck_index": 12,
+                        "is_hidden": False,
+                        "is_current_target": False,
+                    }
+                ]
+            },
+        )

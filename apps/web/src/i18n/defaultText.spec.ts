@@ -44,7 +44,7 @@ describe("defaultText catalogs", () => {
     expect(DEFAULT_TURN_STAGE_TEXT.actorHeadline("P1")).toContain("P1");
     expect(DEFAULT_TURN_STAGE_TEXT.currentBeatTitle).toBe("현재 단계");
     expect(DEFAULT_PROMPT_TEXT.choice.cashTitle).toBe("현금 선택");
-    expect(DEFAULT_PROMPT_TEXT.choice.buyTileTitle).toBe("토지 구매");
+    expect(DEFAULT_PROMPT_TEXT.choice.buyTileTitle).toBe("땅 사기");
     expect(DEFAULT_PROMPT_TEXT.character.ability("교리 연구관")).toContain("교리 연구관");
   });
 
@@ -66,6 +66,6 @@ describe("defaultText catalogs", () => {
     expect(DEFAULT_STREAM_TEXT.weatherEffectFallback["긴급 피난"]).toContain("2배");
     expect(DEFAULT_STREAM_TEXT.moveSummary("1", "6", 5)).toContain("경로 5칸");
     expect(DEFAULT_STREAM_TEXT.markerTransferred(1, 2, 3)).toContain("플립 P3");
-    expect(DEFAULT_STREAM_TEXT.promptWaiting("토지 구매")).toBe("토지 구매 대기");
+    expect(DEFAULT_STREAM_TEXT.promptWaiting("땅 사기")).toBe("땅 사기 대기");
   });
 });

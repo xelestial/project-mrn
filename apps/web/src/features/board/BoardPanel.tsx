@@ -8,8 +8,28 @@ import type {
 } from "../../domain/selectors/streamSelectors";
 import { useI18n } from "../../i18n/useI18n";
 import pawnPieceUrl from "../../assets/pawn-piece.svg";
+import player1FrontLeftUrl from "../../assets/characters/sprites/player-1/front-left.png";
+import player1FrontRightUrl from "../../assets/characters/sprites/player-1/front-right.png";
+import player2FrontLeftUrl from "../../assets/characters/sprites/player-2/front-left.png";
+import player2FrontRightUrl from "../../assets/characters/sprites/player-2/front-right.png";
+import player3FrontLeftUrl from "../../assets/characters/sprites/player-3/front-left.png";
+import player3FrontRightUrl from "../../assets/characters/sprites/player-3/front-right.png";
+import player4FrontLeftUrl from "../../assets/characters/sprites/player-4/front-left.png";
+import player4FrontRightUrl from "../../assets/characters/sprites/player-4/front-right.png";
 import { usePawnAnimation } from "./usePawnAnimation";
-import { DEFAULT_RING_TILE_COUNT, boardGridForTileCount, projectTilePosition } from "./boardProjection";
+import {
+  DEFAULT_RING_TILE_COUNT,
+  boardGridForTileCount,
+  projectTilePosition,
+  projectTileQuarterview,
+  quarterviewBoardGeometry,
+  quarterviewFacingForTileStep,
+  quarterviewIdleFacingForPosition,
+  quarterviewTilePolygons,
+} from "./boardProjection";
+import type { QuarterviewFacing } from "./boardProjection";
+import type { QuarterviewTilePolygon } from "./boardProjection";
+import type { QuarterviewPosition } from "./boardProjection";
 import { computeBoardHudFrame, sameBoardHudFrame } from "./boardHudLayout";
 import { computeBoardHudScale } from "./boardHudScale";
 
@@ -66,17 +86,96 @@ function tileKindLabel(kind: string, boardText: BoardText, labels?: Record<strin
   }
 }
 
+const ZONE_COLOR_FALLBACK_CSS: Record<string, string> = {
+  "": "#475569",
+  black: "#475569",
+  red: "#ef4444",
+  yellow: "#eab308",
+  blue: "#3b82f6",
+  green: "#22c55e",
+  white: "#e2e8f0",
+  "검은색": "#475569",
+  "빨간색": "#ef4444",
+  "노란색": "#eab308",
+  "파란색": "#3b82f6",
+  "초록색": "#22c55e",
+  "하얀색": "#e2e8f0",
+};
+
 function zoneColorToCss(zoneColor: string, boardText: BoardText): string {
   const trimmed = zoneColor.trim().toLowerCase();
   if (!trimmed) {
     return "#274679";
   }
-  return boardText.zoneColorCss[trimmed as keyof typeof boardText.zoneColorCss] ?? zoneColor;
+  return boardText.zoneColorCss[trimmed as keyof typeof boardText.zoneColorCss] ?? ZONE_COLOR_FALLBACK_CSS[trimmed] ?? zoneColor;
+}
+
+const FALLBACK_TILE_FACE_COLORS = ["#2f7de1", "#06b6d4", "#a855f7", "#f97316", "#22c55e", "#ec4899", "#84cc16"];
+
+function tileFaceColor(kind: string, tileIndex: number, zoneColor: string, boardText: BoardText): string {
+  if (zoneColor.trim()) {
+    return zoneColorToCss(zoneColor, boardText);
+  }
+  if (kind === "T3") {
+    return "#f5b84b";
+  }
+  if (kind === "S" || kind === "F1" || kind === "F2") {
+    return "#e7f2ff";
+  }
+  return FALLBACK_TILE_FACE_COLORS[Math.abs(tileIndex) % FALLBACK_TILE_FACE_COLORS.length];
 }
 
 function playerColor(playerId: number): string {
   const palette = ["#f97316", "#38bdf8", "#a78bfa", "#34d399", "#f472b6", "#facc15"];
   return palette[(Math.max(1, playerId) - 1) % palette.length];
+}
+
+const PLAYER_SPRITES: Record<number, Record<QuarterviewFacing, string>> = {
+  1: {
+    "front-right": player1FrontRightUrl,
+    "front-left": player1FrontLeftUrl,
+    "back-right": player1FrontRightUrl,
+    "back-left": player1FrontLeftUrl,
+  },
+  2: {
+    "front-right": player2FrontRightUrl,
+    "front-left": player2FrontLeftUrl,
+    "back-right": player2FrontRightUrl,
+    "back-left": player2FrontLeftUrl,
+  },
+  3: {
+    "front-right": player3FrontRightUrl,
+    "front-left": player3FrontLeftUrl,
+    "back-right": player3FrontRightUrl,
+    "back-left": player3FrontLeftUrl,
+  },
+  4: {
+    "front-right": player4FrontRightUrl,
+    "front-left": player4FrontLeftUrl,
+    "back-right": player4FrontRightUrl,
+    "back-left": player4FrontLeftUrl,
+  },
+};
+
+function playerSpriteUrl(playerId: number, facing: QuarterviewFacing): string | null {
+  return PLAYER_SPRITES[playerId]?.[facing] ?? null;
+}
+
+function standeeBoardInwardOffset(position: Pick<QuarterviewPosition, "xPercent" | "yPercent" | "lane">): { x: number; y: number } {
+  if (position.lane === "line") {
+    return { x: 0, y: 0 };
+  }
+  const dx = 50 - position.xPercent;
+  const dy = 50 - position.yPercent;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 0.01) {
+    return { x: 0, y: 0 };
+  }
+  const amount = 16;
+  return {
+    x: (dx / distance) * amount,
+    y: (dy / distance) * amount,
+  };
 }
 
 function costLabel(cost: number | null, rent: number | null, boardText: BoardText): string {
@@ -131,8 +230,10 @@ export function BoardPanel({
   const tiles = (snapshot?.tiles && snapshot.tiles.length > 0 ? snapshot.tiles : manifestTiles ?? []).slice();
   tiles.sort((a, b) => a.tileIndex - b.tileIndex);
   const normalizedTopology = boardTopology === "line" ? "line" : "ring";
+  const useQuarterview = normalizedTopology === "ring";
   const effectiveTileCount = tiles.length > 0 ? tiles.length : DEFAULT_RING_TILE_COUNT;
   const grid = boardGridForTileCount(effectiveTileCount, normalizedTopology);
+  const quarterviewGeometry = quarterviewBoardGeometry(grid.boardSize);
   const endTimeRemaining = snapshot ? Math.max(0, 15 - snapshot.fValue) : null;
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const overlayTopAnchorTileRef = useRef<HTMLElement | null>(null);
@@ -159,6 +260,11 @@ export function BoardPanel({
   const boardStyle = {
     "--board-grid-cols": String(grid.cols),
     "--board-grid-rows": String(grid.rows),
+    "--board-diamond-tile-side": `${quarterviewGeometry.tileInlinePercent}%`,
+    "--board-qv-aspect-ratio": String(quarterviewGeometry.boardAspectRatio),
+    "--board-qv-tile-angle": `${quarterviewGeometry.tileAngleDeg}deg`,
+    "--board-qv-tile-inline": `${quarterviewGeometry.tileInlinePercent}%`,
+    "--board-qv-tile-block": `${quarterviewGeometry.tileBlockPercent}%`,
     ...(hudFrame
       ? {
           "--board-overlay-safe-top": `${hudFrame.safeTop}px`,
@@ -328,7 +434,17 @@ export function BoardPanel({
       : null;
 
   // Step-by-step pawn animation
-  const { animPlayerId, animTileIndex, animPhase } = usePawnAnimation(lastMove);
+  const shouldDelayEffectMove =
+    Boolean(lastMove) &&
+    Boolean(revealFocus) &&
+    (revealFocus?.eventCode === "fortune_resolved" ||
+      revealFocus?.eventCode === "trick_used" ||
+      revealFocus?.eventCode === "mark_resolved");
+  const { animPlayerId, animTileIndex, animPreviousTileIndex, animStepIndex, animPhase } = usePawnAnimation(
+    lastMove,
+    tiles.length,
+    shouldDelayEffectMove ? 900 : 0
+  );
   const ghostStepPosition =
     animTileIndex !== null
       ? projectTilePosition(animTileIndex, tiles.length, normalizedTopology)
@@ -341,6 +457,64 @@ export function BoardPanel({
           "--board-move-player-color": playerColor(animPlayerId),
         } as CSSProperties)
       : null;
+  const quarterviewGhostPosition =
+    animTileIndex !== null
+      ? projectTileQuarterview(animTileIndex, tiles.length, normalizedTopology)
+      : movedTileIndex !== null
+        ? projectTileQuarterview(movedTileIndex, tiles.length, normalizedTopology)
+        : null;
+  const quarterviewMovingPawnStyle =
+    useQuarterview && quarterviewGhostPosition !== null && (animPlayerId ?? movedPlayerId) !== null
+      ? (() => {
+          const inwardOffset = standeeBoardInwardOffset(quarterviewGhostPosition);
+          return {
+            "--board-standee-x": `${quarterviewGhostPosition.xPercent}%`,
+            "--board-standee-y": `${quarterviewGhostPosition.yPercent}%`,
+            "--board-standee-color": playerColor(animPlayerId ?? movedPlayerId ?? 1),
+            "--board-standee-z": String(quarterviewGhostPosition.zIndex + 14),
+            "--board-standee-offset-x": `${inwardOffset.x}px`,
+            "--board-standee-offset-y": `${inwardOffset.y}px`,
+          } as CSSProperties;
+        })()
+      : null;
+  const standeePlayerIds = new Set<number>();
+  const rawStandeePlacements = (snapshot?.players ?? [])
+    .filter((player) => player.alive)
+    .map((player) => {
+      const isAnimating = useQuarterview && animPlayerId === player.playerId && quarterviewGhostPosition !== null;
+      const position = isAnimating ? quarterviewGhostPosition : projectTileQuarterview(player.position, tiles.length, normalizedTopology);
+      const tileIndex = isAnimating && animTileIndex !== null ? animTileIndex : player.position;
+      const facingTileIndex = isAnimating && animTileIndex !== null ? animTileIndex : player.position;
+      const facing = isAnimating
+        ? quarterviewFacingForTileStep(animPreviousTileIndex, facingTileIndex, tiles.length, normalizedTopology)
+        : quarterviewIdleFacingForPosition(position);
+      standeePlayerIds.add(player.playerId);
+      return {
+        playerId: player.playerId,
+        displayName: player.displayName,
+        character: player.character,
+        tileIndex,
+        position,
+        facing,
+        assetUrl: playerSpriteUrl(player.playerId, facing),
+        isAnimating,
+      };
+    });
+  const standeeTileCounts = rawStandeePlacements.reduce((counts, placement) => {
+    counts.set(placement.tileIndex, (counts.get(placement.tileIndex) ?? 0) + 1);
+    return counts;
+  }, new Map<number, number>());
+  const standeeTileSeen = new Map<number, number>();
+  const standeePlacements = rawStandeePlacements.map((placement) => {
+    const tileMateIndex = standeeTileSeen.get(placement.tileIndex) ?? 0;
+    standeeTileSeen.set(placement.tileIndex, tileMateIndex + 1);
+    return {
+      ...placement,
+      tileMateIndex,
+      tileMateCount: standeeTileCounts.get(placement.tileIndex) ?? 1,
+      animationKey: placement.isAnimating ? `${placement.playerId}-${placement.tileIndex}-${animStepIndex}` : `${placement.playerId}-idle`,
+    };
+  });
   const boardOverlayMoveText =
     lastMove && showTurnOverlay ? board.lastMove(lastMove.playerId, lastMove.fromTileIndex, lastMove.toTileIndex) : "";
   const boardOverlayDetail =
@@ -362,6 +536,107 @@ export function BoardPanel({
       : null;
   const showBoardRevealPanel =
     Boolean(revealFocus) && revealFocus?.focusTileIndex === null && actorRevealFallbackTileIndex === null;
+  const tilesByIndex = new Map(tiles.map((tile) => [tile.tileIndex, tile]));
+  const projectedTilePolygons = useQuarterview
+    ? quarterviewTilePolygons(tiles.length, normalizedTopology).filter((polygon) => tilesByIndex.has(polygon.tileIndex))
+    : [];
+  const svgPointList = (points: QuarterviewTilePolygon["points"] | QuarterviewTilePolygon["zonePoints"]) =>
+    points.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ");
+  const svgMatrix = (matrix: QuarterviewTilePolygon["contentTransform"]) =>
+    `matrix(${matrix.a.toFixed(5)}, ${matrix.b.toFixed(5)}, ${matrix.c.toFixed(5)}, ${matrix.d.toFixed(5)}, ${matrix.e.toFixed(2)}, ${matrix.f.toFixed(2)})`;
+  const renderProjectedTile = (tile: (typeof tiles)[number], polygon: QuarterviewTilePolygon) => {
+    const ownerPlayerId = tile.ownerPlayerId ?? null;
+    const hasOwner = ownerPlayerId !== null;
+    const tilePawns = tile.pawnPlayerIds.length > 0 ? tile.pawnPlayerIds : pawnFallback.get(tile.tileIndex) ?? [];
+    const visiblePawnIds = tilePawns.filter((id) => !standeePlayerIds.has(id));
+    const kindLabel = tileKindLabel(tile.tileKind, board, tileKindLabels);
+    const isFortune = tile.tileKind === "S";
+    const isFinish = tile.tileKind === "F1" || tile.tileKind === "F2";
+    const isSpecial = isFortune || isFinish;
+    const isMoveFrom = lastMove?.fromTileIndex === tile.tileIndex;
+    const isMoveTo = lastMove?.toTileIndex === tile.tileIndex;
+    const pathStep = recentPathSteps.get(tile.tileIndex) ?? null;
+    const isMoveTrail = pathStep !== null && !isMoveFrom && !isMoveTo;
+    const isStageFocus = stageFocus.focusTileIndex === tile.tileIndex;
+    const isStageCandidate = stageFocus.focusTileIndices.includes(tile.tileIndex) && !isStageFocus;
+    const isRevealFocus =
+      revealFocus?.focusTileIndex === tile.tileIndex ||
+      (Boolean(revealFocus) &&
+        actorRevealFallbackTileIndex !== null &&
+        actorRevealFallbackTileIndex === tile.tileIndex);
+    const zoneColor = tileFaceColor(tile.tileKind, tile.tileIndex, tile.zoneColor ?? "", board);
+    const ownerColor = hasOwner ? playerColor(ownerPlayerId) : "transparent";
+
+    return (
+      <g
+        key={`projected-tile-${tile.tileIndex}`}
+        className={`board-projected-tile ${isSpecial ? "board-projected-tile-special" : ""} ${
+          isFortune ? "board-projected-tile-fortune" : ""
+        } ${isFinish ? "board-projected-tile-finish" : ""} ${isMoveFrom ? "board-projected-tile-move-from" : ""} ${
+          isMoveTo ? "board-projected-tile-move-to" : ""
+        } ${isMoveTrail ? "board-projected-tile-move-trail" : ""} ${
+          isStageFocus ? "board-projected-tile-stage-focus" : ""
+        } ${isStageCandidate ? "board-projected-tile-stage-candidate" : ""} ${
+          isRevealFocus ? "board-projected-tile-reveal-focus" : ""
+        } ${hasOwner ? "board-projected-tile-owned" : ""}`}
+        data-lane={polygon.lane}
+        data-tile-kind={tile.tileKind}
+        style={
+          {
+            "--tile-zone-color": zoneColor,
+            "--tile-owner-color": ownerColor,
+          } as CSSProperties
+        }
+      >
+        <polygon className="board-projected-tile-base" points={svgPointList(polygon.points)} />
+        <foreignObject
+          className="board-projected-content-object"
+          x={0}
+          y={0}
+          width={100}
+          height={100}
+          transform={svgMatrix(polygon.contentTransform)}
+        >
+        {isSpecial ? (
+          <div className="board-projected-special">
+            <span className="board-projected-special-icon" aria-hidden="true">
+              {tileLandmarkGlyph(tile.tileKind)}
+            </span>
+            <strong>{kindLabel}</strong>
+            <small>#{tile.tileIndex + 1}</small>
+          </div>
+        ) : (
+          <div className="board-projected-content">
+            <div className="board-projected-zone">
+              <span className="board-projected-index">{tile.tileIndex + 1}</span>
+              <strong>{kindLabel}</strong>
+            </div>
+            <div className="board-projected-main">
+              <span className="board-projected-cost">{costLabel(tile.purchaseCost, tile.rentCost, board)}</span>
+              <span className={`board-projected-owner ${ownerPlayerId === null ? "board-projected-owner-empty" : ""}`}>
+                {ownerPlayerId === null ? board.ownerNone : board.owner(ownerPlayerId)}
+              </span>
+              {tile.scoreCoinCount > 0 ? <span className="board-projected-score">{board.scoreCoins(tile.scoreCoinCount)}</span> : null}
+            </div>
+            <div className={`board-projected-stamp ${hasOwner ? "" : "board-projected-stamp-empty"}`}>
+              <span>{hasOwner ? `P${ownerPlayerId}` : ""}</span>
+            </div>
+          </div>
+        )}
+        </foreignObject>
+        {pathStep !== null ? (
+          <text className="board-projected-path-step" x={polygon.centerX + polygon.bboxWidth * 0.23} y={polygon.centerY + polygon.bboxHeight * 0.2}>
+            {pathStep}
+          </text>
+        ) : null}
+        {visiblePawnIds.length > 0 ? (
+          <text className="board-projected-pawn-count" x={polygon.centerX - polygon.bboxWidth * 0.26} y={polygon.centerY + polygon.bboxHeight * 0.2}>
+            {visiblePawnIds.length}
+          </text>
+        ) : null}
+      </g>
+    );
+  };
 
   if (tiles.length === 0) {
     return (
@@ -407,8 +682,17 @@ export function BoardPanel({
         </>
       )}
       <div ref={boardScrollRef} className="board-scroll" style={boardStyle}>
-        <div className={`board-ring ${normalizedTopology === "line" ? "board-ring-line" : "board-ring-ring"}`} style={boardStyle}>
-          {stepGhostStyle ? (
+        <div
+          className={`board-ring ${
+            useQuarterview
+              ? "board-ring-quarterview board-ring-ring"
+              : normalizedTopology === "line"
+                ? "board-ring-line"
+                : "board-ring-ring"
+          }`}
+          style={boardStyle}
+        >
+          {!useQuarterview && stepGhostStyle ? (
             // Step-by-step animation: ghost moves through each tile
             <div
               className={`board-moving-pawn-ghost board-pawn-step${animPhase === "arrived" ? " board-pawn-arrived" : ""}`}
@@ -418,7 +702,7 @@ export function BoardPanel({
             >
               {animPlayerId}
             </div>
-          ) : movingPawnStyle ? (
+          ) : !useQuarterview && movingPawnStyle ? (
             // Fallback arc animation when no pathTileIndices available
             <div
               className="board-moving-pawn-ghost"
@@ -428,6 +712,17 @@ export function BoardPanel({
             >
               {movedPlayerId}
             </div>
+          ) : null}
+          {useQuarterview && projectedTilePolygons.length > 0 ? (
+            <svg className="board-projected-tile-layer" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
+              {projectedTilePolygons
+                .slice()
+                .sort((a, b) => a.zIndex - b.zIndex)
+                .map((polygon) => {
+                  const tile = tilesByIndex.get(polygon.tileIndex);
+                  return tile ? renderProjectedTile(tile, polygon) : null;
+                })}
+            </svg>
           ) : null}
           {tiles.map((tile) => {
             const isMoveFrom = lastMove?.fromTileIndex === tile.tileIndex;
@@ -443,13 +738,16 @@ export function BoardPanel({
                 stageFocus.currentBeatKind === "economy" ||
                 stageFocus.currentBeatKind === "effect");
             const position = projectTilePosition(tile.tileIndex, tiles.length, normalizedTopology);
+            const quarterviewPosition = projectTileQuarterview(tile.tileIndex, tiles.length, normalizedTopology);
             const ownerPlayerId = tile.ownerPlayerId ?? null;
+            const hasOwner = ownerPlayerId !== null;
             const tilePawns = tile.pawnPlayerIds.length > 0 ? tile.pawnPlayerIds : pawnFallback.get(tile.tileIndex) ?? [];
             const isRevealFocus =
               revealFocus?.focusTileIndex === tile.tileIndex ||
               (Boolean(revealFocus) &&
                 actorRevealFallbackTileIndex !== null &&
                 actorRevealFallbackTileIndex === tile.tileIndex);
+            const isPurchaseRevealFocus = isRevealFocus && revealFocus?.eventCode === "tile_purchased";
             const kindLabel = tileKindLabel(tile.tileKind, board, tileKindLabels);
             const isFortune = tile.tileKind === "S";
             const isFinish = tile.tileKind === "F1" || tile.tileKind === "F2";
@@ -459,6 +757,20 @@ export function BoardPanel({
               tilePawns.includes(stageFocus.actorPlayerId) &&
               (isStageFocus || isMoveTo || movedPlayerId === stageFocus.actorPlayerId);
             const isPurchasePromptFocus = stageFocus.promptRequestType === "purchase_tile";
+            const tileStyle = (useQuarterview
+              ? {
+                  "--board-tile-x": `${quarterviewPosition.xPercent}%`,
+                  "--board-tile-y": `${quarterviewPosition.yPercent}%`,
+                  "--board-tile-z": String(quarterviewPosition.zIndex),
+                  "--tile-owner-color": hasOwner ? playerColor(ownerPlayerId) : "transparent",
+                  "--tile-zone-color": tileFaceColor(tile.tileKind, tile.tileIndex, tile.zoneColor ?? "", board),
+                }
+              : {
+                  gridRow: position.row,
+                  gridColumn: position.col,
+                  "--tile-owner-color": hasOwner ? playerColor(ownerPlayerId) : "transparent",
+                  "--tile-zone-color": tileFaceColor(tile.tileKind, tile.tileIndex, tile.zoneColor ?? "", board),
+                }) as unknown as CSSProperties;
             return (
               <article
                 key={tile.tileIndex}
@@ -489,13 +801,13 @@ export function BoardPanel({
                   isFortune ? "tile-fortune" : ""
                 } ${isMoveTrail ? "tile-move-trail" : ""} ${
                   pathStep !== null ? "tile-move-has-path" : ""
-                } ${isFinish ? "tile-finish" : ""} ${tileKindClass} ${isStageCandidate ? "tile-stage-candidate" : ""}`}
+                } ${isFinish ? "tile-finish" : ""} ${tileKindClass} ${isStageCandidate ? "tile-stage-candidate" : ""} ${
+                  hasOwner ? "tile-owned" : ""
+                } ${isPurchaseRevealFocus ? "tile-purchase-stamped" : ""}`}
                 data-focus-kind={isStageFocus ? stageFocus.currentBeatKind : undefined}
                 data-tile-kind={tile.tileKind}
-                style={{
-                  gridRow: position.row,
-                  gridColumn: position.col,
-                }}
+                data-quarterview-lane={useQuarterview ? quarterviewPosition.lane : undefined}
+                style={tileStyle}
               >
                 {isStageFocus ? (
                   <div
@@ -556,63 +868,122 @@ export function BoardPanel({
                     {stageFocus.currentBeatDetail !== "-" ? <small>{stageFocus.currentBeatDetail}</small> : null}
                   </div>
                 ) : null}
-                <div className="tile-zone-strip" style={{ backgroundColor: zoneColorToCss(tile.zoneColor ?? "", board) }} />
-                <div className="tile-head">
-                  <strong>{tile.tileIndex + 1}</strong>
-                  <span className="tile-kind-chip">
-                    <span className="tile-kind-chip-icon" aria-hidden="true">
-                      {tileLandmarkGlyph(tile.tileKind)}
+                <div className="tile-content">
+                  <div className="tile-zone-strip" style={{ backgroundColor: zoneColorToCss(tile.zoneColor ?? "", board) }} />
+                  {hasOwner || useQuarterview ? (
+                    <div
+                      className={`tile-owner-stamp ${hasOwner ? "" : "tile-owner-stamp-empty"}`}
+                      data-testid={hasOwner ? `tile-owner-stamp-${tile.tileIndex}` : undefined}
+                      aria-label={hasOwner ? board.owner(ownerPlayerId) : undefined}
+                      aria-hidden={hasOwner ? undefined : true}
+                    >
+                      <span>{hasOwner ? `P${ownerPlayerId}` : ""}</span>
+                    </div>
+                  ) : null}
+                  <div className="tile-head">
+                    <strong>{tile.tileIndex + 1}</strong>
+                    <span className="tile-kind-chip">
+                      <span className="tile-kind-chip-icon" aria-hidden="true">
+                        {tileLandmarkGlyph(tile.tileKind)}
+                      </span>
+                      <span>{kindLabel}</span>
                     </span>
-                    <span>{kindLabel}</span>
-                  </span>
-                </div>
-                {isFortune || isFinish ? (
-                  <div className="tile-special-center">
-                    <span className="tile-special-icon" aria-hidden="true">
-                      {tileLandmarkGlyph(tile.tileKind)}
-                    </span>
-                    <strong>{kindLabel}</strong>
                   </div>
-                ) : (
-                  <div className="tile-body">
-                    <small className="tile-cost-pill">{costLabel(tile.purchaseCost, tile.rentCost, board)}</small>
-                  </div>
-                )}
-                <div className="tile-foot">
-                  <div className="tile-badge-row">
-                    <small className={`tile-owner-badge ${ownerPlayerId === null ? "tile-owner-badge-empty" : ""}`}>
-                      {ownerPlayerId === null ? board.ownerNone : board.owner(ownerPlayerId)}
-                    </small>
-                    {tile.scoreCoinCount > 0 ? <small className="tile-score-badge">{board.scoreCoins(tile.scoreCoinCount)}</small> : null}
-                  </div>
-                  <div className="pawn-chips">
-                    {tilePawns.length > 0 ? (
-                      tilePawns.map((id) => (
-                        <span
-                          key={`${tile.tileIndex}-p${id}`}
-                          className={`pawn-token ${isMoveTo ? "pawn-arrived" : ""} ${
-                            isStageFocus && stageFocus.actorPlayerId === id ? "pawn-active-turn" : ""
-                          }`}
-                          style={
-                            {
-                              "--pawn-player-color": playerColor(id),
-                              "--pawn-piece-url": `url(${pawnPieceUrl})`,
-                            } as CSSProperties
-                          }
-                          title={`P${id}`}
-                        >
-                          <span className="pawn-token-piece" aria-hidden="true" />
-                          <span className="pawn-token-label">{id}</span>
-                        </span>
-                      ))
-                    ) : (
-                      <small className="pawn-empty">-</small>
-                    )}
+                  {isFortune || isFinish ? (
+                    <div className="tile-special-center">
+                      <span className="tile-special-icon" aria-hidden="true">
+                        {tileLandmarkGlyph(tile.tileKind)}
+                      </span>
+                      <strong>{kindLabel}</strong>
+                    </div>
+                  ) : (
+                    <div className="tile-body">
+                      <small className="tile-cost-pill">{costLabel(tile.purchaseCost, tile.rentCost, board)}</small>
+                    </div>
+                  )}
+                  <div className="tile-foot">
+                    <div className="tile-badge-row">
+                      <small className={`tile-owner-badge ${ownerPlayerId === null ? "tile-owner-badge-empty" : ""}`}>
+                        {ownerPlayerId === null ? board.ownerNone : board.owner(ownerPlayerId)}
+                      </small>
+                      {tile.scoreCoinCount > 0 ? <small className="tile-score-badge">{board.scoreCoins(tile.scoreCoinCount)}</small> : null}
+                    </div>
+                    <div className="pawn-chips">
+                      {tilePawns.filter((id) => !useQuarterview || !standeePlayerIds.has(id)).length > 0 ? (
+                        tilePawns.filter((id) => !useQuarterview || !standeePlayerIds.has(id)).map((id) => (
+                          <span
+                            key={`${tile.tileIndex}-p${id}`}
+                            className={`pawn-token ${isMoveTo ? "pawn-arrived" : ""} ${
+                              isStageFocus && stageFocus.actorPlayerId === id ? "pawn-active-turn" : ""
+                            }`}
+                            style={
+                              {
+                                "--pawn-player-color": playerColor(id),
+                                "--pawn-piece-url": `url(${pawnPieceUrl})`,
+                              } as CSSProperties
+                            }
+                            title={`P${id}`}
+                          >
+                            <span className="pawn-token-piece" aria-hidden="true" />
+                            <span className="pawn-token-label">{id}</span>
+                          </span>
+                        ))
+                      ) : (
+                        <small className="pawn-empty">-</small>
+                      )}
+                    </div>
                   </div>
                 </div>
               </article>
             );
           })}
+          {useQuarterview ? (
+            <div className="board-character-layer" aria-hidden="true">
+              {standeePlacements.map((placement, index) => {
+                const tileMateOffsets =
+                  placement.tileMateCount <= 1
+                    ? { x: 0, y: 0 }
+                    : [
+                        { x: -18, y: 2 },
+                        { x: 18, y: -2 },
+                        { x: 0, y: -14 },
+                        { x: 0, y: 14 },
+                      ][placement.tileMateIndex % 4];
+                const inwardOffset = standeeBoardInwardOffset(placement.position);
+                const style = {
+                  "--board-standee-x": `${placement.position.xPercent}%`,
+                  "--board-standee-y": `${placement.position.yPercent}%`,
+                  "--board-standee-z": String(placement.position.zIndex + 18 + index),
+                  "--board-standee-color": playerColor(placement.playerId),
+                  "--board-standee-offset-x": `${tileMateOffsets.x + inwardOffset.x}px`,
+                  "--board-standee-offset-y": `${tileMateOffsets.y + inwardOffset.y}px`,
+                } as CSSProperties;
+                return (
+                  <div
+                    key={`standee-${placement.animationKey}`}
+                    className={`board-character-standee ${
+                      placement.playerId === stageFocus.actorPlayerId ? "board-character-standee-active" : ""
+                    } ${placement.isAnimating ? "board-character-standee-moving" : ""}`}
+                    data-facing={placement.facing}
+                    style={style}
+                    title={`P${placement.playerId} ${placement.character}`}
+                  >
+                    {placement.assetUrl ? (
+                      <img src={placement.assetUrl} alt="" draggable={false} />
+                    ) : (
+                      <span className="board-character-standee-fallback">P{placement.playerId}</span>
+                    )}
+                    <span className="board-character-standee-label">P{placement.playerId}</span>
+                  </div>
+                );
+              })}
+              {quarterviewMovingPawnStyle && animPlayerId !== null && !standeePlayerIds.has(animPlayerId) ? (
+                <div className="board-character-standee board-character-standee-moving" style={quarterviewMovingPawnStyle}>
+                  <span className="board-character-standee-fallback">P{animPlayerId}</span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         {showTurnOverlay && turnBanner ? (
           <div className="board-turn-overlay" data-testid="board-turn-overlay" aria-live="polite">

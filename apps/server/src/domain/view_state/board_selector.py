@@ -75,17 +75,19 @@ def _parse_snapshot_tiles(payload: dict[str, Any]) -> list[BoardTileViewState] |
     return parsed
 
 
-def _latest_board_snapshot_entry(messages: list[dict[str, Any]]) -> tuple[int, list[dict[str, Any]], list[BoardTileViewState]] | None:
+def _latest_board_snapshot_entry(messages: list[dict[str, Any]]) -> tuple[int, list[dict[str, Any]], list[BoardTileViewState], dict[str, Any]] | None:
     for index in range(len(messages) - 1, -1, -1):
         message = messages[index]
         if message.get("type") != "event":
             continue
         payload = _record(message.get("payload")) or {}
         players = _parse_snapshot_players(payload)
+        explicit_snapshot = _record(payload.get("snapshot")) or {}
+        snapshot_board = _record(explicit_snapshot.get("board")) or {}
         tiles = _parse_snapshot_tiles(payload)
         if players is None or tiles is None:
             continue
-        return index, players, tiles
+        return index, players, tiles, snapshot_board
     return None
 
 
@@ -93,10 +95,14 @@ def build_board_view_state(messages: list[dict[str, Any]]) -> BoardViewState | N
     last_move: BoardLastMoveViewState | None = None
     snapshot_entry = _latest_board_snapshot_entry(messages)
     live_tiles: list[BoardTileViewState] = []
+    f_value: int | float | None = None
 
     if snapshot_entry is not None:
-      snapshot_index, snapshot_players, snapshot_tiles = snapshot_entry
+      snapshot_index, snapshot_players, snapshot_tiles, snapshot_board = snapshot_entry
       live_tiles = [dict(tile) for tile in snapshot_tiles]
+      raw_f_value = snapshot_board.get("f_value")
+      if isinstance(raw_f_value, (int, float)) and not isinstance(raw_f_value, bool):
+          f_value = raw_f_value
       tile_by_index = {tile["tile_index"]: tile for tile in live_tiles}
       player_positions: dict[int, int] = {}
       alive_players: set[int] = set()
@@ -119,6 +125,13 @@ def build_board_view_state(messages: list[dict[str, Any]]) -> BoardViewState | N
           public_context = _record(payload.get("public_context")) or {}
           event_code = _event_type(payload)
           event_actor_id = _number(payload.get("acting_player_id", payload.get("player_id")))
+          event_f_value = payload.get("f_value", public_context.get("f_value"))
+          if isinstance(event_f_value, (int, float)) and not isinstance(event_f_value, bool):
+              f_value = event_f_value
+          if event_code == "f_value_change":
+              event_f_after = payload.get("after")
+              if isinstance(event_f_after, (int, float)) and not isinstance(event_f_after, bool):
+                  f_value = event_f_after
           context_position = _number(public_context.get("player_position"))
           if event_actor_id is not None and context_position is not None:
               player_positions[event_actor_id] = context_position
@@ -174,7 +187,10 @@ def build_board_view_state(messages: list[dict[str, Any]]) -> BoardViewState | N
 
     if last_move is None and not live_tiles:
         return None
-    return {
+    result: BoardViewState = {
         "last_move": last_move,
         "tiles": live_tiles,
     }
+    if f_value is not None:
+        result["f_value"] = f_value
+    return result

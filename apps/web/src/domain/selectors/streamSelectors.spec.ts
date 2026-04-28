@@ -6,6 +6,7 @@ import {
   selectActiveCharacterSlots,
   selectCoreActionFeed,
   selectCriticalAlerts,
+  selectCurrentRoundRevealItems,
   selectCurrentActorPlayerId,
   selectCurrentTurnRevealItems,
   selectDerivedPlayers,
@@ -319,6 +320,8 @@ describe("streamSelectors", () => {
                   shards: 4,
                   owned_tile_count: 0,
                   trick_count: 5,
+                  hidden_trick_count: 2,
+                  public_tricks: ["과속", "월권"],
                   hand_coins: 0,
                   placed_coins: 0,
                   total_score: 0,
@@ -361,6 +364,11 @@ describe("streamSelectors", () => {
       { slot: 4, character: "아전" },
       { slot: 5, character: "교리 연구관", playerId: 2 },
     ]);
+    expect(selectDerivedPlayers(messages, 1)[0]).toMatchObject({
+      publicTricks: ["과속", "월권"],
+      hiddenTrickCount: 2,
+      trickCount: 5,
+    });
     expect(selectMarkTargetCharacterSlots(messages, "산적", 1)).toEqual([
       { slot: 3, playerId: null, label: null, character: "탈출 노비" },
       { slot: 4, playerId: null, label: null, character: "아전" },
@@ -2115,7 +2123,7 @@ describe("streamSelectors", () => {
     expect(items[0]).toMatchObject({ tone: "effect", seq: 701 });
     expect(items[1]).toMatchObject({ tone: "move", seq: 702 });
     expect(items[2].focusTileIndex).toBe(9);
-    expect(items[3].detail).toContain("구매");
+    expect(items[3].detail).toContain("땅 사기");
     expect(items[4]).toMatchObject({ tone: "economy", seq: 705 });
     expect(items[6].detail).toContain("Gain 2 cash");
   });
@@ -2170,7 +2178,67 @@ describe("streamSelectors", () => {
       seq: 901,
       focusTileIndex: 12,
     });
-    expect(items[0].detail).toContain("P3");
+    expect(items[0].detail).toBe("P3 -> P1 / 5냥 / 13번 칸");
+  });
+
+  it("includes mark success events in turn and round reveal stacks", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1000,
+        session_id: "s1",
+        payload: {
+          event_type: "round_start",
+          round_index: 10,
+        },
+      },
+      {
+        type: "event",
+        seq: 1001,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 10,
+          turn_index: 1,
+          acting_player_id: 1,
+          character: "만신",
+        },
+      },
+      {
+        type: "event",
+        seq: 1002,
+        session_id: "s1",
+        payload: {
+          event_type: "mark_queued",
+          round_index: 10,
+          turn_index: 1,
+          source_player_id: 1,
+          target_player_id: 3,
+          target_character: "건설업자",
+          effect_type: "burden_clear",
+        },
+      },
+      {
+        type: "event",
+        seq: 1003,
+        session_id: "s1",
+        payload: {
+          event_type: "mark_resolved",
+          round_index: 10,
+          turn_index: 1,
+          source_player_id: 1,
+          target_player_id: 3,
+        },
+      },
+    ];
+
+    const turnItems = selectCurrentTurnRevealItems(messages, 8);
+    const roundItems = selectCurrentRoundRevealItems(messages, 8);
+
+    expect(turnItems.map((item) => item.eventCode)).toEqual(["mark_queued", "mark_resolved"]);
+    expect(roundItems.map((item) => item.eventCode)).toEqual(["mark_queued", "mark_resolved"]);
+    expect(turnItems[0]).toMatchObject({ tone: "effect", seq: 1002 });
+    expect(turnItems[0].detail).toContain("건설업자");
   });
 
   it("uses the revealed fortune card name when the resolved detail has no summary", () => {
@@ -2510,6 +2578,90 @@ describe("streamSelectors", () => {
     expect(move?.fromTileIndex).toBe(5);
     expect(move?.toTileIndex).toBe(8);
     expect(move?.pathTileIndices).toEqual([6, 7, 8]);
+  });
+
+  it("does not replay a stale backend move after a new turn starts without movement", () => {
+    const move = selectLastMove([
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "player_move",
+          player_id: 1,
+          from_tile_index: 0,
+          to_tile_index: 6,
+          path: [1, 2, 3, 4, 5, 6],
+          view_state: {
+            board: {
+              last_move: {
+                player_id: 1,
+                from_tile_index: 0,
+                to_tile_index: 6,
+                path_tile_indices: [1, 2, 3, 4, 5, 6],
+              },
+            },
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 2,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          acting_player_id: 2,
+          view_state: {
+            board: {
+              last_move: {
+                player_id: 1,
+                from_tile_index: 0,
+                to_tile_index: 6,
+                path_tile_indices: [1, 2, 3, 4, 5, 6],
+              },
+            },
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 3,
+        session_id: "s1",
+        payload: { event_type: "lap_reward_chosen", player_id: 2, choice: "cash", amount: 2 },
+      },
+    ]);
+
+    expect(move).toBeNull();
+  });
+
+  it("treats fortune resolution with movement fields as an animatable move", () => {
+    const move = selectLastMove([
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: { event_type: "turn_start", acting_player_id: 3 },
+      },
+      {
+        type: "event",
+        seq: 2,
+        session_id: "s1",
+        payload: {
+          event_type: "fortune_resolved",
+          player_id: 3,
+          from_tile_index: 11,
+          end_pos: 23,
+          summary: "이사가세요",
+        },
+      },
+    ]);
+
+    expect(move).toEqual({
+      playerId: 3,
+      fromTileIndex: 11,
+      toTileIndex: 23,
+      pathTileIndices: [],
+    });
   });
 
   it("formats less-common event details for timeline", () => {
@@ -3161,9 +3313,9 @@ describe("streamSelectors", () => {
 
     expect(stage.actor).toBe("P2");
     expect(stage.character).toBe("교리 연구관");
-    expect(stage.currentBeatLabel).toBe("토지 구매");
+    expect(stage.currentBeatLabel).toBe("땅 사기");
     expect(stage.currentBeatDetail).toContain("9번 칸");
-    expect(stage.progressTrail).toEqual(["턴 시작", "이동값 결정", "말 이동", "도착 결과", "토지 구매"]);
+    expect(stage.progressTrail).toEqual(["턴 시작", "이동값 결정", "말 이동", "도착 결과", "땅 사기"]);
   });
 
   it("tracks beat kind and focus tile for purchase, rent, and prompt flows", () => {
