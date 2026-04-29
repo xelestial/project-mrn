@@ -251,6 +251,7 @@ class RuntimeService:
         self._ensure_gpt_import_path()
         from engine import GameEngine
         from policy.factory import PolicyFactory
+        from state import GameState
 
         session = self._session_service.get_session(session_id)
         resolved = dict(session.resolved_parameters or {})
@@ -307,14 +308,19 @@ class RuntimeService:
             human_player_ids=human_player_ids,
             spectator_event_delay_ms=spectator_event_delay_ms,
         )
+        engine_config = self._config_factory.create(resolved)
         engine = GameEngine(
-            config=self._config_factory.create(resolved),
+            config=engine_config,
             policy=policy,
             decision_port=policy if hasattr(policy, "request") else None,
             rng=random.Random(seed),
             event_stream=vis_stream,
         )
-        engine.run()
+        initial_state = self._hydrate_engine_state(session_id, engine_config, GameState)
+        if initial_state is None:
+            engine.run()
+        else:
+            engine.run(initial_state=initial_state)
 
     async def _watchdog_loop(self, session_id: str) -> None:
         warned = False
@@ -468,6 +474,17 @@ class RuntimeService:
         if self._runtime_state_store is None:
             return True
         return bool(self._runtime_state_store.release_lease(session_id, self._worker_id))
+
+    def _hydrate_engine_state(self, session_id: str, config, game_state_cls):
+        if self._game_state_store is None:
+            return None
+        recovery = self.recovery_checkpoint(session_id)
+        if not recovery.get("available"):
+            return None
+        current_state = recovery.get("current_state")
+        if not isinstance(current_state, dict) or "tiles" not in current_state:
+            return None
+        return game_state_cls.from_checkpoint_payload(config, current_state)
 
 
 def _module_belongs_to_root(module: ModuleType, root_dir: Path) -> bool:

@@ -297,7 +297,7 @@ class GameEngine:
                 context["target_scope"] = str(args[2])
         return {key: value for key, value in context.items() if value is not None}
 
-    def run(self) -> GameResult:
+    def run(self, initial_state: GameState | None = None) -> GameResult:
         self._action_log = []
         self._ai_decision_log = []
         self._weather_history = []
@@ -325,30 +325,33 @@ class GameEngine:
             }
             for _ in range(self.config.player_count)
         ]
-        state = GameState.create(self.config)
-        self._initialize_active_faces(state)
-        self.rng.shuffle(state.fortune_draw_pile)
-        self.rng.shuffle(state.trick_draw_pile)
-        self.rng.shuffle(state.weather_draw_pile)
-        for p in state.players:
-            self._draw_tricks(state, p, 5, sync_visibility=False)
-        self._log({
-            "event": "initial_public_tricks",
-            "players": [
-                {"player": p.player_id + 1, "public_tricks": p.public_trick_names(), "hidden_trick_count": p.hidden_trick_count()}
-                for p in state.players
-            ],
-        })
-        self._emit_vis(
-            "session_start",
-            Phase.SESSION_START,
-            None,
-            state,
-            player_count=self.config.player_count,
-            active_by_card=dict(state.active_by_card),
-            players=[build_player_public_state(p, state).to_dict() for p in state.players],
-        )
-        self._start_new_round(state, initial=True)
+        if initial_state is None:
+            state = GameState.create(self.config)
+            self._initialize_active_faces(state)
+            self.rng.shuffle(state.fortune_draw_pile)
+            self.rng.shuffle(state.trick_draw_pile)
+            self.rng.shuffle(state.weather_draw_pile)
+            for p in state.players:
+                self._draw_tricks(state, p, 5, sync_visibility=False)
+            self._log({
+                "event": "initial_public_tricks",
+                "players": [
+                    {"player": p.player_id + 1, "public_tricks": p.public_trick_names(), "hidden_trick_count": p.hidden_trick_count()}
+                    for p in state.players
+                ],
+            })
+            self._emit_vis(
+                "session_start",
+                Phase.SESSION_START,
+                None,
+                state,
+                player_count=self.config.player_count,
+                active_by_card=dict(state.active_by_card),
+                players=[build_player_public_state(p, state).to_dict() for p in state.players],
+            )
+            self._start_new_round(state, initial=True)
+        else:
+            state = initial_state
 
         while True:
             if not state.current_round_order:
@@ -434,6 +437,8 @@ class GameEngine:
         if self._vis_buffer is not None:
             self._vis_buffer.append((event_type, public_phase, acting_player_id, dict(payload)))
             return
+        if event_type in {"turn_end_snapshot", "game_end"} and "engine_checkpoint" not in payload:
+            payload = {**payload, "engine_checkpoint": state.to_checkpoint_payload()}
         self._vis_stream.append(
             VisEvent(
                 event_type=event_type,

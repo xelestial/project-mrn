@@ -239,11 +239,20 @@ class RedisCommandStore:
     def list_commands(self, session_id: str) -> list[dict[str, Any]]:
         return [self._decode_stream_entry(entry_id, fields) for entry_id, fields in self._connection.client().xrange(self._stream_key(session_id))]
 
+    def load_consumer_offset(self, consumer_name: str, session_id: str) -> int:
+        raw = self._connection.client().hget(self._offset_key(consumer_name), session_id)
+        return int(raw) if isinstance(raw, str) and raw.lstrip("-").isdigit() else 0
+
+    def save_consumer_offset(self, consumer_name: str, session_id: str, seq: int) -> None:
+        self._connection.client().hset(self._offset_key(consumer_name), session_id, str(max(0, int(seq))))
+
     def delete_session_data(self, session_id: str) -> None:
         client = self._connection.client()
         for seen_key in list(client.hgetall(self._seen_key()).keys()):
             if str(seen_key).startswith(f"{session_id}:"):
                 client.hdel(self._seen_key(), seen_key)
+        for offset_key in list(client.hgetall(self._offset_index_key()).keys()):
+            client.hdel(str(offset_key), session_id)
         client.delete(self._stream_key(session_id), self._seq_key(session_id))
 
     def _stream_key(self, session_id: str) -> str:
@@ -254,6 +263,14 @@ class RedisCommandStore:
 
     def _seen_key(self) -> str:
         return self._connection.key("commands", "seen")
+
+    def _offset_key(self, consumer_name: str) -> str:
+        key = self._connection.key("commands", "offsets", str(consumer_name or "default"))
+        self._connection.client().hset(self._offset_index_key(), key, "1")
+        return key
+
+    def _offset_index_key(self) -> str:
+        return self._connection.key("commands", "offset_indexes")
 
     @staticmethod
     def _decode_stream_entry(entry_id: str, fields: dict[str, Any]) -> dict[str, Any]:
@@ -369,7 +386,9 @@ class RedisGameStateStore:
             checkpoint["has_snapshot"] = bool(previous.get("has_snapshot"))
         if previous.get("has_view_state"):
             checkpoint["has_view_state"] = bool(previous.get("has_view_state"))
-        snapshot = payload.get("snapshot")
+        snapshot = payload.get("engine_checkpoint")
+        if not isinstance(snapshot, dict):
+            snapshot = payload.get("snapshot")
         if isinstance(snapshot, dict):
             checkpoint["has_snapshot"] = True
             self.save_current_state(session_id, snapshot)

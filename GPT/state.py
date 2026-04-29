@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Set
 
 from characters import CHARACTERS
@@ -269,3 +269,165 @@ class GameState:
         if block_id < 0:
             return []
         return [idx for idx in self.block_tile_positions(block_id, land_only=True) if idx != pos]
+
+    def to_checkpoint_payload(self) -> dict:
+        return {
+            "schema_version": 1,
+            "turn_index": self.turn_index,
+            "rounds_completed": self.rounds_completed,
+            "current_round_order": list(self.current_round_order),
+            "f_value": self.f_value,
+            "bankrupt_players": self.bankrupt_players,
+            "malicious_tiles": self.malicious_tiles,
+            "winner_ids": list(self.winner_ids),
+            "end_reason": self.end_reason,
+            "marker_owner_id": self.marker_owner_id,
+            "marker_draft_clockwise": self.marker_draft_clockwise,
+            "active_by_card": dict(self.active_by_card),
+            "pending_marker_flip_owner_id": self.pending_marker_flip_owner_id,
+            "current_weather_effects": sorted(self.current_weather_effects),
+            "next_supply_f_threshold": self.next_supply_f_threshold,
+            "global_rent_half_this_turn": self.global_rent_half_this_turn,
+            "global_rent_double_this_turn": self.global_rent_double_this_turn,
+            "global_rent_double_permanent": self.global_rent_double_permanent,
+            "tile_rent_modifiers_this_turn": dict(self.tile_rent_modifiers_this_turn),
+            "tile_purchase_blocked_turn_index": dict(self.tile_purchase_blocked_turn_index),
+            "lap_reward_cash_pool_remaining": self.lap_reward_cash_pool_remaining,
+            "lap_reward_shards_pool_remaining": self.lap_reward_shards_pool_remaining,
+            "lap_reward_coins_pool_remaining": self.lap_reward_coins_pool_remaining,
+            "tiles": [_tile_to_payload(tile) for tile in self.tiles],
+            "players": [_player_to_payload(player) for player in self.players],
+            "fortune_draw_pile": [_card_key(card) for card in self.fortune_draw_pile],
+            "fortune_discard_pile": [_card_key(card) for card in self.fortune_discard_pile],
+            "trick_draw_pile": [_card_key(card) for card in self.trick_draw_pile],
+            "trick_discard_pile": [_card_key(card) for card in self.trick_discard_pile],
+            "weather_draw_pile": [_card_key(card) for card in self.weather_draw_pile],
+            "weather_discard_pile": [_card_key(card) for card in self.weather_discard_pile],
+            "current_weather": None if self.current_weather is None else _card_key(self.current_weather),
+        }
+
+    @classmethod
+    def from_checkpoint_payload(cls, config: GameConfig, payload: dict) -> "GameState":
+        state = cls.create(config)
+        fortune_by_id = _cards_by_deck_index(build_fortune_deck(config.fortune_csv_path))
+        trick_by_id = _cards_by_deck_index(build_trick_deck(config.trick_csv_path))
+        weather_by_id = _cards_by_deck_index(build_weather_deck(config.weather_csv_path))
+
+        state.turn_index = int(payload.get("turn_index", state.turn_index))
+        state.rounds_completed = int(payload.get("rounds_completed", state.rounds_completed))
+        state.current_round_order = [int(item) for item in payload.get("current_round_order", state.current_round_order)]
+        state.f_value = float(payload.get("f_value", state.f_value))
+        state.bankrupt_players = int(payload.get("bankrupt_players", state.bankrupt_players))
+        state.malicious_tiles = int(payload.get("malicious_tiles", state.malicious_tiles))
+        state.winner_ids = [int(item) for item in payload.get("winner_ids", state.winner_ids)]
+        state.end_reason = str(payload.get("end_reason", state.end_reason))
+        state.marker_owner_id = int(payload.get("marker_owner_id", state.marker_owner_id))
+        state.marker_draft_clockwise = bool(payload.get("marker_draft_clockwise", state.marker_draft_clockwise))
+        state.active_by_card = {int(key): str(value) for key, value in dict(payload.get("active_by_card", state.active_by_card)).items()}
+        raw_pending_owner = payload.get("pending_marker_flip_owner_id", state.pending_marker_flip_owner_id)
+        state.pending_marker_flip_owner_id = None if raw_pending_owner is None else int(raw_pending_owner)
+        state.current_weather_effects = {str(item) for item in payload.get("current_weather_effects", [])}
+        state.next_supply_f_threshold = int(payload.get("next_supply_f_threshold", state.next_supply_f_threshold))
+        state.global_rent_half_this_turn = bool(payload.get("global_rent_half_this_turn", state.global_rent_half_this_turn))
+        state.global_rent_double_this_turn = bool(payload.get("global_rent_double_this_turn", state.global_rent_double_this_turn))
+        state.global_rent_double_permanent = bool(payload.get("global_rent_double_permanent", state.global_rent_double_permanent))
+        state.tile_rent_modifiers_this_turn = {int(key): int(value) for key, value in dict(payload.get("tile_rent_modifiers_this_turn", {})).items()}
+        state.tile_purchase_blocked_turn_index = {int(key): int(value) for key, value in dict(payload.get("tile_purchase_blocked_turn_index", {})).items()}
+        state.lap_reward_cash_pool_remaining = int(payload.get("lap_reward_cash_pool_remaining", state.lap_reward_cash_pool_remaining))
+        state.lap_reward_shards_pool_remaining = int(payload.get("lap_reward_shards_pool_remaining", state.lap_reward_shards_pool_remaining))
+        state.lap_reward_coins_pool_remaining = int(payload.get("lap_reward_coins_pool_remaining", state.lap_reward_coins_pool_remaining))
+
+        for raw_tile in payload.get("tiles", []):
+            if not isinstance(raw_tile, dict):
+                continue
+            index = int(raw_tile.get("index", -1))
+            if 0 <= index < len(state.tiles):
+                _apply_tile_payload(state.tiles[index], raw_tile)
+        for raw_player in payload.get("players", []):
+            if not isinstance(raw_player, dict):
+                continue
+            player_id = int(raw_player.get("player_id", -1))
+            if 0 <= player_id < len(state.players):
+                _apply_player_payload(state.players[player_id], raw_player, trick_by_id)
+
+        state.fortune_draw_pile = _cards_from_keys(payload.get("fortune_draw_pile", []), fortune_by_id)
+        state.fortune_discard_pile = _cards_from_keys(payload.get("fortune_discard_pile", []), fortune_by_id)
+        state.trick_draw_pile = _cards_from_keys(payload.get("trick_draw_pile", []), trick_by_id)
+        state.trick_discard_pile = _cards_from_keys(payload.get("trick_discard_pile", []), trick_by_id)
+        state.weather_draw_pile = _cards_from_keys(payload.get("weather_draw_pile", []), weather_by_id)
+        state.weather_discard_pile = _cards_from_keys(payload.get("weather_discard_pile", []), weather_by_id)
+        state.current_weather = _card_from_key(payload.get("current_weather"), weather_by_id)
+        return state
+
+
+def _tile_to_payload(tile: TileState) -> dict:
+    return {
+        "index": tile.index,
+        "kind": tile.kind.name,
+        "block_id": tile.block_id,
+        "zone_color": tile.zone_color,
+        "purchase_cost": tile.purchase_cost,
+        "rent_cost": tile.rent_cost,
+        "economy_profile": tile.economy_profile,
+        "owner_id": tile.owner_id,
+        "score_coins": tile.score_coins,
+    }
+
+
+def _apply_tile_payload(tile: TileState, payload: dict) -> None:
+    tile.kind = CellKind[str(payload.get("kind", tile.kind.name))]
+    tile.block_id = int(payload.get("block_id", tile.block_id))
+    tile.zone_color = payload.get("zone_color", tile.zone_color)
+    tile.purchase_cost = _optional_int(payload.get("purchase_cost", tile.purchase_cost))
+    tile.rent_cost = _optional_int(payload.get("rent_cost", tile.rent_cost))
+    tile.economy_profile = payload.get("economy_profile", tile.economy_profile)
+    tile.owner_id = _optional_int(payload.get("owner_id", tile.owner_id))
+    tile.score_coins = int(payload.get("score_coins", tile.score_coins))
+
+
+def _player_to_payload(player: PlayerState) -> dict:
+    payload = {}
+    for item in fields(PlayerState):
+        value = getattr(player, item.name)
+        if item.name == "trick_hand":
+            payload[item.name] = [_card_key(card) for card in value]
+        elif isinstance(value, set):
+            payload[item.name] = sorted(value)
+        else:
+            payload[item.name] = value
+    return payload
+
+
+def _apply_player_payload(player: PlayerState, payload: dict, trick_by_id: dict[int, TrickCard]) -> None:
+    for item in fields(PlayerState):
+        if item.name not in payload:
+            continue
+        value = payload[item.name]
+        if item.name == "trick_hand":
+            setattr(player, item.name, _cards_from_keys(value, trick_by_id))
+        elif item.name in {"visited_owned_tile_indices", "used_dice_cards"}:
+            setattr(player, item.name, {int(entry) for entry in value or []})
+        else:
+            setattr(player, item.name, value)
+
+
+def _card_key(card) -> int:
+    return int(card.deck_index)
+
+
+def _cards_by_deck_index(cards: list) -> dict[int, object]:
+    return {int(card.deck_index): card for card in cards}
+
+
+def _card_from_key(raw_key, cards_by_id: dict[int, object]):
+    if raw_key is None:
+        return None
+    return cards_by_id[int(raw_key)]
+
+
+def _cards_from_keys(raw_keys, cards_by_id: dict[int, object]) -> list:
+    return [_card_from_key(raw_key, cards_by_id) for raw_key in raw_keys or [] if raw_key is not None]
+
+
+def _optional_int(value) -> int | None:
+    return None if value is None else int(value)

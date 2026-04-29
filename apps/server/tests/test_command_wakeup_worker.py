@@ -49,6 +49,14 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         self.assertEqual(second, [])
         self.assertEqual(runtime.started, [(session.session_id, 99, None)])
 
+        restarted_worker = CommandStreamWakeupWorker(
+            command_store=command_store,
+            session_service=sessions,
+            runtime_service=runtime,
+            poll_interval_ms=50,
+        )
+        self.assertEqual(asyncio.run(restarted_worker.run_once()), [])
+
     def test_cli_parser_supports_once_mode(self) -> None:
         args = build_parser().parse_args(["--once", "--session-id", "sess_1", "--max-iterations", "2"])
 

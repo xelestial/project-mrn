@@ -660,12 +660,16 @@ Implemented in the first Redis migration batch:
 - Runtime recovery checkpoint fixture that exposes latest Redis checkpoint/current_state/view_state after service reconstruction.
 - Restart integration coverage for Redis-backed replay/status/checkpoint/command continuity.
 - Lua-backed atomic command append and runtime lease refresh/release when the Redis client supports `EVAL`, with Python fallbacks for tests.
+- Versioned `GameState` checkpoint serializer/deserializer for canonical engine state, including tiles, players, deck order, discard piles, weather, active cards, and turn/round fields.
+- `GameEngine.run(initial_state=...)` can start from a hydrated turn-boundary state instead of always creating a fresh game.
+- Runtime service attempts to hydrate engine state from Redis `current_state` when a canonical engine checkpoint is available.
+- Command wakeup worker offsets are persisted in Redis per consumer/session, so worker restarts do not reprocess old command entries.
 - Local JSON archive export for finished sessions with hot-state cleanup after the retention window.
 
 Still intentionally incomplete:
 
-- The internal `GameEngine.run()` loop is not yet split into resumable transition steps.
-- Redis stores the latest canonical snapshot emitted by the engine stream and exposes it as a recovery checkpoint, but the engine does not yet deserialize that snapshot and resume mid-turn.
+- The internal `GameEngine.run()` loop is only partially resumable. It can hydrate from a canonical checkpoint at a boundary, but it is not yet split into small independently committed transition steps.
+- Redis stores the latest canonical snapshot emitted by the engine stream and runtime can hydrate from it when it has the engine checkpoint shape. Mid-transition resume is still out of scope.
 - Prompt timeout and command wakeup handling have standalone worker entrypoints plus local Docker Compose services. Production deployment still needs environment-specific process manager or orchestration settings.
 - Runtime lease refresh/release and command append use Lua where available. Other multi-key transitions, including complete decision acceptance plus engine state mutation, still need Lua/transaction hardening.
 
@@ -730,10 +734,10 @@ Performance:
 
 Recommended next implementation PR:
 
-1. Refactor `GameEngine.run()` into resumable transition steps that can hydrate from Redis `current_state`.
+1. Split `GameEngine.run()` into explicit transition steps with commit points after each prompt/turn boundary.
 2. Move full decision acceptance plus engine state mutation to one Redis transaction/Lua commit boundary.
-3. Persist command wakeup worker offsets in Redis so multiple worker processes coordinate without in-memory cursors.
+3. Add real Redis restart smoke that kills/recreates backend service processes around a running game and verifies hydrated continuation.
 4. Add production deployment settings for the timeout/command workers after the target hosting environment is chosen.
-5. Add a real Redis restart smoke that kills/recreates backend service processes around a running game.
+5. Define Redis Cluster hash-tag key names before multi-node Redis deployment.
 
 This keeps the current incremental path honest: Redis now owns the live records, while resumable engine execution remains the next large refactor.

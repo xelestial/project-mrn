@@ -12,12 +12,14 @@ class CommandStreamWakeupWorker:
         session_service,
         runtime_service,
         poll_interval_ms: int = 250,
+        consumer_name: str = "runtime_wakeup",
         sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._command_store = command_store
         self._session_service = session_service
         self._runtime_service = runtime_service
         self._poll_interval_ms = max(50, int(poll_interval_ms))
+        self._consumer_name = str(consumer_name or "runtime_wakeup")
         self._sleeper = sleeper
         self._last_processed_seq: dict[str, int] = {}
 
@@ -27,12 +29,13 @@ class CommandStreamWakeupWorker:
         for current_session_id in session_ids:
             if not current_session_id:
                 continue
-            last_seq = self._last_processed_seq.get(current_session_id, 0)
+            last_seq = self._load_offset(current_session_id)
             for command in self._command_store.list_commands(current_session_id):
                 seq = int(command.get("seq", 0))
                 if seq <= last_seq:
                     continue
-                self._last_processed_seq[current_session_id] = seq
+                self._save_offset(current_session_id, seq)
+                last_seq = seq
                 status = self._runtime_service.runtime_status(current_session_id)
                 if status.get("status") in {"recovery_required", "idle", "running_elsewhere"}:
                     await self._start_runtime(current_session_id)
@@ -78,3 +81,13 @@ class CommandStreamWakeupWorker:
             seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
             policy_mode=runtime_cfg.get("policy_mode"),
         )
+
+    def _load_offset(self, session_id: str) -> int:
+        if callable(getattr(self._command_store, "load_consumer_offset", None)):
+            return int(self._command_store.load_consumer_offset(self._consumer_name, session_id))
+        return self._last_processed_seq.get(session_id, 0)
+
+    def _save_offset(self, session_id: str, seq: int) -> None:
+        if callable(getattr(self._command_store, "save_consumer_offset", None)):
+            self._command_store.save_consumer_offset(self._consumer_name, session_id, seq)
+        self._last_processed_seq[session_id] = int(seq)
