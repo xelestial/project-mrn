@@ -1170,6 +1170,41 @@ class GameEngine:
             state.pending_action_log["pending_landing_purchase_result"] = dict(result)
         return result
 
+    def _enqueue_target_move_action(
+        self,
+        state: GameState,
+        player: PlayerState,
+        target_pos: int,
+        *,
+        trigger: str,
+        schedule_arrival: bool,
+        lap_credit: bool,
+        source: str | None = None,
+        card_name: str = "",
+        move: int | None = None,
+        formula: str = "",
+        move_event_type: str = "action_move",
+    ) -> ActionEnvelope:
+        action = self._action(
+            state,
+            "apply_move",
+            player,
+            source or trigger,
+            {
+                "target_pos": target_pos,
+                "lap_credit": lap_credit,
+                "schedule_arrival": schedule_arrival,
+                "emit_move_event": True,
+                "move_event_type": move_event_type,
+                "trigger": trigger,
+                "card_name": card_name,
+                "move": move,
+                "formula": formula,
+            },
+        )
+        state.pending_actions.append(action)
+        return action
+
     def _should_defer_landing_post_effects(self) -> bool:
         return bool(self._deferred_arrival_action_id)
 
@@ -3655,24 +3690,17 @@ class GameEngine:
         formula: str = "",
     ) -> dict:
         old_pos = player.position
-        action = self._action(
+        action = self._enqueue_target_move_action(
             state,
-            "apply_move",
             player,
-            trigger,
-            {
-                "target_pos": target_pos,
-                "lap_credit": False,
-                "schedule_arrival": schedule_arrival,
-                "emit_move_event": True,
-                "move_event_type": "action_move",
-                "trigger": trigger,
-                "card_name": card_name,
-                "move": move,
-                "formula": formula,
-            },
+            target_pos,
+            trigger=trigger,
+            schedule_arrival=schedule_arrival,
+            lap_credit=False,
+            card_name=card_name,
+            move=move,
+            formula=formula,
         )
-        state.pending_actions.append(action)
         return {
             "type": "QUEUED_ARRIVAL" if schedule_arrival else "QUEUED_MOVE_ONLY",
             "trigger": trigger,

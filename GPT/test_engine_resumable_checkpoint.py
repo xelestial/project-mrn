@@ -18,6 +18,7 @@ from policy.environment_traits import (
     fortune_card_id_for_name,
 )
 from state import ActionEnvelope, GameState
+from trick_cards import TrickCard
 from viewer.stream import VisEventStream
 
 
@@ -550,6 +551,38 @@ def test_prompt_action_remains_queued_when_decision_waits() -> None:
     assert state.pending_actions[0].action_id == "purchase_wait"
     assert state.tile_owner[tile_index] is None
     assert player.free_purchase_this_turn is True
+
+
+def test_extreme_separation_trick_queues_target_move_action() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(29))
+    state = GameState.create(config)
+    player = state.players[0]
+    other = state.players[1]
+    player.position = 1
+    other.position = 12
+
+    result = engine._apply_trick_card(
+        state,
+        player,
+        TrickCard(deck_index=999, name="극심한 분리불안", description=""),
+    )
+
+    assert result["type"] == "QUEUED_TRICK_TARGET_MOVE"
+    assert result["target_pos"] == other.position
+    assert player.position == 1
+    assert len(state.pending_actions) == 1
+    assert state.pending_actions[0].type == "apply_move"
+    assert state.pending_actions[0].source == "trick_extreme_separation"
+    assert state.pending_actions[0].payload["schedule_arrival"] is True
+    assert state.pending_actions[0].payload["lap_credit"] is False
+
+    first = engine.run_next_transition(state)
+
+    assert first["action_type"] == "apply_move"
+    assert player.position == other.position
+    assert len(state.pending_actions) == 1
+    assert state.pending_actions[0].type == "resolve_arrival"
 
 
 def test_request_purchase_tile_action_can_resume_and_purchase() -> None:

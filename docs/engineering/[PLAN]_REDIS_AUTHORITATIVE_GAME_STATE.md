@@ -722,7 +722,7 @@ Implemented seed:
 
 - `GameState.pending_actions` now checkpoints serializable `ActionEnvelope` records.
 - The engine has `apply_move` and `resolve_arrival` helpers.
-- Fortune `[도착]` movement, fortune `[이동]` movement, and hunter forced landing now route through the shared target-move helper.
+- Fortune `[도착]` movement, fortune `[이동]` movement, target-movement trick effects, and hunter forced landing now route through the shared target-move helper.
 - `run_next_transition()` now drains one queued action before normal turn advancement. A queued `apply_move` with `schedule_arrival=true` updates position and queues `resolve_arrival`; the following transition resolves the tile.
 - Queued `apply_move` now supports `move_value` for forward step movement. It applies path/total-step/lap-reward state in the move transition while leaving tile effects to the next `resolve_arrival` transition.
 - A standard-move adapter now converts resolved `move` + `movement_meta` into a queued `apply_move` action. Default turn execution uses this queued movement boundary and is verified against simple, card-metadata, obstacle slowdown, encounter boost, and zone-chain `_advance_player()` compatibility cases.
@@ -731,6 +731,7 @@ Implemented seed:
 - Normal turn movement now enters the same queued movement boundary: `_take_turn()` resolves the movement source and schedules `apply_move -> resolve_arrival`, then `pending_turn_completion` emits the turn-end snapshot and advances the turn cursor only after the queued actions finish. The external visual contract remains `dice_roll -> player_move -> landing_resolved -> turn_end_snapshot`.
 - Turn-start mark effects now have the first scheduled-action implementation. `scheduled_actions` stores target/phase/priority `ActionEnvelope` records; target-player `turn_start` actions are materialized into `pending_actions` before that player's normal turn begins.
 - `resolve_mark` is now an action handler. Immediate mark effects mutate state atomically inside the action, while hunter pull enqueues `apply_move -> resolve_arrival` follow-up actions.
+- `극심한 분리불안` now queues its target movement as `apply_move -> resolve_arrival`, so trick-card resolution does not mutate position inline.
 - Built-in movement fortune cards now act as action producers on the fortune-tile path. They resolve the card draw immediately, then enqueue `apply_move` with `schedule_arrival` according to the card effect; global/non-movement effects still mutate immediately inside the fortune handler.
 - Custom fortune producers can register `fortune.card.produce` and return a `QUEUE_TARGET_MOVE` contract; the engine maps that hook result into the same queued movement primitive.
 - Backward takeover fortune cards now enqueue movement first and then `resolve_fortune_takeover_backward`, separating position changes from ownership mutation.
@@ -744,7 +745,7 @@ Implemented seed:
 
 Next action-pipeline hardening:
 
-- audit remaining direct compatibility helpers (`_advance_player()`, `_apply_fortune_arrival()`, and extension hooks) and either migrate their callers to actions or explicitly mark them as test/plugin-only APIs
+- audit remaining direct compatibility helpers (`_advance_player()`, `_apply_fortune_arrival()`, and extension hooks) and explicitly mark the surviving callers as test/plugin-only APIs
 - expand the prompt-resumable pattern to any future human decisions that still appear during effect resolution
 
 ## Testing Strategy

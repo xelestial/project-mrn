@@ -739,8 +739,22 @@ class EngineEffectHandlers:
             target_pos = engine._find_extreme_player_position(state, player, nearest=False)
             if target_pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_other_player"}
-            arrival = engine._apply_fortune_arrival(state, player, target_pos, "trick_extreme_separation", name)
-            return {"type": "ARRIVAL_THEN_MOVE", "arrival": arrival}
+            action = engine._enqueue_target_move_action(
+                state,
+                player,
+                target_pos,
+                trigger="trick_extreme_separation",
+                source="trick_extreme_separation",
+                schedule_arrival=True,
+                lap_credit=False,
+                card_name=name,
+            )
+            return {
+                "type": "QUEUED_TRICK_TARGET_MOVE",
+                "target_pos": target_pos % len(state.board),
+                "queued_action_id": action.action_id,
+                "no_lap_credit": True,
+            }
         if name == "도움 닫기":
             player.trick_encounter_boost_this_turn = True
             return {"type": "ENCOUNTER_BOOST_THIS_TURN"}
