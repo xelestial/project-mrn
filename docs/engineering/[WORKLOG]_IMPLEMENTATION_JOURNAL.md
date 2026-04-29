@@ -1,7 +1,7 @@
 # [WORKLOG] Implementation Journal
 
 Status: ACTIVE  
-Updated: 2026-04-15
+Updated: 2026-04-30
 
 ## Rules
 
@@ -39,6 +39,102 @@ Updated: 2026-04-15
 - Next:
   - split final purchase mutation into an explicit `resolve_purchase_tile` action
   - migrate rent calculation into `RentContext`
+
+## 2026-04-30 Purchase Resolution Action Split
+
+- Scope: continue the tile-trait action pipeline by separating purchase decision from purchase mutation.
+- Done:
+  - added `resolve_purchase_tile` as a queued action handler
+  - changed `request_purchase_tile` so it performs precheck/decision and queues mutation only on an affirmative purchase decision
+  - kept prompt interruption replay-safe: interrupted purchase prompts leave `request_purchase_tile` queued and preserve one-shot free-purchase flags
+  - moved cash/shard payment, ownership transfer, first-purchase token placement, one-shot consumption, AI decision logging, and `tile_purchased` visualization into the purchase-resolution step
+  - updated queued unowned-land arrival tests so the buying path is `resolve_arrival -> request_purchase_tile -> resolve_purchase_tile -> resolve_unowned_post_purchase`
+- Validation:
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_tile_effects.py -k 'purchase or prompt_action'`
+  - `./.venv/bin/python -m pytest GPT/test_rule_fixes.py -k 'purchase or matchmaker or madangbal or same_tile'`
+- Follow-up:
+  - run doc integrity and full engine suites after this documentation update
+  - migrate rent calculation into `RentContext`
+  - migrate score-token placement into resumable actions
+
+## 2026-04-30 Rent Context Modifier Seed
+
+- Scope: continue the tile-trait action pipeline by moving rent calculation into a deterministic context/modifier builder.
+- Done:
+  - added `RentContext`, `RentModifier`, and ordered rent modifiers to `GPT/tile_effects.py`
+  - moved weather/color doubling, global rent modifiers, personal rent half effects, and normal-rent waivers into the rent context pipeline
+  - updated normal rent payment to use `RentContext.final_rent` and consume normal-rent waiver counts through context consumptions
+  - preserved non-rent derived pricing by making `_effective_rent()` call the rent context with `include_waivers=False`
+  - added rent context tests for weather doubling, waiver consumption, and waiver exclusion
+- Validation:
+  - `./.venv/bin/python -m pytest GPT/test_tile_effects.py GPT/test_rule_fixes.py -k 'rent or weather_color or trade_pass or purchase or matchmaker or same_tile'`
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'queued_arrival_on_rent or purchase or prompt_action'`
+- Follow-up:
+  - run doc integrity and full engine suites after this documentation update
+  - migrate score-token placement into resumable actions
+
+## 2026-04-30 Score Token Placement Context Seed
+
+- Scope: continue the tile-trait action pipeline by moving score-token placement calculation into a deterministic context.
+- Done:
+  - added `ScoreTokenPlacementContext` to `GPT/tile_effects.py`
+  - routed `_place_hand_coins_on_tile()` through `build_score_token_placement_context()`
+  - kept the existing mutation semantics intact while adding structured placement payloads
+  - added tests for placement amount limits and blocked placement reasons
+- Validation:
+  - `./.venv/bin/python -m pytest GPT/test_tile_effects.py GPT/test_rule_fixes.py -k 'score_token or coin or purchase_places or rent or trade_pass'`
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'purchase or queued_arrival_on_rent or prompt_action'`
+- Follow-up:
+  - run doc integrity and full engine suites after this documentation update
+  - split score-token placement into `resolve_score_token_placement` after landing/purchase result aggregation is adjusted
+
+## 2026-04-30 Purchase Score Token Placement Action
+
+- Scope: split first-purchase automatic score-token placement into a queued action.
+- Done:
+  - added `resolve_score_token_placement` action handling
+  - changed `resolve_purchase_tile` so ownership/payment is committed before automatic score-token placement is queued
+  - kept first-purchase placement before `resolve_unowned_post_purchase`, preserving landing post-effect result aggregation
+  - updated pending purchase result aggregation so `placed` contains the final placement payload after the token action runs
+  - added checkpoint tests for purchase-only placement and full arrival purchase flow with placement
+- Validation:
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'purchase or score_token or prompt_action'`
+  - `./.venv/bin/python -m pytest GPT/test_rule_fixes.py GPT/test_tile_effects.py -k 'purchase_places or score_token or coin or rent or trade_pass'`
+- Follow-up:
+  - run doc integrity and full engine suites after this documentation update
+  - split own-tile visit placement into request/resolve actions because it has a policy decision boundary
+
+## 2026-04-30 Own Tile Score Token Request Split
+
+- Scope: split policy-selected own-tile score-token placement into replayable request/resolve actions.
+- Done:
+  - added `request_score_token_placement`
+  - changed queued own-tile landing so it no longer calls `choose_coin_placement_tile` inside `resolve_arrival`
+  - reused `resolve_score_token_placement` for the final mutation
+  - preserved final landing result aggregation by carrying the own-tile base event through the score-token actions
+  - added prompt interruption coverage proving the request action remains queued and tile tokens are not placed early
+- Validation:
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'own_tile or score_token or purchase or prompt_action'`
+  - `./.venv/bin/python -m pytest GPT/test_rule_fixes.py GPT/test_tile_effects.py -k 'coin or score_token or purchase_places or rent or trade_pass'`
+- Follow-up:
+  - run doc integrity and full engine suites after this documentation update
+  - audit remaining inline economic mutations and split only where a real decision, animation, or recovery boundary exists
+
+## 2026-04-30 Inline Economic Mutation Audit
+
+- Scope: review remaining resource/ownership mutations after purchase, rent context, and score-token action splits.
+- Done:
+  - documented the split rule: actionize only for prompts, animation/presentation beats, Redis recovery boundaries, or shared modifier contexts
+  - classified already split paths, context-backed paths, intentionally inline atomic effects, and watch-list candidates
+  - added a contract test preventing default landing handlers from reopening purchase or score-token placement prompts inline
+- Decision:
+  - do not split rent payment yet; `RentContext` already isolates calculation, and payment remains a single atomic effect until the UI needs a separate rent-payment animation checkpoint
+  - do not split weather/trick/F/S/MALICIOUS same-tile resource effects yet; they are deterministic atomic effects without a prompt boundary
+- Validation:
+  - pending after documentation update
+- Follow-up:
+  - run doc integrity and full engine suites
+  - next implementation should target a concrete boundary, not add action layers speculatively
 
 ## 2026-04-29 Redis Action Pipeline Seed
 

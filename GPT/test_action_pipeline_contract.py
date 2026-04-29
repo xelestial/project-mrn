@@ -36,3 +36,16 @@ def test_production_effects_do_not_call_immediate_movement_compat_helpers() -> N
                 offenders.append(f"{path.relative_to(PROJECT_ROOT)} uses {token}")
 
     assert offenders == []
+
+
+def test_landing_effect_handlers_do_not_open_purchase_or_token_prompts_inline() -> None:
+    source = (GPT_ROOT / "effect_handlers.py").read_text(encoding="utf-8")
+    disallowed = {
+        '_request_decision("choose_purchase_tile"',
+        "_request_decision('choose_purchase_tile'",
+        '_request_decision("choose_coin_placement_tile"',
+        "_request_decision('choose_coin_placement_tile'",
+    }
+    offenders = [token for token in disallowed if token in source]
+
+    assert offenders == []

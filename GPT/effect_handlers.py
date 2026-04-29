@@ -33,6 +33,7 @@ from policy.environment_traits import (
     weather_id_for_name,
 )
 from state import GameState, PlayerState
+from tile_effects import build_rent_context, consume_rent_one_shots
 from trick_cards import (
     TRICK_FLASH_ID,
     TRICK_FREE_GIFT_ID,
@@ -330,7 +331,7 @@ class EngineEffectHandlers:
         player.hand_coins += gain
         stats['coins_gained_own_tile'] += gain
         player.visited_owned_tile_indices.add(pos)
-        placed = engine._place_hand_coins_if_possible(state, player)
+        placed = None if engine._should_defer_landing_post_effects() else engine._place_hand_coins_if_possible(state, player)
         event = {'type': 'OWN_TILE', 'tile_kind': cell.name, 'coin_gain': gain, 'hand_before_gain': before_hand, 'placed': placed}
         if extra is not None:
             event['trick_adjacent_bought'] = extra
@@ -351,7 +352,19 @@ class EngineEffectHandlers:
                     total += amt if out.get('paid') else 0
                     details.append({'player': op.player_id + 1, 'amount': amt, 'paid': out.get('paid', True)})
                 event['trick_same_tile_shard_rake'] = {'total': total, 'details': details}
-        return engine._apply_weather_same_tile_bonus(state, player, event)
+        event = engine._apply_weather_same_tile_bonus(state, player, event)
+        if engine._should_defer_landing_post_effects():
+            queued = engine._queue_score_token_placement_request(
+                state,
+                player,
+                event,
+                source="own_tile_visit",
+                parent_action_id=engine._deferred_arrival_action_id,
+                record_arrival_result=True,
+            )
+            if queued is not None:
+                return queued
+        return event
 
     def handle_marker_management(self, state: GameState, player: PlayerState) -> dict | None:
         engine = self.engine
@@ -911,15 +924,20 @@ class EngineEffectHandlers:
         engine = self.engine
         self._ensure_stats(state)
         stats = engine._strategy_stats[player.player_id]
-        rent = engine._effective_rent(state, pos, player, owner)
-        if player.trick_all_rent_waiver_this_turn:
-            rent = 0
-        elif player.rent_waiver_count_this_turn > 0:
-            player.rent_waiver_count_this_turn -= 1
-            rent = 0
+        rent_context = build_rent_context(state, player, pos, owner)
+        rent = rent_context.final_rent
+        consume_rent_one_shots(player, rent_context.one_shot_consumptions)
         stats['rent_paid'] += 1
         outcome = engine._pay_or_bankrupt(state, player, rent, owner)
-        event = {'type': 'RENT', 'tile_kind': state.board[pos].name, 'owner': owner + 1, 'rent': rent, **outcome}
+        event = {
+            'type': 'RENT',
+            'tile_kind': state.board[pos].name,
+            'owner': owner + 1,
+            'rent': rent,
+            'base_rent': rent_context.base_rent,
+            'rent_context': rent_context.to_payload(),
+            **outcome,
+        }
         if engine._should_defer_landing_post_effects():
             result = engine._queue_landing_post_effects(
                 state,
@@ -945,7 +963,7 @@ class EngineEffectHandlers:
             payer_player_id=player.player_id + 1,
             owner_player_id=owner + 1,
             tile_index=pos,
-            base_amount=rent,
+            base_amount=rent_context.base_rent,
             final_amount=rent if outcome.get('paid') else 0,
             modifiers=result,
         )

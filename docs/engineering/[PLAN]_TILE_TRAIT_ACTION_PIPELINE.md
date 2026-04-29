@@ -200,7 +200,11 @@ resolve_arrival
 -> resolve_unowned_post_purchase
 ```
 
-Current implementation already has `request_purchase_tile` and `resolve_unowned_post_purchase`. The next migration should separate the final mutation into an explicit `resolve_purchase_tile` action or make `request_purchase_tile` own both prompt and mutation only until the modifier context is introduced.
+Implemented migration:
+
+- `request_purchase_tile` performs purchase prechecks, builds `PurchaseContext`, asks the purchase decision, and queues `resolve_purchase_tile` only when the player chooses to buy.
+- `resolve_purchase_tile` performs the final mutation: resource payment, ownership transfer, first-purchase token placement, one-shot purchase flag consumption, AI decision logging, and `tile_purchased` visualization.
+- `resolve_unowned_post_purchase` remains the landing follow-up boundary and now reads the final purchase result written by `resolve_purchase_tile`.
 
 ## Rent Pipeline
 
@@ -446,6 +450,170 @@ Implemented:
 
 Still pending:
 
-- split final purchase mutation into a separate `resolve_purchase_tile` action
-- migrate rent calculation into `RentContext`
-- migrate score-token placement into resumable actions
+- split rent payment itself into a queued action if animation/recovery needs a payment boundary
+
+### 2026-04-30 Purchase Resolution Action Split
+
+Implemented:
+
+- `request_purchase_tile` no longer mutates ownership on an affirmative decision.
+- Affirmative purchase decisions insert `resolve_purchase_tile` at the front of `GameState.pending_actions`, preserving the existing follow-up order.
+- Prompt interruption still leaves the original `request_purchase_tile` action queued and preserves one-shot purchase flags.
+- Skip/fail decisions do not queue `resolve_purchase_tile`; they write the landing purchase result directly for post-purchase follow-up handling.
+- Successful `resolve_purchase_tile` consumes one-shot free-purchase flags exactly once after the ownership mutation.
+
+Validation:
+
+- `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_tile_effects.py -k 'purchase or prompt_action'`
+- `./.venv/bin/python -m pytest GPT/test_rule_fixes.py -k 'purchase or matchmaker or madangbal or same_tile'`
+
+Next:
+
+- split rent payment itself into a queued action if animation/recovery needs a payment boundary
+
+### 2026-04-30 Rent Context Seed
+
+Implemented:
+
+- `GPT/tile_effects.py` defines `RentContext`, `RentModifier`, and ordered rent modifiers.
+- Normal rent calculation now records a deterministic breakdown for:
+  - base rent
+  - tile-specific rent modifier
+  - color/weather rent doubling
+  - global rent double/half modifiers
+  - payer/owner personal rent half modifiers
+  - normal-rent waiver flags
+- `handle_rent_payment()` uses `RentContext.final_rent` and consumes normal-rent waiver counts from the context.
+- `_effective_rent()` uses the same builder with `include_waivers=False`, preserving swindler/derived-cost behavior where "rent-like amount" is used as a price but normal rent waivers must not apply.
+- Rent events now include `base_rent` and `rent_context` payloads.
+
+Validation:
+
+- `./.venv/bin/python -m pytest GPT/test_tile_effects.py GPT/test_rule_fixes.py -k 'rent or weather_color or trade_pass or purchase or matchmaker or same_tile'`
+- `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'queued_arrival_on_rent or purchase or prompt_action'`
+
+### 2026-04-30 Score Token Placement Context Seed
+
+Implemented:
+
+- `GPT/tile_effects.py` defines `ScoreTokenPlacementContext`.
+- `_place_hand_coins_on_tile()` now builds the placement context before mutating:
+  - `state.tile_coins`
+  - `player.hand_coins`
+  - `player.score_coins_placed`
+  - strategy `coins_placed`
+- Placement results now include `placement_context` payloads for future logs/UI explanation.
+- The context records tile capacity, current tile tokens, available room, player hand tokens, rule/request limit, final placement amount, and blocked reason.
+
+Validation:
+
+- `./.venv/bin/python -m pytest GPT/test_tile_effects.py GPT/test_rule_fixes.py -k 'score_token or coin or purchase_places or rent or trade_pass'`
+- `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'purchase or queued_arrival_on_rent or prompt_action'`
+
+Next:
+
+- introduce `request_score_token_placement` for policy-selected own-tile visit placement
+
+### 2026-04-30 Purchase Score Token Placement Action
+
+Implemented:
+
+- Added `resolve_score_token_placement` as a queued action handler.
+- `resolve_purchase_tile` no longer mutates first-purchase score tokens inline.
+- When a newly purchased tile can receive a score token, `resolve_purchase_tile` queues `resolve_score_token_placement` before `resolve_unowned_post_purchase`.
+- `resolve_score_token_placement` updates the pending purchase result's `placed` payload before post-purchase landing effects are finalized.
+- The buying path with placeable score tokens is now:
+
+```text
+resolve_arrival
+-> request_purchase_tile
+-> resolve_purchase_tile
+-> resolve_score_token_placement
+-> resolve_unowned_post_purchase
+```
+
+Validation:
+
+- `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'purchase or score_token or prompt_action'`
+- `./.venv/bin/python -m pytest GPT/test_rule_fixes.py GPT/test_tile_effects.py -k 'purchase_places or score_token or coin or rent or trade_pass'`
+
+Still pending:
+
+- rent payment still mutates inside `rent.payment.resolve`; split it only when a separate payment animation/recovery boundary is required
+
+### 2026-04-30 Own Tile Score Token Request Split
+
+Implemented:
+
+- Added `request_score_token_placement` as the decision-bearing score-token action.
+- Own-tile visit no longer opens `choose_coin_placement_tile` inside `resolve_arrival` on the queued path.
+- The queued own-tile visit path is now:
+
+```text
+resolve_arrival
+-> request_score_token_placement
+-> resolve_score_token_placement
+```
+
+- Prompt interruption reinserts `request_score_token_placement`, preserving the already committed own-tile coin gain and leaving tile tokens unchanged until resolution.
+- `resolve_score_token_placement` records the final landing result when it is carrying an own-tile base event.
+
+Validation:
+
+- `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'own_tile or score_token or purchase or prompt_action'`
+- `./.venv/bin/python -m pytest GPT/test_rule_fixes.py GPT/test_tile_effects.py -k 'coin or score_token or purchase_places or rent or trade_pass'`
+
+Next:
+
+- audit remaining inline economic mutations and only split additional actions where there is a real decision, animation, or recovery boundary
+
+## Inline Economic Mutation Audit
+
+### Boundary Rule
+
+Do not split every cash/shard/token mutation just because it mutates state. Split only when at least one condition is true:
+
+- a human or AI decision can interrupt the flow
+- the client needs a distinct animation/presentation beat
+- Redis recovery needs to persist between "decision accepted" and "state mutated"
+- the mutation is reused by multiple rule sources and needs a shared context/modifier contract
+
+Keep an effect inline when it is atomic, deterministic, and has no independent prompt or presentation boundary.
+
+### Current Classification
+
+Already split:
+
+- normal purchase prompt: `request_purchase_tile`
+- purchase mutation: `resolve_purchase_tile`
+- first-purchase score-token placement: `resolve_score_token_placement`
+- own-tile score-token prompt: `request_score_token_placement`
+- own-tile score-token mutation: `resolve_score_token_placement`
+- queued movement and arrival: `apply_move -> resolve_arrival`
+- mark effects with target-player timing: scheduled `resolve_mark`
+- decision-bearing fortune target effects: `resolve_fortune_*`
+
+Context/modifier calculation in place:
+
+- purchase cost: `PurchaseContext`
+- rent amount: `RentContext`
+- score-token placement amount: `ScoreTokenPlacementContext`
+
+Intentionally inline for now:
+
+- weather round effects that immediately grant/pay resources
+- F/MALICIOUS/S tile atomic payouts or payments
+- same-tile bonus cash/shard effects after a landing result
+- direct rent payment inside `rent.payment.resolve`
+- trick-card immediate resource effects
+- force sale / takeover helpers that are already single atomic ownership transactions
+
+Watch list:
+
+- rent payment can become `resolve_rent_payment` if the UI needs a payment animation checkpoint separate from landing post-effects
+- force sale / takeover can become actionized if future cards add target-selection prompts or multi-step animations around ownership transfer
+- global all-player payments can get a `resolve_global_payment` action if recovery needs to resume after each payer
+
+### Guardrail
+
+`GPT/test_action_pipeline_contract.py` now prevents default landing effect handlers from reopening purchase or score-token placement prompts inline. New runtime purchase/token decisions should be represented as queued request/resolve actions.

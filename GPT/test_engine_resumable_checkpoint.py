@@ -614,10 +614,60 @@ def test_request_purchase_tile_action_can_resume_and_purchase() -> None:
     step = engine.run_next_transition(state)
 
     assert step["action_type"] == "request_purchase_tile"
+    assert [action.type for action in state.pending_actions] == ["resolve_purchase_tile"]
+    assert state.tile_owner[tile_index] is None
+    assert player.cash == starting_cash
+
+    resolve = engine.run_next_transition(state)
+
+    assert resolve["action_type"] == "resolve_purchase_tile"
     assert state.pending_actions == []
     assert state.tile_owner[tile_index] == player.player_id
     assert player.cash == starting_cash - cost
     assert player.tiles_owned == 1
+
+
+def test_purchase_resolution_queues_score_token_placement() -> None:
+    class YesDecisionPort:
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name == "choose_draft_card":
+                return request.args[0][0]
+            if request.decision_name == "choose_final_character":
+                return request.state.active_by_card[request.args[0][0]]
+            return True
+
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=YesDecisionPort(), rng=random.Random(181))
+    state = engine.prepare_run()
+    player = state.players[0]
+    tile_index = state.first_tile_position(kinds=[CellKind.T2])
+    player.hand_coins = 2
+    state.pending_actions = [
+        ActionEnvelope(
+            action_id="purchase_score_token",
+            type="request_purchase_tile",
+            actor_player_id=player.player_id,
+            source="test_purchase",
+            payload={"tile_index": tile_index, "purchase_source": "test_purchase"},
+        )
+    ]
+
+    request = engine.run_next_transition(state)
+    purchase = engine.run_next_transition(state)
+
+    assert request["action_type"] == "request_purchase_tile"
+    assert purchase["action_type"] == "resolve_purchase_tile"
+    assert [action.type for action in state.pending_actions] == ["resolve_score_token_placement"]
+    assert state.tile_owner[tile_index] == player.player_id
+    assert state.tile_coins[tile_index] == 0
+    assert player.hand_coins == 2
+
+    placement = engine.run_next_transition(state)
+
+    assert placement["action_type"] == "resolve_score_token_placement"
+    assert state.pending_actions == []
+    assert state.tile_coins[tile_index] == 1
+    assert player.hand_coins == 1
 
 
 def test_queued_arrival_on_unowned_tile_splits_purchase_followups() -> None:
@@ -651,13 +701,57 @@ def test_queued_arrival_on_unowned_tile_splits_purchase_followups() -> None:
 
     second = engine.run_next_transition(state)
     third = engine.run_next_transition(state)
+    fourth = engine.run_next_transition(state)
     last_action_log = next(row for row in reversed(engine._action_log) if row.get("event") == "action_transition")
 
     assert second["action_type"] == "request_purchase_tile"
-    assert third["action_type"] == "resolve_unowned_post_purchase"
+    assert third["action_type"] == "resolve_purchase_tile"
+    assert fourth["action_type"] == "resolve_unowned_post_purchase"
     assert state.pending_actions == []
     assert state.tile_owner[tile_index] == player.player_id
     assert last_action_log["result"]["type"] == "PURCHASE"
+
+
+def test_queued_arrival_purchase_places_score_token_before_post_followup() -> None:
+    class YesDecisionPort:
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name == "choose_purchase_tile":
+                return True
+            return request.args[0][0]
+
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=YesDecisionPort(), rng=random.Random(191), enable_logging=True)
+    state = GameState.create(config)
+    player = state.players[0]
+    tile_index = state.first_tile_position(kinds=[CellKind.T2])
+    player.position = tile_index
+    player.hand_coins = 2
+    state.pending_actions = [
+        ActionEnvelope(
+            action_id="arrival_purchase_token_split",
+            type="resolve_arrival",
+            actor_player_id=player.player_id,
+            source="test_arrival",
+            payload={"trigger": "test_arrival"},
+        )
+    ]
+
+    actions = [engine.run_next_transition(state)["action_type"] for _ in range(5)]
+    last_action_log = next(row for row in reversed(engine._action_log) if row.get("event") == "action_transition")
+
+    assert actions == [
+        "resolve_arrival",
+        "request_purchase_tile",
+        "resolve_purchase_tile",
+        "resolve_score_token_placement",
+        "resolve_unowned_post_purchase",
+    ]
+    assert state.pending_actions == []
+    assert state.tile_owner[tile_index] == player.player_id
+    assert state.tile_coins[tile_index] == 1
+    assert player.hand_coins == 1
+    assert last_action_log["result"]["type"] == "PURCHASE"
+    assert last_action_log["result"]["placed"]["amount"] == 1
 
 
 def test_queued_arrival_purchase_prompt_keeps_purchase_action_queued() -> None:
@@ -695,6 +789,93 @@ def test_queued_arrival_purchase_prompt_keeps_purchase_action_queued() -> None:
     assert [action.type for action in state.pending_actions] == ["request_purchase_tile", "resolve_unowned_post_purchase"]
     assert state.pending_actions[0].payload["tile_index"] == tile_index
     assert state.tile_owner[tile_index] is None
+
+
+def test_queued_own_tile_visit_splits_score_token_choice_and_placement() -> None:
+    class CoinDecisionPort:
+        def __init__(self, target: int) -> None:
+            self.target = target
+
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name == "choose_coin_placement_tile":
+                return self.target
+            return request.args[0][0]
+
+    config = GameConfig(player_count=2)
+    state = GameState.create(config)
+    player = state.players[0]
+    tile_index = state.first_tile_position(kinds=[CellKind.T2])
+    player.position = tile_index
+    player.hand_coins = 0
+    player.tiles_owned = 1
+    state.tile_owner[tile_index] = player.player_id
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=CoinDecisionPort(tile_index), rng=random.Random(201), enable_logging=True)
+    state.pending_actions = [
+        ActionEnvelope(
+            action_id="arrival_own_tile_token_split",
+            type="resolve_arrival",
+            actor_player_id=player.player_id,
+            source="test_arrival",
+            payload={"trigger": "test_arrival"},
+        )
+    ]
+
+    first = engine.run_next_transition(state)
+
+    assert first["action_type"] == "resolve_arrival"
+    assert [action.type for action in state.pending_actions] == ["request_score_token_placement"]
+    assert state.tile_coins[tile_index] == 0
+    assert player.hand_coins == state.config.rules.token.coins_from_visiting_own_tile
+
+    second = engine.run_next_transition(state)
+    third = engine.run_next_transition(state)
+    last_action_log = next(row for row in reversed(engine._action_log) if row.get("event") == "action_transition")
+
+    assert second["action_type"] == "request_score_token_placement"
+    assert third["action_type"] == "resolve_score_token_placement"
+    assert state.pending_actions == []
+    assert state.tile_coins[tile_index] == 1
+    assert player.hand_coins == state.config.rules.token.coins_from_visiting_own_tile - 1
+    assert last_action_log["result"]["type"] == "OWN_TILE"
+    assert last_action_log["result"]["placed"]["amount"] == 1
+
+
+def test_queued_own_tile_score_token_prompt_keeps_request_queued() -> None:
+    class WaitingDecisionPort:
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name == "choose_coin_placement_tile":
+                raise RuntimeError("prompt_required_for_test")
+            return request.args[0][0]
+
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=WaitingDecisionPort(), rng=random.Random(202))
+    state = GameState.create(config)
+    player = state.players[0]
+    tile_index = state.first_tile_position(kinds=[CellKind.T2])
+    player.position = tile_index
+    player.tiles_owned = 1
+    state.tile_owner[tile_index] = player.player_id
+    state.pending_actions = [
+        ActionEnvelope(
+            action_id="arrival_own_tile_token_prompt",
+            type="resolve_arrival",
+            actor_player_id=player.player_id,
+            source="test_arrival",
+            payload={"trigger": "test_arrival"},
+        )
+    ]
+
+    engine.run_next_transition(state)
+
+    try:
+        engine.run_next_transition(state)
+    except RuntimeError as exc:
+        assert str(exc) == "prompt_required_for_test"
+    else:
+        raise AssertionError("coin placement prompt should have interrupted the queued request action")
+
+    assert [action.type for action in state.pending_actions] == ["request_score_token_placement"]
+    assert state.tile_coins[tile_index] == 0
 
 
 def test_queued_arrival_on_rent_tile_splits_post_landing_effects() -> None:

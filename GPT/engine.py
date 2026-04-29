@@ -13,7 +13,13 @@ from characters import CHARACTERS, CARD_TO_NAMES, randomized_active_by_card
 from config import CellKind, GameConfig
 from policy_mark_utils import ordered_public_mark_targets
 from state import ActionEnvelope, GameState, PlayerState
-from tile_effects import build_purchase_context, consume_purchase_one_shots
+from tile_effects import (
+    build_purchase_context,
+    build_rent_context,
+    build_score_token_placement_context,
+    consume_purchase_one_shots,
+    consume_rent_one_shots,
+)
 from fortune_cards import FortuneCard
 from trick_cards import (
     TRICK_FREE_GIFT_ID,
@@ -22,7 +28,7 @@ from trick_cards import (
     TrickCard,
     trick_card_id_for_name,
 )
-from weather_cards import WeatherCard, COLOR_RENT_DOUBLE_WEATHERS
+from weather_cards import WeatherCard
 from event_system import EventDispatcher
 from effect_handlers import EngineEffectHandlers
 from policy.character_traits import (
@@ -1016,6 +1022,12 @@ class GameEngine:
             return self._resolve_fortune_takeover_backward_action(state, action)
         if action.type == "request_purchase_tile":
             return self._request_purchase_tile_action(state, action)
+        if action.type == "resolve_purchase_tile":
+            return self._resolve_purchase_tile_action(state, action)
+        if action.type == "resolve_score_token_placement":
+            return self._resolve_score_token_placement_action(state, action)
+        if action.type == "request_score_token_placement":
+            return self._request_score_token_placement_action(state, action)
         if action.type == "resolve_unowned_post_purchase":
             return self._resolve_unowned_post_purchase_action(state, action)
         if action.type == "resolve_landing_post_effects":
@@ -1166,9 +1178,301 @@ class GameEngine:
         pos = int(payload["tile_index"])
         cell = state.board[pos]
         source = str(payload.get("purchase_source") or "action_purchase")
-        result = self._resolve_purchase_tile_decision(state, player, pos, cell, source=source)
+        result = self._request_purchase_tile_decision_for_action(state, player, pos, cell, action, source=source)
+        if payload.get("record_landing_result") and result.get("type") != "QUEUED_PURCHASE_RESOLUTION":
+            state.pending_action_log["pending_landing_purchase_result"] = dict(result)
+        return result
+
+    def _request_purchase_tile_decision_for_action(
+        self,
+        state: GameState,
+        player: PlayerState,
+        pos: int,
+        cell: CellKind,
+        action: ActionEnvelope,
+        *,
+        source: str,
+    ) -> dict:
+        fail = self._purchase_precheck_result(state, player, pos, cell, source=source)
+        if fail is not None:
+            return fail
+        purchase_context = build_purchase_context(state, player, pos, cell, source=source)
+        cost = purchase_context.final_cost
+        wants_purchase = self._request_decision(
+            "choose_purchase_tile",
+            state,
+            player,
+            pos,
+            cell,
+            cost,
+            source=source,
+            fallback=lambda: True,
+        )
+        purchase_debug = self.policy.pop_debug("purchase_decision", player.player_id) if hasattr(self.policy, "pop_debug") else None
+        if not wants_purchase:
+            result = {
+                "type": "PURCHASE_SKIP_POLICY",
+                "tile_kind": cell.name,
+                "cost": cost,
+                "base_cost": purchase_context.base_cost,
+                "shard_cost": purchase_context.shard_cost,
+                "purchase_context": purchase_context.to_payload(),
+                "bankrupt": False,
+                "skipped": True,
+            }
+            self._record_ai_decision(
+                state,
+                player,
+                "purchase_decision",
+                purchase_debug,
+                result={
+                    "tile_index": pos,
+                    "purchased": False,
+                    "reason": "policy_skip",
+                    "cost": cost,
+                    "base_cost": purchase_context.base_cost,
+                },
+                source_event=source,
+            )
+            return result
+        resolve_action = self._action(
+            state,
+            "resolve_purchase_tile",
+            player,
+            source,
+            {
+                "tile_index": pos,
+                "purchase_source": source,
+                "base_cost": purchase_context.base_cost,
+                "final_cost": purchase_context.final_cost,
+                "shard_cost": purchase_context.shard_cost,
+                "purchase_context": purchase_context.to_payload(),
+                "purchase_debug": purchase_debug,
+                "record_landing_result": bool(action.payload.get("record_landing_result")),
+            },
+            parent_action_id=action.action_id,
+        )
+        state.pending_actions.insert(0, resolve_action)
+        return {
+            "type": "QUEUED_PURCHASE_RESOLUTION",
+            "tile_kind": cell.name,
+            "tile_index": pos,
+            "cost": cost,
+            "base_cost": purchase_context.base_cost,
+            "shard_cost": purchase_context.shard_cost,
+            "purchase_context": purchase_context.to_payload(),
+            "queued_action_id": resolve_action.action_id,
+        }
+
+    def _resolve_purchase_tile_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        player = state.players[action.actor_player_id]
+        payload = action.payload
+        pos = int(payload["tile_index"])
+        cell = state.board[pos]
+        source = str(payload.get("purchase_source") or action.source or "action_purchase")
+        purchase_context_payload = dict(payload.get("purchase_context") or {})
+        result: dict
+        if state.tile_owner[pos] is not None:
+            result = {
+                "type": "PURCHASE_FAIL",
+                "tile_kind": cell.name,
+                "reason": "already_owned",
+                "owner": state.tile_owner[pos] + 1,
+                "skipped": True,
+            }
+        elif state.tile_purchase_blocked_turn_index.get(pos) == state.turn_index:
+            result = {"type": "PURCHASE_BLOCKED_THIS_TURN", "tile_kind": cell.name}
+        else:
+            cost = int(payload.get("final_cost", purchase_context_payload.get("final_cost", 0)))
+            shard_cost = int(payload.get("shard_cost", purchase_context_payload.get("shard_cost", 0)))
+            if player.cash < cost:
+                result = {
+                    "type": "PURCHASE_FAIL",
+                    "tile_kind": cell.name,
+                    "cost": cost,
+                    "base_cost": int(payload.get("base_cost", purchase_context_payload.get("base_cost", cost))),
+                    "shard_cost": shard_cost,
+                    "purchase_context": purchase_context_payload,
+                    "bankrupt": False,
+                    "skipped": True,
+                    "reason": "insufficient_cash_at_resolution",
+                }
+            else:
+                result = self._apply_resolved_purchase(
+                    state,
+                    player,
+                    pos,
+                    cell,
+                    source=source,
+                    base_cost=int(payload.get("base_cost", purchase_context_payload.get("base_cost", cost))),
+                    cost=cost,
+                    shard_cost=shard_cost,
+                    purchase_context_payload=purchase_context_payload,
+                    purchase_debug=payload.get("purchase_debug"),
+                    place_score_tokens=False,
+                )
+                if result.get("type") == "PURCHASE" and state.config.rules.token.can_place_on_first_purchase:
+                    player.visited_owned_tile_indices.add(pos)
+                    placement_action = self._queue_score_token_placement_action(
+                        state,
+                        player,
+                        pos,
+                        max_place=state.config.rules.token.place_limit_on_purchase(state, player, pos),
+                        source="purchase",
+                        parent_action_id=action.action_id,
+                        update_pending_purchase_result=bool(payload.get("record_landing_result")),
+                    )
+                    if placement_action is not None:
+                        result["placed"] = {
+                            "type": "QUEUED_SCORE_TOKEN_PLACEMENT",
+                            "queued_action_id": placement_action.action_id,
+                            "target": pos,
+                        }
         if payload.get("record_landing_result"):
             state.pending_action_log["pending_landing_purchase_result"] = dict(result)
+        return result
+
+    def _queue_score_token_placement_action(
+        self,
+        state: GameState,
+        player: PlayerState,
+        target: int,
+        *,
+        max_place: int | None,
+        source: str,
+        parent_action_id: str = "",
+        update_pending_purchase_result: bool = False,
+    ) -> ActionEnvelope | None:
+        context = build_score_token_placement_context(state, player, target, max_place=max_place, source=source)
+        if not context.can_place:
+            return None
+        action = self._action(
+            state,
+            "resolve_score_token_placement",
+            player,
+            source,
+            {
+                "target": target,
+                "max_place": max_place,
+                "source": source,
+                "placement_context": context.to_payload(),
+                "update_pending_purchase_result": update_pending_purchase_result,
+            },
+            parent_action_id=parent_action_id,
+        )
+        state.pending_actions.insert(0, action)
+        return action
+
+    def _queue_score_token_placement_request(
+        self,
+        state: GameState,
+        player: PlayerState,
+        base_event: dict,
+        *,
+        source: str,
+        parent_action_id: str = "",
+        record_arrival_result: bool = False,
+    ) -> dict | None:
+        if player.hand_coins <= 0:
+            return None
+        action = self._action(
+            state,
+            "request_score_token_placement",
+            player,
+            source,
+            {
+                "base_event": dict(base_event),
+                "source": source,
+                "record_arrival_result": record_arrival_result,
+            },
+            parent_action_id=parent_action_id,
+        )
+        state.pending_actions.insert(0, action)
+        queued = dict(base_event)
+        queued["placed"] = {
+            "type": "QUEUED_SCORE_TOKEN_PLACEMENT_REQUEST",
+            "queued_action_id": action.action_id,
+        }
+        queued["post_action_queued"] = True
+        queued["queued_action_id"] = action.action_id
+        return queued
+
+    def _request_score_token_placement_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        player = state.players[action.actor_player_id]
+        payload = action.payload
+        source = str(payload.get("source") or action.source or "visit")
+        base_event = dict(payload.get("base_event") or {})
+        target = self._request_decision("choose_coin_placement_tile", state, player)
+        coin_debug = self.policy.pop_debug("coin_placement", player.player_id) if hasattr(self.policy, "pop_debug") else None
+        self._record_ai_decision(
+            state,
+            player,
+            "coin_placement",
+            coin_debug,
+            result={"target_tile": None if target is None else target + 1},
+            source_event="coin_placement",
+        )
+        if target is None:
+            result = dict(base_event)
+            result["placed"] = None
+            if payload.get("record_arrival_result"):
+                self._record_pending_arrival_and_maybe_log_turn(state, action, result)
+            return result
+        placement_action = self._action(
+            state,
+            "resolve_score_token_placement",
+            player,
+            source,
+            {
+                "target": int(target),
+                "max_place": None,
+                "source": source,
+                "base_event": base_event,
+                "record_arrival_result": bool(payload.get("record_arrival_result")),
+            },
+            parent_action_id=action.action_id,
+        )
+        state.pending_actions.insert(0, placement_action)
+        queued = dict(base_event)
+        queued["placed"] = {
+            "type": "QUEUED_SCORE_TOKEN_PLACEMENT",
+            "queued_action_id": placement_action.action_id,
+            "target": int(target),
+        }
+        return queued
+
+    def _resolve_score_token_placement_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        player = state.players[action.actor_player_id]
+        payload = action.payload
+        target = int(payload["target"])
+        max_place = payload.get("max_place")
+        if max_place is not None:
+            max_place = int(max_place)
+        source = str(payload.get("source") or action.source or "visit")
+        placed = self._place_hand_coins_on_tile(state, player, target, max_place=max_place, source=source)
+        result = placed if placed is not None else {
+            "type": "SCORE_TOKEN_PLACEMENT_SKIP",
+            "target": target,
+            "source": source,
+            "placement_context": build_score_token_placement_context(
+                state,
+                player,
+                target,
+                max_place=max_place,
+                source=source,
+            ).to_payload(),
+        }
+        if payload.get("update_pending_purchase_result"):
+            purchase = dict(state.pending_action_log.get("pending_landing_purchase_result") or {})
+            if purchase:
+                purchase["placed"] = placed
+                state.pending_action_log["pending_landing_purchase_result"] = purchase
+        if payload.get("base_event") is not None:
+            event = dict(payload.get("base_event") or {})
+            event["placed"] = placed
+            if payload.get("record_arrival_result"):
+                self._record_pending_arrival_and_maybe_log_turn(state, action, event)
+            return event
         return result
 
     def _enqueue_target_move_action(
@@ -1355,7 +1659,7 @@ class GameEngine:
         self._record_pending_arrival_and_maybe_log_turn(state, action, result)
         return result
 
-    def _resolve_purchase_tile_decision(self, state: GameState, player: PlayerState, pos: int, cell: CellKind, *, source: str) -> dict:
+    def _ensure_strategy_stats(self, state: GameState, player: PlayerState) -> dict:
         if len(self._strategy_stats) <= player.player_id:
             self._strategy_stats = [
                 {
@@ -1374,7 +1678,17 @@ class GameEngine:
                 }
                 for _ in range(state.config.player_count)
             ]
-        stats = self._strategy_stats[player.player_id]
+        return self._strategy_stats[player.player_id]
+
+    def _purchase_precheck_result(
+        self,
+        state: GameState,
+        player: PlayerState,
+        pos: int,
+        cell: CellKind,
+        *,
+        source: str,
+    ) -> dict | None:
         if state.tile_purchase_blocked_turn_index.get(pos) == state.turn_index:
             return {"type": "PURCHASE_BLOCKED_THIS_TURN", "tile_kind": cell.name}
         purchase_context = build_purchase_context(state, player, pos, cell, source=source)
@@ -1391,6 +1705,86 @@ class GameEngine:
                 "bankrupt": False,
                 "skipped": True,
             }
+        return None
+
+    def _apply_resolved_purchase(
+        self,
+        state: GameState,
+        player: PlayerState,
+        pos: int,
+        cell: CellKind,
+        *,
+        source: str,
+        base_cost: int,
+        cost: int,
+        shard_cost: int,
+        purchase_context_payload: dict,
+        purchase_debug: Any = None,
+        place_score_tokens: bool = True,
+    ) -> dict:
+        stats = self._ensure_strategy_stats(state, player)
+        stats["purchases"] += 1
+        if cell == CellKind.T2:
+            stats["purchase_t2"] += 1
+        elif cell == CellKind.T3:
+            stats["purchase_t3"] += 1
+        shards_before = player.shards
+        player.cash -= cost
+        if shard_cost > 0:
+            player.shards -= shard_cost
+        state.tile_owner[pos] = player.player_id
+        player.tiles_owned += 1
+        player.first_purchase_turn_by_tile[pos] = player.turns_taken
+        consume_purchase_one_shots(player, list(purchase_context_payload.get("one_shot_consumptions") or []))
+        placed = None
+        if place_score_tokens and state.config.rules.token.can_place_on_first_purchase:
+            player.visited_owned_tile_indices.add(pos)
+            placed = self._place_hand_coins_on_tile(
+                state,
+                player,
+                pos,
+                max_place=state.config.rules.token.place_limit_on_purchase(state, player, pos),
+                source="purchase",
+            )
+        result = {
+            "type": "PURCHASE",
+            "tile_kind": cell.name,
+            "cost": cost,
+            "base_cost": base_cost,
+            "shard_cost": shard_cost,
+            "shards_before": shards_before,
+            "shards_after": player.shards,
+            "purchase_context": purchase_context_payload,
+            "placed": placed,
+        }
+        self._record_ai_decision(
+            state,
+            player,
+            "purchase_decision",
+            purchase_debug,
+            result={"tile_index": pos, "purchased": True, "cost": cost, "placed": placed},
+            source_event=source,
+        )
+        self._emit_vis(
+            "tile_purchased",
+            Phase.ECONOMY,
+            player.player_id + 1,
+            state,
+            player_id=player.player_id + 1,
+            tile_index=pos,
+            cost=cost,
+            purchase_source=source,
+            result=result,
+        )
+        return result
+
+    def _resolve_purchase_tile_decision(self, state: GameState, player: PlayerState, pos: int, cell: CellKind, *, source: str) -> dict:
+        fail = self._purchase_precheck_result(state, player, pos, cell, source=source)
+        if fail is not None:
+            return fail
+        purchase_context = build_purchase_context(state, player, pos, cell, source=source)
+        cost = purchase_context.final_cost
+        shard_cost = purchase_context.shard_cost
         wants_purchase = self._request_decision(
             "choose_purchase_tile",
             state,
@@ -1421,60 +1815,18 @@ class GameEngine:
                 "bankrupt": False,
                 "skipped": True,
             }
-        stats["purchases"] += 1
-        if cell == CellKind.T2:
-            stats["purchase_t2"] += 1
-        elif cell == CellKind.T3:
-            stats["purchase_t3"] += 1
-        shards_before = player.shards
-        player.cash -= cost
-        if shard_cost > 0:
-            player.shards -= shard_cost
-        state.tile_owner[pos] = player.player_id
-        player.tiles_owned += 1
-        player.first_purchase_turn_by_tile[pos] = player.turns_taken
-        consume_purchase_one_shots(player, purchase_context.one_shot_consumptions)
-        placed = None
-        if state.config.rules.token.can_place_on_first_purchase:
-            player.visited_owned_tile_indices.add(pos)
-            placed = self._place_hand_coins_on_tile(
-                state,
-                player,
-                pos,
-                max_place=state.config.rules.token.place_limit_on_purchase(state, player, pos),
-                source="purchase",
-            )
-        result = {
-            "type": "PURCHASE",
-            "tile_kind": cell.name,
-            "cost": cost,
-            "base_cost": purchase_context.base_cost,
-            "shard_cost": shard_cost,
-            "shards_before": shards_before,
-            "shards_after": player.shards,
-            "purchase_context": purchase_context.to_payload(),
-            "placed": placed,
-        }
-        self._record_ai_decision(
+        return self._apply_resolved_purchase(
             state,
             player,
-            "purchase_decision",
-            purchase_debug,
-            result={"tile_index": pos, "purchased": True, "cost": cost, "placed": placed},
-            source_event=source,
-        )
-        self._emit_vis(
-            "tile_purchased",
-            Phase.ECONOMY,
-            player.player_id + 1,
-            state,
-            player_id=player.player_id + 1,
-            tile_index=pos,
+            pos,
+            cell,
+            source=source,
+            base_cost=purchase_context.base_cost,
             cost=cost,
-            purchase_source=source,
-            result=result,
+            shard_cost=shard_cost,
+            purchase_context_payload=purchase_context.to_payload(),
+            purchase_debug=purchase_debug,
         )
-        return result
 
     def _resolve_marker_flip(self, state: GameState) -> None:
         self.events.emit_first_non_none("marker.flip.resolve", state)
@@ -3163,27 +3515,9 @@ class GameEngine:
         return idx
 
     def _effective_rent(self, state: GameState, pos: int, payer: PlayerState, owner_player_id: int | None) -> int:
-        cell = state.board[pos]
-        base = state.config.rules.economy.rent_cost_for(state, pos)
-        mod = state.tile_rent_modifiers_this_turn.get(pos, 1)
-        block_id = state.block_ids[pos]
-        tile_color = state.block_color_map.get(block_id)
-        if tile_color is not None and any(COLOR_RENT_DOUBLE_WEATHERS.get(name) == tile_color for name in state.current_weather_effects):
-            mod *= 2
-        if mod == 0:
+        if owner_player_id is None:
             return 0
-        rent = base * mod
-        if state.global_rent_double_permanent:
-            rent *= 2
-        if state.global_rent_double_this_turn:
-            rent *= 2
-        if state.global_rent_half_this_turn:
-            rent = math.ceil(rent / 2)
-        if payer.trick_personal_rent_half_this_turn:
-            rent = rent // 2
-        if owner_player_id is not None and state.players[owner_player_id].trick_personal_rent_half_this_turn:
-            rent = rent // 2
-        return max(0, rent)
+        return build_rent_context(state, payer, pos, owner_player_id, include_waivers=False).final_rent
 
     def _is_trick_phase_usable(self, card: TrickCard) -> bool:
         return True
@@ -4604,18 +4938,21 @@ class GameEngine:
         return {"type": "PURCHASE_FAIL", "tile_kind": cell.name, "reason": "no_purchase_handler"}
 
     def _place_hand_coins_on_tile(self, state: GameState, player: PlayerState, target: int, *, max_place: Optional[int] = None, source: str = "visit") -> Optional[dict]:
-        if player.hand_coins <= 0:
+        context = build_score_token_placement_context(state, player, target, max_place=max_place, source=source)
+        if not context.can_place:
             return None
-        room = state.config.rules.token.tile_capacity(state, target) - state.tile_coins[target]
-        limit = state.config.rules.token.max_place_per_visit if max_place is None else max_place
-        amount = min(player.hand_coins, room, limit)
-        if amount <= 0:
-            return None
+        amount = context.amount
         state.tile_coins[target] += amount
         player.hand_coins -= amount
         player.score_coins_placed += amount
         self._strategy_stats[player.player_id]["coins_placed"] += amount
-        return {"target": target, "amount": amount, "tile_total_after": state.tile_coins[target], "source": source}
+        return {
+            "target": target,
+            "amount": amount,
+            "tile_total_after": state.tile_coins[target],
+            "source": source,
+            "placement_context": context.to_payload(),
+        }
 
     def _place_hand_coins_if_possible(self, state: GameState, player: PlayerState) -> Optional[dict]:
         if player.hand_coins <= 0:

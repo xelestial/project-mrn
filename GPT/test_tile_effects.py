@@ -8,7 +8,12 @@ from ai_policy import HeuristicPolicy
 from config import CellKind, GameConfig
 from engine import GameEngine
 from state import GameState
-from tile_effects import build_purchase_context
+from tile_effects import (
+    build_purchase_context,
+    build_rent_context,
+    build_score_token_placement_context,
+    consume_rent_one_shots,
+)
 
 
 def test_purchase_context_applies_trick_free_purchase_modifier() -> None:
@@ -86,3 +91,74 @@ def test_skipped_trick_free_purchase_preserves_flag() -> None:
     assert result["cost"] == 0
     assert player.trick_free_purchase_this_turn is True
     assert state.tile_owner[tile_index] is None
+
+
+def test_rent_context_applies_weather_and_waiver_breakdown() -> None:
+    config = GameConfig(player_count=2)
+    state = GameState.create(config)
+    payer = state.players[0]
+    owner = state.players[1]
+    tile_index = 1
+    state.tile_owner[tile_index] = owner.player_id
+    state.current_weather_effects = {"검은 달"}
+    payer.rent_waiver_count_this_turn = 1
+
+    context = build_rent_context(state, payer, tile_index, owner.player_id)
+
+    assert context.base_rent > 0
+    assert context.final_rent == 0
+    assert [item["modifier"] for item in context.rent_breakdown] == [
+        "base_rent_cost",
+        "color_weather_rent_double",
+        "rent_waiver_count_this_turn",
+    ]
+    assert context.one_shot_consumptions == ["rent_waiver_count_this_turn"]
+
+    consume_rent_one_shots(payer, context.one_shot_consumptions)
+
+    assert payer.rent_waiver_count_this_turn == 0
+
+
+def test_rent_context_can_exclude_normal_rent_waivers_for_non_rent_costs() -> None:
+    config = GameConfig(player_count=2)
+    state = GameState.create(config)
+    payer = state.players[0]
+    owner = state.players[1]
+    tile_index = state.first_tile_position(kinds=[CellKind.T3])
+    payer.trick_all_rent_waiver_this_turn = True
+    payer.rent_waiver_count_this_turn = 1
+
+    context = build_rent_context(state, payer, tile_index, owner.player_id, include_waivers=False)
+
+    assert context.final_rent == context.base_rent
+    assert context.one_shot_consumptions == []
+
+
+def test_score_token_placement_context_limits_by_hand_room_and_rule_limit() -> None:
+    config = GameConfig(player_count=2)
+    state = GameState.create(config)
+    player = state.players[0]
+    tile_index = state.first_tile_position(kinds=[CellKind.T2])
+    player.hand_coins = 5
+    state.tile_coins[tile_index] = 2
+
+    context = build_score_token_placement_context(state, player, tile_index, max_place=3, source="purchase")
+
+    assert context.can_place is True
+    assert context.amount == min(5, context.tile_capacity - 2, 3)
+    assert context.to_payload()["source"] == "purchase"
+    assert context.to_payload()["tile_tokens_before"] == 2
+
+
+def test_score_token_placement_context_reports_blocked_reason() -> None:
+    config = GameConfig(player_count=2)
+    state = GameState.create(config)
+    player = state.players[0]
+    tile_index = state.first_tile_position(kinds=[CellKind.T2])
+    player.hand_coins = 0
+
+    context = build_score_token_placement_context(state, player, tile_index)
+
+    assert context.can_place is False
+    assert context.amount == 0
+    assert context.blocked_reason == "no_hand_tokens"
