@@ -164,6 +164,7 @@ class GameEngine:
         self._vis_session_id: str = ""
         self._vis_buffer: list[tuple[str, str, int | None, dict[str, Any]]] | None = None
         self._suppress_hidden_trick_selection: bool = False
+        self._deferred_arrival_action_id: str = ""
         self.events = EventDispatcher()
         self.events.set_trace_hook(self._trace_semantic_event)
         self.rule_scripts = RuleScriptEngine(self, getattr(config, "rule_scripts_path", None))
@@ -742,9 +743,14 @@ class GameEngine:
     def _resolve_arrival_action(self, state: GameState, action: ActionEnvelope, *, queue_followups: bool = False) -> dict:
         player = state.players[action.actor_player_id]
         payload = action.payload
-        landing = self._queue_unowned_purchase_from_arrival(state, player, action) if queue_followups else None
-        if landing is None:
-            landing = self._resolve_landing(state, player)
+        previous_deferred_arrival_action_id = self._deferred_arrival_action_id
+        self._deferred_arrival_action_id = action.action_id if queue_followups else ""
+        try:
+            landing = self._queue_unowned_purchase_from_arrival(state, player, action) if queue_followups else None
+            if landing is None:
+                landing = self._resolve_landing(state, player)
+        finally:
+            self._deferred_arrival_action_id = previous_deferred_arrival_action_id
         self._emit_vis(
             "landing_resolved",
             Phase.LANDING,
@@ -762,7 +768,7 @@ class GameEngine:
             "position": player.position,
             "landing": landing,
         }
-        if not (isinstance(landing, dict) and landing.get("type") == "QUEUED_PURCHASE"):
+        if not (isinstance(landing, dict) and (landing.get("type") == "QUEUED_PURCHASE" or landing.get("post_action_queued"))):
             self._record_pending_arrival_and_maybe_log_turn(state, action, landing)
         if queue_followups and isinstance(landing, dict) and landing.get("type") == "ZONE_CHAIN":
             followup = self._action(
@@ -1011,6 +1017,10 @@ class GameEngine:
             return self._request_purchase_tile_action(state, action)
         if action.type == "resolve_unowned_post_purchase":
             return self._resolve_unowned_post_purchase_action(state, action)
+        if action.type == "resolve_landing_post_effects":
+            return self._resolve_landing_post_effects_action(state, action)
+        if action.type == "resolve_fortune_subscription":
+            return self._resolve_fortune_subscription_action(state, action)
         raise ValueError(f"Unsupported action type: {action.type}")
 
     def _apply_target_move(
@@ -1152,6 +1162,92 @@ class GameEngine:
             state.pending_action_log["pending_landing_purchase_result"] = dict(result)
         return result
 
+    def _should_defer_landing_post_effects(self) -> bool:
+        return bool(self._deferred_arrival_action_id)
+
+    def _queue_landing_post_effects(
+        self,
+        state: GameState,
+        player: PlayerState,
+        pos: int,
+        event: dict,
+        *,
+        source: str,
+        require_paid_for_adjacent: bool,
+    ) -> dict:
+        post_action = self._action(
+            state,
+            "resolve_landing_post_effects",
+            player,
+            source,
+            {
+                "tile_index": pos,
+                "base_event": dict(event),
+                "require_paid_for_adjacent": bool(require_paid_for_adjacent),
+            },
+            parent_action_id=self._deferred_arrival_action_id,
+        )
+        state.pending_actions.insert(0, post_action)
+        queued = dict(event)
+        queued["post_action_queued"] = True
+        queued["queued_action_id"] = post_action.action_id
+        return queued
+
+    def _resolve_landing_post_effects_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        player = state.players[action.actor_player_id]
+        payload = action.payload
+        pos = int(payload["tile_index"])
+        event = dict(payload.get("base_event") or {})
+        result = self._resolve_landing_post_effects(
+            state,
+            player,
+            pos,
+            event,
+            require_paid_for_adjacent=bool(payload.get("require_paid_for_adjacent", False)),
+        )
+        self._record_pending_arrival_and_maybe_log_turn(state, action, result)
+        return result
+
+    def _resolve_landing_post_effects(
+        self,
+        state: GameState,
+        player: PlayerState,
+        pos: int,
+        event: dict,
+        *,
+        require_paid_for_adjacent: bool,
+    ) -> dict:
+        adjacent_allowed = player.alive and (not require_paid_for_adjacent or bool(event.get("paid")))
+        if (
+            is_matchmaker(player.current_character)
+            and adjacent_allowed
+            and event.get("type") != "DISPUTED_BANKRUPTCY"
+        ):
+            extra = self._matchmaker_buy_adjacent(state, player, pos)
+            if extra is not None:
+                event.setdefault("adjacent_bought", []).append(extra)
+        elif player.trick_one_extra_adjacent_buy_this_turn and adjacent_allowed:
+            extra = self._buy_one_adjacent_same_block(state, player, pos)
+            if extra is not None:
+                event["trick_adjacent_bought"] = extra
+            player.trick_one_extra_adjacent_buy_this_turn = False
+        co = [p for p in state.players if p.alive and p.player_id != player.player_id and p.position == pos]
+        if co:
+            if player.trick_same_tile_cash2_this_turn:
+                gain = 2 * len(co)
+                player.cash += gain
+                event["trick_same_tile_cash_gain"] = gain
+            if player.trick_same_tile_shard_rake_this_turn:
+                total = 0
+                details = []
+                for op in co:
+                    amt = player.shards
+                    out = self._pay_or_bankrupt(state, op, amt, player.player_id) if amt > 0 else {"paid": True, "amount": 0}
+                    total += amt if out.get("paid") else 0
+                    details.append({"player": op.player_id + 1, "amount": amt, "paid": out.get("paid", True)})
+                event["trick_same_tile_shard_rake"] = {"total": total, "details": details}
+        return self._apply_weather_same_tile_bonus(state, player, event)
+
     def _queue_unowned_purchase_from_arrival(self, state: GameState, player: PlayerState, action: ActionEnvelope) -> dict | None:
         pos = player.position
         cell = state.board[pos]
@@ -1211,35 +1307,7 @@ class GameEngine:
             purchase = {"type": "PURCHASE" if state.tile_owner[pos] == player.player_id else "PURCHASE_SKIP_POLICY", "tile_kind": cell.name}
         if payload.get("weather_disputed_rent") is not None:
             purchase["weather_disputed_rent"] = dict(payload["weather_disputed_rent"])
-        if (
-            is_matchmaker(player.current_character)
-            and player.alive
-            and purchase.get("type") != "DISPUTED_BANKRUPTCY"
-        ):
-            extra = self._matchmaker_buy_adjacent(state, player, pos)
-            if extra is not None:
-                purchase.setdefault("adjacent_bought", []).append(extra)
-        elif player.trick_one_extra_adjacent_buy_this_turn and player.alive:
-            extra = self._buy_one_adjacent_same_block(state, player, pos)
-            if extra is not None:
-                purchase["trick_adjacent_bought"] = extra
-            player.trick_one_extra_adjacent_buy_this_turn = False
-        co = [p for p in state.players if p.alive and p.player_id != player.player_id and p.position == pos]
-        if co:
-            if player.trick_same_tile_cash2_this_turn:
-                gain = 2 * len(co)
-                player.cash += gain
-                purchase["trick_same_tile_cash_gain"] = gain
-            if player.trick_same_tile_shard_rake_this_turn:
-                total = 0
-                details = []
-                for op in co:
-                    amt = player.shards
-                    out = self._pay_or_bankrupt(state, op, amt, player.player_id) if amt > 0 else {"paid": True, "amount": 0}
-                    total += amt if out.get("paid") else 0
-                    details.append({"player": op.player_id + 1, "amount": amt, "paid": out.get("paid", True)})
-                purchase["trick_same_tile_shard_rake"] = {"total": total, "details": details}
-        result = self._apply_weather_same_tile_bonus(state, player, purchase)
+        result = self._resolve_landing_post_effects(state, player, pos, purchase, require_paid_for_adjacent=False)
         self._record_pending_arrival_and_maybe_log_turn(state, action, result)
         return result
 
@@ -3647,6 +3715,36 @@ class GameEngine:
             "no_lap_credit": True,
         }
 
+    def _enqueue_fortune_subscription(self, state: GameState, player: PlayerState, card_name: str) -> dict:
+        action = self._action(
+            state,
+            "resolve_fortune_subscription",
+            player,
+            "fortune_subscription",
+            {"card_name": card_name},
+        )
+        state.pending_actions.append(action)
+        return {"type": "QUEUED_FORTUNE_SUBSCRIPTION", "queued_action_id": action.action_id}
+
+    def _resolve_fortune_subscription_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        player = state.players[action.actor_player_id]
+        name = str(action.payload.get("card_name") or action.source or "fortune_subscription")
+        return self._resolve_fortune_subscription(state, player, name)
+
+    def _resolve_fortune_subscription(self, state: GameState, player: PlayerState, name: str) -> dict:
+        pos = self._request_decision(
+            "choose_trick_tile_target",
+            state,
+            player,
+            name,
+            list(self._empty_block_tile_candidates(state)),
+            "empty_block_purchase",
+            fallback=lambda: self._select_empty_block_tile(state),
+        )
+        if pos is None:
+            return {"type": "NO_EFFECT", "reason": "no_empty_block"}
+        return {"type": "SUBSCRIPTION", "selection": pos, "purchase": self._try_purchase_tile(state, player, pos, state.board[pos])}
+
     def _apply_fortune_move_only_impl(self, state: GameState, player: PlayerState, target_pos: int, trigger: str, card_name: str) -> dict:
         move = self._apply_target_move(
             state,
@@ -3903,18 +4001,9 @@ class GameEngine:
         if card_id == FORTUNE_DRUNK_RIDING_ID:
             return {"type": "BANK_PAY", **self._pay_or_bankrupt(state, player, 10, None)}
         if card_id == FORTUNE_SUBSCRIPTION_WIN_ID:
-            pos = self._request_decision(
-                "choose_trick_tile_target",
-                state,
-                player,
-                name,
-                list(self._empty_block_tile_candidates(state)),
-                "empty_block_purchase",
-                fallback=lambda: self._select_empty_block_tile(state),
-            )
-            if pos is None:
-                return {"type": "NO_EFFECT", "reason": "no_empty_block"}
-            return {"type": "SUBSCRIPTION", "selection": pos, "purchase": self._try_purchase_tile(state, player, pos, state.board[pos])}
+            if queue_followups:
+                return self._enqueue_fortune_subscription(state, player, name)
+            return self._resolve_fortune_subscription(state, player, name)
         if card_id == FORTUNE_POOR_CONSTRUCTION_ID:
             pos = self._select_owned_tile(state, player.player_id, highest=True)
             if pos is None:

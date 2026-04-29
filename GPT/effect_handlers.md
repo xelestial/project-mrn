@@ -17,6 +17,7 @@ Update 0.7.48: landing effects for F/S/MALICIOUS/unowned/own-tile landings are n
 ## 0.7.57 purchase-time token placement
 - `handle_purchase_attempt` places at most 1 hand coin on the purchased tile when first-purchase placement is enabled.
 - Purchase decision logic now delegates to `GameEngine._resolve_purchase_tile_decision()` so queued `request_purchase_tile` actions and legacy landing purchase handlers share one mutation path.
+- Rent landing can defer adjacent-buy and same-tile bonus handling to the engine's `resolve_landing_post_effects` action when the queued action pipeline is active; direct landing calls still resolve inline.
 - takeover keeps placed coins with the tile.
 - force sale returns placed coins to the original owner hand.
 

@@ -906,35 +906,23 @@ class EngineEffectHandlers:
         stats['rent_paid'] += 1
         outcome = engine._pay_or_bankrupt(state, player, rent, owner)
         event = {'type': 'RENT', 'tile_kind': state.board[pos].name, 'owner': owner + 1, 'rent': rent, **outcome}
-        if player.trick_one_extra_adjacent_buy_this_turn and player.alive and outcome.get('paid'):
-            extra = engine._buy_one_adjacent_same_block(state, player, pos)
-            if extra is not None:
-                event['trick_adjacent_bought'] = extra
-            player.trick_one_extra_adjacent_buy_this_turn = False
-        if (
-            is_matchmaker(player.current_character)
-            and player.alive
-            and outcome.get('paid')
-        ):
-            extra = engine._matchmaker_buy_adjacent(state, player, pos)
-            if extra is not None:
-                event.setdefault('adjacent_bought', []).append(extra)
-        co = [p for p in state.players if p.alive and p.player_id != player.player_id and p.position == pos]
-        if co:
-            if player.trick_same_tile_cash2_this_turn:
-                gain_cash = 2 * len(co)
-                player.cash += gain_cash
-                event['trick_same_tile_cash_gain'] = gain_cash
-            if player.trick_same_tile_shard_rake_this_turn:
-                total = 0
-                details = []
-                for op in co:
-                    amt = player.shards
-                    out = engine._pay_or_bankrupt(state, op, amt, player.player_id) if amt > 0 else {'paid': True, 'amount': 0}
-                    total += amt if out.get('paid') else 0
-                    details.append({'player': op.player_id + 1, 'amount': amt, 'paid': out.get('paid', True)})
-                event['trick_same_tile_shard_rake'] = {'total': total, 'details': details}
-        result = engine._apply_weather_same_tile_bonus(state, player, event)
+        if engine._should_defer_landing_post_effects():
+            result = engine._queue_landing_post_effects(
+                state,
+                player,
+                pos,
+                event,
+                source="rent_post_landing",
+                require_paid_for_adjacent=True,
+            )
+        else:
+            result = engine._resolve_landing_post_effects(
+                state,
+                player,
+                pos,
+                event,
+                require_paid_for_adjacent=True,
+            )
         engine._emit_vis(
             "rent_paid",
             Phase.ECONOMY,

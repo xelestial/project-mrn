@@ -433,6 +433,315 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertFalse(saved_checkpoint["has_pending_actions"])
         self.assertEqual(saved_checkpoint["pending_action_count"], 0)
 
+    def test_runtime_recovery_queues_purchase_actions_after_unowned_arrival_checkpoint(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        from config import CellKind
+        from state import ActionEnvelope, GameState
+
+        sessions = SessionService()
+        game_state = RedisGameStateStore(self.connection)
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = RuntimeService(
+            session_service=sessions,
+            stream_service=StreamService(stream_backend=RedisStreamStore(self.connection), game_state_store=game_state),
+            prompt_service=PromptService(prompt_store=RedisPromptStore(self.connection)),
+            runtime_state_store=RedisRuntimeStateStore(self.connection),
+            game_state_store=game_state,
+        )
+        config = runtime._config_factory.create(session.resolved_parameters)
+        state = GameState.create(config)
+        tile_index = state.first_tile_position(kinds=[CellKind.T2])
+        state.current_round_order = [0, 1]
+        state.turn_index = 0
+        state.players[0].position = tile_index
+        state.pending_actions = [
+            ActionEnvelope(
+                action_id="resume_arrival_purchase_split",
+                type="resolve_arrival",
+                actor_player_id=0,
+                source="recovery_unowned_arrival",
+                payload={"trigger": "recovery_unowned_arrival"},
+            )
+        ]
+        game_state.save_current_state(session.session_id, state.to_checkpoint_payload())
+        game_state.save_checkpoint(
+            session.session_id,
+            {
+                "schema_version": 1,
+                "session_id": session.session_id,
+                "latest_seq": 1,
+                "latest_event_type": "engine_transition",
+                "round_index": 1,
+                "turn_index": 0,
+                "has_snapshot": True,
+                "pending_action_count": 1,
+                "has_pending_actions": True,
+                "updated_at_ms": 1000,
+            },
+        )
+
+        step = runtime._run_engine_transition_once_for_recovery(session.session_id, seed=42)
+        saved_state = game_state.load_current_state(session.session_id)
+        saved_checkpoint = game_state.load_checkpoint(session.session_id)
+
+        self.assertEqual(step["action_type"], "resolve_arrival")
+        self.assertEqual(saved_state["tiles"][tile_index]["owner_id"], None)
+        self.assertEqual([action["type"] for action in saved_state["pending_actions"]], ["request_purchase_tile", "resolve_unowned_post_purchase"])
+        self.assertTrue(saved_checkpoint["has_pending_actions"])
+        self.assertEqual(saved_checkpoint["pending_action_count"], 2)
+
+    def test_runtime_recovery_keeps_purchase_action_queued_when_prompt_waits(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        from config import CellKind
+        from state import ActionEnvelope, GameState
+
+        sessions = SessionService()
+        game_state = RedisGameStateStore(self.connection)
+        prompt_store = RedisPromptStore(self.connection)
+        stream_service = StreamService(stream_backend=RedisStreamStore(self.connection), game_state_store=game_state)
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        sessions.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = RuntimeService(
+            session_service=sessions,
+            stream_service=stream_service,
+            prompt_service=PromptService(prompt_store=prompt_store),
+            runtime_state_store=RedisRuntimeStateStore(self.connection),
+            game_state_store=game_state,
+        )
+        config = runtime._config_factory.create(session.resolved_parameters)
+        state = GameState.create(config)
+        tile_index = state.first_tile_position(kinds=[CellKind.T2])
+        state.current_round_order = [0, 1]
+        state.turn_index = 0
+        state.players[0].position = tile_index
+        state.pending_actions = [
+            ActionEnvelope(
+                action_id="resume_purchase_prompt",
+                type="request_purchase_tile",
+                actor_player_id=0,
+                source="landing_purchase",
+                payload={
+                    "tile_index": tile_index,
+                    "purchase_source": "landing_purchase",
+                    "record_landing_result": True,
+                },
+            ),
+            ActionEnvelope(
+                action_id="resume_purchase_post",
+                type="resolve_unowned_post_purchase",
+                actor_player_id=0,
+                source="landing_post_purchase",
+                payload={"tile_index": tile_index},
+            ),
+        ]
+        game_state.save_current_state(session.session_id, state.to_checkpoint_payload())
+        game_state.save_checkpoint(
+            session.session_id,
+            {
+                "schema_version": 1,
+                "session_id": session.session_id,
+                "latest_seq": 1,
+                "latest_event_type": "engine_transition",
+                "round_index": 1,
+                "turn_index": 0,
+                "has_snapshot": True,
+                "pending_action_count": 2,
+                "has_pending_actions": True,
+                "updated_at_ms": 1000,
+            },
+        )
+
+        async def _run() -> dict:
+            return await asyncio.to_thread(
+                runtime._run_engine_transition_once_sync,
+                asyncio.get_running_loop(),
+                session.session_id,
+                42,
+                None,
+                True,
+                None,
+                None,
+            )
+
+        step = asyncio.run(_run())
+        saved_state = game_state.load_current_state(session.session_id)
+        saved_checkpoint = game_state.load_checkpoint(session.session_id)
+        pending_prompts = [item for item in prompt_store.list_pending() if item.get("session_id") == session.session_id]
+
+        self.assertEqual(step["status"], "waiting_input")
+        self.assertEqual([action["type"] for action in saved_state["pending_actions"]], ["request_purchase_tile", "resolve_unowned_post_purchase"])
+        self.assertEqual(saved_state["tiles"][tile_index]["owner_id"], None)
+        self.assertEqual(len(pending_prompts), 1)
+        self.assertEqual(pending_prompts[0]["payload"]["request_type"], "purchase_tile")
+        self.assertEqual(saved_checkpoint["latest_event_type"], "prompt_required")
+        self.assertTrue(saved_checkpoint["has_pending_actions"])
+        self.assertEqual(saved_checkpoint["pending_action_count"], 2)
+
+    def test_runtime_recovery_drains_post_purchase_action_from_checkpoint(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        from config import CellKind
+        from state import ActionEnvelope, GameState
+
+        sessions = SessionService()
+        game_state = RedisGameStateStore(self.connection)
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = RuntimeService(
+            session_service=sessions,
+            stream_service=StreamService(stream_backend=RedisStreamStore(self.connection), game_state_store=game_state),
+            prompt_service=PromptService(prompt_store=RedisPromptStore(self.connection)),
+            runtime_state_store=RedisRuntimeStateStore(self.connection),
+            game_state_store=game_state,
+        )
+        config = runtime._config_factory.create(session.resolved_parameters)
+        state = GameState.create(config)
+        tile_index = state.first_tile_position(kinds=[CellKind.T2])
+        state.current_round_order = [0, 1]
+        state.turn_index = 0
+        state.players[0].position = tile_index
+        state.players[0].tiles_owned = 1
+        state.tiles[tile_index].owner_id = 0
+        state.pending_action_log = {
+            "kind": "turn",
+            "actor_player_id": 0,
+            "segments": [{"start_pos": tile_index, "end_pos": tile_index, "landing": None}],
+            "pending_landing_purchase_result": {"type": "PURCHASE", "tile_kind": "T2", "cost": 2},
+        }
+        state.pending_actions = [
+            ActionEnvelope(
+                action_id="resume_purchase_post_only",
+                type="resolve_unowned_post_purchase",
+                actor_player_id=0,
+                source="landing_post_purchase",
+                payload={"tile_index": tile_index},
+            )
+        ]
+        game_state.save_current_state(session.session_id, state.to_checkpoint_payload())
+        game_state.save_checkpoint(
+            session.session_id,
+            {
+                "schema_version": 1,
+                "session_id": session.session_id,
+                "latest_seq": 1,
+                "latest_event_type": "engine_transition",
+                "round_index": 1,
+                "turn_index": 0,
+                "has_snapshot": True,
+                "pending_action_count": 1,
+                "has_pending_actions": True,
+                "updated_at_ms": 1000,
+            },
+        )
+
+        step = runtime._run_engine_transition_once_for_recovery(session.session_id, seed=42)
+        saved_state = game_state.load_current_state(session.session_id)
+        saved_checkpoint = game_state.load_checkpoint(session.session_id)
+
+        self.assertEqual(step["action_type"], "resolve_unowned_post_purchase")
+        self.assertEqual(saved_state["pending_actions"], [])
+        self.assertNotIn("pending_landing_purchase_result", saved_state["pending_action_log"])
+        self.assertEqual(saved_state["tiles"][tile_index]["owner_id"], 0)
+        self.assertFalse(saved_checkpoint["has_pending_actions"])
+        self.assertEqual(saved_checkpoint["pending_action_count"], 0)
+
+    def test_runtime_recovery_drains_rent_post_landing_action_from_checkpoint(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        from config import CellKind
+        from state import ActionEnvelope, GameState
+
+        sessions = SessionService()
+        game_state = RedisGameStateStore(self.connection)
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = RuntimeService(
+            session_service=sessions,
+            stream_service=StreamService(stream_backend=RedisStreamStore(self.connection), game_state_store=game_state),
+            prompt_service=PromptService(prompt_store=RedisPromptStore(self.connection)),
+            runtime_state_store=RedisRuntimeStateStore(self.connection),
+            game_state_store=game_state,
+        )
+        config = runtime._config_factory.create(session.resolved_parameters)
+        state = GameState.create(config)
+        tile_index = state.first_tile_position(kinds=[CellKind.T2])
+        state.current_round_order = [0, 1]
+        state.turn_index = 0
+        state.players[0].position = tile_index
+        state.players[1].position = tile_index
+        state.players[0].cash = 10
+        state.players[0].trick_same_tile_cash2_this_turn = True
+        state.tiles[tile_index].owner_id = 1
+        state.players[1].tiles_owned = 1
+        state.pending_action_log = {
+            "kind": "turn",
+            "actor_player_id": 0,
+            "segments": [{"start_pos": tile_index, "end_pos": tile_index, "landing": None}],
+        }
+        state.pending_actions = [
+            ActionEnvelope(
+                action_id="resume_rent_post_only",
+                type="resolve_landing_post_effects",
+                actor_player_id=0,
+                source="rent_post_landing",
+                payload={
+                    "tile_index": tile_index,
+                    "base_event": {"type": "RENT", "tile_kind": "T2", "owner": 2, "rent": 2, "paid": True, "amount": 2},
+                    "require_paid_for_adjacent": True,
+                },
+            )
+        ]
+        game_state.save_current_state(session.session_id, state.to_checkpoint_payload())
+        game_state.save_checkpoint(
+            session.session_id,
+            {
+                "schema_version": 1,
+                "session_id": session.session_id,
+                "latest_seq": 1,
+                "latest_event_type": "engine_transition",
+                "round_index": 1,
+                "turn_index": 0,
+                "has_snapshot": True,
+                "pending_action_count": 1,
+                "has_pending_actions": True,
+                "updated_at_ms": 1000,
+            },
+        )
+
+        step = runtime._run_engine_transition_once_for_recovery(session.session_id, seed=42)
+        saved_state = game_state.load_current_state(session.session_id)
+        saved_checkpoint = game_state.load_checkpoint(session.session_id)
+
+        self.assertEqual(step["action_type"], "resolve_landing_post_effects")
+        self.assertEqual(saved_state["pending_actions"], [])
+        self.assertEqual(saved_state["players"][0]["cash"], 12)
+        self.assertFalse(saved_checkpoint["has_pending_actions"])
+        self.assertEqual(saved_checkpoint["pending_action_count"], 0)
+
     def test_runtime_recovery_materializes_scheduled_turn_start_action_from_checkpoint(self) -> None:
         RuntimeService._ensure_gpt_import_path()
         from state import ActionEnvelope, GameState

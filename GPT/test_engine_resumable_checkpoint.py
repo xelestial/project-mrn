@@ -6,7 +6,7 @@ from ai_policy import HeuristicPolicy
 from config import CellKind, GameConfig
 from engine import GameEngine
 from fortune_cards import build_fortune_deck
-from policy.environment_traits import FORTUNE_CUT_IN_LINE_ID, FORTUNE_SHORT_TRIP_ID, FORTUNE_TAKEOVER_BACK_2_ID, fortune_card_id_for_name
+from policy.environment_traits import FORTUNE_CUT_IN_LINE_ID, FORTUNE_SHORT_TRIP_ID, FORTUNE_SUBSCRIPTION_WIN_ID, FORTUNE_TAKEOVER_BACK_2_ID, fortune_card_id_for_name
 from state import ActionEnvelope, GameState
 from viewer.stream import VisEventStream
 
@@ -289,6 +289,61 @@ def test_fortune_takeover_backward_produces_move_then_takeover_actions() -> None
     assert owner.tiles_owned == 0
 
 
+def test_fortune_subscription_produces_decision_action() -> None:
+    class YesDecisionPort:
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name == "choose_trick_tile_target":
+                return request.args[1][0]
+            if request.decision_name == "choose_purchase_tile":
+                return True
+            return request.args[0][0]
+
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=YesDecisionPort(), rng=random.Random(22))
+    state = GameState.create(config)
+    player = state.players[0]
+    player.cash = 20
+    state.fortune_draw_pile = [_fortune_card_by_id(FORTUNE_SUBSCRIPTION_WIN_ID)]
+
+    result = engine._resolve_fortune_tile_single(state, player)
+
+    assert result["resolution"]["type"] == "QUEUED_FORTUNE_SUBSCRIPTION"
+    assert len(state.pending_actions) == 1
+    assert state.pending_actions[0].type == "resolve_fortune_subscription"
+
+    step = engine.run_next_transition(state)
+
+    assert step["action_type"] == "resolve_fortune_subscription"
+    assert any(owner == player.player_id for owner in state.tile_owner)
+
+
+def test_fortune_subscription_decision_prompt_keeps_action_queued() -> None:
+    class WaitingDecisionPort:
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name == "choose_trick_tile_target":
+                raise RuntimeError("prompt_required_for_test")
+            return request.args[0][0]
+
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=WaitingDecisionPort(), rng=random.Random(23))
+    state = GameState.create(config)
+    player = state.players[0]
+    state.fortune_draw_pile = [_fortune_card_by_id(FORTUNE_SUBSCRIPTION_WIN_ID)]
+
+    result = engine._resolve_fortune_tile_single(state, player)
+
+    assert result["resolution"]["type"] == "QUEUED_FORTUNE_SUBSCRIPTION"
+    try:
+        engine.run_next_transition(state)
+    except RuntimeError as exc:
+        assert str(exc) == "prompt_required_for_test"
+    else:
+        raise AssertionError("fortune subscription target prompt should have interrupted the action")
+
+    assert len(state.pending_actions) == 1
+    assert state.pending_actions[0].type == "resolve_fortune_subscription"
+
+
 def test_prompt_action_remains_queued_when_decision_waits() -> None:
     class WaitingDecisionPort:
         def request(self, request):  # noqa: ANN001
@@ -437,6 +492,45 @@ def test_queued_arrival_purchase_prompt_keeps_purchase_action_queued() -> None:
     assert [action.type for action in state.pending_actions] == ["request_purchase_tile", "resolve_unowned_post_purchase"]
     assert state.pending_actions[0].payload["tile_index"] == tile_index
     assert state.tile_owner[tile_index] is None
+
+
+def test_queued_arrival_on_rent_tile_splits_post_landing_effects() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(21), enable_logging=True)
+    state = GameState.create(config)
+    player = state.players[0]
+    owner = state.players[1]
+    tile_index = state.first_tile_position(kinds=[CellKind.T2])
+    player.position = tile_index
+    owner.position = tile_index
+    owner.tiles_owned = 1
+    state.tile_owner[tile_index] = owner.player_id
+    player.cash = 20
+    player.trick_same_tile_cash2_this_turn = True
+    state.pending_actions = [
+        ActionEnvelope(
+            action_id="arrival_rent_post_split",
+            type="resolve_arrival",
+            actor_player_id=player.player_id,
+            source="test_arrival",
+            payload={"trigger": "test_arrival"},
+        )
+    ]
+
+    first = engine.run_next_transition(state)
+
+    assert first["action_type"] == "resolve_arrival"
+    assert len(state.pending_actions) == 1
+    assert state.pending_actions[0].type == "resolve_landing_post_effects"
+    assert player.cash == 20 - state.config.rules.economy.rent_cost_for(state, tile_index)
+
+    second = engine.run_next_transition(state)
+    last_action_log = next(row for row in reversed(engine._action_log) if row.get("event") == "action_transition")
+
+    assert second["action_type"] == "resolve_landing_post_effects"
+    assert state.pending_actions == []
+    assert last_action_log["result"]["type"] == "RENT"
+    assert last_action_log["result"]["trick_same_tile_cash_gain"] == 2
 
 
 def test_engine_queued_step_move_separates_lap_reward_from_arrival() -> None:

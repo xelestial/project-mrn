@@ -48,6 +48,11 @@ Updated: 2026-04-15
   - tightened checkpoint serialization coverage for fortune/trick/weather draw and discard pile order plus tile purchase/rent metadata
   - split queued unowned-land arrival into `resolve_arrival -> request_purchase_tile -> resolve_unowned_post_purchase`
   - kept direct `_resolve_landing()` compatibility intact while making action-pipeline purchase prompts resumable
+  - added Redis recovery coverage for the three purchase split checkpoints: queued purchase actions immediately after arrival, human purchase prompt waiting with the purchase action still queued, and post-purchase follow-up recovery
+  - split queued rent landing follow-ups into `resolve_landing_post_effects`, covering adjacent-buy and same-tile bonus handling after rent payment
+  - added Redis recovery coverage for a pending rent post-landing action
+  - migrated subscription-style fortune card resolution into `resolve_fortune_subscription` on the queued fortune path
+  - added interruption coverage proving fortune subscription target prompts leave the action queued
 - Validation:
   - `./.venv/bin/python -m pytest GPT/test_state_checkpoint_serialization.py GPT/test_rule_fixes.py::RuleFixTests::test_suspicious_drink_uses_single_die GPT/test_rule_fixes.py::RuleFixTests::test_fortune_arrival_moves_then_resolves_landing_without_lap_credit GPT/test_rule_fixes.py::RuleFixTests::test_fortune_move_only_does_not_resolve_arrival GPT/test_event_effects.py::EventEffectIntegrationTests::test_fortune_movement_can_be_overridden`
   - `./.venv/bin/python -m pytest GPT/test_rule_fixes.py GPT/test_event_effects.py GPT/test_state_checkpoint_serialization.py`
@@ -73,12 +78,18 @@ Updated: 2026-04-15
   - `./.venv/bin/python -m pytest GPT/test_state_checkpoint_serialization.py`
   - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'purchase or unowned or queued_arrival'`
   - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_event_effects.py GPT/test_rule_fixes.py -k 'purchase or matchmaker or madangbal or same_tile or unowned or queued_arrival'`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py -k 'unowned_arrival_checkpoint or purchase_action_queued or post_purchase_action'`
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'queued_arrival_on_rent or queued_arrival or purchase'`
+  - `./.venv/bin/python -m pytest GPT/test_rule_fixes.py -k 'rent or matchmaker or madangbal or same_tile'`
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'fortune_subscription or fortune_takeover or fortune_arrival or fortune_move_only'`
 - Validation failure and lesson:
   - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_visual_runtime_substrate.py apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py` initially failed in the new action-move visual test.
   - Cause: the test assumed the stream was empty after `prepare_run()`, but the engine correctly emits setup events such as `session_start`, `round_start`, and draft events before the queued move.
   - Lesson: movement-event assertions in resumable transition tests must filter the relevant semantic event type, because the visual stream is append-only and may already contain setup/replay context.
   - `./.venv/bin/python -m pytest GPT` initially failed after `pending_turn_completion` because module docs were older than `engine.py`/`state.py`.
   - Lesson: checkpoint-shape changes must update the paired module docs in the same slice, not after the broad test run.
+  - The new purchase-prompt recovery test initially expected `_run_engine_transition_once_for_recovery()` to open a human prompt, but that helper intentionally runs without an event loop and therefore uses the AI policy path.
+  - Lesson: human prompt recovery assertions must execute through the runtime transition loop with an event loop and stream service, because the non-blocking `DecisionGateway` is only installed on that path.
 - Next:
   - keep expanding Redis recovery tests around prompt + pending action combinations
 
