@@ -3425,6 +3425,10 @@ class GameEngine:
         }
 
     def _advance_player(self, state: GameState, player: PlayerState, move: int, movement_meta: dict) -> None:
+        """Legacy immediate movement path retained for parity tests and compatibility hooks.
+
+        Runtime turn execution should enqueue `apply_move -> resolve_arrival` instead of calling this directly.
+        """
         board_len = len(state.board)
         old_pos = player.position
         old_cash = player.cash
@@ -3925,10 +3929,15 @@ class GameEngine:
         }
 
     def _apply_fortune_arrival(self, state: GameState, player: PlayerState, target_pos: int, trigger: str, card_name: str) -> dict:
+        """Immediate compatibility wrapper for direct fortune arrival callers.
+
+        The queued fortune path should use `_enqueue_fortune_target_move()` or `_enqueue_target_move_action()`.
+        """
         result = self.events.emit_first_non_none("fortune.movement.resolve", state, player, target_pos, trigger, card_name, "arrival")
         return result if result is not None else self._apply_fortune_arrival_impl(state, player, target_pos, trigger, card_name)
 
     def _apply_fortune_move_only(self, state: GameState, player: PlayerState, target_pos: int, trigger: str, card_name: str) -> dict:
+        """Immediate compatibility wrapper for direct fortune move-only callers."""
         result = self.events.emit_first_non_none("fortune.movement.resolve", state, player, target_pos, trigger, card_name, "move_only")
         return result if result is not None else self._apply_fortune_move_only_impl(state, player, target_pos, trigger, card_name)
 

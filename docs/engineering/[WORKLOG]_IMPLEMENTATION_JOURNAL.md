@@ -56,7 +56,11 @@ Updated: 2026-04-15
   - migrated land thief, donation angel, forced trade, and pious marker target-selection fortune effects into resumable `resolve_fortune_*` actions
   - extended runtime recovery checkpoint metadata with pending/scheduled action type lists and next-action hints
   - introduced a shared target-move action enqueue helper and migrated `극심한 분리불안` from inline movement to queued `apply_move -> resolve_arrival`
+  - added an action-pipeline contract test that prevents production effect modules from calling immediate movement compatibility helpers
 - Validation:
+  - `./.venv/bin/python -m pytest GPT/test_action_pipeline_contract.py`
+  - `./.venv/bin/python -m pytest GPT/test_action_pipeline_contract.py GPT/test_doc_integrity.py`
+  - `./.venv/bin/python -m pytest GPT`
   - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'extreme_separation or fortune_arrival or fortune_move_only or fortune_takeover or fortune_subscription'`
   - `./.venv/bin/python -m pytest GPT/test_event_effects.py::EventEffectIntegrationTests::test_fortune_producer_hook_can_queue_target_move GPT/test_rule_fixes.py::RuleFixTests::test_fortune_arrival_moves_then_resolves_landing_without_lap_credit GPT/test_rule_fixes.py::RuleFixTests::test_fortune_move_only_does_not_resolve_arrival`
   - `./.venv/bin/python -m pytest GPT/test_doc_integrity.py GPT/test_engine_resumable_checkpoint.py GPT/test_event_effects.py GPT/test_rule_fixes.py -k 'doc_integrity or extreme_separation or fortune_producer or fortune_arrival or fortune_move_only or fortune_takeover or fortune_subscription or zone_chain or purchase or rent'`
@@ -95,6 +99,8 @@ Updated: 2026-04-15
   - `./.venv/bin/python -m pytest GPT/test_rule_fixes.py -k 'rent or matchmaker or madangbal or same_tile'`
   - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'fortune_subscription or fortune_takeover or fortune_arrival or fortune_move_only'`
 - Validation failure and lesson:
+  - `./.venv/bin/python -m pytest GPT/test_action_pipeline_contract.py GPT/test_doc_integrity.py` initially failed because `engine.py` received compatibility-helper docstrings without a paired `engine.md` update.
+  - Lesson: even non-behavioral source annotations are source changes under the module-doc integrity rule, so update the paired module doc in the same slice.
   - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_visual_runtime_substrate.py apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py` initially failed in the new action-move visual test.
   - Cause: the test assumed the stream was empty after `prepare_run()`, but the engine correctly emits setup events such as `session_start`, `round_start`, and draft events before the queued move.
   - Lesson: movement-event assertions in resumable transition tests must filter the relevant semantic event type, because the visual stream is append-only and may already contain setup/replay context.
