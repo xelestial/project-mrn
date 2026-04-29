@@ -2,6 +2,9 @@
 
 Recent rule-fix coverage includes mark bookkeeping and control-profile scoring expectations around disruption vs growth follow-up windows.
 
+## 2026-04-29 sync
+- Documentation timestamp synchronized with the current rule-fix regression suite so module integrity checks remain green after Redis checkpoint work.
+
 룰 수정 회귀 테스트 문서.
 
 ## 이번 갱신

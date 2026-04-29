@@ -23,3 +23,17 @@ def test_engine_run_accepts_hydrated_checkpoint_state() -> None:
 
     assert result.total_turns == 0
     assert result.alive_count == 2
+
+
+def test_engine_next_transition_commits_one_turn_boundary() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(2))
+    state = engine.prepare_run()
+
+    step = engine.run_next_transition(state)
+    payload = state.to_checkpoint_payload()
+
+    assert step["status"] in {"committed", "finished"}
+    assert payload["schema_version"] == 1
+    assert payload["turn_index"] >= 1 or step["status"] == "finished"
+    assert len(payload["players"]) == 2

@@ -85,6 +85,26 @@ class RedisRealtimeServicesTests(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_game_state_store_commits_transition_state_and_checkpoint_together(self) -> None:
+        game_state = RedisGameStateStore(self.connection)
+
+        game_state.commit_transition(
+            "s-commit",
+            current_state={"schema_version": 1, "turn_index": 3},
+            checkpoint={
+                "schema_version": 1,
+                "session_id": "s-commit",
+                "latest_event_type": "engine_transition",
+                "turn_index": 3,
+                "has_snapshot": True,
+            },
+            view_state={"board": {"turn": 3}},
+        )
+
+        self.assertEqual(game_state.load_current_state("s-commit")["turn_index"], 3)
+        self.assertEqual(game_state.load_checkpoint("s-commit")["latest_event_type"], "engine_transition")
+        self.assertEqual(game_state.load_view_state("s-commit")["board"]["turn"], 3)
+
     def test_prompt_service_uses_redis_store_for_decision_flow(self) -> None:
         command_store = RedisCommandStore(self.connection)
         service = PromptService(prompt_store=RedisPromptStore(self.connection), command_store=command_store)
@@ -269,6 +289,59 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(recovery["current_state"]["turn"], 5)
         self.assertEqual(status["status"], "recovery_required")
         self.assertTrue(status["recovery_checkpoint"]["available"])
+
+    def test_runtime_recovery_transition_persists_hydrated_checkpoint(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        from state import GameState
+
+        sessions = SessionService()
+        game_state = RedisGameStateStore(self.connection)
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = RuntimeService(
+            session_service=sessions,
+            stream_service=StreamService(stream_backend=RedisStreamStore(self.connection), game_state_store=game_state),
+            prompt_service=PromptService(prompt_store=RedisPromptStore(self.connection)),
+            runtime_state_store=RedisRuntimeStateStore(self.connection),
+            game_state_store=game_state,
+        )
+        config = runtime._config_factory.create(session.resolved_parameters)
+        state = GameState.create(config)
+        state.f_value = 15.0
+        state.current_round_order = []
+        state.turn_index = 7
+        game_state.save_current_state(session.session_id, state.to_checkpoint_payload())
+        game_state.save_checkpoint(
+            session.session_id,
+            {
+                "schema_version": 1,
+                "session_id": session.session_id,
+                "latest_seq": 11,
+                "latest_event_type": "turn_end_snapshot",
+                "round_index": 2,
+                "turn_index": 7,
+                "has_snapshot": True,
+                "updated_at_ms": 1000,
+            },
+        )
+
+        step = runtime._run_engine_transition_once_for_recovery(session.session_id, seed=42)
+        saved_state = game_state.load_current_state(session.session_id)
+        saved_checkpoint = game_state.load_checkpoint(session.session_id)
+
+        self.assertEqual(step["status"], "finished")
+        self.assertIsNotNone(saved_state)
+        self.assertEqual(saved_state["f_value"], 15.0)
+        self.assertEqual(saved_state["turn_index"], 7)
+        self.assertEqual(saved_checkpoint["latest_event_type"], "engine_transition")
+        self.assertEqual(saved_checkpoint["turn_index"], 7)
+        self.assertTrue(saved_checkpoint["has_snapshot"])
 
 
 class _FakeRedisPipeline:

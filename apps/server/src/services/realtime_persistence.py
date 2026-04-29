@@ -419,6 +419,37 @@ class RedisGameStateStore:
         raw = self._connection.client().get(self._view_state_key(session_id))
         return _json_load_dict(str(raw)) if raw is not None else None
 
+    def commit_transition(
+        self,
+        session_id: str,
+        *,
+        current_state: dict[str, Any],
+        checkpoint: dict[str, Any],
+        view_state: dict[str, Any] | None = None,
+    ) -> None:
+        client = self._connection.client()
+        current_payload = _json_dump(current_state)
+        checkpoint_payload = _json_dump(checkpoint)
+        view_payload = _json_dump(view_state) if isinstance(view_state, dict) else ""
+        if callable(getattr(client, "eval", None)):
+            client.eval(
+                _COMMIT_GAME_TRANSITION_LUA,
+                3,
+                self._current_state_key(session_id),
+                self._checkpoint_key(session_id),
+                self._view_state_key(session_id),
+                current_payload,
+                checkpoint_payload,
+                view_payload,
+            )
+            return
+        pipeline = client.pipeline(transaction=True)
+        pipeline.set(self._current_state_key(session_id), current_payload)
+        pipeline.set(self._checkpoint_key(session_id), checkpoint_payload)
+        if isinstance(view_state, dict):
+            pipeline.set(self._view_state_key(session_id), view_payload)
+        pipeline.execute()
+
     def delete_session_data(self, session_id: str) -> None:
         self._connection.client().delete(
             self._checkpoint_key(session_id),
@@ -489,5 +520,14 @@ if redis.call("GET", KEYS[1]) ~= ARGV[1] then
   return 0
 end
 redis.call("DEL", KEYS[1])
+return 1
+"""
+
+_COMMIT_GAME_TRANSITION_LUA = """
+redis.call("SET", KEYS[1], ARGV[1])
+redis.call("SET", KEYS[2], ARGV[2])
+if ARGV[3] ~= "" then
+  redis.call("SET", KEYS[3], ARGV[3])
+end
 return 1
 """

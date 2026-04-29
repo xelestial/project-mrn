@@ -3,6 +3,11 @@
 ## 0.7.62 note
 Mark-target resolution now has a safe character-name fallback for test and tooling contexts where the public future-order view is not initialized.
 
+## 2026-04-29 Redis checkpoint transition note
+- `GameEngine.run()` now delegates execution to `prepare_run()` and `run_next_transition()`.
+- `prepare_run(initial_state=...)` resets per-run trackers and can reuse a hydrated Redis checkpoint state.
+- `run_next_transition(state)` advances one committed turn/round boundary and returns a small status payload, allowing server recovery code to persist the updated checkpoint after one transition.
+
 `GameEngine` orchestrates turns, emits semantic events, and builds `GameResult`.
 
 As of v0.7.51, the engine also attaches an event-bus trace layer so emitted

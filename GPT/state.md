@@ -2,6 +2,11 @@
 
 게임 상태 및 플레이어 상태 정의 문서.
 
+## 2026-04-29 Redis checkpoint note
+- `GameState.to_checkpoint_payload()` exports the canonical deterministic engine state for Redis storage.
+- `GameState.from_checkpoint_payload(config, payload)` rebuilds board, player, deck, discard, weather, active-card, round, and turn fields from that payload.
+- Redis recovery uses this payload as the authoritative state shape; frontend view state remains a projection, not the source of truth.
+
 ## 현재 구조
 - `GameState.create()`는 `BoardConfig.build_tile_metadata()` 결과를 바탕으로 `TileState` 목록을 만든다.
 - `TileState`는 정적 메타데이터와 런타임 갱신값을 함께 가진다.

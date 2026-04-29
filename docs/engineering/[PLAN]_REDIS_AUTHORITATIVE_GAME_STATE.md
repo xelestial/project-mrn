@@ -662,16 +662,19 @@ Implemented in the first Redis migration batch:
 - Lua-backed atomic command append and runtime lease refresh/release when the Redis client supports `EVAL`, with Python fallbacks for tests.
 - Versioned `GameState` checkpoint serializer/deserializer for canonical engine state, including tiles, players, deck order, discard piles, weather, active cards, and turn/round fields.
 - `GameEngine.run(initial_state=...)` can start from a hydrated turn-boundary state instead of always creating a fresh game.
+- `GameEngine.run()` now delegates to explicit `prepare_run()` and `run_next_transition()` boundaries, so tests and runtime recovery can execute one checkpoint-backed transition without a process-owned long-running engine state.
 - Runtime service attempts to hydrate engine state from Redis `current_state` when a canonical engine checkpoint is available.
+- Runtime service has a recovery transition path that hydrates canonical Redis state, executes one engine transition, and writes the updated `current_state` plus checkpoint back to Redis.
+- `RedisGameStateStore.commit_transition()` writes canonical state, checkpoint, and optional projected view state through one commit boundary, using Lua when the client supports `EVAL` and a Redis transaction pipeline fallback in tests.
 - Command wakeup worker offsets are persisted in Redis per consumer/session, so worker restarts do not reprocess old command entries.
 - Local JSON archive export for finished sessions with hot-state cleanup after the retention window.
 
 Still intentionally incomplete:
 
-- The internal `GameEngine.run()` loop is only partially resumable. It can hydrate from a canonical checkpoint at a boundary, but it is not yet split into small independently committed transition steps.
-- Redis stores the latest canonical snapshot emitted by the engine stream and runtime can hydrate from it when it has the engine checkpoint shape. Mid-transition resume is still out of scope.
+- The engine has a tested one-transition boundary, but the default runtime worker still uses the full `engine.run()` loop for normal game execution. Wiring every command wakeup to the one-transition recovery path is still incomplete.
+- Redis stores the latest canonical snapshot emitted by the engine stream and runtime can hydrate from it when it has the engine checkpoint shape. True mid-transition resume, inside an individual effect chain before the next committed boundary, is still out of scope.
 - Prompt timeout and command wakeup handling have standalone worker entrypoints plus local Docker Compose services. Production deployment still needs environment-specific process manager or orchestration settings.
-- Runtime lease refresh/release and command append use Lua where available. Other multi-key transitions, including complete decision acceptance plus engine state mutation, still need Lua/transaction hardening.
+- Runtime lease refresh/release, command append, and game-state transition commit use Lua where available. Complete decision acceptance plus engine state mutation still needs one higher-level atomic command-processing envelope.
 
 ## Testing Strategy
 

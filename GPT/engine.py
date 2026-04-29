@@ -298,6 +298,82 @@ class GameEngine:
         return {key: value for key, value in context.items() if value is not None}
 
     def run(self, initial_state: GameState | None = None) -> GameResult:
+        state = self.prepare_run(initial_state=initial_state)
+        while True:
+            step = self.run_next_transition(state)
+            if step["status"] == "finished":
+                break
+        result = self._build_result(state)
+        self._emit_vis(
+            "game_end",
+            Phase.GAME_END,
+            None,
+            state,
+            winner_ids=[winner + 1 for winner in result.winner_ids],
+            winner_player_id=(result.winner_ids[0] + 1) if result.winner_ids else None,
+            end_reason=result.end_reason,
+            reason=result.end_reason,
+            total_turns=result.total_turns,
+            snapshot=build_turn_end_snapshot(state),
+        )
+        return result
+
+    def prepare_run(self, initial_state: GameState | None = None) -> GameState:
+        self._reset_run_trackers()
+        if initial_state is not None:
+            return initial_state
+        state = self.create_initial_state()
+        self._emit_vis(
+            "session_start",
+            Phase.SESSION_START,
+            None,
+            state,
+            player_count=self.config.player_count,
+            active_by_card=dict(state.active_by_card),
+            players=[build_player_public_state(p, state).to_dict() for p in state.players],
+        )
+        self._start_new_round(state, initial=True)
+        return state
+
+    def create_initial_state(self) -> GameState:
+        state = GameState.create(self.config)
+        self._initialize_active_faces(state)
+        self.rng.shuffle(state.fortune_draw_pile)
+        self.rng.shuffle(state.trick_draw_pile)
+        self.rng.shuffle(state.weather_draw_pile)
+        for p in state.players:
+            self._draw_tricks(state, p, 5, sync_visibility=False)
+        self._log({
+            "event": "initial_public_tricks",
+            "players": [
+                {"player": p.player_id + 1, "public_tricks": p.public_trick_names(), "hidden_trick_count": p.hidden_trick_count()}
+                for p in state.players
+            ],
+        })
+        return state
+
+    def run_next_transition(self, state: GameState) -> dict[str, Any]:
+        if not state.current_round_order:
+            if self._check_end(state):
+                return {"status": "finished", "reason": "end_rule"}
+            self._start_new_round(state, initial=False)
+            if not state.current_round_order:
+                return {"status": "finished", "reason": "empty_round_order"}
+        current_pid = state.current_round_order[state.turn_index % len(state.current_round_order)]
+        player = state.players[current_pid]
+        if player.alive:
+            player.turns_taken += 1
+            self._take_turn(state, player)
+            if self._check_end(state):
+                return {"status": "finished", "reason": "end_rule", "player_id": current_pid + 1}
+        state.turn_index += 1
+        if state.turn_index % max(1, len(state.current_round_order)) == 0:
+            self._apply_round_end_marker_management(state)
+            state.rounds_completed += 1
+            self._start_new_round(state, initial=False)
+        return {"status": "committed", "player_id": current_pid + 1, "turn_index": state.turn_index}
+
+    def _reset_run_trackers(self) -> None:
         self._action_log = []
         self._ai_decision_log = []
         self._weather_history = []
@@ -325,67 +401,6 @@ class GameEngine:
             }
             for _ in range(self.config.player_count)
         ]
-        if initial_state is None:
-            state = GameState.create(self.config)
-            self._initialize_active_faces(state)
-            self.rng.shuffle(state.fortune_draw_pile)
-            self.rng.shuffle(state.trick_draw_pile)
-            self.rng.shuffle(state.weather_draw_pile)
-            for p in state.players:
-                self._draw_tricks(state, p, 5, sync_visibility=False)
-            self._log({
-                "event": "initial_public_tricks",
-                "players": [
-                    {"player": p.player_id + 1, "public_tricks": p.public_trick_names(), "hidden_trick_count": p.hidden_trick_count()}
-                    for p in state.players
-                ],
-            })
-            self._emit_vis(
-                "session_start",
-                Phase.SESSION_START,
-                None,
-                state,
-                player_count=self.config.player_count,
-                active_by_card=dict(state.active_by_card),
-                players=[build_player_public_state(p, state).to_dict() for p in state.players],
-            )
-            self._start_new_round(state, initial=True)
-        else:
-            state = initial_state
-
-        while True:
-            if not state.current_round_order:
-                if self._check_end(state):
-                    break
-                self._start_new_round(state, initial=False)
-                if not state.current_round_order:
-                    break
-            current_pid = state.current_round_order[state.turn_index % len(state.current_round_order)]
-            player = state.players[current_pid]
-            if player.alive:
-                player.turns_taken += 1
-                self._take_turn(state, player)
-                if self._check_end(state):
-                    break
-            state.turn_index += 1
-            if state.turn_index % max(1, len(state.current_round_order)) == 0:
-                self._apply_round_end_marker_management(state)
-                state.rounds_completed += 1
-                self._start_new_round(state, initial=False)
-        result = self._build_result(state)
-        self._emit_vis(
-            "game_end",
-            Phase.GAME_END,
-            None,
-            state,
-            winner_ids=[winner + 1 for winner in result.winner_ids],
-            winner_player_id=(result.winner_ids[0] + 1) if result.winner_ids else None,
-            end_reason=result.end_reason,
-            reason=result.end_reason,
-            total_turns=result.total_turns,
-            snapshot=build_turn_end_snapshot(state),
-        )
-        return result
 
     def _log(self, row: dict) -> None:
         if self.enable_logging:

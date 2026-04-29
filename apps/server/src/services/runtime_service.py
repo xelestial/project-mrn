@@ -486,6 +486,42 @@ class RuntimeService:
             return None
         return game_state_cls.from_checkpoint_payload(config, current_state)
 
+    def _run_engine_transition_once_for_recovery(self, session_id: str, seed: int = 42, policy_mode: str | None = None) -> dict:
+        self._ensure_gpt_import_path()
+        from engine import GameEngine
+        from policy.factory import PolicyFactory
+        from state import GameState
+
+        session = self._session_service.get_session(session_id)
+        resolved = dict(session.resolved_parameters or {})
+        runtime = dict(resolved.get("runtime", {}))
+        selected_policy_mode = policy_mode or runtime.get("policy_mode") or "heuristic_v3_gpt"
+        policy = PolicyFactory.create_runtime_policy(policy_mode=selected_policy_mode, lap_policy_mode=selected_policy_mode)
+        config = self._config_factory.create(resolved)
+        state = self._hydrate_engine_state(session_id, config, GameState)
+        if state is None:
+            return {"status": "unavailable", "reason": "checkpoint_missing"}
+        engine = GameEngine(config=config, policy=policy, rng=random.Random(seed))
+        state = engine.prepare_run(initial_state=state)
+        step = engine.run_next_transition(state)
+        if self._game_state_store is not None:
+            payload = state.to_checkpoint_payload()
+            self._game_state_store.commit_transition(
+                session_id,
+                current_state=payload,
+                checkpoint={
+                    "schema_version": 1,
+                    "session_id": session_id,
+                    "latest_seq": 0,
+                    "latest_event_type": "engine_transition",
+                    "round_index": int(payload.get("rounds_completed", 0)) + 1,
+                    "turn_index": int(payload.get("turn_index", 0)),
+                    "has_snapshot": True,
+                    "updated_at_ms": self._now_ms(),
+                },
+            )
+        return step
+
 
 def _module_belongs_to_root(module: ModuleType, root_dir: Path) -> bool:
     module_file = getattr(module, "__file__", None)
