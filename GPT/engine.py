@@ -74,6 +74,7 @@ from policy.environment_traits import (
     WEATHER_FORTUNE_LUCKY_DAY_ID,
     WEATHER_HUNTING_SEASON_ID,
     WEATHER_LOVE_AND_FRIENDSHIP_ID,
+    WEATHER_MASS_UPRISING_ID,
     fortune_card_id_for_name,
     has_weather_id,
 )
@@ -672,12 +673,24 @@ class GameEngine:
     def _next_action_id(self, state: GameState, prefix: str) -> str:
         return f"{prefix}:{state.turn_index}:{len(state.pending_actions)}:{uuid.uuid4().hex[:8]}"
 
-    def _action(self, state: GameState, action_type: str, player: PlayerState, source: str, payload: dict) -> ActionEnvelope:
+    def _action(
+        self,
+        state: GameState,
+        action_type: str,
+        player: PlayerState,
+        source: str,
+        payload: dict,
+        *,
+        parent_action_id: str = "",
+        idempotency_key: str = "",
+    ) -> ActionEnvelope:
         return ActionEnvelope(
             action_id=self._next_action_id(state, action_type),
             type=action_type,
             actor_player_id=player.player_id,
             source=source,
+            parent_action_id=parent_action_id,
+            idempotency_key=idempotency_key,
             payload=dict(payload),
         )
 
@@ -729,7 +742,9 @@ class GameEngine:
     def _resolve_arrival_action(self, state: GameState, action: ActionEnvelope, *, queue_followups: bool = False) -> dict:
         player = state.players[action.actor_player_id]
         payload = action.payload
-        landing = self._resolve_landing(state, player)
+        landing = self._queue_unowned_purchase_from_arrival(state, player, action) if queue_followups else None
+        if landing is None:
+            landing = self._resolve_landing(state, player)
         self._emit_vis(
             "landing_resolved",
             Phase.LANDING,
@@ -747,7 +762,8 @@ class GameEngine:
             "position": player.position,
             "landing": landing,
         }
-        self._record_pending_arrival_and_maybe_log_turn(state, action, landing)
+        if not (isinstance(landing, dict) and landing.get("type") == "QUEUED_PURCHASE"):
+            self._record_pending_arrival_and_maybe_log_turn(state, action, landing)
         if queue_followups and isinstance(landing, dict) and landing.get("type") == "ZONE_CHAIN":
             followup = self._action(
                 state,
@@ -993,6 +1009,8 @@ class GameEngine:
             return self._resolve_fortune_takeover_backward_action(state, action)
         if action.type == "request_purchase_tile":
             return self._request_purchase_tile_action(state, action)
+        if action.type == "resolve_unowned_post_purchase":
+            return self._resolve_unowned_post_purchase_action(state, action)
         raise ValueError(f"Unsupported action type: {action.type}")
 
     def _apply_target_move(
@@ -1129,7 +1147,101 @@ class GameEngine:
         pos = int(payload["tile_index"])
         cell = state.board[pos]
         source = str(payload.get("purchase_source") or "action_purchase")
-        return self._resolve_purchase_tile_decision(state, player, pos, cell, source=source)
+        result = self._resolve_purchase_tile_decision(state, player, pos, cell, source=source)
+        if payload.get("record_landing_result"):
+            state.pending_action_log["pending_landing_purchase_result"] = dict(result)
+        return result
+
+    def _queue_unowned_purchase_from_arrival(self, state: GameState, player: PlayerState, action: ActionEnvelope) -> dict | None:
+        pos = player.position
+        cell = state.board[pos]
+        if state.tile_owner[pos] is not None or cell not in (CellKind.T2, CellKind.T3):
+            return None
+        disputed_payload = None
+        if has_weather_id(state.current_weather_effects, WEATHER_MASS_UPRISING_ID):
+            disputed_rent = state.config.rules.economy.rent_cost_for(state, pos)
+            disputed = self._pay_or_bankrupt(state, player, disputed_rent, None)
+            if not player.alive:
+                return self._apply_weather_same_tile_bonus(
+                    state,
+                    player,
+                    {"type": "DISPUTED_BANKRUPTCY", "tile_kind": cell.name, "rent": disputed_rent, **disputed},
+                )
+            disputed_payload = {"rent": disputed_rent, **disputed}
+        purchase_action = self._action(
+            state,
+            "request_purchase_tile",
+            player,
+            "landing_purchase",
+            {
+                "tile_index": pos,
+                "purchase_source": "landing_purchase",
+                "record_landing_result": True,
+            },
+            parent_action_id=action.action_id,
+        )
+        post_payload = {"tile_index": pos}
+        if disputed_payload is not None:
+            post_payload["weather_disputed_rent"] = disputed_payload
+        post_action = self._action(
+            state,
+            "resolve_unowned_post_purchase",
+            player,
+            "landing_post_purchase",
+            post_payload,
+            parent_action_id=purchase_action.action_id,
+        )
+        state.pending_actions.insert(0, post_action)
+        state.pending_actions.insert(0, purchase_action)
+        return {
+            "type": "QUEUED_PURCHASE",
+            "tile_kind": cell.name,
+            "tile_index": pos,
+            "queued_action_ids": [purchase_action.action_id, post_action.action_id],
+            "weather_disputed_rent": disputed_payload,
+        }
+
+    def _resolve_unowned_post_purchase_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        player = state.players[action.actor_player_id]
+        payload = action.payload
+        pos = int(payload["tile_index"])
+        cell = state.board[pos]
+        purchase = dict(state.pending_action_log.pop("pending_landing_purchase_result", {}) or {})
+        if not purchase:
+            purchase = {"type": "PURCHASE" if state.tile_owner[pos] == player.player_id else "PURCHASE_SKIP_POLICY", "tile_kind": cell.name}
+        if payload.get("weather_disputed_rent") is not None:
+            purchase["weather_disputed_rent"] = dict(payload["weather_disputed_rent"])
+        if (
+            is_matchmaker(player.current_character)
+            and player.alive
+            and purchase.get("type") != "DISPUTED_BANKRUPTCY"
+        ):
+            extra = self._matchmaker_buy_adjacent(state, player, pos)
+            if extra is not None:
+                purchase.setdefault("adjacent_bought", []).append(extra)
+        elif player.trick_one_extra_adjacent_buy_this_turn and player.alive:
+            extra = self._buy_one_adjacent_same_block(state, player, pos)
+            if extra is not None:
+                purchase["trick_adjacent_bought"] = extra
+            player.trick_one_extra_adjacent_buy_this_turn = False
+        co = [p for p in state.players if p.alive and p.player_id != player.player_id and p.position == pos]
+        if co:
+            if player.trick_same_tile_cash2_this_turn:
+                gain = 2 * len(co)
+                player.cash += gain
+                purchase["trick_same_tile_cash_gain"] = gain
+            if player.trick_same_tile_shard_rake_this_turn:
+                total = 0
+                details = []
+                for op in co:
+                    amt = player.shards
+                    out = self._pay_or_bankrupt(state, op, amt, player.player_id) if amt > 0 else {"paid": True, "amount": 0}
+                    total += amt if out.get("paid") else 0
+                    details.append({"player": op.player_id + 1, "amount": amt, "paid": out.get("paid", True)})
+                purchase["trick_same_tile_shard_rake"] = {"total": total, "details": details}
+        result = self._apply_weather_same_tile_bonus(state, player, purchase)
+        self._record_pending_arrival_and_maybe_log_turn(state, action, result)
+        return result
 
     def _resolve_purchase_tile_decision(self, state: GameState, player: PlayerState, pos: int, cell: CellKind, *, source: str) -> dict:
         if len(self._strategy_stats) <= player.player_id:

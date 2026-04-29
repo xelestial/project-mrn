@@ -362,6 +362,83 @@ def test_request_purchase_tile_action_can_resume_and_purchase() -> None:
     assert player.tiles_owned == 1
 
 
+def test_queued_arrival_on_unowned_tile_splits_purchase_followups() -> None:
+    class YesDecisionPort:
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name == "choose_purchase_tile":
+                return True
+            return request.args[0][0]
+
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=YesDecisionPort(), rng=random.Random(19), enable_logging=True)
+    state = GameState.create(config)
+    player = state.players[0]
+    tile_index = state.first_tile_position(kinds=[CellKind.T2])
+    player.position = tile_index
+    state.pending_actions = [
+        ActionEnvelope(
+            action_id="arrival_purchase_split",
+            type="resolve_arrival",
+            actor_player_id=player.player_id,
+            source="test_arrival",
+            payload={"trigger": "test_arrival"},
+        )
+    ]
+
+    first = engine.run_next_transition(state)
+
+    assert first["action_type"] == "resolve_arrival"
+    assert state.tile_owner[tile_index] is None
+    assert [action.type for action in state.pending_actions] == ["request_purchase_tile", "resolve_unowned_post_purchase"]
+
+    second = engine.run_next_transition(state)
+    third = engine.run_next_transition(state)
+    last_action_log = next(row for row in reversed(engine._action_log) if row.get("event") == "action_transition")
+
+    assert second["action_type"] == "request_purchase_tile"
+    assert third["action_type"] == "resolve_unowned_post_purchase"
+    assert state.pending_actions == []
+    assert state.tile_owner[tile_index] == player.player_id
+    assert last_action_log["result"]["type"] == "PURCHASE"
+
+
+def test_queued_arrival_purchase_prompt_keeps_purchase_action_queued() -> None:
+    class WaitingDecisionPort:
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name == "choose_purchase_tile":
+                raise RuntimeError("prompt_required_for_test")
+            return request.args[0][0]
+
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=WaitingDecisionPort(), rng=random.Random(20))
+    state = GameState.create(config)
+    player = state.players[0]
+    tile_index = state.first_tile_position(kinds=[CellKind.T2])
+    player.position = tile_index
+    state.pending_actions = [
+        ActionEnvelope(
+            action_id="arrival_purchase_prompt",
+            type="resolve_arrival",
+            actor_player_id=player.player_id,
+            source="test_arrival",
+            payload={"trigger": "test_arrival"},
+        )
+    ]
+
+    engine.run_next_transition(state)
+
+    try:
+        engine.run_next_transition(state)
+    except RuntimeError as exc:
+        assert str(exc) == "prompt_required_for_test"
+    else:
+        raise AssertionError("purchase prompt should have interrupted the queued purchase action")
+
+    assert [action.type for action in state.pending_actions] == ["request_purchase_tile", "resolve_unowned_post_purchase"]
+    assert state.pending_actions[0].payload["tile_index"] == tile_index
+    assert state.tile_owner[tile_index] is None
+
+
 def test_engine_queued_step_move_separates_lap_reward_from_arrival() -> None:
     config = GameConfig(player_count=2)
     engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(4))

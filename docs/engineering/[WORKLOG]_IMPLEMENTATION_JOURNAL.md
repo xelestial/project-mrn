@@ -46,6 +46,8 @@ Updated: 2026-04-15
   - delayed purchase-only free-flag consumption until after purchase decision return, so prompt interruption does not mutate replay state
   - clarified the Redis canonical-state plan so board runtime state, tile ownership, score coins, purchase/rent metadata, card draw-pile order, discard/graveyard order, player trick hands, and hidden-card identity are explicitly Redis-owned rather than backend-memory-owned
   - tightened checkpoint serialization coverage for fortune/trick/weather draw and discard pile order plus tile purchase/rent metadata
+  - split queued unowned-land arrival into `resolve_arrival -> request_purchase_tile -> resolve_unowned_post_purchase`
+  - kept direct `_resolve_landing()` compatibility intact while making action-pipeline purchase prompts resumable
 - Validation:
   - `./.venv/bin/python -m pytest GPT/test_state_checkpoint_serialization.py GPT/test_rule_fixes.py::RuleFixTests::test_suspicious_drink_uses_single_die GPT/test_rule_fixes.py::RuleFixTests::test_fortune_arrival_moves_then_resolves_landing_without_lap_credit GPT/test_rule_fixes.py::RuleFixTests::test_fortune_move_only_does_not_resolve_arrival GPT/test_event_effects.py::EventEffectIntegrationTests::test_fortune_movement_can_be_overridden`
   - `./.venv/bin/python -m pytest GPT/test_rule_fixes.py GPT/test_event_effects.py GPT/test_state_checkpoint_serialization.py`
@@ -69,6 +71,8 @@ Updated: 2026-04-15
   - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py apps/server/tests/test_restart_persistence.py apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py`
   - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_event_effects.py GPT/test_rule_fixes.py -k 'purchase or fortune_producer or scheduled or hunter or prompt_action'`
   - `./.venv/bin/python -m pytest GPT/test_state_checkpoint_serialization.py`
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'purchase or unowned or queued_arrival'`
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_event_effects.py GPT/test_rule_fixes.py -k 'purchase or matchmaker or madangbal or same_tile or unowned or queued_arrival'`
 - Validation failure and lesson:
   - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_visual_runtime_substrate.py apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py` initially failed in the new action-move visual test.
   - Cause: the test assumed the stream was empty after `prepare_run()`, but the engine correctly emits setup events such as `session_start`, `round_start`, and draft events before the queued move.

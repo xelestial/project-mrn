@@ -27,6 +27,7 @@ Mark-target resolution now has a safe character-name fallback for test and tooli
 - Fortune hook note: custom extensions can register `fortune.card.produce` and return `{"type": "QUEUE_TARGET_MOVE", ...}` to have the engine convert the result into the same queued `apply_move` primitive used by built-in fortune movement.
 - Fortune takeover note: backward takeover fortune effects now split into `apply_move` followed by `resolve_fortune_takeover_backward`, so the movement and ownership mutation are recoverable as separate Redis transitions.
 - Prompt-action note: `request_purchase_tile` is the first decision-bearing action. `_run_next_action_transition()` reinserts the popped action if decision handling raises a prompt boundary or other interruption, so Redis can checkpoint and retry the same action after the decision is submitted. Purchase-only free-use flags are consumed only after a decision returns, keeping prompt interruption replay side-effect-free.
+- Arrival purchase note: queued `resolve_arrival` no longer calls the purchase prompt inline when the actor lands on an unowned land tile. It emits a `QUEUED_PURCHASE` landing, then queues `request_purchase_tile` and `resolve_unowned_post_purchase` so purchase decisions, prompt interruption, adjacent-buy follow-ups, and same-tile bonuses are each resumable action steps.
 
 `GameEngine` orchestrates turns, emits semantic events, and builds `GameResult`.
 

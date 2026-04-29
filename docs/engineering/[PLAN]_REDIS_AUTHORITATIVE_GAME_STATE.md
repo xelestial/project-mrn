@@ -735,6 +735,7 @@ Implemented seed:
 - Custom fortune producers can register `fortune.card.produce` and return a `QUEUE_TARGET_MOVE` contract; the engine maps that hook result into the same queued movement primitive.
 - Backward takeover fortune cards now enqueue movement first and then `resolve_fortune_takeover_backward`, separating position changes from ownership mutation.
 - Decision-bearing effects are starting to become actions too. `request_purchase_tile` runs purchase decision/mutation through the action iterator; if the decision bridge raises a prompt boundary, the action is put back at the front of `pending_actions` so replay after Redis recovery resumes the same purchase request rather than skipping or duplicating it. State mutations that are part of the purchase, including one-shot free-purchase flags, must happen only after a decision is returned.
+- Queued unowned-land arrivals now split into `resolve_arrival -> request_purchase_tile -> resolve_unowned_post_purchase`. This prevents a human purchase prompt from being raised inside arrival resolution and gives adjacent-buy/same-tile/weather post-processing its own checkpointable action.
 - Runtime recovery checkpoints expose `pending_action_count`, `scheduled_action_count`, `has_pending_actions`, `has_scheduled_actions`, and `has_pending_turn_completion`, while the canonical `current_state` stores the full action, scheduled-action, and turn-completion envelopes.
 - Direct fortune/forced-move callers still execute inline for compatibility until their call sites are migrated to enqueue actions.
 
