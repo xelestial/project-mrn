@@ -55,7 +55,7 @@ Open work is operational, not architectural. The previously listed items were cl
 
 Current open work:
 
-1. Redis-authoritative game state migration. Redis-backed rooms, sessions, streams, prompts, runtime metadata, command streams, prompt timeout worker service/entrypoint, local JSON archive export, and live checkpoint/view-state storage are now implemented as the first migration batch. Remaining work is timeout worker deployment wiring, command-stream runtime wakeup, atomic Lua transitions, and resumable engine checkpoints. See `docs/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`.
+1. Redis-authoritative game state migration. Redis-backed rooms, sessions, streams, prompts, runtime metadata, command streams, prompt timeout worker service/entrypoint, Docker Compose local worker wiring, local JSON archive export, and live checkpoint/view-state storage are now implemented as the first migration batch. Remaining work is command-stream runtime wakeup, atomic Lua transitions, resumable engine checkpoints, and production-specific worker deployment settings. See `docs/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`.
 
 ## Rule For New Work
 

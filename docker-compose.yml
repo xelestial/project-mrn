@@ -1,0 +1,58 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: project-mrn
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    image: project-mrn-server:dev
+    container_name: project-mrn-server
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      MRN_REDIS_URL: redis://redis:6379/0
+      MRN_REDIS_KEY_PREFIX: mrn:dev
+      MRN_GAME_LOG_ARCHIVE_PATH: /app/data/game_logs
+      MRN_ARCHIVE_HOT_RETENTION_SECONDS: "300"
+      MRN_LOG_LEVEL: INFO
+    ports:
+      - "9090:9090"
+    volumes:
+      - game-logs:/app/data/game_logs
+    command: ["python", "-m", "uvicorn", "apps.server.src.app:app", "--host", "0.0.0.0", "--port", "9090"]
+
+  prompt-timeout-worker:
+    image: project-mrn-server:dev
+    container_name: project-mrn-prompt-timeout-worker
+    depends_on:
+      redis:
+        condition: service_healthy
+      server:
+        condition: service_started
+    environment:
+      MRN_REDIS_URL: redis://redis:6379/0
+      MRN_REDIS_KEY_PREFIX: mrn:dev
+      MRN_GAME_LOG_ARCHIVE_PATH: /app/data/game_logs
+      MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS: "250"
+      MRN_LOG_LEVEL: INFO
+    volumes:
+      - game-logs:/app/data/game_logs
+    command: ["python", "-m", "apps.server.src.workers.prompt_timeout_worker_app"]
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  game-logs:

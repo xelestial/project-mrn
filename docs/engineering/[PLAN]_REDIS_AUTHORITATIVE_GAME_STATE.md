@@ -653,13 +653,14 @@ Implemented in the first Redis migration batch:
 - Standalone prompt timeout worker entrypoint:
   `python -m apps.server.src.workers.prompt_timeout_worker_app --once`
   or continuous mode without `--once`.
+- Docker Compose local stack wiring for Redis, FastAPI server, and the standalone prompt timeout worker.
 - Local JSON archive export for finished sessions with hot-state cleanup after the retention window.
 
 Still intentionally incomplete:
 
 - The internal `GameEngine.run()` loop is not yet split into resumable transition steps.
 - Redis stores the latest canonical snapshot emitted by the engine stream, but it does not yet deserialize that snapshot back into the engine and resume mid-turn.
-- Prompt timeout handling is isolated behind `PromptTimeoutWorker`, and a standalone worker entrypoint exists. Deployment still needs an external process manager, container, or scheduler definition.
+- Prompt timeout handling is isolated behind `PromptTimeoutWorker`, and a standalone worker entrypoint plus local Docker Compose service exist. Production deployment still needs environment-specific process manager or orchestration settings.
 - Runtime lease release uses the current worker ownership check in Python. A production hardening pass should move compare-and-delete to Lua.
 
 ## Testing Strategy
@@ -723,10 +724,10 @@ Performance:
 
 Recommended next implementation PR:
 
-1. Add a process manager, Docker service, or deployment command for the standalone prompt timeout worker.
-2. Add a resumable engine checkpoint fixture that can restore from the latest Redis `current_state` snapshot at a turn boundary.
-3. Make runtime workers wake from the Redis command stream instead of process-local calls.
-4. Move runtime lease release and decision acceptance to Lua scripts for atomic compare-and-write behavior.
-5. Add a restart integration test that starts a session, records checkpoint state, recreates services, and verifies Redis-backed replay/status/checkpoint/command continuity.
+1. Add a resumable engine checkpoint fixture that can restore from the latest Redis `current_state` snapshot at a turn boundary.
+2. Make runtime workers wake from the Redis command stream instead of process-local calls.
+3. Move runtime lease release and decision acceptance to Lua scripts for atomic compare-and-write behavior.
+4. Add a restart integration test that starts a session, records checkpoint state, recreates services, and verifies Redis-backed replay/status/checkpoint/command continuity.
+5. Add production deployment settings for the timeout worker after the target hosting environment is chosen.
 
 This keeps the current incremental path honest: Redis now owns the live records, while resumable engine execution remains the next large refactor.

@@ -16,6 +16,16 @@ Current status: playable web/runtime project under UI/UX stabilization.
 - Server/runtime: `apps/server/`
 - Web client: `apps/web/`
 
+## Redis Local Stack
+
+The backend Redis stack can be started with Docker Compose:
+
+```bash
+docker compose up --build redis server prompt-timeout-worker
+```
+
+This starts Redis (`project-mrn`), the FastAPI server, and the standalone prompt timeout worker.
+
 ## Current Focus
 
 1. UI/UX readability and playability recovery
