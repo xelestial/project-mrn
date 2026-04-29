@@ -34,6 +34,12 @@ class RuntimeSettings:
     session_store_max_sessions: int = 200
     stream_store_max_sessions: int = 200
     restart_recovery_policy: str = "abort_in_progress"
+    redis_url: str = ""
+    redis_key_prefix: str = "mrn"
+    redis_socket_timeout_ms: int = 1000
+    game_log_archive_path: str = "data/game_logs"
+    archive_hot_retention_seconds: int = 300
+    prompt_timeout_worker_poll_interval_ms: int = 250
 
 
 def load_runtime_settings() -> RuntimeSettings:
@@ -50,4 +56,10 @@ def load_runtime_settings() -> RuntimeSettings:
         session_store_max_sessions=_env_int("MRN_SESSION_STORE_MAX_SESSIONS", 200, 1),
         stream_store_max_sessions=_env_int("MRN_STREAM_STORE_MAX_SESSIONS", 200, 1),
         restart_recovery_policy=_env_str("MRN_RESTART_RECOVERY_POLICY", "abort_in_progress"),
+        redis_url=_env_str("MRN_REDIS_URL", ""),
+        redis_key_prefix=_env_str("MRN_REDIS_KEY_PREFIX", "mrn"),
+        redis_socket_timeout_ms=_env_int("MRN_REDIS_SOCKET_TIMEOUT_MS", 1000, 50),
+        game_log_archive_path=_env_str("MRN_GAME_LOG_ARCHIVE_PATH", "data/game_logs"),
+        archive_hot_retention_seconds=_env_int("MRN_ARCHIVE_HOT_RETENTION_SECONDS", 300, 0),
+        prompt_timeout_worker_poll_interval_ms=_env_int("MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS", 250, 50),
     )

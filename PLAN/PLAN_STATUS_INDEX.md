@@ -1,7 +1,7 @@
 # PLAN Status Index
 
 Status: ACTIVE  
-Updated: 2026-04-09  
+Updated: 2026-04-29  
 Owner: GPT
 
 ## Purpose
@@ -14,11 +14,12 @@ What documents still matter right now?
 
 The broad migration / architecture phase is closed enough.
 
-Current repo-side work is narrower:
+Current repo-side work has one newly reopened architecture track:
 
-1. UI/UX readability and playability recovery
-2. real playtest-driven stabilization
-3. stronger external AI worker operational hookup
+1. Redis-authoritative game state migration
+2. UI/UX readability and playability recovery
+3. real playtest-driven stabilization
+4. stronger external AI worker operational hookup
 
 ## Canonical Current Documents
 
@@ -30,6 +31,7 @@ Read and maintain these:
 4. `docs/frontend/[ACTIVE]_UI_UX_PRIORITY_ONE_PAGE.md`
 5. `docs/frontend/[PLAN]_LIVE_PLAY_STATE_AND_DECISION_RECOVERY.md`
 6. `docs/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md`
+7. `docs/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`
 
 ## Closed Enough
 
@@ -53,7 +55,7 @@ Open work is operational, not architectural. The previously listed items were cl
 
 Current open work:
 
-1. none. Reopen only if a new concrete regression appears in browser playtest evidence.
+1. Redis-authoritative game state migration. Redis-backed rooms, sessions, streams, prompts, runtime metadata, command streams, prompt timeout worker service/entrypoint, local JSON archive export, and live checkpoint/view-state storage are now implemented as the first migration batch. Remaining work is timeout worker deployment wiring, command-stream runtime wakeup, atomic Lua transitions, and resumable engine checkpoints. See `docs/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`.
 
 ## Rule For New Work
 

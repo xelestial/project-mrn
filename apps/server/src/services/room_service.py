@@ -9,6 +9,7 @@ from apps.server.src.domain.session_models import (
     SeatType,
     utc_now_iso,
 )
+from apps.server.src.services.persistence import RoomStore
 
 
 class RoomStateError(ValueError):
@@ -18,17 +19,8 @@ class RoomStateError(ValueError):
 class RoomNotFoundError(KeyError):
     """Raised when a room lookup fails."""
 
-
-class RoomStoreProtocol:
-    def load_room_state(self) -> dict:
-        raise NotImplementedError
-
-    def save_room_state(self, state: dict) -> None:
-        raise NotImplementedError
-
-
 class RoomService:
-    def __init__(self, session_service, room_store: RoomStoreProtocol | None = None) -> None:
+    def __init__(self, session_service, room_store: RoomStore | None = None) -> None:
         self._session_service = session_service
         self._room_store = room_store
         self._rooms: dict[int, Room] = {}
@@ -88,6 +80,12 @@ class RoomService:
         if room is None:
             raise RoomNotFoundError(room_no)
         return room
+
+    def find_room_for_session(self, session_id: str) -> Room | None:
+        room_no = self._session_to_room.get(str(session_id))
+        if room_no is None:
+            return None
+        return self._rooms.get(room_no)
 
     def join_room(self, *, room_no: int, seat: int, nickname: str) -> dict:
         room = self.get_room(room_no)

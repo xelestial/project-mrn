@@ -22,6 +22,12 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.session_store_max_sessions, 200)
         self.assertEqual(settings.stream_store_max_sessions, 200)
         self.assertEqual(settings.restart_recovery_policy, "abort_in_progress")
+        self.assertEqual(settings.redis_url, "")
+        self.assertEqual(settings.redis_key_prefix, "mrn")
+        self.assertEqual(settings.redis_socket_timeout_ms, 1000)
+        self.assertEqual(settings.game_log_archive_path, "data/game_logs")
+        self.assertEqual(settings.archive_hot_retention_seconds, 300)
+        self.assertEqual(settings.prompt_timeout_worker_poll_interval_ms, 250)
 
     def test_env_overrides_with_minimum_clamp(self) -> None:
         with _temporary_env(
@@ -38,6 +44,12 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "MRN_SESSION_STORE_MAX_SESSIONS": "321",
                 "MRN_STREAM_STORE_MAX_SESSIONS": "654",
                 "MRN_RESTART_RECOVERY_POLICY": "keep",
+                "MRN_REDIS_URL": "redis://127.0.0.1:6379/4",
+                "MRN_REDIS_KEY_PREFIX": "mrn-test",
+                "MRN_REDIS_SOCKET_TIMEOUT_MS": "1500",
+                "MRN_GAME_LOG_ARCHIVE_PATH": "data/test_logs",
+                "MRN_ARCHIVE_HOT_RETENTION_SECONDS": "45",
+                "MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS": "750",
             }
         ):
             settings = load_runtime_settings()
@@ -53,6 +65,12 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.session_store_max_sessions, 321)
         self.assertEqual(settings.stream_store_max_sessions, 654)
         self.assertEqual(settings.restart_recovery_policy, "keep")
+        self.assertEqual(settings.redis_url, "redis://127.0.0.1:6379/4")
+        self.assertEqual(settings.redis_key_prefix, "mrn-test")
+        self.assertEqual(settings.redis_socket_timeout_ms, 1500)
+        self.assertEqual(settings.game_log_archive_path, "data/test_logs")
+        self.assertEqual(settings.archive_hot_retention_seconds, 45)
+        self.assertEqual(settings.prompt_timeout_worker_poll_interval_ms, 750)
 
     def test_invalid_env_values_fallback_to_defaults(self) -> None:
         with _temporary_env(
@@ -69,6 +87,12 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "MRN_SESSION_STORE_MAX_SESSIONS": "0",
                 "MRN_STREAM_STORE_MAX_SESSIONS": "-1",
                 "MRN_RESTART_RECOVERY_POLICY": "",
+                "MRN_REDIS_URL": "",
+                "MRN_REDIS_KEY_PREFIX": "",
+                "MRN_REDIS_SOCKET_TIMEOUT_MS": "10",
+                "MRN_GAME_LOG_ARCHIVE_PATH": "",
+                "MRN_ARCHIVE_HOT_RETENTION_SECONDS": "-1",
+                "MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS": "10",
             }
         ):
             settings = load_runtime_settings()
@@ -84,6 +108,12 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.session_store_max_sessions, 200)
         self.assertEqual(settings.stream_store_max_sessions, 200)
         self.assertEqual(settings.restart_recovery_policy, "abort_in_progress")
+        self.assertEqual(settings.redis_url, "")
+        self.assertEqual(settings.redis_key_prefix, "mrn")
+        self.assertEqual(settings.redis_socket_timeout_ms, 1000)
+        self.assertEqual(settings.game_log_archive_path, "data/game_logs")
+        self.assertEqual(settings.archive_hot_retention_seconds, 300)
+        self.assertEqual(settings.prompt_timeout_worker_poll_interval_ms, 250)
 
 
 class _temporary_env:
@@ -103,6 +133,12 @@ class _temporary_env:
             "MRN_SESSION_STORE_MAX_SESSIONS",
             "MRN_STREAM_STORE_MAX_SESSIONS",
             "MRN_RESTART_RECOVERY_POLICY",
+            "MRN_REDIS_URL",
+            "MRN_REDIS_KEY_PREFIX",
+            "MRN_REDIS_SOCKET_TIMEOUT_MS",
+            "MRN_GAME_LOG_ARCHIVE_PATH",
+            "MRN_ARCHIVE_HOT_RETENTION_SECONDS",
+            "MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS",
         ]
 
     def __enter__(self) -> None:

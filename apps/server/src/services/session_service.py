@@ -200,6 +200,12 @@ class SessionService:
             session.status = SessionStatus.FINISHED
             self._persist_sessions()
 
+    def delete_session(self, session_id: str) -> None:
+        removed = self._sessions.pop(session_id, None)
+        if removed is None:
+            return
+        self._persist_sessions()
+
     def expire_session_tokens(self, session_id: str) -> None:
         session = self.get_session(session_id)
         session.session_tokens = {}
@@ -212,6 +218,10 @@ class SessionService:
         data["host_token"] = session.host_token
         data["join_tokens"] = {str(k): v for k, v in session.join_tokens.items()}
         return data
+
+    def to_persisted_payload(self, session_id: str) -> dict:
+        session = self.get_session(session_id)
+        return self._session_to_payload(session)
 
     @staticmethod
     def _initial_active_by_card(session: Session) -> dict[int, str]:

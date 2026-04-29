@@ -9,11 +9,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.infra.structured_log import log_event
-from apps.server.src.services.decision_gateway import (
-    build_decision_ack_payload,
-    build_decision_resolved_payload,
-    build_decision_timeout_fallback_payload,
-)
+from apps.server.src.services.decision_gateway import build_decision_ack_payload
 from apps.server.src.services.session_service import SessionNotFoundError, SessionStateError
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["stream"])
@@ -92,7 +88,14 @@ def stream_capability(session_id: str) -> dict:
 
 @router.websocket("/{session_id}/stream")
 async def stream_ws(websocket: WebSocket, session_id: str) -> None:
-    from apps.server.src.state import prompt_service, runtime_service, runtime_settings, session_service, stream_service
+    from apps.server.src.state import (
+        prompt_service,
+        prompt_timeout_worker,
+        runtime_service,
+        runtime_settings,
+        session_service,
+        stream_service,
+    )
 
     token = websocket.query_params.get("token")
     try:
@@ -166,66 +169,15 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
         while not stop_event.is_set():
             latest = await stream_service.latest_seq(session_id)
             pressure = await stream_service.backpressure_stats(session_id)
-            timed_out = prompt_service.timeout_pending(session_id=session_id)
-            for pending in timed_out:
-                public_context = pending.payload.get("public_context", {})
-                round_index = public_context.get("round_index")
-                turn_index = public_context.get("turn_index")
-                fallback_policy = pending.payload.get("fallback_policy", "timeout_fallback")
-                fallback_result = await runtime_service.execute_prompt_fallback(
-                    session_id=session_id,
-                    request_id=pending.request_id,
-                    player_id=pending.player_id,
-                    fallback_policy=str(fallback_policy),
-                    prompt_payload=pending.payload,
-                )
-                await stream_service.publish(
-                    session_id,
-                    "decision_ack",
-                    build_decision_ack_payload(
-                        request_id=pending.request_id,
-                        status="stale",
-                        player_id=pending.player_id,
-                        reason="prompt_timeout",
-                        provider="human",
-                    ),
-                )
-                await stream_service.publish(
-                    session_id,
-                    "event",
-                    build_decision_resolved_payload(
-                        request_id=pending.request_id,
-                        player_id=pending.player_id,
-                        request_type=str(pending.payload.get("request_type") or ""),
-                        resolution="timeout_fallback",
-                        choice_id=fallback_result.get("choice_id"),
-                        provider="human",
-                        round_index=round_index,
-                        turn_index=turn_index,
-                    ),
-                )
-                await stream_service.publish(
-                    session_id,
-                    "event",
-                    build_decision_timeout_fallback_payload(
-                        request_id=pending.request_id,
-                        player_id=pending.player_id,
-                        request_type=str(pending.payload.get("request_type") or ""),
-                        fallback_policy=str(fallback_policy),
-                        fallback_execution=fallback_result.get("status"),
-                        fallback_choice_id=fallback_result.get("choice_id"),
-                        provider="human",
-                        round_index=round_index,
-                        turn_index=turn_index,
-                    ),
-                )
+            timed_out = await prompt_timeout_worker.run_once(session_id=session_id)
+            for timeout_result in timed_out:
                 log_event(
                     "decision_timeout_fallback",
                     session_id=session_id,
-                    request_id=pending.request_id,
-                    player_id=pending.player_id,
-                    fallback_policy=fallback_policy,
-                    fallback_status=fallback_result.get("status"),
+                    request_id=timeout_result.get("request_id"),
+                    player_id=timeout_result.get("player_id"),
+                    fallback_policy="timeout_fallback",
+                    fallback_status="executed",
                 )
             await websocket.send_json(
                 {

@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, Protocol
 
+from apps.server.src.infra.redis_client import RedisConnection
+
 
 class SessionStore(Protocol):
     def load_sessions(self) -> list[dict]:
@@ -12,6 +14,8 @@ class SessionStore(Protocol):
     def save_sessions(self, sessions: list[dict]) -> None:
         ...
 
+
+class RoomStore(Protocol):
     def load_room_state(self) -> dict:
         ...
 
@@ -84,6 +88,87 @@ class JsonFileSessionStore:
         )
 
 
+class RedisSessionStore:
+    def __init__(self, connection: RedisConnection) -> None:
+        self._connection = connection
+        self._hash_key = connection.key("sessions", "payloads")
+
+    def load_sessions(self) -> list[dict]:
+        payloads = self._connection.client().hgetall(self._hash_key)
+        sessions: list[dict] = []
+        for session_id in sorted(payloads):
+            parsed = _json_load_dict(payloads[session_id])
+            if parsed is None:
+                continue
+            sessions.append(parsed)
+        return sessions
+
+    def save_sessions(self, sessions: list[dict]) -> None:
+        mapping: dict[str, str] = {}
+        for session in sessions:
+            session_id = str(session.get("session_id", "")).strip()
+            if not session_id:
+                continue
+            mapping[session_id] = _json_dump(session)
+        pipeline = self._connection.client().pipeline(transaction=True)
+        pipeline.delete(self._hash_key)
+        if mapping:
+            pipeline.hset(self._hash_key, mapping=mapping)
+        pipeline.execute()
+
+
+class RedisRoomStore:
+    def __init__(self, connection: RedisConnection) -> None:
+        self._connection = connection
+        self._rooms_hash_key = connection.key("rooms", "payloads")
+        self._next_room_no_key = connection.key("rooms", "next_room_no")
+
+    def load_room_state(self) -> dict[str, Any]:
+        payloads = self._connection.client().hgetall(self._rooms_hash_key)
+        rooms: list[dict] = []
+        highest_room_no = 0
+        for room_no in sorted(payloads, key=lambda raw: int(raw)):
+            parsed = _json_load_dict(payloads[room_no])
+            if parsed is None:
+                continue
+            rooms.append(parsed)
+            try:
+                highest_room_no = max(highest_room_no, int(room_no))
+            except ValueError:
+                continue
+        next_room_no_raw = self._connection.client().get(self._next_room_no_key)
+        next_room_no = int(next_room_no_raw) if isinstance(next_room_no_raw, str) and next_room_no_raw.isdigit() else 0
+        if next_room_no < 1:
+            next_room_no = highest_room_no + 1 if highest_room_no >= 1 else 1
+        return {
+            "next_room_no": next_room_no,
+            "rooms": rooms,
+        }
+
+    def save_room_state(self, state: dict[str, Any]) -> None:
+        rooms_raw = state.get("rooms", [])
+        next_room_no_raw = state.get("next_room_no", 1)
+        try:
+            next_room_no = max(1, int(next_room_no_raw))
+        except (TypeError, ValueError):
+            next_room_no = 1
+        mapping: dict[str, str] = {}
+        for room in rooms_raw:
+            if not isinstance(room, dict):
+                continue
+            room_no = room.get("room_no")
+            if room_no is None:
+                continue
+            mapping[str(room_no)] = _json_dump(room)
+        pipeline = self._connection.client().pipeline(transaction=True)
+        pipeline.delete(self._rooms_hash_key)
+        pipeline.delete(self._next_room_no_key)
+        if mapping:
+            pipeline.hset(self._rooms_hash_key, mapping=mapping)
+        pipeline.set(self._next_room_no_key, str(next_room_no))
+        pipeline.execute()
+
+
 class JsonFileStreamStore:
     """Simple JSON file stream store for restart persistence baseline."""
 
@@ -120,3 +205,17 @@ class JsonFileStreamStore:
             json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
             encoding="utf-8",
         )
+
+
+def _json_dump(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _json_load_dict(raw: str) -> dict[str, Any] | None:
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return None
+    if isinstance(parsed, dict):
+        return parsed
+    return None

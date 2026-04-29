@@ -19,6 +19,7 @@ from apps.server.src.config.runtime_settings import RuntimeSettings
 from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
+from apps.server.src.services.prompt_timeout_worker import PromptTimeoutWorker
 
 
 def _reset_state(max_buffer: int = 2000, heartbeat_interval_ms: int = 5000) -> None:
@@ -36,6 +37,11 @@ def _reset_state(max_buffer: int = 2000, heartbeat_interval_ms: int = 5000) -> N
         session_service=state.session_service,
         stream_service=state.stream_service,
         prompt_service=state.prompt_service,
+    )
+    state.prompt_timeout_worker = PromptTimeoutWorker(
+        prompt_service=state.prompt_service,
+        runtime_service=state.runtime_service,
+        stream_service=state.stream_service,
     )
 
 

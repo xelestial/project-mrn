@@ -18,13 +18,15 @@ class PendingPrompt:
 class PromptService:
     """In-memory prompt lifecycle manager (B3 baseline)."""
 
-    def __init__(self) -> None:
+    def __init__(self, prompt_store=None, command_store=None) -> None:
         self._pending: dict[str, PendingPrompt] = {}
         self._resolved: dict[str, tuple[int, str]] = {}
         self._decisions: dict[str, dict] = {}
         self._waiters: dict[str, threading.Event] = {}
         self._lock = threading.RLock()
         self._resolved_ttl_ms = 5 * 60 * 1000
+        self._prompt_store = prompt_store
+        self._command_store = command_store
 
     def create_prompt(self, session_id: str, prompt: dict) -> PendingPrompt:
         with self._lock:
@@ -32,9 +34,9 @@ class PromptService:
             request_id = str(prompt.get("request_id", "")).strip()
             if not request_id:
                 raise ValueError("missing_request_id")
-            if request_id in self._pending:
+            if self._has_pending_request(request_id):
                 raise ValueError("duplicate_pending_request_id")
-            if request_id in self._resolved:
+            if self._has_recently_resolved_request(request_id):
                 raise ValueError("duplicate_recent_request_id")
             player_id = int(prompt.get("player_id", 0))
             timeout_ms = int(prompt.get("timeout_ms", 30000))
@@ -46,7 +48,7 @@ class PromptService:
                 created_at_ms=self._now_ms(),
                 payload=prompt,
             )
-            self._pending[request_id] = item
+            self._set_pending(item)
             self._waiters[request_id] = threading.Event()
             return item
 
@@ -61,26 +63,40 @@ class PromptService:
             if not choice_id:
                 return {"status": "rejected", "reason": "missing_choice_id"}
 
-            pending = self._pending.get(request_id)
+            pending = self._get_pending(request_id)
             if pending is None:
-                if request_id in self._resolved:
+                if self._has_recently_resolved_request(request_id):
                     return {"status": "stale", "reason": "already_resolved"}
                 return {"status": "stale", "reason": "request_not_pending"}
 
             now = self._now_ms()
             if now > (pending.created_at_ms + pending.timeout_ms):
-                self._pending.pop(request_id, None)
+                self._delete_pending(request_id)
                 self._record_resolved(request_id=request_id, reason="prompt_timeout")
                 waiter = self._waiters.pop(request_id, None)
-                self._decisions.pop(request_id, None)
+                self._delete_decision(request_id)
                 result = {"status": "stale", "reason": "prompt_timeout"}
             else:
                 player_id = int(payload.get("player_id", 0))
                 if player_id != pending.player_id:
                     return {"status": "rejected", "reason": "player_mismatch"}
 
-                self._pending.pop(request_id, None)
-                self._decisions[request_id] = dict(payload)
+                self._delete_pending(request_id)
+                self._set_decision(request_id, dict(payload))
+                if self._command_store is not None:
+                    self._command_store.append_command(
+                        pending.session_id,
+                        "decision_submitted",
+                        {
+                            "request_id": request_id,
+                            "player_id": player_id,
+                            "choice_id": choice_id,
+                            "decision": dict(payload),
+                            "submitted_at_ms": now,
+                        },
+                        request_id=request_id,
+                        server_time_ms=now,
+                    )
                 self._record_resolved(request_id=request_id, reason="accepted")
                 waiter = self._waiters.get(request_id)
                 result = {"status": "accepted", "reason": None}
@@ -93,15 +109,15 @@ class PromptService:
         timed_out: list[PendingPrompt] = []
         to_notify: list[threading.Event] = []
         with self._lock:
-            for request_id, pending in list(self._pending.items()):
+            for request_id, pending in list(self._iter_pending_items()):
                 if session_id is not None and pending.session_id != session_id:
                     continue
                 if now > (pending.created_at_ms + pending.timeout_ms):
                     timed_out.append(pending)
-                    self._pending.pop(request_id, None)
+                    self._delete_pending(request_id)
                     self._record_resolved(request_id=request_id, reason="prompt_timeout", now_ms=now)
                     waiter = self._waiters.pop(request_id, None)
-                    self._decisions.pop(request_id, None)
+                    self._delete_decision(request_id)
                     if waiter is not None:
                         to_notify.append(waiter)
         for waiter in to_notify:
@@ -113,25 +129,38 @@ class PromptService:
             timeout_ms = 1
         with self._lock:
             self._prune_resolved()
-            if request_id in self._decisions:
-                return self._decisions.pop(request_id)
+            decision = self._pop_decision(request_id)
+            if decision is not None:
+                return decision
             waiter = self._waiters.get(request_id)
             if waiter is None:
-                return None
-        waiter.wait(timeout_ms / 1000.0)
+                pending = self._get_pending(request_id)
+                if pending is None:
+                    return None
+                waiter = threading.Event()
+                self._waiters[request_id] = waiter
+        deadline = self._now_ms() + timeout_ms
+        while self._now_ms() < deadline:
+            waiter.wait(min(50, max(1, deadline - self._now_ms())) / 1000.0)
+            with self._lock:
+                decision = self._pop_decision(request_id)
+                if decision is not None:
+                    self._waiters.pop(request_id, None)
+                    return decision
         with self._lock:
-            decision = self._decisions.pop(request_id, None)
+            decision = self._pop_decision(request_id)
             self._waiters.pop(request_id, None)
             return decision
 
     def expire_prompt(self, request_id: str, reason: str = "prompt_timeout") -> PendingPrompt | None:
         waiter: threading.Event | None = None
         with self._lock:
-            pending = self._pending.pop(request_id, None)
+            pending = self._get_pending(request_id)
             if pending is None:
                 return None
+            self._delete_pending(request_id)
             self._record_resolved(request_id=request_id, reason=reason)
-            self._decisions.pop(request_id, None)
+            self._delete_decision(request_id)
             waiter = self._waiters.pop(request_id, None)
         if waiter is not None:
             waiter.set()
@@ -139,22 +168,120 @@ class PromptService:
 
     def has_pending_for_session(self, session_id: str) -> bool:
         with self._lock:
-            for pending in self._pending.values():
+            for pending in self._iter_pending_values():
                 if pending.session_id == session_id:
                     return True
         return False
 
+    def delete_session_data(self, session_id: str) -> None:
+        with self._lock:
+            for request_id, pending in list(self._iter_pending_items()):
+                if pending.session_id != session_id:
+                    continue
+                self._delete_pending(request_id)
+                self._delete_decision(request_id)
+                self._waiters.pop(request_id, None)
+
     def _record_resolved(self, request_id: str, reason: str, now_ms: int | None = None) -> None:
         now = now_ms if now_ms is not None else self._now_ms()
-        self._resolved[request_id] = (now, reason)
+        if self._prompt_store is not None:
+            self._prompt_store.save_resolved(request_id, {"resolved_at_ms": now, "reason": reason})
+        else:
+            self._resolved[request_id] = (now, reason)
         self._prune_resolved(now)
 
     def _prune_resolved(self, now_ms: int | None = None) -> None:
         now = now_ms if now_ms is not None else self._now_ms()
         cutoff = now - self._resolved_ttl_ms
+        if self._prompt_store is not None:
+            for request_id, payload in self._prompt_store.list_resolved().items():
+                resolved_at = int(payload.get("resolved_at_ms", 0))
+                if resolved_at < cutoff:
+                    self._prompt_store.delete_resolved(request_id)
+            return
         for request_id, (resolved_at, _) in list(self._resolved.items()):
             if resolved_at < cutoff:
                 self._resolved.pop(request_id, None)
+
+    def _has_pending_request(self, request_id: str) -> bool:
+        if self._prompt_store is not None:
+            return self._prompt_store.get_pending(request_id) is not None
+        return request_id in self._pending
+
+    def _has_recently_resolved_request(self, request_id: str) -> bool:
+        if self._prompt_store is not None:
+            return self._prompt_store.get_resolved(request_id) is not None
+        return request_id in self._resolved
+
+    def _set_pending(self, pending: PendingPrompt) -> None:
+        if self._prompt_store is not None:
+            self._prompt_store.save_pending(
+                pending.request_id,
+                {
+                    "session_id": pending.session_id,
+                    "request_id": pending.request_id,
+                    "player_id": pending.player_id,
+                    "timeout_ms": pending.timeout_ms,
+                    "created_at_ms": pending.created_at_ms,
+                    "payload": dict(pending.payload),
+                },
+            )
+            return
+        self._pending[pending.request_id] = pending
+
+    def _get_pending(self, request_id: str) -> PendingPrompt | None:
+        if self._prompt_store is not None:
+            raw = self._prompt_store.get_pending(request_id)
+            if raw is None:
+                return None
+            return PendingPrompt(
+                session_id=str(raw.get("session_id", "")),
+                request_id=str(raw.get("request_id", "")),
+                player_id=int(raw.get("player_id", 0)),
+                timeout_ms=int(raw.get("timeout_ms", 0)),
+                created_at_ms=int(raw.get("created_at_ms", 0)),
+                payload=dict(raw.get("payload", {})),
+            )
+        return self._pending.get(request_id)
+
+    def _delete_pending(self, request_id: str) -> None:
+        if self._prompt_store is not None:
+            self._prompt_store.delete_pending(request_id)
+            return
+        self._pending.pop(request_id, None)
+
+    def _iter_pending_values(self) -> list[PendingPrompt]:
+        if self._prompt_store is not None:
+            return [self._get_pending(str(item.get("request_id", ""))) for item in self._prompt_store.list_pending() if self._get_pending(str(item.get("request_id", ""))) is not None]  # type: ignore[list-item]
+        return list(self._pending.values())
+
+    def _iter_pending_items(self) -> list[tuple[str, PendingPrompt]]:
+        items: list[tuple[str, PendingPrompt]] = []
+        if self._prompt_store is not None:
+            for raw in self._prompt_store.list_pending():
+                request_id = str(raw.get("request_id", "")).strip()
+                pending = self._get_pending(request_id)
+                if pending is not None:
+                    items.append((request_id, pending))
+            return items
+        return list(self._pending.items())
+
+    def _set_decision(self, request_id: str, payload: dict) -> None:
+        if self._prompt_store is not None:
+            self._prompt_store.save_decision(request_id, payload)
+            return
+        self._decisions[request_id] = payload
+
+    def _pop_decision(self, request_id: str) -> dict | None:
+        if self._prompt_store is not None:
+            return self._prompt_store.pop_decision(request_id)
+        return self._decisions.pop(request_id, None)
+
+    def _delete_decision(self, request_id: str) -> None:
+        if self._prompt_store is not None:
+            self._prompt_store.delete_decision(request_id)
+            return
+        self._decisions.pop(request_id, None)
 
     @staticmethod
     def _now_ms() -> int:

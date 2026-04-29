@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import random
@@ -37,6 +38,7 @@ class RuntimeService:
         config_factory: EngineConfigFactory | None = None,
         watchdog_timeout_ms: int = 45000,
         decision_client_factory=None,
+        runtime_state_store=None,
     ) -> None:
         self._session_service = session_service
         self._stream_service = stream_service
@@ -50,6 +52,9 @@ class RuntimeService:
         self._fallback_history: dict[str, list[dict]] = {}
         self._watchdog_timeout_ms = int(watchdog_timeout_ms)
         self._session_finished_callbacks: list = []
+        self._runtime_state_store = runtime_state_store
+        self._worker_id = f"runtime_{uuid.uuid4().hex[:12]}"
+        self._lease_ttl_ms = max(5000, self._watchdog_timeout_ms * 2)
         self._initialize_recovery_state()
 
     def add_session_finished_callback(self, callback) -> None:
@@ -61,9 +66,21 @@ class RuntimeService:
         existing = self._runtime_tasks.get(session_id)
         if existing is not None and not existing.done():
             return
+        if not self._acquire_runtime_lease(session_id):
+            owner = self._runtime_state_store.lease_owner(session_id) if self._runtime_state_store is not None else None
+            self._status[session_id] = {
+                "status": "running_elsewhere",
+                "reason": "runtime_lease_held",
+                "worker_id": self._worker_id,
+                "lease_owner": owner,
+            }
+            self._persist_runtime_state(session_id)
+            log_event("runtime_start_skipped_lease_held", session_id=session_id, worker_id=self._worker_id, lease_owner=owner)
+            return
         now_ms = self._now_ms()
         self._last_activity_ms[session_id] = now_ms
         self._status[session_id] = {"status": "running", "watchdog_state": "ok", "started_at_ms": now_ms}
+        self._persist_runtime_state(session_id)
         self._runtime_tasks[session_id] = asyncio.create_task(
             self._run_engine_async(session_id=session_id, seed=seed, policy_mode=policy_mode),
             name=f"runtime:{session_id}",
@@ -78,26 +95,31 @@ class RuntimeService:
 
     def stop_runtime(self, session_id: str, reason: str) -> None:
         self._status[session_id] = {"status": "stop_requested", "reason": reason}
+        self._persist_runtime_state(session_id)
         log_event("runtime_stop_requested", session_id=session_id, reason=reason)
 
     def runtime_status(self, session_id: str) -> dict:
         self._refresh_status(session_id)
         task = self._runtime_tasks.get(session_id)
+        base = self._load_runtime_state(session_id)
         if task is not None and not task.done():
-            base = dict(self._status.get(session_id, {"status": "running"}))
             base.setdefault("status", "running")
-            base["last_activity_ms"] = self._last_activity_ms.get(session_id)
-            base["recent_fallbacks"] = list(self._fallback_history.get(session_id, []))[-10:]
+            base["last_activity_ms"] = self._last_activity_ms.get(session_id, base.get("last_activity_ms"))
+            base["recent_fallbacks"] = self._recent_fallbacks(session_id)
             return base
-        base = dict(self._status.get(session_id, {"status": "idle"}))
         try:
             session = self._session_service.get_session(session_id)
         except Exception:
             session = None
-        if session is not None and session.status == SessionStatus.IN_PROGRESS:
+        lease_expires_at_ms = int(base.get("lease_expires_at_ms", 0) or 0)
+        if session is not None and session.status == SessionStatus.IN_PROGRESS and (
+            base.get("status") in {None, "idle", "running", "stop_requested"} and lease_expires_at_ms <= self._now_ms()
+        ):
             base["status"] = "recovery_required"
             base.setdefault("reason", "runtime_task_missing_after_restart")
-        base["recent_fallbacks"] = list(self._fallback_history.get(session_id, []))[-10:]
+            self._status[session_id] = dict(base)
+            self._persist_runtime_state(session_id)
+        base["recent_fallbacks"] = self._recent_fallbacks(session_id)
         return base
 
     async def execute_prompt_fallback(
@@ -126,8 +148,11 @@ class RuntimeService:
             "choice_id": choice_id,
             "executed_at_ms": self._now_ms(),
         }
+        self._status.setdefault(session_id, {"status": "idle"})
         self._fallback_history.setdefault(session_id, []).append(record)
         self._touch_activity(session_id)
+        if self._runtime_state_store is not None:
+            self._runtime_state_store.append_fallback(session_id, record, max_items=20)
         log_event(
             "runtime_fallback_executed",
             session_id=session_id,
@@ -154,14 +179,17 @@ class RuntimeService:
                 policy_mode,
             )
             self._session_service.finish_session(session_id)
-            for callback in list(self._session_finished_callbacks):
-                callback(session_id)
+            await self._notify_session_finished(session_id)
             self._status[session_id] = {"status": "finished"}
             self._touch_activity(session_id)
+            self._persist_runtime_state(session_id)
+            self._release_runtime_lease(session_id)
             log_event("runtime_finished", session_id=session_id)
         except Exception as exc:
             self._status[session_id] = {"status": "failed", "error": str(exc)}
             self._touch_activity(session_id)
+            self._persist_runtime_state(session_id)
+            self._release_runtime_lease(session_id)
             log_event("runtime_failed", session_id=session_id, error=str(exc))
             await self._stream_service.publish(
                 session_id,
@@ -172,6 +200,24 @@ class RuntimeService:
                     retryable=False,
                 ),
             )
+
+    async def _notify_session_finished(self, session_id: str) -> None:
+        for callback in list(self._session_finished_callbacks):
+            try:
+                result = callback(session_id)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as exc:
+                log_event("session_finished_callback_failed", session_id=session_id, error=str(exc))
+                await self._stream_service.publish(
+                    session_id,
+                    "error",
+                    build_error_payload(
+                        code="SESSION_FINALIZE_CALLBACK_FAILED",
+                        message=str(exc),
+                        retryable=True,
+                    ),
+                )
 
     def _run_engine_sync(
         self,
@@ -260,6 +306,7 @@ class RuntimeService:
             if task.done():
                 self._refresh_status(session_id)
                 return
+            self._refresh_runtime_lease(session_id)
             last = self._last_activity_ms.get(session_id, self._now_ms())
             idle_ms = self._now_ms() - last
             waiting_human_input = False
@@ -275,6 +322,7 @@ class RuntimeService:
                     current["watchdog_state"] = "waiting_input"
                     current["last_activity_ms"] = last
                     self._status[session_id] = current
+                    self._persist_runtime_state(session_id)
                 await asyncio.sleep(2.0)
                 continue
             if idle_ms > self._watchdog_timeout_ms and not warned:
@@ -283,6 +331,7 @@ class RuntimeService:
                 current["watchdog_state"] = "stalled_warning"
                 current["last_activity_ms"] = last
                 self._status[session_id] = current
+                self._persist_runtime_state(session_id)
                 log_event("runtime_watchdog_warn", session_id=session_id, idle_ms=idle_ms)
                 await self._stream_service.publish(
                     session_id,
@@ -300,10 +349,12 @@ class RuntimeService:
                     current["watchdog_state"] = "ok"
                     current["last_activity_ms"] = last
                     self._status[session_id] = current
+                    self._persist_runtime_state(session_id)
             await asyncio.sleep(2.0)
 
     def _touch_activity(self, session_id: str) -> None:
         self._last_activity_ms[session_id] = self._now_ms()
+        self._persist_runtime_state(session_id)
 
     def _refresh_status(self, session_id: str) -> None:
         task = self._runtime_tasks.get(session_id)
@@ -313,6 +364,7 @@ class RuntimeService:
         status = current.get("status")
         if status == "running" and task.done():
             self._status[session_id] = {"status": "finished"}
+            self._persist_runtime_state(session_id)
 
     @staticmethod
     def _now_ms() -> int:
@@ -341,13 +393,59 @@ class RuntimeService:
         for session in sessions:
             if session.status != SessionStatus.IN_PROGRESS:
                 continue
-            self._status.setdefault(
-                session.session_id,
-                {
-                    "status": "recovery_required",
-                    "reason": "runtime_task_missing_after_restart",
-                },
-            )
+            payload = {
+                "status": "recovery_required",
+                "reason": "runtime_task_missing_after_restart",
+            }
+            self._status.setdefault(session.session_id, payload)
+            self._persist_runtime_state(session.session_id)
+
+    def delete_session_data(self, session_id: str) -> None:
+        self._status.pop(session_id, None)
+        self._last_activity_ms.pop(session_id, None)
+        self._fallback_history.pop(session_id, None)
+        if self._runtime_state_store is not None:
+            self._runtime_state_store.delete_session_data(session_id)
+
+    def _recent_fallbacks(self, session_id: str) -> list[dict]:
+        if self._runtime_state_store is not None:
+            return list(self._runtime_state_store.recent_fallbacks(session_id, limit=10))
+        return list(self._fallback_history.get(session_id, []))[-10:]
+
+    def _load_runtime_state(self, session_id: str) -> dict:
+        if self._runtime_state_store is not None:
+            payload = self._runtime_state_store.load_status(session_id)
+            if payload is not None:
+                return dict(payload)
+        return dict(self._status.get(session_id, {"status": "idle"}))
+
+    def _persist_runtime_state(self, session_id: str) -> None:
+        if self._runtime_state_store is None:
+            return
+        base = dict(self._status.get(session_id, {}))
+        if not base:
+            return
+        last_activity_ms = self._last_activity_ms.get(session_id)
+        if last_activity_ms is not None:
+            base["last_activity_ms"] = int(last_activity_ms)
+            base["lease_expires_at_ms"] = int(last_activity_ms) + self._lease_ttl_ms
+        base.setdefault("worker_id", self._worker_id)
+        self._runtime_state_store.save_status(session_id, base)
+
+    def _acquire_runtime_lease(self, session_id: str) -> bool:
+        if self._runtime_state_store is None:
+            return True
+        return bool(self._runtime_state_store.acquire_lease(session_id, self._worker_id, self._lease_ttl_ms))
+
+    def _refresh_runtime_lease(self, session_id: str) -> bool:
+        if self._runtime_state_store is None:
+            return True
+        return bool(self._runtime_state_store.refresh_lease(session_id, self._worker_id, self._lease_ttl_ms))
+
+    def _release_runtime_lease(self, session_id: str) -> bool:
+        if self._runtime_state_store is None:
+            return True
+        return bool(self._runtime_state_store.release_lease(session_id, self._worker_id))
 
 
 def _module_belongs_to_root(module: ModuleType, root_dir: Path) -> bool:

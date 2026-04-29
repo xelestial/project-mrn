@@ -1,0 +1,387 @@
+from __future__ import annotations
+
+import asyncio
+import threading
+import unittest
+
+from apps.server.src.infra.redis_client import RedisConnection, RedisConnectionSettings
+from apps.server.src.services.prompt_service import PromptService
+from apps.server.src.services.realtime_persistence import (
+    RedisCommandStore,
+    RedisGameStateStore,
+    RedisPromptStore,
+    RedisRuntimeStateStore,
+    RedisStreamStore,
+)
+from apps.server.src.services.runtime_service import RuntimeService
+from apps.server.src.services.session_service import SessionService
+from apps.server.src.services.stream_service import StreamService
+from apps.server.src.services.prompt_timeout_worker import PromptTimeoutWorker
+
+
+class RedisRealtimeServicesTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.fake_redis = _FakeRedis()
+        self.connection = RedisConnection(
+            RedisConnectionSettings(url="redis://127.0.0.1:6379/10", key_prefix="mrn-rt", socket_timeout_ms=250),
+            client_factory=lambda: self.fake_redis,
+        )
+
+    def test_stream_service_uses_redis_backend_for_replay_and_drop_counts(self) -> None:
+        game_state = RedisGameStateStore(self.connection)
+        command_store = RedisCommandStore(self.connection)
+        service = StreamService(
+            stream_backend=RedisStreamStore(self.connection),
+            game_state_store=game_state,
+            command_store=command_store,
+            queue_size=2,
+            max_buffer=2,
+        )
+
+        async def _run() -> None:
+            queue = await service.subscribe("s1", "c1")
+            await service.publish("s1", "event", {"n": 1})
+            await service.publish("s1", "event", {"n": 2})
+            await service.publish(
+                "s1",
+                "event",
+                {
+                    "event_type": "turn_end_snapshot",
+                    "round_index": 1,
+                    "turn_index": 3,
+                    "snapshot": {"players": [{"player_id": 1}], "board": {"f_value": 7}},
+                },
+            )
+            first = await queue.get()
+            second = await queue.get()
+            self.assertEqual([first["seq"], second["seq"]], [2, 3])
+            snapshot = await service.snapshot("s1")
+            self.assertEqual([item.seq for item in snapshot], [2, 3])
+            replay = await service.replay_from("s1", 2)
+            self.assertEqual([item.seq for item in replay], [3])
+            stats = await service.backpressure_stats("s1")
+            self.assertGreaterEqual(stats["drop_count"], 1)
+            checkpoint = game_state.load_checkpoint("s1")
+            self.assertIsNotNone(checkpoint)
+            self.assertEqual(checkpoint["latest_seq"], 3)
+            self.assertEqual(checkpoint["round_index"], 1)
+            self.assertEqual(game_state.load_current_state("s1")["board"]["f_value"], 7)
+            await service.publish(
+                "s1",
+                "event",
+                {
+                    "event_type": "decision_resolved",
+                    "request_id": "req_ai_1",
+                    "request_type": "movement",
+                    "resolution": "accepted",
+                    "choice_id": "roll",
+                    "provider": "ai",
+                    "player_id": 1,
+                },
+            )
+            commands = command_store.list_commands("s1")
+            self.assertEqual(len(commands), 1)
+            self.assertEqual(commands[0]["payload"]["request_id"], "req_ai_1")
+
+        asyncio.run(_run())
+
+    def test_prompt_service_uses_redis_store_for_decision_flow(self) -> None:
+        command_store = RedisCommandStore(self.connection)
+        service = PromptService(prompt_store=RedisPromptStore(self.connection), command_store=command_store)
+        service.create_prompt(
+            "s1",
+            {
+                "request_id": "r1",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 30000,
+            },
+        )
+
+        def _submit() -> None:
+            service.submit_decision({"request_id": "r1", "player_id": 1, "choice_id": "roll"})
+
+        thread = threading.Thread(target=_submit, daemon=True)
+        thread.start()
+        decision = service.wait_for_decision("r1", timeout_ms=1000)
+        thread.join(timeout=1.0)
+        self.assertIsNotNone(decision)
+        self.assertEqual(decision["choice_id"], "roll")
+        self.assertFalse(service.has_pending_for_session("s1"))
+        commands = command_store.list_commands("s1")
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(commands[0]["type"], "decision_submitted")
+        self.assertEqual(commands[0]["payload"]["choice_id"], "roll")
+
+    def test_prompt_timeout_worker_emits_timeout_once(self) -> None:
+        command_store = RedisCommandStore(self.connection)
+        stream_service = StreamService(
+            stream_backend=RedisStreamStore(self.connection),
+            command_store=command_store,
+        )
+        prompt_service = PromptService(prompt_store=RedisPromptStore(self.connection), command_store=command_store)
+        sessions = SessionService()
+        runtime = RuntimeService(
+            session_service=sessions,
+            stream_service=stream_service,
+            prompt_service=prompt_service,
+            runtime_state_store=RedisRuntimeStateStore(self.connection),
+        )
+        worker = PromptTimeoutWorker(
+            prompt_service=prompt_service,
+            runtime_service=runtime,
+            stream_service=stream_service,
+        )
+        prompt_service.create_prompt(
+            "s-timeout",
+            {
+                "request_id": "req_timeout_1",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 1,
+                "fallback_choice_id": "fallback_roll",
+                "public_context": {"round_index": 1, "turn_index": 1},
+            },
+        )
+
+        async def _run() -> None:
+            first = await worker.run_once(now_ms=10**15, session_id="s-timeout")
+            second = await worker.run_once(now_ms=10**15 + 1, session_id="s-timeout")
+            snapshot = await stream_service.snapshot("s-timeout")
+            event_types = [msg.payload.get("event_type") for msg in snapshot if msg.type == "event"]
+            self.assertEqual(len(first), 1)
+            self.assertEqual(second, [])
+            self.assertIn("decision_resolved", event_types)
+            self.assertIn("decision_timeout_fallback", event_types)
+
+        asyncio.run(_run())
+
+    def test_runtime_service_persists_status_and_fallbacks_to_redis_store(self) -> None:
+        sessions = SessionService()
+        stream_service = StreamService(stream_backend=RedisStreamStore(self.connection))
+        prompt_service = PromptService(prompt_store=RedisPromptStore(self.connection))
+        runtime = RuntimeService(
+            session_service=sessions,
+            stream_service=stream_service,
+            prompt_service=prompt_service,
+            runtime_state_store=RedisRuntimeStateStore(self.connection),
+        )
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+
+        asyncio.run(
+            runtime.execute_prompt_fallback(
+                session_id=session.session_id,
+                request_id="req_timeout_rt",
+                player_id=2,
+                fallback_policy="timeout_fallback",
+                prompt_payload={"fallback_choice_id": "choice_default"},
+            )
+        )
+        status = runtime.runtime_status(session.session_id)
+        self.assertEqual(status["recent_fallbacks"][-1]["request_id"], "req_timeout_rt")
+
+        runtime._status[session.session_id] = {"status": "running", "watchdog_state": "ok", "started_at_ms": 123}
+        runtime._touch_activity(session.session_id)
+        persisted = runtime.runtime_status(session.session_id)
+        self.assertEqual(persisted["status"], "running")
+        self.assertEqual(persisted.get("worker_id", "").startswith("runtime_"), True)
+        self.assertGreater(int(persisted.get("lease_expires_at_ms", 0)), int(persisted.get("last_activity_ms", 0)))
+
+    def test_runtime_lease_prevents_duplicate_runtime_start(self) -> None:
+        sessions = SessionService()
+        store = RedisRuntimeStateStore(self.connection)
+        stream_service = StreamService(stream_backend=RedisStreamStore(self.connection))
+        prompt_service = PromptService(prompt_store=RedisPromptStore(self.connection))
+        first = RuntimeService(
+            session_service=sessions,
+            stream_service=stream_service,
+            prompt_service=prompt_service,
+            runtime_state_store=store,
+        )
+        second = RuntimeService(
+            session_service=sessions,
+            stream_service=stream_service,
+            prompt_service=prompt_service,
+            runtime_state_store=store,
+        )
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        self.assertTrue(first._acquire_runtime_lease(session.session_id))
+        self.assertFalse(second._acquire_runtime_lease(session.session_id))
+        status = second.runtime_status(session.session_id)
+        self.assertNotEqual(store.lease_owner(session.session_id), second._worker_id)
+        self.assertTrue(first._release_runtime_lease(session.session_id))
+
+
+class _FakeRedisPipeline:
+    def __init__(self, client: "_FakeRedis") -> None:
+        self._client = client
+        self._ops: list[tuple[str, tuple, dict]] = []
+
+    def delete(self, *keys: str) -> "_FakeRedisPipeline":
+        self._ops.append(("delete", keys, {}))
+        return self
+
+    def hset(self, name: str, key=None, value=None, mapping=None) -> "_FakeRedisPipeline":
+        self._ops.append(("hset", (name,), {"key": key, "value": value, "mapping": mapping}))
+        return self
+
+    def set(self, name: str, value: str) -> "_FakeRedisPipeline":
+        self._ops.append(("set", (name, value), {}))
+        return self
+
+    def execute(self) -> list[object]:
+        results = []
+        for name, args, kwargs in self._ops:
+            results.append(getattr(self._client, name)(*args, **kwargs))
+        self._ops.clear()
+        return results
+
+
+class _FakeRedis:
+    def __init__(self) -> None:
+        self._strings: dict[str, str] = {}
+        self._expires_at_ms: dict[str, int] = {}
+        self._hashes: dict[str, dict[str, str]] = {}
+        self._lists: dict[str, list[str]] = {}
+        self._streams: dict[str, list[tuple[str, dict[str, str]]]] = {}
+
+    def ping(self) -> bool:
+        return True
+
+    def info(self, section: str | None = None) -> dict[str, object]:
+        return {"redis_version": "7.4.8"}
+
+    def close(self) -> None:
+        return None
+
+    def pipeline(self, transaction: bool = True) -> _FakeRedisPipeline:
+        return _FakeRedisPipeline(self)
+
+    def delete(self, *keys: str) -> int:
+        removed = 0
+        for key in keys:
+            self._expires_at_ms.pop(key, None)
+            removed += int(self._strings.pop(key, None) is not None)
+            removed += int(self._hashes.pop(key, None) is not None)
+            removed += int(self._lists.pop(key, None) is not None)
+            removed += int(self._streams.pop(key, None) is not None)
+        return removed
+
+    def incr(self, key: str) -> int:
+        current = int(self._strings.get(key, "0"))
+        current += 1
+        self._strings[key] = str(current)
+        return current
+
+    def hset(self, name: str, key=None, value=None, mapping=None) -> int:
+        bucket = self._hashes.setdefault(name, {})
+        written = 0
+        if mapping is not None:
+            for item_key, item_value in mapping.items():
+                bucket[str(item_key)] = str(item_value)
+                written += 1
+            return written
+        if key is not None:
+            bucket[str(key)] = str(value)
+            written += 1
+        return written
+
+    def hsetnx(self, name: str, key: str, value: str) -> int:
+        bucket = self._hashes.setdefault(name, {})
+        if str(key) in bucket:
+            return 0
+        bucket[str(key)] = str(value)
+        return 1
+
+    def hgetall(self, name: str) -> dict[str, str]:
+        return dict(self._hashes.get(name, {}))
+
+    def hget(self, name: str, key: str) -> str | None:
+        return self._hashes.get(name, {}).get(str(key))
+
+    def hdel(self, name: str, *keys: str) -> int:
+        bucket = self._hashes.get(name, {})
+        removed = 0
+        for key in keys:
+            if str(key) in bucket:
+                del bucket[str(key)]
+                removed += 1
+        return removed
+
+    def hincrby(self, name: str, key: str, amount: int) -> int:
+        bucket = self._hashes.setdefault(name, {})
+        value = int(bucket.get(str(key), "0")) + int(amount)
+        bucket[str(key)] = str(value)
+        return value
+
+    def set(self, name: str, value: str, nx: bool = False, px: int | None = None) -> bool:
+        if nx and name in self._strings:
+            return False
+        self._strings[name] = str(value)
+        if px is not None:
+            self._expires_at_ms[name] = int(px)
+        return True
+
+    def get(self, name: str) -> str | None:
+        return self._strings.get(name)
+
+    def xadd(self, name: str, fields: dict[str, str], maxlen: int | None = None, approximate: bool = False) -> str:
+        bucket = self._streams.setdefault(name, [])
+        entry_id = f"{fields.get('server_time_ms', '0')}-{fields.get('seq', '0')}"
+        bucket.append((entry_id, dict(fields)))
+        if maxlen is not None and len(bucket) > maxlen:
+            del bucket[: len(bucket) - maxlen]
+        return entry_id
+
+    def xrange(self, name: str, min: str = "-", max: str = "+", count: int | None = None):
+        bucket = list(self._streams.get(name, []))
+        if count is not None:
+            bucket = bucket[:count]
+        return bucket
+
+    def xrevrange(self, name: str, max: str = "+", min: str = "-", count: int | None = None):
+        bucket = list(reversed(self._streams.get(name, [])))
+        if count is not None:
+            bucket = bucket[:count]
+        return bucket
+
+    def rpush(self, name: str, *values: str) -> int:
+        bucket = self._lists.setdefault(name, [])
+        for value in values:
+            bucket.append(str(value))
+        return len(bucket)
+
+    def ltrim(self, name: str, start: int, stop: int) -> bool:
+        bucket = self._lists.setdefault(name, [])
+        length = len(bucket)
+        if start < 0:
+            start = max(0, length + start)
+        if stop < 0:
+            stop = length + stop
+        bucket[:] = bucket[start : stop + 1]
+        return True
+
+    def lrange(self, name: str, start: int, stop: int) -> list[str]:
+        bucket = self._lists.get(name, [])
+        length = len(bucket)
+        if start < 0:
+            start = max(0, length + start)
+        if stop < 0:
+            stop = length + stop
+        return list(bucket[start : stop + 1])
+
+
+if __name__ == "__main__":
+    unittest.main()
