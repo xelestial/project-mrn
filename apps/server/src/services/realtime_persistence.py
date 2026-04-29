@@ -188,18 +188,43 @@ class RedisCommandStore:
         server_time_ms: int | None = None,
     ) -> dict[str, Any] | None:
         normalized_request_id = str(request_id or payload.get("request_id") or "").strip()
-        if normalized_request_id:
-            seen_key = f"{session_id}:{normalized_request_id}"
-            if not bool(self._connection.client().hsetnx(self._seen_key(), seen_key, "1")):
-                return None
         client = self._connection.client()
+        seen_key = f"{session_id}:{normalized_request_id}" if normalized_request_id else ""
+        fields_payload = _json_dump(dict(payload))
+        if callable(getattr(client, "eval", None)):
+            result = client.eval(
+                _APPEND_COMMAND_LUA,
+                3,
+                self._seen_key(),
+                self._seq_key(session_id),
+                self._stream_key(session_id),
+                seen_key,
+                str(command_type),
+                str(session_id),
+                str(int(server_time_ms or 0)),
+                fields_payload,
+            )
+            if not result:
+                return None
+            stream_id = str(result[0])
+            seq = int(result[1])
+            return {
+                "stream_id": stream_id,
+                "seq": seq,
+                "type": str(command_type),
+                "session_id": str(session_id),
+                "server_time_ms": int(server_time_ms or 0),
+                "payload": dict(payload),
+            }
+        if normalized_request_id and not bool(client.hsetnx(self._seen_key(), seen_key, "1")):
+            return None
         seq = int(client.incr(self._seq_key(session_id)))
         fields = {
             "seq": str(seq),
             "type": str(command_type),
             "session_id": str(session_id),
             "server_time_ms": str(int(server_time_ms or 0)),
-            "payload": _json_dump(dict(payload)),
+            "payload": fields_payload,
         }
         stream_id = client.xadd(self._stream_key(session_id), fields)
         return {
@@ -264,6 +289,8 @@ class RedisRuntimeStateStore:
     def refresh_lease(self, session_id: str, worker_id: str, ttl_ms: int) -> bool:
         client = self._connection.client()
         lease_key = self._lease_key(session_id)
+        if callable(getattr(client, "eval", None)):
+            return bool(client.eval(_REFRESH_LEASE_LUA, 1, lease_key, worker_id, str(max(1, int(ttl_ms)))))
         if client.get(lease_key) != worker_id:
             return False
         client.set(lease_key, worker_id, px=max(1, int(ttl_ms)))
@@ -272,6 +299,8 @@ class RedisRuntimeStateStore:
     def release_lease(self, session_id: str, worker_id: str) -> bool:
         client = self._connection.client()
         lease_key = self._lease_key(session_id)
+        if callable(getattr(client, "eval", None)):
+            return bool(client.eval(_RELEASE_LEASE_LUA, 1, lease_key, worker_id))
         if client.get(lease_key) != worker_id:
             return False
         client.delete(lease_key)
@@ -324,15 +353,22 @@ class RedisGameStateStore:
         seq = int(message.get("seq", 0))
         server_time_ms = int(message.get("server_time_ms", 0))
         event_type = str(payload.get("event_type") or message.get("type") or "").strip()
+        previous = self.load_checkpoint(session_id) or {}
+        round_index = payload.get("round_index", previous.get("round_index", 0))
+        turn_index = payload.get("turn_index", previous.get("turn_index", 0))
         checkpoint = {
             "schema_version": 1,
             "session_id": session_id,
             "latest_seq": seq,
             "latest_event_type": event_type,
             "updated_at_ms": server_time_ms,
-            "round_index": int(payload.get("round_index", 0) or 0),
-            "turn_index": int(payload.get("turn_index", 0) or 0),
+            "round_index": int(round_index or 0),
+            "turn_index": int(turn_index or 0),
         }
+        if previous.get("has_snapshot"):
+            checkpoint["has_snapshot"] = bool(previous.get("has_snapshot"))
+        if previous.get("has_view_state"):
+            checkpoint["has_view_state"] = bool(previous.get("has_view_state"))
         snapshot = payload.get("snapshot")
         if isinstance(snapshot, dict):
             checkpoint["has_snapshot"] = True
@@ -393,3 +429,46 @@ def _json_load_dict(raw: str) -> dict[str, Any] | None:
     if isinstance(parsed, dict):
         return parsed
     return None
+
+
+_APPEND_COMMAND_LUA = """
+local seen_key = ARGV[1]
+if seen_key ~= "" then
+  if redis.call("HSETNX", KEYS[1], seen_key, "1") == 0 then
+    return false
+  end
+end
+local seq = redis.call("INCR", KEYS[2])
+local stream_id = redis.call(
+  "XADD",
+  KEYS[3],
+  "*",
+  "seq",
+  tostring(seq),
+  "type",
+  ARGV[2],
+  "session_id",
+  ARGV[3],
+  "server_time_ms",
+  ARGV[4],
+  "payload",
+  ARGV[5]
+)
+return {stream_id, tostring(seq)}
+"""
+
+_REFRESH_LEASE_LUA = """
+if redis.call("GET", KEYS[1]) ~= ARGV[1] then
+  return 0
+end
+redis.call("SET", KEYS[1], ARGV[1], "PX", tonumber(ARGV[2]))
+return 1
+"""
+
+_RELEASE_LEASE_LUA = """
+if redis.call("GET", KEYS[1]) ~= ARGV[1] then
+  return 0
+end
+redis.call("DEL", KEYS[1])
+return 1
+"""

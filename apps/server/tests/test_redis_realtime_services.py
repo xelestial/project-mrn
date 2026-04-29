@@ -223,6 +223,53 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertNotEqual(store.lease_owner(session.session_id), second._worker_id)
         self.assertTrue(first._release_runtime_lease(session.session_id))
 
+    def test_runtime_recovery_checkpoint_survives_service_reconstruction(self) -> None:
+        sessions = SessionService()
+        game_state = RedisGameStateStore(self.connection)
+        stream_service = StreamService(
+            stream_backend=RedisStreamStore(self.connection),
+            game_state_store=game_state,
+        )
+        prompt_service = PromptService(prompt_store=RedisPromptStore(self.connection))
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        sessions.start_session(session.session_id, session.host_token)
+
+        async def _seed_checkpoint() -> None:
+            await stream_service.publish(
+                session.session_id,
+                "event",
+                {
+                    "event_type": "turn_end_snapshot",
+                    "round_index": 2,
+                    "turn_index": 5,
+                    "snapshot": {"schema_version": 1, "turn": 5, "players": [{"player_id": 1}]},
+                },
+            )
+
+        asyncio.run(_seed_checkpoint())
+        restored_runtime = RuntimeService(
+            session_service=sessions,
+            stream_service=StreamService(stream_backend=RedisStreamStore(self.connection), game_state_store=game_state),
+            prompt_service=prompt_service,
+            runtime_state_store=RedisRuntimeStateStore(self.connection),
+            game_state_store=game_state,
+        )
+
+        recovery = restored_runtime.recovery_checkpoint(session.session_id)
+        status = restored_runtime.runtime_status(session.session_id)
+
+        self.assertTrue(recovery["available"])
+        self.assertEqual(recovery["checkpoint"]["turn_index"], 5)
+        self.assertEqual(recovery["current_state"]["turn"], 5)
+        self.assertEqual(status["status"], "recovery_required")
+        self.assertTrue(status["recovery_checkpoint"]["available"])
+
 
 class _FakeRedisPipeline:
     def __init__(self, client: "_FakeRedis") -> None:

@@ -24,7 +24,7 @@ The backend Redis stack can be started with Docker Compose:
 docker compose up --build redis server prompt-timeout-worker
 ```
 
-This starts Redis (`project-mrn`), the FastAPI server, and the standalone prompt timeout worker.
+This starts Redis (`project-mrn`), the FastAPI server, the standalone prompt timeout worker, and the command wakeup worker.
 
 ## Current Focus
 

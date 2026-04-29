@@ -653,15 +653,21 @@ Implemented in the first Redis migration batch:
 - Standalone prompt timeout worker entrypoint:
   `python -m apps.server.src.workers.prompt_timeout_worker_app --once`
   or continuous mode without `--once`.
-- Docker Compose local stack wiring for Redis, FastAPI server, and the standalone prompt timeout worker.
+- Standalone command wakeup worker entrypoint:
+  `python -m apps.server.src.workers.command_wakeup_worker_app --once`
+  or continuous mode without `--once`.
+- Docker Compose local stack wiring for Redis, FastAPI server, the standalone prompt timeout worker, and the command wakeup worker.
+- Runtime recovery checkpoint fixture that exposes latest Redis checkpoint/current_state/view_state after service reconstruction.
+- Restart integration coverage for Redis-backed replay/status/checkpoint/command continuity.
+- Lua-backed atomic command append and runtime lease refresh/release when the Redis client supports `EVAL`, with Python fallbacks for tests.
 - Local JSON archive export for finished sessions with hot-state cleanup after the retention window.
 
 Still intentionally incomplete:
 
 - The internal `GameEngine.run()` loop is not yet split into resumable transition steps.
-- Redis stores the latest canonical snapshot emitted by the engine stream, but it does not yet deserialize that snapshot back into the engine and resume mid-turn.
-- Prompt timeout handling is isolated behind `PromptTimeoutWorker`, and a standalone worker entrypoint plus local Docker Compose service exist. Production deployment still needs environment-specific process manager or orchestration settings.
-- Runtime lease release uses the current worker ownership check in Python. A production hardening pass should move compare-and-delete to Lua.
+- Redis stores the latest canonical snapshot emitted by the engine stream and exposes it as a recovery checkpoint, but the engine does not yet deserialize that snapshot and resume mid-turn.
+- Prompt timeout and command wakeup handling have standalone worker entrypoints plus local Docker Compose services. Production deployment still needs environment-specific process manager or orchestration settings.
+- Runtime lease refresh/release and command append use Lua where available. Other multi-key transitions, including complete decision acceptance plus engine state mutation, still need Lua/transaction hardening.
 
 ## Testing Strategy
 
@@ -724,10 +730,10 @@ Performance:
 
 Recommended next implementation PR:
 
-1. Add a resumable engine checkpoint fixture that can restore from the latest Redis `current_state` snapshot at a turn boundary.
-2. Make runtime workers wake from the Redis command stream instead of process-local calls.
-3. Move runtime lease release and decision acceptance to Lua scripts for atomic compare-and-write behavior.
-4. Add a restart integration test that starts a session, records checkpoint state, recreates services, and verifies Redis-backed replay/status/checkpoint/command continuity.
-5. Add production deployment settings for the timeout worker after the target hosting environment is chosen.
+1. Refactor `GameEngine.run()` into resumable transition steps that can hydrate from Redis `current_state`.
+2. Move full decision acceptance plus engine state mutation to one Redis transaction/Lua commit boundary.
+3. Persist command wakeup worker offsets in Redis so multiple worker processes coordinate without in-memory cursors.
+4. Add production deployment settings for the timeout/command workers after the target hosting environment is chosen.
+5. Add a real Redis restart smoke that kills/recreates backend service processes around a running game.
 
 This keeps the current incremental path honest: Redis now owns the live records, while resumable engine execution remains the next large refactor.

@@ -7,9 +7,18 @@ from pathlib import Path
 
 from apps.server.src.services.persistence import JsonFileSessionStore, JsonFileStreamStore
 from apps.server.src.services.prompt_service import PromptService
+from apps.server.src.services.realtime_persistence import (
+    RedisCommandStore,
+    RedisGameStateStore,
+    RedisPromptStore,
+    RedisRuntimeStateStore,
+    RedisStreamStore,
+)
 from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
+from apps.server.src.infra.redis_client import RedisConnection, RedisConnectionSettings
+from apps.server.tests.test_redis_realtime_services import _FakeRedis
 
 
 def _seats() -> list[dict]:
@@ -132,6 +141,84 @@ class RestartPersistenceTests(unittest.TestCase):
                 self.assertEqual(kept_count, 2)
 
             asyncio.run(_check())
+
+    def test_redis_restart_recovers_stream_status_checkpoint_and_commands(self) -> None:
+        connection = RedisConnection(
+            RedisConnectionSettings(url="redis://127.0.0.1:6379/10", key_prefix="mrn-restart", socket_timeout_ms=250),
+            client_factory=_FakeRedis,
+        )
+        game_state = RedisGameStateStore(connection)
+        command_store = RedisCommandStore(connection)
+
+        first_sessions = SessionService(restart_recovery_policy="keep")
+        first_streams = StreamService(
+            stream_backend=RedisStreamStore(connection),
+            game_state_store=game_state,
+            command_store=command_store,
+        )
+        first_prompts = PromptService(prompt_store=RedisPromptStore(connection), command_store=command_store)
+        session = first_sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 202},
+        )
+        first_sessions.start_session(session.session_id, session.host_token)
+
+        async def _seed() -> None:
+            await first_streams.publish(
+                session.session_id,
+                "event",
+                {
+                    "event_type": "turn_end_snapshot",
+                    "round_index": 1,
+                    "turn_index": 4,
+                    "snapshot": {"schema_version": 1, "turn": 4},
+                },
+            )
+            await first_streams.publish(
+                session.session_id,
+                "event",
+                {
+                    "event_type": "decision_resolved",
+                    "request_id": "req_restart_ai",
+                    "request_type": "movement",
+                    "resolution": "accepted",
+                    "choice_id": "roll",
+                    "provider": "ai",
+                    "player_id": 1,
+                },
+            )
+
+        asyncio.run(_seed())
+
+        second_streams = StreamService(
+            stream_backend=RedisStreamStore(connection),
+            game_state_store=game_state,
+            command_store=command_store,
+        )
+        second_runtime = RuntimeService(
+            session_service=first_sessions,
+            stream_service=second_streams,
+            prompt_service=first_prompts,
+            runtime_state_store=RedisRuntimeStateStore(connection),
+            game_state_store=game_state,
+        )
+
+        async def _verify() -> None:
+            self.assertEqual(await second_streams.latest_seq(session.session_id), 2)
+            replay = await second_streams.replay_from(session.session_id, 0)
+            self.assertEqual([item.seq for item in replay], [1, 2])
+
+        asyncio.run(_verify())
+        status = second_runtime.runtime_status(session.session_id)
+        commands = command_store.list_commands(session.session_id)
+
+        self.assertEqual(status["status"], "recovery_required")
+        self.assertTrue(status["recovery_checkpoint"]["available"])
+        self.assertEqual(status["recovery_checkpoint"]["checkpoint"]["turn_index"], 4)
+        self.assertEqual(commands[0]["payload"]["request_id"], "req_restart_ai")
 
 
 if __name__ == "__main__":

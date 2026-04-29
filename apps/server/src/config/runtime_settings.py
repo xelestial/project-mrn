@@ -40,6 +40,7 @@ class RuntimeSettings:
     game_log_archive_path: str = "data/game_logs"
     archive_hot_retention_seconds: int = 300
     prompt_timeout_worker_poll_interval_ms: int = 250
+    command_wakeup_worker_poll_interval_ms: int = 250
 
 
 def load_runtime_settings() -> RuntimeSettings:
@@ -62,4 +63,5 @@ def load_runtime_settings() -> RuntimeSettings:
         game_log_archive_path=_env_str("MRN_GAME_LOG_ARCHIVE_PATH", "data/game_logs"),
         archive_hot_retention_seconds=_env_int("MRN_ARCHIVE_HOT_RETENTION_SECONDS", 300, 0),
         prompt_timeout_worker_poll_interval_ms=_env_int("MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS", 250, 50),
+        command_wakeup_worker_poll_interval_ms=_env_int("MRN_COMMAND_WAKEUP_WORKER_POLL_INTERVAL_MS", 250, 50),
     )

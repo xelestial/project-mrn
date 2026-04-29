@@ -39,6 +39,7 @@ class RuntimeService:
         watchdog_timeout_ms: int = 45000,
         decision_client_factory=None,
         runtime_state_store=None,
+        game_state_store=None,
     ) -> None:
         self._session_service = session_service
         self._stream_service = stream_service
@@ -53,6 +54,7 @@ class RuntimeService:
         self._watchdog_timeout_ms = int(watchdog_timeout_ms)
         self._session_finished_callbacks: list = []
         self._runtime_state_store = runtime_state_store
+        self._game_state_store = game_state_store
         self._worker_id = f"runtime_{uuid.uuid4().hex[:12]}"
         self._lease_ttl_ms = max(5000, self._watchdog_timeout_ms * 2)
         self._initialize_recovery_state()
@@ -120,7 +122,27 @@ class RuntimeService:
             self._status[session_id] = dict(base)
             self._persist_runtime_state(session_id)
         base["recent_fallbacks"] = self._recent_fallbacks(session_id)
+        recovery = self.recovery_checkpoint(session_id)
+        if recovery.get("available"):
+            base["recovery_checkpoint"] = recovery
         return base
+
+    def recovery_checkpoint(self, session_id: str) -> dict:
+        if self._game_state_store is None:
+            return {"available": False, "reason": "game_state_store_unavailable"}
+        checkpoint = self._game_state_store.load_checkpoint(session_id)
+        current_state = self._game_state_store.load_current_state(session_id)
+        view_state = self._game_state_store.load_view_state(session_id)
+        if not isinstance(checkpoint, dict):
+            return {"available": False, "reason": "checkpoint_missing"}
+        if not isinstance(current_state, dict):
+            return {"available": False, "reason": "current_state_missing", "checkpoint": checkpoint}
+        return {
+            "available": True,
+            "checkpoint": checkpoint,
+            "current_state": current_state,
+            "view_state": view_state if isinstance(view_state, dict) else {},
+        }
 
     async def execute_prompt_fallback(
         self,

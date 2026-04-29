@@ -10,6 +10,7 @@ from apps.server.src.services.persistence import (
     RedisSessionStore,
 )
 from apps.server.src.services.archive_service import LocalJsonArchiveService
+from apps.server.src.services.command_wakeup_worker import CommandStreamWakeupWorker
 from apps.server.src.services.prompt_service import PromptService
 from apps.server.src.services.realtime_persistence import (
     RedisCommandStore,
@@ -95,11 +96,22 @@ runtime_service = RuntimeService(
     prompt_service=prompt_service,
     watchdog_timeout_ms=runtime_settings.runtime_watchdog_timeout_ms,
     runtime_state_store=runtime_state_store,
+    game_state_store=game_state_store,
 )
 prompt_timeout_worker = PromptTimeoutWorker(
     prompt_service=prompt_service,
     runtime_service=runtime_service,
     stream_service=stream_service,
+)
+command_wakeup_worker = (
+    CommandStreamWakeupWorker(
+        command_store=command_store,
+        session_service=session_service,
+        runtime_service=runtime_service,
+        poll_interval_ms=runtime_settings.command_wakeup_worker_poll_interval_ms,
+    )
+    if command_store is not None
+    else None
 )
 room_service = RoomService(
     session_service=session_service,
