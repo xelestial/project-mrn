@@ -7,9 +7,16 @@ Update 0.7.48: landing effects for F/S/MALICIOUS/unowned/own-tile landings are n
 
 - v0.7.49: added handlers for `fortune.card.apply`, `fortune.movement.resolve`, and `game.end.evaluate`.
 
+## 2026-04-29 fortune action producer note
+- The default fortune draw handler now calls `GameEngine._produce_fortune_card_actions()` so built-in movement fortune cards produce queued follow-up actions instead of resolving target movement inline.
+- `fortune.card.apply` and `fortune.movement.resolve` remain available for direct compatibility hooks, but the built-in fortune-tile path uses the action producer so Redis checkpoints can resume between fortune draw, queued movement, and arrival.
+- Custom integrations that need queued movement should use `fortune.card.produce` and return `QUEUE_TARGET_MOVE`; the engine converts that producer result into a serializable action envelope.
+- Backward takeover fortune cards are split into queued movement plus a separate ownership-resolution action.
+
 
 ## 0.7.57 purchase-time token placement
 - `handle_purchase_attempt` places at most 1 hand coin on the purchased tile when first-purchase placement is enabled.
+- Purchase decision logic now delegates to `GameEngine._resolve_purchase_tile_decision()` so queued `request_purchase_tile` actions and legacy landing purchase handlers share one mutation path.
 - takeover keeps placed coins with the tile.
 - force sale returns placed coins to the original owner hand.
 

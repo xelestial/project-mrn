@@ -5,9 +5,12 @@
 ## 2026-04-29 Redis checkpoint note
 - `GameState.to_checkpoint_payload()` exports the canonical deterministic engine state for Redis storage.
 - `GameState.from_checkpoint_payload(config, payload)` rebuilds board, player, deck, discard, weather, active-card, round, and turn fields from that payload.
+- Board runtime state is part of the checkpoint, not a projection cache: each `TileState` serializes kind, block/zone metadata, purchase/rent values, owner, and score coins.
+- Card runtime state is part of the checkpoint: fortune, trick, and weather draw piles preserve order; discard piles preserve graveyard order; player trick hands preserve card identity and hidden-card identity.
 - Redis recovery uses this payload as the authoritative state shape; frontend view state remains a projection, not the source of truth.
 - Prompt continuation metadata is part of the canonical checkpoint: `prompt_sequence`, `pending_prompt_request_id`, `pending_prompt_type`, `pending_prompt_player_id`, and `pending_prompt_instance_id`.
 - Action continuation metadata is also checkpointed through `pending_actions`. Each entry is a serializable `ActionEnvelope`, not a Python callable, so later Redis recovery can resume queued movement/arrival steps without depending on process memory.
+- Scheduled continuation metadata is checkpointed through `scheduled_actions`. These are also `ActionEnvelope` records, but they include a target player and phase such as `turn_start`; the engine materializes matching scheduled actions into `pending_actions` when that player/phase becomes current.
 - `pending_action_log` carries the in-progress turn-log aggregate while movement and arrival are split across multiple queued actions.
 - `pending_turn_completion` carries the small deferred turn-finalization envelope while normal turn movement is split into queued `apply_move -> resolve_arrival` transitions. Redis recovery uses it to emit the turn-end snapshot and advance the turn cursor only after queued movement work is finished.
 

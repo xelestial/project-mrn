@@ -201,16 +201,16 @@ game:{session_id}:state
 
 This value is a versioned JSON snapshot of the full deterministic engine state:
 
-- players
-- tiles
-- deck/draw/discard piles
-- active characters
-- weather
-- turn/round/marker/f-value
-- pending marks/effects
+- players: position, cash, shards, owned counts, hand coins, revealed/drafted/active character state, per-turn flags, marks, burden/trick state, and private hand state
+- board/tile runtime state: tile kind, block/zone metadata, purchase/rent values, owner, score coins, temporary tile rent modifiers, purchase blocks, pawn positions derived from players
+- card state: fortune, trick, and weather draw-pile order; discard/graveyard order; current weather; per-player trick hands and hidden trick identity
+- active characters and active card faces
+- turn/round/marker/f-value and shared resource pools
+- pending marks/effects, queued actions, scheduled actions, pending turn-completion envelopes, and in-progress action logs
 - current prompt/interrupt state
-- RNG state
 - schema_version
+
+Do not treat board status or card piles as backend memory caches. The backend may project them into `view_state`, but the authoritative owner/tile/card order must be recoverable from `game:{session_id}:state`.
 
 The engine can keep a local object only while applying one transition. After every accepted transition it must:
 
@@ -729,14 +729,19 @@ Implemented seed:
 - `pending_action_log` checkpoints the in-progress movement summary while `apply_move` and `resolve_arrival` are split across transitions. Final arrival emits a legacy-compatible `turn` log row for the covered standard-move path.
 - Queued `apply_move` uses a separate `action_move` visual event when it emits movement. `player_move` stays reserved for the ordinary dice-paired turn movement, while backend `view_state` board/reveal/turn/scene selectors treat `action_move` as movement for projection.
 - Normal turn movement now enters the same queued movement boundary: `_take_turn()` resolves the movement source and schedules `apply_move -> resolve_arrival`, then `pending_turn_completion` emits the turn-end snapshot and advances the turn cursor only after the queued actions finish. The external visual contract remains `dice_roll -> player_move -> landing_resolved -> turn_end_snapshot`.
-- Runtime recovery checkpoints expose `pending_action_count`, `has_pending_actions`, and `has_pending_turn_completion`, while the canonical `current_state` stores the full action and turn-completion envelopes.
+- Turn-start mark effects now have the first scheduled-action implementation. `scheduled_actions` stores target/phase/priority `ActionEnvelope` records; target-player `turn_start` actions are materialized into `pending_actions` before that player's normal turn begins.
+- `resolve_mark` is now an action handler. Immediate mark effects mutate state atomically inside the action, while hunter pull enqueues `apply_move -> resolve_arrival` follow-up actions.
+- Built-in movement fortune cards now act as action producers on the fortune-tile path. They resolve the card draw immediately, then enqueue `apply_move` with `schedule_arrival` according to the card effect; global/non-movement effects still mutate immediately inside the fortune handler.
+- Custom fortune producers can register `fortune.card.produce` and return a `QUEUE_TARGET_MOVE` contract; the engine maps that hook result into the same queued movement primitive.
+- Backward takeover fortune cards now enqueue movement first and then `resolve_fortune_takeover_backward`, separating position changes from ownership mutation.
+- Decision-bearing effects are starting to become actions too. `request_purchase_tile` runs purchase decision/mutation through the action iterator; if the decision bridge raises a prompt boundary, the action is put back at the front of `pending_actions` so replay after Redis recovery resumes the same purchase request rather than skipping or duplicating it. State mutations that are part of the purchase, including one-shot free-purchase flags, must happen only after a decision is returned.
+- Runtime recovery checkpoints expose `pending_action_count`, `scheduled_action_count`, `has_pending_actions`, `has_scheduled_actions`, and `has_pending_turn_completion`, while the canonical `current_state` stores the full action, scheduled-action, and turn-completion envelopes.
 - Direct fortune/forced-move callers still execute inline for compatibility until their call sites are migrated to enqueue actions.
 
 Next action-pipeline hardening:
 
-- split mark-start forced movement into a resumable subphase so hunter pulls can queue movement and then resume the same actor's turn safely
-- migrate fortune movement cards from immediate target movement to queued target movement once their result contract can represent `queued_action_id`
 - let all remaining landing effects enqueue follow-up movement actions instead of nested immediate calls
+- migrate unowned-tile landing purchase to enqueue `request_purchase_tile` directly, then use the same prompt-resumable pattern for other human decisions
 
 ## Testing Strategy
 

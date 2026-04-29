@@ -5,6 +5,8 @@ import random
 from ai_policy import HeuristicPolicy
 from config import CellKind, GameConfig
 from engine import GameEngine
+from fortune_cards import build_fortune_deck
+from policy.environment_traits import FORTUNE_CUT_IN_LINE_ID, FORTUNE_SHORT_TRIP_ID, FORTUNE_TAKEOVER_BACK_2_ID, fortune_card_id_for_name
 from state import ActionEnvelope, GameState
 from viewer.stream import VisEventStream
 
@@ -42,6 +44,10 @@ def _assert_core_move_state_matches(action_state: GameState, legacy_state: GameS
 
 def _last_turn_log(engine: GameEngine) -> dict:
     return next(row for row in reversed(engine._action_log) if row.get("event") == "turn")
+
+
+def _fortune_card_by_id(card_id: int):
+    return next(card for card in build_fortune_deck() if fortune_card_id_for_name(card.name) == card_id)
 
 
 def test_engine_run_accepts_hydrated_checkpoint_state() -> None:
@@ -122,6 +128,238 @@ def test_engine_next_transition_drains_one_pending_action_before_turn() -> None:
     assert state.turn_index == before_turn
     assert state.f_value > before_f
     assert state.pending_actions == []
+
+
+def test_scheduled_turn_start_mark_materializes_before_target_turn() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(12))
+    state = engine.prepare_run()
+    source = state.players[0]
+    target = state.players[1]
+    state.current_round_order = [target.player_id, source.player_id]
+    state.turn_index = 0
+    source.shards = 3
+    target.cash = 10
+    mark = {"type": "bandit_tax", "source_pid": source.player_id}
+    target.pending_marks.append(mark)
+    engine._schedule_action(
+        state,
+        "resolve_mark",
+        source,
+        "mark:bandit_tax",
+        {"mark": dict(mark), "target_player_id": target.player_id},
+        target_player_id=target.player_id,
+        phase="turn_start",
+        priority=10,
+    )
+
+    step = engine.run_next_transition(state)
+
+    assert step["action_type"] == "resolve_mark"
+    assert target.cash == 7
+    assert target.pending_marks == []
+    assert state.turn_index == 0
+    assert state.pending_actions == []
+    assert state.scheduled_actions == []
+    assert target.turns_taken == 0
+
+
+def test_scheduled_hunter_mark_queues_move_before_target_turn() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(13))
+    state = engine.prepare_run()
+    source = state.players[0]
+    target = state.players[1]
+    state.current_round_order = [target.player_id, source.player_id]
+    state.turn_index = 0
+    source.position = 8
+    target.position = 2
+    mark = {"type": "hunter_pull", "source_pid": source.player_id, "source_pos": source.position}
+    target.pending_marks.append(mark)
+    engine._schedule_action(
+        state,
+        "resolve_mark",
+        source,
+        "mark:hunter_pull",
+        {"mark": dict(mark), "target_player_id": target.player_id},
+        target_player_id=target.player_id,
+        phase="turn_start",
+        priority=10,
+    )
+
+    first = engine.run_next_transition(state)
+
+    assert first["action_type"] == "resolve_mark"
+    assert target.position == 2
+    assert target.pending_marks == []
+    assert len(state.pending_actions) == 1
+    assert state.pending_actions[0].type == "apply_move"
+    assert state.pending_actions[0].source == "forced_move"
+
+    second = engine.run_next_transition(state)
+
+    assert second["action_type"] == "apply_move"
+    assert target.position == source.position
+    assert len(state.pending_actions) == 1
+    assert state.pending_actions[0].type == "resolve_arrival"
+    assert target.turns_taken == 0
+
+
+def test_fortune_arrival_card_produces_followup_move_action() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(14))
+    state = engine.prepare_run()
+    player = state.players[0]
+    other = state.players[1]
+    player.position = 2
+    other.position = 9
+    state.fortune_draw_pile = [_fortune_card_by_id(FORTUNE_SHORT_TRIP_ID)]
+
+    result = engine._resolve_fortune_tile_single(state, player)
+
+    assert result["resolution"]["type"] == "QUEUED_ARRIVAL"
+    assert result["resolution"]["target_pos"] == other.position
+    assert player.position == 2
+    assert len(state.pending_actions) == 1
+    assert state.pending_actions[0].type == "apply_move"
+    assert state.pending_actions[0].payload["schedule_arrival"] is True
+
+    first = engine.run_next_transition(state)
+
+    assert first["action_type"] == "apply_move"
+    assert player.position == other.position
+    assert len(state.pending_actions) == 1
+    assert state.pending_actions[0].type == "resolve_arrival"
+
+
+def test_fortune_move_only_card_produces_move_without_arrival_action() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(15))
+    state = engine.prepare_run()
+    player = state.players[0]
+    other = state.players[1]
+    player.position = 2
+    other.position = 9
+    before_f = state.f_value
+    state.fortune_draw_pile = [_fortune_card_by_id(FORTUNE_CUT_IN_LINE_ID)]
+
+    result = engine._resolve_fortune_tile_single(state, player)
+
+    assert result["resolution"]["type"] == "QUEUED_MOVE_ONLY"
+    assert player.position == 2
+    assert len(state.pending_actions) == 1
+    assert state.pending_actions[0].payload["schedule_arrival"] is False
+
+    first = engine.run_next_transition(state)
+
+    assert first["action_type"] == "apply_move"
+    assert player.position == other.position
+    assert state.pending_actions == []
+    assert state.f_value == before_f
+
+
+def test_fortune_takeover_backward_produces_move_then_takeover_actions() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(16))
+    state = engine.prepare_run()
+    player = state.players[0]
+    owner = state.players[1]
+    target_pos = state.first_tile_position(kinds=[CellKind.T3])
+    player.position = (target_pos + 2) % len(state.board)
+    owner.tiles_owned = 1
+    state.tile_owner[target_pos] = owner.player_id
+    state.fortune_draw_pile = [_fortune_card_by_id(FORTUNE_TAKEOVER_BACK_2_ID)]
+    start_pos = player.position
+
+    result = engine._resolve_fortune_tile_single(state, player)
+
+    assert result["resolution"]["type"] == "QUEUED_TAKEOVER_BACKWARD"
+    assert player.position == start_pos
+    assert len(state.pending_actions) == 2
+    assert [action.type for action in state.pending_actions] == ["apply_move", "resolve_fortune_takeover_backward"]
+
+    first = engine.run_next_transition(state)
+    second = engine.run_next_transition(state)
+
+    assert first["action_type"] == "apply_move"
+    assert second["action_type"] == "resolve_fortune_takeover_backward"
+    assert player.position == target_pos
+    assert state.tile_owner[target_pos] == player.player_id
+    assert player.tiles_owned == 1
+    assert owner.tiles_owned == 0
+
+
+def test_prompt_action_remains_queued_when_decision_waits() -> None:
+    class WaitingDecisionPort:
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name == "choose_draft_card":
+                return request.args[0][0]
+            if request.decision_name == "choose_final_character":
+                return request.state.active_by_card[request.args[0][0]]
+            raise RuntimeError("prompt_required_for_test")
+
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=WaitingDecisionPort(), rng=random.Random(17))
+    state = engine.prepare_run()
+    player = state.players[0]
+    tile_index = state.first_tile_position(kinds=[CellKind.T2])
+    player.free_purchase_this_turn = True
+    state.pending_actions = [
+        ActionEnvelope(
+            action_id="purchase_wait",
+            type="request_purchase_tile",
+            actor_player_id=player.player_id,
+            source="test_purchase",
+            payload={"tile_index": tile_index, "purchase_source": "test_purchase"},
+        )
+    ]
+
+    try:
+        engine.run_next_transition(state)
+    except RuntimeError as exc:
+        assert str(exc) == "prompt_required_for_test"
+    else:
+        raise AssertionError("purchase prompt should have interrupted the transition")
+
+    assert len(state.pending_actions) == 1
+    assert state.pending_actions[0].action_id == "purchase_wait"
+    assert state.tile_owner[tile_index] is None
+    assert player.free_purchase_this_turn is True
+
+
+def test_request_purchase_tile_action_can_resume_and_purchase() -> None:
+    class YesDecisionPort:
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name == "choose_draft_card":
+                return request.args[0][0]
+            if request.decision_name == "choose_final_character":
+                return request.state.active_by_card[request.args[0][0]]
+            return True
+
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=YesDecisionPort(), rng=random.Random(18))
+    state = engine.prepare_run()
+    player = state.players[0]
+    tile_index = state.first_tile_position(kinds=[CellKind.T2])
+    starting_cash = player.cash
+    cost = state.config.rules.economy.purchase_cost_for(state, tile_index)
+    state.pending_actions = [
+        ActionEnvelope(
+            action_id="purchase_resume",
+            type="request_purchase_tile",
+            actor_player_id=player.player_id,
+            source="test_purchase",
+            payload={"tile_index": tile_index, "purchase_source": "test_purchase"},
+        )
+    ]
+
+    step = engine.run_next_transition(state)
+
+    assert step["action_type"] == "request_purchase_tile"
+    assert state.pending_actions == []
+    assert state.tile_owner[tile_index] == player.player_id
+    assert player.cash == starting_cash - cost
+    assert player.tiles_owned == 1
 
 
 def test_engine_queued_step_move_separates_lap_reward_from_arrival() -> None:

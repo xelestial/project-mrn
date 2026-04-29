@@ -96,6 +96,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
                 "schema_version": 1,
                 "turn_index": 3,
                 "pending_actions": [{"action_id": "a1", "type": "apply_move"}],
+                "scheduled_actions": [{"action_id": "s1", "type": "resolve_mark"}],
                 "pending_turn_completion": {"player_id": 1},
             },
             checkpoint={
@@ -105,7 +106,9 @@ class RedisRealtimeServicesTests(unittest.TestCase):
                 "turn_index": 3,
                 "has_snapshot": True,
                 "pending_action_count": 1,
+                "scheduled_action_count": 1,
                 "has_pending_actions": True,
+                "has_scheduled_actions": True,
                 "has_pending_turn_completion": True,
             },
             view_state={"board": {"turn": 3}},
@@ -115,8 +118,10 @@ class RedisRealtimeServicesTests(unittest.TestCase):
 
         self.assertEqual(game_state.load_current_state("s-commit")["turn_index"], 3)
         self.assertEqual(game_state.load_current_state("s-commit")["pending_actions"][0]["action_id"], "a1")
+        self.assertEqual(game_state.load_current_state("s-commit")["scheduled_actions"][0]["action_id"], "s1")
         self.assertEqual(game_state.load_checkpoint("s-commit")["latest_event_type"], "engine_transition")
         self.assertTrue(game_state.load_checkpoint("s-commit")["has_pending_actions"])
+        self.assertTrue(game_state.load_checkpoint("s-commit")["has_scheduled_actions"])
         self.assertTrue(game_state.load_checkpoint("s-commit")["has_pending_turn_completion"])
         self.assertEqual(game_state.load_view_state("s-commit")["board"]["turn"], 3)
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", "s-commit"), 9)
@@ -427,6 +432,75 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(saved_state["pending_actions"], [])
         self.assertFalse(saved_checkpoint["has_pending_actions"])
         self.assertEqual(saved_checkpoint["pending_action_count"], 0)
+
+    def test_runtime_recovery_materializes_scheduled_turn_start_action_from_checkpoint(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        from state import ActionEnvelope, GameState
+
+        sessions = SessionService()
+        game_state = RedisGameStateStore(self.connection)
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = RuntimeService(
+            session_service=sessions,
+            stream_service=StreamService(stream_backend=RedisStreamStore(self.connection), game_state_store=game_state),
+            prompt_service=PromptService(prompt_store=RedisPromptStore(self.connection)),
+            runtime_state_store=RedisRuntimeStateStore(self.connection),
+            game_state_store=game_state,
+        )
+        config = runtime._config_factory.create(session.resolved_parameters)
+        state = GameState.create(config)
+        state.current_round_order = [1, 0]
+        state.turn_index = 0
+        state.players[0].shards = 4
+        state.players[1].cash = 12
+        mark = {"type": "bandit_tax", "source_pid": 0}
+        state.players[1].pending_marks.append(mark)
+        state.scheduled_actions = [
+            ActionEnvelope(
+                action_id="scheduled_mark_1",
+                type="resolve_mark",
+                actor_player_id=0,
+                source="mark:bandit_tax",
+                target_player_id=1,
+                phase="turn_start",
+                priority=10,
+                payload={"mark": dict(mark), "target_player_id": 1},
+            )
+        ]
+        game_state.save_current_state(session.session_id, state.to_checkpoint_payload())
+        game_state.save_checkpoint(
+            session.session_id,
+            {
+                "schema_version": 1,
+                "session_id": session.session_id,
+                "latest_seq": 1,
+                "latest_event_type": "engine_transition",
+                "round_index": 1,
+                "turn_index": 0,
+                "has_snapshot": True,
+                "scheduled_action_count": 1,
+                "has_scheduled_actions": True,
+                "updated_at_ms": 1000,
+            },
+        )
+
+        step = runtime._run_engine_transition_once_for_recovery(session.session_id, seed=42)
+        saved_state = game_state.load_current_state(session.session_id)
+        saved_checkpoint = game_state.load_checkpoint(session.session_id)
+
+        self.assertEqual(step["action_type"], "resolve_mark")
+        self.assertEqual(saved_state["players"][1]["cash"], 8)
+        self.assertEqual(saved_state["players"][1]["pending_marks"], [])
+        self.assertEqual(saved_state["scheduled_actions"], [])
+        self.assertEqual(saved_checkpoint["scheduled_action_count"], 0)
+        self.assertFalse(saved_checkpoint["has_scheduled_actions"])
 
     def test_runtime_process_command_once_commits_state_and_command_offset(self) -> None:
         RuntimeService._ensure_gpt_import_path()

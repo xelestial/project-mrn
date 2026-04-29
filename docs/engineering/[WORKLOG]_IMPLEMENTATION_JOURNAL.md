@@ -31,19 +31,44 @@ Updated: 2026-04-15
   - added `pending_turn_completion` checkpoint state so turn-end snapshot emission, control-finisher bookkeeping, end checks, and turn/round cursor advancement happen only after queued movement actions finish
   - extended runtime checkpoint metadata with pending-action and pending-turn-completion flags
   - added Redis recovery coverage proving a hydrated pending `apply_move` action is drained and persisted after service reconstruction
-  - clarified that fortune/forced target movement still needs a resumable result contract/resume phase before those inline call sites can be safely migrated
+  - added `scheduled_actions` checkpoint state for phase-targeted actions
+  - materialized target-player `turn_start` scheduled actions into `pending_actions` before normal turn execution
+  - moved queued mark delivery onto `resolve_mark` scheduled actions
+  - kept immediate mark effects atomic inside `resolve_mark`, while hunter pull now generates follow-up `apply_move -> resolve_arrival` actions when resolved through the scheduled-action path
+  - extended Redis recovery metadata and tests for scheduled action materialization after service reconstruction
+  - migrated built-in movement fortune cards on the fortune-tile path into action producers that enqueue `apply_move` follow-ups
+  - preserved direct fortune movement helpers as immediate compatibility paths for existing tests and extension hooks
+  - added `fortune.card.produce` custom producer hook support for queued target movement
+  - split backward takeover fortune cards into queued movement plus `resolve_fortune_takeover_backward`
+  - added `request_purchase_tile` as the first decision-bearing queued action
+  - extracted purchase decision/mutation into one engine helper shared by legacy landing purchases and queued purchase actions
+  - made queued action execution reinsert the current action when a prompt/interruption is raised, preserving the retry point for Redis recovery
+  - delayed purchase-only free-flag consumption until after purchase decision return, so prompt interruption does not mutate replay state
+  - clarified the Redis canonical-state plan so board runtime state, tile ownership, score coins, purchase/rent metadata, card draw-pile order, discard/graveyard order, player trick hands, and hidden-card identity are explicitly Redis-owned rather than backend-memory-owned
+  - tightened checkpoint serialization coverage for fortune/trick/weather draw and discard pile order plus tile purchase/rent metadata
 - Validation:
   - `./.venv/bin/python -m pytest GPT/test_state_checkpoint_serialization.py GPT/test_rule_fixes.py::RuleFixTests::test_suspicious_drink_uses_single_die GPT/test_rule_fixes.py::RuleFixTests::test_fortune_arrival_moves_then_resolves_landing_without_lap_credit GPT/test_rule_fixes.py::RuleFixTests::test_fortune_move_only_does_not_resolve_arrival GPT/test_event_effects.py::EventEffectIntegrationTests::test_fortune_movement_can_be_overridden`
   - `./.venv/bin/python -m pytest GPT/test_rule_fixes.py GPT/test_event_effects.py GPT/test_state_checkpoint_serialization.py`
   - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_state_checkpoint_serialization.py GPT/test_rule_fixes.py::RuleFixTests::test_fortune_arrival_moves_then_resolves_landing_without_lap_credit GPT/test_rule_fixes.py::RuleFixTests::test_fortune_move_only_does_not_resolve_arrival`
   - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py`
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_event_effects.py::EventEffectIntegrationTests::test_fortune_producer_hook_can_queue_target_move`
+  - `./.venv/bin/python -m pytest GPT`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py apps/server/tests/test_restart_persistence.py`
   - `./.venv/bin/python -m pytest GPT`
   - `./.venv/bin/python -m pytest GPT/test_visual_runtime_substrate.py apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py`
   - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_visual_runtime_substrate.py apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py`
   - `./.venv/bin/python -m pytest GPT apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py`
   - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py GPT/test_engine_resumable_checkpoint.py GPT/test_state_checkpoint_serialization.py`
+  - `./.venv/bin/python -m pytest GPT/test_state_checkpoint_serialization.py GPT/test_engine_resumable_checkpoint.py apps/server/tests/test_redis_realtime_services.py`
+  - `./.venv/bin/python -m pytest GPT`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py apps/server/tests/test_restart_persistence.py`
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py`
+  - `./.venv/bin/python -m pytest GPT`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py apps/server/tests/test_restart_persistence.py`
   - `./.venv/bin/python -m pytest GPT`
   - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py apps/server/tests/test_restart_persistence.py apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py`
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_event_effects.py GPT/test_rule_fixes.py -k 'purchase or fortune_producer or scheduled or hunter or prompt_action'`
+  - `./.venv/bin/python -m pytest GPT/test_state_checkpoint_serialization.py`
 - Validation failure and lesson:
   - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_visual_runtime_substrate.py apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py` initially failed in the new action-move visual test.
   - Cause: the test assumed the stream was empty after `prepare_run()`, but the engine correctly emits setup events such as `session_start`, `round_start`, and draft events before the queued move.
@@ -51,7 +76,6 @@ Updated: 2026-04-15
   - `./.venv/bin/python -m pytest GPT` initially failed after `pending_turn_completion` because module docs were older than `engine.py`/`state.py`.
   - Lesson: checkpoint-shape changes must update the paired module docs in the same slice, not after the broad test run.
 - Next:
-  - design the resumable mark-start/fortune-result subphase before migrating forced and fortune target-movement call sites
   - keep expanding Redis recovery tests around prompt + pending action combinations
 
 ## 2026-04-26

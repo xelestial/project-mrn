@@ -367,6 +367,8 @@ class GameEngine:
                 return {"status": "finished", "reason": "empty_round_order"}
         current_pid = state.current_round_order[state.turn_index % len(state.current_round_order)]
         player = state.players[current_pid]
+        if self._materialize_scheduled_actions(state, phase="turn_start", player_id=current_pid):
+            return self._run_next_action_transition(state)
         if player.alive:
             player.turns_taken += 1
             self._take_turn(state, player)
@@ -679,6 +681,51 @@ class GameEngine:
             payload=dict(payload),
         )
 
+    def _schedule_action(
+        self,
+        state: GameState,
+        action_type: str,
+        actor: PlayerState,
+        source: str,
+        payload: dict,
+        *,
+        target_player_id: int,
+        phase: str,
+        priority: int = 100,
+        idempotency_key: str = "",
+        parent_action_id: str = "",
+    ) -> ActionEnvelope:
+        action = ActionEnvelope(
+            action_id=self._next_action_id(state, action_type),
+            type=action_type,
+            actor_player_id=actor.player_id,
+            source=source,
+            target_player_id=target_player_id,
+            phase=phase,
+            priority=priority,
+            parent_action_id=parent_action_id,
+            idempotency_key=idempotency_key,
+            payload=dict(payload),
+        )
+        state.scheduled_actions.append(action)
+        state.scheduled_actions.sort(key=lambda item: (item.phase, item.target_player_id if item.target_player_id is not None else -1, item.priority, item.action_id))
+        return action
+
+    def _materialize_scheduled_actions(self, state: GameState, *, phase: str, player_id: int) -> bool:
+        matched: list[ActionEnvelope] = []
+        remaining: list[ActionEnvelope] = []
+        for action in state.scheduled_actions:
+            if action.phase == phase and action.target_player_id == player_id:
+                matched.append(action)
+            else:
+                remaining.append(action)
+        if not matched:
+            return False
+        matched.sort(key=lambda item: (item.priority, item.action_id))
+        state.scheduled_actions = remaining
+        state.pending_actions.extend(matched)
+        return True
+
     def _resolve_arrival_action(self, state: GameState, action: ActionEnvelope, *, queue_followups: bool = False) -> dict:
         player = state.players[action.actor_player_id]
         payload = action.payload
@@ -724,7 +771,11 @@ class GameEngine:
 
     def _run_next_action_transition(self, state: GameState) -> dict[str, Any]:
         action = state.pending_actions.pop(0)
-        result = self._execute_action(state, action, queue_followups=True)
+        try:
+            result = self._execute_action(state, action, queue_followups=True)
+        except Exception:
+            state.pending_actions.insert(0, action)
+            raise
         self._log(
             {
                 "event": "action_transition",
@@ -936,6 +987,12 @@ class GameEngine:
             return self._apply_move_action(state, action, queue_followups=queue_followups)
         if action.type == "resolve_arrival":
             return self._resolve_arrival_action(state, action, queue_followups=queue_followups)
+        if action.type == "resolve_mark":
+            return self._resolve_mark_action(state, action, queue_followups=queue_followups)
+        if action.type == "resolve_fortune_takeover_backward":
+            return self._resolve_fortune_takeover_backward_action(state, action)
+        if action.type == "request_purchase_tile":
+            return self._request_purchase_tile_action(state, action)
         raise ValueError(f"Unsupported action type: {action.type}")
 
     def _apply_target_move(
@@ -1065,6 +1122,117 @@ class GameEngine:
         }
         self._log(event)
         return landing
+
+    def _request_purchase_tile_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        player = state.players[action.actor_player_id]
+        payload = action.payload
+        pos = int(payload["tile_index"])
+        cell = state.board[pos]
+        source = str(payload.get("purchase_source") or "action_purchase")
+        return self._resolve_purchase_tile_decision(state, player, pos, cell, source=source)
+
+    def _resolve_purchase_tile_decision(self, state: GameState, player: PlayerState, pos: int, cell: CellKind, *, source: str) -> dict:
+        if len(self._strategy_stats) <= player.player_id:
+            self._strategy_stats = [
+                {
+                    "purchases": 0, "purchase_t2": 0, "purchase_t3": 0,
+                    "rent_paid": 0, "own_tile_visits": 0,
+                    "f1_visits": 0, "f2_visits": 0, "s_visits": 0,
+                    "s_cash_plus1": 0, "s_cash_plus2": 0, "s_cash_minus1": 0,
+                    "malicious_visits": 0, "bankruptcies": 0,
+                    "cards_used": 0, "card_turns": 0, "single_card_turns": 0, "pair_card_turns": 0,
+                    "lap_cash_choices": 0, "lap_coin_choices": 0, "lap_shard_choices": 0,
+                    "coins_gained_own_tile": 0, "coins_placed": 0,
+                    "mark_attempts": 0, "mark_successes": 0,
+                    "mark_fail_no_target": 0, "mark_fail_missing": 0, "mark_fail_blocked": 0,
+                    "character": "", "shards_gained_f": 0, "shards_gained_lap": 0, "shard_income_cash": 0,
+                    "draft_cards": [], "marked_target_names": [],
+                }
+                for _ in range(state.config.player_count)
+            ]
+        stats = self._strategy_stats[player.player_id]
+        if state.tile_purchase_blocked_turn_index.get(pos) == state.turn_index:
+            return {"type": "PURCHASE_BLOCKED_THIS_TURN", "tile_kind": cell.name}
+        builder_free_purchase = is_builder(player.current_character)
+        consumes_free_purchase = player.free_purchase_this_turn or player.trick_free_purchase_this_turn
+        cost = 0 if (consumes_free_purchase or builder_free_purchase) else state.config.rules.economy.purchase_cost_for(state, pos)
+        shard_cost = 0
+        if player.cash < cost:
+            return {"type": "PURCHASE_FAIL", "tile_kind": cell.name, "cost": cost, "shard_cost": shard_cost, "bankrupt": False, "skipped": True}
+        wants_purchase = self._request_decision(
+            "choose_purchase_tile",
+            state,
+            player,
+            pos,
+            cell,
+            cost,
+            source=source,
+            fallback=lambda: True,
+        )
+        player.free_purchase_this_turn = False
+        player.trick_free_purchase_this_turn = False
+        purchase_debug = self.policy.pop_debug("purchase_decision", player.player_id) if hasattr(self.policy, "pop_debug") else None
+        if not wants_purchase:
+            self._record_ai_decision(
+                state,
+                player,
+                "purchase_decision",
+                purchase_debug,
+                result={"tile_index": pos, "purchased": False, "reason": "policy_skip", "cost": cost},
+                source_event=source,
+            )
+            return {"type": "PURCHASE_SKIP_POLICY", "tile_kind": cell.name, "cost": cost, "shard_cost": shard_cost, "bankrupt": False, "skipped": True}
+        stats["purchases"] += 1
+        if cell == CellKind.T2:
+            stats["purchase_t2"] += 1
+        elif cell == CellKind.T3:
+            stats["purchase_t3"] += 1
+        shards_before = player.shards
+        player.cash -= cost
+        if shard_cost > 0:
+            player.shards -= shard_cost
+        state.tile_owner[pos] = player.player_id
+        player.tiles_owned += 1
+        player.first_purchase_turn_by_tile[pos] = player.turns_taken
+        placed = None
+        if state.config.rules.token.can_place_on_first_purchase:
+            player.visited_owned_tile_indices.add(pos)
+            placed = self._place_hand_coins_on_tile(
+                state,
+                player,
+                pos,
+                max_place=state.config.rules.token.place_limit_on_purchase(state, player, pos),
+                source="purchase",
+            )
+        result = {
+            "type": "PURCHASE",
+            "tile_kind": cell.name,
+            "cost": cost,
+            "shard_cost": shard_cost,
+            "shards_before": shards_before,
+            "shards_after": player.shards,
+            "placed": placed,
+        }
+        self._record_ai_decision(
+            state,
+            player,
+            "purchase_decision",
+            purchase_debug,
+            result={"tile_index": pos, "purchased": True, "cost": cost, "placed": placed},
+            source_event=source,
+        )
+        self._emit_vis(
+            "tile_purchased",
+            Phase.ECONOMY,
+            player.player_id + 1,
+            state,
+            player_id=player.player_id + 1,
+            tile_index=pos,
+            cost=cost,
+            purchase_source=source,
+            result=result,
+        )
+        return result
 
     def _resolve_marker_flip(self, state: GameState) -> None:
         self.events.emit_first_non_none("marker.flip.resolve", state)
@@ -1569,26 +1737,79 @@ class GameEngine:
         for eff in player.pending_marks:
             if player.immune_to_marks_this_round:
                 continue
-            etype = eff["type"]
-            source = state.players[eff["source_pid"]]
-            if etype == "bandit_tax":
-                amount = source.shards
-                outcome = self._pay_or_bankrupt(state, player, amount, source.player_id)
-                self._strategy_stats[source.player_id]["shard_income_cash"] += amount if outcome.get("paid") else 0
-                self._log({"event": "bandit_tax", "source_player": source.player_id + 1, "target_player": player.player_id + 1, "amount": amount, **outcome})
-                self._emit_vis(
-                    "mark_resolved",
-                    Phase.MARK,
-                    source.player_id + 1,
+            result = self._resolve_mark_effect(state, player, eff, queue_followups=False)
+            if result.get("type") == "UNKNOWN_MARK":
+                remaining.append(eff)
+            if not player.alive:
+                remaining = []
+                break
+        player.pending_marks = remaining
+
+    def _remove_pending_mark(self, target: PlayerState, mark: dict) -> None:
+        for index, current in enumerate(list(target.pending_marks)):
+            if dict(current) == dict(mark):
+                del target.pending_marks[index]
+                return
+
+    def _resolve_mark_action(self, state: GameState, action: ActionEnvelope, *, queue_followups: bool = False) -> dict:
+        target_id = action.target_player_id if action.target_player_id is not None else int(action.payload.get("target_player_id", action.actor_player_id))
+        target = state.players[int(target_id)]
+        mark = dict(action.payload.get("mark") or {})
+        if target.immune_to_marks_this_round:
+            self._remove_pending_mark(target, mark)
+            return {"type": "MARK_SKIPPED", "reason": "immune_to_marks", "target_player_id": target.player_id + 1}
+        result = self._resolve_mark_effect(state, target, mark, queue_followups=queue_followups)
+        if result.get("type") != "UNKNOWN_MARK":
+            self._remove_pending_mark(target, mark)
+        return result
+
+    def _resolve_mark_effect(self, state: GameState, player: PlayerState, eff: dict, *, queue_followups: bool = False) -> dict:
+        etype = eff.get("type")
+        source = state.players[int(eff["source_pid"])]
+        if etype == "bandit_tax":
+            amount = source.shards
+            outcome = self._pay_or_bankrupt(state, player, amount, source.player_id)
+            self._strategy_stats[source.player_id]["shard_income_cash"] += amount if outcome.get("paid") else 0
+            result = {"type": "bandit_tax", "amount": amount, **outcome}
+            self._log({"event": "bandit_tax", "source_player": source.player_id + 1, "target_player": player.player_id + 1, "amount": amount, **outcome})
+            self._emit_vis(
+                "mark_resolved",
+                Phase.MARK,
+                source.player_id + 1,
+                state,
+                source_player_id=source.player_id + 1,
+                effect_type=etype,
+                target_player_id=player.player_id + 1,
+                success=True,
+                resolution={"amount": amount, **outcome},
+            )
+            return result
+        if etype == "hunter_pull":
+            if queue_followups:
+                old_pos = player.position
+                move_action = self._action(
                     state,
-                    source_player_id=source.player_id + 1,
-                    effect_type=etype,
-                    target_player_id=player.player_id + 1,
-                    success=True,
-                    resolution={"amount": amount, **outcome},
+                    "apply_move",
+                    player,
+                    "forced_move",
+                    {
+                        "target_pos": int(eff["source_pos"]),
+                        "lap_credit": False,
+                        "schedule_arrival": True,
+                        "emit_move_event": True,
+                        "move_event_type": "action_move",
+                        "trigger": "hunter_pull",
+                        "card_name": source.current_character,
+                    },
                 )
-            elif etype == "hunter_pull":
-                result = self._apply_forced_landing(state, player, eff["source_pos"])
+                state.pending_actions.insert(0, move_action)
+                result = {
+                    "type": "hunter_pull",
+                    "queued_action_id": move_action.action_id,
+                    "start_pos": old_pos,
+                    "target_pos": int(eff["source_pos"]),
+                    "no_lap_credit": True,
+                }
                 self._emit_vis(
                     "mark_resolved",
                     Phase.MARK,
@@ -1600,38 +1821,49 @@ class GameEngine:
                     success=True,
                     resolution=result,
                 )
-            elif etype == "baksu_transfer":
-                self._resolve_baksu_transfer(state, source, player)
-                self._emit_vis(
-                    "mark_resolved",
-                    Phase.MARK,
-                    source.player_id + 1,
-                    state,
-                    source_player_id=source.player_id + 1,
-                    effect_type=etype,
-                    target_player_id=player.player_id + 1,
-                    success=True,
-                    resolution={"type": "baksu_transfer"},
-                )
-            elif etype == "manshin_remove_burdens":
-                self._resolve_manshin_remove_burdens(state, source, player)
-                self._emit_vis(
-                    "mark_resolved",
-                    Phase.MARK,
-                    source.player_id + 1,
-                    state,
-                    source_player_id=source.player_id + 1,
-                    effect_type=etype,
-                    target_player_id=player.player_id + 1,
-                    success=True,
-                    resolution={"type": "manshin_remove_burdens"},
-                )
-            else:
-                remaining.append(eff)
-            if not player.alive:
-                remaining = []
-                break
-        player.pending_marks = remaining
+                return result
+            landing = self._apply_forced_landing(state, player, int(eff["source_pos"]))
+            self._emit_vis(
+                "mark_resolved",
+                Phase.MARK,
+                source.player_id + 1,
+                state,
+                source_player_id=source.player_id + 1,
+                effect_type=etype,
+                target_player_id=player.player_id + 1,
+                success=True,
+                resolution=landing,
+            )
+            return {"type": "hunter_pull", "landing": landing, "no_lap_credit": True}
+        if etype == "baksu_transfer":
+            self._resolve_baksu_transfer(state, source, player)
+            self._emit_vis(
+                "mark_resolved",
+                Phase.MARK,
+                source.player_id + 1,
+                state,
+                source_player_id=source.player_id + 1,
+                effect_type=etype,
+                target_player_id=player.player_id + 1,
+                success=True,
+                resolution={"type": "baksu_transfer"},
+            )
+            return {"type": "baksu_transfer"}
+        if etype == "manshin_remove_burdens":
+            self._resolve_manshin_remove_burdens(state, source, player)
+            self._emit_vis(
+                "mark_resolved",
+                Phase.MARK,
+                source.player_id + 1,
+                state,
+                source_player_id=source.player_id + 1,
+                effect_type=etype,
+                target_player_id=player.player_id + 1,
+                success=True,
+                resolution={"type": "manshin_remove_burdens"},
+            )
+            return {"type": "manshin_remove_burdens"}
+        return {"type": "UNKNOWN_MARK", "effect_type": etype}
 
     def _apply_character_start(self, state: GameState, player: PlayerState) -> None:
         char = player.current_character
@@ -2028,6 +2260,21 @@ class GameEngine:
         self._record_mark_attempt(source_pid, "success", state)
         mark = {"source_pid": source_pid, **payload}
         target_p.pending_marks.append(mark)
+        self._schedule_action(
+            state,
+            "resolve_mark",
+            source,
+            f"mark:{payload.get('type', 'unknown')}",
+            {
+                "mark": dict(mark),
+                "target_player_id": target_p.player_id,
+                "target_character": target_character,
+            },
+            target_player_id=target_p.player_id,
+            phase="turn_start",
+            priority=10,
+            idempotency_key=f"mark:{source_pid}:{target_p.player_id}:{payload.get('type', 'unknown')}:{len(target_p.pending_marks)}",
+        )
         self._strategy_stats[source_pid]["marked_target_names"].append(target_character)
         self._emit_vis(
             "mark_queued",
@@ -3207,6 +3454,87 @@ class GameEngine:
             "no_lap_credit": True,
         }
 
+    def _enqueue_fortune_target_move(
+        self,
+        state: GameState,
+        player: PlayerState,
+        target_pos: int,
+        *,
+        trigger: str,
+        card_name: str,
+        schedule_arrival: bool,
+        move: int | None = None,
+        formula: str = "",
+    ) -> dict:
+        old_pos = player.position
+        action = self._action(
+            state,
+            "apply_move",
+            player,
+            trigger,
+            {
+                "target_pos": target_pos,
+                "lap_credit": False,
+                "schedule_arrival": schedule_arrival,
+                "emit_move_event": True,
+                "move_event_type": "action_move",
+                "trigger": trigger,
+                "card_name": card_name,
+                "move": move,
+                "formula": formula,
+            },
+        )
+        state.pending_actions.append(action)
+        return {
+            "type": "QUEUED_ARRIVAL" if schedule_arrival else "QUEUED_MOVE_ONLY",
+            "trigger": trigger,
+            "card_name": card_name,
+            "start_pos": old_pos,
+            "target_pos": target_pos % len(state.board),
+            "queued_action_id": action.action_id,
+            "no_lap_credit": True,
+        }
+
+    def _enqueue_fortune_takeover_backward(self, state: GameState, player: PlayerState, steps: int, card_name: str) -> dict:
+        target_pos = (player.position - steps) % len(state.board)
+        move_action = self._action(
+            state,
+            "apply_move",
+            player,
+            "fortune_takeover_backward",
+            {
+                "target_pos": target_pos,
+                "lap_credit": False,
+                "schedule_arrival": False,
+                "emit_move_event": True,
+                "move_event_type": "action_move",
+                "trigger": "fortune_takeover_backward",
+                "card_name": card_name,
+                "move": -steps,
+                "formula": f"-{steps}",
+            },
+        )
+        takeover_action = self._action(
+            state,
+            "resolve_fortune_takeover_backward",
+            player,
+            "fortune_takeover_backward",
+            {
+                "card_name": card_name,
+                "steps": steps,
+            },
+        )
+        state.pending_actions.extend([move_action, takeover_action])
+        return {
+            "type": "QUEUED_TAKEOVER_BACKWARD",
+            "card_name": card_name,
+            "steps": steps,
+            "start_pos": player.position,
+            "target_pos": target_pos,
+            "queued_action_ids": [move_action.action_id, takeover_action.action_id],
+            "no_lap_credit": True,
+        }
+
     def _apply_fortune_move_only_impl(self, state: GameState, player: PlayerState, target_pos: int, trigger: str, card_name: str) -> dict:
         move = self._apply_target_move(
             state,
@@ -3236,6 +3564,34 @@ class GameEngine:
     def _apply_fortune_card(self, state: GameState, player: PlayerState, card: FortuneCard) -> dict:
         result = self.events.emit_first_non_none("fortune.card.apply", state, player, card)
         return result if result is not None else self._apply_fortune_card_impl(state, player, card)
+
+    def _produce_fortune_card_actions(self, state: GameState, player: PlayerState, card: FortuneCard) -> dict:
+        producer_result = self.events.emit_first_non_none("fortune.card.produce", state, player, card)
+        if producer_result is not None:
+            return self._apply_fortune_producer_result(state, player, card, producer_result)
+        return self._apply_fortune_card_impl(state, player, card, queue_followups=True)
+
+    def _apply_fortune_producer_result(self, state: GameState, player: PlayerState, card: FortuneCard, producer_result: dict) -> dict:
+        if not isinstance(producer_result, dict):
+            return {"type": "CUSTOM_FORTUNE", "result": producer_result}
+        result_type = str(producer_result.get("type", ""))
+        if result_type == "QUEUE_TARGET_MOVE":
+            target_pos = int(producer_result["target_pos"])
+            movement_type = str(producer_result.get("movement_type") or "arrival")
+            schedule_arrival = bool(producer_result.get("schedule_arrival", movement_type != "move_only"))
+            trigger = str(producer_result.get("trigger") or "custom_fortune_move")
+            queued = self._enqueue_fortune_target_move(
+                state,
+                player,
+                target_pos,
+                trigger=trigger,
+                card_name=str(producer_result.get("card_name") or card.name),
+                schedule_arrival=schedule_arrival,
+                move=producer_result.get("move"),
+                formula=str(producer_result.get("formula") or ""),
+            )
+            return {**producer_result, "type": "CUSTOM_QUEUED_TARGET_MOVE", "movement": queued}
+        return producer_result
 
     def _tile_indices_owned_by(self, state: GameState, owner_id: int) -> list[int]:
         return [i for i, owner in enumerate(state.tile_owner) if owner == owner_id]
@@ -3376,7 +3732,7 @@ class GameEngine:
             card_name=card.name,
             deck_index=card.deck_index,
         )
-        event = self._apply_fortune_card(state, player, card)
+        event = self._produce_fortune_card_actions(state, player, card)
         self._emit_vis(
             "fortune_resolved",
             Phase.FORTUNE,
@@ -3388,7 +3744,7 @@ class GameEngine:
         state.fortune_discard_pile.append(card)
         return {"type": "FORTUNE", "card": {"deck_index": card.deck_index, "name": card.name, "effect": card.effect}, "resolution": event}
 
-    def _apply_fortune_card_impl(self, state: GameState, player: PlayerState, card: FortuneCard) -> dict:
+    def _apply_fortune_card_impl(self, state: GameState, player: PlayerState, card: FortuneCard, *, queue_followups: bool = False) -> dict:
         name = card.name.strip()
         card_id = fortune_card_id_for_name(name)
         board_len = len(state.board)
@@ -3404,12 +3760,20 @@ class GameEngine:
         if card_id == 33:
             return self._fortune_burden_cleanup(state, [p for p in state.players if p.alive], multiplier=2, payout=False, name=name)
         if card_id == FORTUNE_MOVE_BACK_2_ID:
+            if queue_followups:
+                return self._enqueue_fortune_target_move(state, player, player.position - 2, trigger="backward_2", card_name=name, schedule_arrival=True)
             return self._apply_fortune_arrival(state, player, player.position - 2, "backward_2", name)
         if card_id == FORTUNE_MOVE_BACK_3_ID:
+            if queue_followups:
+                return self._enqueue_fortune_target_move(state, player, player.position - 3, trigger="backward_3", card_name=name, schedule_arrival=True)
             return self._apply_fortune_arrival(state, player, player.position - 3, "backward_3", name)
         if card_id == FORTUNE_TAKEOVER_BACK_2_ID:
+            if queue_followups:
+                return self._enqueue_fortune_takeover_backward(state, player, 2, name)
             return self._fortune_takeover_backward(state, player, 2, name)
         if card_id == FORTUNE_TAKEOVER_BACK_3_ID:
+            if queue_followups:
+                return self._enqueue_fortune_takeover_backward(state, player, 3, name)
             return self._fortune_takeover_backward(state, player, 3, name)
         if card_id == FORTUNE_PERFORMANCE_BONUS_ID:
             gain = player.shards
@@ -3494,9 +3858,13 @@ class GameEngine:
             return self._fortune_party(state, player, amount=2, reverse=self._is_muroe(player), name=name)
         if card_id == FORTUNE_SUSPICIOUS_DRINK_ID:
             roll = self._roll_standard_move(state, player, explicit_dice_count=1)
+            if queue_followups:
+                return {"type": "ROLL_ARRIVAL", **roll, "arrival": self._enqueue_fortune_target_move(state, player, player.position + roll["move"], trigger="suspicious_drink", card_name=name, schedule_arrival=True, move=roll["move"], formula=str(roll.get("move", "")))}
             return {"type": "ROLL_ARRIVAL", **roll, "arrival": self._apply_fortune_arrival(state, player, player.position + roll["move"], "suspicious_drink", name)}
         if card_id == FORTUNE_VERY_SUSPICIOUS_DRINK_ID:
             roll = self._roll_standard_move(state, player, explicit_dice_count=2)
+            if queue_followups:
+                return {"type": "ROLL_ARRIVAL", **roll, "arrival": self._enqueue_fortune_target_move(state, player, player.position + roll["move"], trigger="very_suspicious_drink", card_name=name, schedule_arrival=True, move=roll["move"], formula=str(roll.get("move", "")))}
             return {"type": "ROLL_ARRIVAL", **roll, "arrival": self._apply_fortune_arrival(state, player, player.position + roll["move"], "very_suspicious_drink", name)}
         if card_id == FORTUNE_HALF_PRICE_SALE_ID:
             pos = self._select_owned_tile(state, player.player_id, highest=True)
@@ -3596,18 +3964,26 @@ class GameEngine:
             pos = self._find_extreme_player_position(state, player, nearest=True)
             if pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_other_players"}
+            if queue_followups:
+                return self._enqueue_fortune_target_move(state, player, pos, trigger="nearest_player", card_name=name, schedule_arrival=True)
             return self._apply_fortune_arrival(state, player, pos, "nearest_player", name)
         if card_id == FORTUNE_CUT_IN_LINE_ID:
             pos = self._find_extreme_player_position(state, player, nearest=True)
             if pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_other_players"}
             if self._is_japin_or_muroe(player):
+                if queue_followups:
+                    return self._enqueue_fortune_target_move(state, player, pos, trigger="nearest_player_arrival", card_name=name, schedule_arrival=True)
                 return self._apply_fortune_arrival(state, player, pos, "nearest_player_arrival", name)
+            if queue_followups:
+                return self._enqueue_fortune_target_move(state, player, pos, trigger="nearest_player_move", card_name=name, schedule_arrival=False)
             return self._apply_fortune_move_only(state, player, pos, "nearest_player_move", name)
         if card_id == FORTUNE_LONG_TRIP_ID:
             pos = self._find_extreme_player_position(state, player, nearest=False)
             if pos is None:
                 return {"type": "NO_EFFECT", "reason": "no_other_players"}
+            if queue_followups:
+                return self._enqueue_fortune_target_move(state, player, pos, trigger="furthest_player", card_name=name, schedule_arrival=True)
             return self._apply_fortune_arrival(state, player, pos, "furthest_player", name)
         if card_id == FORTUNE_REST_STOP_ID:
             pos = self._find_extreme_owned_tile(state, player, nearest=True)
@@ -3615,6 +3991,8 @@ class GameEngine:
                 return {"type": "NO_EFFECT", "reason": "no_owned_tiles"}
             if self._is_japin_or_muroe(player):
                 pos = (pos + 1) % board_len
+            if queue_followups:
+                return self._enqueue_fortune_target_move(state, player, pos, trigger="nearest_owned_tile", card_name=name, schedule_arrival=True)
             return self._apply_fortune_arrival(state, player, pos, "nearest_owned_tile", name)
         if card_id == FORTUNE_SAFE_MOVE_ID:
             pos = self._find_extreme_owned_tile(state, player, nearest=False)
@@ -3622,6 +4000,8 @@ class GameEngine:
                 return {"type": "NO_EFFECT", "reason": "no_owned_tiles"}
             if self._is_japin_or_muroe(player):
                 pos = (pos + 1) % board_len
+            if queue_followups:
+                return self._enqueue_fortune_target_move(state, player, pos, trigger="furthest_owned_tile", card_name=name, schedule_arrival=True)
             return self._apply_fortune_arrival(state, player, pos, "furthest_owned_tile", name)
         if card_id == FORTUNE_METEOR_FALL_ID:
             self._change_f(state, 2, reason="fortune_effect", source=name, actor_pid=player.player_id)
@@ -3690,21 +4070,25 @@ class GameEngine:
 
     def _fortune_takeover_backward(self, state: GameState, player: PlayerState, steps: int, card_name: str) -> dict:
         pos = (player.position - steps) % len(state.board)
+        player.position = pos
+        return self._resolve_fortune_takeover_backward_at_position(state, player, pos)
+
+    def _resolve_fortune_takeover_backward_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        player = state.players[action.actor_player_id]
+        return self._resolve_fortune_takeover_backward_at_position(state, player, player.position)
+
+    def _resolve_fortune_takeover_backward_at_position(self, state: GameState, player: PlayerState, pos: int) -> dict:
         owner = state.tile_owner[pos]
         cell = state.board[pos]
         if cell in {CellKind.F1, CellKind.F2, CellKind.S}:
-            player.position = pos
             return {"type": "NO_EFFECT", "reason": "special_tile", "end_pos": pos}
         if owner is None:
-            player.position = pos
             return {"type": "NO_EFFECT", "reason": "unowned_tile", "end_pos": pos}
         if owner == player.player_id:
-            player.position = pos
             tr = self._transfer_tile(state, pos, state.marker_owner_id)
             if tr.get("blocked_by_monopoly"):
                 return {"type": "NO_EFFECT", "reason": "monopoly_protected", "end_pos": pos}
             return {"type": "TRANSFER_TO_MARKER", "end_pos": pos, "transfer": tr}
-        player.position = pos
         tr = self._transfer_tile(state, pos, player.player_id)
         if tr.get("blocked_by_monopoly"):
             return {"type": "NO_EFFECT", "reason": "monopoly_protected", "end_pos": pos}

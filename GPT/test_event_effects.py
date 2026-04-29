@@ -183,6 +183,27 @@ class EventEffectIntegrationTests(unittest.TestCase):
         result = self.engine._apply_fortune_card(self.state, self.player, card)
         self.assertEqual(result['type'], 'CUSTOM_FORTUNE')
 
+    def test_fortune_producer_hook_can_queue_target_move(self):
+        self.player.position = 1
+        self.engine.events.register(
+            'fortune.card.produce',
+            lambda state, player, card: {
+                'type': 'QUEUE_TARGET_MOVE',
+                'target_pos': 6,
+                'trigger': 'custom_hook_move',
+                'movement_type': 'arrival',
+            },
+        )
+
+        result = self.engine._produce_fortune_card_actions(self.state, self.player, FortuneCard(deck_index=1, name='테스트', effect='x'))
+
+        self.assertEqual(result['type'], 'CUSTOM_QUEUED_TARGET_MOVE')
+        self.assertEqual(result['movement']['target_pos'], 6)
+        self.assertEqual(self.player.position, 1)
+        self.assertEqual(len(self.state.pending_actions), 1)
+        self.assertEqual(self.state.pending_actions[0].type, 'apply_move')
+        self.assertTrue(self.state.pending_actions[0].payload['schedule_arrival'])
+
     def test_good_thing_fortune_skips_muroe_players(self):
         actor = self.state.players[0]
         actor.current_character = "산적"

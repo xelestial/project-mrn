@@ -157,24 +157,46 @@ class ActionEnvelope:
     type: str
     actor_player_id: int
     source: str = ""
+    target_player_id: int | None = None
+    phase: str = ""
+    priority: int = 100
+    parent_action_id: str = ""
+    idempotency_key: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
 
     def to_payload(self) -> dict:
-        return {
+        payload = {
             "action_id": self.action_id,
             "type": self.type,
             "actor_player_id": self.actor_player_id,
             "source": self.source,
             "payload": dict(self.payload),
         }
+        if self.target_player_id is not None:
+            payload["target_player_id"] = self.target_player_id
+        if self.phase:
+            payload["phase"] = self.phase
+        if self.priority != 100:
+            payload["priority"] = self.priority
+        if self.parent_action_id:
+            payload["parent_action_id"] = self.parent_action_id
+        if self.idempotency_key:
+            payload["idempotency_key"] = self.idempotency_key
+        return payload
 
     @classmethod
     def from_payload(cls, payload: dict) -> "ActionEnvelope":
+        raw_target = payload.get("target_player_id")
         return cls(
             action_id=str(payload.get("action_id", "")),
             type=str(payload.get("type", "")),
             actor_player_id=int(payload.get("actor_player_id", 0)),
             source=str(payload.get("source", "")),
+            target_player_id=None if raw_target is None else int(raw_target),
+            phase=str(payload.get("phase", "")),
+            priority=int(payload.get("priority", 100)),
+            parent_action_id=str(payload.get("parent_action_id", "")),
+            idempotency_key=str(payload.get("idempotency_key", "")),
             payload=dict(payload.get("payload") or {}),
         )
 
@@ -224,6 +246,7 @@ class GameState:
     pending_prompt_player_id: int = 0
     pending_prompt_instance_id: int = 0
     pending_actions: List[ActionEnvelope] = field(default_factory=list)
+    scheduled_actions: List[ActionEnvelope] = field(default_factory=list)
     pending_action_log: dict[str, Any] = field(default_factory=dict)
     pending_turn_completion: dict[str, Any] = field(default_factory=dict)
 
@@ -337,6 +360,7 @@ class GameState:
             "pending_prompt_player_id": self.pending_prompt_player_id,
             "pending_prompt_instance_id": self.pending_prompt_instance_id,
             "pending_actions": [action.to_payload() for action in self.pending_actions],
+            "scheduled_actions": [action.to_payload() for action in self.scheduled_actions],
             "pending_action_log": dict(self.pending_action_log),
             "pending_turn_completion": dict(self.pending_turn_completion),
             "tiles": [_tile_to_payload(tile) for tile in self.tiles],
@@ -388,6 +412,11 @@ class GameState:
         state.pending_actions = [
             ActionEnvelope.from_payload(raw_action)
             for raw_action in payload.get("pending_actions", [])
+            if isinstance(raw_action, dict)
+        ]
+        state.scheduled_actions = [
+            ActionEnvelope.from_payload(raw_action)
+            for raw_action in payload.get("scheduled_actions", [])
             if isinstance(raw_action, dict)
         ]
         state.pending_action_log = dict(payload.get("pending_action_log") or {})

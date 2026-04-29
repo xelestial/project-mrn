@@ -852,7 +852,7 @@ class EngineEffectHandlers:
             card_name=card.name,
             deck_index=card.deck_index,
         )
-        event = engine._apply_fortune_card(state, player, card)
+        event = engine._produce_fortune_card_actions(state, player, card)
         engine._emit_vis(
             "fortune_resolved",
             Phase.FORTUNE,
@@ -891,74 +891,7 @@ class EngineEffectHandlers:
     def handle_purchase_attempt(self, state: GameState, player: PlayerState, pos: int, cell: CellKind) -> dict:
         engine = self.engine
         self._ensure_stats(state)
-        stats = engine._strategy_stats[player.player_id]
-        if state.tile_purchase_blocked_turn_index.get(pos) == state.turn_index:
-            return {'type': 'PURCHASE_BLOCKED_THIS_TURN', 'tile_kind': cell.name}
-        builder_free_purchase = is_builder(player.current_character)
-        cost = 0 if (player.free_purchase_this_turn or player.trick_free_purchase_this_turn or builder_free_purchase) else state.config.rules.economy.purchase_cost_for(state, pos)
-        player.free_purchase_this_turn = False
-        player.trick_free_purchase_this_turn = False
-        shard_cost = 0
-        if player.cash < cost:
-            return {'type': 'PURCHASE_FAIL', 'tile_kind': cell.name, 'cost': cost, 'shard_cost': shard_cost, 'bankrupt': False, 'skipped': True}
-        wants_purchase = engine._request_decision(
-            "choose_purchase_tile",
-            state,
-            player,
-            pos,
-            cell,
-            cost,
-            source="landing_purchase",
-            fallback=lambda: True,
-        )
-        purchase_debug = engine.policy.pop_debug("purchase_decision", player.player_id) if hasattr(engine.policy, "pop_debug") else None
-        if not wants_purchase:
-            engine._record_ai_decision(
-                state,
-                player,
-                "purchase_decision",
-                purchase_debug,
-                result={"tile_index": pos, "purchased": False, "reason": "policy_skip", "cost": cost},
-                source_event="landing_purchase",
-            )
-            return {'type': 'PURCHASE_SKIP_POLICY', 'tile_kind': cell.name, 'cost': cost, 'shard_cost': shard_cost, 'bankrupt': False, 'skipped': True}
-        stats['purchases'] += 1
-        if cell == CellKind.T2:
-            stats['purchase_t2'] += 1
-        elif cell == CellKind.T3:
-            stats['purchase_t3'] += 1
-        shards_before = player.shards
-        player.cash -= cost
-        if shard_cost > 0:
-            player.shards -= shard_cost
-        state.tile_owner[pos] = player.player_id
-        player.tiles_owned += 1
-        player.first_purchase_turn_by_tile[pos] = player.turns_taken
-        placed = None
-        if state.config.rules.token.can_place_on_first_purchase:
-            player.visited_owned_tile_indices.add(pos)
-            placed = engine._place_hand_coins_on_tile(state, player, pos, max_place=state.config.rules.token.place_limit_on_purchase(state, player, pos), source="purchase")
-        result = {'type': 'PURCHASE', 'tile_kind': cell.name, 'cost': cost, 'shard_cost': shard_cost, 'shards_before': shards_before, 'shards_after': player.shards, 'placed': placed}
-        engine._record_ai_decision(
-            state,
-            player,
-            "purchase_decision",
-            purchase_debug,
-            result={"tile_index": pos, "purchased": True, "cost": cost, "placed": placed},
-            source_event="landing_purchase",
-        )
-        engine._emit_vis(
-            "tile_purchased",
-            Phase.ECONOMY,
-            player.player_id + 1,
-            state,
-            player_id=player.player_id + 1,
-            tile_index=pos,
-            cost=cost,
-            purchase_source="landing_purchase",
-            result=result,
-        )
-        return result
+        return engine._resolve_purchase_tile_decision(state, player, pos, cell, source="landing_purchase")
 
     def handle_rent_payment(self, state: GameState, player: PlayerState, pos: int, owner: int) -> dict:
         engine = self.engine
