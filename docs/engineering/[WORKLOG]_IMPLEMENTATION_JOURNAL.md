@@ -136,6 +136,19 @@ Updated: 2026-04-30
   - run doc integrity and full engine suites
   - next implementation should target a concrete boundary, not add action layers speculatively
 
+## 2026-04-30 Score Token Redis Recovery Coverage
+
+- Scope: verify the new score-token request/resolve actions at the server Redis checkpoint boundary.
+- Done:
+  - added Redis recovery coverage for `resolve_score_token_placement` running before `resolve_unowned_post_purchase`
+  - verified `pending_landing_purchase_result.placed` is updated after recovery drains the placement action
+  - added human prompt recovery coverage for `request_score_token_placement`
+  - verified checkpoint metadata preserves `pending_action_types` and `next_action_type` for score-token actions
+- Validation:
+  - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py -k 'score_token_request or score_token_placement or purchase_actions_after_unowned or purchase_action_queued or post_purchase_action'`
+- Follow-up:
+  - run full engine checks and relevant server recovery checks before next commit
+
 ## 2026-04-29 Redis Action Pipeline Seed
 
 - Scope: begin modular movement/arrival execution for the Redis-resumable engine path.
