@@ -53,7 +53,14 @@ Updated: 2026-04-15
   - added Redis recovery coverage for a pending rent post-landing action
   - migrated subscription-style fortune card resolution into `resolve_fortune_subscription` on the queued fortune path
   - added interruption coverage proving fortune subscription target prompts leave the action queued
+  - migrated land thief, donation angel, forced trade, and pious marker target-selection fortune effects into resumable `resolve_fortune_*` actions
+  - extended runtime recovery checkpoint metadata with pending/scheduled action type lists and next-action hints
 - Validation:
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'fortune_subscription or fortune_land_thief or fortune_donation or fortune_forced_trade or fortune_pious_marker or fortune_takeover or fortune_arrival or fortune_move_only'`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py -k 'unowned_arrival_checkpoint or drains_pending_action or scheduled_turn_start_action'`
+  - `./.venv/bin/python -m pytest GPT/test_doc_integrity.py GPT/test_engine_resumable_checkpoint.py GPT/test_event_effects.py GPT/test_rule_fixes.py -k 'doc_integrity or fortune_subscription or fortune_land_thief or fortune_donation or fortune_forced_trade or fortune_pious_marker or fortune_producer or fortune_takeover or fortune_arrival or fortune_move_only or purchase or rent or matchmaker or madangbal or same_tile'`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py apps/server/tests/test_restart_persistence.py`
+  - `./.venv/bin/python -m pytest GPT`
   - `./.venv/bin/python -m pytest GPT/test_state_checkpoint_serialization.py GPT/test_rule_fixes.py::RuleFixTests::test_suspicious_drink_uses_single_die GPT/test_rule_fixes.py::RuleFixTests::test_fortune_arrival_moves_then_resolves_landing_without_lap_credit GPT/test_rule_fixes.py::RuleFixTests::test_fortune_move_only_does_not_resolve_arrival GPT/test_event_effects.py::EventEffectIntegrationTests::test_fortune_movement_can_be_overridden`
   - `./.venv/bin/python -m pytest GPT/test_rule_fixes.py GPT/test_event_effects.py GPT/test_state_checkpoint_serialization.py`
   - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_state_checkpoint_serialization.py GPT/test_rule_fixes.py::RuleFixTests::test_fortune_arrival_moves_then_resolves_landing_without_lap_credit GPT/test_rule_fixes.py::RuleFixTests::test_fortune_move_only_does_not_resolve_arrival`

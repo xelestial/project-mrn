@@ -6,7 +6,17 @@ from ai_policy import HeuristicPolicy
 from config import CellKind, GameConfig
 from engine import GameEngine
 from fortune_cards import build_fortune_deck
-from policy.environment_traits import FORTUNE_CUT_IN_LINE_ID, FORTUNE_SHORT_TRIP_ID, FORTUNE_SUBSCRIPTION_WIN_ID, FORTUNE_TAKEOVER_BACK_2_ID, fortune_card_id_for_name
+from policy.environment_traits import (
+    FORTUNE_CUT_IN_LINE_ID,
+    FORTUNE_DONATION_ANGEL_ID,
+    FORTUNE_IRRESISTIBLE_DEAL_ID,
+    FORTUNE_LAND_THIEF_ID,
+    FORTUNE_PIOUS_MARKER_ID,
+    FORTUNE_SHORT_TRIP_ID,
+    FORTUNE_SUBSCRIPTION_WIN_ID,
+    FORTUNE_TAKEOVER_BACK_2_ID,
+    fortune_card_id_for_name,
+)
 from state import ActionEnvelope, GameState
 from viewer.stream import VisEventStream
 
@@ -342,6 +352,166 @@ def test_fortune_subscription_decision_prompt_keeps_action_queued() -> None:
 
     assert len(state.pending_actions) == 1
     assert state.pending_actions[0].type == "resolve_fortune_subscription"
+
+
+def test_fortune_land_thief_produces_decision_action() -> None:
+    class PickFirstDecisionPort:
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name == "choose_trick_tile_target":
+                return request.args[1][0]
+            return request.args[0][0]
+
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=PickFirstDecisionPort(), rng=random.Random(24))
+    state = GameState.create(config)
+    player = state.players[0]
+    owner = state.players[1]
+    target = state.first_tile_position(kinds=[CellKind.T2])
+    state.tile_owner[target] = owner.player_id
+    owner.tiles_owned = 1
+    state.fortune_draw_pile = [_fortune_card_by_id(FORTUNE_LAND_THIEF_ID)]
+
+    result = engine._resolve_fortune_tile_single(state, player)
+
+    assert result["resolution"]["type"] == "QUEUED_FORTUNE_LAND_THIEF"
+    assert len(state.pending_actions) == 1
+    assert state.pending_actions[0].type == "resolve_fortune_land_thief"
+
+    step = engine.run_next_transition(state)
+
+    assert step["action_type"] == "resolve_fortune_land_thief"
+    assert state.tile_owner[target] == player.player_id
+    assert player.tiles_owned == 1
+    assert owner.tiles_owned == 0
+
+
+def test_fortune_donation_angel_produces_decision_action() -> None:
+    class PickFirstDecisionPort:
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name == "choose_trick_tile_target":
+                return request.args[1][0]
+            return request.args[0][0]
+
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=PickFirstDecisionPort(), rng=random.Random(25))
+    state = GameState.create(config)
+    player = state.players[0]
+    marker_owner = state.players[1]
+    state.marker_owner_id = marker_owner.player_id
+    target = state.first_tile_position(kinds=[CellKind.T2])
+    state.tile_owner[target] = player.player_id
+    player.tiles_owned = 1
+    state.fortune_draw_pile = [_fortune_card_by_id(FORTUNE_DONATION_ANGEL_ID)]
+
+    result = engine._resolve_fortune_tile_single(state, player)
+
+    assert result["resolution"]["type"] == "QUEUED_FORTUNE_DONATION_ANGEL"
+    assert state.pending_actions[0].type == "resolve_fortune_donation_angel"
+
+    step = engine.run_next_transition(state)
+
+    assert step["action_type"] == "resolve_fortune_donation_angel"
+    assert state.tile_owner[target] == marker_owner.player_id
+    assert player.tiles_owned == 0
+    assert marker_owner.tiles_owned == 1
+
+
+def test_fortune_forced_trade_produces_decision_action() -> None:
+    class TradeDecisionPort:
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name == "choose_trick_tile_target":
+                return request.args[1][0]
+            return request.args[0][0]
+
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=TradeDecisionPort(), rng=random.Random(26))
+    state = GameState.create(config)
+    player = state.players[0]
+    other = state.players[1]
+    own_tile = state.first_tile_position(kinds=[CellKind.T2])
+    other_tile = next(
+        idx
+        for idx in state.tile_positions(kinds=[CellKind.T2, CellKind.T3])
+        if idx != own_tile and state.block_ids[idx] != state.block_ids[own_tile]
+    )
+    state.tile_owner[own_tile] = player.player_id
+    state.tile_owner[other_tile] = other.player_id
+    player.tiles_owned = 1
+    other.tiles_owned = 1
+    state.fortune_draw_pile = [_fortune_card_by_id(FORTUNE_IRRESISTIBLE_DEAL_ID)]
+
+    result = engine._resolve_fortune_tile_single(state, player)
+
+    assert result["resolution"]["type"] == "QUEUED_FORTUNE_FORCED_TRADE"
+    assert state.pending_actions[0].type == "resolve_fortune_forced_trade"
+
+    step = engine.run_next_transition(state)
+
+    assert step["action_type"] == "resolve_fortune_forced_trade"
+    assert state.tile_owner[own_tile] == other.player_id
+    assert state.tile_owner[other_tile] == player.player_id
+    assert player.tiles_owned == 1
+    assert other.tiles_owned == 1
+
+
+def test_fortune_pious_marker_produces_decision_action_for_marker_owner() -> None:
+    class PickFirstDecisionPort:
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name == "choose_trick_tile_target":
+                return request.args[1][0]
+            return request.args[0][0]
+
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=PickFirstDecisionPort(), rng=random.Random(27))
+    state = GameState.create(config)
+    player = state.players[0]
+    state.marker_owner_id = player.player_id
+    state.fortune_draw_pile = [_fortune_card_by_id(FORTUNE_PIOUS_MARKER_ID)]
+
+    result = engine._resolve_fortune_tile_single(state, player)
+
+    assert result["resolution"]["type"] == "QUEUED_FORTUNE_PIOUS_MARKER"
+    assert state.pending_actions[0].type == "resolve_fortune_pious_marker"
+
+    step = engine.run_next_transition(state)
+
+    assert step["action_type"] == "resolve_fortune_pious_marker"
+    assert any(owner == player.player_id for owner in state.tile_owner)
+    assert player.tiles_owned == 1
+
+
+def test_fortune_forced_trade_prompt_keeps_action_queued() -> None:
+    class WaitingDecisionPort:
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name == "choose_trick_tile_target":
+                raise RuntimeError("prompt_required_for_test")
+            return request.args[0][0]
+
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=WaitingDecisionPort(), rng=random.Random(28))
+    state = GameState.create(config)
+    player = state.players[0]
+    other = state.players[1]
+    own_tile = state.first_tile_position(kinds=[CellKind.T2])
+    other_tile = next(idx for idx in state.tile_positions(kinds=[CellKind.T2, CellKind.T3]) if idx != own_tile)
+    state.tile_owner[own_tile] = player.player_id
+    state.tile_owner[other_tile] = other.player_id
+    player.tiles_owned = 1
+    other.tiles_owned = 1
+    state.fortune_draw_pile = [_fortune_card_by_id(FORTUNE_IRRESISTIBLE_DEAL_ID)]
+
+    result = engine._resolve_fortune_tile_single(state, player)
+
+    assert result["resolution"]["type"] == "QUEUED_FORTUNE_FORCED_TRADE"
+    try:
+        engine.run_next_transition(state)
+    except RuntimeError as exc:
+        assert str(exc) == "prompt_required_for_test"
+    else:
+        raise AssertionError("forced trade target prompt should have interrupted the action")
+
+    assert len(state.pending_actions) == 1
+    assert state.pending_actions[0].type == "resolve_fortune_forced_trade"
 
 
 def test_prompt_action_remains_queued_when_decision_waits() -> None:

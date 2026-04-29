@@ -1021,6 +1021,14 @@ class GameEngine:
             return self._resolve_landing_post_effects_action(state, action)
         if action.type == "resolve_fortune_subscription":
             return self._resolve_fortune_subscription_action(state, action)
+        if action.type == "resolve_fortune_land_thief":
+            return self._resolve_fortune_land_thief_action(state, action)
+        if action.type == "resolve_fortune_donation_angel":
+            return self._resolve_fortune_donation_angel_action(state, action)
+        if action.type == "resolve_fortune_forced_trade":
+            return self._resolve_fortune_forced_trade_action(state, action)
+        if action.type == "resolve_fortune_pious_marker":
+            return self._resolve_fortune_pious_marker_action(state, action)
         raise ValueError(f"Unsupported action type: {action.type}")
 
     def _apply_target_move(
@@ -3745,6 +3753,131 @@ class GameEngine:
             return {"type": "NO_EFFECT", "reason": "no_empty_block"}
         return {"type": "SUBSCRIPTION", "selection": pos, "purchase": self._try_purchase_tile(state, player, pos, state.board[pos])}
 
+    def _enqueue_fortune_decision_action(self, state: GameState, player: PlayerState, action_type: str, card_name: str, result_type: str) -> dict:
+        action = self._action(
+            state,
+            action_type,
+            player,
+            action_type.removeprefix("resolve_"),
+            {"card_name": card_name},
+        )
+        state.pending_actions.append(action)
+        return {"type": result_type, "queued_action_id": action.action_id}
+
+    def _resolve_fortune_land_thief_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        player = state.players[action.actor_player_id]
+        return self._resolve_fortune_land_thief(state, player, str(action.payload.get("card_name") or action.source))
+
+    def _resolve_fortune_land_thief(self, state: GameState, player: PlayerState, name: str) -> dict:
+        if self._is_muroe(player):
+            own_candidates = self._owned_tile_candidates(state, player.player_id)
+            pos = self._request_decision(
+                "choose_trick_tile_target",
+                state,
+                player,
+                name,
+                list(own_candidates),
+                "own_tile_give_marker",
+                fallback=lambda: self._select_owned_tile(state, player.player_id, highest=False),
+            )
+            if pos is None:
+                return {"type": "NO_EFFECT", "reason": "muroe_no_owned_tile"}
+            return {"type": "MUROE_GIVE_TILE", "transfer": self._transfer_tile(state, pos, state.marker_owner_id)}
+        pos = self._request_decision(
+            "choose_trick_tile_target",
+            state,
+            player,
+            name,
+            list(self._other_player_tile_candidates(state, player)),
+            "other_owned_tile_takeover",
+            fallback=lambda: self._select_other_player_tile(state, player, highest=True),
+        )
+        if pos is None:
+            return {"type": "NO_EFFECT", "reason": "no_other_tile"}
+        tr = self._transfer_tile(state, pos, player.player_id)
+        if tr.get("blocked_by_monopoly"):
+            return {"type": "NO_EFFECT", "reason": "monopoly_protected", "attempt": "steal_tile", "pos": pos}
+        return {"type": "STEAL_TILE", "transfer": tr}
+
+    def _resolve_fortune_donation_angel_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        player = state.players[action.actor_player_id]
+        return self._resolve_fortune_donation_angel(state, player, str(action.payload.get("card_name") or action.source))
+
+    def _resolve_fortune_donation_angel(self, state: GameState, player: PlayerState, name: str) -> dict:
+        pos = self._request_decision(
+            "choose_trick_tile_target",
+            state,
+            player,
+            name,
+            list(self._owned_tile_candidates(state, player.player_id)),
+            "own_tile_donation",
+            fallback=lambda: self._select_owned_tile(state, player.player_id, highest=False),
+        )
+        if pos is None:
+            return {"type": "NO_EFFECT", "reason": "no_owned_tile"}
+        tr = self._transfer_tile(state, pos, state.marker_owner_id)
+        if tr.get("blocked_by_monopoly"):
+            return {"type": "NO_EFFECT", "reason": "monopoly_protected", "attempt": "give_tile", "pos": pos}
+        return {"type": "GIVE_TILE", "transfer": tr}
+
+    def _resolve_fortune_forced_trade_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        player = state.players[action.actor_player_id]
+        return self._resolve_fortune_forced_trade(state, player, str(action.payload.get("card_name") or action.source))
+
+    def _resolve_fortune_forced_trade(self, state: GameState, player: PlayerState, name: str) -> dict:
+        own = self._request_decision(
+            "choose_trick_tile_target",
+            state,
+            player,
+            name,
+            list(self._owned_tile_candidates(state, player.player_id)),
+            "trade_own_tile",
+            fallback=lambda: self._select_owned_tile(state, player.player_id, highest=False),
+        )
+        other = self._request_decision(
+            "choose_trick_tile_target",
+            state,
+            player,
+            name,
+            list(self._other_player_tile_candidates(state, player)),
+            "trade_other_tile",
+            fallback=lambda: self._select_other_player_tile(state, player, highest=True),
+        )
+        if own is None or other is None:
+            return {"type": "NO_EFFECT", "reason": "missing_trade_target"}
+        other_owner = state.tile_owner[other]
+        extra = 0
+        if player.attribute in {"무뢰", "상민"}:
+            extra = state.config.rules.economy.rent_cost_for(state, other)
+            out = self._pay_or_bankrupt(state, player, extra, other_owner)
+            if not out.get("paid"):
+                return {"type": "TRADE_FAIL", "reason": "extra_payment_bankrupt", **out}
+        t1 = self._transfer_tile(state, own, other_owner)
+        t2 = self._transfer_tile(state, other, player.player_id)
+        if t1.get("blocked_by_monopoly") or t2.get("blocked_by_monopoly"):
+            return {"type": "TRADE_FAIL", "reason": "monopoly_protected", "own_to_other": t1, "other_to_self": t2}
+        return {"type": "FORCED_TRADE", "extra_payment": extra, "own_to_other": t1, "other_to_self": t2}
+
+    def _resolve_fortune_pious_marker_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        player = state.players[action.actor_player_id]
+        return self._resolve_fortune_pious_marker_gain(state, player, str(action.payload.get("card_name") or action.source))
+
+    def _resolve_fortune_pious_marker_gain(self, state: GameState, player: PlayerState, name: str) -> dict:
+        pos = self._request_decision(
+            "choose_trick_tile_target",
+            state,
+            player,
+            name,
+            list(self._empty_block_tile_candidates(state)),
+            "marker_empty_block_gain",
+            fallback=lambda: self._select_empty_block_tile(state),
+        )
+        if pos is None:
+            return {"type": "NO_EFFECT", "reason": "no_empty_block"}
+        state.tile_owner[pos] = player.player_id
+        player.tiles_owned += 1
+        return {"type": "PIOUS_MARKER_GAIN_TILE", "pos": pos}
+
     def _apply_fortune_move_only_impl(self, state: GameState, player: PlayerState, target_pos: int, trigger: str, card_name: str) -> dict:
         move = self._apply_target_move(
             state,
@@ -4010,51 +4143,13 @@ class GameEngine:
                 return {"type": "NO_EFFECT", "reason": "no_owned_tile"}
             return {"type": "LOSE_TILE", "transfer": self._transfer_tile(state, pos, None)}
         if card_id == FORTUNE_LAND_THIEF_ID:
-            if self._is_muroe(player):
-                own_candidates = self._owned_tile_candidates(state, player.player_id)
-                pos = self._request_decision(
-                    "choose_trick_tile_target",
-                    state,
-                    player,
-                    name,
-                    list(own_candidates),
-                    "own_tile_give_marker",
-                    fallback=lambda: self._select_owned_tile(state, player.player_id, highest=False),
-                )
-                if pos is None:
-                    return {"type": "NO_EFFECT", "reason": "muroe_no_owned_tile"}
-                return {"type": "MUROE_GIVE_TILE", "transfer": self._transfer_tile(state, pos, state.marker_owner_id)}
-            pos = self._request_decision(
-                "choose_trick_tile_target",
-                state,
-                player,
-                name,
-                list(self._other_player_tile_candidates(state, player)),
-                "other_owned_tile_takeover",
-                fallback=lambda: self._select_other_player_tile(state, player, highest=True),
-            )
-            if pos is None:
-                return {"type": "NO_EFFECT", "reason": "no_other_tile"}
-            tr = self._transfer_tile(state, pos, player.player_id)
-            if tr.get("blocked_by_monopoly"):
-                return {"type": "NO_EFFECT", "reason": "monopoly_protected", "attempt": "steal_tile", "pos": pos}
-            return {"type": "STEAL_TILE", "transfer": tr}
+            if queue_followups:
+                return self._enqueue_fortune_decision_action(state, player, "resolve_fortune_land_thief", name, "QUEUED_FORTUNE_LAND_THIEF")
+            return self._resolve_fortune_land_thief(state, player, name)
         if card_id == FORTUNE_DONATION_ANGEL_ID:
-            pos = self._request_decision(
-                "choose_trick_tile_target",
-                state,
-                player,
-                name,
-                list(self._owned_tile_candidates(state, player.player_id)),
-                "own_tile_donation",
-                fallback=lambda: self._select_owned_tile(state, player.player_id, highest=False),
-            )
-            if pos is None:
-                return {"type": "NO_EFFECT", "reason": "no_owned_tile"}
-            tr = self._transfer_tile(state, pos, state.marker_owner_id)
-            if tr.get("blocked_by_monopoly"):
-                return {"type": "NO_EFFECT", "reason": "monopoly_protected", "attempt": "give_tile", "pos": pos}
-            return {"type": "GIVE_TILE", "transfer": tr}
+            if queue_followups:
+                return self._enqueue_fortune_decision_action(state, player, "resolve_fortune_donation_angel", name, "QUEUED_FORTUNE_DONATION_ANGEL")
+            return self._resolve_fortune_donation_angel(state, player, name)
         if card_id == FORTUNE_PARTY_ID:
             return self._fortune_party(state, player, amount=2, reverse=self._is_muroe(player), name=name)
         if card_id == FORTUNE_SUSPICIOUS_DRINK_ID:
@@ -4110,54 +4205,14 @@ class GameEngine:
                     return {"type": "OTHERS_BANK_PAY", "failed_player": op.player_id + 1, "amount": 3 * mult}
             return {"type": "OTHERS_BANK_PAY", "amount": 3}
         if card_id == FORTUNE_IRRESISTIBLE_DEAL_ID:
-            own = self._request_decision(
-                "choose_trick_tile_target",
-                state,
-                player,
-                name,
-                list(self._owned_tile_candidates(state, player.player_id)),
-                "trade_own_tile",
-                fallback=lambda: self._select_owned_tile(state, player.player_id, highest=False),
-            )
-            other = self._request_decision(
-                "choose_trick_tile_target",
-                state,
-                player,
-                name,
-                list(self._other_player_tile_candidates(state, player)),
-                "trade_other_tile",
-                fallback=lambda: self._select_other_player_tile(state, player, highest=True),
-            )
-            if own is None or other is None:
-                return {"type": "NO_EFFECT", "reason": "missing_trade_target"}
-            other_owner = state.tile_owner[other]
-            extra = 0
-            if player.attribute in {"무뢰", "상민"}:
-                extra = state.config.rules.economy.rent_cost_for(state, other)
-                out = self._pay_or_bankrupt(state, player, extra, other_owner)
-                if not out.get("paid"):
-                    return {"type": "TRADE_FAIL", "reason": "extra_payment_bankrupt", **out}
-            t1 = self._transfer_tile(state, own, other_owner)
-            t2 = self._transfer_tile(state, other, player.player_id)
-            if t1.get("blocked_by_monopoly") or t2.get("blocked_by_monopoly"):
-                return {"type": "TRADE_FAIL", "reason": "monopoly_protected", "own_to_other": t1, "other_to_self": t2}
-            return {"type": "FORCED_TRADE", "extra_payment": extra, "own_to_other": t1, "other_to_self": t2}
+            if queue_followups:
+                return self._enqueue_fortune_decision_action(state, player, "resolve_fortune_forced_trade", name, "QUEUED_FORTUNE_FORCED_TRADE")
+            return self._resolve_fortune_forced_trade(state, player, name)
         if card_id == FORTUNE_PIOUS_MARKER_ID:
             if state.marker_owner_id == player.player_id:
-                pos = self._request_decision(
-                    "choose_trick_tile_target",
-                    state,
-                    player,
-                    name,
-                    list(self._empty_block_tile_candidates(state)),
-                    "marker_empty_block_gain",
-                    fallback=lambda: self._select_empty_block_tile(state),
-                )
-                if pos is None:
-                    return {"type": "NO_EFFECT", "reason": "no_empty_block"}
-                state.tile_owner[pos] = player.player_id
-                player.tiles_owned += 1
-                return {"type": "PIOUS_MARKER_GAIN_TILE", "pos": pos}
+                if queue_followups:
+                    return self._enqueue_fortune_decision_action(state, player, "resolve_fortune_pious_marker", name, "QUEUED_FORTUNE_PIOUS_MARKER")
+                return self._resolve_fortune_pious_marker_gain(state, player, name)
             return {"type": "PAY_MARKER_OWNER", **self._pay_or_bankrupt(state, player, 4, state.marker_owner_id)}
         if card_id == FORTUNE_BEAST_HEART_ID:
             return self._fortune_beast_heart(state, player)

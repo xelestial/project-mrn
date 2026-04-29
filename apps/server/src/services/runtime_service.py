@@ -714,6 +714,16 @@ class RuntimeService:
             state.pending_prompt_instance_id = 0
         if self._game_state_store is not None:
             payload = state.to_checkpoint_payload()
+            pending_action_types = [
+                str(action.get("type") or "")
+                for action in payload.get("pending_actions") or []
+                if isinstance(action, dict)
+            ]
+            scheduled_action_types = [
+                str(action.get("type") or "")
+                for action in payload.get("scheduled_actions") or []
+                if isinstance(action, dict)
+            ]
             self._game_state_store.commit_transition(
                 session_id,
                 current_state=payload,
@@ -732,6 +742,10 @@ class RuntimeService:
                     "prompt_sequence": payload.get("prompt_sequence"),
                     "pending_action_count": len(payload.get("pending_actions") or []),
                     "scheduled_action_count": len(payload.get("scheduled_actions") or []),
+                    "pending_action_types": pending_action_types,
+                    "scheduled_action_types": scheduled_action_types,
+                    "next_action_type": pending_action_types[0] if pending_action_types else "",
+                    "next_scheduled_action_type": scheduled_action_types[0] if scheduled_action_types else "",
                     "has_pending_actions": bool(payload.get("pending_actions")),
                     "has_scheduled_actions": bool(payload.get("scheduled_actions")),
                     "has_pending_turn_completion": bool(payload.get("pending_turn_completion")),

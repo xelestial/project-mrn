@@ -496,6 +496,8 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual([action["type"] for action in saved_state["pending_actions"]], ["request_purchase_tile", "resolve_unowned_post_purchase"])
         self.assertTrue(saved_checkpoint["has_pending_actions"])
         self.assertEqual(saved_checkpoint["pending_action_count"], 2)
+        self.assertEqual(saved_checkpoint["pending_action_types"], ["request_purchase_tile", "resolve_unowned_post_purchase"])
+        self.assertEqual(saved_checkpoint["next_action_type"], "request_purchase_tile")
 
     def test_runtime_recovery_keeps_purchase_action_queued_when_prompt_waits(self) -> None:
         RuntimeService._ensure_gpt_import_path()
@@ -663,6 +665,8 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(saved_state["tiles"][tile_index]["owner_id"], 0)
         self.assertFalse(saved_checkpoint["has_pending_actions"])
         self.assertEqual(saved_checkpoint["pending_action_count"], 0)
+        self.assertEqual(saved_checkpoint["pending_action_types"], [])
+        self.assertEqual(saved_checkpoint["next_action_type"], "")
 
     def test_runtime_recovery_drains_rent_post_landing_action_from_checkpoint(self) -> None:
         RuntimeService._ensure_gpt_import_path()
@@ -810,6 +814,8 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(saved_state["scheduled_actions"], [])
         self.assertEqual(saved_checkpoint["scheduled_action_count"], 0)
         self.assertFalse(saved_checkpoint["has_scheduled_actions"])
+        self.assertEqual(saved_checkpoint["scheduled_action_types"], [])
+        self.assertEqual(saved_checkpoint["next_scheduled_action_type"], "")
 
     def test_runtime_process_command_once_commits_state_and_command_offset(self) -> None:
         RuntimeService._ensure_gpt_import_path()
