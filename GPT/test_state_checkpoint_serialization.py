@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from config import GameConfig
-from state import GameState
+from state import ActionEnvelope, GameState
 
 
 def test_game_state_checkpoint_payload_round_trips_runtime_state() -> None:
@@ -32,6 +32,15 @@ def test_game_state_checkpoint_payload_round_trips_runtime_state() -> None:
     state.pending_prompt_type = "movement"
     state.pending_prompt_player_id = 2
     state.pending_prompt_instance_id = 6
+    state.pending_actions = [
+        ActionEnvelope(
+            action_id="act_1",
+            type="apply_move",
+            actor_player_id=1,
+            source="fortune:test",
+            payload={"target_pos": 7, "lap_credit": False, "schedule_arrival": True},
+        )
+    ]
 
     payload = json.loads(json.dumps(state.to_checkpoint_payload(), ensure_ascii=False))
     restored = GameState.from_checkpoint_payload(config, payload)
@@ -60,3 +69,6 @@ def test_game_state_checkpoint_payload_round_trips_runtime_state() -> None:
     assert restored.pending_prompt_type == "movement"
     assert restored.pending_prompt_player_id == 2
     assert restored.pending_prompt_instance_id == 6
+    assert len(restored.pending_actions) == 1
+    assert restored.pending_actions[0].type == "apply_move"
+    assert restored.pending_actions[0].payload == {"target_pos": 7, "lap_credit": False, "schedule_arrival": True}

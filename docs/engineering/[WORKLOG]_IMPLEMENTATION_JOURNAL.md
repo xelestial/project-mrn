@@ -8,6 +8,31 @@ Updated: 2026-04-15
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-04-29 Redis Action Pipeline Seed
+
+- Scope: begin modular movement/arrival execution for the Redis-resumable engine path.
+- Done:
+  - added serializable `ActionEnvelope` and `GameState.pending_actions` checkpoint round-trip support
+  - added engine action helpers for `apply_move` and `resolve_arrival`
+  - routed fortune arrival movement, fortune move-only movement, and hunter forced landing through the shared target-move helper
+  - preserved the rule boundary that movement sources calculate dice/fixed/target movement before arrival, while arrival only resolves the current tile
+  - documented the action pipeline rule in the Redis authoritative state plan and module notes
+  - extended `run_next_transition()` so pending queued actions are drained before normal turn advancement
+  - verified queued `apply_move` can commit position change first, then queue `resolve_arrival` for a later transition
+  - expanded queued `apply_move` to accept `move_value` for forward step movement, including path, total-step, and lap-reward handling before a separate arrival transition
+  - added `_build_standard_move_action()` / `_enqueue_standard_move_action()` as the first normal-movement adapter from resolved `move` + `movement_meta` to queued actions
+  - added a simple parity test showing the queued adapter reaches the same position/resources/F state as `_advance_player()` for a one-step lap+arrival case
+  - expanded standard-move adapter parity coverage to card movement metadata, obstacle slowdown, and encounter boost
+- Validation:
+  - `./.venv/bin/python -m pytest GPT/test_state_checkpoint_serialization.py GPT/test_rule_fixes.py::RuleFixTests::test_suspicious_drink_uses_single_die GPT/test_rule_fixes.py::RuleFixTests::test_fortune_arrival_moves_then_resolves_landing_without_lap_credit GPT/test_rule_fixes.py::RuleFixTests::test_fortune_move_only_does_not_resolve_arrival GPT/test_event_effects.py::EventEffectIntegrationTests::test_fortune_movement_can_be_overridden`
+  - `./.venv/bin/python -m pytest GPT/test_rule_fixes.py GPT/test_event_effects.py GPT/test_state_checkpoint_serialization.py`
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_state_checkpoint_serialization.py GPT/test_rule_fixes.py::RuleFixTests::test_fortune_arrival_moves_then_resolves_landing_without_lap_credit GPT/test_rule_fixes.py::RuleFixTests::test_fortune_move_only_does_not_resolve_arrival`
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py`
+  - `./.venv/bin/python -m pytest GPT`
+- Next:
+  - mirror zone-chain movement, log rows, and visual contracts before replacing `_advance_player()` in `_take_turn()`
+  - design the visual event contract for fortune/forced moves before emitting those as regular movement events
+
 ## 2026-04-26
 
 ### Entry 011

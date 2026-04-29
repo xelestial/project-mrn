@@ -8,6 +8,17 @@ Mark-target resolution now has a safe character-name fallback for test and tooli
 - `prepare_run(initial_state=...)` resets per-run trackers and can reuse a hydrated Redis checkpoint state.
 - `run_next_transition(state)` advances one committed turn/round boundary and returns a small status payload, allowing server recovery code to persist the updated checkpoint after one transition.
 - `prepare_run()` records `_last_prepared_state` so a server-side prompt boundary raised during initial round setup can still commit the canonical checkpoint.
+- If `GameState.pending_actions` is non-empty, `run_next_transition(state)` drains exactly one queued action before normal turn advancement. This lets Redis persist intermediate movement/arrival boundaries.
+
+## 2026-04-29 action pipeline seed note
+- Movement/arrival refactoring has started with serializable `ActionEnvelope` execution helpers.
+- The first migrated path is target movement: `apply_move` can optionally schedule `resolve_arrival`.
+- Arrival resolution must not roll dice or calculate movement. Dice/fixed/target movement sources run before `resolve_arrival`; `resolve_arrival` only resolves the current tile.
+- Fortune arrival/move-only effects and hunter forced landing now use the shared target-move helper, preserving `no_lap_credit` behavior while making the move/arrival boundary explicit.
+- Compatibility note: fortune/forced target moves do not emit the regular `player_move` visual event yet, because existing visual stream validation treats `player_move` as the normal turn-movement pair for `dice_roll`.
+- Queue note: queued `apply_move` actions schedule `resolve_arrival` as a follow-up action instead of resolving landing inline; direct compatibility calls still execute inline until their callers are migrated.
+- Step-move note: queued `apply_move` also accepts `move_value` for forward movement. In that mode it computes path and lap rewards during the move action, then leaves tile effects to the queued `resolve_arrival` action.
+- Adapter note: `_build_standard_move_action()` / `_enqueue_standard_move_action()` convert resolved normal movement into a queued `apply_move` action. The adapter now mirrors obstacle slowdown and encounter boost for parity tests. The default `_take_turn()` path still calls `_advance_player()` until chain movement, logs, and visual contracts are fully mirrored.
 
 `GameEngine` orchestrates turns, emits semantic events, and builds `GameResult`.
 

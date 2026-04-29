@@ -4,6 +4,10 @@ Recent rule-fix coverage includes mark bookkeeping and control-profile scoring e
 
 ## 2026-04-29 sync
 - Documentation timestamp synchronized with the current rule-fix regression suite so module integrity checks remain green after Redis checkpoint work.
+- Added movement/arrival action-pipeline seed regressions:
+  - fortune arrival moves to the target and resolves landing without lap credit
+  - fortune move-only changes position without resolving landing
+  - suspicious drink keeps dice rolling before arrival resolution
 
 룰 수정 회귀 테스트 문서.
 

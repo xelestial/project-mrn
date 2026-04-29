@@ -12,7 +12,7 @@ from ai_policy import BasePolicy, MovementDecision
 from characters import CHARACTERS, CARD_TO_NAMES, randomized_active_by_card
 from config import CellKind, GameConfig
 from policy_mark_utils import ordered_public_mark_targets
-from state import GameState, PlayerState
+from state import ActionEnvelope, GameState, PlayerState
 from fortune_cards import FortuneCard
 from trick_cards import (
     TRICK_FREE_GIFT_ID,
@@ -355,6 +355,8 @@ class GameEngine:
         return state
 
     def run_next_transition(self, state: GameState) -> dict[str, Any]:
+        if state.pending_actions:
+            return self._run_next_action_transition(state)
         if not state.current_round_order:
             if self._check_end(state):
                 return {"status": "finished", "reason": "end_rule"}
@@ -629,10 +631,260 @@ class GameEngine:
         char_def = self._character_def(player)
         return bool(char_def.starting_active) if char_def is not None else False
 
+    def _next_action_id(self, state: GameState, prefix: str) -> str:
+        return f"{prefix}:{state.turn_index}:{len(state.pending_actions)}:{uuid.uuid4().hex[:8]}"
+
+    def _action(self, state: GameState, action_type: str, player: PlayerState, source: str, payload: dict) -> ActionEnvelope:
+        return ActionEnvelope(
+            action_id=self._next_action_id(state, action_type),
+            type=action_type,
+            actor_player_id=player.player_id,
+            source=source,
+            payload=dict(payload),
+        )
+
+    def _resolve_arrival_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        player = state.players[action.actor_player_id]
+        payload = action.payload
+        landing = self._resolve_landing(state, player)
+        self._emit_vis(
+            "landing_resolved",
+            Phase.LANDING,
+            player.player_id + 1,
+            state,
+            position=player.position,
+            landing=landing,
+            trigger=payload.get("trigger"),
+            card_name=payload.get("card_name"),
+        )
+        return {
+            "type": "ARRIVAL",
+            "trigger": payload.get("trigger", action.source),
+            "card_name": payload.get("card_name", ""),
+            "position": player.position,
+            "landing": landing,
+        }
+
+    def _run_next_action_transition(self, state: GameState) -> dict[str, Any]:
+        action = state.pending_actions.pop(0)
+        result = self._execute_action(state, action, queue_followups=True)
+        self._log(
+            {
+                "event": "action_transition",
+                "action_id": action.action_id,
+                "action_type": action.type,
+                "actor_player_id": action.actor_player_id + 1,
+                "source": action.source,
+                "result": result,
+                "pending_actions": len(state.pending_actions),
+            }
+        )
+        return {
+            "status": "committed",
+            "action_id": action.action_id,
+            "action_type": action.type,
+            "player_id": action.actor_player_id + 1,
+            "turn_index": state.turn_index,
+            "pending_actions": len(state.pending_actions),
+        }
+
+    def _apply_move_action(self, state: GameState, action: ActionEnvelope, *, queue_followups: bool = False) -> dict:
+        player = state.players[action.actor_player_id]
+        payload = action.payload
+        board_len = len(state.board)
+        old_pos = player.position
+        move_value = payload.get("move_value")
+        direction = int(payload.get("direction", 1) or 1)
+        lap_credit = bool(payload.get("lap_credit", False))
+        lap_events: list[dict] = []
+        path: list[int] = list(payload.get("path") or [])
+        laps_crossed = 0
+        if move_value is not None:
+            move_value = int(move_value)
+            raw_target = old_pos + (move_value * direction)
+            if lap_credit and direction > 0 and move_value > 0:
+                laps_crossed = max(0, raw_target // board_len)
+                for _ in range(laps_crossed):
+                    lap_event = self._apply_lap_reward(state, player)
+                    lap_events.append(lap_event)
+                    if is_gakju(player.current_character):
+                        geo_result = self._apply_geo_bonus(player, lap_event)
+                        self._record_ai_decision(
+                            state,
+                            player,
+                            "geo_bonus",
+                            None,
+                            result=geo_result,
+                            source_event="lap_reward",
+                        )
+                        lap_events.append(geo_result)
+            if direction > 0 and not path:
+                cursor = old_pos
+                for _ in range(max(0, move_value)):
+                    cursor = (cursor + 1) % board_len
+                    path.append(cursor)
+            player.total_steps += max(0, move_value)
+            target_pos = raw_target % board_len
+        else:
+            target_pos = int(payload["target_pos"]) % board_len
+        player.position = target_pos
+        result = {
+            "type": "MOVE_APPLIED",
+            "trigger": payload.get("trigger", action.source),
+            "card_name": payload.get("card_name", ""),
+            "start_pos": old_pos,
+            "end_pos": player.position,
+            "move": move_value if move_value is not None else payload.get("move"),
+            "laps_gained": laps_crossed,
+            "lap_events": lap_events,
+            "path": path,
+            "no_lap_credit": not lap_credit,
+        }
+        if payload.get("emit_move_event", True):
+            self._emit_vis(
+                "player_move",
+                Phase.MOVEMENT,
+                player.player_id + 1,
+                state,
+                player_id=player.player_id + 1,
+                from_tile=old_pos,
+                from_tile_index=old_pos,
+                to_tile=player.position,
+                to_tile_index=player.position,
+                move=result["move"],
+                crossed_start=laps_crossed > 0,
+                formula=payload.get("formula", ""),
+                path=path,
+                movement_source=payload.get("trigger", action.source),
+            )
+        if payload.get("schedule_arrival", False):
+            arrival_action = self._action(
+                state,
+                "resolve_arrival",
+                player,
+                str(payload.get("trigger", action.source)),
+                {
+                    "trigger": payload.get("trigger", action.source),
+                    "card_name": payload.get("card_name", ""),
+                },
+            )
+            if queue_followups:
+                state.pending_actions.insert(0, arrival_action)
+                result["arrival"] = {"queued_action_id": arrival_action.action_id}
+            else:
+                result["arrival"] = self._execute_action(state, arrival_action)
+        return result
+
+    def _execute_action(self, state: GameState, action: ActionEnvelope, *, queue_followups: bool = False) -> dict:
+        if action.type == "apply_move":
+            return self._apply_move_action(state, action, queue_followups=queue_followups)
+        if action.type == "resolve_arrival":
+            return self._resolve_arrival_action(state, action)
+        raise ValueError(f"Unsupported action type: {action.type}")
+
+    def _apply_target_move(
+        self,
+        state: GameState,
+        player: PlayerState,
+        target_pos: int,
+        *,
+        trigger: str,
+        card_name: str = "",
+        schedule_arrival: bool,
+        emit_move_event: bool = False,
+        move: int | None = None,
+        formula: str = "",
+    ) -> dict:
+        action = self._action(
+            state,
+            "apply_move",
+            player,
+            trigger,
+            {
+                "target_pos": target_pos,
+                "lap_credit": False,
+                "schedule_arrival": schedule_arrival,
+                "emit_move_event": emit_move_event,
+                "trigger": trigger,
+                "card_name": card_name,
+                "move": move,
+                "formula": formula,
+            },
+        )
+        return self._execute_action(state, action)
+
+    def _build_standard_move_action(
+        self,
+        state: GameState,
+        player: PlayerState,
+        move: int,
+        movement_meta: dict,
+        *,
+        emit_move_event: bool = True,
+    ) -> ActionEnvelope:
+        effective_move, obstacle_event = self._apply_obstacle_slowdown(
+            state,
+            player,
+            start_pos=player.position,
+            planned_move=move,
+        )
+        encounter_event = None
+        if player.trick_encounter_boost_this_turn and effective_move > 0:
+            cur = player.position
+            for step in range(1, effective_move):
+                cur = (cur + 1) % len(state.board)
+                if any(op.alive and op.player_id != player.player_id and op.position == cur for op in state.players):
+                    extra = [self.rng.randint(1, 6), self.rng.randint(1, 6)]
+                    effective_move += sum(extra)
+                    encounter_event = {"met_at": cur, "step": step, "extra_dice": extra, "extra_move": sum(extra)}
+                    break
+            player.trick_encounter_boost_this_turn = False
+        payload = {
+            "move_value": effective_move,
+            "lap_credit": True,
+            "schedule_arrival": True,
+            "emit_move_event": emit_move_event,
+            "trigger": movement_meta.get("mode", "standard_move"),
+            "formula": movement_meta.get("formula", ""),
+            "movement_meta": dict(movement_meta),
+            "planned_move": move,
+        }
+        if obstacle_event is not None:
+            payload["obstacle_slowdown"] = obstacle_event
+        if encounter_event is not None:
+            payload["encounter_bonus"] = encounter_event
+        return self._action(state, "apply_move", player, "standard_move", payload)
+
+    def _enqueue_standard_move_action(
+        self,
+        state: GameState,
+        player: PlayerState,
+        move: int,
+        movement_meta: dict,
+        *,
+        emit_move_event: bool = True,
+    ) -> ActionEnvelope:
+        action = self._build_standard_move_action(
+            state,
+            player,
+            move,
+            movement_meta,
+            emit_move_event=emit_move_event,
+        )
+        state.pending_actions.append(action)
+        return action
+
     def _apply_forced_landing(self, state: GameState, player: PlayerState, source_pos: int) -> dict:
         old_pos = player.position
-        player.position = source_pos
-        landing = self._resolve_landing(state, player)
+        move_result = self._apply_target_move(
+            state,
+            player,
+            source_pos,
+            trigger="forced_move",
+            card_name=player.current_character,
+            schedule_arrival=True,
+        )
+        landing = dict(move_result.get("arrival", {}).get("landing", {}))
         event = {
             "event": "forced_move",
             "player": player.player_id + 1,
@@ -2769,25 +3021,41 @@ class GameEngine:
         return {"dice": dice, "move": sum(dice), "mode": f"fortune_fixed_{explicit_dice_count}d"}
 
     def _apply_fortune_arrival_impl(self, state: GameState, player: PlayerState, target_pos: int, trigger: str, card_name: str) -> dict:
-        old_pos = player.position
-        player.position = target_pos % len(state.board)
-        landing = self._resolve_landing(state, player)
-        self._emit_vis(
-            "landing_resolved",
-            Phase.LANDING,
-            player.player_id + 1,
+        move = self._apply_target_move(
             state,
-            position=player.position,
-            landing=landing,
+            player,
+            target_pos,
             trigger=trigger,
             card_name=card_name,
+            schedule_arrival=True,
         )
-        return {"type": "ARRIVAL", "trigger": trigger, "card_name": card_name, "start_pos": old_pos, "end_pos": player.position, "landing": landing, "no_lap_credit": True}
+        return {
+            "type": "ARRIVAL",
+            "trigger": trigger,
+            "card_name": card_name,
+            "start_pos": move.get("start_pos"),
+            "end_pos": move.get("end_pos"),
+            "landing": move.get("arrival", {}).get("landing"),
+            "no_lap_credit": True,
+        }
 
     def _apply_fortune_move_only_impl(self, state: GameState, player: PlayerState, target_pos: int, trigger: str, card_name: str) -> dict:
-        old_pos = player.position
-        player.position = target_pos % len(state.board)
-        return {"type": "MOVE_ONLY", "trigger": trigger, "card_name": card_name, "start_pos": old_pos, "end_pos": player.position, "no_lap_credit": True}
+        move = self._apply_target_move(
+            state,
+            player,
+            target_pos,
+            trigger=trigger,
+            card_name=card_name,
+            schedule_arrival=False,
+        )
+        return {
+            "type": "MOVE_ONLY",
+            "trigger": trigger,
+            "card_name": card_name,
+            "start_pos": move.get("start_pos"),
+            "end_pos": move.get("end_pos"),
+            "no_lap_credit": True,
+        }
 
     def _apply_fortune_arrival(self, state: GameState, player: PlayerState, target_pos: int, trigger: str, card_name: str) -> dict:
         result = self.events.emit_first_non_none("fortune.movement.resolve", state, player, target_pos, trigger, card_name, "arrival")

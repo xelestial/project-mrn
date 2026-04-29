@@ -257,6 +257,40 @@ class RuleFixTests(unittest.TestCase):
         self.assertEqual(result["dice"], [6])
         self.assertEqual(result["move"], 6)
 
+    def test_fortune_arrival_moves_then_resolves_landing_without_lap_credit(self):
+        engine = self.make_engine()
+        state = self.make_state(engine)
+        player = state.players[0]
+        player.position = 1
+        target = first_special_position(state, CellKind.F1)
+
+        result = engine._apply_fortune_arrival(state, player, target, "test_arrival", "테스트")
+
+        self.assertEqual(result["type"], "ARRIVAL")
+        self.assertEqual(result["start_pos"], 1)
+        self.assertEqual(result["end_pos"], target)
+        self.assertTrue(result["no_lap_credit"])
+        self.assertEqual(player.position, target)
+        self.assertEqual(player.total_steps, 0)
+        self.assertEqual(result["landing"]["type"], "F1")
+
+    def test_fortune_move_only_does_not_resolve_arrival(self):
+        engine = self.make_engine()
+        state = self.make_state(engine)
+        player = state.players[0]
+        player.position = 1
+        target = first_special_position(state, CellKind.F1)
+        before_f = state.f_value
+
+        result = engine._apply_fortune_move_only(state, player, target, "test_move_only", "테스트")
+
+        self.assertEqual(result["type"], "MOVE_ONLY")
+        self.assertEqual(result["start_pos"], 1)
+        self.assertEqual(result["end_pos"], target)
+        self.assertEqual(player.position, target)
+        self.assertEqual(player.total_steps, 0)
+        self.assertEqual(state.f_value, before_f)
+
     def test_trickster_day_can_discard_and_redraw_one_trick(self):
         engine = self.make_engine(policy=FixedTrickRedrawPolicy([11]))
         state = self.make_state(engine)

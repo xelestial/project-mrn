@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
-from typing import Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Set
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Set
 
 from characters import CHARACTERS
 from config import CellKind, GameConfig, TileMetadata
@@ -152,6 +152,34 @@ class PlayerState:
 
 
 @dataclass(slots=True)
+class ActionEnvelope:
+    action_id: str
+    type: str
+    actor_player_id: int
+    source: str = ""
+    payload: dict[str, Any] = field(default_factory=dict)
+
+    def to_payload(self) -> dict:
+        return {
+            "action_id": self.action_id,
+            "type": self.type,
+            "actor_player_id": self.actor_player_id,
+            "source": self.source,
+            "payload": dict(self.payload),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: dict) -> "ActionEnvelope":
+        return cls(
+            action_id=str(payload.get("action_id", "")),
+            type=str(payload.get("type", "")),
+            actor_player_id=int(payload.get("actor_player_id", 0)),
+            source=str(payload.get("source", "")),
+            payload=dict(payload.get("payload") or {}),
+        )
+
+
+@dataclass(slots=True)
 class GameState:
     config: GameConfig
     tiles: List[TileState]
@@ -195,6 +223,7 @@ class GameState:
     pending_prompt_type: str = ""
     pending_prompt_player_id: int = 0
     pending_prompt_instance_id: int = 0
+    pending_actions: List[ActionEnvelope] = field(default_factory=list)
 
     @classmethod
     def create(cls, config: GameConfig) -> "GameState":
@@ -305,6 +334,7 @@ class GameState:
             "pending_prompt_type": self.pending_prompt_type,
             "pending_prompt_player_id": self.pending_prompt_player_id,
             "pending_prompt_instance_id": self.pending_prompt_instance_id,
+            "pending_actions": [action.to_payload() for action in self.pending_actions],
             "tiles": [_tile_to_payload(tile) for tile in self.tiles],
             "players": [_player_to_payload(player) for player in self.players],
             "fortune_draw_pile": [_card_key(card) for card in self.fortune_draw_pile],
@@ -351,6 +381,11 @@ class GameState:
         state.pending_prompt_type = str(payload.get("pending_prompt_type", state.pending_prompt_type))
         state.pending_prompt_player_id = int(payload.get("pending_prompt_player_id", state.pending_prompt_player_id))
         state.pending_prompt_instance_id = int(payload.get("pending_prompt_instance_id", state.pending_prompt_instance_id))
+        state.pending_actions = [
+            ActionEnvelope.from_payload(raw_action)
+            for raw_action in payload.get("pending_actions", [])
+            if isinstance(raw_action, dict)
+        ]
 
         for raw_tile in payload.get("tiles", []):
             if not isinstance(raw_tile, dict):
