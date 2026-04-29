@@ -9,6 +9,7 @@
 - Prompt continuation metadata is part of the canonical checkpoint: `prompt_sequence`, `pending_prompt_request_id`, `pending_prompt_type`, `pending_prompt_player_id`, and `pending_prompt_instance_id`.
 - Action continuation metadata is also checkpointed through `pending_actions`. Each entry is a serializable `ActionEnvelope`, not a Python callable, so later Redis recovery can resume queued movement/arrival steps without depending on process memory.
 - `pending_action_log` carries the in-progress turn-log aggregate while movement and arrival are split across multiple queued actions.
+- `pending_turn_completion` carries the small deferred turn-finalization envelope while normal turn movement is split into queued `apply_move -> resolve_arrival` transitions. Redis recovery uses it to emit the turn-end snapshot and advance the turn cursor only after queued movement work is finished.
 
 ## 현재 구조
 - `GameState.create()`는 `BoardConfig.build_tile_metadata()` 결과를 바탕으로 `TileState` 목록을 만든다.

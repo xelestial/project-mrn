@@ -728,13 +728,15 @@ Implemented seed:
 - A standard-move adapter now converts resolved `move` + `movement_meta` into a queued `apply_move` action. It is verified against simple, card-metadata, obstacle slowdown, encounter boost, and zone-chain `_advance_player()` cases, but default turn execution still uses `_advance_player()` until the remaining behavior contracts are mirrored.
 - `pending_action_log` checkpoints the in-progress movement summary while `apply_move` and `resolve_arrival` are split across transitions. Final arrival emits a legacy-compatible `turn` log row for the covered standard-move path.
 - Queued `apply_move` uses a separate `action_move` visual event when it emits movement. `player_move` stays reserved for the ordinary dice-paired turn movement, while backend `view_state` board/reveal/turn/scene selectors treat `action_move` as movement for projection.
+- Normal turn movement now enters the same queued movement boundary: `_take_turn()` resolves the movement source and schedules `apply_move -> resolve_arrival`, then `pending_turn_completion` emits the turn-end snapshot and advances the turn cursor only after the queued actions finish. The external visual contract remains `dice_roll -> player_move -> landing_resolved -> turn_end_snapshot`.
+- Runtime recovery checkpoints expose `pending_action_count`, `has_pending_actions`, and `has_pending_turn_completion`, while the canonical `current_state` stores the full action and turn-completion envelopes.
 - Direct fortune/forced-move callers still execute inline for compatibility until their call sites are migrated to enqueue actions.
 
 Next action-pipeline hardening:
 
-- migrate normal turn movement into explicit queued `apply_move -> resolve_arrival`
-- broaden action-log parity for longer chain/obstacle/encounter edge cases before replacing `_advance_player()`
-- let landing effects enqueue follow-up movement actions instead of nested immediate calls
+- split mark-start forced movement into a resumable subphase so hunter pulls can queue movement and then resume the same actor's turn safely
+- migrate fortune movement cards from immediate target movement to queued target movement once their result contract can represent `queued_action_id`
+- let all remaining landing effects enqueue follow-up movement actions instead of nested immediate calls
 
 ## Testing Strategy
 

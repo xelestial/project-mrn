@@ -357,6 +357,8 @@ class GameEngine:
     def run_next_transition(self, state: GameState) -> dict[str, Any]:
         if state.pending_actions:
             return self._run_next_action_transition(state)
+        if state.pending_turn_completion:
+            return self._complete_pending_turn_transition(state)
         if not state.current_round_order:
             if self._check_end(state):
                 return {"status": "finished", "reason": "end_rule"}
@@ -368,6 +370,8 @@ class GameEngine:
         if player.alive:
             player.turns_taken += 1
             self._take_turn(state, player)
+            if state.pending_actions or state.pending_turn_completion:
+                return {"status": "committed", "player_id": current_pid + 1, "turn_index": state.turn_index, "pending_actions": len(state.pending_actions)}
             if self._check_end(state):
                 return {"status": "finished", "reason": "end_rule", "player_id": current_pid + 1}
         state.turn_index += 1
@@ -376,6 +380,38 @@ class GameEngine:
             state.rounds_completed += 1
             self._start_new_round(state, initial=False)
         return {"status": "committed", "player_id": current_pid + 1, "turn_index": state.turn_index}
+
+    def _advance_turn_cursor_after_completion(self, state: GameState, player_id: int) -> dict[str, Any]:
+        state.turn_index += 1
+        if state.turn_index % max(1, len(state.current_round_order)) == 0:
+            self._apply_round_end_marker_management(state)
+            state.rounds_completed += 1
+            self._start_new_round(state, initial=False)
+        return {"status": "committed", "player_id": player_id + 1, "turn_index": state.turn_index}
+
+    def _complete_pending_turn_transition(self, state: GameState) -> dict[str, Any]:
+        pending = dict(state.pending_turn_completion)
+        state.pending_turn_completion = {}
+        player_id = int(pending.get("player_id", 0) or 0)
+        player = state.players[player_id]
+        disruption_before = dict(pending.get("disruption_before") or {})
+        disruption_after = self._leader_disruption_snapshot(state, player)
+        finisher_before = int(pending.get("finisher_before", 0) or 0)
+        awarded = self._maybe_award_control_finisher_window(state, player, disruption_before, disruption_after)
+        if finisher_before > 0 and not awarded:
+            player.control_finisher_turns = max(0, finisher_before - 1)
+            if player.control_finisher_turns == 0:
+                player.control_finisher_reason = ""
+        self._emit_vis(
+            "turn_end_snapshot",
+            Phase.TURN_END,
+            player.player_id + 1,
+            state,
+            snapshot=build_turn_end_snapshot(state),
+        )
+        if self._check_end(state):
+            return {"status": "finished", "reason": "end_rule", "player_id": player_id + 1}
+        return self._advance_turn_cursor_after_completion(state, player_id)
 
     def _reset_run_trackers(self) -> None:
         self._action_log = []
@@ -941,6 +977,7 @@ class GameEngine:
         movement_meta: dict,
         *,
         emit_move_event: bool = True,
+        move_event_type: str | None = None,
     ) -> ActionEnvelope:
         effective_move, obstacle_event = self._apply_obstacle_slowdown(
             state,
@@ -969,6 +1006,8 @@ class GameEngine:
             "movement_meta": dict(movement_meta),
             "planned_move": move,
         }
+        if move_event_type:
+            payload["move_event_type"] = move_event_type
         if obstacle_event is not None:
             payload["obstacle_slowdown"] = obstacle_event
         if encounter_event is not None:
@@ -991,6 +1030,7 @@ class GameEngine:
         movement_meta: dict,
         *,
         emit_move_event: bool = True,
+        move_event_type: str | None = None,
     ) -> ActionEnvelope:
         action = self._build_standard_move_action(
             state,
@@ -998,6 +1038,7 @@ class GameEngine:
             move,
             movement_meta,
             emit_move_event=emit_move_event,
+            move_event_type=move_event_type,
         )
         state.pending_actions.append(action)
         return action
@@ -1452,20 +1493,19 @@ class GameEngine:
                 stats["single_card_turns"] += 1
             elif len(used_cards) == 2:
                 stats["pair_card_turns"] += 1
-        self._advance_player(state, player, move, movement_meta)
-        disruption_after = self._leader_disruption_snapshot(state, player)
-        awarded = self._maybe_award_control_finisher_window(state, player, disruption_before, disruption_after)
-        if finisher_before > 0 and not awarded:
-            player.control_finisher_turns = max(0, finisher_before - 1)
-            if player.control_finisher_turns == 0:
-                player.control_finisher_reason = ""
-        self._emit_vis(
-            "turn_end_snapshot",
-            Phase.TURN_END,
-            player.player_id + 1,
+        self._enqueue_standard_move_action(
             state,
-            snapshot=build_turn_end_snapshot(state),
+            player,
+            move,
+            movement_meta,
+            emit_move_event=True,
+            move_event_type="player_move",
         )
+        state.pending_turn_completion = {
+            "player_id": player.player_id,
+            "finisher_before": finisher_before,
+            "disruption_before": dict(disruption_before),
+        }
 
 
     def _player_lap_mode(self, player: PlayerState) -> str:

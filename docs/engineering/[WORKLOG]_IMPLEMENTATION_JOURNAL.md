@@ -27,6 +27,11 @@ Updated: 2026-04-15
   - added checkpointed `pending_action_log` aggregation so queued movement can emit a legacy-compatible `turn` log summary after final arrival
   - defined the movement visual split: queued/follow-up movement emits `action_move`, while `player_move` remains the dice-paired regular turn movement
   - updated visual stream validation and backend board/reveal/turn/scene selectors so `action_move` is accepted and projected as movement without breaking the `dice_roll -> player_move` contract
+  - migrated normal turn movement into the queued `apply_move -> resolve_arrival` path while preserving the public `dice_roll -> player_move` visual contract
+  - added `pending_turn_completion` checkpoint state so turn-end snapshot emission, control-finisher bookkeeping, end checks, and turn/round cursor advancement happen only after queued movement actions finish
+  - extended runtime checkpoint metadata with pending-action and pending-turn-completion flags
+  - added Redis recovery coverage proving a hydrated pending `apply_move` action is drained and persisted after service reconstruction
+  - clarified that fortune/forced target movement still needs a resumable result contract/resume phase before those inline call sites can be safely migrated
 - Validation:
   - `./.venv/bin/python -m pytest GPT/test_state_checkpoint_serialization.py GPT/test_rule_fixes.py::RuleFixTests::test_suspicious_drink_uses_single_die GPT/test_rule_fixes.py::RuleFixTests::test_fortune_arrival_moves_then_resolves_landing_without_lap_credit GPT/test_rule_fixes.py::RuleFixTests::test_fortune_move_only_does_not_resolve_arrival GPT/test_event_effects.py::EventEffectIntegrationTests::test_fortune_movement_can_be_overridden`
   - `./.venv/bin/python -m pytest GPT/test_rule_fixes.py GPT/test_event_effects.py GPT/test_state_checkpoint_serialization.py`
@@ -36,13 +41,18 @@ Updated: 2026-04-15
   - `./.venv/bin/python -m pytest GPT/test_visual_runtime_substrate.py apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py`
   - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_visual_runtime_substrate.py apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py`
   - `./.venv/bin/python -m pytest GPT apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py GPT/test_engine_resumable_checkpoint.py GPT/test_state_checkpoint_serialization.py`
+  - `./.venv/bin/python -m pytest GPT`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py apps/server/tests/test_restart_persistence.py apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py`
 - Validation failure and lesson:
   - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_visual_runtime_substrate.py apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py` initially failed in the new action-move visual test.
   - Cause: the test assumed the stream was empty after `prepare_run()`, but the engine correctly emits setup events such as `session_start`, `round_start`, and draft events before the queued move.
   - Lesson: movement-event assertions in resumable transition tests must filter the relevant semantic event type, because the visual stream is append-only and may already contain setup/replay context.
+  - `./.venv/bin/python -m pytest GPT` initially failed after `pending_turn_completion` because module docs were older than `engine.py`/`state.py`.
+  - Lesson: checkpoint-shape changes must update the paired module docs in the same slice, not after the broad test run.
 - Next:
-  - broaden action-log parity around longer zone-chain/obstacle/encounter combinations before replacing `_advance_player()` in `_take_turn()`
-  - migrate normal turn movement into the queued `apply_move -> resolve_arrival` path once the remaining parity cases are closed
+  - design the resumable mark-start/fortune-result subphase before migrating forced and fortune target-movement call sites
+  - keep expanding Redis recovery tests around prompt + pending action combinations
 
 ## 2026-04-26
 
