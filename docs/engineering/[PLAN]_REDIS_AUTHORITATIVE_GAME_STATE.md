@@ -725,7 +725,7 @@ Implemented seed:
 - Fortune `[도착]` movement, fortune `[이동]` movement, and hunter forced landing now route through the shared target-move helper.
 - `run_next_transition()` now drains one queued action before normal turn advancement. A queued `apply_move` with `schedule_arrival=true` updates position and queues `resolve_arrival`; the following transition resolves the tile.
 - Queued `apply_move` now supports `move_value` for forward step movement. It applies path/total-step/lap-reward state in the move transition while leaving tile effects to the next `resolve_arrival` transition.
-- A standard-move adapter now converts resolved `move` + `movement_meta` into a queued `apply_move` action. It is verified against simple, card-metadata, obstacle slowdown, encounter boost, and zone-chain `_advance_player()` cases, but default turn execution still uses `_advance_player()` until the remaining behavior contracts are mirrored.
+- A standard-move adapter now converts resolved `move` + `movement_meta` into a queued `apply_move` action. Default turn execution uses this queued movement boundary and is verified against simple, card-metadata, obstacle slowdown, encounter boost, and zone-chain `_advance_player()` compatibility cases.
 - `pending_action_log` checkpoints the in-progress movement summary while `apply_move` and `resolve_arrival` are split across transitions. Final arrival emits a legacy-compatible `turn` log row for the covered standard-move path.
 - Queued `apply_move` uses a separate `action_move` visual event when it emits movement. `player_move` stays reserved for the ordinary dice-paired turn movement, while backend `view_state` board/reveal/turn/scene selectors treat `action_move` as movement for projection.
 - Normal turn movement now enters the same queued movement boundary: `_take_turn()` resolves the movement source and schedules `apply_move -> resolve_arrival`, then `pending_turn_completion` emits the turn-end snapshot and advances the turn cursor only after the queued actions finish. The external visual contract remains `dice_roll -> player_move -> landing_resolved -> turn_end_snapshot`.
@@ -737,14 +737,15 @@ Implemented seed:
 - Decision-bearing effects are starting to become actions too. `request_purchase_tile` runs purchase decision/mutation through the action iterator; if the decision bridge raises a prompt boundary, the action is put back at the front of `pending_actions` so replay after Redis recovery resumes the same purchase request rather than skipping or duplicating it. State mutations that are part of the purchase, including one-shot free-purchase flags, must happen only after a decision is returned.
 - Queued unowned-land arrivals now split into `resolve_arrival -> request_purchase_tile -> resolve_unowned_post_purchase`. This prevents a human purchase prompt from being raised inside arrival resolution and gives adjacent-buy/same-tile/weather post-processing its own checkpointable action.
 - Queued rent landings can split rent payment from follow-up land effects as `resolve_arrival -> resolve_landing_post_effects`, so adjacent-buy decisions and same-tile bonuses can recover independently after the rent mutation is committed.
+- Zone-chain landings now enqueue follow-up movement as `apply_move -> resolve_arrival` instead of nesting the extra move inside arrival resolution.
 - Decision-bearing fortune effects should produce actions instead of opening prompts during fortune draw resolution. Migrated cards now include subscription-style empty-block purchase, land thief, donation angel, forced trade, and pious marker tile gain.
 - Runtime recovery checkpoints expose `pending_action_count`, `scheduled_action_count`, `pending_action_types`, `scheduled_action_types`, `next_action_type`, `next_scheduled_action_type`, `has_pending_actions`, `has_scheduled_actions`, and `has_pending_turn_completion`, while the canonical `current_state` stores the full action, scheduled-action, and turn-completion envelopes.
 - Direct fortune/forced-move callers still execute inline for compatibility until their call sites are migrated to enqueue actions.
 
 Next action-pipeline hardening:
 
-- let all remaining landing effects enqueue follow-up movement actions instead of nested immediate calls
-- migrate unowned-tile landing purchase to enqueue `request_purchase_tile` directly, then use the same prompt-resumable pattern for other human decisions
+- audit remaining direct compatibility helpers (`_advance_player()`, `_apply_fortune_arrival()`, and extension hooks) and either migrate their callers to actions or explicitly mark them as test/plugin-only APIs
+- expand the prompt-resumable pattern to any future human decisions that still appear during effect resolution
 
 ## Testing Strategy
 
