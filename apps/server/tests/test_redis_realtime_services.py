@@ -87,6 +87,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
 
     def test_game_state_store_commits_transition_state_and_checkpoint_together(self) -> None:
         game_state = RedisGameStateStore(self.connection)
+        command_store = RedisCommandStore(self.connection)
 
         game_state.commit_transition(
             "s-commit",
@@ -99,11 +100,14 @@ class RedisRealtimeServicesTests(unittest.TestCase):
                 "has_snapshot": True,
             },
             view_state={"board": {"turn": 3}},
+            command_consumer_name="runtime_wakeup",
+            command_seq=9,
         )
 
         self.assertEqual(game_state.load_current_state("s-commit")["turn_index"], 3)
         self.assertEqual(game_state.load_checkpoint("s-commit")["latest_event_type"], "engine_transition")
         self.assertEqual(game_state.load_view_state("s-commit")["board"]["turn"], 3)
+        self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", "s-commit"), 9)
 
     def test_prompt_service_uses_redis_store_for_decision_flow(self) -> None:
         command_store = RedisCommandStore(self.connection)
@@ -341,6 +345,247 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(saved_state["turn_index"], 7)
         self.assertEqual(saved_checkpoint["latest_event_type"], "engine_transition")
         self.assertEqual(saved_checkpoint["turn_index"], 7)
+        self.assertTrue(saved_checkpoint["has_snapshot"])
+
+    def test_runtime_process_command_once_commits_state_and_command_offset(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        from state import GameState
+
+        sessions = SessionService()
+        game_state = RedisGameStateStore(self.connection)
+        command_store = RedisCommandStore(self.connection)
+        stream_service = StreamService(
+            stream_backend=RedisStreamStore(self.connection),
+            game_state_store=game_state,
+            command_store=command_store,
+        )
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = RuntimeService(
+            session_service=sessions,
+            stream_service=stream_service,
+            prompt_service=PromptService(prompt_store=RedisPromptStore(self.connection), command_store=command_store),
+            runtime_state_store=RedisRuntimeStateStore(self.connection),
+            game_state_store=game_state,
+            command_store=command_store,
+        )
+        config = runtime._config_factory.create(session.resolved_parameters)
+        state = GameState.create(config)
+        state.f_value = 15.0
+        state.current_round_order = []
+        state.turn_index = 5
+        game_state.save_current_state(session.session_id, state.to_checkpoint_payload())
+        game_state.save_checkpoint(
+            session.session_id,
+            {
+                "schema_version": 1,
+                "session_id": session.session_id,
+                "latest_seq": 1,
+                "latest_event_type": "turn_end_snapshot",
+                "round_index": 1,
+                "turn_index": 5,
+                "has_snapshot": True,
+                "updated_at_ms": 1000,
+            },
+        )
+
+        result = asyncio.run(
+            runtime.process_command_once(
+                session_id=session.session_id,
+                command_seq=4,
+                consumer_name="runtime_wakeup",
+                seed=42,
+            )
+        )
+
+        saved_checkpoint = game_state.load_checkpoint(session.session_id)
+        self.assertEqual(result["status"], "finished")
+        self.assertEqual(saved_checkpoint["processed_command_seq"], 4)
+        self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 4)
+
+    def test_human_prompt_reentry_consumes_decision_without_duplicate_prompt(self) -> None:
+        sessions = SessionService()
+        game_state = RedisGameStateStore(self.connection)
+        command_store = RedisCommandStore(self.connection)
+        prompt_store = RedisPromptStore(self.connection)
+        stream_service = StreamService(
+            stream_backend=RedisStreamStore(self.connection),
+            game_state_store=game_state,
+            command_store=command_store,
+        )
+        prompt_service = PromptService(prompt_store=prompt_store, command_store=command_store)
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        sessions.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = RuntimeService(
+            session_service=sessions,
+            stream_service=stream_service,
+            prompt_service=prompt_service,
+            runtime_state_store=RedisRuntimeStateStore(self.connection),
+            game_state_store=game_state,
+            command_store=command_store,
+        )
+
+        async def _first_prompt() -> dict:
+            return await asyncio.to_thread(
+                runtime._run_engine_sync,
+                asyncio.get_running_loop(),
+                session.session_id,
+                42,
+                None,
+            )
+
+        first = asyncio.run(_first_prompt())
+        pending = [item for item in prompt_store.list_pending() if item.get("session_id") == session.session_id]
+        self.assertEqual(first["status"], "waiting_input")
+        self.assertEqual(len(pending), 1)
+        request_id = str(pending[0]["request_id"])
+        choices = pending[0]["payload"]["legal_choices"]
+        choice_id = str(choices[0]["choice_id"])
+
+        accepted = prompt_service.submit_decision(
+            {
+                "request_id": request_id,
+                "player_id": int(pending[0]["player_id"]),
+                "choice_id": choice_id,
+            }
+        )
+        self.assertEqual(accepted["status"], "accepted")
+        command = command_store.list_commands(session.session_id)[0]
+
+        second = asyncio.run(
+            runtime.process_command_once(
+                session_id=session.session_id,
+                command_seq=int(command["seq"]),
+                consumer_name="runtime_wakeup",
+                seed=42,
+            )
+        )
+        messages = asyncio.run(stream_service.snapshot(session.session_id))
+        prompt_messages = [msg for msg in messages if msg.type == "prompt" and msg.payload.get("request_id") == request_id]
+
+        self.assertIn(second["status"], {"committed", "waiting_input", "finished"})
+        self.assertEqual(prompt_store.get_pending(request_id), None)
+        self.assertEqual(len(prompt_messages), 1)
+        self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), int(command["seq"]))
+
+    def test_runtime_recovery_transition_persists_pending_prompt_metadata(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        from state import GameState
+        from apps.server.src.services.decision_gateway import PromptRequired
+
+        sessions = SessionService()
+        game_state = RedisGameStateStore(self.connection)
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = RuntimeService(
+            session_service=sessions,
+            stream_service=StreamService(stream_backend=RedisStreamStore(self.connection), game_state_store=game_state),
+            prompt_service=PromptService(prompt_store=RedisPromptStore(self.connection)),
+            runtime_state_store=RedisRuntimeStateStore(self.connection),
+            game_state_store=game_state,
+        )
+        config = runtime._config_factory.create(session.resolved_parameters)
+        state = GameState.create(config)
+        state.prompt_sequence = 3
+        game_state.save_current_state(session.session_id, state.to_checkpoint_payload())
+        game_state.save_checkpoint(
+            session.session_id,
+            {
+                "schema_version": 1,
+                "session_id": session.session_id,
+                "latest_seq": 12,
+                "latest_event_type": "turn_end_snapshot",
+                "round_index": 1,
+                "turn_index": 0,
+                "has_snapshot": True,
+                "updated_at_ms": 1000,
+            },
+        )
+
+        def _raise_prompt(_engine, _state):  # noqa: ANN001
+            raise PromptRequired(
+                {
+                    "request_id": "req_prompt_checkpoint",
+                    "request_type": "movement",
+                    "player_id": 2,
+                    "prompt_instance_id": 4,
+                }
+            )
+
+        with unittest.mock.patch("engine.GameEngine.run_next_transition", _raise_prompt):
+            step = runtime._run_engine_transition_once_for_recovery(session.session_id, seed=42)
+
+        saved_state = game_state.load_current_state(session.session_id)
+        saved_checkpoint = game_state.load_checkpoint(session.session_id)
+
+        self.assertEqual(step["status"], "waiting_input")
+        self.assertEqual(saved_state["prompt_sequence"], 4)
+        self.assertEqual(saved_state["pending_prompt_request_id"], "req_prompt_checkpoint")
+        self.assertEqual(saved_state["pending_prompt_type"], "movement")
+        self.assertEqual(saved_state["pending_prompt_player_id"], 2)
+        self.assertEqual(saved_state["pending_prompt_instance_id"], 4)
+        self.assertEqual(saved_checkpoint["waiting_prompt_request_id"], "req_prompt_checkpoint")
+        self.assertEqual(saved_checkpoint["prompt_sequence"], 4)
+
+    def test_runtime_sync_uses_transition_loop_when_redis_state_store_exists(self) -> None:
+        sessions = SessionService()
+        game_state = RedisGameStateStore(self.connection)
+        stream_service = StreamService(
+            stream_backend=RedisStreamStore(self.connection),
+            game_state_store=game_state,
+        )
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = RuntimeService(
+            session_service=sessions,
+            stream_service=stream_service,
+            prompt_service=PromptService(prompt_store=RedisPromptStore(self.connection)),
+            runtime_state_store=RedisRuntimeStateStore(self.connection),
+            game_state_store=game_state,
+        )
+        async def _run() -> dict:
+            return await asyncio.to_thread(
+                runtime._run_engine_sync,
+                asyncio.get_running_loop(),
+                session.session_id,
+                42,
+                None,
+            )
+
+        result = asyncio.run(_run())
+
+        saved_state = game_state.load_current_state(session.session_id)
+        saved_checkpoint = game_state.load_checkpoint(session.session_id)
+
+        self.assertEqual(result["status"], "finished")
+        self.assertIsNotNone(saved_state)
+        self.assertIn("tiles", saved_state)
+        self.assertEqual(saved_checkpoint["latest_event_type"], "engine_transition")
         self.assertTrue(saved_checkpoint["has_snapshot"])
 
 

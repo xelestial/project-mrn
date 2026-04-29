@@ -1552,6 +1552,7 @@ class DecisionGateway:
         touch_activity: Callable[[str], None],
         fallback_executor,
         ai_decision_delay_ms: int = 0,
+        blocking_human_prompts: bool = True,
     ) -> None:
         self._session_id = session_id
         self._prompt_service = prompt_service
@@ -1561,6 +1562,7 @@ class DecisionGateway:
         self._fallback_executor = fallback_executor
         self._request_seq = 0
         self._ai_decision_delay_ms = max(0, int(ai_decision_delay_ms))
+        self._blocking_human_prompts = bool(blocking_human_prompts)
 
     def next_request_id(self) -> str:
         self._request_seq += 1
@@ -1645,19 +1647,33 @@ class DecisionGateway:
 
     def resolve_human_prompt(self, prompt: dict, parser, fallback_fn):
         envelope = dict(prompt)
-        request_id = str(envelope.get("request_id") or self.next_request_id())
         timeout_ms = max(1, int(envelope.get("timeout_ms", 300000)))
         player_id = int(envelope.get("player_id", 0))
         fallback_policy = str(envelope.get("fallback_policy", "timeout_fallback"))
         request_type = str(envelope.get("request_type", ""))
         public_context = dict(envelope.get("public_context") or {})
+        request_id = str(envelope.get("request_id") or self._stable_prompt_request_id(envelope, public_context))
 
         envelope["request_id"] = request_id
         envelope["timeout_ms"] = timeout_ms
 
+        replayed_response = self._prompt_service.wait_for_decision(request_id=request_id, timeout_ms=1)
+        if replayed_response is not None:
+            return self._parse_human_response(
+                request_id=request_id,
+                player_id=player_id,
+                request_type=request_type,
+                public_context=public_context,
+                response=replayed_response,
+                parser=parser,
+                fallback_fn=fallback_fn,
+            )
+
         try:
             self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
         except ValueError:
+            if not self._blocking_human_prompts:
+                raise PromptRequired(envelope)
             request_id = self.next_request_id()
             envelope["request_id"] = request_id
             self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
@@ -1672,6 +1688,8 @@ class DecisionGateway:
             public_context=public_context,
         )
         self._touch_activity(self._session_id)
+        if not self._blocking_human_prompts:
+            raise PromptRequired(envelope)
         response = self._prompt_service.wait_for_decision(request_id=request_id, timeout_ms=timeout_ms)
 
         if response is None:
@@ -1719,6 +1737,37 @@ class DecisionGateway:
             )
             return fallback_fn()
 
+        return self._parse_human_response(
+            request_id=request_id,
+            player_id=player_id,
+            request_type=request_type,
+            public_context=public_context,
+            response=response,
+            parser=parser,
+            fallback_fn=fallback_fn,
+        )
+
+    def _stable_prompt_request_id(self, envelope: dict[str, Any], public_context: dict[str, Any]) -> str:
+        request_type = str(envelope.get("request_type") or "prompt")
+        player_id = int(envelope.get("player_id", 0) or 0)
+        round_index = int(public_context.get("round_index", 0) or 0)
+        turn_index = int(public_context.get("turn_index", 0) or 0)
+        prompt_instance_id = int(envelope.get("prompt_instance_id", 0) or 0)
+        if round_index or turn_index or prompt_instance_id:
+            return f"{self._session_id}:r{round_index}:t{turn_index}:p{player_id}:{request_type}:{prompt_instance_id}"
+        return self.next_request_id()
+
+    def _parse_human_response(
+        self,
+        *,
+        request_id: str,
+        player_id: int,
+        request_type: str,
+        public_context: dict[str, Any],
+        response: dict,
+        parser,
+        fallback_fn,
+    ):
         try:
             parsed = parser(response)
         except Exception:
@@ -1782,3 +1831,11 @@ class DecisionGateway:
             self._loop,
         )
         fut.result()
+
+
+class PromptRequired(RuntimeError):
+    """Raised when a transition reaches a human prompt boundary."""
+
+    def __init__(self, prompt: dict[str, Any]) -> None:
+        super().__init__("prompt_required")
+        self.prompt = dict(prompt)

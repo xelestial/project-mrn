@@ -7,6 +7,7 @@ Mark-target resolution now has a safe character-name fallback for test and tooli
 - `GameEngine.run()` now delegates execution to `prepare_run()` and `run_next_transition()`.
 - `prepare_run(initial_state=...)` resets per-run trackers and can reuse a hydrated Redis checkpoint state.
 - `run_next_transition(state)` advances one committed turn/round boundary and returns a small status payload, allowing server recovery code to persist the updated checkpoint after one transition.
+- `prepare_run()` records `_last_prepared_state` so a server-side prompt boundary raised during initial round setup can still commit the canonical checkpoint.
 
 `GameEngine` orchestrates turns, emits semantic events, and builds `GameResult`.
 

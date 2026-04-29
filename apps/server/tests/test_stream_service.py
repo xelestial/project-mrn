@@ -59,6 +59,30 @@ class StreamServiceTests(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_publish_deduplicates_prompt_and_decision_requested_by_request_id(self) -> None:
+        service = StreamService()
+
+        async def _run() -> None:
+            first_prompt = await service.publish("s1", "prompt", {"request_id": "r1", "request_type": "movement"})
+            second_prompt = await service.publish("s1", "prompt", {"request_id": "r1", "request_type": "movement"})
+            first_requested = await service.publish(
+                "s1",
+                "event",
+                {"event_type": "decision_requested", "request_id": "r1", "request_type": "movement"},
+            )
+            second_requested = await service.publish(
+                "s1",
+                "event",
+                {"event_type": "decision_requested", "request_id": "r1", "request_type": "movement"},
+            )
+            snapshot = await service.snapshot("s1")
+
+            self.assertEqual(first_prompt.seq, second_prompt.seq)
+            self.assertEqual(first_requested.seq, second_requested.seq)
+            self.assertEqual(len(snapshot), 2)
+
+        asyncio.run(_run())
+
     def test_replay_window_tracks_oldest_and_latest_seq(self) -> None:
         service = StreamService(max_buffer=2)
 

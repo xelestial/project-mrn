@@ -665,16 +665,46 @@ Implemented in the first Redis migration batch:
 - `GameEngine.run()` now delegates to explicit `prepare_run()` and `run_next_transition()` boundaries, so tests and runtime recovery can execute one checkpoint-backed transition without a process-owned long-running engine state.
 - Runtime service attempts to hydrate engine state from Redis `current_state` when a canonical engine checkpoint is available.
 - Runtime service has a recovery transition path that hydrates canonical Redis state, executes one engine transition, and writes the updated `current_state` plus checkpoint back to Redis.
+- When Redis game-state storage is configured, the default runtime execution path now uses the resumable transition loop instead of the legacy full-game `engine.run()` loop. The legacy path remains available for non-Redis in-memory/json-file execution.
+- Command wakeup now treats `waiting_input` as resumable runtime state and advances the command consumer offset only after the runtime wakeup/start call succeeds.
 - `RedisGameStateStore.commit_transition()` writes canonical state, checkpoint, and optional projected view state through one commit boundary, using Lua when the client supports `EVAL` and a Redis transaction pipeline fallback in tests.
+- Redis JSON serialization normalizes nested dict keys to strings before storage so canonical engine checkpoints with integer-indexed maps can safely flow through Redis streams and state keys.
 - Command wakeup worker offsets are persisted in Redis per consumer/session, so worker restarts do not reprocess old command entries.
 - Local JSON archive export for finished sessions with hot-state cleanup after the retention window.
 
 Still intentionally incomplete:
 
-- The engine has a tested one-transition boundary, but the default runtime worker still uses the full `engine.run()` loop for normal game execution. Wiring every command wakeup to the one-transition recovery path is still incomplete.
+- The engine has a tested one-transition boundary and Redis-backed runtime uses it by default. The remaining runtime work is to make every human prompt a true continuation boundary rather than a blocking call inside the current engine stack.
 - Redis stores the latest canonical snapshot emitted by the engine stream and runtime can hydrate from it when it has the engine checkpoint shape. True mid-transition resume, inside an individual effect chain before the next committed boundary, is still out of scope.
 - Prompt timeout and command wakeup handling have standalone worker entrypoints plus local Docker Compose services. Production deployment still needs environment-specific process manager or orchestration settings.
-- Runtime lease refresh/release, command append, and game-state transition commit use Lua where available. Complete decision acceptance plus engine state mutation still needs one higher-level atomic command-processing envelope.
+- Runtime lease refresh/release, command append, and game-state transition commit use Lua where available. Complete decision acceptance plus engine state mutation still needs one higher-level atomic command-processing envelope that covers command consumption, prompt resolution, event append, state commit, and offset update together.
+- The first command-processing envelope is now implemented for state/checkpoint/view-state commit plus command consumer offset update. `RuntimeService.process_command_once()` can process a command-triggered transition and commit `processed_command_seq`/consumer metadata with the state checkpoint, while `CommandStreamWakeupWorker` prefers this hook when available.
+- Prompt reentry integration coverage now verifies: prompt boundary commit, human decision command append, command-triggered runtime processing, submitted decision consumption, no duplicate prompt event for the same request id, and command offset commit.
+- `StreamService` deduplicates `prompt` and `decision_requested` publishes by `request_id`, adding a second guard against replayed prompt-boundary event duplication.
+
+## Human Prompt Continuation Boundary Design
+
+Target behavior:
+
+1. The runtime loads canonical `GameState` from Redis.
+2. The engine advances until it can commit a transition or reaches a human prompt.
+3. If a human prompt is reached, the server publishes the prompt, records it in Redis, raises a `PromptRequired` boundary signal, commits the current canonical state and checkpoint with `waiting_prompt_*` metadata, releases the runtime lease, and reports runtime status `waiting_input`.
+4. When the human submits a decision, `PromptService.submit_decision()` appends a deduplicated `decision_submitted` command to Redis.
+5. `CommandStreamWakeupWorker` sees the command, restarts the runtime for `waiting_input` sessions, and the next runtime pass rehydrates from Redis.
+6. When the engine reaches the same prompt boundary again, the decision bridge should consume the submitted decision immediately and return the parsed choice instead of publishing a duplicate prompt.
+
+Implementation constraints:
+
+- Legacy non-Redis execution may continue to use blocking human prompts.
+- Redis-backed transition execution must use non-blocking human prompts.
+- Prompt request ids must become stable across rehydration. The preferred shape is to persist prompt sequence/pending prompt metadata in the canonical checkpoint and reuse the same request id on replay.
+- The first implementation slice adds `PromptRequired` and commits `waiting_prompt_request_id`, `waiting_prompt_type`, and `waiting_prompt_player_id` in the checkpoint.
+- `DecisionGateway` now supports non-blocking human prompts. In that mode it publishes/stores the prompt and raises `PromptRequired` instead of blocking in `wait_for_decision()`.
+- `DecisionGateway` also checks for an already submitted decision for the same request id before creating a new prompt. This lets replayed prompt boundaries consume the decision and return the parsed choice without creating a duplicate pending prompt.
+- Prompt ids are stable when prompt metadata includes round, turn, player, type, and prompt instance.
+- Canonical `GameState` now persists `prompt_sequence`, `pending_prompt_request_id`, `pending_prompt_type`, `pending_prompt_player_id`, and `pending_prompt_instance_id`. Runtime rehydrates this sequence into the human policy bridge before executing the next transition.
+- `GameEngine.prepare_run()` exposes the last prepared state to the runtime so a prompt raised during initial round setup still has a canonical state to commit.
+- Remaining hardening: move all prompt request id generation onto the canonical state fields even when public context is sparse, then expand the command-processing envelope to cover prompt resolution/deletion and event stream append in the same atomic boundary.
 
 ## Testing Strategy
 

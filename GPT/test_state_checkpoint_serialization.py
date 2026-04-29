@@ -27,6 +27,11 @@ def test_game_state_checkpoint_payload_round_trips_runtime_state() -> None:
     state.players[1].visited_owned_tile_indices = {3, 5}
     state.players[1].trick_hand = [state.trick_draw_pile.pop(0), state.trick_draw_pile.pop(0)]
     state.players[1].hidden_trick_deck_index = state.players[1].trick_hand[0].deck_index
+    state.prompt_sequence = 6
+    state.pending_prompt_request_id = "sess_1:r2:t4:p2:movement:6"
+    state.pending_prompt_type = "movement"
+    state.pending_prompt_player_id = 2
+    state.pending_prompt_instance_id = 6
 
     payload = json.loads(json.dumps(state.to_checkpoint_payload(), ensure_ascii=False))
     restored = GameState.from_checkpoint_payload(config, payload)
@@ -50,3 +55,8 @@ def test_game_state_checkpoint_payload_round_trips_runtime_state() -> None:
     assert [card.deck_index for card in restored.players[1].trick_hand] == payload["players"][1]["trick_hand"]
     assert restored.players[1].hidden_trick_deck_index == payload["players"][1]["hidden_trick_deck_index"]
     assert [card.deck_index for card in restored.trick_draw_pile] == payload["trick_draw_pile"]
+    assert restored.prompt_sequence == 6
+    assert restored.pending_prompt_request_id == "sess_1:r2:t4:p2:movement:6"
+    assert restored.pending_prompt_type == "movement"
+    assert restored.pending_prompt_player_id == 2
+    assert restored.pending_prompt_instance_id == 6

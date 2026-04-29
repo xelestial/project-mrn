@@ -6,6 +6,7 @@
 - `GameState.to_checkpoint_payload()` exports the canonical deterministic engine state for Redis storage.
 - `GameState.from_checkpoint_payload(config, payload)` rebuilds board, player, deck, discard, weather, active-card, round, and turn fields from that payload.
 - Redis recovery uses this payload as the authoritative state shape; frontend view state remains a projection, not the source of truth.
+- Prompt continuation metadata is part of the canonical checkpoint: `prompt_sequence`, `pending_prompt_request_id`, `pending_prompt_type`, `pending_prompt_player_id`, and `pending_prompt_instance_id`.
 
 ## 현재 구조
 - `GameState.create()`는 `BoardConfig.build_tile_metadata()` 결과를 바탕으로 `TileState` 목록을 만든다.

@@ -2787,6 +2787,120 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_human_bridge_can_raise_prompt_required_without_blocking(self) -> None:
+        from apps.server.src.services.decision_gateway import PromptRequired
+        from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerHumanPolicyBridge(
+                session_id="sess_bridge_nonblocking_test",
+                human_seats=[0],
+                ai_fallback=object(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+                blocking_human_prompts=False,
+            )
+
+            with self.assertRaises(PromptRequired) as raised:
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    {
+                        "request_id": "bridge_req_nonblocking_1",
+                        "request_type": "movement",
+                        "player_id": 1,
+                        "timeout_ms": 2000,
+                        "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                        "fallback_policy": "timeout_fallback",
+                        "public_context": {},
+                    },
+                    lambda response: str(response.get("choice_id", "")),
+                    lambda: "fallback",
+                )
+
+            self.assertEqual(raised.exception.prompt["request_id"], "bridge_req_nonblocking_1")
+            self.assertTrue(self.prompt_service.has_pending_for_session("sess_bridge_nonblocking_test"))
+            published = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot("sess_bridge_nonblocking_test"),
+                loop,
+            ).result(timeout=2.0)
+            self.assertTrue(any(msg.type == "prompt" and msg.payload.get("request_id") == "bridge_req_nonblocking_1" for msg in published))
+
+            decision_state = self.prompt_service.submit_decision(
+                {
+                    "request_id": "bridge_req_nonblocking_1",
+                    "player_id": 1,
+                    "choice_id": "roll",
+                }
+            )
+            self.assertEqual(decision_state["status"], "accepted")
+
+            replayed = bridge._inner._ask(  # type: ignore[attr-defined]
+                {
+                    "request_id": "bridge_req_nonblocking_1",
+                    "request_type": "movement",
+                    "player_id": 1,
+                    "timeout_ms": 2000,
+                    "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                    "fallback_policy": "timeout_fallback",
+                    "public_context": {},
+                },
+                lambda response: str(response.get("choice_id", "")),
+                lambda: "fallback",
+            )
+            self.assertEqual(replayed, "roll")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_human_bridge_prompt_sequence_can_resume_from_checkpoint_value(self) -> None:
+        from apps.server.src.services.decision_gateway import PromptRequired
+        from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerHumanPolicyBridge(
+                session_id="sess_bridge_prompt_seq_test",
+                human_seats=[0],
+                ai_fallback=object(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+                blocking_human_prompts=False,
+            )
+            bridge.set_prompt_sequence(4)
+
+            with self.assertRaises(PromptRequired) as raised:
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    {
+                        "request_type": "movement",
+                        "player_id": 1,
+                        "timeout_ms": 2000,
+                        "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                        "fallback_policy": "timeout_fallback",
+                        "public_context": {"round_index": 2, "turn_index": 3},
+                    },
+                    lambda response: str(response.get("choice_id", "")),
+                    lambda: "fallback",
+                )
+
+            prompt = raised.exception.prompt
+            self.assertEqual(prompt["prompt_instance_id"], 5)
+            self.assertEqual(prompt["request_id"], "sess_bridge_prompt_seq_test:r2:t3:p1:movement:5")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
     def test_human_bridge_keeps_pabal_dice_mode_on_prompt_flow(self) -> None:
         from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
 

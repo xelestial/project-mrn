@@ -20,6 +20,7 @@ from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.decision_gateway import (
     DecisionGateway,
     DecisionInvocation,
+    PromptRequired,
     build_decision_invocation,
     build_decision_invocation_from_request,
     build_routed_decision_call,
@@ -40,6 +41,7 @@ class RuntimeService:
         decision_client_factory=None,
         runtime_state_store=None,
         game_state_store=None,
+        command_store=None,
     ) -> None:
         self._session_service = session_service
         self._stream_service = stream_service
@@ -55,6 +57,7 @@ class RuntimeService:
         self._session_finished_callbacks: list = []
         self._runtime_state_store = runtime_state_store
         self._game_state_store = game_state_store
+        self._command_store = command_store
         self._worker_id = f"runtime_{uuid.uuid4().hex[:12]}"
         self._lease_ttl_ms = max(5000, self._watchdog_timeout_ms * 2)
         self._initialize_recovery_state()
@@ -185,6 +188,56 @@ class RuntimeService:
         )
         return {"status": "executed", "choice_id": choice_id}
 
+    async def process_command_once(
+        self,
+        *,
+        session_id: str,
+        command_seq: int,
+        consumer_name: str,
+        seed: int = 42,
+        policy_mode: str | None = None,
+    ) -> dict:
+        if not self._acquire_runtime_lease(session_id):
+            return {
+                "status": "running_elsewhere",
+                "lease_owner": self._runtime_state_store.lease_owner(session_id) if self._runtime_state_store is not None else None,
+            }
+        now_ms = self._now_ms()
+        self._last_activity_ms[session_id] = now_ms
+        self._status[session_id] = {"status": "running", "watchdog_state": "ok", "started_at_ms": now_ms}
+        self._persist_runtime_state(session_id)
+        loop = asyncio.get_running_loop()
+        try:
+            result = await asyncio.to_thread(
+                self._run_engine_transition_once_sync,
+                loop,
+                session_id,
+                seed,
+                policy_mode,
+                False,
+                consumer_name,
+                int(command_seq),
+            )
+            status = str(result.get("status", ""))
+            if status == "waiting_input":
+                self._status[session_id] = {"status": "waiting_input", "watchdog_state": "waiting_input", "last_transition": result}
+            elif status == "finished":
+                self._session_service.finish_session(session_id)
+                await self._notify_session_finished(session_id)
+                self._status[session_id] = {"status": "finished"}
+            else:
+                self._status[session_id] = {"status": "idle", "last_transition": result}
+            self._touch_activity(session_id)
+            self._persist_runtime_state(session_id)
+            return result
+        except Exception as exc:
+            self._status[session_id] = {"status": "failed", "error": str(exc)}
+            self._touch_activity(session_id)
+            self._persist_runtime_state(session_id)
+            raise
+        finally:
+            self._release_runtime_lease(session_id)
+
     async def _run_engine_async(
         self,
         session_id: str,
@@ -193,13 +246,24 @@ class RuntimeService:
     ) -> None:
         loop = asyncio.get_running_loop()
         try:
-            await asyncio.to_thread(
+            result = await asyncio.to_thread(
                 self._run_engine_sync,
                 loop,
                 session_id,
                 seed,
                 policy_mode,
             )
+            if isinstance(result, dict) and result.get("status") == "waiting_input":
+                self._status[session_id] = {
+                    "status": "waiting_input",
+                    "watchdog_state": "waiting_input",
+                    "last_transition": result,
+                }
+                self._touch_activity(session_id)
+                self._persist_runtime_state(session_id)
+                self._release_runtime_lease(session_id)
+                log_event("runtime_waiting_input", session_id=session_id)
+                return
             self._session_service.finish_session(session_id)
             await self._notify_session_finished(session_id)
             self._status[session_id] = {"status": "finished"}
@@ -242,6 +306,18 @@ class RuntimeService:
                 )
 
     def _run_engine_sync(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        session_id: str,
+        seed: int,
+        policy_mode: str | None,
+    ) -> dict | None:
+        if self._game_state_store is not None:
+            return self._run_engine_transition_loop_sync(loop, session_id, seed, policy_mode)
+        self._run_legacy_engine_sync(loop, session_id, seed, policy_mode)
+        return None
+
+    def _run_legacy_engine_sync(
         self,
         loop: asyncio.AbstractEventLoop,
         session_id: str,
@@ -292,6 +368,7 @@ class RuntimeService:
                 fallback_executor=self.execute_prompt_fallback,
                 client_factory=self._decision_client_factory,
                 ai_decision_delay_ms=ai_decision_delay_ms,
+                blocking_human_prompts=True,
             )
         spectator_event_delay_ms = int(
             runtime.get(
@@ -321,6 +398,40 @@ class RuntimeService:
             engine.run()
         else:
             engine.run(initial_state=initial_state)
+
+    def _run_engine_transition_loop_sync(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        session_id: str,
+        seed: int,
+        policy_mode: str | None,
+        *,
+        max_transitions: int | None = None,
+    ) -> dict:
+        transitions = 0
+        last_step: dict = {"status": "unavailable", "reason": "not_started"}
+        while max_transitions is None or transitions < max(1, int(max_transitions)):
+            last_step = self._run_engine_transition_once_sync(
+                loop,
+                session_id,
+                seed,
+                policy_mode,
+                False,
+                None,
+                None,
+            )
+            status = str(last_step.get("status", ""))
+            if status in {"finished", "unavailable"}:
+                return {**last_step, "transitions": transitions}
+            transitions += 1
+            if self._prompt_service is not None and self._prompt_service.has_pending_for_session(session_id):
+                current = dict(self._status.get(session_id, {"status": "running"}))
+                current["status"] = "waiting_input"
+                current["watchdog_state"] = "waiting_input"
+                self._status[session_id] = current
+                self._persist_runtime_state(session_id)
+                return {**last_step, "status": "waiting_input", "transitions": transitions}
+        return {**last_step, "transitions": transitions}
 
     async def _watchdog_loop(self, session_id: str) -> None:
         warned = False
@@ -487,6 +598,26 @@ class RuntimeService:
         return game_state_cls.from_checkpoint_payload(config, current_state)
 
     def _run_engine_transition_once_for_recovery(self, session_id: str, seed: int = 42, policy_mode: str | None = None) -> dict:
+        return self._run_engine_transition_once_sync(
+            None,
+            session_id,
+            seed,
+            policy_mode,
+            True,
+            None,
+            None,
+        )
+
+    def _run_engine_transition_once_sync(
+        self,
+        loop: asyncio.AbstractEventLoop | None,
+        session_id: str,
+        seed: int,
+        policy_mode: str | None,
+        require_checkpoint: bool,
+        command_consumer_name: str | None,
+        command_seq: int | None,
+    ) -> dict:
         self._ensure_gpt_import_path()
         from engine import GameEngine
         from policy.factory import PolicyFactory
@@ -496,14 +627,91 @@ class RuntimeService:
         resolved = dict(session.resolved_parameters or {})
         runtime = dict(resolved.get("runtime", {}))
         selected_policy_mode = policy_mode or runtime.get("policy_mode") or "heuristic_v3_gpt"
-        policy = PolicyFactory.create_runtime_policy(policy_mode=selected_policy_mode, lap_policy_mode=selected_policy_mode)
+        ai_policy = PolicyFactory.create_runtime_policy(policy_mode=selected_policy_mode, lap_policy_mode=selected_policy_mode)
+        policy = ai_policy
+        human_seats = [
+            max(0, int(seat.seat) - 1)
+            for seat in session.seats
+            if seat.seat_type == SeatType.HUMAN
+        ]
+        if loop is not None and self._stream_service is not None:
+            ai_decision_delay_ms = int(
+                runtime.get(
+                    "ai_decision_delay_ms",
+                    0 if os.environ.get("PYTEST_CURRENT_TEST") else 1000,
+                )
+                or 0
+            )
+            policy = _ServerDecisionPolicyBridge(
+                session_id=session_id,
+                session_seats=session.seats,
+                human_seats=human_seats,
+                ai_fallback=ai_policy,
+                prompt_service=self._prompt_service,
+                stream_service=self._stream_service,
+                loop=loop,
+                touch_activity=self._touch_activity,
+                fallback_executor=self.execute_prompt_fallback,
+                client_factory=self._decision_client_factory,
+                ai_decision_delay_ms=ai_decision_delay_ms,
+                blocking_human_prompts=False,
+            )
         config = self._config_factory.create(resolved)
         state = self._hydrate_engine_state(session_id, config, GameState)
         if state is None:
-            return {"status": "unavailable", "reason": "checkpoint_missing"}
-        engine = GameEngine(config=config, policy=policy, rng=random.Random(seed))
-        state = engine.prepare_run(initial_state=state)
-        step = engine.run_next_transition(state)
+            if require_checkpoint:
+                return {"status": "unavailable", "reason": "checkpoint_missing"}
+        human_player_ids = [
+            int(seat.seat)
+            for seat in session.seats
+            if seat.seat_type == SeatType.HUMAN
+        ]
+        event_stream = (
+            _FanoutVisEventStream(
+                loop,
+                self._stream_service,
+                session_id,
+                self._touch_activity,
+                human_player_ids=human_player_ids,
+                spectator_event_delay_ms=0,
+            )
+            if loop is not None and self._stream_service is not None
+            else None
+        )
+        engine = GameEngine(
+            config=config,
+            policy=policy,
+            decision_port=policy if hasattr(policy, "request") else None,
+            rng=random.Random(seed),
+            event_stream=event_stream,
+        )
+        try:
+            state = engine.prepare_run(initial_state=state) if state is not None else engine.prepare_run()
+            if callable(getattr(policy, "set_prompt_sequence", None)):
+                policy.set_prompt_sequence(int(getattr(state, "prompt_sequence", 0) or 0))
+            step = engine.run_next_transition(state)
+        except PromptRequired as exc:
+            state = state or getattr(engine, "_last_prepared_state", None)
+            if state is None:
+                raise
+            prompt_instance_id = int(exc.prompt.get("prompt_instance_id", 0) or 0)
+            state.prompt_sequence = max(int(getattr(state, "prompt_sequence", 0) or 0), prompt_instance_id)
+            state.pending_prompt_request_id = str(exc.prompt.get("request_id") or "")
+            state.pending_prompt_type = str(exc.prompt.get("request_type") or "")
+            state.pending_prompt_player_id = int(exc.prompt.get("player_id", 0) or 0)
+            state.pending_prompt_instance_id = prompt_instance_id
+            step = {
+                "status": "waiting_input",
+                "reason": "prompt_required",
+                "request_id": exc.prompt.get("request_id"),
+                "request_type": exc.prompt.get("request_type"),
+                "player_id": exc.prompt.get("player_id"),
+            }
+        else:
+            state.pending_prompt_request_id = ""
+            state.pending_prompt_type = ""
+            state.pending_prompt_player_id = 0
+            state.pending_prompt_instance_id = 0
         if self._game_state_store is not None:
             payload = state.to_checkpoint_payload()
             self._game_state_store.commit_transition(
@@ -512,15 +720,30 @@ class RuntimeService:
                 checkpoint={
                     "schema_version": 1,
                     "session_id": session_id,
-                    "latest_seq": 0,
-                    "latest_event_type": "engine_transition",
+                    "latest_seq": self._latest_stream_seq_sync(loop, session_id),
+                    "latest_event_type": "prompt_required" if step.get("status") == "waiting_input" else "engine_transition",
                     "round_index": int(payload.get("rounds_completed", 0)) + 1,
                     "turn_index": int(payload.get("turn_index", 0)),
                     "has_snapshot": True,
+                    "waiting_prompt_request_id": payload.get("pending_prompt_request_id"),
+                    "waiting_prompt_type": payload.get("pending_prompt_type"),
+                    "waiting_prompt_player_id": payload.get("pending_prompt_player_id"),
+                    "waiting_prompt_instance_id": payload.get("pending_prompt_instance_id"),
+                    "prompt_sequence": payload.get("prompt_sequence"),
+                    "processed_command_seq": command_seq,
+                    "processed_command_consumer": command_consumer_name,
                     "updated_at_ms": self._now_ms(),
                 },
+                command_consumer_name=command_consumer_name,
+                command_seq=command_seq,
             )
         return step
+
+    def _latest_stream_seq_sync(self, loop: asyncio.AbstractEventLoop | None, session_id: str) -> int:
+        if loop is None or self._stream_service is None:
+            return 0
+        future = asyncio.run_coroutine_threadsafe(self._stream_service.latest_seq(session_id), loop)
+        return int(future.result(timeout=5))
 
 
 def _module_belongs_to_root(module: ModuleType, root_dir: Path) -> bool:
@@ -556,6 +779,7 @@ class _ServerDecisionPolicyBridge:
         fallback_executor,
         client_factory=None,
         ai_decision_delay_ms: int = 0,
+        blocking_human_prompts: bool = True,
     ) -> None:
         self._human_seats = frozenset(int(seat) for seat in human_seats)
         self._session_id = session_id
@@ -567,6 +791,7 @@ class _ServerDecisionPolicyBridge:
             touch_activity=touch_activity,
             fallback_executor=fallback_executor,
             ai_decision_delay_ms=ai_decision_delay_ms,
+            blocking_human_prompts=blocking_human_prompts,
         )
         factory = client_factory or _ServerDecisionClientFactory()
         self._human_client = factory.create_human_client(
@@ -593,6 +818,10 @@ class _ServerDecisionPolicyBridge:
             participant_clients=self._participant_clients,
         )
         self._inner = self._human_client.policy if self._human_client is not None else None
+
+    def set_prompt_sequence(self, value: int) -> None:
+        if self._human_client is not None:
+            self._human_client.set_prompt_seq(value)
 
     def _ask(self, prompt: dict, parser, fallback_fn):
         if self._human_client is not None:
@@ -1224,8 +1453,14 @@ class _LocalHumanDecisionClient:
         if self.policy is not None:
             self.policy._prompt_seq += 1  # type: ignore[attr-defined]
 
+    def set_prompt_seq(self, value: int) -> None:
+        if self.policy is not None:
+            self.policy._prompt_seq = max(0, int(value))  # type: ignore[attr-defined]
+
     def _ask(self, prompt: dict, parser, fallback_fn):
         envelope = dict(prompt)
+        self.bump_prompt_seq()
+        envelope.setdefault("prompt_instance_id", self.prompt_seq)
         active_call = self._active_call
         if active_call is not None:
             request = getattr(active_call, "request", None)

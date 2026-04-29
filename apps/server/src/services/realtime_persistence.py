@@ -426,21 +426,30 @@ class RedisGameStateStore:
         current_state: dict[str, Any],
         checkpoint: dict[str, Any],
         view_state: dict[str, Any] | None = None,
+        command_consumer_name: str | None = None,
+        command_seq: int | None = None,
     ) -> None:
         client = self._connection.client()
         current_payload = _json_dump(current_state)
         checkpoint_payload = _json_dump(checkpoint)
         view_payload = _json_dump(view_state) if isinstance(view_state, dict) else ""
+        offset_key = self._command_offset_key(command_consumer_name) if command_consumer_name else ""
+        offset_index_key = self._command_offset_index_key() if command_consumer_name else ""
+        offset_seq = str(max(0, int(command_seq))) if command_seq is not None else ""
         if callable(getattr(client, "eval", None)):
             client.eval(
                 _COMMIT_GAME_TRANSITION_LUA,
-                3,
+                5,
                 self._current_state_key(session_id),
                 self._checkpoint_key(session_id),
                 self._view_state_key(session_id),
+                offset_key,
+                offset_index_key,
                 current_payload,
                 checkpoint_payload,
                 view_payload,
+                str(session_id),
+                offset_seq,
             )
             return
         pipeline = client.pipeline(transaction=True)
@@ -448,6 +457,9 @@ class RedisGameStateStore:
         pipeline.set(self._checkpoint_key(session_id), checkpoint_payload)
         if isinstance(view_state, dict):
             pipeline.set(self._view_state_key(session_id), view_payload)
+        if offset_key and offset_seq:
+            pipeline.hset(offset_index_key, offset_key, "1")
+            pipeline.hset(offset_key, session_id, offset_seq)
         pipeline.execute()
 
     def delete_session_data(self, session_id: str) -> None:
@@ -466,9 +478,25 @@ class RedisGameStateStore:
     def _view_state_key(self, session_id: str) -> str:
         return self._connection.key("game", session_id, "view_state")
 
+    def _command_offset_key(self, consumer_name: str | None) -> str:
+        return self._connection.key("commands", "offsets", str(consumer_name or "default"))
+
+    def _command_offset_index_key(self) -> str:
+        return self._connection.key("commands", "offset_indexes")
+
 
 def _json_dump(payload: dict[str, Any]) -> str:
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return json.dumps(_json_safe(payload), ensure_ascii=False, sort_keys=True)
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 def _json_load_dict(raw: str) -> dict[str, Any] | None:
@@ -528,6 +556,10 @@ redis.call("SET", KEYS[1], ARGV[1])
 redis.call("SET", KEYS[2], ARGV[2])
 if ARGV[3] ~= "" then
   redis.call("SET", KEYS[3], ARGV[3])
+end
+if ARGV[5] ~= "" then
+  redis.call("HSET", KEYS[5], KEYS[4], "1")
+  redis.call("HSET", KEYS[4], ARGV[4], ARGV[5])
 end
 return 1
 """

@@ -34,11 +34,12 @@ class CommandStreamWakeupWorker:
                 seq = int(command.get("seq", 0))
                 if seq <= last_seq:
                     continue
-                self._save_offset(current_session_id, seq)
-                last_seq = seq
                 status = self._runtime_service.runtime_status(current_session_id)
-                if status.get("status") in {"recovery_required", "idle", "running_elsewhere"}:
-                    await self._start_runtime(current_session_id)
+                if status.get("status") in {"recovery_required", "idle", "running_elsewhere", "waiting_input"}:
+                    processed = await self._process_or_start_runtime(current_session_id, seq)
+                    if not processed:
+                        self._save_offset(current_session_id, seq)
+                    last_seq = seq
                     wakeups.append(
                         {
                             "session_id": current_session_id,
@@ -47,6 +48,9 @@ class CommandStreamWakeupWorker:
                             "runtime_status": status.get("status"),
                         }
                     )
+                elif status.get("status") == "running":
+                    self._save_offset(current_session_id, seq)
+                    last_seq = seq
         return wakeups
 
     async def run(
@@ -81,6 +85,22 @@ class CommandStreamWakeupWorker:
             seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
             policy_mode=runtime_cfg.get("policy_mode"),
         )
+
+    async def _process_or_start_runtime(self, session_id: str, seq: int) -> bool:
+        if callable(getattr(self._runtime_service, "process_command_once", None)):
+            session = self._session_service.get_session(session_id)
+            runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
+            await self._runtime_service.process_command_once(
+                session_id=session_id,
+                command_seq=int(seq),
+                consumer_name=self._consumer_name,
+                seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
+                policy_mode=runtime_cfg.get("policy_mode"),
+            )
+            self._last_processed_seq[session_id] = int(seq)
+            return True
+        await self._start_runtime(session_id)
+        return False
 
     def _load_offset(self, session_id: str) -> int:
         if callable(getattr(self._command_store, "load_consumer_offset", None)):

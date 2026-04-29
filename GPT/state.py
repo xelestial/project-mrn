@@ -190,6 +190,11 @@ class GameState:
     lap_reward_cash_pool_remaining: int = 30
     lap_reward_shards_pool_remaining: int = 18
     lap_reward_coins_pool_remaining: int = 18
+    prompt_sequence: int = 0
+    pending_prompt_request_id: str = ""
+    pending_prompt_type: str = ""
+    pending_prompt_player_id: int = 0
+    pending_prompt_instance_id: int = 0
 
     @classmethod
     def create(cls, config: GameConfig) -> "GameState":
@@ -295,6 +300,11 @@ class GameState:
             "lap_reward_cash_pool_remaining": self.lap_reward_cash_pool_remaining,
             "lap_reward_shards_pool_remaining": self.lap_reward_shards_pool_remaining,
             "lap_reward_coins_pool_remaining": self.lap_reward_coins_pool_remaining,
+            "prompt_sequence": self.prompt_sequence,
+            "pending_prompt_request_id": self.pending_prompt_request_id,
+            "pending_prompt_type": self.pending_prompt_type,
+            "pending_prompt_player_id": self.pending_prompt_player_id,
+            "pending_prompt_instance_id": self.pending_prompt_instance_id,
             "tiles": [_tile_to_payload(tile) for tile in self.tiles],
             "players": [_player_to_payload(player) for player in self.players],
             "fortune_draw_pile": [_card_key(card) for card in self.fortune_draw_pile],
@@ -336,6 +346,11 @@ class GameState:
         state.lap_reward_cash_pool_remaining = int(payload.get("lap_reward_cash_pool_remaining", state.lap_reward_cash_pool_remaining))
         state.lap_reward_shards_pool_remaining = int(payload.get("lap_reward_shards_pool_remaining", state.lap_reward_shards_pool_remaining))
         state.lap_reward_coins_pool_remaining = int(payload.get("lap_reward_coins_pool_remaining", state.lap_reward_coins_pool_remaining))
+        state.prompt_sequence = int(payload.get("prompt_sequence", state.prompt_sequence))
+        state.pending_prompt_request_id = str(payload.get("pending_prompt_request_id", state.pending_prompt_request_id))
+        state.pending_prompt_type = str(payload.get("pending_prompt_type", state.pending_prompt_type))
+        state.pending_prompt_player_id = int(payload.get("pending_prompt_player_id", state.pending_prompt_player_id))
+        state.pending_prompt_instance_id = int(payload.get("pending_prompt_instance_id", state.pending_prompt_instance_id))
 
         for raw_tile in payload.get("tiles", []):
             if not isinstance(raw_tile, dict):

@@ -61,6 +61,9 @@ class StreamService:
             enriched_payload = dict(payload)
             self._inject_display_names(session_id, enriched_payload)
             history = self._history_records_no_lock(session_id)
+            duplicate = self._duplicate_request_message_no_lock(history, msg_type, enriched_payload)
+            if duplicate is not None:
+                return duplicate
             projected = project_view_state(
                 [
                     *history,
@@ -285,6 +288,37 @@ class StreamService:
 
     def _messages_from_backend(self, session_id: str) -> list[StreamMessage]:
         return [self._message_from_payload(message) for message in self._stream_backend.snapshot(session_id)]
+
+    def _duplicate_request_message_no_lock(
+        self,
+        history: list[dict],
+        msg_type: str,
+        payload: dict,
+    ) -> StreamMessage | None:
+        request_id = str(payload.get("request_id") or "").strip()
+        if not request_id:
+            return None
+        event_type = str(payload.get("event_type") or "").strip()
+        if msg_type == "prompt":
+            expected_type = "prompt"
+            expected_event_type = ""
+        elif msg_type == "event" and event_type == "decision_requested":
+            expected_type = "event"
+            expected_event_type = "decision_requested"
+        else:
+            return None
+        for message in reversed(history):
+            if str(message.get("type", "")) != expected_type:
+                continue
+            message_payload = message.get("payload")
+            if not isinstance(message_payload, dict):
+                continue
+            if str(message_payload.get("request_id") or "").strip() != request_id:
+                continue
+            if expected_event_type and str(message_payload.get("event_type") or "").strip() != expected_event_type:
+                continue
+            return self._message_from_payload(message)
+        return None
 
     def _maybe_append_command(self, item: StreamMessage) -> None:
         payload = item.payload

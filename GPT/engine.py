@@ -321,8 +321,10 @@ class GameEngine:
     def prepare_run(self, initial_state: GameState | None = None) -> GameState:
         self._reset_run_trackers()
         if initial_state is not None:
+            self._last_prepared_state = initial_state
             return initial_state
         state = self.create_initial_state()
+        self._last_prepared_state = state
         self._emit_vis(
             "session_start",
             Phase.SESSION_START,

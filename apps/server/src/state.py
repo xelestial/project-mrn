@@ -97,6 +97,7 @@ runtime_service = RuntimeService(
     watchdog_timeout_ms=runtime_settings.runtime_watchdog_timeout_ms,
     runtime_state_store=runtime_state_store,
     game_state_store=game_state_store,
+    command_store=command_store,
 )
 prompt_timeout_worker = PromptTimeoutWorker(
     prompt_service=prompt_service,
