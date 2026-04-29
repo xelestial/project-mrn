@@ -710,6 +710,8 @@ Implementation constraints:
 
 The resumable engine migration should treat rule effects as serializable actions rather than nested immediate function calls.
 
+Related design: `[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md` defines the next layer for tile traits, purchase/rent/score-token contexts, and modifier pipelines. The movement boundary in this document remains the lower-level action execution rule; the tile-trait plan defines how landing effects should produce those actions consistently.
+
 Core rule:
 
 ```text
@@ -736,6 +738,7 @@ Implemented seed:
 - Custom fortune producers can register `fortune.card.produce` and return a `QUEUE_TARGET_MOVE` contract; the engine maps that hook result into the same queued movement primitive.
 - Backward takeover fortune cards now enqueue movement first and then `resolve_fortune_takeover_backward`, separating position changes from ownership mutation.
 - Decision-bearing effects are starting to become actions too. `request_purchase_tile` runs purchase decision/mutation through the action iterator; if the decision bridge raises a prompt boundary, the action is put back at the front of `pending_actions` so replay after Redis recovery resumes the same purchase request rather than skipping or duplicating it. State mutations that are part of the purchase, including one-shot free-purchase flags, must happen only after a decision is returned.
+- Purchase cost calculation now has the first tile-trait implementation seed: `PurchaseContext` plus purchase modifiers compute final cost and one-shot consumptions before the purchase decision.
 - Queued unowned-land arrivals now split into `resolve_arrival -> request_purchase_tile -> resolve_unowned_post_purchase`. This prevents a human purchase prompt from being raised inside arrival resolution and gives adjacent-buy/same-tile/weather post-processing its own checkpointable action.
 - Queued rent landings can split rent payment from follow-up land effects as `resolve_arrival -> resolve_landing_post_effects`, so adjacent-buy decisions and same-tile bonuses can recover independently after the rent mutation is committed.
 - Zone-chain landings now enqueue follow-up movement as `apply_move -> resolve_arrival` instead of nesting the extra move inside arrival resolution.
@@ -747,6 +750,7 @@ Next action-pipeline hardening:
 
 - audit remaining direct compatibility helpers (`_advance_player()`, `_apply_fortune_arrival()`, and extension hooks) and explicitly mark the surviving callers as test/plugin-only APIs
 - expand the prompt-resumable pattern to any future human decisions that still appear during effect resolution
+- continue the tile-trait migration from `[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md`: split final purchase mutation into `resolve_purchase_tile`, then move rent calculation into `RentContext`
 
 ## Testing Strategy
 

@@ -8,6 +8,38 @@ Updated: 2026-04-15
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-04-30 Tile Trait Action Pipeline Design
+
+- Scope: document a consistent tile trait/modifier/action architecture before implementation.
+- Done:
+  - added `[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md`
+  - defined `TileEffectContext`, `PurchaseContext`, `RentContext`, and `ScoreTokenContext`
+  - documented trait and modifier responsibilities
+  - defined purchase, rent, score-token, fortune, and trick integration flows
+  - documented anti-hardcoding rules for future tile/economy effects
+  - linked the new design from the Redis authoritative state plan
+- Next:
+  - implement the first small slice: purchase context skeleton plus free-purchase modifier
+
+## 2026-04-30 Purchase Context Modifier Seed
+
+- Scope: implement the first tile-trait action-pipeline slice.
+- Done:
+  - added `GPT/tile_effects.py` with `TileEffectContext`, `PurchaseContext`, and purchase modifier interfaces
+  - routed `_resolve_purchase_tile_decision()` through `build_purchase_context()`
+  - added `BuilderFreePurchaseModifier` and `FreePurchaseModifier`
+  - made one-shot free purchase flags consume only after successful ownership mutation
+  - added purchase context payloads to purchase results
+  - added tests for trick free purchase context, builder/free precedence, successful flag consumption, and skipped purchase preservation
+- Validation:
+  - `./.venv/bin/python -m pytest GPT/test_tile_effects.py GPT/test_engine_resumable_checkpoint.py -k 'purchase or prompt_action'`
+  - `./.venv/bin/python -m pytest GPT/test_rule_fixes.py -k 'purchase or matchmaker or madangbal or same_tile'`
+  - `./.venv/bin/python -m pytest GPT/test_doc_integrity.py GPT/test_tile_effects.py GPT/test_engine_resumable_checkpoint.py -k 'doc_integrity or purchase or prompt_action'`
+  - `./.venv/bin/python -m pytest GPT`
+- Next:
+  - split final purchase mutation into an explicit `resolve_purchase_tile` action
+  - migrate rent calculation into `RentContext`
+
 ## 2026-04-29 Redis Action Pipeline Seed
 
 - Scope: begin modular movement/arrival execution for the Redis-resumable engine path.

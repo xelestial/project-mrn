@@ -13,6 +13,7 @@ from characters import CHARACTERS, CARD_TO_NAMES, randomized_active_by_card
 from config import CellKind, GameConfig
 from policy_mark_utils import ordered_public_mark_targets
 from state import ActionEnvelope, GameState, PlayerState
+from tile_effects import build_purchase_context, consume_purchase_one_shots
 from fortune_cards import FortuneCard
 from trick_cards import (
     TRICK_FREE_GIFT_ID,
@@ -1376,12 +1377,20 @@ class GameEngine:
         stats = self._strategy_stats[player.player_id]
         if state.tile_purchase_blocked_turn_index.get(pos) == state.turn_index:
             return {"type": "PURCHASE_BLOCKED_THIS_TURN", "tile_kind": cell.name}
-        builder_free_purchase = is_builder(player.current_character)
-        consumes_free_purchase = player.free_purchase_this_turn or player.trick_free_purchase_this_turn
-        cost = 0 if (consumes_free_purchase or builder_free_purchase) else state.config.rules.economy.purchase_cost_for(state, pos)
-        shard_cost = 0
+        purchase_context = build_purchase_context(state, player, pos, cell, source=source)
+        cost = purchase_context.final_cost
+        shard_cost = purchase_context.shard_cost
         if player.cash < cost:
-            return {"type": "PURCHASE_FAIL", "tile_kind": cell.name, "cost": cost, "shard_cost": shard_cost, "bankrupt": False, "skipped": True}
+            return {
+                "type": "PURCHASE_FAIL",
+                "tile_kind": cell.name,
+                "cost": cost,
+                "base_cost": purchase_context.base_cost,
+                "shard_cost": shard_cost,
+                "purchase_context": purchase_context.to_payload(),
+                "bankrupt": False,
+                "skipped": True,
+            }
         wants_purchase = self._request_decision(
             "choose_purchase_tile",
             state,
@@ -1392,8 +1401,6 @@ class GameEngine:
             source=source,
             fallback=lambda: True,
         )
-        player.free_purchase_this_turn = False
-        player.trick_free_purchase_this_turn = False
         purchase_debug = self.policy.pop_debug("purchase_decision", player.player_id) if hasattr(self.policy, "pop_debug") else None
         if not wants_purchase:
             self._record_ai_decision(
@@ -1401,10 +1408,19 @@ class GameEngine:
                 player,
                 "purchase_decision",
                 purchase_debug,
-                result={"tile_index": pos, "purchased": False, "reason": "policy_skip", "cost": cost},
+                result={"tile_index": pos, "purchased": False, "reason": "policy_skip", "cost": cost, "base_cost": purchase_context.base_cost},
                 source_event=source,
             )
-            return {"type": "PURCHASE_SKIP_POLICY", "tile_kind": cell.name, "cost": cost, "shard_cost": shard_cost, "bankrupt": False, "skipped": True}
+            return {
+                "type": "PURCHASE_SKIP_POLICY",
+                "tile_kind": cell.name,
+                "cost": cost,
+                "base_cost": purchase_context.base_cost,
+                "shard_cost": shard_cost,
+                "purchase_context": purchase_context.to_payload(),
+                "bankrupt": False,
+                "skipped": True,
+            }
         stats["purchases"] += 1
         if cell == CellKind.T2:
             stats["purchase_t2"] += 1
@@ -1417,6 +1433,7 @@ class GameEngine:
         state.tile_owner[pos] = player.player_id
         player.tiles_owned += 1
         player.first_purchase_turn_by_tile[pos] = player.turns_taken
+        consume_purchase_one_shots(player, purchase_context.one_shot_consumptions)
         placed = None
         if state.config.rules.token.can_place_on_first_purchase:
             player.visited_owned_tile_indices.add(pos)
@@ -1431,9 +1448,11 @@ class GameEngine:
             "type": "PURCHASE",
             "tile_kind": cell.name,
             "cost": cost,
+            "base_cost": purchase_context.base_cost,
             "shard_cost": shard_cost,
             "shards_before": shards_before,
             "shards_after": player.shards,
+            "purchase_context": purchase_context.to_payload(),
             "placed": placed,
         }
         self._record_ai_decision(
