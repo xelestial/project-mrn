@@ -51,6 +51,30 @@ class ViewStateSceneSelectorTests(unittest.TestCase):
         self.assertIn("scene", latest_payload["view_state"])
         self.assertEqual(latest_payload["view_state"]["scene"]["core_action_feed"][0]["event_code"], "player_move")
 
+    def test_action_move_is_projected_as_move_scene_event(self) -> None:
+        view_state = build_scene_view_state(
+            [
+                {
+                    "type": "event",
+                    "seq": 1,
+                    "session_id": "s1",
+                    "server_time_ms": 1,
+                    "payload": {
+                        "event_type": "action_move",
+                        "round_index": 1,
+                        "turn_index": 1,
+                        "acting_player_id": 1,
+                        "from_tile_index": 3,
+                        "to_tile_index": 8,
+                    },
+                }
+            ]
+        )
+
+        self.assertEqual(view_state["core_action_feed"][0]["event_code"], "action_move")
+        self.assertEqual(view_state["theater_feed"][0]["event_code"], "action_move")
+        self.assertEqual(view_state["theater_feed"][0]["tone"], "move")
+
     def test_stream_service_publishes_scene_weather_from_prompt_public_context(self) -> None:
         stream = StreamService()
 

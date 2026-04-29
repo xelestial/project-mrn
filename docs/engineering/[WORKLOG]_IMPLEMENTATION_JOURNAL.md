@@ -23,15 +23,26 @@ Updated: 2026-04-15
   - added `_build_standard_move_action()` / `_enqueue_standard_move_action()` as the first normal-movement adapter from resolved `move` + `movement_meta` to queued actions
   - added a simple parity test showing the queued adapter reaches the same position/resources/F state as `_advance_player()` for a one-step lap+arrival case
   - expanded standard-move adapter parity coverage to card movement metadata, obstacle slowdown, and encounter boost
+  - added zone-chain follow-up queueing from `resolve_arrival`, so a landing result can enqueue `apply_move -> resolve_arrival` instead of immediately nesting the extra movement
+  - added checkpointed `pending_action_log` aggregation so queued movement can emit a legacy-compatible `turn` log summary after final arrival
+  - defined the movement visual split: queued/follow-up movement emits `action_move`, while `player_move` remains the dice-paired regular turn movement
+  - updated visual stream validation and backend board/reveal/turn/scene selectors so `action_move` is accepted and projected as movement without breaking the `dice_roll -> player_move` contract
 - Validation:
   - `./.venv/bin/python -m pytest GPT/test_state_checkpoint_serialization.py GPT/test_rule_fixes.py::RuleFixTests::test_suspicious_drink_uses_single_die GPT/test_rule_fixes.py::RuleFixTests::test_fortune_arrival_moves_then_resolves_landing_without_lap_credit GPT/test_rule_fixes.py::RuleFixTests::test_fortune_move_only_does_not_resolve_arrival GPT/test_event_effects.py::EventEffectIntegrationTests::test_fortune_movement_can_be_overridden`
   - `./.venv/bin/python -m pytest GPT/test_rule_fixes.py GPT/test_event_effects.py GPT/test_state_checkpoint_serialization.py`
   - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_state_checkpoint_serialization.py GPT/test_rule_fixes.py::RuleFixTests::test_fortune_arrival_moves_then_resolves_landing_without_lap_credit GPT/test_rule_fixes.py::RuleFixTests::test_fortune_move_only_does_not_resolve_arrival`
   - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py`
   - `./.venv/bin/python -m pytest GPT`
+  - `./.venv/bin/python -m pytest GPT/test_visual_runtime_substrate.py apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py`
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_visual_runtime_substrate.py apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py`
+  - `./.venv/bin/python -m pytest GPT apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py`
+- Validation failure and lesson:
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_visual_runtime_substrate.py apps/server/tests/test_view_state_reveal_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_turn_selector.py` initially failed in the new action-move visual test.
+  - Cause: the test assumed the stream was empty after `prepare_run()`, but the engine correctly emits setup events such as `session_start`, `round_start`, and draft events before the queued move.
+  - Lesson: movement-event assertions in resumable transition tests must filter the relevant semantic event type, because the visual stream is append-only and may already contain setup/replay context.
 - Next:
-  - mirror zone-chain movement, log rows, and visual contracts before replacing `_advance_player()` in `_take_turn()`
-  - design the visual event contract for fortune/forced moves before emitting those as regular movement events
+  - broaden action-log parity around longer zone-chain/obstacle/encounter combinations before replacing `_advance_player()` in `_take_turn()`
+  - migrate normal turn movement into the queued `apply_move -> resolve_arrival` path once the remaining parity cases are closed
 
 ## 2026-04-26
 

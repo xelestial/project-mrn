@@ -224,6 +224,7 @@ class GameState:
     pending_prompt_player_id: int = 0
     pending_prompt_instance_id: int = 0
     pending_actions: List[ActionEnvelope] = field(default_factory=list)
+    pending_action_log: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def create(cls, config: GameConfig) -> "GameState":
@@ -335,6 +336,7 @@ class GameState:
             "pending_prompt_player_id": self.pending_prompt_player_id,
             "pending_prompt_instance_id": self.pending_prompt_instance_id,
             "pending_actions": [action.to_payload() for action in self.pending_actions],
+            "pending_action_log": dict(self.pending_action_log),
             "tiles": [_tile_to_payload(tile) for tile in self.tiles],
             "players": [_player_to_payload(player) for player in self.players],
             "fortune_draw_pile": [_card_key(card) for card in self.fortune_draw_pile],
@@ -386,6 +388,7 @@ class GameState:
             for raw_action in payload.get("pending_actions", [])
             if isinstance(raw_action, dict)
         ]
+        state.pending_action_log = dict(payload.get("pending_action_log") or {})
 
         for raw_tile in payload.get("tiles", []):
             if not isinstance(raw_tile, dict):

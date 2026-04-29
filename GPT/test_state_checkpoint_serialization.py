@@ -41,6 +41,7 @@ def test_game_state_checkpoint_payload_round_trips_runtime_state() -> None:
             payload={"target_pos": 7, "lap_credit": False, "schedule_arrival": True},
         )
     ]
+    state.pending_action_log = {"actor_player_id": 1, "segments": [{"start_pos": 3, "end_pos": 7}]}
 
     payload = json.loads(json.dumps(state.to_checkpoint_payload(), ensure_ascii=False))
     restored = GameState.from_checkpoint_payload(config, payload)
@@ -72,3 +73,4 @@ def test_game_state_checkpoint_payload_round_trips_runtime_state() -> None:
     assert len(restored.pending_actions) == 1
     assert restored.pending_actions[0].type == "apply_move"
     assert restored.pending_actions[0].payload == {"target_pos": 7, "lap_credit": False, "schedule_arrival": True}
+    assert restored.pending_action_log == {"actor_player_id": 1, "segments": [{"start_pos": 3, "end_pos": 7}]}

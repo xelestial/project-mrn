@@ -4,6 +4,8 @@ from typing import Any
 
 from .types import BoardLastMoveViewState, BoardTileViewState, BoardViewState
 
+MOVE_EVENT_CODES = {"player_move", "action_move", "fortune_move", "forced_move", "chain_move"}
+
 
 def _record(value: Any) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
@@ -143,7 +145,7 @@ def build_board_view_state(messages: list[dict[str, Any]]) -> BoardViewState | N
                   or "score_coins" in public_context
               ):
                   tile_by_index[context_tile_index]["score_coin_count"] = _score_coin_count(public_context)
-          if event_code == "player_move" and event_actor_id is not None:
+          if event_code in MOVE_EVENT_CODES and event_actor_id is not None:
               to_tile_index = _number(payload.get("to_tile_index", payload.get("to_tile", payload.get("to_pos"))))
               if to_tile_index is not None:
                   player_positions[event_actor_id] = to_tile_index
@@ -175,7 +177,7 @@ def build_board_view_state(messages: list[dict[str, Any]]) -> BoardViewState | N
         if message.get("type") != "event":
             continue
         payload = _record(message.get("payload")) or {}
-        if _event_type(payload) != "player_move":
+        if _event_type(payload) not in MOVE_EVENT_CODES:
             continue
         last_move = {
             "player_id": _number(payload.get("acting_player_id", payload.get("player_id"))),

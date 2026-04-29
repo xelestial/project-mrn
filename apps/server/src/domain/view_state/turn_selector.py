@@ -14,6 +14,7 @@ CORE_EVENT_CODES = {
     "dice_roll",
     "trick_used",
     "player_move",
+    "action_move",
     "landing_resolved",
     "rent_paid",
     "tile_purchased",
@@ -94,7 +95,7 @@ def _find_persisted_weather(messages: list[dict[str, Any]]) -> tuple[str, str]:
 
 
 def _turn_beat_kind(event_code: str) -> str:
-    if event_code in {"dice_roll", "player_move"}:
+    if event_code in {"dice_roll", "player_move", "action_move", "fortune_move", "forced_move", "chain_move"}:
         return "move"
     if event_code in {"tile_purchased", "rent_paid", "lap_reward_chosen"}:
         return "economy"
@@ -149,7 +150,7 @@ def _focus_tile_indices_from_prompt_payload(payload: dict[str, Any]) -> list[int
 
 
 def _focus_tile_index_from_event_payload(payload: dict[str, Any], event_code: str) -> int | None:
-    if event_code == "player_move":
+    if event_code in {"player_move", "action_move", "fortune_move", "forced_move", "chain_move"}:
         return _number(payload.get("to_tile_index", payload.get("to_tile", payload.get("to_pos"))))
     if event_code == "landing_resolved":
         return _number(payload.get("position", payload.get("tile_index", payload.get("tile"))))

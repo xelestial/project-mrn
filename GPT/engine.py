@@ -643,7 +643,7 @@ class GameEngine:
             payload=dict(payload),
         )
 
-    def _resolve_arrival_action(self, state: GameState, action: ActionEnvelope) -> dict:
+    def _resolve_arrival_action(self, state: GameState, action: ActionEnvelope, *, queue_followups: bool = False) -> dict:
         player = state.players[action.actor_player_id]
         payload = action.payload
         landing = self._resolve_landing(state, player)
@@ -657,13 +657,34 @@ class GameEngine:
             trigger=payload.get("trigger"),
             card_name=payload.get("card_name"),
         )
-        return {
+        result = {
             "type": "ARRIVAL",
             "trigger": payload.get("trigger", action.source),
             "card_name": payload.get("card_name", ""),
             "position": player.position,
             "landing": landing,
         }
+        self._record_pending_arrival_and_maybe_log_turn(state, action, landing)
+        if queue_followups and isinstance(landing, dict) and landing.get("type") == "ZONE_CHAIN":
+            followup = self._action(
+                state,
+                "apply_move",
+                player,
+                "zone_chain",
+                {
+                    "move_value": int(landing.get("extra_move", 0) or 0),
+                    "lap_credit": True,
+                    "schedule_arrival": True,
+                    "emit_move_event": False,
+                    "trigger": "zone_chain",
+                    "formula": (landing.get("movement") or {}).get("formula", ""),
+                    "movement_meta": dict(landing.get("movement") or {}),
+                },
+            )
+            if followup.payload["move_value"] > 0:
+                state.pending_actions.insert(0, followup)
+                result["followup"] = {"queued_action_id": followup.action_id, "action_type": followup.type}
+        return result
 
     def _run_next_action_transition(self, state: GameState) -> dict[str, Any]:
         action = state.pending_actions.pop(0)
@@ -687,6 +708,103 @@ class GameEngine:
             "turn_index": state.turn_index,
             "pending_actions": len(state.pending_actions),
         }
+
+    def _start_pending_turn_log(
+        self,
+        state: GameState,
+        player: PlayerState,
+        move: int,
+        movement_meta: dict,
+        *,
+        obstacle_event: dict | None = None,
+        encounter_event: dict | None = None,
+    ) -> None:
+        state.pending_action_log = {
+            "kind": "turn",
+            "actor_player_id": player.player_id,
+            "round_index": state.rounds_completed + 1,
+            "turn_index_global": state.turn_index + 1,
+            "player": player.player_id + 1,
+            "character": player.current_character,
+            "turn_number_for_player": player.turns_taken,
+            "start_pos": player.position,
+            "move": move,
+            "movement": dict(movement_meta),
+            "cash_before": player.cash,
+            "hand_coins_before": player.hand_coins,
+            "shards_before": player.shards,
+            "tiles_before": player.tiles_owned,
+            "f_before": state.f_value,
+            "alive_before": player.alive,
+            "segments": [],
+        }
+        if obstacle_event is not None:
+            state.pending_action_log["obstacle_slowdown"] = dict(obstacle_event)
+        if encounter_event is not None:
+            state.pending_action_log["encounter_bonus"] = dict(encounter_event)
+
+    def _record_pending_move_segment(self, state: GameState, action: ActionEnvelope, result: dict) -> None:
+        log = state.pending_action_log
+        if not log or log.get("kind") != "turn" or int(log.get("actor_player_id", -1)) != action.actor_player_id:
+            return
+        log.setdefault("segments", []).append(
+            {
+                "start_pos": result.get("start_pos"),
+                "end_pos": result.get("end_pos"),
+                "move": result.get("move") or 0,
+                "laps_gained": result.get("laps_gained", 0),
+                "lap_events": list(result.get("lap_events") or []),
+                "landing": None,
+            }
+        )
+
+    def _record_pending_arrival_and_maybe_log_turn(self, state: GameState, action: ActionEnvelope, landing: dict) -> None:
+        log = state.pending_action_log
+        if not log or log.get("kind") != "turn" or int(log.get("actor_player_id", -1)) != action.actor_player_id:
+            return
+        segments = log.setdefault("segments", [])
+        if segments:
+            segments[-1]["landing"] = landing
+        if isinstance(landing, dict) and landing.get("type") == "ZONE_CHAIN":
+            return
+        player = state.players[action.actor_player_id]
+        final_segment = segments[-1] if segments else {"lap_events": [], "landing": landing}
+        turn_row = {
+            "event": "turn",
+            "round_index": log.get("round_index"),
+            "turn_index_global": log.get("turn_index_global"),
+            "player": log.get("player"),
+            "character": log.get("character"),
+            "turn_number_for_player": log.get("turn_number_for_player"),
+            "start_pos": log.get("start_pos"),
+            "end_pos": player.position,
+            "cell": state.board[player.position].name,
+            "move": log.get("move"),
+            "movement": dict(log.get("movement") or {}),
+            "laps_gained": sum(int(seg.get("laps_gained", 0) or 0) for seg in segments),
+            "lap_events": list(final_segment.get("lap_events") or []),
+            "landing": final_segment.get("landing"),
+            "cash_before": log.get("cash_before"),
+            "cash_after": player.cash,
+            "hand_coins_before": log.get("hand_coins_before"),
+            "hand_coins_after": player.hand_coins,
+            "shards_before": log.get("shards_before"),
+            "shards_after": player.shards,
+            "tiles_before": log.get("tiles_before"),
+            "tiles_after": player.tiles_owned,
+            "f_before": log.get("f_before"),
+            "f_after": state.f_value,
+            "alive_before": log.get("alive_before"),
+            "alive_after": player.alive,
+        }
+        if "encounter_bonus" in log:
+            turn_row["encounter_bonus"] = log["encounter_bonus"]
+        if "obstacle_slowdown" in log:
+            turn_row["obstacle_slowdown"] = log["obstacle_slowdown"]
+        if len(segments) > 1:
+            turn_row["chain_segments"] = segments
+        self._log(turn_row)
+        state.pending_action_log = {}
 
     def _apply_move_action(self, state: GameState, action: ActionEnvelope, *, queue_followups: bool = False) -> dict:
         player = state.players[action.actor_player_id]
@@ -741,8 +859,9 @@ class GameEngine:
             "no_lap_credit": not lap_credit,
         }
         if payload.get("emit_move_event", True):
+            move_event_type = str(payload.get("move_event_type") or "action_move")
             self._emit_vis(
-                "player_move",
+                move_event_type,
                 Phase.MOVEMENT,
                 player.player_id + 1,
                 state,
@@ -773,13 +892,14 @@ class GameEngine:
                 result["arrival"] = {"queued_action_id": arrival_action.action_id}
             else:
                 result["arrival"] = self._execute_action(state, arrival_action)
+        self._record_pending_move_segment(state, action, result)
         return result
 
     def _execute_action(self, state: GameState, action: ActionEnvelope, *, queue_followups: bool = False) -> dict:
         if action.type == "apply_move":
             return self._apply_move_action(state, action, queue_followups=queue_followups)
         if action.type == "resolve_arrival":
-            return self._resolve_arrival_action(state, action)
+            return self._resolve_arrival_action(state, action, queue_followups=queue_followups)
         raise ValueError(f"Unsupported action type: {action.type}")
 
     def _apply_target_move(
@@ -853,6 +973,14 @@ class GameEngine:
             payload["obstacle_slowdown"] = obstacle_event
         if encounter_event is not None:
             payload["encounter_bonus"] = encounter_event
+        self._start_pending_turn_log(
+            state,
+            player,
+            move,
+            movement_meta,
+            obstacle_event=obstacle_event,
+            encounter_event=encounter_event,
+        )
         return self._action(state, "apply_move", player, "standard_move", payload)
 
     def _enqueue_standard_move_action(

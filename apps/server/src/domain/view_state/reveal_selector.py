@@ -8,6 +8,7 @@ CURRENT_TURN_REVEAL_EVENT_CODES: tuple[str, ...] = (
     "weather_reveal",
     "dice_roll",
     "player_move",
+    "action_move",
     "landing_resolved",
     "tile_purchased",
     "rent_paid",
@@ -19,6 +20,7 @@ CURRENT_TURN_REVEAL_ORDER: dict[str, int] = {
     "weather_reveal": 10,
     "dice_roll": 20,
     "player_move": 30,
+    "action_move": 30,
     "landing_resolved": 40,
     "rent_paid": 50,
     "tile_purchased": 50,
@@ -54,7 +56,7 @@ def _same_round_turn(payload: dict[str, Any], round_index: int | None, turn_inde
 
 
 def _focus_tile_index(payload: dict[str, Any], event_code: str) -> int | None:
-    if event_code == "player_move":
+    if event_code in {"player_move", "action_move", "fortune_move", "forced_move", "chain_move"}:
         return _number(payload.get("to_tile_index", payload.get("to_tile", payload.get("to_pos"))))
     if event_code == "landing_resolved":
         return _number(payload.get("position", payload.get("tile_index", payload.get("tile"))))
@@ -73,7 +75,7 @@ def _focus_tile_index(payload: dict[str, Any], event_code: str) -> int | None:
 
 
 def _tone_for_event(event_code: str) -> str:
-    if event_code in {"dice_roll", "player_move"}:
+    if event_code in {"dice_roll", "player_move", "action_move", "fortune_move", "forced_move", "chain_move"}:
         return "move"
     if event_code in {"tile_purchased", "rent_paid"}:
         return "economy"

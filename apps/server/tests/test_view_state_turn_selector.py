@@ -92,6 +92,43 @@ class ViewStateTurnSelectorTests(unittest.TestCase):
             ["turn_start", "dice_roll", "player_move", "landing_resolved", "tile_purchased"],
         )
 
+    def test_action_move_is_projected_as_move_beat(self) -> None:
+        view_state = build_turn_stage_view_state(
+            [
+                {
+                    "type": "event",
+                    "seq": 1,
+                    "session_id": "s1",
+                    "server_time_ms": 1,
+                    "payload": {
+                        "event_type": "turn_start",
+                        "round_index": 1,
+                        "turn_index": 1,
+                        "acting_player_id": 1,
+                    },
+                },
+                {
+                    "type": "event",
+                    "seq": 2,
+                    "session_id": "s1",
+                    "server_time_ms": 2,
+                    "payload": {
+                        "event_type": "action_move",
+                        "round_index": 1,
+                        "turn_index": 1,
+                        "acting_player_id": 1,
+                        "from_tile_index": 3,
+                        "to_tile_index": 8,
+                    },
+                },
+            ]
+        )
+
+        self.assertEqual(view_state["current_beat_event_code"], "action_move")
+        self.assertEqual(view_state["current_beat_kind"], "move")
+        self.assertEqual(view_state["focus_tile_index"], 8)
+        self.assertEqual(view_state["progress_codes"], ["turn_start", "action_move"])
+
     def test_build_turn_stage_projects_prompt_focus_and_external_ai_status(self) -> None:
         view_state = build_turn_stage_view_state(
             [

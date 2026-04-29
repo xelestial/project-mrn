@@ -6,6 +6,7 @@ from ai_policy import HeuristicPolicy
 from config import CellKind, GameConfig
 from engine import GameEngine
 from state import ActionEnvelope, GameState
+from viewer.stream import VisEventStream
 
 
 def _run_standard_move_action_path(
@@ -37,6 +38,10 @@ def _assert_core_move_state_matches(action_state: GameState, legacy_state: GameS
     assert action_player.hand_coins == legacy_player.hand_coins
     assert action_player.trick_encounter_boost_this_turn == legacy_player.trick_encounter_boost_this_turn
     assert action_state.f_value == legacy_state.f_value
+
+
+def _last_turn_log(engine: GameEngine) -> dict:
+    return next(row for row in reversed(engine._action_log) if row.get("event") == "turn")
 
 
 def test_engine_run_accepts_hydrated_checkpoint_state() -> None:
@@ -278,3 +283,167 @@ def test_standard_move_action_adapter_matches_encounter_boost_result() -> None:
         action_engine.run_next_transition(action_state)
 
     _assert_core_move_state_matches(action_state, legacy_state)
+
+
+def test_zone_chain_arrival_queues_followup_move_and_matches_advance_player() -> None:
+    config = GameConfig(player_count=2)
+    movement_meta = {"mode": "test_zone_chain", "formula": "1"}
+
+    legacy_engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(9))
+    legacy_state = legacy_engine.prepare_run()
+    legacy_player = legacy_state.players[0]
+    chain_pos = legacy_state.first_tile_position(kinds=[CellKind.T3])
+    legacy_player.position = (chain_pos - 1) % len(legacy_state.board)
+    legacy_player.trick_zone_chain_this_turn = True
+    legacy_player.rolled_dice_count_this_turn = 1
+    legacy_player.tiles_owned = 1
+    legacy_state.tile_owner[chain_pos] = legacy_player.player_id
+    legacy_engine._advance_player(legacy_state, legacy_player, 1, dict(movement_meta))
+
+    action_engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(9))
+    action_state = action_engine.prepare_run()
+    action_player = action_state.players[0]
+    action_player.position = (chain_pos - 1) % len(action_state.board)
+    action_player.trick_zone_chain_this_turn = True
+    action_player.rolled_dice_count_this_turn = 1
+    action_player.tiles_owned = 1
+    action_state.tile_owner[chain_pos] = action_player.player_id
+    action_engine._enqueue_standard_move_action(
+        action_state,
+        action_player,
+        1,
+        dict(movement_meta),
+        emit_move_event=False,
+    )
+
+    first = action_engine.run_next_transition(action_state)
+    second = action_engine.run_next_transition(action_state)
+
+    assert first["action_type"] == "apply_move"
+    assert second["action_type"] == "resolve_arrival"
+    assert action_state.pending_actions
+    assert action_state.pending_actions[0].type == "apply_move"
+    assert action_state.pending_actions[0].source == "zone_chain"
+
+    while action_state.pending_actions:
+        action_engine.run_next_transition(action_state)
+
+    _assert_core_move_state_matches(action_state, legacy_state)
+
+
+def test_standard_move_action_adapter_emits_action_move_visual_event() -> None:
+    config = GameConfig(player_count=2)
+    stream = VisEventStream()
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(10), event_stream=stream)
+    state = engine.prepare_run()
+    player = state.players[0]
+    player.position = 2
+    engine._vis_session_id = "resumable-action-test"
+    engine._enqueue_standard_move_action(
+        state,
+        player,
+        3,
+        {"mode": "test_visual_action", "formula": "3"},
+        emit_move_event=True,
+    )
+
+    first = engine.run_next_transition(state)
+
+    assert first["action_type"] == "apply_move"
+    movement_events = [event for event in stream.events if event.event_type in {"player_move", "action_move"}]
+    assert [event.event_type for event in movement_events] == ["action_move"]
+    event = movement_events[0]
+    assert event.payload["from_tile_index"] == 2
+    assert event.payload["to_tile_index"] == 5
+    assert event.payload["movement_source"] == "test_visual_action"
+    assert event.payload["path"] == [3, 4, 5]
+
+
+def test_standard_move_action_adapter_emits_turn_log_summary_like_advance_player() -> None:
+    config = GameConfig(player_count=2)
+    movement_meta = {"mode": "test_log", "formula": "1"}
+
+    legacy_engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(10), enable_logging=True)
+    legacy_state = legacy_engine.prepare_run()
+    legacy_player = legacy_state.players[0]
+    legacy_player.position = len(legacy_state.board) - 1
+    legacy_engine._advance_player(legacy_state, legacy_player, 1, dict(movement_meta))
+    legacy_row = _last_turn_log(legacy_engine)
+
+    action_engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(10), enable_logging=True)
+    action_state = action_engine.prepare_run()
+    action_player = action_state.players[0]
+    action_player.position = len(action_state.board) - 1
+    _run_standard_move_action_path(action_engine, action_state, 0, 1, movement_meta)
+    action_row = _last_turn_log(action_engine)
+
+    for key in (
+        "event",
+        "player",
+        "start_pos",
+        "end_pos",
+        "cell",
+        "move",
+        "movement",
+        "laps_gained",
+        "landing",
+        "cash_before",
+        "cash_after",
+        "shards_before",
+        "shards_after",
+        "f_before",
+        "f_after",
+        "alive_before",
+        "alive_after",
+    ):
+        assert action_row.get(key) == legacy_row.get(key)
+
+
+def test_standard_move_action_adapter_emits_chain_turn_log_summary_like_advance_player() -> None:
+    config = GameConfig(player_count=2)
+    movement_meta = {"mode": "test_chain_log", "formula": "1"}
+
+    legacy_engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(11), enable_logging=True)
+    legacy_state = legacy_engine.prepare_run()
+    legacy_player = legacy_state.players[0]
+    chain_pos = legacy_state.first_tile_position(kinds=[CellKind.T3])
+    legacy_player.position = (chain_pos - 1) % len(legacy_state.board)
+    legacy_player.trick_zone_chain_this_turn = True
+    legacy_player.rolled_dice_count_this_turn = 1
+    legacy_player.tiles_owned = 1
+    legacy_state.tile_owner[chain_pos] = legacy_player.player_id
+    legacy_engine._advance_player(legacy_state, legacy_player, 1, dict(movement_meta))
+    legacy_row = _last_turn_log(legacy_engine)
+
+    action_engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(11), enable_logging=True)
+    action_state = action_engine.prepare_run()
+    action_player = action_state.players[0]
+    action_player.position = (chain_pos - 1) % len(action_state.board)
+    action_player.trick_zone_chain_this_turn = True
+    action_player.rolled_dice_count_this_turn = 1
+    action_player.tiles_owned = 1
+    action_state.tile_owner[chain_pos] = action_player.player_id
+    _run_standard_move_action_path(action_engine, action_state, 0, 1, movement_meta)
+    action_row = _last_turn_log(action_engine)
+
+    for key in (
+        "event",
+        "player",
+        "start_pos",
+        "end_pos",
+        "cell",
+        "move",
+        "movement",
+        "laps_gained",
+        "landing",
+        "chain_segments",
+        "cash_before",
+        "cash_after",
+        "shards_before",
+        "shards_after",
+        "f_before",
+        "f_after",
+        "alive_before",
+        "alive_after",
+    ):
+        assert action_row.get(key) == legacy_row.get(key)

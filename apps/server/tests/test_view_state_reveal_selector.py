@@ -141,6 +141,61 @@ class ViewStateRevealSelectorTests(unittest.TestCase):
             },
         )
 
+    def test_action_move_updates_board_and_reveal_like_move_event(self) -> None:
+        messages = [
+            {
+                "type": "event",
+                "seq": 1,
+                "session_id": "s1",
+                "server_time_ms": 1,
+                "payload": {
+                    "event_type": "turn_start",
+                    "round_index": 1,
+                    "turn_index": 1,
+                    "acting_player_id": 1,
+                },
+            },
+            {
+                "type": "event",
+                "seq": 2,
+                "session_id": "s1",
+                "server_time_ms": 2,
+                "payload": {
+                    "event_type": "turn_end_snapshot",
+                    "round_index": 1,
+                    "turn_index": 1,
+                    "snapshot": {
+                        "players": [{"player_id": 1, "position": 3, "alive": True}],
+                        "board": {"tiles": [{"tile_index": 3}, {"tile_index": 8}]},
+                    },
+                },
+            },
+            {
+                "type": "event",
+                "seq": 3,
+                "session_id": "s1",
+                "server_time_ms": 3,
+                "payload": {
+                    "event_type": "action_move",
+                    "round_index": 1,
+                    "turn_index": 1,
+                    "acting_player_id": 1,
+                    "from_tile_index": 3,
+                    "to_tile_index": 8,
+                    "path": [4, 5, 6, 7, 8],
+                },
+            },
+        ]
+
+        board = build_board_view_state(messages)
+        reveals = build_reveals_view_state(messages)
+
+        self.assertEqual(board["last_move"]["to_tile_index"], 8)
+        self.assertEqual(board["tiles"][1]["pawn_player_ids"], [1])
+        self.assertEqual([item["event_code"] for item in reveals["items"]], ["action_move"])
+        self.assertEqual(reveals["items"][0]["tone"], "move")
+        self.assertEqual(reveals["items"][0]["focus_tile_index"], 8)
+
     def test_stream_service_publishes_additive_reveals_and_board_projection(self) -> None:
         stream = StreamService()
 

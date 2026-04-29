@@ -21,6 +21,7 @@ CORE_EVENT_CODES = {
     "dice_roll",
     "trick_used",
     "player_move",
+    "action_move",
     "landing_resolved",
     "rent_paid",
     "tile_purchased",
@@ -40,7 +41,7 @@ CORE_EVENT_CODES = {
 
 PROMPT_EVENT_CODES = {"decision_requested", "decision_resolved", "decision_timeout_fallback"}
 WEATHER_EVENT_CODES = {"weather_reveal", "turn_start", "round_start"}
-MOVE_EVENT_CODES = {"player_move", "dice_roll"}
+MOVE_EVENT_CODES = {"player_move", "action_move", "fortune_move", "forced_move", "chain_move", "dice_roll"}
 ECONOMY_EVENT_CODES = {
     "tile_purchased",
     "landing_resolved",

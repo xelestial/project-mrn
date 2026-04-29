@@ -725,14 +725,15 @@ Implemented seed:
 - Fortune `[도착]` movement, fortune `[이동]` movement, and hunter forced landing now route through the shared target-move helper.
 - `run_next_transition()` now drains one queued action before normal turn advancement. A queued `apply_move` with `schedule_arrival=true` updates position and queues `resolve_arrival`; the following transition resolves the tile.
 - Queued `apply_move` now supports `move_value` for forward step movement. It applies path/total-step/lap-reward state in the move transition while leaving tile effects to the next `resolve_arrival` transition.
-- A standard-move adapter now converts resolved `move` + `movement_meta` into a queued `apply_move` action. It is verified against simple, card-metadata, obstacle slowdown, and encounter boost `_advance_player()` cases, but default turn execution still uses `_advance_player()` until the remaining behaviors are mirrored.
+- A standard-move adapter now converts resolved `move` + `movement_meta` into a queued `apply_move` action. It is verified against simple, card-metadata, obstacle slowdown, encounter boost, and zone-chain `_advance_player()` cases, but default turn execution still uses `_advance_player()` until the remaining behavior contracts are mirrored.
+- `pending_action_log` checkpoints the in-progress movement summary while `apply_move` and `resolve_arrival` are split across transitions. Final arrival emits a legacy-compatible `turn` log row for the covered standard-move path.
+- Queued `apply_move` uses a separate `action_move` visual event when it emits movement. `player_move` stays reserved for the ordinary dice-paired turn movement, while backend `view_state` board/reveal/turn/scene selectors treat `action_move` as movement for projection.
 - Direct fortune/forced-move callers still execute inline for compatibility until their call sites are migrated to enqueue actions.
 
 Next action-pipeline hardening:
 
 - migrate normal turn movement into explicit queued `apply_move -> resolve_arrival`
-- mirror or explicitly scope zone-chain movement, action-log rows, and visual stream contracts before replacing `_advance_player()`
-- define a separate visual event contract for fortune/forced target movement instead of reusing regular `player_move`
+- broaden action-log parity for longer chain/obstacle/encounter edge cases before replacing `_advance_player()`
 - let landing effects enqueue follow-up movement actions instead of nested immediate calls
 
 ## Testing Strategy
