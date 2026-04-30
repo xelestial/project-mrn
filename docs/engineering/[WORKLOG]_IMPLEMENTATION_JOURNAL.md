@@ -149,6 +149,18 @@ Updated: 2026-04-30
 - Follow-up:
   - run full engine checks and relevant server recovery checks before next commit
 
+## 2026-04-30 Score Token Frontend Exposure Check
+
+- Scope: verify whether the new score-token action types need UI labels.
+- Result:
+  - `request_score_token_placement` and `resolve_score_token_placement` are internal engine action types and are not included in backend scene `CORE_EVENT_CODES`.
+  - Public UI continues to see `coin_placement` prompts plus existing public events such as `landing_resolved` and `tile_purchased`.
+  - No new i18n/event label is needed unless a future feature deliberately emits score-token placement as its own public event.
+- Validation:
+  - inspected backend scene selector and web stream selectors for raw action-type exposure
+- Follow-up:
+  - if score-token placement becomes a public event later, add event tone, timeline/core-action labels, and selector tests at that time
+
 ## 2026-04-29 Redis Action Pipeline Seed
 
 - Scope: begin modular movement/arrival execution for the Redis-resumable engine path.
