@@ -282,4 +282,19 @@ async def replay_export(
         if projected is not None:
             events.append(projected)
     view_state = await stream.latest_view_state_for_viewer(session_id, viewer)
-    return _ok({"session_id": session_id, "event_count": len(events), "events": events, "view_state": view_state})
+    replay_export_payload = {
+        "schema_version": 1,
+        "schema_name": "mrn.redacted_replay_export",
+        "visibility": "player" if viewer.is_seat else "spectator",
+        "browser_safe": True,
+        "session_id": session_id,
+        "viewer": {
+            "role": viewer.role,
+            "seat": viewer.seat,
+            "player_id": viewer.player_id,
+        },
+        "event_count": len(events),
+        "events": events,
+        "view_state": view_state,
+    }
+    return _ok(replay_export_payload)

@@ -442,10 +442,18 @@ game:{session_id}:projection_checkpoint
 ### Phase 7: Archive Redaction
 
 - Keep canonical archive for backend/admin only.
+- Canonical local JSON archives must declare:
+  - `schema_name: "mrn.canonical_archive"`
+  - `visibility: "backend_canonical"`
+  - `browser_safe: false`
 - Add optional redacted replay export:
   - public replay
   - player-perspective replay
   - spectator replay
+- Redacted browser-facing replay exports must declare:
+  - `schema_name: "mrn.redacted_replay_export"`
+  - `visibility: "spectator"` or `"player"`
+  - `browser_safe: true`
 - Never mutate canonical archive to satisfy privacy filtering.
 
 ## Recommended First Slice

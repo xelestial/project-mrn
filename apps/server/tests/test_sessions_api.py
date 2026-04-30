@@ -281,6 +281,9 @@ class SessionsApiTests(unittest.TestCase):
         replay = self.client.get(f"/api/v1/sessions/{session_id}/replay")
         self.assertEqual(replay.status_code, 200)
         data = replay.json()["data"]
+        self.assertEqual(data["schema_name"], "mrn.redacted_replay_export")
+        self.assertEqual(data["visibility"], "spectator")
+        self.assertTrue(data["browser_safe"])
         self.assertEqual(data["event_count"], 4)
         self.assertEqual(data["events"][-2]["seq"], 3)
         self.assertEqual(data["events"][-1]["seq"], 4)
@@ -291,6 +294,9 @@ class SessionsApiTests(unittest.TestCase):
         self.assertIn("players", data["events"][-1].get("payload", {}).get("view_state", {}))
         self.assertIn("view_state", data)
         self.assertIn("players", data["view_state"])
+        self.assertNotIn("final_state", data)
+        self.assertNotIn("streams", data)
+        self.assertNotIn("analysis", data)
 
     def test_replay_endpoint_projects_latest_view_state_for_authenticated_seat(self) -> None:
         created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
@@ -326,6 +332,9 @@ class SessionsApiTests(unittest.TestCase):
         spectator = self.client.get(f"/api/v1/sessions/{session_id}/replay")
         self.assertEqual(spectator.status_code, 200)
         spectator_data = spectator.json()["data"]
+        self.assertEqual(spectator_data["visibility"], "spectator")
+        self.assertNotIn("final_state", spectator_data)
+        self.assertNotIn("streams", spectator_data)
         self.assertNotIn("prompt", {event.get("type") for event in spectator_data["events"]})
         self.assertNotIn("prompt", spectator_data["view_state"])
         self.assertNotIn("hand_tray", spectator_data["view_state"])
@@ -333,6 +342,8 @@ class SessionsApiTests(unittest.TestCase):
         seat = self.client.get(f"/api/v1/sessions/{session_id}/replay?token={session_token}")
         self.assertEqual(seat.status_code, 200)
         seat_data = seat.json()["data"]
+        self.assertEqual(seat_data["visibility"], "player")
+        self.assertEqual(seat_data["viewer"]["player_id"], 1)
         self.assertIn("prompt", {event.get("type") for event in seat_data["events"]})
         self.assertEqual(seat_data["view_state"]["prompt"]["active"]["request_id"], "req_trick")
         self.assertEqual(seat_data["view_state"]["hand_tray"]["cards"][0]["name"], "재뿌리기")

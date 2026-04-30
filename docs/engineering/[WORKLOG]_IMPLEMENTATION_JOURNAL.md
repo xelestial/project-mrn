@@ -139,6 +139,20 @@ Updated: 2026-04-30
   - split canonical archive and redacted replay-export schemas if archive files ever become downloadable from browser-facing routes
   - add admin-only auth before exposing canonical recovery state through any API endpoint
 
+## 2026-04-30 Canonical Archive And Redacted Replay Schemas
+
+- Scope: make backend-local canonical archives and browser-facing replay exports impossible to confuse at the payload level.
+- Done:
+  - canonical JSON archives now declare `schema_name: mrn.canonical_archive`, `visibility: backend_canonical`, and `browser_safe: false`
+  - `/replay` responses now declare `schema_name: mrn.redacted_replay_export`, viewer `visibility`, `browser_safe: true`, and the projected viewer identity
+  - documented both schemas and the rule that browser-facing replay must never include canonical `final_state`, analysis, raw commands, or private data
+  - added regression checks for archive schema flags and spectator/player replay schema flags
+- Validation:
+  - `./.venv/bin/python -m pytest apps/server/tests/test_archive_service.py apps/server/tests/test_sessions_api.py -k 'archive or replay' -q`
+  - `./.venv/bin/python -m pytest GPT/test_doc_integrity.py -q`
+- Follow-up:
+  - keep expanding redacted replay contract tests as new browser-facing fields are introduced
+
 ## 2026-04-30 Tile Trait Action Pipeline Design
 
 - Scope: document a consistent tile trait/modifier/action architecture before implementation.

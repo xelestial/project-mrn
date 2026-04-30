@@ -359,6 +359,9 @@ Top-level shape:
 ```json
 {
   "schema_version": 1,
+  "schema_name": "mrn.canonical_archive",
+  "visibility": "backend_canonical",
+  "browser_safe": false,
   "exported_at": "2026-04-29T12:00:00+00:00",
   "exporter": {
     "kind": "backend_local_json",
@@ -409,6 +412,9 @@ Top-level shape:
 Required top-level fields:
 
 - `schema_version`: archive schema version, not Redis state schema version
+- `schema_name`: must be `mrn.canonical_archive`
+- `visibility`: must be `backend_canonical`
+- `browser_safe`: must be `false`; this file can contain canonical state and backend-visible streams
 - `exported_at`: UTC ISO timestamp when the JSON file was finalized
 - `exporter`: metadata about the exporter implementation
 - `session`: stable identifiers and lifecycle timestamps
@@ -439,6 +445,35 @@ Rules:
 - do not strip fields needed for replay or audit
 - never store raw auth tokens in any stream payload
 - if privacy filtering is later required, produce a second redacted export format instead of mutating the canonical archive
+
+Browser-facing replay/export responses must use a separate redacted schema:
+
+```json
+{
+  "schema_version": 1,
+  "schema_name": "mrn.redacted_replay_export",
+  "visibility": "spectator",
+  "browser_safe": true,
+  "session_id": "sess_123456789abc",
+  "viewer": {
+    "role": "spectator",
+    "seat": null,
+    "player_id": null
+  },
+  "event_count": 0,
+  "events": [],
+  "view_state": {}
+}
+```
+
+Redacted replay export rules:
+
+- `schema_name` must be `mrn.redacted_replay_export`.
+- `browser_safe` must be `true`.
+- `visibility` is `spectator` for unauthenticated replay and `player` for authenticated seat replay.
+- `events` must already be projected through backend visibility rules.
+- `view_state` must be viewer-specific projected state, not canonical `game:{session_id}:state`.
+- Never include `final_state`, `analysis`, raw commands, auth tokens, other players' private hands, or backend-only diagnostics.
 
 Recommended `summary` fields:
 

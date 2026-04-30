@@ -139,6 +139,9 @@ class LocalJsonArchiveService:
         latest_stream_time_ms = max((int(message.get("server_time_ms", 0)) for message in stream_messages), default=0)
         return {
             "schema_version": 1,
+            "schema_name": "mrn.canonical_archive",
+            "visibility": "backend_canonical",
+            "browser_safe": False,
             "exported_at": exported_at,
             "exporter": {
                 "kind": "backend_local_json",
