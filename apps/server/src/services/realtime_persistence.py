@@ -413,10 +413,25 @@ class RedisGameStateStore:
         return _json_load_dict(str(raw)) if raw is not None else None
 
     def save_view_state(self, session_id: str, payload: dict[str, Any]) -> None:
+        self.save_projected_view_state(session_id, "public", payload)
         self._connection.client().set(self._view_state_key(session_id), _json_dump(payload))
 
     def load_view_state(self, session_id: str) -> dict[str, Any] | None:
         raw = self._connection.client().get(self._view_state_key(session_id))
+        return _json_load_dict(str(raw)) if raw is not None else None
+
+    def save_projected_view_state(self, session_id: str, viewer: str, payload: dict[str, Any], *, player_id: int | None = None) -> None:
+        self._connection.client().set(self._projected_view_state_key(session_id, viewer, player_id=player_id), _json_dump(payload))
+
+    def load_projected_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict[str, Any] | None:
+        raw = self._connection.client().get(self._projected_view_state_key(session_id, viewer, player_id=player_id))
+        return _json_load_dict(str(raw)) if raw is not None else None
+
+    def save_projection_checkpoint(self, session_id: str, payload: dict[str, Any]) -> None:
+        self._connection.client().set(self._projection_checkpoint_key(session_id), _json_dump(payload))
+
+    def load_projection_checkpoint(self, session_id: str) -> dict[str, Any] | None:
+        raw = self._connection.client().get(self._projection_checkpoint_key(session_id))
         return _json_load_dict(str(raw)) if raw is not None else None
 
     def commit_transition(
@@ -439,10 +454,11 @@ class RedisGameStateStore:
         if callable(getattr(client, "eval", None)):
             client.eval(
                 _COMMIT_GAME_TRANSITION_LUA,
-                5,
+                6,
                 self._current_state_key(session_id),
                 self._checkpoint_key(session_id),
                 self._view_state_key(session_id),
+                self._projected_view_state_key(session_id, "public"),
                 offset_key,
                 offset_index_key,
                 current_payload,
@@ -457,16 +473,31 @@ class RedisGameStateStore:
         pipeline.set(self._checkpoint_key(session_id), checkpoint_payload)
         if isinstance(view_state, dict):
             pipeline.set(self._view_state_key(session_id), view_payload)
+            pipeline.set(self._projected_view_state_key(session_id, "public"), view_payload)
         if offset_key and offset_seq:
             pipeline.hset(offset_index_key, offset_key, "1")
             pipeline.hset(offset_key, session_id, offset_seq)
         pipeline.execute()
 
     def delete_session_data(self, session_id: str) -> None:
+        projection_checkpoint = self.load_projection_checkpoint(session_id) or {}
+        projection_keys = [
+            self._projected_view_state_key(session_id, "public"),
+            self._projected_view_state_key(session_id, "spectator"),
+            self._projected_view_state_key(session_id, "admin"),
+            self._projection_checkpoint_key(session_id),
+        ]
+        projected_viewers = projection_checkpoint.get("projected_viewers")
+        if isinstance(projected_viewers, list):
+            for viewer in projected_viewers:
+                key = self._projected_view_state_key_from_label(session_id, str(viewer))
+                if key:
+                    projection_keys.append(key)
         self._connection.client().delete(
             self._checkpoint_key(session_id),
             self._current_state_key(session_id),
             self._view_state_key(session_id),
+            *projection_keys,
         )
 
     def _checkpoint_key(self, session_id: str) -> str:
@@ -477,6 +508,31 @@ class RedisGameStateStore:
 
     def _view_state_key(self, session_id: str) -> str:
         return self._connection.key("game", session_id, "view_state")
+
+    def _projected_view_state_key(self, session_id: str, viewer: str, *, player_id: int | None = None) -> str:
+        normalized = str(viewer or "public").strip().lower()
+        if normalized == "player":
+            if player_id is None:
+                raise ValueError("player_id is required for player view_state projection")
+            return self._connection.key("game", session_id, "view_state", "player", str(int(player_id)))
+        if normalized not in {"public", "spectator", "admin"}:
+            raise ValueError(f"unsupported view_state projection viewer: {viewer}")
+        return self._connection.key("game", session_id, "view_state", normalized)
+
+    def _projection_checkpoint_key(self, session_id: str) -> str:
+        return self._connection.key("game", session_id, "projection_checkpoint")
+
+    def _projected_view_state_key_from_label(self, session_id: str, label: str) -> str | None:
+        normalized = str(label or "").strip().lower()
+        if normalized in {"public", "spectator", "admin"}:
+            return self._projected_view_state_key(session_id, normalized)
+        if normalized.startswith("player:"):
+            try:
+                player_id = int(normalized.split(":", 1)[1])
+            except Exception:
+                return None
+            return self._projected_view_state_key(session_id, "player", player_id=player_id)
+        return None
 
     def _command_offset_key(self, consumer_name: str | None) -> str:
         return self._connection.key("commands", "offsets", str(consumer_name or "default"))
@@ -556,10 +612,11 @@ redis.call("SET", KEYS[1], ARGV[1])
 redis.call("SET", KEYS[2], ARGV[2])
 if ARGV[3] ~= "" then
   redis.call("SET", KEYS[3], ARGV[3])
+  redis.call("SET", KEYS[4], ARGV[3])
 end
 if ARGV[5] ~= "" then
-  redis.call("HSET", KEYS[5], KEYS[4], "1")
-  redis.call("HSET", KEYS[4], ARGV[4], ARGV[5])
+  redis.call("HSET", KEYS[6], KEYS[5], "1")
+  redis.call("HSET", KEYS[5], ARGV[4], ARGV[5])
 end
 return 1
 """

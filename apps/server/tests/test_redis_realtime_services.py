@@ -124,7 +124,41 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertTrue(game_state.load_checkpoint("s-commit")["has_scheduled_actions"])
         self.assertTrue(game_state.load_checkpoint("s-commit")["has_pending_turn_completion"])
         self.assertEqual(game_state.load_view_state("s-commit")["board"]["turn"], 3)
+        self.assertEqual(game_state.load_projected_view_state("s-commit", "public")["board"]["turn"], 3)
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", "s-commit"), 9)
+
+    def test_game_state_store_saves_view_state_projection_variants(self) -> None:
+        game_state = RedisGameStateStore(self.connection)
+
+        game_state.save_view_state("s-view", {"board": {"turn": 1}})
+        game_state.save_projected_view_state("s-view", "spectator", {"board": {"turn": 2}})
+        game_state.save_projected_view_state("s-view", "player", {"prompt": {"active": {"request_id": "r1"}}}, player_id=1)
+        game_state.save_projected_view_state("s-view", "admin", {"debug": {"hands": 4}})
+        game_state.save_projection_checkpoint(
+            "s-view",
+            {
+                "schema_version": 1,
+                "latest_seq": 12,
+                "projection_schema_version": 1,
+                "projected_viewers": ["public", "spectator", "player:1", "admin"],
+            },
+        )
+
+        self.assertEqual(game_state.load_view_state("s-view"), {"board": {"turn": 1}})
+        self.assertEqual(game_state.load_projected_view_state("s-view", "public"), {"board": {"turn": 1}})
+        self.assertEqual(game_state.load_projected_view_state("s-view", "spectator"), {"board": {"turn": 2}})
+        self.assertEqual(game_state.load_projected_view_state("s-view", "player", player_id=1)["prompt"]["active"]["request_id"], "r1")
+        self.assertEqual(game_state.load_projected_view_state("s-view", "admin"), {"debug": {"hands": 4}})
+        self.assertEqual(game_state.load_projection_checkpoint("s-view")["latest_seq"], 12)
+
+        game_state.delete_session_data("s-view")
+
+        self.assertIsNone(game_state.load_view_state("s-view"))
+        self.assertIsNone(game_state.load_projected_view_state("s-view", "public"))
+        self.assertIsNone(game_state.load_projected_view_state("s-view", "spectator"))
+        self.assertIsNone(game_state.load_projected_view_state("s-view", "player", player_id=1))
+        self.assertIsNone(game_state.load_projected_view_state("s-view", "admin"))
+        self.assertIsNone(game_state.load_projection_checkpoint("s-view"))
 
     def test_prompt_service_uses_redis_store_for_decision_flow(self) -> None:
         command_store = RedisCommandStore(self.connection)

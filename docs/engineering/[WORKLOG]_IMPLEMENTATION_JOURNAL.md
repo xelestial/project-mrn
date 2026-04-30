@@ -57,6 +57,24 @@ Updated: 2026-04-30
   - add Redis `view_state:public/player/spectator/admin` cache keys and serializers
   - convert the route compatibility `_filter_stream_message()` tests to visibility service tests once downstream callers are migrated
 
+## 2026-04-30 Redis Projection Cache Keys
+
+- Scope: add Redis storage interfaces for viewer-specific projected view-state caches.
+- Done:
+  - added `save_projected_view_state()` / `load_projected_view_state()`
+  - added `save_projection_checkpoint()` / `load_projection_checkpoint()`
+  - kept legacy `save_view_state()` / `load_view_state()` as the public projection alias for compatibility
+  - `commit_transition()` now writes the legacy view-state key and `view_state:public`
+  - session cleanup removes public, spectator, admin, and checkpoint-listed player projection caches
+- Validation:
+  - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py -q`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_stream_service.py apps/server/tests/test_visibility_projection.py -q`
+  - `./.venv/bin/python -m pytest apps/server/tests -q`
+  - `./.venv/bin/python -m pytest GPT/test_doc_integrity.py -q`
+- Follow-up:
+  - wire websocket projection writes into these cache keys once projection freshness/versioning is finalized
+  - include projection checkpoint fields such as `generated_at_ms` and `projection_schema_version` in runtime commits
+
 ## 2026-04-30 Tile Trait Action Pipeline Design
 
 - Scope: document a consistent tile trait/modifier/action architecture before implementation.
