@@ -184,6 +184,21 @@ Updated: 2026-04-30
 - Follow-up:
   - add operator pagination/listing for archives only if retention grows beyond direct session-id lookup
 
+## 2026-04-30 Admin Auth Dependency Refactor
+
+- Scope: keep admin endpoint auth/error behavior reusable as more admin routes are added.
+- Done:
+  - extracted admin token parsing, configured-token lookup, constant-time comparison, and admin error payloads into `apps/server/src/core/admin_auth.py`
+  - updated admin recovery/archive routes to use the shared `require_admin` dependency
+  - added token extraction contract coverage for `X-Admin-Token` and `Authorization: Bearer`
+- Validation:
+  - `./.venv/bin/python -m pytest apps/server/tests/test_admin_api.py -q`
+  - `./.venv/bin/python -m compileall -q apps/server/src/core/admin_auth.py apps/server/src/routes/admin.py`
+- Failed validation / lesson:
+  - `python -m compileall ...` failed because this environment does not expose a bare `python` command; use the project venv Python for local checks.
+- Follow-up:
+  - keep admin-only auth in this shared dependency when adding future operator endpoints
+
 ## 2026-04-30 Tile Trait Action Pipeline Design
 
 - Scope: document a consistent tile trait/modifier/action architecture before implementation.

@@ -17,6 +17,7 @@ except ModuleNotFoundError:
     FASTAPI_AVAILABLE = False
 
 from apps.server.src.config.runtime_settings import RuntimeSettings
+from apps.server.src.core.admin_auth import extract_admin_token
 from apps.server.src.services.archive_service import LocalJsonArchiveService
 from apps.server.src.services.prompt_service import PromptService
 from apps.server.src.services.runtime_service import RuntimeService
@@ -76,6 +77,17 @@ class AdminApiTests(unittest.TestCase):
         self.assertEqual(missing.status_code, 401)
         self.assertEqual(wrong.status_code, 401)
         self.assertEqual(wrong.json()["error"]["code"], "ADMIN_UNAUTHORIZED")
+
+    def test_admin_token_extraction_prefers_explicit_admin_header(self) -> None:
+        self.assertEqual(
+            extract_admin_token(x_admin_token=" admin-secret ", authorization="Bearer wrong"),
+            "admin-secret",
+        )
+        self.assertEqual(
+            extract_admin_token(x_admin_token=None, authorization="Bearer admin-secret"),
+            "admin-secret",
+        )
+        self.assertEqual(extract_admin_token(x_admin_token=None, authorization="Basic x"), "")
 
     def test_admin_recovery_returns_canonical_recovery_with_admin_schema(self) -> None:
         from apps.server.src import state
