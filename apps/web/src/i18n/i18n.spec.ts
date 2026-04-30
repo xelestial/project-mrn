@@ -9,7 +9,7 @@ describe("i18n registry", () => {
   });
 
   it("keeps important locale sections aligned", () => {
-    expect(LOCALES.ko.app.title).toBe("MRN Online Viewer (React/FastAPI)");
+    expect(LOCALES.ko.app.title).toBe("MRN");
     expect(LOCALES.en.app.routeLobby).toBe("Lobby");
     expect(LOCALES.en.prompt.choice.buyTileTitle).toBe("Buy tile");
     expect(LOCALES.ko.prompt.context.burdenExchangeTrigger(3, 3.5)).toBe("보급 단계 (F 3.5 / 기준 3)");

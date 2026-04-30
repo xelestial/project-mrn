@@ -1,7 +1,7 @@
 export const koLocale = {
   app: {
-    title: "MRN Online Viewer (React/FastAPI)",
-    subtitle: "세션 생성, 참가, 시작, 실시간 스트림 관찰을 한 화면에서 진행할 수 있습니다.",
+    title: "MRN",
+    subtitle: "친구와 방을 만들거나 AI 3명과 바로 한 판을 시작하세요.",
     routeLobby: "로비",
     routeMatch: "매치",
     connectionExpand: "연결 상태 펼치기",

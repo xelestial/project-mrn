@@ -221,6 +221,25 @@ function hasReadableValue(value: string | null | undefined): boolean {
   return typeof value === "string" && value.trim() !== "" && value.trim() !== "-";
 }
 
+function compactEventDetail(label: string, detail: string | null | undefined): string {
+  if (!hasReadableValue(detail)) {
+    return "";
+  }
+  const rawDetail = detail ?? "";
+  const normalizedLabel = label.trim().toLowerCase();
+  const normalizedDetail = rawDetail.trim();
+  if (normalizedDetail.toLowerCase() === normalizedLabel) {
+    return "";
+  }
+  for (const separator of ["/", ":", "-", "–", "—"]) {
+    const prefix = `${label.trim()} ${separator}`;
+    if (normalizedDetail.toLowerCase().startsWith(prefix.toLowerCase())) {
+      return normalizedDetail.slice(prefix.length).trim();
+    }
+  }
+  return normalizedDetail;
+}
+
 function playerColor(playerId: number): string {
   const palette = ["#f97316", "#38bdf8", "#a78bfa", "#34d399", "#f472b6", "#facc15"];
   return palette[(Math.max(1, playerId) - 1) % palette.length];
@@ -969,7 +988,7 @@ export function App() {
     let active = true;
     const tick = async () => {
       try {
-        const runtimeState = await getRuntimeStatus(sessionId.trim());
+        const runtimeState = await getRuntimeStatus(sessionId.trim(), token);
         if (active) {
           setRuntime(runtimeState.runtime);
         }
@@ -983,7 +1002,7 @@ export function App() {
       active = false;
       window.clearInterval(id);
     };
-  }, [sessionId]);
+  }, [sessionId, token]);
 
   useEffect(() => {
     if (!sessionId.trim()) {
@@ -1927,7 +1946,7 @@ export function App() {
   };
 
   return (
-    <main className={`page ${compactDensity ? "page-compact" : ""} ${route === "match" ? "page-match" : ""}`}>
+    <main className={`page ${compactDensity ? "page-compact" : ""} ${route === "match" ? "page-match" : "page-lobby"}`}>
       {route === "lobby" ? (
         <header className="header">
           <h1>{app.title}</h1>
@@ -2424,6 +2443,7 @@ export function App() {
                                   secondsLeft={promptSecondsLeft}
                                   feedbackMessage={promptFeedbackMessage}
                                   compactChoices={compactDensity}
+                                  presentationMode="decision-focus"
                                   onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
                                   onSelectChoice={onSelectPromptChoice}
                                 />
@@ -2461,73 +2481,86 @@ export function App() {
                           <strong>{locale === "ko" ? "공개 이벤트" : "Public events"}</strong>
                           <span>{locale === "ko" ? "이번 턴 흐름" : "This turn flow"}</span>
                         </div>
-                        {effectiveEventFeedSpotlightItem ? (
-                          <article
-                            className={`match-table-event-spotlight match-table-event-spotlight-${effectiveEventFeedSpotlightItem.tone}`}
-                            data-testid={`board-event-spotlight-${effectiveEventFeedSpotlightItem.eventCode}`}
-                            data-event-tone={effectiveEventFeedSpotlightItem.tone}
-                            data-event-seq={effectiveEventFeedSpotlightItem.seq}
-                          >
-                            <div className="match-table-event-meta">
-                              <span className={`match-table-event-tone match-table-event-tone-${effectiveEventFeedSpotlightItem.tone}`}>
-                                <span className="match-table-event-icon" aria-hidden="true">
-                                  {eventToneIcon(effectiveEventFeedSpotlightItem.tone)}
-                                </span>
-                                <span>{eventToneLabel(effectiveEventFeedSpotlightItem.tone, locale)}</span>
-                              </span>
-                              <span className="match-table-event-live-badge">
-                                {latestCurrentTurnReveal
-                                  ? locale === "ko"
-                                    ? "방금 결과"
-                                    : "Latest result"
-                                  : locale === "ko"
-                                    ? "최근 결과"
-                                    : "Recent result"}
-                              </span>
-                            </div>
-                            <strong
-                              className="match-table-event-spotlight-title"
-                              data-testid={`board-event-spotlight-title-${effectiveEventFeedSpotlightItem.eventCode}`}
-                            >
-                              {effectiveEventFeedSpotlightItem.label}
-                            </strong>
-                            <p
-                              className="match-table-event-spotlight-detail"
-                              data-testid={`board-event-spotlight-detail-${effectiveEventFeedSpotlightItem.eventCode}`}
-                            >
-                              {effectiveEventFeedSpotlightItem.detail}
-                            </p>
-                          </article>
-                        ) : null}
+                        {effectiveEventFeedSpotlightItem
+                          ? (() => {
+                              const spotlightDetail = compactEventDetail(
+                                effectiveEventFeedSpotlightItem.label,
+                                effectiveEventFeedSpotlightItem.detail
+                              );
+                              return (
+                                <article
+                                  className={`match-table-event-spotlight match-table-event-spotlight-${effectiveEventFeedSpotlightItem.tone}`}
+                                  data-testid={`board-event-spotlight-${effectiveEventFeedSpotlightItem.eventCode}`}
+                                  data-event-tone={effectiveEventFeedSpotlightItem.tone}
+                                  data-event-seq={effectiveEventFeedSpotlightItem.seq}
+                                >
+                                  <div className="match-table-event-meta">
+                                    <span className={`match-table-event-tone match-table-event-tone-${effectiveEventFeedSpotlightItem.tone}`}>
+                                      <span className="match-table-event-icon" aria-hidden="true">
+                                        {eventToneIcon(effectiveEventFeedSpotlightItem.tone)}
+                                      </span>
+                                      <span>{eventToneLabel(effectiveEventFeedSpotlightItem.tone, locale)}</span>
+                                    </span>
+                                    <span className="match-table-event-live-badge">
+                                      {latestCurrentTurnReveal
+                                        ? locale === "ko"
+                                          ? "방금 결과"
+                                          : "Latest result"
+                                        : locale === "ko"
+                                          ? "최근 결과"
+                                          : "Recent result"}
+                                    </span>
+                                  </div>
+                                  <strong
+                                    className="match-table-event-spotlight-title"
+                                    data-testid={`board-event-spotlight-title-${effectiveEventFeedSpotlightItem.eventCode}`}
+                                  >
+                                    {effectiveEventFeedSpotlightItem.label}
+                                  </strong>
+                                  {spotlightDetail ? (
+                                    <p
+                                      className="match-table-event-spotlight-detail"
+                                      data-testid={`board-event-spotlight-detail-${effectiveEventFeedSpotlightItem.eventCode}`}
+                                    >
+                                      {spotlightDetail}
+                                    </p>
+                                  ) : null}
+                                </article>
+                              );
+                            })()
+                          : null}
                         {eventFeedHistoryItems.length > 0 ? (
                           <div className="match-table-event-list match-table-event-history">
-                            {eventFeedHistoryItems.map((item, index) => (
-                              <article
-                                key={`${item.seq}-${item.eventCode}`}
-                                data-testid={`board-event-reveal-${item.eventCode}-${index + 1}`}
-                                data-event-code={item.eventCode}
-                                data-event-tone={item.tone}
-                                data-event-seq={item.seq}
-                                className={`match-table-event-card match-table-event-card-${item.tone}`}
-                                style={{ "--event-order": String(index + 1) } as CSSProperties}
-                              >
-                                <div className="match-table-event-meta">
-                                  <span className={`match-table-event-tone match-table-event-tone-${item.tone}`}>
-                                    <span className="match-table-event-icon" aria-hidden="true">
-                                      {eventToneIcon(item.tone)}
+                            {eventFeedHistoryItems.map((item, index) => {
+                              const itemDetail = compactEventDetail(item.label, item.detail);
+                              return (
+                                <article
+                                  key={`${item.seq}-${item.eventCode}`}
+                                  data-testid={`board-event-reveal-${item.eventCode}-${index + 1}`}
+                                  data-event-code={item.eventCode}
+                                  data-event-tone={item.tone}
+                                  data-event-seq={item.seq}
+                                  className={`match-table-event-card match-table-event-card-${item.tone}`}
+                                  style={{ "--event-order": String(index + 1) } as CSSProperties}
+                                >
+                                  <div className="match-table-event-meta">
+                                    <span className={`match-table-event-tone match-table-event-tone-${item.tone}`}>
+                                      <span className="match-table-event-icon" aria-hidden="true">
+                                        {eventToneIcon(item.tone)}
+                                      </span>
+                                      <span>{eventToneLabel(item.tone, locale)}</span>
                                     </span>
-                                    <span>{eventToneLabel(item.tone, locale)}</span>
-                                  </span>
-                                  <span className="match-table-event-index">
-                                    {locale === "ko" ? `${index + 1}단계` : `Step ${index + 1}`}
-                                  </span>
-                                </div>
-                                <div className="match-table-event-headline-row">
-                                  <strong data-testid={`board-event-reveal-title-${item.eventCode}-${index + 1}`}>{item.label}</strong>
-                                </div>
-                                <p data-testid={`board-event-reveal-detail-${item.eventCode}-${index + 1}`}>{item.detail}</p>
-                              </article>
-                            ))}
+                                    <span className="match-table-event-index">
+                                      {locale === "ko" ? `${index + 1}단계` : `Step ${index + 1}`}
+                                    </span>
+                                  </div>
+                                  <div className="match-table-event-headline-row">
+                                    <strong data-testid={`board-event-reveal-title-${item.eventCode}-${index + 1}`}>{item.label}</strong>
+                                  </div>
+                                  {itemDetail ? <p data-testid={`board-event-reveal-detail-${item.eventCode}-${index + 1}`}>{itemDetail}</p> : null}
+                                </article>
+                              );
+                            })}
                           </div>
                         ) : null}
                       </section>

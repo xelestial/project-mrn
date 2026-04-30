@@ -1,7 +1,7 @@
 export const enLocale = {
   app: {
-    title: "MRN Online Viewer (React/FastAPI)",
-    subtitle: "Create, join, start, and watch live session streams from one screen.",
+    title: "MRN",
+    subtitle: "Create a room with friends or jump straight into a match with 3 AI players.",
     routeLobby: "Lobby",
     routeMatch: "Match",
     connectionExpand: "Show connection status",

@@ -119,6 +119,80 @@ async function openPublicEvents(page: Page): Promise<void> {
   await expect(page.getByTestId("board-event-reveal-stack")).toBeVisible();
 }
 
+async function expectPublicEventsNotDuplicated(page: Page): Promise<void> {
+  const duplicateIssues = await page.getByTestId("board-event-reveal-stack").evaluate((panel) => {
+    const spotlightSeq = panel.querySelector(".match-table-event-spotlight")?.getAttribute("data-event-seq");
+    const repeatedSeqs = spotlightSeq
+      ? Array.from(panel.querySelectorAll(".match-table-event-card"))
+          .map((card) => card.getAttribute("data-event-seq"))
+          .filter((seq) => seq === spotlightSeq)
+      : [];
+    const repeatedCopy = Array.from(panel.querySelectorAll(".match-table-event-spotlight, .match-table-event-card")).flatMap((card) => {
+      const title = card.querySelector("strong")?.textContent?.trim().toLowerCase();
+      const detail = card.querySelector("p")?.textContent?.trim().toLowerCase();
+      return title && detail && (title === detail || detail.startsWith(`${title} /`)) ? [`${title}:${detail}`] : [];
+    });
+    return [...repeatedSeqs, ...repeatedCopy];
+  });
+
+  expect(duplicateIssues).toEqual([]);
+}
+
+async function expectPublicEventsClearRightPlayerCards(page: Page): Promise<void> {
+  const overlap = await page.locator(".match-table-overlay").evaluate((overlay) => {
+    const eventPanel = overlay.querySelector(".match-table-event-overlay");
+    const eventToggle = overlay.querySelector(".match-table-event-toggle");
+    const playerCards = Array.from(overlay.querySelectorAll(".match-table-player-card"));
+    const rightPlayerCards = [playerCards[1], playerCards[3]].filter(Boolean);
+    if (!eventPanel || !eventToggle || rightPlayerCards.length === 0) {
+      return null;
+    }
+
+    const floatingRects = [eventPanel.getBoundingClientRect(), eventToggle.getBoundingClientRect()];
+    return rightPlayerCards.flatMap((card) => {
+      const rect = card.getBoundingClientRect();
+      return floatingRects.map(
+        (eventRect) =>
+          Math.max(0, Math.min(eventRect.right, rect.right) - Math.max(eventRect.left, rect.left)) *
+          Math.max(0, Math.min(eventRect.bottom, rect.bottom) - Math.max(eventRect.top, rect.top))
+      );
+    });
+  });
+
+  expect(overlap).not.toBeNull();
+  expect(overlap).toEqual([0, 0, 0, 0]);
+}
+
+async function expectDesktopHudDensity(page: Page): Promise<void> {
+  const metrics = await page.locator(".match-table-overlay").evaluate((overlay) => {
+    const prompt = overlay.querySelector(".prompt-overlay");
+    const playerCards = Array.from(overlay.querySelectorAll(".match-table-player-card"));
+    const promptRect = prompt?.getBoundingClientRect();
+    const cardMetrics = playerCards.map((card) => {
+      const persona = card.querySelector(".match-table-player-persona");
+      const statValue = card.querySelector(".match-table-player-stat-value");
+      const cardElement = card as HTMLElement;
+      return {
+        personaFont: persona ? Number.parseFloat(getComputedStyle(persona).fontSize) : 0,
+        statValueFont: statValue ? Number.parseFloat(getComputedStyle(statValue).fontSize) : 0,
+        verticalOverflow: cardElement.scrollHeight > cardElement.clientHeight + 1,
+      };
+    });
+    return {
+      promptWidth: promptRect?.width ?? null,
+      maxPersonaFont: Math.max(...cardMetrics.map((card) => card.personaFont), 0),
+      maxStatValueFont: Math.max(...cardMetrics.map((card) => card.statValueFont), 0),
+      verticalOverflow: cardMetrics.some((card) => card.verticalOverflow),
+    };
+  });
+
+  expect(metrics.promptWidth).not.toBeNull();
+  expect(metrics.promptWidth ?? 0).toBeLessThanOrEqual(700);
+  expect(metrics.maxPersonaFont).toBeLessThanOrEqual(13.5);
+  expect(metrics.maxStatValueFont).toBeLessThanOrEqual(12.5);
+  expect(metrics.verticalOverflow).toBe(false);
+}
+
 async function installMockRuntime(
   page: Page,
   args: {
@@ -350,6 +424,8 @@ async function installMockRuntime(
 }
 
 test("human quick start surfaces turn banner and first prompt through stable ids", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+
   const manifest = buildManifest({
     hash: "human_quick_start_hash",
     topology: "ring",
@@ -452,18 +528,20 @@ test("human quick start surfaces turn banner and first prompt through stable ids
   await expect(page).toHaveURL(/#\/match/);
   await expect(page.getByTestId("board-weather-summary")).toBeVisible();
   await expect(page.locator(".board-panel")).toBeVisible();
-  await expect(page.getByTestId("core-action-panel")).toBeVisible();
-  await expect(page.getByTestId("turn-notice-banner")).toBeVisible();
   await expect(page.getByTestId("prompt-overlay")).toBeVisible();
+  await expect(page.getByTestId("prompt-overlay")).toHaveAttribute("data-presentation-mode", "decision-focus");
   await expect(page.getByTestId("prompt-overlay-title")).toBeVisible();
   await expect(page.getByTestId("prompt-overlay-helper")).toBeVisible();
   await expect(page.getByTestId("prompt-head-meta")).toBeVisible();
   await expect(page.getByRole("button", { name: "Debug log" })).toHaveCount(1);
   await expect(page.getByTestId("trick-choice-10-0")).toHaveAttribute("data-card-name", "Scout Route");
   await expect(page.getByTestId("trick-choice-14-4")).toBeVisible();
+  await expectDesktopHudDensity(page);
 });
 
 test("remote turn keeps spectator continuity visible and does not open a local prompt", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+
   const sessionId = "sess_remote_turn_runtime";
   const manifest = buildManifest({
     hash: "remote_turn_hash",
@@ -537,27 +615,27 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await expect(page.getByTestId("turn-notice-banner")).toHaveAttribute("data-banner-variant", "turn");
   await expect(page.getByTestId("turn-notice-banner")).toHaveAttribute("data-banner-player-id", "2");
   await openPublicEvents(page);
+  await expectPublicEventsNotDuplicated(page);
   await expect(page.getByTestId("board-event-reveal-dice_roll-1")).toHaveAttribute("data-event-code", "dice_roll");
   await expect(page.getByTestId("board-event-reveal-player_move-2")).toHaveAttribute("data-event-code", "player_move");
   await expect(page.getByTestId("board-event-reveal-landing_resolved-3")).toHaveAttribute("data-event-code", "landing_resolved");
-  await expect(page.getByTestId("board-event-reveal-tile_purchased-4")).toHaveAttribute("data-event-code", "tile_purchased");
-  await expect(page.getByTestId("board-reveal-spotlight-tile_purchased")).toBeVisible();
+  await expect(page.getByTestId("board-event-reveal-tile_purchased-4")).toHaveCount(0);
+  await expect(page.getByTestId("board-event-spotlight-tile_purchased")).toBeVisible();
   await expect(page.getByTestId("board-weather-summary")).toHaveAttribute("data-weather-name", "Cold Front");
-  await expect(page.getByTestId("board-move-start-badge")).toBeVisible();
-  await expect(page.getByTestId("board-move-end-badge")).toBeVisible();
-  await expect(page.getByTestId("board-moving-pawn-ghost")).toBeVisible();
-  await expect(page.getByTestId("board-path-step-3")).toBeVisible();
-  await expect(page.getByTestId("board-actor-banner")).toBeVisible();
-  await expect(page.getByTestId("core-action-panel")).toBeVisible();
-  await expect(page.getByTestId("core-action-result-card")).toHaveAttribute("data-result-event-code", "tile_purchased");
-  await expect(page.getByTestId("core-action-result-card")).toHaveAttribute("data-result-kind", "economy");
-  await expect(page.getByTestId("core-action-journey")).toBeVisible();
-  await expect(page.getByTestId("core-action-result-card")).toBeVisible();
+  await expect(page.getByTestId("board-move-start-badge")).toHaveCount(1);
+  await expect(page.getByTestId("board-move-end-badge")).toHaveCount(1);
+  await expect(page.getByTestId("board-path-step-3")).toHaveCount(1);
+  await expect(page.getByTestId("board-actor-banner")).toHaveCount(1);
   await expect(page.getByTestId("turn-stage-actor-status")).toHaveCount(0);
   await expect(page.getByTestId("prompt-overlay")).toHaveCount(0);
-  await expect(page.getByTestId("core-action-journey-step-1")).toHaveAttribute("data-journey-event-code", "dice_roll");
-  await expect(page.getByTestId("core-action-journey-step-3")).toHaveAttribute("data-journey-event-code", "landing_resolved");
-  await expect(page.getByTestId("core-action-latest")).toHaveAttribute("data-latest-event-code", "turn_end_snapshot");
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 1600, height: 1000 },
+    { width: 1920, height: 1080 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await expectPublicEventsClearRightPlayerCards(page);
+  }
 });
 
 test("remote turn keeps lap reward, mark, and flip effects visible through spectator and stage panels", async ({ page }) => {

@@ -8,14 +8,7 @@ import type {
 } from "../../domain/selectors/streamSelectors";
 import { useI18n } from "../../i18n/useI18n";
 import pawnPieceUrl from "../../assets/pawn-piece.svg";
-import player1FrontLeftUrl from "../../assets/characters/sprites/player-1/front-left.png";
-import player1FrontRightUrl from "../../assets/characters/sprites/player-1/front-right.png";
-import player2FrontLeftUrl from "../../assets/characters/sprites/player-2/front-left.png";
-import player2FrontRightUrl from "../../assets/characters/sprites/player-2/front-right.png";
-import player3FrontLeftUrl from "../../assets/characters/sprites/player-3/front-left.png";
-import player3FrontRightUrl from "../../assets/characters/sprites/player-3/front-right.png";
-import player4FrontLeftUrl from "../../assets/characters/sprites/player-4/front-left.png";
-import player4FrontRightUrl from "../../assets/characters/sprites/player-4/front-right.png";
+import { characterSpritesForPlayer } from "../../domain/characters/characterSprites";
 import { usePawnAnimation } from "./usePawnAnimation";
 import {
   DEFAULT_RING_TILE_COUNT,
@@ -131,30 +124,10 @@ function playerColor(playerId: number): string {
 }
 
 const PLAYER_SPRITES: Record<number, Record<QuarterviewFacing, string>> = {
-  1: {
-    "front-right": player1FrontRightUrl,
-    "front-left": player1FrontLeftUrl,
-    "back-right": player1FrontRightUrl,
-    "back-left": player1FrontLeftUrl,
-  },
-  2: {
-    "front-right": player2FrontRightUrl,
-    "front-left": player2FrontLeftUrl,
-    "back-right": player2FrontRightUrl,
-    "back-left": player2FrontLeftUrl,
-  },
-  3: {
-    "front-right": player3FrontRightUrl,
-    "front-left": player3FrontLeftUrl,
-    "back-right": player3FrontRightUrl,
-    "back-left": player3FrontLeftUrl,
-  },
-  4: {
-    "front-right": player4FrontRightUrl,
-    "front-left": player4FrontLeftUrl,
-    "back-right": player4FrontRightUrl,
-    "back-left": player4FrontLeftUrl,
-  },
+  1: characterSpritesForPlayer(1),
+  2: characterSpritesForPlayer(2),
+  3: characterSpritesForPlayer(3),
+  4: characterSpritesForPlayer(4),
 };
 
 function playerSpriteUrl(playerId: number, facing: QuarterviewFacing): string | null {

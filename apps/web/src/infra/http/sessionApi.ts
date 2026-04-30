@@ -279,8 +279,15 @@ export async function startSession(args: { sessionId: string; hostToken: string 
   });
 }
 
-export async function getRuntimeStatus(sessionId: string): Promise<RuntimeStatusResult> {
-  return requestJson<RuntimeStatusResult>(`/api/v1/sessions/${encodeURIComponent(sessionId)}/runtime-status`);
+export async function getRuntimeStatus(sessionId: string, token?: string): Promise<RuntimeStatusResult> {
+  const params = new URLSearchParams();
+  if (token?.trim()) {
+    params.set("token", token.trim());
+  }
+  const query = params.toString();
+  return requestJson<RuntimeStatusResult>(
+    `/api/v1/sessions/${encodeURIComponent(sessionId)}/runtime-status${query ? `?${query}` : ""}`,
+  );
 }
 
 export async function createRoom(args: {

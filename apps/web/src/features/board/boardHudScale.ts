@@ -61,8 +61,10 @@ export function computeBoardHudScale({
   const heightScale = safeViewportHeight > 0 ? safeViewportHeight / 520 : 1;
   const boardScale = safeBoardHeight > 0 ? safeBoardHeight / 720 : 1;
   const sceneScale = clamp(Math.min(widthScale, heightScale, boardScale), 0.62, 1.12);
-  const density = sceneScale < 0.88 ? "compact" : sceneScale > 1.04 ? "comfortable" : "regular";
+  const density = sceneScale < 0.82 ? "compact" : sceneScale > 1.04 ? "comfortable" : "regular";
   const safeBandHeight = clamp(safeViewportHeight, 300, 760);
+  const promptMinHeight = density === "compact" ? 196 : 240;
+  const promptMaxHeight = density === "comfortable" ? 360 : 312;
 
   return {
     sceneScale: roundToTenths(sceneScale),
@@ -83,7 +85,7 @@ export function computeBoardHudScale({
     weatherMinHeight: roundPixel(clamp(112 * sceneScale, 88, 128)),
     playerCardMinHeight: roundPixel(clamp(114 * sceneScale, 92, 132)),
     activeCharacterMinHeight: roundPixel(clamp(58 * sceneScale, 46, 72)),
-    promptMaxHeight: roundPixel(clamp(safeBandHeight * 0.29, 196, 312)),
+    promptMaxHeight: roundPixel(clamp(safeBandHeight * 0.34, promptMinHeight, promptMaxHeight)),
     promptShellMaxWidth: roundPixel(clamp(safeViewportWidth * 0.98, 960, 1560)),
     handTrayMaxHeight: roundPixel(clamp(safeBandHeight * 0.2, 136, 220)),
     promptMiddleReserveBottom: roundPixel(clamp(safeBandHeight * 0.24, 150, 250)),

@@ -140,7 +140,8 @@ export function GameEventOverlay({ currentEvent }: GameEventOverlayProps) {
   const detailParts = currentEvent.detail
     .split("/")
     .map((part) => part.trim())
-    .filter((part) => part.length > 0 && part !== "-");
+    .filter((part) => part.length > 0 && part !== "-")
+    .filter((part, index) => index !== 0 || part.toLowerCase() !== currentEvent.label.trim().toLowerCase());
   const shouldPromoteDetailLead =
     currentEvent.kind === "rent_pay" ||
     currentEvent.kind === "rent_receive" ||
@@ -148,7 +149,7 @@ export function GameEventOverlay({ currentEvent }: GameEventOverlayProps) {
     currentEvent.kind === "trick" ||
     currentEvent.kind === "fortune";
   const promotedDetail = shouldPromoteDetailLead && detailParts.length > 1;
-  const primaryDetail = promotedDetail ? detailParts.slice(0, -1).join(" / ") : detailParts[0] ?? currentEvent.detail;
+  const primaryDetail = promotedDetail ? detailParts.slice(0, -1).join(" / ") : detailParts[0] ?? "";
   const secondaryDetail = promotedDetail ? detailParts[detailParts.length - 1] : detailParts.slice(1).join(" / ");
 
   return (
@@ -156,6 +157,7 @@ export function GameEventOverlay({ currentEvent }: GameEventOverlayProps) {
     <div
       key={currentEvent.seq}
       className={`game-event-overlay ${eventCssClass(currentEvent.kind)}`}
+      data-event-kind={currentEvent.kind}
       role="status"
       aria-live="assertive"
       aria-atomic="true"
@@ -174,7 +176,7 @@ export function GameEventOverlay({ currentEvent }: GameEventOverlayProps) {
         )}
         <div className="game-event-overlay-headline">{currentEvent.label}</div>
       </div>
-      {currentEvent.detail && currentEvent.detail !== "-" ? (
+      {primaryDetail ? (
         <div className="game-event-overlay-detail-card">
           <strong>{primaryDetail}</strong>
           {secondaryDetail ? <small>{secondaryDetail}</small> : null}

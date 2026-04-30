@@ -22,9 +22,12 @@ type PromptOverlayProps = {
   secondsLeft: number | null;
   feedbackMessage?: string;
   compactChoices?: boolean;
+  presentationMode?: PromptPresentationMode;
   onToggleCollapse: () => void;
   onSelectChoice: (choiceId: string) => void;
 };
+
+type PromptPresentationMode = "decision-focus" | "board-preserve";
 
 type PromptText = LocaleMessages["prompt"];
 type PromptTypeText = LocaleMessages["promptType"];
@@ -816,6 +819,7 @@ export function PromptOverlay({
   secondsLeft,
   feedbackMessage,
   compactChoices = false,
+  presentationMode = "decision-focus",
   onToggleCollapse,
   onSelectChoice,
 }: PromptOverlayProps) {
@@ -1268,7 +1272,11 @@ export function PromptOverlay({
 
   if (collapsed) {
     return (
-      <section className="panel prompt-dock-collapsed" data-testid="prompt-dock-collapsed">
+      <section
+        className="panel prompt-dock-collapsed"
+        data-testid="prompt-dock-collapsed"
+        data-presentation-mode={presentationMode}
+      >
         <div className="prompt-dock-collapsed-copy">
           <strong>{promptText.headTitle(promptLabel)}</strong>
           <small>{collapsedPromptChip(promptText, promptLabel, secondsLeft)}</small>
@@ -1286,6 +1294,7 @@ export function PromptOverlay({
       className={`panel prompt-overlay prompt-overlay-docked prompt-overlay-${prompt.requestType}`}
       data-testid="prompt-overlay"
       data-prompt-type={prompt.requestType}
+      data-presentation-mode={presentationMode}
       onKeyDown={onKeyDown}
       tabIndex={-1}
       role="region"

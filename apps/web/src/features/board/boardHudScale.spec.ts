@@ -36,4 +36,23 @@ describe("boardHudScale", () => {
     expect(scale.promptShellMaxWidth).toBeLessThanOrEqual(1000);
     expect(scale.handTrayMaxHeight).toBeLessThanOrEqual(220);
   });
+
+  it.each([
+    { label: "1440x900", boardWidth: 1440, boardHeight: 900, viewportWidth: 980, viewportHeight: 560 },
+    { label: "1600x1000", boardWidth: 1600, boardHeight: 1000, viewportWidth: 1120, viewportHeight: 660 },
+    { label: "1920x1080", boardWidth: 1920, boardHeight: 1080, viewportWidth: 1320, viewportHeight: 720 },
+  ])("keeps desktop decision prompts readable at $label", ({ boardWidth, boardHeight, viewportWidth, viewportHeight }) => {
+    const scale = computeBoardHudScale({
+      boardWidth,
+      boardHeight,
+      viewportWidth,
+      viewportHeight,
+    });
+
+    expect(scale.density).not.toBe("compact");
+    expect(scale.promptMaxHeight).toBeGreaterThanOrEqual(240);
+    expect(scale.promptShellMaxWidth).toBeGreaterThanOrEqual(960);
+    expect(scale.choiceMinWidth).toBeGreaterThanOrEqual(150);
+    expect(scale.handGridColumns).toBe(5);
+  });
 });

@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useReducer, useRef } from "react";
-import type { ConnectionStatus, InboundMessage } from "../core/contracts/stream";
-import { gameStreamReducer, initialGameStreamState } from "../domain/store/gameStreamReducer";
+import type {
+  ConnectionStatus,
+  InboundMessage,
+} from "../core/contracts/stream";
+import {
+  gameStreamReducer,
+  initialGameStreamState,
+} from "../domain/store/gameStreamReducer";
+import { fetchReplayMessages } from "../infra/http/replayClient";
 import { StreamClient } from "../infra/ws/StreamClient";
 
 type UseGameStreamArgs = {
@@ -9,7 +16,11 @@ type UseGameStreamArgs = {
   baseUrl?: string;
 };
 
-export function useGameStream({ sessionId, token, baseUrl }: UseGameStreamArgs): {
+export function useGameStream({
+  sessionId,
+  token,
+  baseUrl,
+}: UseGameStreamArgs): {
   status: ConnectionStatus;
   lastSeq: number;
   messages: InboundMessage[];
@@ -21,7 +32,10 @@ export function useGameStream({ sessionId, token, baseUrl }: UseGameStreamArgs):
   }) => boolean;
 } {
   const client = useMemo(() => new StreamClient(), []);
-  const [state, dispatch] = useReducer(gameStreamReducer, initialGameStreamState);
+  const [state, dispatch] = useReducer(
+    gameStreamReducer,
+    initialGameStreamState,
+  );
   const lastSeqRef = useRef(0);
   const activeSessionRef = useRef("");
   const lastResumeRequestAtRef = useRef(0);
@@ -40,7 +54,9 @@ export function useGameStream({ sessionId, token, baseUrl }: UseGameStreamArgs):
       }
       dispatch({ type: "message", message });
     });
-    const offStatus = client.onStatus((next) => dispatch({ type: "status", status: next }));
+    const offStatus = client.onStatus((next) =>
+      dispatch({ type: "status", status: next }),
+    );
     return () => {
       offMessage();
       offStatus();
@@ -68,9 +84,40 @@ export function useGameStream({ sessionId, token, baseUrl }: UseGameStreamArgs):
       activeSessionRef.current = normalized;
       lastResumeRequestAtRef.current = 0;
     }
-    client.connect({ sessionId: normalized, token, onOpenResumeSeq: lastSeqRef.current, baseUrl });
+    client.connect({
+      sessionId: normalized,
+      token,
+      onOpenResumeSeq: lastSeqRef.current,
+      baseUrl,
+    });
     return () => client.disconnect();
   }, [baseUrl, client, sessionId, token]);
+
+  useEffect(() => {
+    const normalized = sessionId.trim();
+    if (!normalized) {
+      return;
+    }
+    const controller = new AbortController();
+    void fetchReplayMessages({
+      sessionId: normalized,
+      token,
+      baseUrl,
+      signal: controller.signal,
+    })
+      .then((messages) => {
+        for (const message of messages) {
+          dispatch({ type: "message", message });
+        }
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        dispatch({ type: "status", status: "error" });
+      });
+    return () => controller.abort();
+  }, [baseUrl, sessionId, token]);
 
   const sendDecision = (args: {
     requestId: string;
@@ -88,5 +135,10 @@ export function useGameStream({ sessionId, token, baseUrl }: UseGameStreamArgs):
     });
   };
 
-  return { status: state.status, messages: state.messages, lastSeq: state.lastSeq, sendDecision };
+  return {
+    status: state.status,
+    messages: state.messages,
+    lastSeq: state.lastSeq,
+    sendDecision,
+  };
 }
