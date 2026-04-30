@@ -468,6 +468,7 @@ game:{session_id}:projection_checkpoint
   - `schema_name: "mrn.admin_recovery"` or a similarly specific admin schema
   - `visibility: "admin"`
   - `browser_safe: false`
+- Canonical archive reads are admin-only and must use the archive service path resolver rather than raw path parameters.
 - Normal browser routes must keep using projected replay/status payloads.
 
 ## Recommended First Slice

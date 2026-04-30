@@ -169,6 +169,21 @@ Updated: 2026-04-30
 - Follow-up:
   - add admin-only canonical archive read/download endpoint after deciding retention and path traversal hardening rules
 
+## 2026-04-30 Admin Canonical Archive Read
+
+- Scope: add admin-only JSON access to backend-local canonical archive files.
+- Done:
+  - added `/api/v1/admin/sessions/{session_id}/archive`
+  - archive reads require the same `MRN_ADMIN_TOKEN` gate as admin recovery
+  - endpoint checks the session id through `SessionService` before reading an archive file
+  - endpoint resolves the file through `LocalJsonArchiveService.archive_path_for(session_id)` and never accepts raw path parameters
+  - endpoint returns canonical archive JSON only when the file exists and parses as a JSON object
+  - documented admin-only archive read rules
+- Validation:
+  - `./.venv/bin/python -m pytest apps/server/tests/test_admin_api.py -q`
+- Follow-up:
+  - add operator pagination/listing for archives only if retention grows beyond direct session-id lookup
+
 ## 2026-04-30 Tile Trait Action Pipeline Design
 
 - Scope: document a consistent tile trait/modifier/action architecture before implementation.

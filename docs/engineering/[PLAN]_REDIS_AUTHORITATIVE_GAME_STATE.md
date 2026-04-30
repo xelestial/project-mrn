@@ -494,6 +494,11 @@ Admin canonical access:
 
 - If `MRN_ADMIN_TOKEN` is unset, admin routes return `ADMIN_AUTH_DISABLED`.
 - Normal `/runtime-status` and `/replay` routes must continue returning only public/player projected data.
+- Canonical archive JSON may be read through `/api/v1/admin/sessions/{session_id}/archive` only after:
+  - the session id is accepted by `SessionService`
+  - archive path resolution uses `LocalJsonArchiveService.archive_path_for(session_id)`
+  - the archive file exists and parses as a JSON object
+- Do not add a public archive download route for canonical archive files.
 
 Recommended `summary` fields:
 

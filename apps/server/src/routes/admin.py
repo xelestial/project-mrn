@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import json
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 
@@ -21,6 +22,12 @@ def _runtime() -> RuntimeService:
     from apps.server.src.state import runtime_service
 
     return runtime_service
+
+
+def _archive_service():
+    from apps.server.src.state import archive_service
+
+    return archive_service
 
 
 def _admin_token() -> str:
@@ -87,3 +94,27 @@ def admin_recovery(
             "recovery_checkpoint": recovery,
         }
     )
+
+
+@router.get("/sessions/{session_id}/archive", dependencies=[Depends(_require_admin)])
+def admin_archive(
+    session_id: str,
+    sessions: SessionService = Depends(_sessions),
+    archive_service=Depends(_archive_service),
+) -> dict:
+    try:
+        sessions.get_session(session_id)
+    except SessionNotFoundError:
+        _error("SESSION_NOT_FOUND", "Session not found.", status.HTTP_404_NOT_FOUND)
+    if archive_service is None:
+        _error("ARCHIVE_UNAVAILABLE", "Archive service is not configured.", status.HTTP_404_NOT_FOUND)
+    archive_path = archive_service.archive_path_for(session_id)
+    if not archive_path.exists() or not archive_path.is_file():
+        _error("ARCHIVE_NOT_FOUND", "Archive file not found.", status.HTTP_404_NOT_FOUND)
+    try:
+        payload = json.loads(archive_path.read_text(encoding="utf-8"))
+    except Exception:
+        _error("ARCHIVE_READ_FAILED", "Archive file could not be read.", status.HTTP_500_INTERNAL_SERVER_ERROR)
+    if not isinstance(payload, dict):
+        _error("ARCHIVE_INVALID", "Archive file is not a JSON object.", status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return _ok(payload)
