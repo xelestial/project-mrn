@@ -12,6 +12,7 @@ except ModuleNotFoundError:
     app = None
     FASTAPI_AVAILABLE = False
 from apps.server.src.services.prompt_service import PromptService
+from apps.server.src.config.runtime_settings import RuntimeSettings
 from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
@@ -20,6 +21,7 @@ from apps.server.src.services.stream_service import StreamService
 def _reset_state() -> None:
     from apps.server.src import state
 
+    state.runtime_settings = RuntimeSettings()
     state.session_service = SessionService()
     state.stream_service = StreamService()
     state.prompt_service = PromptService()
@@ -158,7 +160,9 @@ class SessionsApiTests(unittest.TestCase):
         self.client = TestClient(app)
 
     def test_runtime_status_shape(self) -> None:
-        created = self.client.post("/api/v1/sessions", json=_all_ai_payload())
+        payload = _all_ai_payload()
+        payload["config"]["visibility"] = "public"
+        created = self.client.post("/api/v1/sessions", json=payload)
         self.assertEqual(created.status_code, 200)
         created_data = created.json()["data"]
         self.assertIn("parameter_manifest", created_data)
@@ -180,6 +184,48 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(runtime.status_code, 200)
         payload = runtime.json()["data"]["runtime"]
         self.assertIn("status", payload)
+
+    def test_private_session_replay_and_runtime_status_require_token(self) -> None:
+        created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
+        self.assertEqual(created.status_code, 200)
+        data = created.json()["data"]
+        session_id = data["session_id"]
+        joined = self.client.post(
+            f"/api/v1/sessions/{session_id}/join",
+            json={"seat": 1, "join_token": data["join_tokens"]["1"], "display_name": "P1"},
+        )
+        self.assertEqual(joined.status_code, 200)
+        session_token = joined.json()["data"]["session_token"]
+
+        replay = self.client.get(f"/api/v1/sessions/{session_id}/replay")
+        self.assertEqual(replay.status_code, 401)
+        self.assertEqual(replay.json()["error"]["code"], "SPECTATOR_NOT_ALLOWED")
+
+        runtime = self.client.get(f"/api/v1/sessions/{session_id}/runtime-status")
+        self.assertEqual(runtime.status_code, 401)
+        self.assertEqual(runtime.json()["error"]["code"], "SPECTATOR_NOT_ALLOWED")
+
+        replay_with_token = self.client.get(f"/api/v1/sessions/{session_id}/replay", params={"token": session_token})
+        self.assertEqual(replay_with_token.status_code, 200)
+        runtime_with_token = self.client.get(
+            f"/api/v1/sessions/{session_id}/runtime-status",
+            params={"token": session_token},
+        )
+        self.assertEqual(runtime_with_token.status_code, 200)
+
+    def test_public_session_allows_spectator_replay_and_runtime_status(self) -> None:
+        payload = _all_ai_payload()
+        payload["config"]["visibility"] = "public"
+        created = self.client.post("/api/v1/sessions", json=payload)
+        self.assertEqual(created.status_code, 200)
+        session_id = created.json()["data"]["session_id"]
+
+        replay = self.client.get(f"/api/v1/sessions/{session_id}/replay")
+        self.assertEqual(replay.status_code, 200)
+        self.assertEqual(replay.json()["data"]["visibility"], "spectator")
+
+        runtime = self.client.get(f"/api/v1/sessions/{session_id}/runtime-status")
+        self.assertEqual(runtime.status_code, 200)
 
     def test_create_session_exposes_participant_client_descriptor(self) -> None:
         created = self.client.post("/api/v1/sessions", json=_external_ai_payload())
@@ -249,7 +295,9 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(created.status_code, 400)
 
     def test_replay_endpoint_returns_buffered_messages(self) -> None:
-        created = self.client.post("/api/v1/sessions", json=_all_ai_payload())
+        payload = _all_ai_payload()
+        payload["config"]["visibility"] = "public"
+        created = self.client.post("/api/v1/sessions", json=payload)
         session_id = created.json()["data"]["session_id"]
 
         async def _seed_events() -> None:
@@ -299,7 +347,9 @@ class SessionsApiTests(unittest.TestCase):
         self.assertNotIn("analysis", data)
 
     def test_replay_endpoint_projects_latest_view_state_for_authenticated_seat(self) -> None:
-        created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
+        payload = _two_seat_matrix_payload()
+        payload["config"]["visibility"] = "public"
+        created = self.client.post("/api/v1/sessions", json=payload)
         created_data = created.json()["data"]
         session_id = created_data["session_id"]
         join_token = created_data["join_tokens"]["1"]
@@ -357,8 +407,34 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(replay.status_code, 401)
         self.assertEqual(replay.json()["error"]["code"], "INVALID_SESSION_TOKEN")
 
-    def test_start_response_includes_parameter_manifest(self) -> None:
+    def test_debug_prompt_requires_admin_token(self) -> None:
+        from apps.server.src import state
+
+        state.runtime_settings = RuntimeSettings(admin_token="admin-secret")
         created = self.client.post("/api/v1/sessions", json=_all_ai_payload())
+        session_id = created.json()["data"]["session_id"]
+        payload = {
+            "request_id": "debug_req",
+            "request_type": "debug_choice",
+            "player_id": 1,
+            "choices": [{"choice_id": "ok", "label": "OK"}],
+        }
+
+        rejected = self.client.post(f"/api/v1/sessions/{session_id}/prompts/debug", json=payload)
+        self.assertEqual(rejected.status_code, 401)
+        self.assertEqual(rejected.json()["error"]["code"], "ADMIN_UNAUTHORIZED")
+
+        accepted = self.client.post(
+            f"/api/v1/sessions/{session_id}/prompts/debug",
+            json=payload,
+            headers={"X-Admin-Token": "admin-secret"},
+        )
+        self.assertEqual(accepted.status_code, 200)
+
+    def test_start_response_includes_parameter_manifest(self) -> None:
+        payload = _all_ai_payload()
+        payload["config"]["visibility"] = "public"
+        created = self.client.post("/api/v1/sessions", json=payload)
         self.assertEqual(created.status_code, 200)
         created_data = created.json()["data"]
         session_id = created_data["session_id"]
@@ -384,7 +460,9 @@ class SessionsApiTests(unittest.TestCase):
         self.assertIn("parameter_manifest", event_types)
 
     def test_start_replay_session_start_includes_initial_active_faces(self) -> None:
-        created = self.client.post("/api/v1/sessions", json=_all_ai_payload())
+        payload = _all_ai_payload()
+        payload["config"]["visibility"] = "public"
+        created = self.client.post("/api/v1/sessions", json=payload)
         self.assertEqual(created.status_code, 200)
         created_data = created.json()["data"]
         session_id = created_data["session_id"]
@@ -409,7 +487,9 @@ class SessionsApiTests(unittest.TestCase):
         self.assertTrue(all(str(active_by_card.get(str(slot)) or active_by_card.get(slot) or "").strip() for slot in range(1, 9)))
 
     def test_start_replay_parameter_manifest_also_carries_initial_active_faces(self) -> None:
-        created = self.client.post("/api/v1/sessions", json=_all_ai_payload())
+        payload = _all_ai_payload()
+        payload["config"]["visibility"] = "public"
+        created = self.client.post("/api/v1/sessions", json=payload)
         self.assertEqual(created.status_code, 200)
         created_data = created.json()["data"]
         session_id = created_data["session_id"]

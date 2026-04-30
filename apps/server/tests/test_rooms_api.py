@@ -103,6 +103,38 @@ class RoomsApiTests(unittest.TestCase):
         self.assertIn("session_id", started_data)
         self.assertIn("1", started_data["session_tokens"])
 
+        listed_after_start = self.client.get("/api/v1/rooms")
+        self.assertEqual(listed_after_start.status_code, 200)
+        listed_room = listed_after_start.json()["data"]["rooms"][0]
+        self.assertNotIn("session_id", listed_room)
+
+        resumed_after_start = self.client.get(f"/api/v1/rooms/{room_no}/resume", params={"room_member_token": host_token})
+        self.assertEqual(resumed_after_start.status_code, 200)
+        self.assertIn("session_id", resumed_after_start.json()["data"])
+
+    def test_public_room_list_may_expose_session_id(self) -> None:
+        payload = _room_payload()
+        payload["room_title"] = "Room Public"
+        payload["config"]["visibility"] = "public"
+        created = self.client.post("/api/v1/rooms", json=payload)
+        self.assertEqual(created.status_code, 200)
+        room_no = created.json()["data"]["room"]["room_no"]
+        host_token = created.json()["data"]["room_member_token"]
+
+        joined = self.client.post(
+            f"/api/v1/rooms/{room_no}/join",
+            json={"seat": 2, "nickname": "Guest"},
+        )
+        guest_token = joined.json()["data"]["room_member_token"]
+        self.client.post(f"/api/v1/rooms/{room_no}/ready", json={"room_member_token": host_token, "ready": True})
+        self.client.post(f"/api/v1/rooms/{room_no}/ready", json={"room_member_token": guest_token, "ready": True})
+        started = self.client.post(f"/api/v1/rooms/{room_no}/start", json={"room_member_token": host_token})
+        self.assertEqual(started.status_code, 200)
+
+        listed = self.client.get("/api/v1/rooms")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.json()["data"]["rooms"][0]["session_id"], started.json()["data"]["session_id"])
+
     def test_room_missing_returns_404(self) -> None:
         response = self.client.get("/api/v1/rooms/999")
         self.assertEqual(response.status_code, 404)

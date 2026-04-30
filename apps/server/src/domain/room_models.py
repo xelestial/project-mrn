@@ -6,6 +6,7 @@ from enum import Enum
 from apps.server.src.domain.session_models import (
     ParticipantClientType,
     SeatType,
+    SessionVisibility,
     utc_now_iso,
 )
 
@@ -38,6 +39,7 @@ class Room:
     status: RoomStatus
     seats: list[RoomSeat]
     host_seat: int
+    visibility: SessionVisibility = SessionVisibility.PRIVATE
     config: dict = field(default_factory=dict)
     created_at: str = field(default_factory=utc_now_iso)
     started_at: str | None = None

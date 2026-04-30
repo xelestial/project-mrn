@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import secrets
-import uuid
 from dataclasses import asdict
 import random
 
@@ -11,6 +10,7 @@ from apps.server.src.domain.session_models import (
     SeatType,
     Session,
     SessionStatus,
+    SessionVisibility,
     utc_now_iso,
 )
 from apps.server.src.services.parameter_service import (
@@ -56,6 +56,8 @@ class SessionService:
         config: dict | None = None,
     ) -> Session:
         raw_config = dict(config or {})
+        visibility = self.normalize_visibility(raw_config)
+        raw_config["visibility"] = visibility.value
         try:
             resolved_parameters = self._parameter_resolver.resolve(raw_config)
         except ParameterValidationError as exc:
@@ -65,7 +67,7 @@ class SessionService:
             resolved_parameters["seats"],
             resolved_parameters.get("participants", {}),
         )
-        session_id = f"sess_{uuid.uuid4().hex[:12]}"
+        session_id = f"sess_{secrets.token_urlsafe(18)}"
         host_token = self._new_token("host")
         join_tokens: dict[int, str] = {}
 
@@ -77,6 +79,7 @@ class SessionService:
             session_id=session_id,
             status=SessionStatus.WAITING,
             seats=normalized,
+            visibility=visibility,
             config=raw_config,
             host_token=host_token,
             join_tokens=join_tokens,
@@ -144,15 +147,15 @@ class SessionService:
         self._persist_sessions()
         return session
 
-    def to_public(self, session: Session) -> dict:
+    def to_public(self, session: Session, *, include_private_identifier: bool = True) -> dict:
         seed = session.config.get("seed")
         if seed is None:
             runtime_seed = session.resolved_parameters.get("runtime", {})
             if isinstance(runtime_seed, dict):
                 seed = runtime_seed.get("seed")
-        return {
-            "session_id": session.session_id,
+        payload = {
             "status": session.status.value,
+            "visibility": session.visibility.value,
             "seed": seed,
             "round_index": session.round_index,
             "turn_index": session.turn_index,
@@ -163,10 +166,15 @@ class SessionService:
             "parameter_manifest": dict(session.parameter_manifest),
             "initial_active_by_card": self._initial_active_by_card(session),
         }
+        if include_private_identifier or session.visibility == SessionVisibility.PUBLIC:
+            payload["session_id"] = session.session_id
+        return payload
 
     def verify_session_token(self, session_id: str, token: str | None) -> dict:
         session = self.get_session(session_id)
         if not token:
+            if session.visibility != SessionVisibility.PUBLIC:
+                raise SessionStateError("spectator_not_allowed")
             return {"role": "spectator", "seat": None, "player_id": None}
         for seat, issued in session.session_tokens.items():
             if issued == token:
@@ -222,6 +230,24 @@ class SessionService:
     def to_persisted_payload(self, session_id: str) -> dict:
         session = self.get_session(session_id)
         return self._session_to_payload(session)
+
+    @staticmethod
+    def normalize_visibility(config: dict | None) -> SessionVisibility:
+        raw_config = dict(config or {})
+        raw = raw_config.get("visibility")
+        if raw is None:
+            nested_config = raw_config.get("config")
+            if isinstance(nested_config, dict):
+                raw = nested_config.get("visibility")
+        if raw is None:
+            access = raw_config.get("access")
+            if isinstance(access, dict):
+                raw = access.get("visibility")
+        value = str(raw or SessionVisibility.PRIVATE.value).strip().lower()
+        try:
+            return SessionVisibility(value)
+        except ValueError as exc:
+            raise SessionStateError("invalid_session_visibility") from exc
 
     @staticmethod
     def _initial_active_by_card(session: Session) -> dict[int, str]:
@@ -347,6 +373,7 @@ class SessionService:
         return {
             "session_id": session.session_id,
             "status": session.status.value,
+            "visibility": session.visibility.value,
             "seats": [
                 {
                     "seat": seat.seat,
@@ -397,6 +424,7 @@ class SessionService:
             session_id=str(payload.get("session_id", "")),
             status=SessionStatus(str(payload.get("status", SessionStatus.WAITING.value))),
             seats=sorted(seats, key=lambda s: s.seat),
+            visibility=SessionService.normalize_visibility(payload),
             config=dict(payload.get("config", {})),
             created_at=str(payload.get("created_at", utc_now_iso())),
             started_at=payload.get("started_at"),

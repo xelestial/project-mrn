@@ -88,6 +88,13 @@ def _error(code: str, message: str, http_status: int = status.HTTP_400_BAD_REQUE
     )
 
 
+def _session_auth_error(exc: SessionStateError) -> None:
+    reason = str(exc)
+    if reason == "spectator_not_allowed":
+        _error("SPECTATOR_NOT_ALLOWED", "Spectator access is not allowed for this session.", status.HTTP_401_UNAUTHORIZED)
+    _error("INVALID_SESSION_TOKEN", "Invalid session token.", status.HTTP_401_UNAUTHORIZED)
+
+
 @router.post("")
 async def create_session(
     payload: CreateSessionRequest,
@@ -121,7 +128,10 @@ async def create_session(
 
 @router.get("")
 def list_sessions(service: SessionService = Depends(_service)) -> dict:
-    sessions = [service.to_public(session) for session in service.list_sessions()]
+    sessions = [
+        service.to_public(session, include_private_identifier=False)
+        for session in service.list_sessions()
+    ]
     return _ok({"sessions": sessions})
 
 
@@ -246,13 +256,16 @@ async def start_session(
 @router.get("/{session_id}/runtime-status")
 def runtime_status(
     session_id: str,
+    token: str | None = None,
     service: SessionService = Depends(_service),
     runtime: RuntimeService = Depends(_runtime),
 ) -> dict:
     try:
-        service.get_session(session_id)
+        service.verify_session_token(session_id, token)
     except SessionNotFoundError:
         _error("SESSION_NOT_FOUND", "Session not found.", status.HTTP_404_NOT_FOUND)
+    except SessionStateError as exc:
+        _session_auth_error(exc)
     return _ok({"session_id": session_id, "runtime": runtime.public_runtime_status(session_id)})
 
 
@@ -268,8 +281,8 @@ async def replay_export(
         auth_ctx = service.verify_session_token(session_id, token)
     except SessionNotFoundError:
         _error("SESSION_NOT_FOUND", "Session not found.", status.HTTP_404_NOT_FOUND)
-    except SessionStateError:
-        _error("INVALID_SESSION_TOKEN", "Invalid session token.", status.HTTP_401_UNAUTHORIZED)
+    except SessionStateError as exc:
+        _session_auth_error(exc)
     viewer = ViewerContext(
         role=str(auth_ctx.get("role") or "spectator"),
         session_id=session_id,

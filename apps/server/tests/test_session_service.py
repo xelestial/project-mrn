@@ -49,7 +49,7 @@ class SessionServiceTests(unittest.TestCase):
         self.assertIsNotNone(started.started_at)
 
     def test_verify_session_token(self) -> None:
-        session = self.service.create_session(_default_seats())
+        session = self.service.create_session(_default_seats(), config={"visibility": "public"})
         join_1 = self.service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
         auth = self.service.verify_session_token(session.session_id, join_1["session_token"])
         self.assertEqual(auth["role"], "seat")
@@ -57,6 +57,11 @@ class SessionServiceTests(unittest.TestCase):
         self.assertEqual(auth["player_id"], 1)
         spectator = self.service.verify_session_token(session.session_id, None)
         self.assertEqual(spectator["role"], "spectator")
+
+    def test_private_session_rejects_missing_spectator_token(self) -> None:
+        session = self.service.create_session(_default_seats())
+        with self.assertRaises(SessionStateError):
+            self.service.verify_session_token(session.session_id, None)
 
     def test_start_rejected_when_humans_not_joined(self) -> None:
         session = self.service.create_session(_default_seats())

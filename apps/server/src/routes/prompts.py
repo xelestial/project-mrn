@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
+from apps.server.src.core.admin_auth import require_admin
 from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.prompt_service import PromptService
@@ -43,7 +44,7 @@ def _ok(data: dict) -> dict:
     return {"ok": True, "data": data, "error": None}
 
 
-@router.post("/{session_id}/prompts/debug")
+@router.post("/{session_id}/prompts/debug", dependencies=[Depends(require_admin)])
 async def create_debug_prompt(
     session_id: str,
     payload: DebugPromptRequest,

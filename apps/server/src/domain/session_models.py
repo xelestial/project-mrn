@@ -23,6 +23,11 @@ class ParticipantClientType(str, Enum):
     EXTERNAL_AI = "external_ai"
 
 
+class SessionVisibility(str, Enum):
+    PRIVATE = "private"
+    PUBLIC = "public"
+
+
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -44,6 +49,7 @@ class Session:
     session_id: str
     status: SessionStatus
     seats: list[SeatConfig]
+    visibility: SessionVisibility = SessionVisibility.PRIVATE
     config: dict = field(default_factory=dict)
     created_at: str = field(default_factory=utc_now_iso)
     started_at: str | None = None

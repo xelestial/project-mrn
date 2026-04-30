@@ -7,9 +7,11 @@ from apps.server.src.domain.room_models import Room, RoomSeat, RoomStatus
 from apps.server.src.domain.session_models import (
     ParticipantClientType,
     SeatType,
+    SessionVisibility,
     utc_now_iso,
 )
 from apps.server.src.services.persistence import RoomStore
+from apps.server.src.services.session_service import SessionStateError
 
 
 class RoomStateError(ValueError):
@@ -41,6 +43,12 @@ class RoomService:
         normalized_nickname = self._normalize_nickname(nickname)
         if self._title_in_use(normalized_title):
             raise RoomStateError("room_title_already_exists")
+        raw_config = dict(config or {})
+        try:
+            visibility = self._session_service.normalize_visibility(raw_config)
+        except SessionStateError as exc:
+            raise RoomStateError(str(exc)) from exc
+        raw_config["visibility"] = visibility.value
         room_seats = self._normalize_room_seats(seats)
         host_cfg = self._find_room_seat(room_seats, host_seat)
         if host_cfg.seat_type != SeatType.HUMAN:
@@ -61,7 +69,8 @@ class RoomService:
             status=RoomStatus.WAITING,
             seats=room_seats,
             host_seat=host_seat,
-            config=dict(config or {}),
+            visibility=visibility,
+            config=raw_config,
         )
         self._rooms[room_no] = room
         self._persist_rooms()
@@ -139,7 +148,7 @@ class RoomService:
 
     def resume_room(self, *, room_no: int, room_member_token: str) -> dict:
         room, seat_cfg = self._authenticate_member(room_no, room_member_token)
-        payload = self.to_public(room)
+        payload = self.to_public(room, include_private_session_id=True)
         payload["member_seat"] = seat_cfg.seat
         payload["member_nickname"] = seat_cfg.nickname
         if seat_cfg.session_token:
@@ -175,7 +184,7 @@ class RoomService:
         self._session_to_room[session.session_id] = room.room_no
         self._persist_rooms()
         return {
-            "room": self.to_public(room),
+            "room": self.to_public(room, include_private_session_id=True),
             "session_id": session.session_id,
             "session_tokens": {
                 str(seat.seat): seat.session_token
@@ -201,16 +210,16 @@ class RoomService:
         self._session_service.expire_session_tokens(session_id)
         self._close_room(room_no)
 
-    def to_public(self, room: Room) -> dict:
+    def to_public(self, room: Room, *, include_private_session_id: bool = False) -> dict:
         human_joined = sum(1 for seat in room.seats if seat.seat_type == SeatType.HUMAN and seat.player_id is not None)
         human_total = sum(1 for seat in room.seats if seat.seat_type == SeatType.HUMAN)
         ready_count = sum(1 for seat in room.seats if seat.seat_type == SeatType.HUMAN and seat.ready)
-        return {
+        payload = {
             "room_no": room.room_no,
             "room_title": room.room_title,
             "status": room.status.value,
+            "visibility": room.visibility.value,
             "host_seat": room.host_seat,
-            "session_id": room.session_id,
             "created_at": room.created_at,
             "started_at": room.started_at,
             "human_joined_count": human_joined,
@@ -218,6 +227,9 @@ class RoomService:
             "human_ready_count": ready_count,
             "seats": [self._room_seat_public(seat) for seat in room.seats],
         }
+        if room.session_id and (include_private_session_id or room.visibility == SessionVisibility.PUBLIC):
+            payload["session_id"] = room.session_id
+        return payload
 
     @staticmethod
     def _room_seat_to_session_input(seat: RoomSeat) -> dict:
@@ -362,6 +374,7 @@ class RoomService:
             "room_no": room.room_no,
             "room_title": room.room_title,
             "status": room.status.value,
+            "visibility": room.visibility.value,
             "host_seat": room.host_seat,
             "config": dict(room.config),
             "created_at": room.created_at,
@@ -420,6 +433,7 @@ class RoomService:
             status=RoomStatus(str(raw.get("status", RoomStatus.WAITING.value))),
             seats=sorted(seats, key=lambda seat: seat.seat),
             host_seat=int(raw.get("host_seat", 1)),
+            visibility=SessionVisibility(str(raw.get("visibility") or dict(raw.get("config", {})).get("visibility") or SessionVisibility.PRIVATE.value)),
             config=dict(raw.get("config", {})),
             created_at=str(raw.get("created_at", utc_now_iso())),
             started_at=raw.get("started_at"),

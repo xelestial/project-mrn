@@ -66,7 +66,14 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
         )
         await websocket.close()
         return
-    except SessionStateError:
+    except SessionStateError as exc:
+        reason = str(exc)
+        code = "SPECTATOR_NOT_ALLOWED" if reason == "spectator_not_allowed" else "UNAUTHORIZED_SEAT"
+        message = (
+            "Spectator access is not allowed for this session."
+            if reason == "spectator_not_allowed"
+            else "Invalid session token."
+        )
         await websocket.accept()
         await websocket.send_json(
             {
@@ -74,10 +81,10 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                 "seq": 0,
                 "session_id": session_id,
                 "server_time_ms": int(time.time() * 1000),
-                "payload": build_error_payload(code="UNAUTHORIZED_SEAT", message="Invalid session token.", retryable=False),
+                "payload": build_error_payload(code=code, message=message, retryable=False),
             }
         )
-        await websocket.close()
+        await websocket.close(code=1008)
         return
 
     await websocket.accept()

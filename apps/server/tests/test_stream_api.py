@@ -74,6 +74,7 @@ def _three_ai_line_payload() -> dict:
             "seed": 202,
             "board_topology": "line",
             "seat_limits": {"min": 1, "max": 3, "allowed": [1, 2, 3]},
+            "visibility": "public",
         },
     }
 
@@ -89,6 +90,7 @@ def _three_seat_line_with_human_payload() -> dict:
             "seed": 202,
             "board_topology": "line",
             "seat_limits": {"min": 1, "max": 3, "allowed": [1, 2, 3]},
+            "visibility": "public",
         },
     }
 
@@ -104,7 +106,7 @@ class StreamApiTests(unittest.TestCase):
 
         _reset_state(max_buffer=2, heartbeat_interval_ms=250)
         self.client = TestClient(app)
-        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 42})
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 42, "visibility": "public"})
 
         async def _seed() -> None:
             await state.stream_service.publish(session.session_id, "event", {"event_type": "e1"})
@@ -142,7 +144,7 @@ class StreamApiTests(unittest.TestCase):
     def test_spectator_decision_is_rejected_with_unauthorized_seat(self) -> None:
         from apps.server.src import state
 
-        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 7})
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 7, "visibility": "public"})
         path = f"/api/v1/sessions/{session.session_id}/stream"
         with self.client.websocket_connect(path) as ws:
             ws.send_json(
@@ -166,6 +168,19 @@ class StreamApiTests(unittest.TestCase):
         self.assertGreaterEqual(len(errors), 1)
         self.assertEqual(errors[-1].get("payload", {}).get("code"), "UNAUTHORIZED_SEAT")
         self.assertEqual(errors[-1].get("payload", {}).get("category"), "auth")
+
+    def test_private_session_stream_rejects_missing_token(self) -> None:
+        from starlette.websockets import WebSocketDisconnect
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 7})
+        path = f"/api/v1/sessions/{session.session_id}/stream"
+        with self.client.websocket_connect(path) as ws:
+            error = ws.receive_json()
+            self.assertEqual(error.get("payload", {}).get("code"), "SPECTATOR_NOT_ALLOWED")
+            with self.assertRaises(WebSocketDisconnect) as raised:
+                ws.receive_json()
+        self.assertEqual(raised.exception.code, 1008)
 
     def test_seat_decision_with_player_mismatch_is_rejected(self) -> None:
         from apps.server.src import state
@@ -245,7 +260,7 @@ class StreamApiTests(unittest.TestCase):
     def test_spectator_does_not_receive_prompt_or_decision_ack_for_seat(self) -> None:
         from apps.server.src import state
 
-        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 19})
+        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 19, "visibility": "public"})
         join_token = session.join_tokens[1]
         joined = state.session_service.join_session(session.session_id, seat=1, join_token=join_token)
         session_token = joined["session_token"]
@@ -356,7 +371,7 @@ class StreamApiTests(unittest.TestCase):
     def test_prompt_timeout_emits_fallback_execution_and_runtime_tracks_history(self) -> None:
         from apps.server.src import state
 
-        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 13})
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 13, "visibility": "public"})
         state.prompt_service.create_prompt(
             session.session_id,
             {
@@ -407,7 +422,7 @@ class StreamApiTests(unittest.TestCase):
     def test_resume_replays_latest_parameter_manifest_change(self) -> None:
         from apps.server.src import state
 
-        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 99})
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 99, "visibility": "public"})
 
         async def _seed() -> None:
             await state.stream_service.publish(
@@ -452,7 +467,7 @@ class StreamApiTests(unittest.TestCase):
     def test_resume_replays_flat_parameter_manifest_shape_without_mutation(self) -> None:
         from apps.server.src import state
 
-        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 100})
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 100, "visibility": "public"})
 
         async def _seed() -> None:
             await state.stream_service.publish(session.session_id, "event", {"event_type": "round_start", "round_index": 1})
@@ -489,7 +504,7 @@ class StreamApiTests(unittest.TestCase):
     def test_resume_preserves_decision_then_domain_event_order(self) -> None:
         from apps.server.src import state
 
-        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 101})
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 101, "visibility": "public"})
 
         async def _seed() -> None:
             await state.stream_service.publish(
@@ -793,7 +808,7 @@ class StreamApiTests(unittest.TestCase):
     def test_reconnect_soak_preserves_seq_continuity_across_multiple_resumes(self) -> None:
         from apps.server.src import state
 
-        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 303})
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 303, "visibility": "public"})
 
         async def _seed(start: int, end: int) -> None:
             for n in range(start, end + 1):
