@@ -8,64 +8,16 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from apps.server.src.core.error_payload import build_error_payload
+from apps.server.src.domain.visibility import project_stream_message_for_viewer, viewer_from_auth_context
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.decision_gateway import build_decision_ack_payload
 from apps.server.src.services.session_service import SessionNotFoundError, SessionStateError
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["stream"])
 
-_PRIVATE_DECISION_REQUEST_TYPES = {"draft_card", "final_character", "final_character_choice", "hidden_trick_card"}
-
-
-def _event_type(message: dict[str, Any]) -> str:
-    payload = message.get("payload")
-    if not isinstance(payload, dict):
-        return ""
-    value = payload.get("event_type")
-    return value.strip().lower() if isinstance(value, str) else ""
-
-
-def _request_type(payload: dict[str, Any]) -> str:
-    value = payload.get("request_type")
-    return value.strip().lower() if isinstance(value, str) else ""
-
-
-def _copy_message(message: dict[str, Any]) -> dict[str, Any]:
-    cloned = dict(message)
-    payload = cloned.get("payload")
-    cloned["payload"] = dict(payload) if isinstance(payload, dict) else {}
-    return cloned
-
 
 def _filter_stream_message(message: dict[str, Any], auth_ctx: dict[str, Any]) -> dict[str, Any] | None:
-    message_type = str(message.get("type", "")).strip().lower()
-    payload = message.get("payload")
-    payload = payload if isinstance(payload, dict) else {}
-    target_player_id = payload.get("player_id")
-    viewer_player_id = auth_ctx.get("player_id")
-    viewer_is_target = auth_ctx.get("role") == "seat" and target_player_id == viewer_player_id
-
-    if message_type in {"prompt", "decision_ack"}:
-        return _copy_message(message) if viewer_is_target else None
-
-    if message_type != "event":
-        return _copy_message(message)
-
-    event_type = _event_type(message)
-    request_type = _request_type(payload)
-    if event_type in {"decision_requested", "decision_resolved", "decision_timeout_fallback"} and request_type in _PRIVATE_DECISION_REQUEST_TYPES:
-        return _copy_message(message) if viewer_is_target else None
-
-    if event_type == "final_character_choice" and not viewer_is_target:
-        return None
-
-    if event_type == "draft_pick" and not viewer_is_target:
-        filtered = _copy_message(message)
-        filtered["payload"].pop("picked_card", None)
-        filtered["payload"].pop("choice_id", None)
-        return filtered
-
-    return _copy_message(message)
+    return project_stream_message_for_viewer(message, viewer_from_auth_context(auth_ctx))
 
 
 @router.get("/{session_id}/stream-capability")

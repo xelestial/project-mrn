@@ -8,6 +8,24 @@ Updated: 2026-04-30
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-04-30 Visibility Projection Foundation
+
+- Scope: start the Redis/frontend visibility split so private data is projected by backend viewer context instead of hidden by frontend UI.
+- Done:
+  - documented the Redis visibility/projection plan
+  - added `ViewerContext` and visibility selector checks
+  - moved stream message filtering behind `project_stream_message_for_viewer`
+  - kept the existing route-level `_filter_stream_message` as a compatibility wrapper
+  - added tests for player-only prompts, private decision events, draft redaction, and embedded `view_state` hand/prompt redaction
+- Validation:
+  - `./.venv/bin/python -m pytest GPT/test_doc_integrity.py -q`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_visibility_projection.py apps/server/tests/test_stream_api.py -k 'visibility or filter_stream_message or private_draft'`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_stream_service.py apps/server/tests/test_view_state_hand_selector.py -q`
+  - `./.venv/bin/python -m pytest apps/server/tests -q`
+- Follow-up:
+  - make `project_view_state` accept viewer context and rebuild view state after stream filtering
+  - add Redis keys for public/player/spectator/admin view-state caches
+
 ## 2026-04-30 Tile Trait Action Pipeline Design
 
 - Scope: document a consistent tile trait/modifier/action architecture before implementation.
