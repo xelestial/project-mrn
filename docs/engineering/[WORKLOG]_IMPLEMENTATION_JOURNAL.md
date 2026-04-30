@@ -26,6 +26,20 @@ Updated: 2026-04-30
   - make `project_view_state` accept viewer context and rebuild view state after stream filtering
   - add Redis keys for public/player/spectator/admin view-state caches
 
+## 2026-04-30 Public-Safe Stream View State
+
+- Scope: prevent canonical stream payloads from carrying view-state projections built from private prompt/hand messages.
+- Done:
+  - `StreamService.publish()` now builds attached `view_state` from spectator-safe projected records
+  - private prompt payloads are still delivered to their target player as raw prompt messages, but embedded `view_state` no longer contains `prompt` or `hand_tray` from private history
+  - added a stream-service regression test for public-safe attached view state
+- Validation:
+  - `./.venv/bin/python -m pytest apps/server/tests/test_stream_service.py apps/server/tests/test_visibility_projection.py apps/server/tests/test_stream_api.py -q`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py -q`
+  - `./.venv/bin/python -m pytest GPT/test_doc_integrity.py -q`
+- Follow-up:
+  - add player-specific view-state reconstruction at websocket delivery time so target clients can still receive backend-projected prompt surfaces without exposing them in canonical stream storage
+
 ## 2026-04-30 Tile Trait Action Pipeline Design
 
 - Scope: document a consistent tile trait/modifier/action architecture before implementation.

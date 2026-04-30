@@ -83,6 +83,34 @@ class StreamServiceTests(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_publish_attaches_public_safe_view_state_only(self) -> None:
+        service = StreamService()
+
+        async def _run() -> None:
+            prompt = await service.publish(
+                "s1",
+                "prompt",
+                {
+                    "request_id": "req_trick",
+                    "request_type": "trick_to_use",
+                    "player_id": 1,
+                    "legal_choices": [{"choice_id": "card-11"}],
+                    "public_context": {
+                        "full_hand": [{"deck_index": 11, "name": "재뿌리기"}],
+                        "hidden_trick_deck_index": 11,
+                    },
+                },
+            )
+
+            view_state = prompt.payload.get("view_state")
+            if isinstance(view_state, dict):
+                self.assertNotIn("prompt", view_state)
+                self.assertNotIn("hand_tray", view_state)
+            self.assertIn("legal_choices", prompt.payload)
+            self.assertIn("full_hand", prompt.payload["public_context"])
+
+        asyncio.run(_run())
+
     def test_replay_window_tracks_oldest_and_latest_seq(self) -> None:
         service = StreamService(max_buffer=2)
 

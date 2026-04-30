@@ -5,6 +5,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 
+from apps.server.src.domain.visibility import ViewerContext, project_stream_message_for_viewer
 from apps.server.src.domain.view_state import project_view_state
 from apps.server.src.services.persistence import StreamStore
 
@@ -64,18 +65,14 @@ class StreamService:
             duplicate = self._duplicate_request_message_no_lock(history, msg_type, enriched_payload)
             if duplicate is not None:
                 return duplicate
-            projected = project_view_state(
-                [
-                    *history,
-                    {
-                        "type": msg_type,
-                        "seq": self._seq[session_id] + 1,
-                        "session_id": session_id,
-                        "server_time_ms": int(time.time() * 1000),
-                        "payload": enriched_payload,
-                    },
-                ]
-            )
+            pending_record = {
+                "type": msg_type,
+                "seq": self._seq[session_id] + 1,
+                "session_id": session_id,
+                "server_time_ms": int(time.time() * 1000),
+                "payload": enriched_payload,
+            }
+            projected = project_view_state(self._public_projection_records(session_id, [*history, pending_record]))
             if projected:
                 enriched_payload["view_state"] = projected
             server_time_ms = int(time.time() * 1000)
@@ -288,6 +285,15 @@ class StreamService:
 
     def _messages_from_backend(self, session_id: str) -> list[StreamMessage]:
         return [self._message_from_payload(message) for message in self._stream_backend.snapshot(session_id)]
+
+    def _public_projection_records(self, session_id: str, records: list[dict]) -> list[dict]:
+        viewer = ViewerContext(role="spectator", session_id=session_id)
+        projected: list[dict] = []
+        for record in records:
+            item = project_stream_message_for_viewer(record, viewer)
+            if item is not None:
+                projected.append(item)
+        return projected
 
     def _duplicate_request_message_no_lock(
         self,
