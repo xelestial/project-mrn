@@ -7,6 +7,26 @@ from apps.server.src.domain.visibility import ViewerContext
 from apps.server.src.services.stream_service import StreamService
 
 
+class FakeProjectionStore:
+    def __init__(self) -> None:
+        self.messages: list[dict] = []
+        self.view_states: dict[tuple[str, str], dict] = {}
+        self.checkpoints: dict[str, dict] = {}
+
+    def apply_stream_message(self, message: dict) -> None:
+        self.messages.append(message)
+
+    def save_projected_view_state(self, session_id: str, viewer: str, payload: dict, *, player_id: int | None = None) -> None:
+        label = f"player:{player_id}" if viewer == "player" else viewer
+        self.view_states[(session_id, label)] = payload
+
+    def load_projection_checkpoint(self, session_id: str) -> dict | None:
+        return self.checkpoints.get(session_id)
+
+    def save_projection_checkpoint(self, session_id: str, payload: dict) -> None:
+        self.checkpoints[session_id] = payload
+
+
 class StreamServiceTests(unittest.TestCase):
     def test_publish_increments_seq(self) -> None:
         service = StreamService()
@@ -151,6 +171,62 @@ class StreamServiceTests(unittest.TestCase):
             self.assertEqual(view_state["prompt"]["active"]["request_id"], "req_trick")
             self.assertEqual(view_state["hand_tray"]["cards"][0]["name"], "재뿌리기")
             self.assertIsNone(other)
+
+        asyncio.run(_run())
+
+    def test_publish_caches_spectator_projection(self) -> None:
+        store = FakeProjectionStore()
+        service = StreamService(game_state_store=store)
+
+        async def _run() -> None:
+            await service.publish(
+                "s1",
+                "event",
+                {
+                    "event_type": "state_snapshot",
+                    "snapshot": {
+                        "players": [{"player_id": 1, "position": 3, "alive": True}],
+                        "board": {
+                            "f_value": 7,
+                            "tiles": [{"tile_index": 3, "owner_player_id": None, "score_coin_count": 0}],
+                        },
+                    },
+                },
+            )
+
+            cached = store.view_states[("s1", "spectator")]
+            self.assertEqual(cached["board"]["f_value"], 7)
+            self.assertEqual(store.checkpoints["s1"]["latest_seq"], 1)
+            self.assertEqual(store.checkpoints["s1"]["projected_viewers"], ["spectator"])
+
+        asyncio.run(_run())
+
+    def test_project_message_for_target_caches_player_projection(self) -> None:
+        store = FakeProjectionStore()
+        service = StreamService(game_state_store=store)
+
+        async def _run() -> None:
+            prompt = await service.publish(
+                "s1",
+                "prompt",
+                {
+                    "request_id": "req_trick",
+                    "request_type": "trick_to_use",
+                    "player_id": 1,
+                    "legal_choices": [{"choice_id": "card-11", "title": "재뿌리기"}],
+                    "public_context": {
+                        "full_hand": [{"deck_index": 11, "name": "재뿌리기", "is_usable": True}],
+                    },
+                },
+            )
+
+            target = await service.project_message_for_viewer(prompt.to_dict(), ViewerContext(role="seat", session_id="s1", player_id=1))
+
+            self.assertIsNotNone(target)
+            cached = store.view_states[("s1", "player:1")]
+            self.assertEqual(cached["prompt"]["active"]["request_id"], "req_trick")
+            self.assertEqual(cached["hand_tray"]["cards"][0]["name"], "재뿌리기")
+            self.assertEqual(store.checkpoints["s1"]["projected_viewers"], ["player:1", "spectator"])
 
         asyncio.run(_run())
 

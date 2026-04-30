@@ -75,6 +75,23 @@ Updated: 2026-04-30
   - wire websocket projection writes into these cache keys once projection freshness/versioning is finalized
   - include projection checkpoint fields such as `generated_at_ms` and `projection_schema_version` in runtime commits
 
+## 2026-04-30 Stream Projection Cache Writes
+
+- Scope: wire viewer-safe stream projections into Redis projection caches.
+- Done:
+  - `StreamService.publish()` caches the spectator-safe projection generated for canonical stream payloads
+  - `StreamService.project_message_for_viewer()` caches the player/spectator/admin projection generated for websocket delivery
+  - projection checkpoints now track `latest_seq`, `generated_at_ms`, `projection_schema_version`, and the set of projected viewer labels
+  - added tests for spectator cache writes and target-player prompt/hand projection cache writes
+- Validation:
+  - `./.venv/bin/python -m pytest apps/server/tests/test_stream_service.py apps/server/tests/test_visibility_projection.py -q`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py -q`
+- Failed validation / lesson:
+  - initial spectator-cache test expected `board` from a snapshot without `board.tiles`; board projection intentionally requires tile data, so projection cache tests must use selector-valid fixtures instead of partial snapshots.
+- Follow-up:
+  - let reconnect/API paths read these projected cache keys before rebuilding from stream history
+  - decide whether `view_state:public` and `view_state:spectator` should remain aliases or diverge once true spectator-only surfaces exist
+
 ## 2026-04-30 Tile Trait Action Pipeline Design
 
 - Scope: document a consistent tile trait/modifier/action architecture before implementation.

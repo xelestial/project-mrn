@@ -10,6 +10,9 @@ from apps.server.src.domain.view_state import project_view_state
 from apps.server.src.services.persistence import StreamStore
 
 
+_PROJECTION_SCHEMA_VERSION = 1
+
+
 @dataclass(slots=True)
 class StreamMessage:
     type: str
@@ -115,6 +118,14 @@ class StreamService:
                 self._persist_stream_state()
             if self._game_state_store is not None:
                 self._game_state_store.apply_stream_message(item.to_dict())
+                if projected:
+                    self._cache_projected_view_state_no_lock(
+                        session_id,
+                        ViewerContext(role="spectator", session_id=session_id),
+                        projected,
+                        latest_seq=item.seq,
+                        server_time_ms=item.server_time_ms,
+                    )
             if self._command_store is not None:
                 self._maybe_append_command(item)
             return item
@@ -158,6 +169,14 @@ class StreamService:
                 filtered_payload = filtered.get("payload")
                 if isinstance(filtered_payload, dict):
                     filtered_payload["view_state"] = projected
+                if self._game_state_store is not None:
+                    self._cache_projected_view_state_no_lock(
+                        session_id,
+                        viewer,
+                        projected,
+                        latest_seq=seq,
+                        server_time_ms=int(message.get("server_time_ms", 0) or 0),
+                    )
             return filtered
 
     async def latest_seq(self, session_id: str) -> int:
@@ -368,6 +387,62 @@ class StreamService:
             request_id=request_id,
             server_time_ms=item.server_time_ms,
         )
+
+    def _cache_projected_view_state_no_lock(
+        self,
+        session_id: str,
+        viewer: ViewerContext,
+        view_state: dict,
+        *,
+        latest_seq: int,
+        server_time_ms: int,
+    ) -> None:
+        if not session_id or not isinstance(view_state, dict) or not view_state:
+            return
+        save_projected = getattr(self._game_state_store, "save_projected_view_state", None)
+        save_checkpoint = getattr(self._game_state_store, "save_projection_checkpoint", None)
+        load_checkpoint = getattr(self._game_state_store, "load_projection_checkpoint", None)
+        if not callable(save_projected):
+            return
+        viewer_label = self._projection_viewer_label(viewer)
+        if not viewer_label:
+            return
+        try:
+            if viewer_label.startswith("player:"):
+                save_projected(session_id, "player", view_state, player_id=viewer.player_id)
+            else:
+                save_projected(session_id, viewer_label, view_state)
+        except Exception:
+            return
+        if not callable(save_checkpoint):
+            return
+        previous = load_checkpoint(session_id) if callable(load_checkpoint) else None
+        projected_viewers = set()
+        if isinstance(previous, dict) and isinstance(previous.get("projected_viewers"), list):
+            projected_viewers.update(str(item) for item in previous["projected_viewers"])
+        projected_viewers.add(viewer_label)
+        checkpoint = {
+            "schema_version": 1,
+            "session_id": session_id,
+            "latest_seq": int(latest_seq or 0),
+            "generated_at_ms": int(server_time_ms or 0),
+            "projection_schema_version": _PROJECTION_SCHEMA_VERSION,
+            "projected_viewers": sorted(projected_viewers),
+        }
+        try:
+            save_checkpoint(session_id, checkpoint)
+        except Exception:
+            return
+
+    @staticmethod
+    def _projection_viewer_label(viewer: ViewerContext) -> str | None:
+        if viewer.is_admin:
+            return "admin"
+        if viewer.is_seat and viewer.player_id is not None:
+            return f"player:{int(viewer.player_id)}"
+        if viewer.is_spectator:
+            return "spectator"
+        return None
 
     def _session_ids_for_persistence(self) -> set[str]:
         sessions = set(self._buffers.keys()) | set(self._seq.keys())
