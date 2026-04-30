@@ -41,6 +41,7 @@ class RuntimeSettings:
     archive_hot_retention_seconds: int = 300
     prompt_timeout_worker_poll_interval_ms: int = 250
     command_wakeup_worker_poll_interval_ms: int = 250
+    admin_token: str = ""
 
 
 def load_runtime_settings() -> RuntimeSettings:
@@ -64,4 +65,5 @@ def load_runtime_settings() -> RuntimeSettings:
         archive_hot_retention_seconds=_env_int("MRN_ARCHIVE_HOT_RETENTION_SECONDS", 300, 0),
         prompt_timeout_worker_poll_interval_ms=_env_int("MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS", 250, 50),
         command_wakeup_worker_poll_interval_ms=_env_int("MRN_COMMAND_WAKEUP_WORKER_POLL_INTERVAL_MS", 250, 50),
+        admin_token=_env_str("MRN_ADMIN_TOKEN", ""),
     )

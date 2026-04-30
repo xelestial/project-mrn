@@ -456,6 +456,20 @@ game:{session_id}:projection_checkpoint
   - `browser_safe: true`
 - Never mutate canonical archive to satisfy privacy filtering.
 
+### Phase 8: Admin Canonical Access
+
+- Canonical recovery/archive data may be exposed only through explicit admin APIs.
+- Admin APIs must not accept seat/session tokens as admin proof.
+- Initial admin auth is `MRN_ADMIN_TOKEN` with either:
+  - `X-Admin-Token: <token>`
+  - `Authorization: Bearer <token>`
+- If `MRN_ADMIN_TOKEN` is empty, admin APIs must return `ADMIN_AUTH_DISABLED`.
+- Admin canonical responses must declare:
+  - `schema_name: "mrn.admin_recovery"` or a similarly specific admin schema
+  - `visibility: "admin"`
+  - `browser_safe: false`
+- Normal browser routes must keep using projected replay/status payloads.
+
 ## Recommended First Slice
 
 Start with the highest leakage-risk path:

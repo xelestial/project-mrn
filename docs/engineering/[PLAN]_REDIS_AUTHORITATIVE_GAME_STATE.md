@@ -475,6 +475,26 @@ Redacted replay export rules:
 - `view_state` must be viewer-specific projected state, not canonical `game:{session_id}:state`.
 - Never include `final_state`, `analysis`, raw commands, auth tokens, other players' private hands, or backend-only diagnostics.
 
+Admin canonical access:
+
+- Canonical state/recovery exports must live behind `/api/v1/admin/...` routes or equivalent operator-only services.
+- Admin routes require `MRN_ADMIN_TOKEN`; seat/session tokens are not admin credentials.
+- Admin canonical recovery payloads use:
+
+```json
+{
+  "schema_version": 1,
+  "schema_name": "mrn.admin_recovery",
+  "visibility": "admin",
+  "browser_safe": false,
+  "session_id": "sess_123456789abc",
+  "recovery_checkpoint": {}
+}
+```
+
+- If `MRN_ADMIN_TOKEN` is unset, admin routes return `ADMIN_AUTH_DISABLED`.
+- Normal `/runtime-status` and `/replay` routes must continue returning only public/player projected data.
+
 Recommended `summary` fields:
 
 - `winner_player_id`

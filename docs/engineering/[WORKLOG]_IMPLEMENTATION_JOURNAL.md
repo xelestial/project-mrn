@@ -153,6 +153,22 @@ Updated: 2026-04-30
 - Follow-up:
   - keep expanding redacted replay contract tests as new browser-facing fields are introduced
 
+## 2026-04-30 Admin Canonical Recovery Gate
+
+- Scope: introduce an explicit admin-only path for canonical recovery data without overloading player session tokens.
+- Done:
+  - added `MRN_ADMIN_TOKEN` runtime setting
+  - added `/api/v1/admin/sessions/{session_id}/recovery`
+  - admin auth accepts `X-Admin-Token` or `Authorization: Bearer <token>`
+  - admin recovery payload declares `schema_name: mrn.admin_recovery`, `visibility: admin`, and `browser_safe: false`
+  - empty admin token disables admin APIs with `ADMIN_AUTH_DISABLED`
+  - documented admin canonical access rules
+- Validation:
+  - `./.venv/bin/python -m pytest apps/server/tests/test_admin_api.py apps/server/tests/test_runtime_settings.py -q`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -k 'public_runtime_status' -q`
+- Follow-up:
+  - add admin-only canonical archive read/download endpoint after deciding retention and path traversal hardening rules
+
 ## 2026-04-30 Tile Trait Action Pipeline Design
 
 - Scope: document a consistent tile trait/modifier/action architecture before implementation.

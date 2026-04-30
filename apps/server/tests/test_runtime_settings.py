@@ -29,6 +29,7 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.archive_hot_retention_seconds, 300)
         self.assertEqual(settings.prompt_timeout_worker_poll_interval_ms, 250)
         self.assertEqual(settings.command_wakeup_worker_poll_interval_ms, 250)
+        self.assertEqual(settings.admin_token, "")
 
     def test_env_overrides_with_minimum_clamp(self) -> None:
         with _temporary_env(
@@ -52,6 +53,7 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "MRN_ARCHIVE_HOT_RETENTION_SECONDS": "45",
                 "MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS": "750",
                 "MRN_COMMAND_WAKEUP_WORKER_POLL_INTERVAL_MS": "900",
+                "MRN_ADMIN_TOKEN": "admin-secret",
             }
         ):
             settings = load_runtime_settings()
@@ -74,6 +76,7 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.archive_hot_retention_seconds, 45)
         self.assertEqual(settings.prompt_timeout_worker_poll_interval_ms, 750)
         self.assertEqual(settings.command_wakeup_worker_poll_interval_ms, 900)
+        self.assertEqual(settings.admin_token, "admin-secret")
 
     def test_invalid_env_values_fallback_to_defaults(self) -> None:
         with _temporary_env(
@@ -97,6 +100,7 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "MRN_ARCHIVE_HOT_RETENTION_SECONDS": "-1",
                 "MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS": "10",
                 "MRN_COMMAND_WAKEUP_WORKER_POLL_INTERVAL_MS": "10",
+                "MRN_ADMIN_TOKEN": "",
             }
         ):
             settings = load_runtime_settings()
@@ -119,6 +123,7 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.archive_hot_retention_seconds, 300)
         self.assertEqual(settings.prompt_timeout_worker_poll_interval_ms, 250)
         self.assertEqual(settings.command_wakeup_worker_poll_interval_ms, 250)
+        self.assertEqual(settings.admin_token, "")
 
 
 class _temporary_env:
@@ -145,6 +150,7 @@ class _temporary_env:
             "MRN_ARCHIVE_HOT_RETENTION_SECONDS",
             "MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS",
             "MRN_COMMAND_WAKEUP_WORKER_POLL_INTERVAL_MS",
+            "MRN_ADMIN_TOKEN",
         ]
 
     def __enter__(self) -> None:

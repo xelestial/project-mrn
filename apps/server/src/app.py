@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.infra.structured_log import log_event
+from apps.server.src.routes.admin import router as admin_router
 from apps.server.src.routes.health import router as health_router
 from apps.server.src.routes.prompts import router as prompts_router
 from apps.server.src.routes.rooms import router as rooms_router
@@ -25,6 +26,7 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
+app.include_router(admin_router)
 app.include_router(sessions_router)
 app.include_router(rooms_router)
 app.include_router(stream_router)
