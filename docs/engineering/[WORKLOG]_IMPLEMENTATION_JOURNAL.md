@@ -92,6 +92,21 @@ Updated: 2026-04-30
   - let reconnect/API paths read these projected cache keys before rebuilding from stream history
   - decide whether `view_state:public` and `view_state:spectator` should remain aliases or diverge once true spectator-only surfaces exist
 
+## 2026-04-30 Projection Cache Read Path
+
+- Scope: use Redis/viewer projection caches as the first source for latest frontend view-state reads.
+- Done:
+  - added `StreamService.latest_view_state_for_viewer()`
+  - added per-viewer projection freshness tracking through `projected_viewer_seqs`
+  - stale viewer caches are rebuilt from stream history and written back to projection cache
+  - `/api/v1/sessions/{session_id}/replay` now returns a top-level spectator-safe latest `view_state` in addition to replay events
+- Validation:
+  - `./.venv/bin/python -m pytest apps/server/tests/test_stream_service.py -q`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_sessions_api.py -k replay -q`
+- Follow-up:
+  - add authenticated replay/export variants for player-specific latest `view_state`
+  - migrate recovery/archive readers to explicitly prefer projected `view_state:public` once backward compatibility with legacy `view_state` is no longer needed
+
 ## 2026-04-30 Tile Trait Action Pipeline Design
 
 - Scope: document a consistent tile trait/modifier/action architecture before implementation.

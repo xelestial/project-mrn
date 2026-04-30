@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from apps.server.src.core.error_payload import build_error_payload
+from apps.server.src.domain.visibility import ViewerContext
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
 from apps.server.src.services.session_service import SessionNotFoundError, SessionService, SessionStateError
@@ -266,4 +267,8 @@ async def replay_export(
     except SessionNotFoundError:
         _error("SESSION_NOT_FOUND", "Session not found.", status.HTTP_404_NOT_FOUND)
     events = [message.to_dict() for message in await stream.snapshot(session_id)]
-    return _ok({"session_id": session_id, "event_count": len(events), "events": events})
+    view_state = await stream.latest_view_state_for_viewer(
+        session_id,
+        ViewerContext(role="spectator", session_id=session_id),
+    )
+    return _ok({"session_id": session_id, "event_count": len(events), "events": events, "view_state": view_state})

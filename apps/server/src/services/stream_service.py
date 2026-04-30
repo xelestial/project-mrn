@@ -181,9 +181,27 @@ class StreamService:
 
     async def latest_seq(self, session_id: str) -> int:
         async with self._lock:
-            if self._stream_backend is not None:
-                return self._stream_backend.latest_seq(session_id)
-            return self._seq.get(session_id, 0)
+            return self._latest_seq_no_lock(session_id)
+
+    async def latest_view_state_for_viewer(self, session_id: str, viewer: ViewerContext) -> dict:
+        async with self._lock:
+            cached = self._load_cached_projected_view_state_no_lock(
+                session_id,
+                viewer,
+                latest_seq=self._latest_seq_no_lock(session_id),
+            )
+            if isinstance(cached, dict):
+                return cached
+            projected = project_view_state(self._history_records_no_lock(session_id), viewer=viewer)
+            if projected:
+                self._cache_projected_view_state_no_lock(
+                    session_id,
+                    viewer,
+                    projected,
+                    latest_seq=self._latest_seq_no_lock(session_id),
+                    server_time_ms=int(time.time() * 1000),
+                )
+            return projected or {}
 
     async def delete_session_data(self, session_id: str) -> None:
         async with self._lock:
@@ -418,9 +436,17 @@ class StreamService:
             return
         previous = load_checkpoint(session_id) if callable(load_checkpoint) else None
         projected_viewers = set()
+        projected_viewer_seqs: dict[str, int] = {}
         if isinstance(previous, dict) and isinstance(previous.get("projected_viewers"), list):
             projected_viewers.update(str(item) for item in previous["projected_viewers"])
+        if isinstance(previous, dict) and isinstance(previous.get("projected_viewer_seqs"), dict):
+            for key, value in previous["projected_viewer_seqs"].items():
+                try:
+                    projected_viewer_seqs[str(key)] = int(value)
+                except Exception:
+                    continue
         projected_viewers.add(viewer_label)
+        projected_viewer_seqs[viewer_label] = int(latest_seq or 0)
         checkpoint = {
             "schema_version": 1,
             "session_id": session_id,
@@ -428,11 +454,55 @@ class StreamService:
             "generated_at_ms": int(server_time_ms or 0),
             "projection_schema_version": _PROJECTION_SCHEMA_VERSION,
             "projected_viewers": sorted(projected_viewers),
+            "projected_viewer_seqs": projected_viewer_seqs,
         }
         try:
             save_checkpoint(session_id, checkpoint)
         except Exception:
             return
+
+    def _load_cached_projected_view_state_no_lock(
+        self,
+        session_id: str,
+        viewer: ViewerContext,
+        *,
+        latest_seq: int,
+    ) -> dict | None:
+        if not session_id:
+            return None
+        load_projected = getattr(self._game_state_store, "load_projected_view_state", None)
+        load_checkpoint = getattr(self._game_state_store, "load_projection_checkpoint", None)
+        if not callable(load_projected):
+            return None
+        viewer_label = self._projection_viewer_label(viewer)
+        if not viewer_label:
+            return None
+        if callable(load_checkpoint):
+            checkpoint = load_checkpoint(session_id)
+            if not self._projection_cache_is_fresh(checkpoint, viewer_label, latest_seq):
+                return None
+        try:
+            if viewer_label.startswith("player:"):
+                cached = load_projected(session_id, "player", player_id=viewer.player_id)
+            else:
+                cached = load_projected(session_id, viewer_label)
+        except Exception:
+            return None
+        return cached if isinstance(cached, dict) else None
+
+    @staticmethod
+    def _projection_cache_is_fresh(checkpoint: object, viewer_label: str, latest_seq: int) -> bool:
+        if not isinstance(checkpoint, dict):
+            return False
+        viewer_seqs = checkpoint.get("projected_viewer_seqs")
+        if isinstance(viewer_seqs, dict):
+            try:
+                return int(viewer_seqs.get(viewer_label, -1)) >= int(latest_seq or 0)
+            except Exception:
+                return False
+        if int(latest_seq or 0) == 0 and isinstance(checkpoint.get("projected_viewers"), list):
+            return viewer_label in {str(item) for item in checkpoint["projected_viewers"]}
+        return False
 
     @staticmethod
     def _projection_viewer_label(viewer: ViewerContext) -> str | None:
@@ -443,6 +513,11 @@ class StreamService:
         if viewer.is_spectator:
             return "spectator"
         return None
+
+    def _latest_seq_no_lock(self, session_id: str) -> int:
+        if self._stream_backend is not None:
+            return self._stream_backend.latest_seq(session_id)
+        return self._seq.get(session_id, 0)
 
     def _session_ids_for_persistence(self) -> set[str]:
         sessions = set(self._buffers.keys()) | set(self._seq.keys())

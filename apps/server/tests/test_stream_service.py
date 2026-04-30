@@ -20,6 +20,10 @@ class FakeProjectionStore:
         label = f"player:{player_id}" if viewer == "player" else viewer
         self.view_states[(session_id, label)] = payload
 
+    def load_projected_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict | None:
+        label = f"player:{player_id}" if viewer == "player" else viewer
+        return self.view_states.get((session_id, label))
+
     def load_projection_checkpoint(self, session_id: str) -> dict | None:
         return self.checkpoints.get(session_id)
 
@@ -227,6 +231,60 @@ class StreamServiceTests(unittest.TestCase):
             self.assertEqual(cached["prompt"]["active"]["request_id"], "req_trick")
             self.assertEqual(cached["hand_tray"]["cards"][0]["name"], "재뿌리기")
             self.assertEqual(store.checkpoints["s1"]["projected_viewers"], ["player:1", "spectator"])
+            self.assertEqual(store.checkpoints["s1"]["projected_viewer_seqs"], {"player:1": 1, "spectator": 1})
+
+        asyncio.run(_run())
+
+    def test_latest_view_state_for_viewer_uses_fresh_cache(self) -> None:
+        store = FakeProjectionStore()
+        service = StreamService(game_state_store=store)
+
+        async def _run() -> None:
+            await service.publish(
+                "s1",
+                "event",
+                {
+                    "event_type": "turn_end_snapshot",
+                    "snapshot": {
+                        "players": [{"player_id": 1, "position": 3, "alive": True}],
+                        "board": {"tiles": [{"tile_index": 3}]},
+                    },
+                },
+            )
+            store.view_states[("s1", "spectator")] = {"cached": True}
+            store.checkpoints["s1"]["projected_viewer_seqs"]["spectator"] = 1
+
+            latest = await service.latest_view_state_for_viewer("s1", ViewerContext(role="spectator", session_id="s1"))
+
+            self.assertEqual(latest, {"cached": True})
+
+        asyncio.run(_run())
+
+    def test_latest_view_state_for_viewer_rebuilds_stale_cache(self) -> None:
+        store = FakeProjectionStore()
+        service = StreamService(game_state_store=store)
+
+        async def _run() -> None:
+            await service.publish(
+                "s1",
+                "event",
+                {
+                    "event_type": "turn_end_snapshot",
+                    "snapshot": {
+                        "players": [{"player_id": 1, "position": 3, "alive": True}],
+                        "board": {"tiles": [{"tile_index": 3}]},
+                    },
+                },
+            )
+            await service.publish("s1", "event", {"event_type": "turn_start", "acting_player_id": 1})
+            store.view_states[("s1", "spectator")] = {"cached": "stale"}
+            store.checkpoints["s1"]["projected_viewer_seqs"]["spectator"] = 1
+
+            latest = await service.latest_view_state_for_viewer("s1", ViewerContext(role="spectator", session_id="s1"))
+
+            self.assertNotEqual(latest, {"cached": "stale"})
+            self.assertEqual(store.checkpoints["s1"]["projected_viewer_seqs"]["spectator"], 2)
+            self.assertIn("players", latest)
 
         asyncio.run(_run())
 

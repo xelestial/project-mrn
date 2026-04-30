@@ -289,6 +289,8 @@ class SessionsApiTests(unittest.TestCase):
         self.assertIn("server_time_ms", data["events"][0])
         self.assertIn("view_state", data["events"][-1].get("payload", {}))
         self.assertIn("players", data["events"][-1].get("payload", {}).get("view_state", {}))
+        self.assertIn("view_state", data)
+        self.assertIn("players", data["view_state"])
 
     def test_start_response_includes_parameter_manifest(self) -> None:
         created = self.client.post("/api/v1/sessions", json=_all_ai_payload())
