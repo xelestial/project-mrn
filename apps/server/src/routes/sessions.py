@@ -253,7 +253,7 @@ def runtime_status(
         service.get_session(session_id)
     except SessionNotFoundError:
         _error("SESSION_NOT_FOUND", "Session not found.", status.HTTP_404_NOT_FOUND)
-    return _ok({"session_id": session_id, "runtime": runtime.runtime_status(session_id)})
+    return _ok({"session_id": session_id, "runtime": runtime.public_runtime_status(session_id)})
 
 
 @router.get("/{session_id}/replay")

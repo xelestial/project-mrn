@@ -123,6 +123,22 @@ Updated: 2026-04-30
   - expose admin replay only behind an explicit admin auth context instead of overloading seat/session tokens
   - audit archive/recovery outputs so they do not accidentally become browser-facing canonical state exports
 
+## 2026-04-30 Recovery And Archive Projection Boundary
+
+- Scope: prevent recovery/status outputs that can be returned to browsers from exposing canonical Redis game state.
+- Done:
+  - added `RuntimeService.public_runtime_status()` for browser/API status output
+  - `/runtime-status` now strips canonical `current_state` from `recovery_checkpoint`
+  - recovery checkpoint view-state loading prefers Redis `view_state:public` and falls back to legacy `view_state`
+  - local JSON archives keep canonical `final_state` as backend-local export data, but `final_view_state` now explicitly prefers public projected view-state
+  - added regression tests for public runtime status redaction and archive public projection preference
+- Validation:
+  - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -k public_runtime_status -q`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_archive_service.py -q`
+- Follow-up:
+  - split canonical archive and redacted replay-export schemas if archive files ever become downloadable from browser-facing routes
+  - add admin-only auth before exposing canonical recovery state through any API endpoint
+
 ## 2026-04-30 Tile Trait Action Pipeline Design
 
 - Scope: document a consistent tile trait/modifier/action architecture before implementation.

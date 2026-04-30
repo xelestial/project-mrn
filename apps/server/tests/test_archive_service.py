@@ -124,6 +124,38 @@ class ArchiveServiceTests(unittest.TestCase):
             self.assertEqual(payload["streams"]["commands"][0]["type"], "decision_submitted")
             self.assertEqual(payload["streams"]["commands"][0]["payload"]["request_id"], "req_archive_1")
 
+    def test_archive_final_view_state_prefers_public_projection_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sessions = SessionService(restart_recovery_policy="keep")
+            streams = StreamService()
+            archive = LocalJsonArchiveService(
+                session_service=sessions,
+                stream_service=streams,
+                game_state_store=_GameStateStoreStub(),
+                archive_dir=temp_dir,
+                hot_retention_seconds=0,
+            )
+            session = sessions.create_session(
+                seats=[
+                    {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                    {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                ],
+                config={"seed": 7},
+            )
+            sessions.start_session(session.session_id, session.host_token)
+
+            async def _exercise() -> None:
+                await streams.publish(session.session_id, "event", {"event_type": "round_start", "round_index": 1})
+                sessions.finish_session(session.session_id)
+                await archive.handle_session_finished(session.session_id)
+                await asyncio.sleep(0)
+
+            asyncio.run(_exercise())
+
+            payload = json.loads((Path(temp_dir) / f"{session.session_id}.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["final_view_state"], {"public_projection": True})
+            self.assertEqual(payload["final_state"], {"canonical": True})
+
 class _CommandStoreStub:
     def __init__(self) -> None:
         self._commands: dict[str, list[dict]] = {}
@@ -143,6 +175,28 @@ class _CommandStoreStub:
 
     def list_commands(self, session_id: str) -> list[dict]:
         return list(self._commands.get(session_id, []))
+
+
+class _GameStateStoreStub:
+    def load_checkpoint(self, session_id: str) -> dict:
+        return {"session_id": session_id, "latest_seq": 1}
+
+    def load_current_state(self, session_id: str) -> dict:
+        del session_id
+        return {"canonical": True}
+
+    def load_projected_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict:
+        del session_id, player_id
+        if viewer == "public":
+            return {"public_projection": True}
+        return {}
+
+    def load_view_state(self, session_id: str) -> dict:
+        del session_id
+        return {"legacy": True}
+
+    def delete_session_data(self, session_id: str) -> None:
+        del session_id
 
 
 if __name__ == "__main__":

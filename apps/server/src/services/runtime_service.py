@@ -130,12 +130,32 @@ class RuntimeService:
             base["recovery_checkpoint"] = recovery
         return base
 
+    def public_runtime_status(self, session_id: str) -> dict:
+        status = dict(self.runtime_status(session_id))
+        recovery = status.get("recovery_checkpoint")
+        if isinstance(recovery, dict):
+            public_recovery = {
+                "available": bool(recovery.get("available")),
+                "checkpoint": recovery.get("checkpoint") if isinstance(recovery.get("checkpoint"), dict) else {},
+                "view_state": recovery.get("view_state") if isinstance(recovery.get("view_state"), dict) else {},
+            }
+            if isinstance(recovery.get("reason"), str):
+                public_recovery["reason"] = recovery["reason"]
+            public_recovery["current_state_available"] = isinstance(recovery.get("current_state"), dict)
+            status["recovery_checkpoint"] = public_recovery
+        return status
+
     def recovery_checkpoint(self, session_id: str) -> dict:
         if self._game_state_store is None:
             return {"available": False, "reason": "game_state_store_unavailable"}
         checkpoint = self._game_state_store.load_checkpoint(session_id)
         current_state = self._game_state_store.load_current_state(session_id)
-        view_state = self._game_state_store.load_view_state(session_id)
+        try:
+            view_state = self._game_state_store.load_projected_view_state(session_id, "public")
+        except Exception:
+            view_state = None
+        if not isinstance(view_state, dict):
+            view_state = self._game_state_store.load_view_state(session_id)
         if not isinstance(checkpoint, dict):
             return {"available": False, "reason": "checkpoint_missing"}
         if not isinstance(current_state, dict):

@@ -56,6 +56,31 @@ class RuntimeServiceTests(unittest.TestCase):
             prompt_service=self.prompt_service,
         )
 
+    def test_public_runtime_status_does_not_expose_canonical_current_state(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            game_state_store=_RecoveryGameStateStoreStub(),
+        )
+
+        internal = runtime.recovery_checkpoint(session.session_id)
+        public = runtime.public_runtime_status(session.session_id)
+
+        self.assertTrue(internal["available"])
+        self.assertIn("current_state", internal)
+        self.assertTrue(public["recovery_checkpoint"]["available"])
+        self.assertNotIn("current_state", public["recovery_checkpoint"])
+        self.assertTrue(public["recovery_checkpoint"]["current_state_available"])
+        self.assertEqual(public["recovery_checkpoint"]["view_state"], {"players": {"items": []}})
+
     def test_execute_prompt_fallback_records_recent_history(self) -> None:
         session = self.session_service.create_session(
             seats=[
@@ -3360,6 +3385,33 @@ class RuntimeServiceTests(unittest.TestCase):
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
             loop.close()
+
+
+class _RecoveryGameStateStoreStub:
+    def load_checkpoint(self, session_id: str) -> dict:
+        return {
+            "schema_version": 1,
+            "session_id": session_id,
+            "latest_seq": 7,
+            "turn_index": 2,
+        }
+
+    def load_current_state(self, session_id: str) -> dict:
+        return {
+            "session_id": session_id,
+            "private_hands": {"1": ["hidden-card"]},
+            "turn_index": 2,
+        }
+
+    def load_projected_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict:
+        del session_id, player_id
+        if viewer == "public":
+            return {"players": {"items": []}}
+        return {}
+
+    def load_view_state(self, session_id: str) -> dict:
+        del session_id
+        return {"legacy": True}
 
 
 if __name__ == "__main__":

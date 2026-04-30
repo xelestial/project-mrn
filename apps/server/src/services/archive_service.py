@@ -228,9 +228,14 @@ class LocalJsonArchiveService:
     def _load_final_view_state(self, session_id: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
         if self._game_state_store is not None:
             try:
-                view_state = self._game_state_store.load_view_state(session_id)
+                view_state = self._game_state_store.load_projected_view_state(session_id, "public")
             except Exception:
                 view_state = None
+            if not isinstance(view_state, dict):
+                try:
+                    view_state = self._game_state_store.load_view_state(session_id)
+                except Exception:
+                    view_state = None
             if isinstance(view_state, dict):
                 return view_state
         return self._latest_view_state(messages)
