@@ -40,6 +40,23 @@ Updated: 2026-04-30
 - Follow-up:
   - add player-specific view-state reconstruction at websocket delivery time so target clients can still receive backend-projected prompt surfaces without exposing them in canonical stream storage
 
+## 2026-04-30 Viewer-Specific Stream View State
+
+- Scope: continue visibility projection by rebuilding frontend `view_state` for the authenticated websocket viewer at delivery time.
+- Done:
+  - extended `project_view_state(messages, viewer=...)`
+  - added `StreamService.project_message_for_viewer()`
+  - websocket live send and resume replay now use viewer-specific projection instead of the compatibility route wrapper
+  - target-player prompt delivery can include backend-projected `prompt` and `hand_tray` view-state surfaces without storing them in public/canonical stream payloads
+- Validation:
+  - `./.venv/bin/python -m pytest apps/server/tests/test_stream_service.py apps/server/tests/test_visibility_projection.py apps/server/tests/test_stream_api.py -q`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_view_state_player_selector.py apps/server/tests/test_view_state_scene_selector.py apps/server/tests/test_view_state_prompt_selector.py apps/server/tests/test_stream_service.py -q`
+  - `./.venv/bin/python -m pytest apps/server/tests -q`
+  - `./.venv/bin/python -m pytest GPT/test_doc_integrity.py -q`
+- Follow-up:
+  - add Redis `view_state:public/player/spectator/admin` cache keys and serializers
+  - convert the route compatibility `_filter_stream_message()` tests to visibility service tests once downstream callers are migrated
+
 ## 2026-04-30 Tile Trait Action Pipeline Design
 
 - Scope: document a consistent tile trait/modifier/action architecture before implementation.

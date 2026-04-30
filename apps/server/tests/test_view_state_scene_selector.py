@@ -5,6 +5,7 @@ import json
 import unittest
 from pathlib import Path
 
+from apps.server.src.domain.visibility import ViewerContext
 from apps.server.src.domain.view_state.scene_selector import build_scene_view_state
 from apps.server.src.services.stream_service import StreamService
 
@@ -90,7 +91,7 @@ class ViewStateSceneSelectorTests(unittest.TestCase):
                     "character": "만신",
                 },
             )
-            await stream.publish(
+            prompt = await stream.publish(
                 "sess_scene_weather",
                 "prompt",
                 {
@@ -106,8 +107,11 @@ class ViewStateSceneSelectorTests(unittest.TestCase):
                     },
                 },
             )
-            snapshot = await stream.snapshot("sess_scene_weather")
-            return snapshot[-1].to_dict()["payload"]["view_state"]["scene"]["situation"]
+            projected = await stream.project_message_for_viewer(
+                prompt.to_dict(),
+                ViewerContext(role="seat", session_id="sess_scene_weather", player_id=1),
+            )
+            return projected["payload"]["view_state"]["scene"]["situation"]
 
         situation = asyncio.run(_publish())
 

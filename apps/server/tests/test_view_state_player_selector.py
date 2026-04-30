@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 
+from apps.server.src.domain.visibility import ViewerContext
 from apps.server.src.domain.view_state.player_selector import (
     build_active_slots_view_state,
     build_mark_target_view_state,
@@ -233,7 +234,7 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
                     "character": "산적",
                 },
             )
-            await stream.publish(
+            prompt = await stream.publish(
                 "sess_1",
                 "prompt",
                 {
@@ -251,8 +252,11 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
                     },
                 },
             )
-            snapshot = await stream.snapshot("sess_1")
-            return snapshot[-1].to_dict()["payload"]["view_state"]
+            projected = await stream.project_message_for_viewer(
+                prompt.to_dict(),
+                ViewerContext(role="seat", session_id="sess_1", player_id=1),
+            )
+            return projected["payload"]["view_state"]
 
         view_state = asyncio.run(_publish())
 
@@ -296,7 +300,7 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
                     "character": "만신",
                 },
             )
-            await stream.publish(
+            prompt = await stream.publish(
                 "sess_1",
                 "prompt",
                 {
@@ -319,8 +323,11 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
                     },
                 },
             )
-            snapshot = await stream.snapshot("sess_1")
-            return snapshot[-1].to_dict()["payload"]["view_state"]
+            projected = await stream.project_message_for_viewer(
+                prompt.to_dict(),
+                ViewerContext(role="seat", session_id="sess_1", player_id=1),
+            )
+            return projected["payload"]["view_state"]
 
         view_state = asyncio.run(_publish())
 

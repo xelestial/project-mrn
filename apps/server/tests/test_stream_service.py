@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 
+from apps.server.src.domain.visibility import ViewerContext
 from apps.server.src.services.stream_service import StreamService
 
 
@@ -108,6 +109,48 @@ class StreamServiceTests(unittest.TestCase):
                 self.assertNotIn("hand_tray", view_state)
             self.assertIn("legal_choices", prompt.payload)
             self.assertIn("full_hand", prompt.payload["public_context"])
+
+        asyncio.run(_run())
+
+    def test_project_message_for_target_rebuilds_private_view_state(self) -> None:
+        service = StreamService()
+
+        async def _run() -> None:
+            prompt = await service.publish(
+                "s1",
+                "prompt",
+                {
+                    "request_id": "req_trick",
+                    "request_type": "trick_to_use",
+                    "player_id": 1,
+                    "legal_choices": [
+                        {
+                            "choice_id": "card-11",
+                            "title": "재뿌리기",
+                            "value": {"deck_index": 11},
+                        }
+                    ],
+                    "public_context": {
+                        "full_hand": [
+                            {
+                                "deck_index": 11,
+                                "name": "재뿌리기",
+                                "card_description": "이번 턴 임대료를 0으로 만듭니다.",
+                                "is_usable": True,
+                            }
+                        ],
+                    },
+                },
+            )
+
+            target = await service.project_message_for_viewer(prompt.to_dict(), ViewerContext(role="seat", session_id="s1", player_id=1))
+            other = await service.project_message_for_viewer(prompt.to_dict(), ViewerContext(role="seat", session_id="s1", player_id=2))
+
+            self.assertIsNotNone(target)
+            view_state = target["payload"]["view_state"]
+            self.assertEqual(view_state["prompt"]["active"]["request_id"], "req_trick")
+            self.assertEqual(view_state["hand_tray"]["cards"][0]["name"], "재뿌리기")
+            self.assertIsNone(other)
 
         asyncio.run(_run())
 

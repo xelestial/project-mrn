@@ -72,7 +72,7 @@ class StreamService:
                 "server_time_ms": int(time.time() * 1000),
                 "payload": enriched_payload,
             }
-            projected = project_view_state(self._public_projection_records(session_id, [*history, pending_record]))
+            projected = project_view_state([*history, pending_record], viewer=ViewerContext(role="spectator", session_id=session_id))
             if projected:
                 enriched_payload["view_state"] = projected
             server_time_ms = int(time.time() * 1000)
@@ -140,6 +140,25 @@ class StreamService:
             if not buf:
                 return (0, 0)
             return (buf[0].seq, buf[-1].seq)
+
+    async def project_message_for_viewer(self, message: dict, viewer: ViewerContext) -> dict | None:
+        async with self._lock:
+            filtered = project_stream_message_for_viewer(message, viewer)
+            if filtered is None:
+                return None
+            session_id = str(message.get("session_id") or viewer.session_id or "").strip()
+            records = self._history_records_no_lock(session_id) if session_id else [message]
+            seq = self._message_seq(message)
+            if seq > 0:
+                records = [record for record in records if 0 < self._message_seq(record) <= seq]
+            if not any(self._message_seq(record) == seq and seq > 0 for record in records):
+                records.append(message)
+            projected = project_view_state(records, viewer=viewer)
+            if projected:
+                filtered_payload = filtered.get("payload")
+                if isinstance(filtered_payload, dict):
+                    filtered_payload["view_state"] = projected
+            return filtered
 
     async def latest_seq(self, session_id: str) -> int:
         async with self._lock:
@@ -286,15 +305,6 @@ class StreamService:
     def _messages_from_backend(self, session_id: str) -> list[StreamMessage]:
         return [self._message_from_payload(message) for message in self._stream_backend.snapshot(session_id)]
 
-    def _public_projection_records(self, session_id: str, records: list[dict]) -> list[dict]:
-        viewer = ViewerContext(role="spectator", session_id=session_id)
-        projected: list[dict] = []
-        for record in records:
-            item = project_stream_message_for_viewer(record, viewer)
-            if item is not None:
-                projected.append(item)
-        return projected
-
     def _duplicate_request_message_no_lock(
         self,
         history: list[dict],
@@ -325,6 +335,13 @@ class StreamService:
                 continue
             return self._message_from_payload(message)
         return None
+
+    @staticmethod
+    def _message_seq(message: dict) -> int:
+        try:
+            return int(message.get("seq", 0) or 0)
+        except Exception:
+            return 0
 
     def _maybe_append_command(self, item: StreamMessage) -> None:
         payload = item.payload

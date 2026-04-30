@@ -5,6 +5,7 @@ import json
 import unittest
 from pathlib import Path
 
+from apps.server.src.domain.visibility import ViewerContext
 from apps.server.src.domain.view_state.prompt_selector import build_prompt_feedback_view_state, build_prompt_view_state
 from apps.server.src.services.stream_service import StreamService
 
@@ -123,11 +124,11 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
             },
         )
 
-    def test_stream_service_publishes_additive_prompt_projection(self) -> None:
+    def test_stream_service_projects_prompt_view_state_for_target_viewer(self) -> None:
         stream = StreamService()
 
-        async def _publish() -> list[dict]:
-            await stream.publish(
+        async def _publish() -> tuple[dict, dict | None]:
+            prompt = await stream.publish(
                 "sess_1",
                 "prompt",
                 {
@@ -140,14 +141,20 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                 },
             )
             snapshot = await stream.snapshot("sess_1")
-            return [message.to_dict() for message in snapshot]
+            projected = await stream.project_message_for_viewer(
+                prompt.to_dict(),
+                ViewerContext(role="seat", session_id="sess_1", player_id=1),
+            )
+            return [message.to_dict() for message in snapshot][-1], projected
 
-        events = asyncio.run(_publish())
-        latest_payload = events[-1]["payload"]
+        stored_message, projected_message = asyncio.run(_publish())
+        latest_payload = stored_message["payload"]
 
         self.assertIn("view_state", latest_payload)
+        self.assertNotIn("prompt", latest_payload["view_state"])
+        self.assertIsNotNone(projected_message)
         self.assertEqual(
-            latest_payload["view_state"]["prompt"]["active"]["request_id"],
+            projected_message["payload"]["view_state"]["prompt"]["active"]["request_id"],
             "req_turn7_move",
         )
 

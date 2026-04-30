@@ -116,6 +116,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
         seat=auth_ctx.get("seat"),
         player_id=auth_ctx.get("player_id"),
     )
+    viewer = viewer_from_auth_context(auth_ctx, session_id=session_id)
 
     async def _heartbeat() -> None:
         while not stop_event.is_set():
@@ -151,7 +152,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                 message = await asyncio.wait_for(subscriber_queue.get(), timeout=sender_poll_timeout_sec)
             except asyncio.TimeoutError:
                 continue
-            filtered = _filter_stream_message(message, auth_ctx)
+            filtered = await stream_service.project_message_for_viewer(message, viewer)
             if filtered is not None:
                 await websocket.send_json(filtered)
 
@@ -186,7 +187,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                     last_seq = oldest_seq - 1
                 replay = await stream_service.replay_from(session_id, last_seq)
                 for item in replay:
-                    filtered = _filter_stream_message(item.to_dict(), auth_ctx)
+                    filtered = await stream_service.project_message_for_viewer(item.to_dict(), viewer)
                     if filtered is not None:
                         await websocket.send_json(filtered)
                 log_event(
