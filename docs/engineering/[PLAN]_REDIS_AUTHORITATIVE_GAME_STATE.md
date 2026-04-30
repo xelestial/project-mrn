@@ -8,6 +8,8 @@ After this migration, the FastAPI backend and the engine may hold temporary loca
 
 Long-term retention is a separate concern. In the first rollout, finished game logs, summaries, and replay exports should be written to backend-local JSON files after the Redis reconnect/support window ends. A colder external persistent store can replace that local JSON archive later if operations require it.
 
+Visibility/projection planning lives in `[PLAN]_VISIBILITY_PROJECTION_REDIS.md`. Redis may store canonical private state, but backend output to frontend clients must be projected per authenticated viewer before delivery.
+
 ## Benchmarked Patterns
 
 The design follows the public architecture patterns used by commercial realtime games and managed Redis providers:
