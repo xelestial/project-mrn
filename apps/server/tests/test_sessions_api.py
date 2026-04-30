@@ -292,6 +292,60 @@ class SessionsApiTests(unittest.TestCase):
         self.assertIn("view_state", data)
         self.assertIn("players", data["view_state"])
 
+    def test_replay_endpoint_projects_latest_view_state_for_authenticated_seat(self) -> None:
+        created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
+        created_data = created.json()["data"]
+        session_id = created_data["session_id"]
+        join_token = created_data["join_tokens"]["1"]
+        joined = self.client.post(
+            f"/api/v1/sessions/{session_id}/join",
+            json={"seat": 1, "join_token": join_token, "display_name": "P1"},
+        )
+        self.assertEqual(joined.status_code, 200)
+        session_token = joined.json()["data"]["session_token"]
+
+        async def _seed_private_prompt() -> None:
+            from apps.server.src import state
+
+            await state.stream_service.publish(
+                session_id,
+                "prompt",
+                {
+                    "request_id": "req_trick",
+                    "request_type": "trick_to_use",
+                    "player_id": 1,
+                    "legal_choices": [{"choice_id": "card-11", "title": "재뿌리기"}],
+                    "public_context": {
+                        "full_hand": [{"deck_index": 11, "name": "재뿌리기", "is_usable": True}],
+                    },
+                },
+            )
+
+        asyncio.run(_seed_private_prompt())
+
+        spectator = self.client.get(f"/api/v1/sessions/{session_id}/replay")
+        self.assertEqual(spectator.status_code, 200)
+        spectator_data = spectator.json()["data"]
+        self.assertNotIn("prompt", {event.get("type") for event in spectator_data["events"]})
+        self.assertNotIn("prompt", spectator_data["view_state"])
+        self.assertNotIn("hand_tray", spectator_data["view_state"])
+
+        seat = self.client.get(f"/api/v1/sessions/{session_id}/replay?token={session_token}")
+        self.assertEqual(seat.status_code, 200)
+        seat_data = seat.json()["data"]
+        self.assertIn("prompt", {event.get("type") for event in seat_data["events"]})
+        self.assertEqual(seat_data["view_state"]["prompt"]["active"]["request_id"], "req_trick")
+        self.assertEqual(seat_data["view_state"]["hand_tray"]["cards"][0]["name"], "재뿌리기")
+
+    def test_replay_endpoint_rejects_invalid_session_token(self) -> None:
+        created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
+        session_id = created.json()["data"]["session_id"]
+
+        replay = self.client.get(f"/api/v1/sessions/{session_id}/replay?token=bad-token")
+
+        self.assertEqual(replay.status_code, 401)
+        self.assertEqual(replay.json()["error"]["code"], "INVALID_SESSION_TOKEN")
+
     def test_start_response_includes_parameter_manifest(self) -> None:
         created = self.client.post("/api/v1/sessions", json=_all_ai_payload())
         self.assertEqual(created.status_code, 200)

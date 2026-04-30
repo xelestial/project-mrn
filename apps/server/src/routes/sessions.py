@@ -259,16 +259,27 @@ def runtime_status(
 @router.get("/{session_id}/replay")
 async def replay_export(
     session_id: str,
+    token: str | None = None,
     service: SessionService = Depends(_service),
     stream: StreamService = Depends(_stream_service),
 ) -> dict:
     try:
         service.get_session(session_id)
+        auth_ctx = service.verify_session_token(session_id, token)
     except SessionNotFoundError:
         _error("SESSION_NOT_FOUND", "Session not found.", status.HTTP_404_NOT_FOUND)
-    events = [message.to_dict() for message in await stream.snapshot(session_id)]
-    view_state = await stream.latest_view_state_for_viewer(
-        session_id,
-        ViewerContext(role="spectator", session_id=session_id),
+    except SessionStateError:
+        _error("INVALID_SESSION_TOKEN", "Invalid session token.", status.HTTP_401_UNAUTHORIZED)
+    viewer = ViewerContext(
+        role=str(auth_ctx.get("role") or "spectator"),
+        session_id=session_id,
+        seat=auth_ctx.get("seat"),
+        player_id=auth_ctx.get("player_id"),
     )
+    events = []
+    for message in await stream.snapshot(session_id):
+        projected = await stream.project_message_for_viewer(message.to_dict(), viewer)
+        if projected is not None:
+            events.append(projected)
+    view_state = await stream.latest_view_state_for_viewer(session_id, viewer)
     return _ok({"session_id": session_id, "event_count": len(events), "events": events, "view_state": view_state})

@@ -107,6 +107,22 @@ Updated: 2026-04-30
   - add authenticated replay/export variants for player-specific latest `view_state`
   - migrate recovery/archive readers to explicitly prefer projected `view_state:public` once backward compatibility with legacy `view_state` is no longer needed
 
+## 2026-04-30 Authenticated Replay Projection
+
+- Scope: make replay/export respect the same backend visibility boundary as websocket delivery.
+- Done:
+  - `/api/v1/sessions/{session_id}/replay` accepts an optional session token
+  - spectator replay now projects every event through spectator visibility before returning it
+  - authenticated seat replay projects events and latest `view_state` for that player
+  - invalid replay tokens return `INVALID_SESSION_TOKEN`
+  - added regression coverage proving private prompt/hand data is hidden from spectators and visible to the target seat
+- Validation:
+  - `./.venv/bin/python -m pytest apps/server/tests/test_sessions_api.py -k replay -q`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_stream_service.py apps/server/tests/test_visibility_projection.py -q`
+- Follow-up:
+  - expose admin replay only behind an explicit admin auth context instead of overloading seat/session tokens
+  - audit archive/recovery outputs so they do not accidentally become browser-facing canonical state exports
+
 ## 2026-04-30 Tile Trait Action Pipeline Design
 
 - Scope: document a consistent tile trait/modifier/action architecture before implementation.
