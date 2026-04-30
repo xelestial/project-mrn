@@ -1020,6 +1020,8 @@ class GameEngine:
             return self._resolve_mark_action(state, action, queue_followups=queue_followups)
         if action.type == "resolve_fortune_takeover_backward":
             return self._resolve_fortune_takeover_backward_action(state, action)
+        if action.type == "resolve_trick_tile_rent_modifier":
+            return self._resolve_trick_tile_rent_modifier_action(state, action)
         if action.type == "request_purchase_tile":
             return self._request_purchase_tile_action(state, action)
         if action.type == "resolve_purchase_tile":
@@ -3591,6 +3593,72 @@ class GameEngine:
     def _apply_trick_card(self, state: GameState, player: PlayerState, card: TrickCard) -> dict:
         result = self.events.emit_first_non_none("trick.card.resolve", state, player, card)
         return result if result is not None else {"type": "NOT_YET_IMPLEMENTED", "name": card.name}
+
+    def _enqueue_trick_tile_rent_modifier_action(
+        self,
+        state: GameState,
+        player: PlayerState,
+        card_name: str,
+        *,
+        target_scope: str,
+        selection_mode: str,
+        modifier_kind: str,
+    ) -> dict:
+        action = self._action(
+            state,
+            "resolve_trick_tile_rent_modifier",
+            player,
+            "trick_tile_rent_modifier",
+            {
+                "card_name": card_name,
+                "target_scope": target_scope,
+                "selection_mode": selection_mode,
+                "modifier_kind": modifier_kind,
+            },
+        )
+        state.pending_actions.append(action)
+        return {
+            "type": "QUEUED_TRICK_TILE_RENT_MODIFIER",
+            "card_name": card_name,
+            "modifier_kind": modifier_kind,
+            "queued_action_id": action.action_id,
+        }
+
+    def _resolve_trick_tile_rent_modifier_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        player = state.players[action.actor_player_id]
+        payload = action.payload
+        card_name = str(payload.get("card_name") or action.source)
+        target_scope = str(payload.get("target_scope") or "")
+        selection_mode = str(payload.get("selection_mode") or "")
+        modifier_kind = str(payload.get("modifier_kind") or "")
+        if target_scope == "other_owned":
+            candidates = [i for i, owner in enumerate(state.tile_owner) if owner is not None and owner != player.player_id]
+            fallback = lambda: self._select_other_player_tile(state, player, highest=True)
+        elif target_scope == "owned":
+            candidates = [i for i, owner in enumerate(state.tile_owner) if owner == player.player_id]
+            fallback = lambda: self._select_owned_tile(state, player.player_id, highest=True)
+        else:
+            return {"type": "NO_EFFECT", "reason": "invalid_target_scope", "card_name": card_name}
+        if not candidates:
+            return {"type": "NO_EFFECT", "reason": "no_target_tile", "card_name": card_name}
+        pos = self._request_decision(
+            "choose_trick_tile_target",
+            state,
+            player,
+            card_name,
+            list(candidates),
+            selection_mode,
+            fallback=fallback,
+        )
+        if pos is None:
+            return {"type": "NO_EFFECT", "reason": "no_target_tile", "card_name": card_name}
+        if modifier_kind == "rent_zero":
+            state.tile_rent_modifiers_this_turn[pos] = 0
+            return {"type": "TILE_RENT_ZERO", "pos": pos, "card_name": card_name}
+        if modifier_kind == "rent_double":
+            state.tile_rent_modifiers_this_turn[pos] = max(2, state.tile_rent_modifiers_this_turn.get(pos, 1) * 2)
+            return {"type": "TILE_RENT_DOUBLE", "pos": pos, "card_name": card_name}
+        return {"type": "NO_EFFECT", "reason": "invalid_modifier_kind", "card_name": card_name}
 
     def _apply_flash_trade(self, state: GameState, player: PlayerState) -> dict:
         others = [p for p in state.players if p.alive and p.player_id != player.player_id and p.trick_hand]

@@ -585,6 +585,79 @@ def test_extreme_separation_trick_queues_target_move_action() -> None:
     assert state.pending_actions[0].type == "resolve_arrival"
 
 
+def test_trick_tile_rent_modifier_queues_target_decision_action() -> None:
+    class TargetDecisionPort:
+        def __init__(self, target: int) -> None:
+            self.target = target
+
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name == "choose_trick_tile_target":
+                return self.target
+            return request.args[0][0]
+
+    config = GameConfig(player_count=2)
+    state = GameState.create(config)
+    player = state.players[0]
+    owner = state.players[1]
+    target = state.first_tile_position(kinds=[CellKind.T2])
+    state.tile_owner[target] = owner.player_id
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=TargetDecisionPort(target), rng=random.Random(31))
+
+    result = engine._apply_trick_card(
+        state,
+        player,
+        TrickCard(deck_index=1001, name="재뿌리기", description=""),
+    )
+
+    assert result["type"] == "QUEUED_TRICK_TILE_RENT_MODIFIER"
+    assert state.tile_rent_modifiers_this_turn == {}
+    assert [action.type for action in state.pending_actions] == ["resolve_trick_tile_rent_modifier"]
+
+    step = engine.run_next_transition(state)
+
+    assert step["action_type"] == "resolve_trick_tile_rent_modifier"
+    assert state.tile_rent_modifiers_this_turn[target] == 0
+
+
+def test_trick_tile_rent_modifier_prompt_keeps_action_queued() -> None:
+    class WaitingDecisionPort:
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name == "choose_trick_tile_target":
+                raise RuntimeError("prompt_required_for_test")
+            return request.args[0][0]
+
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=WaitingDecisionPort(), rng=random.Random(32))
+    state = GameState.create(config)
+    player = state.players[0]
+    target = state.first_tile_position(kinds=[CellKind.T2])
+    state.tile_owner[target] = player.player_id
+    state.pending_actions = [
+        ActionEnvelope(
+            action_id="trick_rent_double_prompt",
+            type="resolve_trick_tile_rent_modifier",
+            actor_player_id=player.player_id,
+            source="trick_tile_rent_modifier",
+            payload={
+                "card_name": "긴장감 조성",
+                "target_scope": "owned",
+                "selection_mode": "owned_highest",
+                "modifier_kind": "rent_double",
+            },
+        )
+    ]
+
+    try:
+        engine.run_next_transition(state)
+    except RuntimeError as exc:
+        assert str(exc) == "prompt_required_for_test"
+    else:
+        raise AssertionError("trick tile target prompt should have interrupted the queued action")
+
+    assert [action.type for action in state.pending_actions] == ["resolve_trick_tile_rent_modifier"]
+    assert state.tile_rent_modifiers_this_turn == {}
+
+
 def test_request_purchase_tile_action_can_resume_and_purchase() -> None:
     class YesDecisionPort:
         def request(self, request):  # noqa: ANN001

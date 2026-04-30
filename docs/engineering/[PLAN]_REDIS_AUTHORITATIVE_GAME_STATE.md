@@ -754,6 +754,7 @@ Next action-pipeline hardening:
 - expand the prompt-resumable pattern to any future human decisions that still appear during effect resolution
 - continue the tile-trait migration from `[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md`: audit remaining inline economic mutations and split rent payment itself into an explicit action only if a later prompt/animation boundary needs it
 - latest audit result: remaining inline economic mutations are intentionally kept atomic unless they introduce a prompt, distinct animation beat, recovery checkpoint, or shared modifier context. The contract tests now guard against reintroducing inline purchase/token placement prompts inside default landing effect handlers.
+- trick tile-rent target effects now follow the same rule: `재뿌리기` and `긴장감 조성` queue `resolve_trick_tile_rent_modifier`, so target selection prompts and rent modifier mutation are checkpointable.
 
 ## Testing Strategy
 

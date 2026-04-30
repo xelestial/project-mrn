@@ -45,6 +45,8 @@ def test_landing_effect_handlers_do_not_open_purchase_or_token_prompts_inline() 
         "_request_decision('choose_purchase_tile'",
         '_request_decision("choose_coin_placement_tile"',
         "_request_decision('choose_coin_placement_tile'",
+        '_request_decision("choose_trick_tile_target"',
+        "_request_decision('choose_trick_tile_target'",
     }
     offenders = [token for token in disallowed if token in source]
 

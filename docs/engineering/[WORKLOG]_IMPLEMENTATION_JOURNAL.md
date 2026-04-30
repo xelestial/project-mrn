@@ -161,6 +161,24 @@ Updated: 2026-04-30
 - Follow-up:
   - if score-token placement becomes a public event later, add event tone, timeline/core-action labels, and selector tests at that time
 
+## 2026-04-30 Trick Tile Target Action Split
+
+- Scope: continue the fortune/trick audit by moving target-selecting trick rent modifiers to action boundaries.
+- Done:
+  - added `resolve_trick_tile_rent_modifier`
+  - changed `재뿌리기` to queue the action instead of opening `choose_trick_tile_target` inline
+  - changed `긴장감 조성` to queue the action instead of opening `choose_trick_tile_target` inline
+  - added prompt interruption coverage proving the rent modifier action stays queued and does not mutate early
+  - extended the action-pipeline contract so default effect handlers cannot reintroduce inline purchase/token/trick-target prompts
+- Validation:
+  - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_rule_fixes.py -k 'trick_tile_rent_modifier or trade_pass or rent_double or rent_zero or prompt_action or purchase'`
+  - `./.venv/bin/python -m pytest GPT/test_action_pipeline_contract.py -q`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py -k 'trick_tile_rent_modifier'`
+  - `./.venv/bin/python -m pytest GPT/test_doc_integrity.py GPT/test_action_pipeline_contract.py GPT/test_engine_resumable_checkpoint.py -k 'doc_integrity or landing_effect_handlers or trick_tile_rent_modifier or score_token or purchase or prompt_action'`
+  - `./.venv/bin/python -m pytest GPT`
+- Follow-up:
+  - continue auditing trick/fortune effects only where a real decision boundary remains
+
 ## 2026-04-29 Redis Action Pipeline Seed
 
 - Scope: begin modular movement/arrival execution for the Redis-resumable engine path.

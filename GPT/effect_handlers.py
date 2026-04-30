@@ -777,36 +777,26 @@ class EngineEffectHandlers:
             candidates = [i for i, owner in enumerate(state.tile_owner) if owner is not None and owner != player.player_id]
             if not candidates:
                 return {"type": "NO_EFFECT", "reason": "no_target_tile"}
-            pos = engine._request_decision(
-                "choose_trick_tile_target",
+            return engine._enqueue_trick_tile_rent_modifier_action(
                 state,
                 player,
                 name,
-                list(candidates),
-                "other_owned_highest",
-                fallback=lambda: engine._select_other_player_tile(state, player, highest=True),
+                target_scope="other_owned",
+                selection_mode="other_owned_highest",
+                modifier_kind="rent_zero",
             )
-            if pos is None:
-                return {"type": "NO_EFFECT", "reason": "no_target_tile"}
-            state.tile_rent_modifiers_this_turn[pos] = 0
-            return {"type": "TILE_RENT_ZERO", "pos": pos}
         if name == "긴장감 조성":
             candidates = [i for i, owner in enumerate(state.tile_owner) if owner == player.player_id]
             if not candidates:
                 return {"type": "NO_EFFECT", "reason": "no_owned_tile"}
-            pos = engine._request_decision(
-                "choose_trick_tile_target",
+            return engine._enqueue_trick_tile_rent_modifier_action(
                 state,
                 player,
                 name,
-                list(candidates),
-                "owned_highest",
-                fallback=lambda: engine._select_owned_tile(state, player.player_id, highest=True),
+                target_scope="owned",
+                selection_mode="owned_highest",
+                modifier_kind="rent_double",
             )
-            if pos is None:
-                return {"type": "NO_EFFECT", "reason": "no_owned_tile"}
-            state.tile_rent_modifiers_this_turn[pos] = max(2, state.tile_rent_modifiers_this_turn.get(pos, 1) * 2)
-            return {"type": "TILE_RENT_DOUBLE", "pos": pos}
         if name == "느슨함 혐오자":
             state.global_rent_double_this_turn = True
             engine._log({"event": "trick_global_rent_double", "player": player.player_id + 1})

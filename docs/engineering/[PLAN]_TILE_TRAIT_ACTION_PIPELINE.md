@@ -589,6 +589,7 @@ Already split:
 - first-purchase score-token placement: `resolve_score_token_placement`
 - own-tile score-token prompt: `request_score_token_placement`
 - own-tile score-token mutation: `resolve_score_token_placement`
+- trick tile-rent target selection: `resolve_trick_tile_rent_modifier`
 - queued movement and arrival: `apply_move -> resolve_arrival`
 - mark effects with target-player timing: scheduled `resolve_mark`
 - decision-bearing fortune target effects: `resolve_fortune_*`
@@ -616,4 +617,21 @@ Watch list:
 
 ### Guardrail
 
-`GPT/test_action_pipeline_contract.py` now prevents default landing effect handlers from reopening purchase or score-token placement prompts inline. New runtime purchase/token decisions should be represented as queued request/resolve actions.
+`GPT/test_action_pipeline_contract.py` now prevents default effect handlers from reopening purchase, score-token placement, or trick tile-target prompts inline. New runtime purchase/token/trick-target decisions should be represented as queued request/resolve actions.
+
+### 2026-04-30 Trick Tile Rent Modifier Action
+
+Implemented:
+
+- `재뿌리기` no longer opens `choose_trick_tile_target` inline.
+- `긴장감 조성` no longer opens `choose_trick_tile_target` inline.
+- Both cards queue `resolve_trick_tile_rent_modifier`, which owns target selection and the final rent modifier mutation.
+- Prompt interruption reinserts `resolve_trick_tile_rent_modifier`, preserving the selected/used trick-card state and avoiding partial rent modifier mutation.
+
+Validation:
+
+- `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py GPT/test_rule_fixes.py -k 'trick_tile_rent_modifier or trade_pass or rent_double or rent_zero or prompt_action or purchase'`
+- `./.venv/bin/python -m pytest GPT/test_action_pipeline_contract.py -q`
+- `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py -k 'trick_tile_rent_modifier'`
+- `./.venv/bin/python -m pytest GPT/test_doc_integrity.py GPT/test_action_pipeline_contract.py GPT/test_engine_resumable_checkpoint.py -k 'doc_integrity or landing_effect_handlers or trick_tile_rent_modifier or score_token or purchase or prompt_action'`
+- `./.venv/bin/python -m pytest GPT`
