@@ -617,10 +617,15 @@ class RuntimeService:
         pending_prompt_type = str(getattr(state, "pending_prompt_type", "") or "")
         pending_instance_id = int(getattr(state, "pending_prompt_instance_id", 0) or 0)
         if pending_request_id and pending_instance_id > 0:
-            if hasattr(state, "current_round_order") and not (getattr(state, "current_round_order", None) or []):
-                # Round-start prompts happen inside one transition. Replaying from a
-                # later prompt would skip earlier draft decisions after _start_new_round
-                # clears per-round draft state.
+            if (
+                pending_prompt_type in {"draft_card", "final_character"}
+                or ":draft_card:" in pending_request_id
+                or ":final_character:" in pending_request_id
+            ):
+                # Draft/final-character prompts happen inside round setup before
+                # the next priority order is committed. The previous round order
+                # can still be present in checkpoints, so identify this replay by
+                # prompt type and consume resolved draft decisions from the start.
                 return 0
             if pending_prompt_type == "movement" or ":movement:" in pending_request_id:
                 pending_actions = getattr(state, "pending_actions", None) or []

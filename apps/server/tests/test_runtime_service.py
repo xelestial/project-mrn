@@ -3397,6 +3397,23 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_round_start_prompt_replay_rewinds_even_when_previous_order_remains(self) -> None:
+        checkpoint_state = type(
+            "CheckpointState",
+            (),
+            {
+                "prompt_sequence": 6,
+                "pending_prompt_request_id": "sess_round2_replay:r2:t5:p2:final_character:6",
+                "pending_prompt_type": "final_character",
+                "pending_prompt_instance_id": 6,
+                "current_round_order": [2, 0, 1, 3],
+            },
+        )()
+
+        seed = self.runtime_service._prompt_sequence_seed_for_transition(checkpoint_state)
+
+        self.assertEqual(seed, 0)
+
     def test_pending_hidden_trick_replay_resumes_same_hidden_selection(self) -> None:
         from apps.server.src.services.decision_gateway import PromptRequired
         from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge

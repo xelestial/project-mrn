@@ -999,10 +999,9 @@ def _build_mark_target_choices(args: tuple[Any, ...], kwargs: dict[str, Any], st
 
 
 def _parse_mark_target_choice(choice_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> Any:
-    del args, kwargs
     if choice_id == "none":
         return None
-    for choice in _build_mark_target_choices((), {}, state, player):
+    for choice in _build_mark_target_choices(args, kwargs, state, player):
         if choice.get("choice_id") == choice_id:
             value = dict(choice.get("value") or {})
             target_character = value.get("target_character")

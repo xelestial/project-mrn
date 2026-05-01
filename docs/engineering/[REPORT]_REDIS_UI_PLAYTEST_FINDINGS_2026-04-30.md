@@ -722,3 +722,58 @@ Current assessment:
 - This was not a Redis boot or storage failure. Redis-backed gameplay progressed and the browser stayed alive.
 - Root cause was a UI contract/readability regression: the visible surface had moved, but spectator/core-action/reveal selectors and cause-first ordering were no longer preserved.
 - The issue is closed after a green `npm run e2e:human-runtime` run plus the two browser parity trick lifecycle checks for `긴장감 조성` and `극심한 분리불안`.
+
+### 2026-05-01 REDIS-UI-11 Resolved: Four-Player Draft Looked Like A Broken Three-Player Game
+
+Status: RESOLVED
+Severity: P0
+Retest method: focused unit tests, 500-seed engine scan, and a live four-human websocket play session.
+Live session: `sess_8IkhAJxSLizm49Ag6L2KJdHF`
+
+Updated report from play: even after the round-start replay fix, draft order, target selection, and turn order still looked wrong. In the default seed path, a player could disappear from the first round before character draft, making the whole match behave like a malformed 3-player game.
+
+Root cause:
+
+- `prepare_run()` dealt the initial five trick cards before the first weather reveal.
+- With seed `42`, the first weather was `긴급 피난`, which doubles burden cleanup cost.
+- P3's initial public trick hand contained enough burden cleanup pressure to bankrupt the player before any draft or human decision.
+- Because P3 was already dead at draft time, the first round only prompted the remaining three players. That made draft prompts, final character selection, `round_order`, and character start abilities look unrelated to the user's choices.
+- A separate mark-target parser bug compounded the symptom: server-side choice parsing rebuilt mark choices without the original invocation args/kwargs, so legal mark choices could fail to resolve through the canonical decision gateway.
+
+Fix:
+
+- `GameEngine.prepare_run()` now creates the initial state without dealing trick cards.
+- The first weather is still revealed before draft, but the initial trick hand is dealt immediately after that first weather reveal and before draft starts.
+- Later rounds are unchanged: weather still applies to the existing hand at the start of the round.
+- `DecisionGateway._parse_mark_target_choice()` now rebuilds mark-target choices with the actual invocation args/kwargs, preserving the live legal target context.
+- The previous round-start prompt replay fix was kept: pending `draft_card` and `final_character` prompts rewind sequencing to the start of the round-start transition even if a stale prior `current_round_order` is still present in the checkpoint.
+
+Validation:
+
+```text
+PYTHONPATH=/Users/sil/Workspace/project-mrn/GPT .venv/bin/python -m pytest GPT/test_rule_fixes.py -k 'mark_target or initial_weather or trick_visibility_reveals_all_but_one or hidden_trick_is_preserved_until_removed' -q
+9 passed, 103 deselected
+
+.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -k 'mark_target_context_uses_public_active_faces_for_future_slots or ai_bridge_keeps_mark_target_on_canonical_decision_flow or round_start_prompt_replay or hidden_trick' -q
+7 passed, 77 deselected
+```
+
+Additional engine scan:
+
+- Seeds `1..500` now produce `0` first-round pre-draft eliminations.
+
+Live four-human validation:
+
+- `round_start` reported `alive_player_ids: [1, 2, 3, 4]` even with first weather `긴급 피난`.
+- Draft progressed through four first-pick prompts and four second-pick assignments.
+- Final character prompts resolved for all four players.
+- Hidden trick prompts resolved for all four players.
+- `round_order` became `[3, 1, 2, 4]` with characters `{3: 자객, 1: 탈출 노비, 2: 박수, 4: 건설업자}`.
+- P3's `자객` ability prompted `mark_target`, the selected `탈출 노비` target resolved to P1, and the stream emitted `mark_resolved`.
+- The same turn then advanced through `trick_to_use` pass, `movement` dice choice, `dice_roll`, and `player_move`.
+- All submitted decisions were accepted; no duplicate prompt, rejected ack, or runtime wait stall appeared.
+
+Notes:
+
+- The mark-target prompt intentionally shows public future priority-card faces, not only final confirmed character names. In the validated session that meant labels such as `파발꾼`, `교리 연구관`, and `객주` could appear because they were public card-face guesses for future slots. Selecting a held future public face now resolves correctly.
+- This bug was not caused by another PC pulling a bad build. A stale build could keep showing old behavior, but the reproduced root cause was deterministic engine setup ordering in the current code path.

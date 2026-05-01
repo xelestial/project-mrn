@@ -1432,6 +1432,19 @@ class TrickSystemTests(unittest.TestCase):
         self.assertIn("draft_pick", timeline)
         self.assertLess(timeline.index("weather_round"), timeline.index("draft_pick"))
 
+    def test_initial_weather_does_not_eliminate_players_before_first_draft(self):
+        class FirstChoicePolicy(DummyPolicy):
+            def choose_final_character(self, state, player, card_choices):
+                return state.active_by_card[card_choices[0]]
+
+        engine = GameEngine(DEFAULT_CONFIG, FirstChoicePolicy(), rng=random.Random(42), enable_logging=True)
+        state = engine.prepare_run()
+
+        self.assertEqual([p.player_id + 1 for p in state.players if p.alive], [1, 2, 3, 4])
+        self.assertEqual(len(state.current_round_order), DEFAULT_CONFIG.player_count)
+        self.assertTrue(all(p.current_character for p in state.players))
+        self.assertTrue(all(len(p.trick_hand) == 5 for p in state.players))
+
     def test_four_player_second_draft_is_random_assignment(self):
         class CountingDraftPolicy(DummyPolicy):
             def __init__(self):

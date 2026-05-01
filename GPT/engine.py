@@ -334,7 +334,7 @@ class GameEngine:
         if initial_state is not None:
             self._last_prepared_state = initial_state
             return initial_state
-        state = self.create_initial_state()
+        state = self.create_initial_state(deal_initial_tricks=False)
         self._last_prepared_state = state
         self._emit_vis(
             "session_start",
@@ -349,14 +349,21 @@ class GameEngine:
         self._start_new_round(state, initial=True)
         return state
 
-    def create_initial_state(self) -> GameState:
+    def create_initial_state(self, *, deal_initial_tricks: bool = True) -> GameState:
         state = GameState.create(self.config)
         self._initialize_active_faces(state)
         self.rng.shuffle(state.fortune_draw_pile)
         self.rng.shuffle(state.trick_draw_pile)
         self.rng.shuffle(state.weather_draw_pile)
+        if deal_initial_tricks:
+            self._deal_initial_tricks(state)
+        return state
+
+    def _deal_initial_tricks(self, state: GameState) -> None:
         for p in state.players:
-            self._draw_tricks(state, p, 5, sync_visibility=False)
+            if not p.alive:
+                continue
+            self._draw_tricks(state, p, max(0, 5 - len(p.trick_hand)), sync_visibility=False)
         self._log({
             "event": "initial_public_tricks",
             "players": [
@@ -364,7 +371,6 @@ class GameEngine:
                 for p in state.players
             ],
         })
-        return state
 
     def run_next_transition(self, state: GameState) -> dict[str, Any]:
         if state.pending_actions:
@@ -1944,6 +1950,8 @@ class GameEngine:
             effects=list(state.current_weather_effects),
             active_by_card=dict(state.active_by_card),
         )
+        if initial:
+            self._deal_initial_tricks(state)
         self._run_draft(state)
         self._suppress_hidden_trick_selection = False
         self._refresh_hidden_trick_slots(state)
