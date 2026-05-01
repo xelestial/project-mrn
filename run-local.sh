@@ -33,7 +33,9 @@ usage() {
   cat <<EOF
 Usage: ./run-local.sh
 
-Starts the FastAPI backend and Vite web client together.
+Starts the local FastAPI backend and Vite web client together.
+
+Run ./install-deps.sh first when local dependencies are missing.
 
 Environment:
   MRN_PYTHON_BIN     Python interpreter path (default: .venv/bin/python)
@@ -54,12 +56,18 @@ trap cleanup EXIT INT TERM
 
 if [[ ! -x "${PYTHON_BIN}" ]]; then
   echo "Missing Python runtime: ${PYTHON_BIN}" >&2
-  echo "Create the virtualenv first, or set MRN_PYTHON_BIN." >&2
+  echo "Run ./install-deps.sh first, or set MRN_PYTHON_BIN." >&2
   exit 1
 fi
 
 if [[ ! -f "${ROOT_DIR}/apps/web/package.json" ]]; then
   echo "Missing web package.json: ${ROOT_DIR}/apps/web/package.json" >&2
+  exit 1
+fi
+
+if [[ ! -d "${ROOT_DIR}/apps/web/node_modules" ]]; then
+  echo "Missing web dependencies: ${ROOT_DIR}/apps/web/node_modules" >&2
+  echo "Run ./install-deps.sh first." >&2
   exit 1
 fi
 
