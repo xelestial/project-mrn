@@ -10541,6 +10541,101 @@ body {
     0 1px 3px rgba(15, 23, 42, 0.22);
 }
 
+.tile-cost-pill,
+.page.page-match .board-projected-cost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.tile-price-label {
+  flex: 0 0 auto;
+  font-size: 0.9em;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.tile-price-coin {
+  position: relative;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  filter: drop-shadow(0 2px 3px rgba(80, 44, 8, 0.3));
+}
+
+.tile-price-coin img {
+  grid-area: 1 / 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+
+.tile-price-value {
+  grid-area: 1 / 1;
+  min-width: 12px;
+  color: #4d2604;
+  font-size: 12px;
+  font-weight: 1000;
+  line-height: 1;
+  text-align: center;
+  -webkit-text-stroke: 1.1px rgba(255, 255, 255, 0.96);
+  paint-order: stroke fill;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.78),
+    0 1px 2px rgba(55, 28, 3, 0.34);
+}
+
+.page.page-match .board-projected-cost {
+  width: auto;
+  max-width: 100%;
+  padding: 3px 6px;
+  border-color: rgba(126, 78, 8, 0.54);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 232, 143, 0.78)),
+    #ffed9a;
+  color: #132033;
+  text-shadow: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    0 2px 5px rgba(84, 51, 7, 0.2);
+}
+
+.page.page-match .board-projected-cost .tile-price-coin {
+  width: 20px;
+  height: 20px;
+}
+
+.page.page-match .board-projected-cost .tile-price-value {
+  font-size: 11px;
+}
+
+.board-ring-quarterview .tile-cost-pill {
+  gap: max(2px, calc(var(--board-diamond-tile-side, 72px) * 0.04));
+  min-height: clamp(18px, calc(var(--board-diamond-tile-side, 72px) * 0.34), 27px);
+  padding: 2px clamp(5px, calc(var(--board-diamond-tile-side, 72px) * 0.09), 8px);
+}
+
+.board-ring-quarterview .tile-cost-pill .tile-price-label {
+  font-size: clamp(8px, calc(var(--board-diamond-tile-side, 72px) * 0.13), 11px);
+}
+
+.board-ring-quarterview .tile-cost-pill .tile-price-coin {
+  width: clamp(18px, calc(var(--board-diamond-tile-side, 72px) * 0.31), 28px);
+  height: clamp(18px, calc(var(--board-diamond-tile-side, 72px) * 0.31), 28px);
+}
+
+.board-ring-quarterview .tile-cost-pill .tile-price-value {
+  min-width: clamp(10px, calc(var(--board-diamond-tile-side, 72px) * 0.17), 14px);
+  font-size: clamp(10px, calc(var(--board-diamond-tile-side, 72px) * 0.17), 14px);
+  -webkit-text-stroke-width: clamp(0.8px, calc(var(--board-diamond-tile-side, 72px) * 0.018), 1.3px);
+}
+
 .page.page-match .board-projected-owner-empty {
   opacity: 0.82;
   background: rgba(255, 255, 255, 0.76);

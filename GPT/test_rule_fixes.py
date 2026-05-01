@@ -20,7 +20,7 @@ from apps.server.src.services.decision_gateway import (
 )
 from config import DEFAULT_CONFIG, CellKind
 from engine import GameEngine
-from state import GameState
+from state import ActionEnvelope, GameState
 from characters import CARD_TO_NAMES
 from policy_mark_utils import ordered_public_mark_targets
 from trick_cards import TrickCard, build_trick_deck
@@ -1531,6 +1531,51 @@ class TrickSystemTests(unittest.TestCase):
         ]
         self.assertEqual(len(trick_events), 1)
 
+    def test_hidden_trick_prompt_resumes_after_applied_trick(self):
+        class PromptRaised(Exception):
+            pass
+
+        class BlockingHiddenPolicy(DummyPolicy):
+            def __init__(self):
+                self.hidden_attempts = 0
+
+            def choose_trick_to_use(self, state, player, hand):
+                return hand[0] if hand else None
+
+            def choose_hidden_trick_card(self, state, player, hand):
+                self.hidden_attempts += 1
+                if self.hidden_attempts == 1:
+                    raise PromptRaised()
+                return hand[0] if hand else None
+
+        policy = BlockingHiddenPolicy()
+        engine = self.make_engine(policy=policy)
+        state = self.make_state(engine)
+        player = state.players[0]
+        player.current_character = "아전"
+        state.current_round_order = [0, 1, 2, 3]
+        state.turn_index = 0
+        used = next(card for card in build_trick_deck() if card.name == "아주 큰 화목 난로")
+        hidden = TrickCard(deck_index=999, name="건강 검진", description="통행료 절반")
+        player.trick_hand = [used, hidden]
+        engine._strategy_stats[player.player_id].update(
+            {"tricks_used": 0, "anytime_tricks_used": 0, "regular_tricks_used": 0}
+        )
+
+        with self.assertRaises(PromptRaised):
+            engine._take_turn(state, player)
+
+        self.assertEqual([action.type for action in state.pending_actions], ["continue_after_trick_phase"])
+        self.assertEqual([card.deck_index for card in player.trick_hand], [hidden.deck_index])
+        self.assertIsNone(player.hidden_trick_deck_index)
+
+        result = engine._run_next_action_transition(state)
+
+        self.assertEqual(result["action_type"], "continue_after_trick_phase")
+        self.assertEqual(player.hidden_trick_deck_index, hidden.deck_index)
+        self.assertTrue(state.pending_turn_completion)
+        self.assertTrue(any(action.type == "apply_move" for action in state.pending_actions))
+
     def test_trick_used_visual_event_carries_immediate_state(self):
         class FireStovePolicy(DummyPolicy):
             def choose_trick_to_use(self, state, player, hand):
@@ -1568,6 +1613,151 @@ class TrickSystemTests(unittest.TestCase):
         self.assertEqual([card["name"] for card in event["full_hand"]], ["건강 검진"])
         self.assertEqual(event["snapshot"]["players"][0]["shards"], player.shards)
         self.assertEqual(event["snapshot"]["board"]["f_value"], state.f_value)
+
+    def test_supply_prompt_after_trick_keeps_trick_state_atomic(self):
+        class PromptRaised(Exception):
+            pass
+
+        class FireStoveSupplyPolicy(DummyPolicy):
+            def choose_trick_to_use(self, state, player, hand):
+                for card in hand:
+                    if card.name == "아주 큰 화목 난로":
+                        return card
+                return hand[0] if hand else None
+
+            def choose_burden_exchange_on_supply(self, state, player, card):
+                del state, player, card
+                raise PromptRaised()
+
+        stream = VisEventStream()
+        engine = GameEngine(
+            DEFAULT_CONFIG,
+            FireStoveSupplyPolicy(),
+            rng=random.Random(0),
+            enable_logging=True,
+            event_stream=stream,
+        )
+        engine._vis_buffer = None
+        state = self.make_state(engine)
+        actor = state.players[1]
+        burdened = state.players[0]
+        stove = next(card for card in build_trick_deck() if card.name == "아주 큰 화목 난로")
+        burden = next(card for card in build_trick_deck() if card.name == "무거운 짐")
+        actor.trick_hand = [stove]
+        burdened.trick_hand = [burden]
+        engine._strategy_stats[actor.player_id].update(
+            {"tricks_used": 0, "anytime_tricks_used": 0, "regular_tricks_used": 0}
+        )
+        state.f_value = 2
+        state.next_supply_f_threshold = 3
+        before_shards = actor.shards
+
+        deferred = engine._use_trick_phase(
+            state,
+            actor,
+            turn_continuation={"finisher_before": 0, "disruption_before": {}},
+        )
+
+        self.assertTrue(deferred)
+        self.assertEqual(actor.shards, before_shards + 1)
+        self.assertEqual(state.f_value, 3)
+        self.assertEqual(actor.trick_hand, [])
+        self.assertEqual(
+            [action.type for action in state.pending_actions],
+            ["resolve_supply_threshold", "continue_after_trick_phase"],
+        )
+        event = stream.by_type("trick_used")[-1].to_dict()
+        self.assertEqual(event["acting_player_id"], actor.player_id + 1)
+        self.assertEqual(event["card_name"], "아주 큰 화목 난로")
+        self.assertEqual(event["full_hand"], [])
+        self.assertEqual(event["player_shards"], actor.shards)
+        self.assertEqual(event["f_value"], state.f_value)
+
+        with self.assertRaises(PromptRaised):
+            engine._run_next_action_transition(state)
+
+        self.assertEqual(
+            [action.type for action in state.pending_actions],
+            ["resolve_supply_threshold", "continue_after_trick_phase"],
+        )
+
+    def test_declined_supply_burden_is_not_reprompted_on_action_replay(self):
+        class PromptRaised(Exception):
+            pass
+
+        class ReplaySupplyPolicy(DummyPolicy):
+            def __init__(self):
+                self.calls = []
+                self.raise_on_second = True
+
+            def choose_burden_exchange_on_supply(self, state, player, card):
+                del state, player
+                self.calls.append(card.deck_index)
+                if len(self.calls) == 2 and self.raise_on_second:
+                    raise PromptRaised()
+                return False
+
+        policy = ReplaySupplyPolicy()
+        engine = self.make_engine(policy=policy)
+        state = self.make_state(engine)
+        player = state.players[0]
+        burdens = [card for card in build_trick_deck() if card.name in {"가벼운 짐", "무거운 짐"}][:2]
+        fillers = [TrickCard(deck_index=900 + idx, name=f"더미 {idx}", description="") for idx in range(3)]
+        player.trick_hand = [*burdens, *fillers]
+        action = ActionEnvelope(
+            action_id="resolve_supply_threshold:test",
+            type="resolve_supply_threshold",
+            actor_player_id=player.player_id,
+            payload={"threshold": 3},
+        )
+
+        with self.assertRaises(PromptRaised):
+            engine._resolve_supply_threshold_action(state, action)
+
+        processed = action.payload["processed_burden_deck_indices_by_player"][str(player.player_id)]
+        self.assertEqual(processed, [burdens[0].deck_index])
+
+        policy.raise_on_second = False
+        engine._resolve_supply_threshold_action(state, action)
+
+        self.assertEqual(policy.calls, [burdens[0].deck_index, burdens[1].deck_index, burdens[1].deck_index])
+        self.assertEqual(
+            action.payload["processed_burden_deck_indices_by_player"][str(player.player_id)],
+            [burdens[0].deck_index, burdens[1].deck_index],
+        )
+
+    def test_supply_replay_does_not_process_burdens_drawn_after_chain_started(self):
+        class RecordingSupplyPolicy(DummyPolicy):
+            def __init__(self):
+                self.calls = []
+
+            def choose_burden_exchange_on_supply(self, state, player, card):
+                del state, player
+                self.calls.append(card.deck_index)
+                return False
+
+        policy = RecordingSupplyPolicy()
+        engine = self.make_engine(policy=policy)
+        state = self.make_state(engine)
+        player = state.players[0]
+        original_burden = TrickCard(deck_index=101, name="가벼운 짐", description="")
+        drawn_after_prompt = TrickCard(deck_index=202, name="무거운 짐", description="")
+        player.trick_hand = [original_burden, drawn_after_prompt]
+        action = ActionEnvelope(
+            action_id="resolve_supply_threshold:test",
+            type="resolve_supply_threshold",
+            actor_player_id=player.player_id,
+            payload={
+                "threshold": 3,
+                "eligible_burden_deck_indices_by_player": {str(player.player_id): [original_burden.deck_index]},
+                "processed_burden_deck_indices_by_player": {str(player.player_id): [original_burden.deck_index]},
+            },
+        )
+
+        engine._resolve_supply_threshold_action(state, action)
+
+        self.assertEqual(policy.calls, [])
+        self.assertIn(drawn_after_prompt, player.trick_hand)
 
     def test_hogaekkun_slowdown_reduces_effective_move_when_crossed(self):
         engine = self.make_engine(policy=DummyPolicy())

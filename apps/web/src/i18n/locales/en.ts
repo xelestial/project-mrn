@@ -161,6 +161,11 @@ export const enLocale = {
       const rentText = rent === null ? "-" : `${rent} nyang`;
       return `Buy ${purchase} / Rent ${rentText}`;
     },
+    tilePrice: {
+      purchase: "Buy",
+      rent: "Rent",
+      unit: "N",
+    },
     ownerNone: "Owner -",
     owner: (playerId: number) => `Owner P${playerId}`,
     scoreCoins: (value: number) => `Score ${value}`,
@@ -181,7 +186,7 @@ export const enLocale = {
       F1: "End - 1",
       F2: "End - 2",
       T2: "Land",
-      T3: "Premium Land",
+      T3: "Land",
     },
   },
   players: {

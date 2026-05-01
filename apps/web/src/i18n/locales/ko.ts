@@ -162,6 +162,11 @@ export const koLocale = {
       const rentText = rent === null ? "-" : `${rent}냥`;
       return `구매가 ${purchase} / 통행료 ${rentText}`;
     },
+    tilePrice: {
+      purchase: "구매",
+      rent: "통행",
+      unit: "냥",
+    },
     ownerNone: "소유자 -",
     owner: (playerId: number) => `소유자 P${playerId}`,
     scoreCoins: (value: number) => `승점 ${value}`,
@@ -188,7 +193,7 @@ export const koLocale = {
       F1: "종료 - 1",
       F2: "종료 - 2",
       T2: "토지",
-      T3: "고급 토지",
+      T3: "토지",
     },
   },
   players: {

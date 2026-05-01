@@ -172,6 +172,8 @@ class GameEngine:
         self._vis_buffer: list[tuple[str, str, int | None, dict[str, Any]]] | None = None
         self._suppress_hidden_trick_selection: bool = False
         self._deferred_arrival_action_id: str = ""
+        self._deferred_supply_threshold_depth: int = 0
+        self._deferred_supply_prev_f: float | None = None
         self.events = EventDispatcher()
         self.events.set_trace_hook(self._trace_semantic_event)
         self.rule_scripts = RuleScriptEngine(self, getattr(config, "rule_scripts_path", None))
@@ -1045,6 +1047,10 @@ class GameEngine:
             return self._resolve_fortune_forced_trade_action(state, action)
         if action.type == "resolve_fortune_pious_marker":
             return self._resolve_fortune_pious_marker_action(state, action)
+        if action.type == "resolve_supply_threshold":
+            return self._resolve_supply_threshold_action(state, action)
+        if action.type == "continue_after_trick_phase":
+            return self._continue_after_trick_phase_action(state, action)
         raise ValueError(f"Unsupported action type: {action.type}")
 
     def _apply_target_move(
@@ -2170,7 +2176,28 @@ class GameEngine:
             public_tricks=player.public_trick_names(),
             hidden_trick_count=player.hidden_trick_count(),
         )
-        self._use_trick_phase(state, player)
+        trick_continuation = {
+            "finisher_before": finisher_before,
+            "disruption_before": dict(disruption_before),
+        }
+        trick_phase_deferred = self._use_trick_phase(state, player, turn_continuation=trick_continuation)
+        if trick_phase_deferred:
+            return
+        self._finish_turn_after_trick_phase(
+            state,
+            player,
+            finisher_before=finisher_before,
+            disruption_before=disruption_before,
+        )
+
+    def _finish_turn_after_trick_phase(
+        self,
+        state: GameState,
+        player: PlayerState,
+        *,
+        finisher_before: int,
+        disruption_before: dict,
+    ) -> None:
         if not player.alive:
             self._emit_vis(
                 "trick_window_closed",
@@ -2272,6 +2299,24 @@ class GameEngine:
             "disruption_before": dict(disruption_before),
         }
 
+
+    def _continue_after_trick_phase_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        player = state.players[action.actor_player_id]
+        if not action.payload.get("hidden_trick_synced"):
+            self._sync_trick_visibility(state, player)
+            action.payload["hidden_trick_synced"] = True
+        self._finish_turn_after_trick_phase(
+            state,
+            player,
+            finisher_before=int(action.payload.get("finisher_before", 0) or 0),
+            disruption_before=dict(action.payload.get("disruption_before") or {}),
+        )
+        return {
+            "type": "CONTINUE_AFTER_TRICK_PHASE",
+            "player_id": player.player_id + 1,
+            "pending_actions": len(state.pending_actions),
+            "pending_turn_completion": bool(state.pending_turn_completion),
+        }
 
     def _player_lap_mode(self, player: PlayerState) -> str:
         if hasattr(self.policy, "lap_mode_for_player"):
@@ -3438,14 +3483,104 @@ class GameEngine:
             state.next_supply_f_threshold += 3
             self._run_supply(state, threshold)
 
-    def _run_supply(self, state: GameState, threshold: int) -> None:
+    def _begin_supply_threshold_deferral(self) -> None:
+        self._deferred_supply_threshold_depth += 1
+
+    def _discard_deferred_supply_thresholds(self) -> None:
+        if self._deferred_supply_threshold_depth > 0:
+            self._deferred_supply_threshold_depth -= 1
+        if self._deferred_supply_threshold_depth == 0:
+            self._deferred_supply_prev_f = None
+
+    def _queue_deferred_supply_threshold_actions(
+        self,
+        state: GameState,
+        player: PlayerState,
+        *,
+        turn_continuation: dict | None = None,
+    ) -> bool:
+        if self._deferred_supply_threshold_depth <= 0:
+            return False
+        self._deferred_supply_threshold_depth -= 1
+        if self._deferred_supply_threshold_depth > 0:
+            return False
+        prev_f = self._deferred_supply_prev_f
+        self._deferred_supply_prev_f = None
+        if prev_f is None:
+            return False
+
+        thresholds: list[float] = []
+        while prev_f < state.next_supply_f_threshold <= state.f_value:
+            threshold = state.next_supply_f_threshold
+            state.next_supply_f_threshold += 3
+            thresholds.append(threshold)
+        if not thresholds:
+            return False
+
+        queued: list[ActionEnvelope] = [
+            self._action(
+                state,
+                "resolve_supply_threshold",
+                player,
+                "trick_supply_threshold",
+                {"threshold": threshold},
+            )
+            for threshold in thresholds
+        ]
+        if turn_continuation is not None:
+            queued.append(
+                self._action(
+                    state,
+                    "continue_after_trick_phase",
+                    player,
+                    "trick_supply_threshold",
+                    dict(turn_continuation),
+                )
+            )
+        state.pending_actions[0:0] = queued
+        return True
+
+    def _resolve_supply_threshold_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        threshold = action.payload.get("threshold")
+        self._run_supply(state, int(threshold), action=action)
+        return {"type": "SUPPLY_THRESHOLD", "threshold": threshold}
+
+    def _run_supply(self, state: GameState, threshold: int, action: ActionEnvelope | None = None) -> None:
         event = {"event": "trick_supply", "threshold": threshold, "players": []}
+        processed_by_player = action.payload.setdefault("processed_burden_deck_indices_by_player", {}) if action is not None else {}
+        eligible_by_player = action.payload.setdefault("eligible_burden_deck_indices_by_player", {}) if action is not None else {}
         for p in state.players:
             if not p.alive:
                 continue
+            processed_deck_indices = set()
+            if isinstance(processed_by_player, dict):
+                raw_processed = processed_by_player.get(str(p.player_id), processed_by_player.get(p.player_id, []))
+                if isinstance(raw_processed, list):
+                    processed_deck_indices = {int(item) for item in raw_processed if isinstance(item, int)}
+            eligible_deck_indices: set[int] | None = None
+            if isinstance(eligible_by_player, dict):
+                raw_eligible = eligible_by_player.get(str(p.player_id), eligible_by_player.get(p.player_id))
+                if isinstance(raw_eligible, list):
+                    eligible_deck_indices = {int(item) for item in raw_eligible if isinstance(item, int)}
+                else:
+                    eligible_deck_indices = {
+                        card.deck_index
+                        for card in p.trick_hand
+                        if card.is_burden and isinstance(getattr(card, "deck_index", None), int)
+                    }
+                    eligible_by_player[str(p.player_id)] = sorted(eligible_deck_indices)
             exchanged = []
             for card in list(p.trick_hand):
                 if not card.is_burden:
+                    continue
+                deck_index = getattr(card, "deck_index", None)
+                if (
+                    isinstance(deck_index, int)
+                    and eligible_deck_indices is not None
+                    and deck_index not in eligible_deck_indices
+                ):
+                    continue
+                if isinstance(deck_index, int) and deck_index in processed_deck_indices:
                     continue
                 accepted = self._request_decision(
                     "choose_burden_exchange_on_supply",
@@ -3454,6 +3589,9 @@ class GameEngine:
                     card,
                     fallback=lambda: p.cash >= card.burden_cost,
                 )
+                if isinstance(deck_index, int) and isinstance(processed_by_player, dict):
+                    processed_deck_indices.add(deck_index)
+                    processed_by_player[str(p.player_id)] = sorted(processed_deck_indices)
                 burden_debug = self.policy.pop_debug("burden_exchange", p.player_id) if hasattr(self.policy, "pop_debug") else None
                 self._record_ai_decision(
                     state,
@@ -3513,6 +3651,10 @@ class GameEngine:
             after=state.f_value,
             reason=reason,
         )
+        if self._deferred_supply_threshold_depth > 0:
+            if self._deferred_supply_prev_f is None or prev < self._deferred_supply_prev_f:
+                self._deferred_supply_prev_f = prev
+            return
         self._handle_supply_thresholds(state, prev)
 
     def _buy_one_adjacent_same_block(self, state: GameState, player: PlayerState, pos: int) -> int | None:
@@ -3584,9 +3726,9 @@ class GameEngine:
             for card in player.trick_hand
         ]
 
-    def _use_trick_phase(self, state: GameState, player: PlayerState) -> None:
+    def _use_trick_phase(self, state: GameState, player: PlayerState, *, turn_continuation: dict | None = None) -> bool:
         if not hasattr(self.policy, "choose_trick_to_use"):
-            return
+            return False
 
         def choose_and_apply(hand: list[TrickCard], phase: str) -> bool:
             if not hand:
@@ -3605,42 +3747,63 @@ class GameEngine:
                 if debug is not None:
                     self._log({"event": "trick_use_skip", "player": player.player_id + 1, "phase": phase, "decision": debug})
                 return False
-            resolution = self._apply_trick_card(state, player, card)
-            previous_hidden_selection_suppression = self._suppress_hidden_trick_selection
-            self._suppress_hidden_trick_selection = True
+            self._begin_supply_threshold_deferral()
             try:
-                self._discard_trick(state, player, card)
-            finally:
-                self._suppress_hidden_trick_selection = previous_hidden_selection_suppression
-            stats = self._strategy_stats[player.player_id]
-            stats["tricks_used"] += 1
-            stats["regular_tricks_used"] += 1
-            self._log({"event": "trick_used", "player": player.player_id + 1, "phase": phase, "character": player.current_character, "card": {"deck_index": card.deck_index, "name": card.name}, "resolution": resolution, "decision": debug})
-            self._emit_vis(
-                "trick_used",
-                Phase.TRICK_WINDOW,
-                player.player_id + 1,
-                state,
-                phase=phase,
-                card_name=card.name,
-                card_description=card.description,
-                card_deck_index=card.deck_index,
-                resolution=resolution,
-                full_hand=self._trick_hand_context(player),
-                hand_count=len(player.trick_hand),
-                public_tricks=player.public_trick_names(),
-                hidden_trick_count=player.hidden_trick_count(),
-                player_cash=player.cash,
-                player_shards=player.shards,
-                f_value=state.f_value,
-                snapshot=build_turn_end_snapshot(state),
-            )
-            self._sync_trick_visibility(state, player)
+                resolution = self._apply_trick_card(state, player, card)
+                previous_hidden_selection_suppression = self._suppress_hidden_trick_selection
+                self._suppress_hidden_trick_selection = True
+                try:
+                    self._discard_trick(state, player, card)
+                finally:
+                    self._suppress_hidden_trick_selection = previous_hidden_selection_suppression
+                stats = self._strategy_stats[player.player_id]
+                stats["tricks_used"] += 1
+                stats["regular_tricks_used"] += 1
+                self._log({"event": "trick_used", "player": player.player_id + 1, "phase": phase, "character": player.current_character, "card": {"deck_index": card.deck_index, "name": card.name}, "resolution": resolution, "decision": debug})
+                self._emit_vis(
+                    "trick_used",
+                    Phase.TRICK_WINDOW,
+                    player.player_id + 1,
+                    state,
+                    phase=phase,
+                    card_name=card.name,
+                    card_description=card.description,
+                    card_deck_index=card.deck_index,
+                    resolution=resolution,
+                    full_hand=self._trick_hand_context(player),
+                    hand_count=len(player.trick_hand),
+                    public_tricks=player.public_trick_names(),
+                    hidden_trick_count=player.hidden_trick_count(),
+                    player_cash=player.cash,
+                    player_shards=player.shards,
+                    f_value=state.f_value,
+                    snapshot=build_turn_end_snapshot(state),
+                )
+            except Exception:
+                self._discard_deferred_supply_thresholds()
+                raise
+            if self._queue_deferred_supply_threshold_actions(state, player, turn_continuation=turn_continuation):
+                return True
+            try:
+                self._sync_trick_visibility(state, player)
+            except Exception:
+                if turn_continuation is not None:
+                    state.pending_actions.insert(
+                        0,
+                        self._action(
+                            state,
+                            "continue_after_trick_phase",
+                            player,
+                            "hidden_trick_selection",
+                            dict(turn_continuation),
+                        ),
+                    )
+                raise
             return True
 
         # 규칙 정합성: 잔꾀는 매 턴 1장만 선택/사용한다.
         usable_hand = [c for c in player.trick_hand if self._is_trick_phase_usable(c)]
-        choose_and_apply(usable_hand, "regular")
+        return choose_and_apply(usable_hand, "regular")
 
     def _apply_trick_card(self, state: GameState, player: PlayerState, card: TrickCard) -> dict:
         result = self.events.emit_first_non_none("trick.card.resolve", state, player, card)

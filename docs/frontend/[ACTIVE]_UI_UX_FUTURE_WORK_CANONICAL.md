@@ -55,7 +55,7 @@ What was completed in this pass:
 
 Open scheduled items:
 
-- none
+- 2026-05-01 playtest follow-up: effect cause visibility for `잔꾀`, `운수`, `날씨`, and AI-triggered follow-up prompts.
 
 ---
 
@@ -70,6 +70,29 @@ Open scheduled items:
 ---
 
 ## Execution Backlog
+
+### P0. Effect Cause Visibility During Live Play
+
+Status: TODO (2026-05-01)
+
+Goal:
+- make every rule-driven state mutation understandable at the moment it happens, especially when the next prompt appears immediately
+
+Evidence:
+- In 2-human + 2-AI session `sess_CrAt2zEMf9W79JjFauDvHDf7`, P2's `거대한 산불` was readable: the source player, card name, effect text, hand removal, and shard gain were visible.
+- P1's earlier `과속` state update was correct, but the visible attribution was weak compared with `거대한 산불`.
+- P4 AI's `아주 큰 화목 난로` led into a P1 `짐 카드 교환` prompt before P1 had a durable, readable source/effect explanation.
+- Round 2 weather removed P1 burden cards and dropped cash from 18 to 10, but the next `잔꾀 쓰기` prompt did not carry a clear weather/result explanation.
+
+Implement:
+- keep a recent effect/result panel visible across the next blocking prompt
+- include source player, effect family, card/weather name, and resource delta in follow-up prompts created by that effect
+- ensure AI-triggered effects use the same visual treatment as human-triggered effects
+- keep current weather visible as active round context, not only as a transient stream event
+
+Definition of done:
+- a player can explain why a cash, shard, hand-count, burden, movement, or purchase prompt changed without reading debug logs
+- `잔꾀`, `운수`, `날씨`, and character passive bonuses all leave a visible cause-and-effect artifact during 2H+2AI and 4-human playtests
 
 ### P0. Semantic Color Refactor
 
@@ -292,12 +315,16 @@ Observed:
 - shard gain from `거대한 산불` was reflected immediately in previous 2H+2AI evidence.
 - `운수` money loss was correct in engine/replay, but the visible explanation can disappear too quickly; a later lower cash total is not enough.
 - `객주` reward enhancement is applied after lap reward in backend state, but the visible reward event does not clearly break out the passive bonus.
+- 2026-05-01 2H+2AI continuation found a stale tray rendering: Redis/current player panel showed P1 `Trick0` and empty `trick_hand`, but the bottom `Trick hand` tray still showed the consumed `뭔칙휜` card.
+- The same continuation showed repeated P1 movement prompts after a reroll-style trick path. Even if some prompts are stale and rejected by the backend, the screen can still make the player believe the action is unresolved or repeating.
 
 Required UX behavior:
 - every money/shard/coin/position delta caused by `운수` must produce a persistent enough reveal/feed line with card name and delta
 - every `잔꾀` use must show card name, effect summary, resource/hand delta, and immediate tray removal
 - every weather effect that changes resource or marker behavior must remain named in the current round context while the player acts
 - every passive character bonus, starting with `객주`, must show either a separate bonus line or a combined breakdown such as `기본 보상 + 객주 보너스`
+- hand/tray rendering must derive from the latest visible player state and clear consumed cards after prompt or stream replay
+- superseded or already-resolved prompts must not remain visually actionable after a newer prompt for the same player/turn/type exists
 
 Definition of done:
 - a player can answer "what changed, why, and by how much?" from the screen alone after each public effect

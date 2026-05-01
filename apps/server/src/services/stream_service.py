@@ -203,6 +203,20 @@ class StreamService:
                 )
             return projected or {}
 
+    async def rebuild_latest_view_state_for_viewer(self, session_id: str, viewer: ViewerContext) -> dict:
+        async with self._lock:
+            latest_seq = self._latest_seq_no_lock(session_id)
+            projected = project_view_state(self._history_records_no_lock(session_id), viewer=viewer)
+            if projected:
+                self._cache_projected_view_state_no_lock(
+                    session_id,
+                    viewer,
+                    projected,
+                    latest_seq=latest_seq,
+                    server_time_ms=int(time.time() * 1000),
+                )
+            return projected or {}
+
     async def delete_session_data(self, session_id: str) -> None:
         async with self._lock:
             self._seq.pop(session_id, None)

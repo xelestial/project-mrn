@@ -37,6 +37,10 @@ class CommandStreamWakeupWorker:
                     continue
                 status = self._runtime_service.runtime_status(current_session_id)
                 if status.get("status") in {"recovery_required", "idle", "running_elsewhere", "waiting_input"}:
+                    if self._is_stale_waiting_command(status, command):
+                        self._save_offset(current_session_id, seq)
+                        last_seq = seq
+                        continue
                     processed = await self._process_or_start_runtime(current_session_id, seq)
                     if not processed:
                         self._save_offset(current_session_id, seq)
@@ -120,3 +124,28 @@ class CommandStreamWakeupWorker:
         if callable(getattr(self._command_store, "save_consumer_offset", None)):
             self._command_store.save_consumer_offset(self._consumer_name, session_id, seq)
         self._last_processed_seq[session_id] = int(seq)
+
+    @staticmethod
+    def _is_stale_waiting_command(status: dict, command: dict) -> bool:
+        if status.get("status") != "waiting_input":
+            return False
+        waiting_request_id = CommandStreamWakeupWorker._waiting_prompt_request_id(status)
+        command_request_id = CommandStreamWakeupWorker._command_request_id(command)
+        return bool(waiting_request_id and command_request_id and command_request_id != waiting_request_id)
+
+    @staticmethod
+    def _waiting_prompt_request_id(status: dict) -> str:
+        recovery = status.get("recovery_checkpoint")
+        if not isinstance(recovery, dict):
+            return ""
+        checkpoint = recovery.get("checkpoint")
+        if not isinstance(checkpoint, dict):
+            return ""
+        return str(checkpoint.get("waiting_prompt_request_id") or "").strip()
+
+    @staticmethod
+    def _command_request_id(command: dict) -> str:
+        payload = command.get("payload")
+        if not isinstance(payload, dict):
+            return ""
+        return str(payload.get("request_id") or "").strip()

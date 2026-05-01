@@ -260,6 +260,37 @@ class StreamServiceTests(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_rebuild_latest_view_state_for_viewer_ignores_fresh_but_wrong_cache(self) -> None:
+        store = FakeProjectionStore()
+        service = StreamService(game_state_store=store)
+
+        async def _run() -> None:
+            await service.publish(
+                "s1",
+                "prompt",
+                {
+                    "request_id": "req_trick",
+                    "request_type": "trick_to_use",
+                    "player_id": 1,
+                    "legal_choices": [{"choice_id": "card-11", "title": "재뿌리기"}],
+                    "public_context": {
+                        "full_hand": [{"deck_index": 11, "name": "재뿌리기", "is_usable": True}],
+                    },
+                },
+            )
+            viewer = ViewerContext(role="seat", session_id="s1", player_id=1)
+            store.view_states[("s1", "player:1")] = {"prompt": {"last_feedback": {"request_id": "old"}}}
+            store.checkpoints["s1"]["projected_viewer_seqs"]["player:1"] = 1
+
+            latest = await service.latest_view_state_for_viewer("s1", viewer)
+            rebuilt = await service.rebuild_latest_view_state_for_viewer("s1", viewer)
+
+            self.assertEqual(latest, {"prompt": {"last_feedback": {"request_id": "old"}}})
+            self.assertEqual(rebuilt["prompt"]["active"]["request_id"], "req_trick")
+            self.assertEqual(store.view_states[("s1", "player:1")]["prompt"]["active"]["request_id"], "req_trick")
+
+        asyncio.run(_run())
+
     def test_latest_view_state_for_viewer_rebuilds_stale_cache(self) -> None:
         store = FakeProjectionStore()
         service = StreamService(game_state_store=store)

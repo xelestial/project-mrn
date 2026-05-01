@@ -376,7 +376,10 @@ class RedisRealtimeServicesTests(unittest.TestCase):
                 "request_type": "movement",
                 "player_id": 1,
                 "timeout_ms": 1,
-                "fallback_choice_id": "fallback_roll",
+                "legal_choices": [
+                    {"choice_id": "dice", "title": "Roll dice"},
+                    {"choice_id": "card_1", "title": "Use card 1"},
+                ],
                 "public_context": {"round_index": 1, "turn_index": 1},
             },
         )
@@ -394,10 +397,10 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             self.assertEqual(len(commands), 1)
             self.assertEqual(commands[0]["type"], "decision_submitted")
             self.assertEqual(commands[0]["payload"]["request_id"], "req_timeout_1")
-            self.assertEqual(commands[0]["payload"]["choice_id"], "fallback_roll")
+            self.assertEqual(commands[0]["payload"]["choice_id"], "dice")
             decision = prompt_store.get_decision("req_timeout_1")
             self.assertIsNotNone(decision)
-            self.assertEqual(decision["choice_id"], "fallback_roll")
+            self.assertEqual(decision["choice_id"], "dice")
             self.assertEqual(decision["provider"], "timeout_fallback")
 
         asyncio.run(_run())

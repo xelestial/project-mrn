@@ -129,6 +129,38 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(recent[-1]["request_id"], "req_timeout_1")
         self.assertEqual(recent[-1]["choice_id"], "choice_default")
 
+    def test_execute_prompt_fallback_uses_first_legal_choice_when_no_explicit_default(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "human"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+
+        result = asyncio.run(
+            self.runtime_service.execute_prompt_fallback(
+                session_id=session.session_id,
+                request_id="req_timeout_movement",
+                player_id=2,
+                fallback_policy="timeout_fallback",
+                prompt_payload={
+                    "request_type": "movement",
+                    "legal_choices": [
+                        {"choice_id": "dice", "title": "Roll dice"},
+                        {"choice_id": "card_1", "title": "Use card 1"},
+                    ],
+                },
+            )
+        )
+
+        self.assertEqual(result["status"], "executed")
+        self.assertEqual(result["choice_id"], "dice")
+        recent = self.runtime_service.runtime_status(session.session_id).get("recent_fallbacks", [])
+        self.assertEqual(recent[-1]["choice_id"], "dice")
+
     def test_process_command_once_continues_after_command_transition_until_prompt(self) -> None:
         session = self.session_service.create_session(
             seats=[
@@ -3218,6 +3250,102 @@ class RuntimeServiceTests(unittest.TestCase):
                     lambda: "fallback",
                 ),
                 "roll",
+            )
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_synced_hidden_trick_continuation_replays_same_movement_prompt(self) -> None:
+        checkpoint_state = type(
+            "CheckpointState",
+            (),
+            {
+                "prompt_sequence": 7,
+                "pending_prompt_request_id": "sess_synced_hidden:r1:t2:p2:movement:7",
+                "pending_prompt_type": "movement",
+                "pending_prompt_instance_id": 7,
+                "pending_actions": [
+                    {
+                        "type": "continue_after_trick_phase",
+                        "payload": {"hidden_trick_synced": True},
+                    }
+                ],
+            },
+        )()
+
+        seed = self.runtime_service._prompt_sequence_seed_for_transition(checkpoint_state)
+
+        self.assertEqual(seed, 6)
+
+    def test_pending_hidden_trick_replay_resumes_same_hidden_selection(self) -> None:
+        from apps.server.src.services.decision_gateway import PromptRequired
+        from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerHumanPolicyBridge(
+                session_id="sess_bridge_hidden_replay_test",
+                human_seats=[0],
+                ai_fallback=object(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+                blocking_human_prompts=False,
+            )
+            checkpoint_state = type(
+                "CheckpointState",
+                (),
+                {
+                    "prompt_sequence": 2,
+                    "pending_prompt_request_id": "sess_bridge_hidden_replay_test:r1:t1:p1:hidden_trick_card:2",
+                    "pending_prompt_type": "hidden_trick_card",
+                    "pending_prompt_instance_id": 2,
+                },
+            )()
+            seed = self.runtime_service._prompt_sequence_seed_for_transition(checkpoint_state)
+            self.assertEqual(seed, 1)
+            hidden_prompt = {
+                "request_type": "hidden_trick_card",
+                "player_id": 1,
+                "timeout_ms": 2000,
+                "legal_choices": [{"choice_id": "42", "label": "호객꾼"}],
+                "fallback_policy": "timeout_fallback",
+                "public_context": {"round_index": 1, "turn_index": 1},
+            }
+            parse_choice = lambda response: str(response.get("choice_id", ""))
+
+            bridge.set_prompt_sequence(seed)
+            with self.assertRaises(PromptRequired) as hidden_raised:
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    hidden_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                )
+            self.assertEqual(
+                hidden_raised.exception.prompt["request_id"],
+                "sess_bridge_hidden_replay_test:r1:t1:p1:hidden_trick_card:2",
+            )
+            self.prompt_service.submit_decision(
+                {
+                    "request_id": hidden_raised.exception.prompt["request_id"],
+                    "player_id": 1,
+                    "choice_id": "42",
+                }
+            )
+
+            bridge.set_prompt_sequence(seed)
+            self.assertEqual(
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    hidden_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                ),
+                "42",
             )
         finally:
             loop.call_soon_threadsafe(loop.stop)

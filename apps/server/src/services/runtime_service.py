@@ -181,11 +181,7 @@ class RuntimeService:
         Current baseline records deterministic fallback resolution and keeps runtime activity warm.
         """
 
-        choice_id = str(
-            prompt_payload.get("fallback_choice_id")
-            or prompt_payload.get("default_choice_id")
-            or "timeout_fallback"
-        )
+        choice_id = self._fallback_choice_id(prompt_payload)
         record = {
             "request_id": request_id,
             "player_id": player_id,
@@ -207,6 +203,25 @@ class RuntimeService:
             choice_id=choice_id,
         )
         return {"status": "executed", "choice_id": choice_id}
+
+    @staticmethod
+    def _fallback_choice_id(prompt_payload: dict) -> str:
+        explicit = str(
+            prompt_payload.get("fallback_choice_id")
+            or prompt_payload.get("default_choice_id")
+            or ""
+        ).strip()
+        if explicit:
+            return explicit
+        legal_choices = prompt_payload.get("legal_choices")
+        if isinstance(legal_choices, list):
+            for choice in legal_choices:
+                if not isinstance(choice, dict):
+                    continue
+                choice_id = str(choice.get("choice_id") or "").strip()
+                if choice_id:
+                    return choice_id
+        return "timeout_fallback"
 
     async def process_command_once(
         self,
@@ -603,6 +618,24 @@ class RuntimeService:
         pending_instance_id = int(getattr(state, "pending_prompt_instance_id", 0) or 0)
         if pending_request_id and pending_instance_id > 0:
             if pending_prompt_type == "movement" or ":movement:" in pending_request_id:
+                pending_actions = getattr(state, "pending_actions", None) or []
+                first_action = pending_actions[0] if pending_actions else None
+                action_type = (
+                    first_action.get("type")
+                    if isinstance(first_action, dict)
+                    else getattr(first_action, "type", "")
+                )
+                action_payload = (
+                    first_action.get("payload")
+                    if isinstance(first_action, dict)
+                    else getattr(first_action, "payload", {})
+                )
+                if (
+                    action_type == "continue_after_trick_phase"
+                    and isinstance(action_payload, dict)
+                    and action_payload.get("hidden_trick_synced")
+                ):
+                    return max(0, pending_instance_id - 1)
                 return max(0, pending_instance_id - 2)
             return max(0, pending_instance_id - 1)
         return prompt_sequence

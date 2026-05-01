@@ -214,7 +214,25 @@ def _public_tricks_from_context(public_context: dict[str, Any]) -> list[str] | N
     return hand_names if hand_names else None
 
 
+def _apply_direct_hand_context_to_player(player: DerivedPlayerItemViewState, payload: dict[str, Any]) -> None:
+    player_id = _number(payload.get("player_id", payload.get("acting_player_id")))
+    if player_id != player["player_id"]:
+        return
+    hidden_trick_count = _number(payload.get("hidden_trick_count"))
+    public_tricks = _string_list(payload.get("public_tricks"))
+    hand_count = _number(payload.get("hand_count"))
+    if hidden_trick_count is not None:
+        player["hidden_trick_count"] = hidden_trick_count
+    if public_tricks:
+        player["public_tricks"] = public_tricks
+    if hand_count is not None:
+        player["trick_count"] = hand_count
+    elif public_tricks or hidden_trick_count is not None:
+        player["trick_count"] = len(player["public_tricks"]) + player["hidden_trick_count"]
+
+
 def _apply_prompt_context_to_player(player: DerivedPlayerItemViewState, payload: dict[str, Any]) -> None:
+    _apply_direct_hand_context_to_player(player, payload)
     player_id = _number(payload.get("player_id", payload.get("acting_player_id")))
     if player_id != player["player_id"]:
         return

@@ -11,6 +11,7 @@ import pawnPieceUrl from "../../assets/pawn-piece.svg";
 import scoreTokenStack1Url from "../../assets/score-token-stack-1.svg";
 import scoreTokenStack2Url from "../../assets/score-token-stack-2.svg";
 import scoreTokenStack3Url from "../../assets/score-token-stack-3.svg";
+import yeopjeonCoinUrl from "../../assets/yeopjeon-coin.svg";
 import { characterSpriteSetForPlayer } from "../../domain/characters/characterSprites";
 import type { CharacterSpriteSet, CharacterWalkSprite } from "../../domain/characters/characterSprites";
 import { usePawnAnimation } from "./usePawnAnimation";
@@ -63,6 +64,10 @@ type BoardPanelProps = {
 type BoardText = ReturnType<typeof useI18n>["board"];
 
 function tileKindLabel(kind: string, boardText: BoardText, labels?: Record<string, string>): string {
+  if (kind === "T2" || kind === "T3") {
+    const landOverride = labels?.T2;
+    return landOverride && landOverride.trim() ? landOverride : boardText.tileKind.T2;
+  }
   const override = labels?.[kind];
   if (override && override.trim()) {
     return override;
@@ -74,10 +79,6 @@ function tileKindLabel(kind: string, boardText: BoardText, labels?: Record<strin
       return boardText.tileKind.F1;
     case "F2":
       return boardText.tileKind.F2;
-    case "T2":
-      return boardText.tileKind.T2;
-    case "T3":
-      return boardText.tileKind.T3;
     default:
       return kind;
   }
@@ -112,9 +113,6 @@ const FALLBACK_TILE_FACE_COLORS = ["#2f7de1", "#06b6d4", "#a855f7", "#f97316", "
 function tileFaceColor(kind: string, tileIndex: number, zoneColor: string, boardText: BoardText): string {
   if (zoneColor.trim()) {
     return zoneColorToCss(zoneColor, boardText);
-  }
-  if (kind === "T3") {
-    return "#f5b84b";
   }
   if (kind === "S" || kind === "F1" || kind === "F2") {
     return "#e7f2ff";
@@ -187,8 +185,21 @@ function standeeBoardInwardOffset(position: Pick<QuarterviewPosition, "xPercent"
   };
 }
 
-function costLabel(cost: number | null, rent: number | null, boardText: BoardText): string {
-  return boardText.costLabel(cost, rent);
+function tilePriceValue(value: number | null, boardText: BoardText): string {
+  return value === null ? "-" : `${value}${boardText.tilePrice.unit}`;
+}
+
+function renderTilePrice(cost: number | null, boardText: BoardText, className: string): ReactNode {
+  const label = `${boardText.tilePrice.purchase} ${tilePriceValue(cost, boardText)}`;
+  return (
+    <span className={className} title={label} aria-label={label}>
+      <span className="tile-price-label">{boardText.tilePrice.purchase}</span>
+      <span className="tile-price-coin" aria-hidden="true">
+        <img src={yeopjeonCoinUrl} alt="" draggable={false} />
+        <strong className="tile-price-value">{cost === null ? "-" : cost}</strong>
+      </span>
+    </span>
+  );
 }
 
 function tileSurfaceClass(kind: string): string {
@@ -198,9 +209,8 @@ function tileSurfaceClass(kind: string): string {
     case "F1":
     case "F2":
       return "tile-kind-finish";
-    case "T3":
-      return "tile-kind-premium";
     case "T2":
+    case "T3":
     default:
       return "tile-kind-land";
   }
@@ -213,9 +223,8 @@ function tileLandmarkGlyph(kind: string): string {
     case "F1":
     case "F2":
       return "◆";
-    case "T3":
-      return "▲";
     case "T2":
+    case "T3":
     default:
       return "●";
   }
@@ -627,7 +636,7 @@ export function BoardPanel({
                 <strong>{kindLabel}</strong>
               </div>
               <div className="board-projected-main">
-                <span className="board-projected-cost">{costLabel(tile.purchaseCost, tile.rentCost, board)}</span>
+                {renderTilePrice(tile.purchaseCost, board, "board-projected-cost")}
                 <span className={`board-projected-owner ${ownerPlayerId === null ? "board-projected-owner-empty" : ""}`}>
                   {ownerPlayerId === null ? board.ownerNone : board.owner(ownerPlayerId)}
                 </span>
@@ -918,7 +927,7 @@ export function BoardPanel({
                     </div>
                   ) : (
                     <div className="tile-body">
-                      <small className="tile-cost-pill">{costLabel(tile.purchaseCost, tile.rentCost, board)}</small>
+                      {renderTilePrice(tile.purchaseCost, board, "tile-cost-pill")}
                     </div>
                   )}
                   <div className="tile-foot">

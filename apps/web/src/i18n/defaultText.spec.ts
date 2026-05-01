@@ -32,6 +32,9 @@ describe("defaultText catalogs", () => {
   it("keeps board/connection labels populated", () => {
     expect(DEFAULT_BOARD_TEXT.title).toBe("보드");
     expect(DEFAULT_BOARD_TEXT.tileKind.S).toBe("운수");
+    expect(DEFAULT_BOARD_TEXT.tileKind.T2).toBe("토지");
+    expect(DEFAULT_BOARD_TEXT.tileKind.T3).toBe(DEFAULT_BOARD_TEXT.tileKind.T2);
+    expect(DEFAULT_BOARD_TEXT.tilePrice).toEqual({ purchase: "구매", rent: "통행", unit: "냥" });
     expect(DEFAULT_BOARD_TEXT.owner(4)).toBe("소유자 P4");
     expect(DEFAULT_CONNECTION_TEXT.runtimeStatus.running).toBe("실행 중");
     expect(DEFAULT_CONNECTION_TEXT.watchdogStatus.stalled_warning).toBe("경고");

@@ -11,6 +11,9 @@ describe("i18n registry", () => {
   it("keeps important locale sections aligned", () => {
     expect(LOCALES.ko.app.title).toBe("MRN");
     expect(LOCALES.en.app.routeLobby).toBe("Lobby");
+    expect(LOCALES.ko.board.tileKind.T3).toBe(LOCALES.ko.board.tileKind.T2);
+    expect(LOCALES.en.board.tileKind.T3).toBe(LOCALES.en.board.tileKind.T2);
+    expect(LOCALES.en.board.tilePrice).toEqual({ purchase: "Buy", rent: "Rent", unit: "N" });
     expect(LOCALES.en.prompt.choice.buyTileTitle).toBe("Buy tile");
     expect(LOCALES.ko.prompt.context.burdenExchangeTrigger(3, 3.5)).toBe("보급 단계 (F 3.5 / 기준 3)");
     expect(LOCALES.en.prompt.context.burdenExchangeTrigger(3, 3.5)).toBe("Supply step (F 3.5 / threshold 3)");

@@ -398,6 +398,106 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(seat_data["view_state"]["prompt"]["active"]["request_id"], "req_trick")
         self.assertEqual(seat_data["view_state"]["hand_tray"]["cards"][0]["name"], "재뿌리기")
 
+    def test_replay_endpoint_uses_single_snapshot_projection_path(self) -> None:
+        payload = _all_ai_payload()
+        payload["config"]["visibility"] = "public"
+        created = self.client.post("/api/v1/sessions", json=payload)
+        session_id = created.json()["data"]["session_id"]
+
+        async def _seed_many_events() -> None:
+            from apps.server.src import state
+
+            await state.stream_service.publish(
+                session_id,
+                "event",
+                {
+                    "event_type": "turn_end_snapshot",
+                    "snapshot": {
+                        "players": [{"player_id": 1}, {"player_id": 2}],
+                        "board": {"marker_owner_player_id": 1},
+                    },
+                },
+            )
+            for index in range(20):
+                await state.stream_service.publish(
+                    session_id,
+                    "event",
+                    {"event_type": "turn_start", "turn_index": index + 1},
+                )
+
+        asyncio.run(_seed_many_events())
+
+        from apps.server.src import state
+
+        original = state.stream_service.project_message_for_viewer
+
+        async def _fail_per_message_projection(*_args, **_kwargs):
+            raise AssertionError("replay export must not rebuild projection per event")
+
+        state.stream_service.project_message_for_viewer = _fail_per_message_projection  # type: ignore[method-assign]
+        try:
+            replay = self.client.get(f"/api/v1/sessions/{session_id}/replay")
+        finally:
+            state.stream_service.project_message_for_viewer = original  # type: ignore[method-assign]
+
+        self.assertEqual(replay.status_code, 200)
+        data = replay.json()["data"]
+        self.assertEqual(data["event_count"], 22)
+        self.assertIn("view_state", data)
+        self.assertIn("view_state", data["events"][-1].get("payload", {}))
+
+    def test_runtime_status_recovery_view_state_is_projected_for_authenticated_seat(self) -> None:
+        created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
+        created_data = created.json()["data"]
+        session_id = created_data["session_id"]
+        joined = self.client.post(
+            f"/api/v1/sessions/{session_id}/join",
+            json={"seat": 1, "join_token": created_data["join_tokens"]["1"], "display_name": "P1"},
+        )
+        self.assertEqual(joined.status_code, 200)
+        session_token = joined.json()["data"]["session_token"]
+
+        async def _seed_private_prompt() -> None:
+            from apps.server.src import state
+
+            await state.stream_service.publish(
+                session_id,
+                "prompt",
+                {
+                    "request_id": "req_runtime_trick",
+                    "request_type": "trick_to_use",
+                    "player_id": 1,
+                    "legal_choices": [{"choice_id": "card-11", "title": "재뿌리기"}],
+                    "public_context": {
+                        "full_hand": [{"deck_index": 11, "name": "재뿌리기", "is_usable": True}],
+                    },
+                },
+            )
+
+        asyncio.run(_seed_private_prompt())
+
+        from apps.server.src import state
+
+        state.runtime_service.public_runtime_status = lambda _session_id: {
+            "status": "recovery_required",
+            "recovery_checkpoint": {
+                "available": True,
+                "checkpoint": {},
+                "view_state": {"prompt": {"last_feedback": {"request_id": "old_public_feedback"}}},
+                "current_state_available": True,
+            },
+        }
+
+        runtime = self.client.get(
+            f"/api/v1/sessions/{session_id}/runtime-status",
+            params={"token": session_token},
+        )
+
+        self.assertEqual(runtime.status_code, 200)
+        view_state = runtime.json()["data"]["runtime"]["recovery_checkpoint"]["view_state"]
+        self.assertEqual(view_state["prompt"]["active"]["request_id"], "req_runtime_trick")
+        self.assertEqual(view_state["hand_tray"]["cards"][0]["name"], "재뿌리기")
+
     def test_replay_endpoint_rejects_invalid_session_token(self) -> None:
         created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
         session_id = created.json()["data"]["session_id"]

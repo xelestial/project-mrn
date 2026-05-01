@@ -621,6 +621,54 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
         self.assertEqual(player["hidden_trick_count"], 0)
         self.assertNotIn("거대한 산불", player["public_tricks"])
 
+    def test_player_view_state_overlays_direct_trick_visibility_events(self) -> None:
+        messages = [
+            {
+                "type": "event",
+                "seq": 1,
+                "session_id": "s1",
+                "server_time_ms": 1,
+                "payload": {
+                    "event_type": "trick_used",
+                    "acting_player_id": 1,
+                    "snapshot": {
+                        "players": [
+                            {
+                                "player_id": 1,
+                                "display_name": "Player 1",
+                                "cash": 20,
+                                "shards": 5,
+                                "trick_count": 3,
+                                "hidden_trick_count": 0,
+                                "public_tricks": ["이럇!", "마당발", "극도의 느슨함 혐오자"],
+                            }
+                        ],
+                        "board": {"marker_owner_player_id": 1},
+                    },
+                },
+            },
+            {
+                "type": "event",
+                "seq": 2,
+                "session_id": "s1",
+                "server_time_ms": 2,
+                "payload": {
+                    "event_type": "trick_window_closed",
+                    "acting_player_id": 1,
+                    "hand_count": 3,
+                    "hidden_trick_count": 1,
+                    "public_tricks": ["마당발", "극도의 느슨함 혐오자"],
+                },
+            },
+        ]
+
+        view_state = build_player_view_state(messages)
+        player = view_state["items"][0]
+
+        self.assertEqual(player["trick_count"], 3)
+        self.assertEqual(player["hidden_trick_count"], 1)
+        self.assertEqual(player["public_tricks"], ["마당발", "극도의 느슨함 혐오자"])
+
 
 def _project_root():
     from pathlib import Path
