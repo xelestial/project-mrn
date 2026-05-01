@@ -408,6 +408,34 @@ describe("promptSelectors", () => {
     expect(selectActivePrompt(messages)).toBeNull();
   });
 
+  it("returns null when a later trick_used already completed the same player's trick prompt", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "prompt",
+        seq: 50,
+        session_id: "s1",
+        payload: {
+          request_id: "req_trick_1",
+          request_type: "trick_to_use",
+          player_id: 1,
+          timeout_ms: 300000,
+          legal_choices: [{ choice_id: "42", title: "긴장감 조성", description: "rent double" }],
+        },
+      },
+      {
+        type: "event",
+        seq: 51,
+        session_id: "s1",
+        payload: {
+          event_type: "trick_used",
+          acting_player_id: 1,
+          card_name: "긴장감 조성",
+        },
+      },
+    ];
+    expect(selectActivePrompt(messages)).toBeNull();
+  });
+
   it("uses a newer raw prompt when the latest backend view_state is stale", () => {
     const messages: InboundMessage[] = [
       {

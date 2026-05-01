@@ -297,6 +297,47 @@ describe("streamSelectors", () => {
     expect(selectMarkerOrderedPlayers(messages).map((player) => player.playerId)).toEqual([3, 4, 1, 2]);
   });
 
+  it("prefers the round turn order over marker draft order once round-order is known", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "round_start",
+          round_index: 1,
+          turn_index: 0,
+          marker_owner_player_id: 2,
+          marker_draft_direction: "counterclockwise",
+          players: [1, 2, 3, 4].map((playerId) => ({
+            player_id: playerId,
+            display_name: `Player ${playerId}`,
+            character: "-",
+            alive: true,
+            position: playerId - 1,
+            cash: 10,
+            shards: 4,
+            hidden_trick_count: 0,
+            owned_tile_count: 0,
+          })),
+        },
+      },
+      {
+        type: "event",
+        seq: 2,
+        session_id: "s1",
+        payload: {
+          event_type: "round_order",
+          round_index: 1,
+          turn_index: 0,
+          order: [3, 1, 4, 2],
+        },
+      },
+    ];
+
+    expect(selectMarkerOrderedPlayers(messages).map((player) => player.playerId)).toEqual([3, 1, 4, 2]);
+  });
+
   it("prefers backend-projected active slots and mark target candidates when present", () => {
     const messages: InboundMessage[] = [
       {

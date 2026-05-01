@@ -8,6 +8,7 @@ Recent rule-fix coverage includes mark bookkeeping and control-profile scoring e
   - fortune arrival moves to the target and resolves landing without lap credit
   - fortune move-only changes position without resolving landing
   - suspicious drink keeps dice rolling before arrival resolution
+- Added queued trick-continuation regression coverage: `극심한 분리불안` can queue movement and arrival while another trick remains in hand, but the engine appends `continue_after_trick_phase` and must not ask `choose_trick_to_use()` a second time for the same turn.
 
 룰 수정 회귀 테스트 문서.
 

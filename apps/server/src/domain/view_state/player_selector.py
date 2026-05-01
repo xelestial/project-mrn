@@ -273,6 +273,31 @@ def _latest_actor_character(messages: list[dict[str, Any]]) -> str | None:
     return None
 
 
+def _latest_round_order(messages: list[dict[str, Any]]) -> list[int] | None:
+    for message in reversed(messages):
+        if message.get("type") != "event":
+            continue
+        payload = _record(message.get("payload")) or {}
+        event_type = _event_type(payload)
+        if event_type == "round_start":
+            return None
+        if event_type != "round_order":
+            continue
+        order = payload.get("order")
+        if not isinstance(order, list):
+            return None
+        ordered: list[int] = []
+        seen: set[int] = set()
+        for item in order:
+            player_id = _number(item)
+            if player_id is None or player_id < 1 or player_id in seen:
+                continue
+            ordered.append(player_id)
+            seen.add(player_id)
+        return ordered if ordered else None
+    return None
+
+
 def build_player_view_state(messages: list[dict[str, Any]]) -> PlayerOrderingViewState | None:
     entry = latest_player_snapshot_entry(messages)
     if not entry:
@@ -315,6 +340,14 @@ def build_player_view_state(messages: list[dict[str, Any]]) -> PlayerOrderingVie
             index = (owner_index + step) % len(ordered_player_ids) if direction == "clockwise" else (owner_index - step) % len(ordered_player_ids)
             ordered.append(ordered_player_ids[index])
         ordered_player_ids = ordered
+
+    round_order = _latest_round_order(messages)
+    if round_order:
+        known_ids = set(ordered_player_ids)
+        turn_ordered = [player_id for player_id in round_order if player_id in known_ids]
+        if turn_ordered:
+            remaining = [player_id for player_id in ordered_player_ids if player_id not in set(turn_ordered)]
+            ordered_player_ids = turn_ordered + remaining
 
     player_by_id = {player["player_id"]: player for player in players}
     ordered_items = [player_by_id[player_id] for player_id in ordered_player_ids if player_id in player_by_id]

@@ -636,6 +636,11 @@ def _closes_prompt_by_phase_progress(request_type: str, payload: dict[str, Any],
         return ((event_type == "draft_pick" and payload_player_id == prompt_player_id) or event_type in {"final_character_choice", "turn_start"})
     if request_type in {"final_character", "final_character_choice"}:
         return ((event_type == "final_character_choice" and payload_player_id == prompt_player_id) or event_type == "turn_start")
+    if request_type == "trick_to_use":
+        return (
+            (event_type == "trick_used" and payload_player_id == prompt_player_id)
+            or (event_type == "trick_window_closed" and payload_player_id == prompt_player_id)
+        )
     return False
 
 

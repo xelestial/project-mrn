@@ -558,3 +558,71 @@ Fixes landed with regression coverage in:
 - `apps/web/src/domain/selectors/streamSelectors.spec.ts`
 
 Root-cause lessons were distilled into `docs/engineering/[LESSONS]_REDIS_RUNTIME_UI_PLAYTEST.md`.
+
+### 2026-05-01 REDIS-UI-07 Closure: Stale Trick Prompt Before Tile Target
+
+Updated report from live play: after selecting a character and using `긴장감 조성`, the UI could appear to jump back to an old selection surface before returning to the 잔꾀 target screen.
+
+Root cause:
+
+- The engine correctly used the card and queued `resolve_trick_tile_rent_modifier`.
+- The prompt lifecycle projection did not close the old `trick_to_use` prompt when the same-player `trick_used` event arrived.
+- If the follow-up `trick_tile_target` prompt had not arrived/rendered yet, the frontend fallback selector could resurrect the stale prompt, making a valid queued-action transition look like a rollback.
+
+Fix:
+
+- Backend `view_state.prompt` and frontend fallback prompt selectors now close same-player `trick_to_use` prompts on `trick_used` and `trick_window_closed`.
+- Regression tests cover the stale prompt close rule in both selector layers, plus a browser click path that uses `긴장감 조성` and waits for the queued tile-target prompt.
+
+Validation:
+
+- `npm --prefix apps/web run test -- src/domain/selectors/promptSelectors.spec.ts`
+- `npm --prefix apps/web run e2e -- parity.spec.ts -g "trick use advances"`
+- `.venv/bin/python -m pytest apps/server/tests/test_view_state_prompt_selector.py -q`
+
+### 2026-05-01 REDIS-UI-08 Closure: Queued Trick Movement Reopened Trick Prompt
+
+Updated report from play: after using `극심한 분리불안`, the game could ask the same player to use a trick again.
+
+Root cause:
+
+- The priority action queue correctly ran the trick-generated movement path, starting with `apply_move` and then `resolve_arrival`.
+- The trick phase returned early because it had queued work, but it did not append `continue_after_trick_phase` behind that queued work.
+- After movement and arrival drained the queue, `turn_index` still pointed to the same player with no pending turn completion. The next transition therefore entered turn start again and could produce a second `trick_to_use` prompt if another trick remained in hand.
+
+Fix:
+
+- `GameEngine._use_trick_phase()` now records whether applying a trick added pending actions. When it did, and the turn has a continuation payload, it appends `continue_after_trick_phase` after the trick-generated actions.
+- The continuation is marked as already hidden-trick-synced because the hand visibility sync has already happened before appending it.
+
+Validation:
+
+- `.venv/bin/python -m pytest GPT/test_rule_fixes.py -k 'queued_trick_action_resumes_after_effect_without_second_trick_prompt or hidden_trick_prompt_resumes_after_applied_trick' -q`
+- `.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'extreme_separation' -q`
+- `npm --prefix apps/web run e2e -- parity.spec.ts -g "extreme separation"`
+- `npm --prefix apps/web run e2e -- parity.spec.ts -g "trick use advances"`
+
+### 2026-05-01 REDIS-UI-09 Closure: Draft Order, Turn Order, And Mark Target Projection Drift
+
+Updated report from play: targeting, draft display, and turn order all looked wrong after character selection and trick use.
+
+Root cause:
+
+- The engine's priority queue was not the only thing that defines the visible order. The UI also consumes `view_state.players.ordered_player_ids`, raw `round_order`, session seats, and mark-target prompt metadata.
+- Backend `view_state.players.ordered_player_ids` kept projecting marker/draft order even after a later `round_order` event had established the real turn order.
+- The frontend raw-event fallback made the same mistake: it could keep using marker/draft order when backend projection was absent.
+- `App.tsx` computed marker/turn-ordered players, but the player strip then ignored that list and sorted session seats by seat number.
+- `PromptOverlay` filtered mark-target choices down to candidates and accidentally dropped the explicit `none` / "지목 안 함" choice.
+
+Fix:
+
+- Backend player projection now prefers the latest live `round_order` after draft has completed, while preserving marker owner and draft direction metadata.
+- Frontend fallback player ordering now also prefers `snapshot.currentRoundOrder` before marker/draft ordering.
+- The match player strip now ranks session seats by projected player order instead of always falling back to seat order.
+- Mark-target rendering preserves the explicit no-target choice after candidate ordering.
+
+Validation:
+
+- `.venv/bin/python -m pytest apps/server/tests/test_view_state_player_selector.py -q`
+- `npm --prefix apps/web run test -- src/domain/selectors/streamSelectors.spec.ts --run`
+- `npm --prefix apps/web run e2e -- --project=chromium --grep "purchase and mark prompts render dedicated decision cards"`

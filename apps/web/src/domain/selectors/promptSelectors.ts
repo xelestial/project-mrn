@@ -305,6 +305,12 @@ function closesPromptByPhaseProgress(requestType: string, payload: Record<string
   if (requestType === "final_character" || requestType === "final_character_choice") {
     return (eventType === "final_character_choice" && payloadPlayerId === promptPlayerId) || eventType === "turn_start";
   }
+  if (requestType === "trick_to_use") {
+    return (
+      (eventType === "trick_used" && payloadPlayerId === promptPlayerId) ||
+      (eventType === "trick_window_closed" && payloadPlayerId === promptPlayerId)
+    );
+  }
   return false;
 }
 

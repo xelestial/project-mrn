@@ -1,12 +1,41 @@
 # [WORKLOG] Implementation Journal
 
 Status: ACTIVE  
-Updated: 2026-04-30
+Updated: 2026-05-01
 
 ## Rules
 
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
+
+## 2026-05-01 Trick Prompt Lifecycle Closure
+
+- What changed:
+  - closed stale `trick_to_use` prompts when a same-player `trick_used` or `trick_window_closed` event appears after the prompt
+  - applied the same lifecycle rule in backend `view_state.prompt` projection and the frontend fallback prompt selector
+  - added regression coverage for the `긴장감 조성` path where using a trick queues a follow-up `trick_tile_target` prompt
+- Why:
+  - the card effect was not rolling the engine back to character selection; the old prompt could remain selectable while the runtime moved from `trick_used` to the queued tile-target decision
+  - relying only on `decision_ack` / `decision_resolved` is too fragile during command wakeup, replay, and reconnect ordering
+- Validation:
+  - `npm --prefix apps/web run e2e -- parity.spec.ts -g "trick use advances"`
+  - `npm --prefix apps/web run test -- src/domain/selectors/promptSelectors.spec.ts`
+  - `.venv/bin/python -m pytest apps/server/tests/test_view_state_prompt_selector.py -q`
+
+## 2026-05-01 Queued Trick Turn Continuation Closure
+
+- What changed:
+  - when a regular trick queues runtime actions, append `continue_after_trick_phase` behind those actions so the same `turn_index` resumes after the trick phase instead of starting the turn again
+  - covered `극심한 분리불안` with a backend regression where another usable trick remains in hand and must not be prompted after the queued movement/arrival resolves
+  - added a browser click regression for `극심한 분리불안` confirming the trick picker closes while queued movement and landing events arrive
+- Why:
+  - the priority action queue executed `apply_move -> resolve_arrival` correctly, but no turn continuation token remained after the queue drained
+  - once pending actions became empty, `run_next_transition()` re-entered the same player's turn start, which could reopen `trick_to_use` for any remaining trick card
+- Validation:
+  - `.venv/bin/python -m pytest GPT/test_rule_fixes.py -k 'queued_trick_action_resumes_after_effect_without_second_trick_prompt or hidden_trick_prompt_resumes_after_applied_trick' -q`
+  - `.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'extreme_separation' -q`
+  - `npm --prefix apps/web run e2e -- parity.spec.ts -g "extreme separation"`
+  - `npm --prefix apps/web run e2e -- parity.spec.ts -g "trick use advances"`
 
 ## 2026-04-30 Visibility Projection Foundation
 
@@ -4507,6 +4536,23 @@ Updated: 2026-04-30
   - `cd apps/web && npm run build`
   - browser 1920x1080 AI-session check: `40` `.board-projected-tile`, `0` `.board-lane-strip`, no console errors
   - browser 1920x1080 human draft prompt check: character cards render generated 2:3 portraits and keep visible card metadata/ability text
+
+## 2026-05-01 Turn / Draft Ordering And Mark Target Projection Fix
+
+- What changed:
+  - updated backend player `view_state` projection so the latest `round_order` owns visible player ordering after draft completes
+  - updated the frontend raw stream fallback to apply the same `round_order` precedence when backend projection is absent
+  - changed the match player strip to rank session seats by projected player order instead of always sorting by seat number
+  - kept the explicit `none` / "지목 안 함" choice visible after mark-target candidate ordering
+  - added server, web selector, and browser parity coverage for the order/projection path
+- Why:
+  - marker/draft order and actual turn order are different lifecycle contracts
+  - the previous projection chain could show marker/draft order after the engine had already emitted a real turn order, and the final React layout could then erase the corrected order by sorting seats again
+  - target candidate filtering was also too aggressive and made no-target selection disappear
+- Validation:
+  - `.venv/bin/python -m pytest apps/server/tests/test_view_state_player_selector.py -q`
+  - `npm --prefix apps/web run test -- src/domain/selectors/streamSelectors.spec.ts --run`
+  - `npm --prefix apps/web run e2e -- --project=chromium --grep "purchase and mark prompts render dedicated decision cards"`
 
 ## 2026-04-16 Room / Dedicated Server / Electron Client Architecture Plan
 

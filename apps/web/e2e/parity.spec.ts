@@ -77,6 +77,10 @@ type StreamMessage = {
   payload: Record<string, unknown>;
 };
 
+type TimedStreamMessage = StreamMessage & {
+  delay_ms?: number;
+};
+
 function loadFixture(name: string): FixtureRecord {
   const path = resolve(process.cwd(), "e2e", "fixtures", name);
   return JSON.parse(readFileSync(path, "utf8")) as FixtureRecord;
@@ -155,6 +159,7 @@ async function installMockRuntime(
   args: {
     sessionManifests: Record<string, ManifestRecord>;
     sessionEvents: Record<string, StreamMessage[]>;
+    decisionFollowups?: Record<string, TimedStreamMessage[]>;
     createSessionQueue?: Array<{
       session_id: string;
       status: string;
@@ -189,10 +194,11 @@ async function installMockRuntime(
   },
 ): Promise<void> {
   await page.addInitScript(
-    ({ sessionManifests, sessionEvents, createSessionQueue, joinResults, startedSessions }) => {
+    ({ sessionManifests, sessionEvents, decisionFollowups, createSessionQueue, joinResults, startedSessions }) => {
       window.localStorage.setItem("mrn:web:locale", "ko");
       const manifests = sessionManifests as Record<string, ManifestRecord>;
       const eventsBySession = sessionEvents as Record<string, StreamMessage[]>;
+      const followupsByRequest = (decisionFollowups as Record<string, TimedStreamMessage[]> | undefined) ?? {};
       const pendingCreates = [...(createSessionQueue as Array<Record<string, unknown>> | undefined ?? [])];
       const joinResultMap = (joinResults as Record<string, Record<string, unknown>> | undefined) ?? {};
       const startedSessionMap = (startedSessions as Record<string, Record<string, unknown>> | undefined) ?? {};
@@ -363,11 +369,36 @@ async function installMockRuntime(
           }, 0);
         }
 
+        emitMessages(messages: TimedStreamMessage[]): void {
+          messages.forEach((message, index) => {
+            const delayMs = typeof message.delay_ms === "number" ? message.delay_ms : index * 5;
+            window.setTimeout(() => {
+              if (this.readyState !== MockWebSocket.OPEN) {
+                return;
+              }
+              const { delay_ms: _delayMs, ...wireMessage } = message;
+              this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(wireMessage) }));
+            }, delayMs);
+          });
+        }
+
         send(data: string): void {
           let payload: Record<string, unknown> = {};
           try {
             payload = JSON.parse(data) as Record<string, unknown>;
           } catch {
+            return;
+          }
+          if (payload.type === "decision") {
+            const requestId = typeof payload.request_id === "string" ? payload.request_id : "";
+            const followups = followupsByRequest[requestId] ?? [];
+            if (followups.length === 0) {
+              return;
+            }
+            const match = this.url.match(/\/api\/v1\/sessions\/([^/]+)\/stream/);
+            const sessionId = match ? decodeURIComponent(match[1]) : "";
+            eventsBySession[sessionId] = [...(eventsBySession[sessionId] ?? []), ...followups];
+            this.emitMessages(followups);
             return;
           }
           if (payload.type !== "resume") {
@@ -377,14 +408,7 @@ async function installMockRuntime(
           const sessionId = match ? decodeURIComponent(match[1]) : "";
           const lastSeq = typeof payload.last_seq === "number" ? payload.last_seq : 0;
           const replay = (eventsBySession[sessionId] ?? []).filter((message) => message.seq > lastSeq);
-          replay.forEach((message, index) => {
-            window.setTimeout(() => {
-              if (this.readyState !== MockWebSocket.OPEN) {
-                return;
-              }
-              this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(message) }));
-            }, index * 5);
-          });
+          this.emitMessages(replay);
         }
 
         close(): void {
@@ -573,6 +597,349 @@ test("quick start human vs ai enters match and surfaces the first human prompt",
     page.getByTestId("trick-choice-13-3"),
     page.getByTestId("trick-choice-14-4"),
   ]);
+});
+
+test("trick use advances to tile target without resurrecting the stale trick picker", async ({ page }) => {
+  const manifest = buildManifest({
+    hash: "trick_prompt_lifecycle_hash_001",
+    topology: "ring",
+    tileCount: 40,
+    seats: [1, 2, 3, 4],
+  });
+  const sessionId = "sess_trick_target_lifecycle";
+  const initialActiveByCard = {
+    "1": "중매꾼",
+    "2": "자객",
+    "3": "추노꾼",
+    "4": "파발꾼",
+  };
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({
+          seq: 1,
+          sessionId,
+          payload: {
+            event_type: "parameter_manifest",
+            parameter_manifest: manifest,
+          },
+        }),
+        eventMessage({
+          seq: 2,
+          sessionId,
+          payload: {
+            event_type: "turn_start",
+            round_index: 1,
+            turn_index: 1,
+            acting_player_id: 1,
+            character: "중매꾼",
+          },
+        }),
+        {
+          type: "prompt",
+          seq: 3,
+          session_id: sessionId,
+          server_time_ms: 1_700_000_000_003,
+          payload: {
+            request_id: "req_trick_use_1",
+            request_type: "trick_to_use",
+            player_id: 1,
+            timeout_ms: 300000,
+            public_context: {
+              total_hand_count: 1,
+              hidden_trick_count: 0,
+              full_hand: [
+                {
+                  deck_index: 13,
+                  name: "긴장감 조성",
+                  card_description: "지정 타일 통행료를 두 배로 올립니다",
+                  is_hidden: false,
+                  is_usable: true,
+                },
+              ],
+            },
+            choices: [
+              { choice_id: "none", title: "쓰지 않음", description: "이번 타이밍에는 사용하지 않습니다", value: null, secondary: true },
+              { choice_id: "13", title: "긴장감 조성", description: "지정 타일 통행료를 두 배로 올립니다", value: { deck_index: 13 } },
+            ],
+          },
+        },
+      ],
+    },
+    decisionFollowups: {
+      req_trick_use_1: [
+        {
+          type: "decision_ack",
+          seq: 4,
+          session_id: sessionId,
+          server_time_ms: 1_700_000_000_004,
+          delay_ms: 0,
+          payload: {
+            request_id: "req_trick_use_1",
+            status: "accepted",
+            player_id: 1,
+            provider: "human",
+          },
+        },
+        {
+          ...eventMessage({
+            seq: 5,
+            sessionId,
+            payload: {
+              event_type: "trick_used",
+              round_index: 1,
+              turn_index: 1,
+              acting_player_id: 1,
+              player_id: 1,
+              card_name: "긴장감 조성",
+              deck_index: 13,
+            },
+          }),
+          delay_ms: 20,
+        },
+        {
+          type: "prompt",
+          seq: 6,
+          session_id: sessionId,
+          server_time_ms: 1_700_000_000_006,
+          delay_ms: 600,
+          payload: {
+            request_id: "req_trick_target_1",
+            request_type: "trick_tile_target",
+            player_id: 1,
+            timeout_ms: 300000,
+            public_context: {
+              card_name: "긴장감 조성",
+              target_scope: "owned_or_any",
+              candidate_tiles: [3, 4],
+            },
+            choices: [
+              { choice_id: "tile_3", title: "3번 토지", description: "통행료 두 배", value: { tile_index: 3 } },
+              { choice_id: "tile_4", title: "4번 토지", description: "통행료 두 배", value: { tile_index: 4 } },
+            ],
+          },
+        },
+      ],
+    },
+    startedSessions: {
+      [sessionId]: {
+        session_id: sessionId,
+        status: "in_progress",
+        round_index: 1,
+        turn_index: 1,
+        initial_active_by_card: initialActiveByCard,
+        seats: [
+          { seat: 1, seat_type: "human", connected: true, player_id: 1 },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced" },
+          { seat: 3, seat_type: "ai", connected: true, player_id: 3, ai_profile: "balanced" },
+          { seat: 4, seat_type: "ai", connected: true, player_id: 4, ai_profile: "balanced" },
+        ],
+        parameter_manifest: manifest,
+      },
+    },
+  });
+
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_trick_lifecycle_demo`);
+  await expect(page.getByTestId("prompt-overlay")).toHaveAttribute("data-prompt-type", "trick_to_use");
+  await expect(page.getByTestId("trick-choice-13-0")).toHaveAttribute("data-card-name", "긴장감 조성");
+
+  await page.getByTestId("trick-choice-13-0").click();
+
+  await expect(page.getByTestId("prompt-overlay")).toHaveCount(0, { timeout: 500 });
+  await expect(page.getByTestId("trick-choice-13-0")).toHaveCount(0);
+  await expect(page.getByTestId("prompt-overlay")).toHaveAttribute("data-prompt-type", "trick_tile_target", { timeout: 1500 });
+  await expect(page.getByTestId("trick-tile-target-choice-tile_3")).toHaveAttribute("data-choice-title", "3번 토지");
+});
+
+test("extreme separation trick closes picker while queued movement resolves", async ({ page }) => {
+  const manifest = buildManifest({
+    hash: "extreme_separation_lifecycle_hash_001",
+    topology: "ring",
+    tileCount: 40,
+    seats: [1, 2, 3, 4],
+  });
+  const sessionId = "sess_extreme_separation_lifecycle";
+  const initialActiveByCard = {
+    "1": "중매꾼",
+    "2": "자객",
+    "3": "추노꾼",
+    "4": "파발꾼",
+  };
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({
+          seq: 1,
+          sessionId,
+          payload: {
+            event_type: "parameter_manifest",
+            parameter_manifest: manifest,
+          },
+        }),
+        eventMessage({
+          seq: 2,
+          sessionId,
+          payload: {
+            event_type: "turn_start",
+            round_index: 1,
+            turn_index: 1,
+            acting_player_id: 1,
+            character: "중매꾼",
+          },
+        }),
+        {
+          type: "prompt",
+          seq: 3,
+          session_id: sessionId,
+          server_time_ms: 1_700_000_010_003,
+          payload: {
+            request_id: "req_extreme_separation_1",
+            request_type: "trick_to_use",
+            player_id: 1,
+            timeout_ms: 300000,
+            public_context: {
+              total_hand_count: 2,
+              hidden_trick_count: 0,
+              full_hand: [
+                {
+                  deck_index: 21,
+                  name: "극심한 분리불안",
+                  card_description: "가장 거리가 먼 사람의 위치에 즉시 도착합니다",
+                  is_hidden: false,
+                  is_usable: true,
+                },
+                {
+                  deck_index: 22,
+                  name: "건강 검진",
+                  card_description: "이번 턴 통행료를 절반으로 줄입니다",
+                  is_hidden: false,
+                  is_usable: true,
+                },
+              ],
+            },
+            choices: [
+              { choice_id: "none", title: "쓰지 않음", description: "이번 타이밍에는 사용하지 않습니다", value: null, secondary: true },
+              { choice_id: "21", title: "극심한 분리불안", description: "가장 거리가 먼 사람의 위치에 즉시 도착합니다", value: { deck_index: 21 } },
+              { choice_id: "22", title: "건강 검진", description: "이번 턴 통행료를 절반으로 줄입니다", value: { deck_index: 22 } },
+            ],
+          },
+        },
+      ],
+    },
+    decisionFollowups: {
+      req_extreme_separation_1: [
+        {
+          type: "decision_ack",
+          seq: 4,
+          session_id: sessionId,
+          server_time_ms: 1_700_000_010_004,
+          delay_ms: 0,
+          payload: {
+            request_id: "req_extreme_separation_1",
+            status: "accepted",
+            player_id: 1,
+            provider: "human",
+          },
+        },
+        {
+          ...eventMessage({
+            seq: 5,
+            sessionId,
+            payload: {
+              event_type: "trick_used",
+              round_index: 1,
+              turn_index: 1,
+              acting_player_id: 1,
+              player_id: 1,
+              card_name: "극심한 분리불안",
+              deck_index: 21,
+            },
+          }),
+          delay_ms: 20,
+        },
+        {
+          ...eventMessage({
+            seq: 6,
+            sessionId,
+            payload: {
+              event_type: "action_move",
+              round_index: 1,
+              turn_index: 1,
+              acting_player_id: 1,
+              player_id: 1,
+              from_tile: 1,
+              to_tile: 12,
+              movement_source: "trick_extreme_separation",
+            },
+          }),
+          delay_ms: 120,
+        },
+        {
+          ...eventMessage({
+            seq: 7,
+            sessionId,
+            payload: {
+              event_type: "landing_resolved",
+              round_index: 1,
+              turn_index: 1,
+              acting_player_id: 1,
+              player_id: 1,
+              position: 12,
+              trigger: "trick_extreme_separation",
+              card_name: "극심한 분리불안",
+            },
+          }),
+          delay_ms: 260,
+        },
+        {
+          ...eventMessage({
+            seq: 8,
+            sessionId,
+            payload: {
+              event_type: "trick_window_closed",
+              round_index: 1,
+              turn_index: 1,
+              acting_player_id: 1,
+              player_id: 1,
+            },
+          }),
+          delay_ms: 420,
+        },
+      ],
+    },
+    startedSessions: {
+      [sessionId]: {
+        session_id: sessionId,
+        status: "in_progress",
+        round_index: 1,
+        turn_index: 1,
+        initial_active_by_card: initialActiveByCard,
+        seats: [
+          { seat: 1, seat_type: "human", connected: true, player_id: 1 },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced" },
+          { seat: 3, seat_type: "ai", connected: true, player_id: 3, ai_profile: "balanced" },
+          { seat: 4, seat_type: "ai", connected: true, player_id: 4, ai_profile: "balanced" },
+        ],
+        parameter_manifest: manifest,
+      },
+    },
+  });
+
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_extreme_separation_demo`);
+  await expect(page.getByTestId("prompt-overlay")).toHaveAttribute("data-prompt-type", "trick_to_use");
+  await expect(page.getByTestId("trick-choice-21-0")).toHaveAttribute("data-card-name", "극심한 분리불안");
+
+  await page.getByTestId("trick-choice-21-0").click();
+
+  await expect(page.getByTestId("prompt-overlay")).toHaveCount(0, { timeout: 500 });
+  await expect(page.getByTestId("trick-choice-21-0")).toHaveCount(0);
+  await page.waitForTimeout(900);
+  await expect(page.getByTestId("prompt-overlay")).toHaveCount(0);
+  await expect(page.getByTestId("trick-choice-22-0")).toHaveCount(0);
 });
 
 test("session payload initial active faces hydrate the active strip before stream events arrive", async ({ page }) => {
@@ -991,6 +1358,15 @@ test("purchase and mark prompts render dedicated decision cards", async ({ page 
           payload: {
             event_type: "round_start",
             round_index: 1,
+            marker_owner_player_id: 2,
+            marker_draft_direction: "counterclockwise",
+            active_by_card: initialActiveByCard,
+            players: [
+              { player_id: 1, position: 8, cash: 9, burden: 0, shards: 4, character: "자객" },
+              { player_id: 2, position: 3, cash: 9, burden: 0, shards: 4, character: "만신" },
+              { player_id: 3, position: 12, cash: 9, burden: 0, shards: 4, character: "추노꾼" },
+              { player_id: 4, position: 15, cash: 9, burden: 0, shards: 4, character: "아전" },
+            ],
           },
         }),
         eventMessage({
@@ -1005,6 +1381,14 @@ test("purchase and mark prompts render dedicated decision cards", async ({ page 
           seq: 4,
           sessionId: markSession,
           payload: {
+            event_type: "round_order",
+            order: [3, 1, 4, 2],
+          },
+        }),
+        eventMessage({
+          seq: 5,
+          sessionId: markSession,
+          payload: {
             event_type: "turn_start",
             round_index: 1,
             turn_index: 1,
@@ -1014,7 +1398,7 @@ test("purchase and mark prompts render dedicated decision cards", async ({ page 
         }),
         {
           type: "prompt",
-          seq: 5,
+          seq: 6,
           session_id: markSession,
           server_time_ms: 1_700_000_000_202,
           payload: {
@@ -1093,9 +1477,15 @@ test("purchase and mark prompts render dedicated decision cards", async ({ page 
   await expect(page.getByTestId("active-character-slot-2")).toHaveAttribute("data-character-name", "자객");
   await expect(page.getByTestId("active-character-slot-6")).toHaveAttribute("data-character-name", "만신");
   await expect(page.getByTestId("active-character-slot-8")).toHaveAttribute("data-character-name", "건설업자");
+  const orderedPlayerCards = page.locator('[data-testid^="match-player-card-"]');
+  await expect(orderedPlayerCards).toHaveCount(4);
+  await expect(orderedPlayerCards.nth(0)).toHaveAttribute("data-testid", "match-player-card-3");
+  await expect(orderedPlayerCards.nth(1)).toHaveAttribute("data-testid", "match-player-card-1");
+  await expect(orderedPlayerCards.nth(2)).toHaveAttribute("data-testid", "match-player-card-4");
+  await expect(orderedPlayerCards.nth(3)).toHaveAttribute("data-testid", "match-player-card-2");
   await expect(page.getByTestId("mark-choice-mark_p2")).toHaveAttribute("data-target-character", "만신");
   await expect(page.getByTestId("mark-choice-mark_p2")).toHaveAttribute("data-target-player-id", "2");
-  await expect(page.getByTestId("mark-choice-none")).toHaveCount(0);
+  await expect(page.getByTestId("mark-choice-none")).toBeVisible();
   await expectLocatorsToShareSingleRow([
     page.getByTestId("mark-choice-mark_p2"),
     page.getByTestId("mark-choice-mark_p4"),

@@ -991,6 +991,8 @@ export function App() {
 
   const orderedSeatEntries = useMemo(() => {
     const derivedPlayerIds = new Set(derivedPlayers.map((player) => player.playerId));
+    const orderedPlayerIds = markerOrderedPlayers.map((player) => player.playerId);
+    const orderRank = new Map(orderedPlayerIds.map((playerId, index) => [playerId, index] as const));
     const sessionSeatEntries = (sessionSeats ?? [])
       .slice()
       .sort((left, right) => left.seat - right.seat)
@@ -1002,19 +1004,27 @@ export function App() {
       }));
 
     if (sessionSeatEntries.length > 0) {
-      return sessionSeatEntries;
+      return sessionSeatEntries.slice().sort((left, right) => {
+        const leftRank = left.playerId !== null ? orderRank.get(left.playerId) : undefined;
+        const rightRank = right.playerId !== null ? orderRank.get(right.playerId) : undefined;
+        if (leftRank !== undefined || rightRank !== undefined) {
+          return (leftRank ?? Number.MAX_SAFE_INTEGER) - (rightRank ?? Number.MAX_SAFE_INTEGER);
+        }
+        return left.seat - right.seat;
+      });
     }
 
-    return derivedPlayers
-      .slice()
-      .sort((left, right) => left.playerId - right.playerId)
+    const fallbackPlayers = markerOrderedPlayers.length > 0
+      ? markerOrderedPlayers
+      : derivedPlayers.slice().sort((left, right) => left.playerId - right.playerId);
+    return fallbackPlayers
       .map((player) => ({
         seat: player.playerId,
         playerId: player.playerId,
         seatType: null,
         connected: true,
       }));
-  }, [derivedPlayers, sessionSeats]);
+  }, [derivedPlayers, markerOrderedPlayers, sessionSeats]);
 
   const joinSeatOptions = (sessionManifest?.seats?.allowed ?? [])
     .slice()

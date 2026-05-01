@@ -13,6 +13,7 @@
 - Scheduled continuation metadata is checkpointed through `scheduled_actions`. These are also `ActionEnvelope` records, but they include a target player and phase such as `turn_start`; the engine materializes matching scheduled actions into `pending_actions` when that player/phase becomes current.
 - `pending_action_log` carries the in-progress turn-log aggregate while movement and arrival are split across multiple queued actions.
 - `pending_turn_completion` carries the small deferred turn-finalization envelope while normal turn movement is split into queued `apply_move -> resolve_arrival` transitions. Redis recovery uses it to emit the turn-end snapshot and advance the turn cursor only after queued movement work is finished.
+- `pending_actions` may also carry phase-continuation envelopes such as `continue_after_trick_phase`. These are queued after trick-generated movement or landing actions so the same turn resumes at the correct phase instead of falling back to turn-start/trick selection after the action queue drains.
 
 ## 현재 구조
 - `GameState.create()`는 `BoardConfig.build_tile_metadata()` 결과를 바탕으로 `TileState` 목록을 만든다.

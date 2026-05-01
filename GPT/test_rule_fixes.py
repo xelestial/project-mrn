@@ -1576,6 +1576,66 @@ class TrickSystemTests(unittest.TestCase):
         self.assertTrue(state.pending_turn_completion)
         self.assertTrue(any(action.type == "apply_move" for action in state.pending_actions))
 
+    def test_queued_trick_action_resumes_after_effect_without_second_trick_prompt(self):
+        class ExtremeSeparationPolicy(DummyPolicy):
+            def __init__(self):
+                self.trick_calls = 0
+
+            def choose_trick_to_use(self, state, player, hand):
+                del state, player
+                self.trick_calls += 1
+                for card in hand:
+                    if card.name == "극심한 분리불안":
+                        return card
+                return hand[0] if hand else None
+
+        policy = ExtremeSeparationPolicy()
+        stream = VisEventStream()
+        engine = GameEngine(
+            DEFAULT_CONFIG,
+            policy,
+            rng=random.Random(0),
+            enable_logging=True,
+            event_stream=stream,
+        )
+        engine._vis_buffer = None
+        state = self.make_state(engine)
+        player = state.players[0]
+        other = state.players[1]
+        state.current_round_order = [0, 1, 2, 3]
+        state.turn_index = 0
+        player.position = 1
+        other.position = 12
+        extreme = next(card for card in build_trick_deck() if card.name == "극심한 분리불안")
+        followup = next(card for card in build_trick_deck() if card.name == "건강 검진")
+        player.trick_hand = [extreme, followup]
+        engine._strategy_stats[player.player_id].update(
+            {"tricks_used": 0, "anytime_tricks_used": 0, "regular_tricks_used": 0}
+        )
+
+        first = engine.run_next_transition(state)
+
+        self.assertEqual(first["status"], "committed")
+        self.assertEqual(policy.trick_calls, 1)
+        self.assertEqual(
+            [action.type for action in state.pending_actions],
+            ["apply_move", "continue_after_trick_phase"],
+        )
+
+        while state.pending_actions and state.pending_actions[0].type != "continue_after_trick_phase":
+            engine.run_next_transition(state)
+
+        self.assertEqual([action.type for action in state.pending_actions], ["continue_after_trick_phase"])
+        self.assertEqual(policy.trick_calls, 1)
+
+        resumed = engine.run_next_transition(state)
+
+        self.assertEqual(resumed["action_type"], "continue_after_trick_phase")
+        self.assertEqual(policy.trick_calls, 1)
+        self.assertTrue(state.pending_turn_completion)
+        self.assertTrue(any(action.type == "apply_move" for action in state.pending_actions))
+        self.assertEqual(len(stream.by_type("trick_window_open")), 1)
+
     def test_trick_used_visual_event_carries_immediate_state(self):
         class FireStovePolicy(DummyPolicy):
             def choose_trick_to_use(self, state, player, hand):

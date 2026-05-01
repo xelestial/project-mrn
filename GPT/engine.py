@@ -3733,6 +3733,7 @@ class GameEngine:
         def choose_and_apply(hand: list[TrickCard], phase: str) -> bool:
             if not hand:
                 return False
+            pending_actions_before = len(state.pending_actions)
             card = self._request_decision("choose_trick_to_use", state, player, list(hand), fallback=lambda: None)
             debug = self.policy.pop_debug("trick_use", player.player_id) if hasattr(self.policy, "pop_debug") else None
             self._record_ai_decision(
@@ -3799,6 +3800,18 @@ class GameEngine:
                         ),
                     )
                 raise
+            if turn_continuation is not None and len(state.pending_actions) > pending_actions_before:
+                continuation_payload = dict(turn_continuation)
+                continuation_payload["hidden_trick_synced"] = True
+                state.pending_actions.append(
+                    self._action(
+                        state,
+                        "continue_after_trick_phase",
+                        player,
+                        "trick_phase_deferred_action",
+                        continuation_payload,
+                    )
+                )
             return True
 
         # 규칙 정합성: 잔꾀는 매 턴 1장만 선택/사용한다.

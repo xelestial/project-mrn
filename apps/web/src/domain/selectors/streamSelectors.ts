@@ -3219,6 +3219,22 @@ export function selectMarkerOrderedPlayers(
     return derivedPlayers;
   }
 
+  if (snapshot.currentRoundOrder.length > 0) {
+    const byId = new Map(derivedPlayers.map((player) => [player.playerId, player]));
+    const orderedPlayers = snapshot.currentRoundOrder
+      .map((playerId) => byId.get(playerId) ?? null)
+      .filter((player): player is DerivedPlayerViewModel => player !== null);
+    if (orderedPlayers.length > 0) {
+      const orderedIds = new Set(orderedPlayers.map((player) => player.playerId));
+      return [
+        ...orderedPlayers,
+        ...derivedPlayers
+          .filter((player) => !orderedIds.has(player.playerId))
+          .sort((left, right) => left.playerId - right.playerId),
+      ];
+    }
+  }
+
   const sortedIds = derivedPlayers
     .map((player) => player.playerId)
     .slice()

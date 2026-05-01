@@ -958,7 +958,11 @@ export function PromptOverlay({
       const matchedChoices = orderedSurfaceCandidates
         .map((candidate) => orderedChoiceMap.get(candidate.choiceId) ?? null)
         .filter((choice): choice is PromptChoiceViewModel => choice !== null);
-      return matchedChoices;
+      const noneChoice =
+        prompt.surface.markTarget?.noneChoiceId
+          ? orderedChoiceMap.get(prompt.surface.markTarget.noneChoiceId) ?? null
+          : null;
+      return noneChoice ? [...matchedChoices, noneChoice] : matchedChoices;
     }
     const noneChoices = orderedChoices.filter((choice) => choice.choiceId === "none");
     const fallbackChoices = orderedChoices.filter((choice) => choice.choiceId !== "none");
@@ -978,7 +982,7 @@ export function PromptOverlay({
     const matchedChoices = markTargetCandidates
       .map((candidate) => choiceByCharacter.get(candidate.character) ?? null)
       .filter((choice): choice is PromptChoiceViewModel => choice !== null);
-    return matchedChoices.length > 0 ? matchedChoices : noneChoices;
+    return matchedChoices.length > 0 ? [...matchedChoices, ...noneChoices] : noneChoices;
   }, [prompt, orderedChoices, orderedChoiceMap, markTargetCandidates]);
 
   useEffect(() => {

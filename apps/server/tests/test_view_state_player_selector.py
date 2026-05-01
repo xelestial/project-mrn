@@ -54,6 +54,57 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
         self.assertEqual(view_state["marker_owner_player_id"], 2)
         self.assertEqual(view_state["marker_draft_direction"], "counterclockwise")
 
+    def test_build_player_ordering_view_state_prefers_round_order_after_draft(self) -> None:
+        messages = [
+            {
+                "type": "event",
+                "seq": 1,
+                "session_id": "s1",
+                "server_time_ms": 1,
+                "payload": {
+                    "event_type": "turn_end_snapshot",
+                    "snapshot": {
+                        "players": [
+                            {"player_id": 1},
+                            {"player_id": 2},
+                            {"player_id": 3},
+                            {"player_id": 4},
+                        ],
+                        "board": {
+                            "marker_owner_player_id": 2,
+                        },
+                    },
+                },
+            },
+            {
+                "type": "event",
+                "seq": 2,
+                "session_id": "s1",
+                "server_time_ms": 2,
+                "payload": {
+                    "event_type": "round_start",
+                    "marker_owner_player_id": 2,
+                    "marker_draft_direction": "counterclockwise",
+                },
+            },
+            {
+                "type": "event",
+                "seq": 3,
+                "session_id": "s1",
+                "server_time_ms": 3,
+                "payload": {
+                    "event_type": "round_order",
+                    "order": [3, 1, 4, 2],
+                },
+            },
+        ]
+
+        view_state = build_player_view_state(messages)
+
+        self.assertEqual(view_state["ordered_player_ids"], [3, 1, 4, 2])
+        self.assertEqual(view_state["marker_owner_player_id"], 2)
+        self.assertEqual(view_state["marker_draft_direction"], "counterclockwise")
+
     def test_stream_service_publishes_additive_view_state_players_projection(self) -> None:
         stream = StreamService()
 
