@@ -16,6 +16,18 @@ type UseGameStreamArgs = {
   baseUrl?: string;
 };
 
+export function buildGameStreamKey(sessionId: string, token?: string): string {
+  return `${sessionId.trim()}\n${token ?? ""}`;
+}
+
+export function shouldApplyReplayResponse(
+  requestedStreamKey: string,
+  activeStreamKey: string,
+  signal?: AbortSignal,
+): boolean {
+  return requestedStreamKey === activeStreamKey && !signal?.aborted;
+}
+
 export function useGameStream({
   sessionId,
   token,
@@ -41,6 +53,26 @@ export function useGameStream({
   const activeStreamKeyRef = useRef("");
   const lastResumeRequestAtRef = useRef(0);
   const recoveryTimersRef = useRef<number[]>([]);
+  const replayAbortControllersRef = useRef<AbortController[]>([]);
+
+  const clearRecoveryTimers = useCallback(() => {
+    for (const timer of recoveryTimersRef.current) {
+      window.clearTimeout(timer);
+    }
+    recoveryTimersRef.current = [];
+  }, []);
+
+  const abortReplayRecoveries = useCallback(() => {
+    for (const controller of replayAbortControllersRef.current) {
+      controller.abort();
+    }
+    replayAbortControllersRef.current = [];
+  }, []);
+
+  const cancelRecoveryWork = useCallback(() => {
+    clearRecoveryTimers();
+    abortReplayRecoveries();
+  }, [abortReplayRecoveries, clearRecoveryTimers]);
 
   useEffect(() => {
     const offMessage = client.onMessage((message) => {
@@ -73,6 +105,7 @@ export function useGameStream({
   useEffect(() => {
     const normalized = sessionId.trim();
     if (!normalized) {
+      cancelRecoveryWork();
       client.disconnect();
       dispatch({ type: "reset" });
       lastSeqRef.current = 0;
@@ -80,8 +113,9 @@ export function useGameStream({
       lastResumeRequestAtRef.current = 0;
       return;
     }
-    const streamKey = `${normalized}\n${token ?? ""}`;
+    const streamKey = buildGameStreamKey(normalized, token);
     if (activeStreamKeyRef.current !== streamKey) {
+      cancelRecoveryWork();
       lastSeqRef.current = 0;
       dispatch({ type: "reset" });
       activeStreamKeyRef.current = streamKey;
@@ -102,14 +136,32 @@ export function useGameStream({
       if (!normalized) {
         return;
       }
+      const requestedStreamKey = buildGameStreamKey(normalized, token);
+      if (activeStreamKeyRef.current !== requestedStreamKey) {
+        return;
+      }
+      const ownedController = signal ? null : new AbortController();
+      const requestSignal = signal ?? ownedController?.signal;
+      if (ownedController) {
+        replayAbortControllersRef.current.push(ownedController);
+      }
       void fetchReplayMessages({
         sessionId: normalized,
         token,
         baseUrl,
-        signal,
+        signal: requestSignal,
         projectionSeqFloor: lastSeqRef.current,
       })
         .then((messages) => {
+          if (
+            !shouldApplyReplayResponse(
+              requestedStreamKey,
+              activeStreamKeyRef.current,
+              requestSignal,
+            )
+          ) {
+            return;
+          }
           for (const message of messages) {
             dispatch({ type: "message", message });
           }
@@ -118,7 +170,24 @@ export function useGameStream({
           if (error instanceof DOMException && error.name === "AbortError") {
             return;
           }
+          if (
+            !shouldApplyReplayResponse(
+              requestedStreamKey,
+              activeStreamKeyRef.current,
+              requestSignal,
+            )
+          ) {
+            return;
+          }
           dispatch({ type: "status", status: "error" });
+        })
+        .finally(() => {
+          if (!ownedController) {
+            return;
+          }
+          replayAbortControllersRef.current = replayAbortControllersRef.current.filter(
+            (controller) => controller !== ownedController,
+          );
         });
     },
     [baseUrl, sessionId, token],
@@ -135,13 +204,8 @@ export function useGameStream({
   }, [recoverFromReplay, sessionId]);
 
   useEffect(() => {
-    return () => {
-      for (const timer of recoveryTimersRef.current) {
-        window.clearTimeout(timer);
-      }
-      recoveryTimersRef.current = [];
-    };
-  }, []);
+    return cancelRecoveryWork;
+  }, [cancelRecoveryWork]);
 
   const sendDecision = (args: {
     requestId: string;
