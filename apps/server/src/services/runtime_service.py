@@ -617,6 +617,11 @@ class RuntimeService:
         pending_prompt_type = str(getattr(state, "pending_prompt_type", "") or "")
         pending_instance_id = int(getattr(state, "pending_prompt_instance_id", 0) or 0)
         if pending_request_id and pending_instance_id > 0:
+            if hasattr(state, "current_round_order") and not (getattr(state, "current_round_order", None) or []):
+                # Round-start prompts happen inside one transition. Replaying from a
+                # later prompt would skip earlier draft decisions after _start_new_round
+                # clears per-round draft state.
+                return 0
             if pending_prompt_type == "movement" or ":movement:" in pending_request_id:
                 pending_actions = getattr(state, "pending_actions", None) or []
                 first_action = pending_actions[0] if pending_actions else None

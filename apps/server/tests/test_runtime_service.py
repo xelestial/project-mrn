@@ -3278,6 +3278,125 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertEqual(seed, 6)
 
+    def test_round_start_prompt_replay_rewinds_to_draft_start(self) -> None:
+        from apps.server.src.services.decision_gateway import PromptRequired
+        from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerHumanPolicyBridge(
+                session_id="sess_bridge_round_start_replay_test",
+                human_seats=[0],
+                ai_fallback=object(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+                blocking_human_prompts=False,
+            )
+            checkpoint_state = type(
+                "CheckpointState",
+                (),
+                {
+                    "prompt_sequence": 2,
+                    "pending_prompt_request_id": "sess_bridge_round_start_replay_test:r1:t1:p1:final_character:2",
+                    "pending_prompt_type": "final_character",
+                    "pending_prompt_instance_id": 2,
+                    "current_round_order": [],
+                },
+            )()
+            seed = self.runtime_service._prompt_sequence_seed_for_transition(checkpoint_state)
+            self.assertEqual(seed, 0)
+
+            draft_prompt = {
+                "request_type": "draft_card",
+                "player_id": 1,
+                "timeout_ms": 2000,
+                "legal_choices": [{"choice_id": "7", "label": "견제자"}],
+                "fallback_policy": "timeout_fallback",
+                "public_context": {"round_index": 1, "turn_index": 1},
+            }
+            final_prompt = {
+                "request_type": "final_character",
+                "player_id": 1,
+                "timeout_ms": 2000,
+                "legal_choices": [{"choice_id": "7", "label": "견제자"}],
+                "fallback_policy": "timeout_fallback",
+                "public_context": {"round_index": 1, "turn_index": 1},
+            }
+            parse_choice = lambda response: str(response.get("choice_id", ""))
+
+            bridge.set_prompt_sequence(seed)
+            with self.assertRaises(PromptRequired) as draft_raised:
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    draft_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                )
+            self.assertEqual(
+                draft_raised.exception.prompt["request_id"],
+                "sess_bridge_round_start_replay_test:r1:t1:p1:draft_card:1",
+            )
+            self.prompt_service.submit_decision(
+                {
+                    "request_id": draft_raised.exception.prompt["request_id"],
+                    "player_id": 1,
+                    "choice_id": "7",
+                }
+            )
+
+            bridge.set_prompt_sequence(seed)
+            self.assertEqual(
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    draft_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                ),
+                "7",
+            )
+            with self.assertRaises(PromptRequired) as final_raised:
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    final_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                )
+            self.assertEqual(
+                final_raised.exception.prompt["request_id"],
+                "sess_bridge_round_start_replay_test:r1:t1:p1:final_character:2",
+            )
+            self.prompt_service.submit_decision(
+                {
+                    "request_id": final_raised.exception.prompt["request_id"],
+                    "player_id": 1,
+                    "choice_id": "7",
+                }
+            )
+
+            bridge.set_prompt_sequence(seed)
+            self.assertEqual(
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    draft_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                ),
+                "7",
+            )
+            self.assertEqual(
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    final_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                ),
+                "7",
+            )
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
     def test_pending_hidden_trick_replay_resumes_same_hidden_selection(self) -> None:
         from apps.server.src.services.decision_gateway import PromptRequired
         from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
