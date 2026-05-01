@@ -198,6 +198,52 @@ def _to_player_item(raw: dict[str, Any]) -> DerivedPlayerItemViewState | None:
     }
 
 
+def _public_tricks_from_context(public_context: dict[str, Any]) -> list[str] | None:
+    full_hand = public_context.get("full_hand")
+    if isinstance(full_hand, list):
+        names: list[str] = []
+        for item in full_hand:
+            card = _record(item)
+            if not card or card.get("is_hidden") is True:
+                continue
+            name = _string(card.get("name"))
+            if name:
+                names.append(name)
+        return names
+    hand_names = _string_list(public_context.get("hand_names"))
+    return hand_names if hand_names else None
+
+
+def _apply_prompt_context_to_player(player: DerivedPlayerItemViewState, payload: dict[str, Any]) -> None:
+    player_id = _number(payload.get("player_id", payload.get("acting_player_id")))
+    if player_id != player["player_id"]:
+        return
+    public_context = _record(payload.get("public_context")) or {}
+    field_map = {
+        "player_cash": "cash",
+        "player_shards": "shards",
+        "player_owned_tile_count": "owned_tile_count",
+        "player_hand_coins": "hand_coins",
+        "player_placed_coins": "placed_coins",
+        "player_total_score": "total_score",
+    }
+    for source_key, target_key in field_map.items():
+        value = _number(public_context.get(source_key))
+        if value is not None:
+            player[target_key] = value  # type: ignore[literal-required]
+    hidden_trick_count = _number(public_context.get("hidden_trick_count"))
+    if hidden_trick_count is not None:
+        player["hidden_trick_count"] = hidden_trick_count
+    public_tricks = _public_tricks_from_context(public_context)
+    if public_tricks is not None:
+        player["public_tricks"] = public_tricks
+    hand_count = _number(public_context.get("hand_count"))
+    if hand_count is not None:
+        player["trick_count"] = hand_count
+    elif public_tricks is not None or hidden_trick_count is not None:
+        player["trick_count"] = len(player["public_tricks"]) + player["hidden_trick_count"]
+
+
 def _latest_actor_character(messages: list[dict[str, Any]]) -> str | None:
     for message in reversed(messages):
         payload = _record(message.get("payload")) or {}
@@ -218,6 +264,10 @@ def build_player_view_state(messages: list[dict[str, Any]]) -> PlayerOrderingVie
     players = [player for player in players if player is not None]
     if not players:
         return None
+    for message in messages[_index + 1 :]:
+        payload = _record(message.get("payload")) or {}
+        for player in players:
+            _apply_prompt_context_to_player(player, payload)
 
     marker_owner_player_id, marker_draft_direction = marker_state_from_messages(
         messages,

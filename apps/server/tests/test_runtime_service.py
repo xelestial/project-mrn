@@ -3077,6 +3077,36 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_prompt_service_supersedes_older_pending_prompt_for_same_player(self) -> None:
+        first = self.prompt_service.create_prompt(
+            "sess_prompt_supersede",
+            {
+                "request_id": "sess_prompt_supersede:r1:t1:p1:trick_to_use:1",
+                "request_type": "trick_to_use",
+                "player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "none", "label": "Skip"}],
+            },
+        )
+
+        second = self.prompt_service.create_prompt(
+            "sess_prompt_supersede",
+            {
+                "request_id": "sess_prompt_supersede:r1:t1:p1:hidden_trick_card:2",
+                "request_type": "hidden_trick_card",
+                "player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "42", "label": "무료 증정"}],
+            },
+        )
+
+        with self.prompt_service._lock:  # type: ignore[attr-defined]
+            pending_ids = set(self.prompt_service._pending)  # type: ignore[attr-defined]
+            resolved_ids = set(self.prompt_service._resolved)  # type: ignore[attr-defined]
+        self.assertNotIn(first.request_id, pending_ids)
+        self.assertIn(first.request_id, resolved_ids)
+        self.assertIn(second.request_id, pending_ids)
+
     def test_pending_movement_replay_replays_prior_trick_prompt_before_movement(self) -> None:
         from apps.server.src.services.decision_gateway import PromptRequired
         from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge

@@ -274,6 +274,38 @@ Latest completion pass included:
 
 ---
 
+## Reopened Live-Play UX Findings
+
+Date: 2026-05-01  
+Source: Redis-backed 2-human + 2-AI browser playtest
+
+### P0. Effect Attribution Must Be Screen-Readable
+
+Status: OPEN
+
+Problem:
+- The game can apply a rule correctly while the player cannot see why the state changed.
+- This is especially risky for `운수`, `잔꾀`, `날씨`, and passive character bonuses because their effects can be indirect or short-lived.
+
+Observed:
+- `잔꾀` hand mutation is mostly readable: using `무료 증정` immediately removed it from the tray and changed visible hand count from 5 to 4.
+- shard gain from `거대한 산불` was reflected immediately in previous 2H+2AI evidence.
+- `운수` money loss was correct in engine/replay, but the visible explanation can disappear too quickly; a later lower cash total is not enough.
+- `객주` reward enhancement is applied after lap reward in backend state, but the visible reward event does not clearly break out the passive bonus.
+
+Required UX behavior:
+- every money/shard/coin/position delta caused by `운수` must produce a persistent enough reveal/feed line with card name and delta
+- every `잔꾀` use must show card name, effect summary, resource/hand delta, and immediate tray removal
+- every weather effect that changes resource or marker behavior must remain named in the current round context while the player acts
+- every passive character bonus, starting with `객주`, must show either a separate bonus line or a combined breakdown such as `기본 보상 + 객주 보너스`
+
+Definition of done:
+- a player can answer "what changed, why, and by how much?" from the screen alone after each public effect
+- Playwright/browser snapshots assert both final state and cause text for `잔꾀`, `운수`, `날씨`, and `객주`
+- no pending prompt from an already-consumed trick path can later reappear as a confusing hidden-card prompt
+
+---
+
 ## Closed And Superseded Docs
 
 These docs should no longer be used as execution sources:

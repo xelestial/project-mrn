@@ -309,6 +309,46 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             self.fake_redis.pipeline_executions,
         )
 
+    def test_prompt_service_supersedes_older_redis_pending_prompt_for_same_player(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        service = PromptService(prompt_store=prompt_store)
+        service.create_prompt(
+            "s-supersede",
+            {
+                "request_id": "r-old-p1",
+                "request_type": "trick_to_use",
+                "player_id": 1,
+                "timeout_ms": 30000,
+            },
+        )
+        service.create_prompt(
+            "s-supersede",
+            {
+                "request_id": "r-keep-p2",
+                "request_type": "movement",
+                "player_id": 2,
+                "timeout_ms": 30000,
+            },
+        )
+
+        service.create_prompt(
+            "s-supersede",
+            {
+                "request_id": "r-new-p1",
+                "request_type": "hidden_trick_card",
+                "player_id": 1,
+                "timeout_ms": 30000,
+            },
+        )
+
+        self.assertIsNone(prompt_store.get_pending("r-old-p1"))
+        self.assertEqual(prompt_store.get_resolved("r-old-p1")["reason"], "superseded")
+        self.assertIsNotNone(prompt_store.get_pending("r-new-p1"))
+        self.assertIsNotNone(prompt_store.get_pending("r-keep-p2"))
+        pending_ids = {item["request_id"] for item in prompt_store.list_pending()}
+        self.assertEqual(pending_ids, {"r-new-p1", "r-keep-p2"})
+        self.assertTrue(service.has_pending_for_session("s-supersede"))
+
     def test_prompt_timeout_worker_emits_timeout_once(self) -> None:
         command_store = RedisCommandStore(self.connection)
         stream_service = StreamService(

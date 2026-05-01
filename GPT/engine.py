@@ -3561,7 +3561,12 @@ class GameEngine:
                     self._log({"event": "trick_use_skip", "player": player.player_id + 1, "phase": phase, "decision": debug})
                 return False
             resolution = self._apply_trick_card(state, player, card)
-            self._discard_trick(state, player, card)
+            previous_hidden_selection_suppression = self._suppress_hidden_trick_selection
+            self._suppress_hidden_trick_selection = True
+            try:
+                self._discard_trick(state, player, card)
+            finally:
+                self._suppress_hidden_trick_selection = previous_hidden_selection_suppression
             stats = self._strategy_stats[player.player_id]
             stats["tricks_used"] += 1
             stats["regular_tricks_used"] += 1
@@ -3585,6 +3590,7 @@ class GameEngine:
                 f_value=state.f_value,
                 snapshot=build_turn_end_snapshot(state),
             )
+            self._sync_trick_visibility(state, player)
             return True
 
         # 규칙 정합성: 잔꾀는 매 턴 1장만 선택/사용한다.

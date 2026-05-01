@@ -29,6 +29,7 @@ class PromptService:
         self._command_store = command_store
 
     def create_prompt(self, session_id: str, prompt: dict) -> PendingPrompt:
+        superseded_waiters: list[threading.Event] = []
         with self._lock:
             self._prune_resolved()
             request_id = str(prompt.get("request_id", "")).strip()
@@ -40,6 +41,11 @@ class PromptService:
                 raise ValueError("duplicate_recent_request_id")
             player_id = int(prompt.get("player_id", 0))
             timeout_ms = int(prompt.get("timeout_ms", 30000))
+            superseded_waiters = self._supersede_pending_for_player(
+                session_id=session_id,
+                player_id=player_id,
+                keep_request_id=request_id,
+            )
             item = PendingPrompt(
                 session_id=session_id,
                 request_id=request_id,
@@ -50,7 +56,9 @@ class PromptService:
             )
             self._set_pending(item)
             self._waiters[request_id] = threading.Event()
-            return item
+        for waiter in superseded_waiters:
+            waiter.set()
+        return item
 
     def submit_decision(self, payload: dict) -> dict:
         waiter: threading.Event | None = None
@@ -260,6 +268,32 @@ class PromptService:
             if resolved_at < cutoff:
                 self._resolved.pop(request_id, None)
                 self._decisions.pop(request_id, None)
+
+    def _supersede_pending_for_player(
+        self,
+        *,
+        session_id: str,
+        player_id: int,
+        keep_request_id: str,
+    ) -> list[threading.Event]:
+        waiters: list[threading.Event] = []
+        now = self._now_ms()
+        for existing_request_id, pending in list(self._iter_pending_items()):
+            if existing_request_id == keep_request_id:
+                continue
+            if pending.session_id != session_id or pending.player_id != player_id:
+                continue
+            self._delete_pending(existing_request_id)
+            self._delete_decision(existing_request_id)
+            self._record_resolved(
+                request_id=existing_request_id,
+                reason="superseded",
+                now_ms=now,
+            )
+            waiter = self._waiters.pop(existing_request_id, None)
+            if waiter is not None:
+                waiters.append(waiter)
+        return waiters
 
     def _has_pending_request(self, request_id: str) -> bool:
         if self._prompt_store is not None:

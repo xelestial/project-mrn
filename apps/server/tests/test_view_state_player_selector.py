@@ -561,6 +561,66 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
         revealed_view = build_player_view_state(messages)
         self.assertEqual(revealed_view["items"][0]["current_character_face"], "객주")
 
+    def test_player_view_state_overlays_latest_prompt_resource_and_hand_context(self) -> None:
+        messages = [
+            {
+                "type": "event",
+                "seq": 1,
+                "session_id": "s1",
+                "server_time_ms": 1,
+                "payload": {
+                    "event_type": "turn_start",
+                    "acting_player_id": 1,
+                    "snapshot": {
+                        "players": [
+                            {
+                                "player_id": 1,
+                                "display_name": "Player 1",
+                                "cash": 20,
+                                "shards": 4,
+                                "trick_count": 6,
+                                "hidden_trick_count": 1,
+                                "public_tricks": ["거대한 산불", "무거운 짐", "무역의 선물"],
+                            }
+                        ],
+                        "board": {"marker_owner_player_id": 1},
+                    },
+                },
+            },
+            {
+                "type": "prompt",
+                "seq": 2,
+                "session_id": "s1",
+                "server_time_ms": 2,
+                "payload": {
+                    "request_id": "req_hide",
+                    "request_type": "hidden_trick_card",
+                    "player_id": 1,
+                    "public_context": {
+                        "player_cash": 20,
+                        "player_shards": 6,
+                        "hand_count": 5,
+                        "hidden_trick_count": 0,
+                        "full_hand": [
+                            {"name": "무거운 짐", "deck_index": 8, "is_hidden": False},
+                            {"name": "극심한 분리불안", "deck_index": 19, "is_hidden": False},
+                            {"name": "느슨함 혐오자", "deck_index": 31, "is_hidden": False},
+                            {"name": "가벼운 짐", "deck_index": 10, "is_hidden": False},
+                            {"name": "무역의 선물", "deck_index": 33, "is_hidden": False},
+                        ],
+                    },
+                },
+            },
+        ]
+
+        view_state = build_player_view_state(messages)
+        player = view_state["items"][0]
+
+        self.assertEqual(player["shards"], 6)
+        self.assertEqual(player["trick_count"], 5)
+        self.assertEqual(player["hidden_trick_count"], 0)
+        self.assertNotIn("거대한 산불", player["public_tricks"])
+
 
 def _project_root():
     from pathlib import Path
