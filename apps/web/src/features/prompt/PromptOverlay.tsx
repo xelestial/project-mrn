@@ -23,11 +23,21 @@ type PromptOverlayProps = {
   feedbackMessage?: string;
   compactChoices?: boolean;
   presentationMode?: PromptPresentationMode;
+  effectContext?: PromptEffectContext | null;
   onToggleCollapse: () => void;
   onSelectChoice: (choiceId: string) => void;
 };
 
 type PromptPresentationMode = "decision-focus" | "board-preserve";
+type PromptEffectContext = {
+  label: string;
+  detail: string;
+  attribution: string | null;
+  tone: "move" | "effect" | "economy";
+  source: string;
+  intent: string;
+  enhanced: boolean;
+};
 
 type PromptText = LocaleMessages["prompt"];
 type PromptTypeText = LocaleMessages["promptType"];
@@ -845,6 +855,7 @@ export function PromptOverlay({
   feedbackMessage,
   compactChoices = false,
   presentationMode = "decision-focus",
+  effectContext = null,
   onToggleCollapse,
   onSelectChoice,
 }: PromptOverlayProps) {
@@ -1380,6 +1391,26 @@ export function PromptOverlay({
         </div>
 
         <div className="prompt-body">
+          {effectContext ? (
+            <section
+              className={`prompt-effect-context prompt-effect-context-${effectContext.tone}`}
+              data-testid="prompt-effect-context"
+              data-effect-source={effectContext.source}
+              data-effect-intent={effectContext.intent}
+              data-effect-enhanced={effectContext.enhanced ? "true" : "false"}
+            >
+              <div className="prompt-effect-context-meta">
+                <span>{isKoreanLocale(locale) ? "직전 결과" : "Previous result"}</span>
+                {effectContext.attribution ? <strong>{effectContext.attribution}</strong> : null}
+              </div>
+              <div className="prompt-effect-context-copy">
+                <strong>{cleanDisplayText(effectContext.label)}</strong>
+                {cleanDisplayText(effectContext.detail) !== cleanDisplayText(effectContext.label) ? (
+                  <p>{cleanDisplayText(effectContext.detail)}</p>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
 
         {prompt.requestType === "movement" && movement ? (
           <section className="prompt-section prompt-movement-stage">

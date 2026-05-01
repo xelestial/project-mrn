@@ -911,6 +911,46 @@ describe("promptSelectors", () => {
     ]);
   });
 
+  it("treats an empty current backend hand tray as authoritative", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "prompt",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          request_id: "req_trick_1",
+          request_type: "trick_to_use",
+          player_id: 1,
+          timeout_ms: 30000,
+          public_context: {
+            full_hand: [
+              {
+                deck_index: 77,
+                name: "소비된 잔꾀",
+                card_description: "이미 사용된 카드입니다.",
+              },
+            ],
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 2,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_resolved",
+          view_state: {
+            hand_tray: {
+              cards: [],
+            },
+          },
+        },
+      },
+    ];
+
+    expect(selectCurrentHandTrayCards(messages, "ko", 1)).toEqual([]);
+  });
+
   it("matches shared selector prompt lap reward surface fixture", () => {
     const fixture = loadSharedPromptFixture("selector.prompt.lap_reward_surface.json");
     const messages = fixture.messages.map((message, index, items) =>

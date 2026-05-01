@@ -1374,7 +1374,7 @@ export function selectCurrentHandTrayCards(
   preferredPlayerId: number | null
 ): HandTrayCardViewModel[] {
   const backendHandTray = selectBackendHandTrayCards(messages);
-  if (backendHandTray && backendHandTray.length > 0) {
+  if (backendHandTray) {
     return backendHandTray;
   }
 
