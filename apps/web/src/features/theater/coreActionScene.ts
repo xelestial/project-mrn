@@ -121,10 +121,8 @@ export function buildPayoffSceneItems(itemsNewestFirst: CoreActionItem[], theate
     anchor === null
       ? selected
       : selected.filter((item) => isSameTurn(item) && PAYOFF_SCENE_EVENT_CODES.has(item.eventCode));
-  const preferredItems = anchorTurnItems.some((item) => EFFECT_PAYOFF_SCENE_EVENT_CODES.has(item.eventCode))
-    ? anchorTurnItems.filter((item) => EFFECT_PAYOFF_SCENE_EVENT_CODES.has(item.eventCode))
-    : anchorTurnItems;
-  const latestSeq = preferredItems[0]?.seq ?? null;
+  const preferredItems = [...anchorTurnItems].sort((a, b) => a.seq - b.seq);
+  const latestSeq = preferredItems.at(-1)?.seq ?? null;
   return preferredItems.map((item) => ({
     seq: item.seq,
     actor: item.actor,

@@ -1445,14 +1445,14 @@ class TrickSystemTests(unittest.TestCase):
         self.assertTrue(all(p.current_character for p in state.players))
         self.assertTrue(all(len(p.trick_hand) == 5 for p in state.players))
 
-    def test_four_player_second_draft_is_random_assignment(self):
+    def test_four_player_second_draft_uses_reverse_choice_order(self):
         class CountingDraftPolicy(DummyPolicy):
             def __init__(self):
                 super().__init__()
-                self.draft_calls = 0
+                self.draft_calls = []
 
             def choose_draft_card(self, state, player, offered_cards):
-                self.draft_calls += 1
+                self.draft_calls.append((player.player_id, len(player.drafted_cards) + 1, tuple(offered_cards)))
                 return offered_cards[0]
 
             def choose_final_character(self, state, player, card_choices):
@@ -1464,7 +1464,11 @@ class TrickSystemTests(unittest.TestCase):
         engine._initialize_active_faces(state)
         engine._run_draft(state)
 
-        self.assertEqual(policy.draft_calls, DEFAULT_CONFIG.player_count)
+        self.assertEqual(len(policy.draft_calls), DEFAULT_CONFIG.player_count * 2)
+        self.assertEqual([pid for pid, phase, _ in policy.draft_calls[:4]], [0, 1, 2, 3])
+        self.assertEqual([phase for _, phase, _ in policy.draft_calls[:4]], [1, 1, 1, 1])
+        self.assertEqual([pid for pid, phase, _ in policy.draft_calls[4:]], [3, 2, 1, 0])
+        self.assertEqual([phase for _, phase, _ in policy.draft_calls[4:]], [2, 2, 2, 2])
         self.assertTrue(all(len(p.drafted_cards) == 2 for p in state.players))
         phase2 = [
             row
@@ -1472,7 +1476,8 @@ class TrickSystemTests(unittest.TestCase):
             if row.get("event") == "draft_pick" and row.get("phase") == 2
         ]
         self.assertEqual(len(phase2), DEFAULT_CONFIG.player_count)
-        self.assertTrue(all(row.get("random_assigned", False) for row in phase2))
+        self.assertFalse(any(row.get("random_assigned", False) for row in phase2))
+        self.assertEqual([row["player"] for row in phase2], [4, 3, 2, 1])
 
     def test_marker_management_moves_owner_to_doctrine_player_at_round_end(self):
         engine = self.make_engine(policy=DummyPolicy())
@@ -2291,6 +2296,27 @@ class TrickRuleAuditTests(unittest.TestCase):
         )
         self.assertEqual(applied.get("ability_tier"), 1)
         self.assertEqual(applied.get("dice_mode"), "plus_one")
+
+    def test_eosa_suppressed_muroe_skill_is_visible_event(self):
+        stream = VisEventStream()
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True, event_stream=stream)
+        engine._vis_session_id = "test-session"
+        state = GameState.create(DEFAULT_CONFIG)
+        actor = state.players[0]
+        eosa = state.players[1]
+        actor.current_character = "자객"
+        eosa.current_character = "어사"
+
+        engine._apply_character_start(state, actor)
+
+        suppressed = stream.by_type("ability_suppressed")
+        self.assertEqual(len(suppressed), 1)
+        payload = suppressed[0].payload
+        self.assertEqual(payload["actor_name"], "자객")
+        self.assertEqual(payload["reason"], "muroe_blocked_by_eosa")
+        self.assertIn("어사", payload["summary"])
+        self.assertFalse(stream.by_type("mark_resolved"))
+        self.assertFalse(stream.by_type("mark_queued"))
 
     def test_relic_collector_doubles_f_tile_shards(self):
         engine = self.make_engine()

@@ -289,6 +289,7 @@ export const enLocale = {
       mark_target_none: "No legal mark target",
       mark_target_missing: "Missing mark target",
       mark_blocked: "Mark blocked",
+      ability_suppressed: "Character ability blocked",
       active_flip_resolved: "Active flip resolved",
       bankruptcy: "Bankruptcy",
       game_end: "Game end",
@@ -515,6 +516,10 @@ export const enLocale = {
       `P${source} / could not find ${targetCharacter || "-"} in the remaining turn order`,
     markBlocked: (source: unknown, target: unknown, targetCharacter: string) =>
       `P${source} / mark on P${target}${targetCharacter ? ` (${targetCharacter})` : ""} was blocked because the target was already revealed`,
+    abilitySuppressed: (source: unknown, actorName: string, reason: string) =>
+      `${actorName || `P${source}`} ability blocked / ${
+        reason === "muroe_blocked_by_eosa" ? "Eosa blocks Muroe character abilities" : reason || "effect was not applied"
+      }`,
     markerFlipDetail: (from: string, to: string) => `${from} -> ${to}`,
     rentPaid: (payer: unknown, owner: unknown, amount: unknown, tileDisplay: string) =>
       `P${payer} paid P${owner} ${amount} on tile ${tileDisplay}`,

@@ -41,6 +41,56 @@ describe("gameStreamReducer", () => {
     expect(state.debugMessages.map((message) => message.seq)).toEqual([1, 5]);
   });
 
+  it("keeps an older-seq replay projection visible after the live stream advances", () => {
+    let state = initialGameStreamState;
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "event",
+        seq: 80,
+        session_id: "s1",
+        payload: { event_type: "prompt_required", view_state: { prompt: { active: null } } },
+      },
+    });
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "event",
+        seq: 80,
+        session_id: "s1",
+        payload: {
+          event_type: "replay_projection",
+          view_state: {
+            prompt: {
+              active: {
+                request_id: "req_hidden",
+                request_type: "hidden_trick_card",
+                player_id: 1,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(state.lastSeq).toBe(80);
+    expect(state.messages.map((message) => message.payload)).toEqual([
+      { event_type: "prompt_required", view_state: { prompt: { active: null } } },
+      {
+        event_type: "replay_projection",
+        view_state: {
+          prompt: {
+            active: {
+              request_id: "req_hidden",
+              request_type: "hidden_trick_card",
+              player_id: 1,
+            },
+          },
+        },
+      },
+    ]);
+  });
+
   it("buffers out-of-order messages and flushes contiguous sequence", () => {
     let state = initialGameStreamState;
     state = gameStreamReducer(state, {
@@ -188,6 +238,46 @@ describe("gameStreamReducer", () => {
 
     expect(state.lastSeq).toBe(38);
     expect(state.messages.map((message) => message.seq)).toEqual([27, 38]);
+  });
+
+  it("fast-forwards to a viewer prompt across redacted private sequence gaps", () => {
+    let state = initialGameStreamState;
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: { event_type: "session_created" },
+      },
+    });
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "event",
+        seq: 2,
+        session_id: "s1",
+        payload: { event_type: "decision_ack", request_id: "final_character" },
+      },
+    });
+
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "prompt",
+        seq: 78,
+        session_id: "s1",
+        payload: {
+          request_id: "hidden",
+          request_type: "hidden_trick_card",
+          player_id: 1,
+          legal_choices: [{ choice_id: "38", label: "뇌절왕" }],
+        },
+      },
+    });
+
+    expect(state.lastSeq).toBe(78);
+    expect(state.messages.map((message) => message.seq)).toEqual([1, 2, 78]);
   });
 
   it("fast-forwards to a single projected end-state message across a missing private gap", () => {

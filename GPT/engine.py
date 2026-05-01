@@ -380,7 +380,13 @@ class GameEngine:
         if not state.current_round_order:
             if self._check_end(state):
                 return {"status": "finished", "reason": "end_rule"}
-            self._start_new_round(state, initial=False)
+            initial_round = (
+                state.rounds_completed == 0
+                and state.turn_index == 0
+                and state.current_weather is None
+                and not any(p.turns_taken for p in state.players)
+            )
+            self._start_new_round(state, initial=initial_round)
             if not state.current_round_order:
                 return {"status": "finished", "reason": "empty_round_order"}
         current_pid = state.current_round_order[state.turn_index % len(state.current_round_order)]
@@ -1893,6 +1899,9 @@ class GameEngine:
         return event
 
     def _start_new_round(self, state: GameState, initial: bool) -> None:
+        state.current_round_order = []
+        state.round_setup_replay_base = {}
+        state.round_setup_replay_base = state.to_checkpoint_payload()
         for p in state.players:
             p.immune_to_marks_this_round = False
             p.skipped_turn = False
@@ -1979,6 +1988,7 @@ class GameEngine:
             marker_draft_direction=("clockwise" if state.marker_draft_clockwise else "counterclockwise"),
             active_by_card=dict(state.active_by_card),
         )
+        state.round_setup_replay_base = {}
 
     def _alive_ids_from_marker_direction(self, state: GameState) -> list[int]:
         alive_ids = {p.player_id for p in state.players if p.alive}
@@ -2089,19 +2099,21 @@ class GameEngine:
                 pool.remove(pick)
 
             pool = list(second_pool)
-            self.rng.shuffle(pool)
-            for pid, pick in zip(clockwise, pool):
+            for pid in reverse:
+                pick = self._request_decision("choose_draft_card", state, state.players[pid], list(pool))
                 state.players[pid].drafted_cards.append(pick)
+                draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
                 self._record_ai_decision(
                     state,
                     state.players[pid],
                     "draft_card",
-                    None,
-                    result={"picked_card": pick, "draft_phase": 2, "random_assigned": True},
+                    draft_debug,
+                    result={"picked_card": pick, "draft_phase": 2},
                     source_event="draft_pick",
                 )
-                self._log({"event": "draft_pick", "phase": 2, "player": pid + 1, "picked_card": pick, "decision": None, "random_assigned": True})
-                self._emit_vis("draft_pick", Phase.DRAFT, pid + 1, state, draft_phase=2, picked_card=pick, random_assigned=True)
+                self._log({"event": "draft_pick", "phase": 2, "player": pid + 1, "picked_card": pick, "decision": draft_debug})
+                self._emit_vis("draft_pick", Phase.DRAFT, pid + 1, state, draft_phase=2, picked_card=pick)
+                pool.remove(pick)
 
         for p in state.players:
             if not p.alive:
@@ -2651,6 +2663,18 @@ class GameEngine:
             return target, mark_debug_local
 
         if self._is_muroe_skill_blocked(state, player):
+            self._emit_vis(
+                "ability_suppressed",
+                Phase.MARK,
+                player.player_id + 1,
+                state,
+                source_player_id=player.player_id + 1,
+                actor_name=char,
+                reason="muroe_blocked_by_eosa",
+                effect_type="character_skill_suppressed",
+                effect_source="character",
+                summary=f"{char} 능력 차단 / 어사가 무뢰 인물 능력을 막음",
+            )
             self._log(
                 {
                     "event": "ability_suppressed",

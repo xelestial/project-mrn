@@ -1533,31 +1533,38 @@ export function PromptOverlay({
                 </button>
               ) : null}
 
-              {trickChoices.cards.map((card) => (
-                <button
-                  type="button"
-                  key={card.key}
-                  className={`prompt-choice-card ${card.isHidden ? "hand-card-hidden" : ""}`}
-                  data-testid={`trick-choice-${card.key}`}
-                  data-card-name={card.name}
-                  data-card-visibility={card.isHidden ? "hidden" : "public"}
-                  disabled={busy || !card.isUsable || !card.choiceId}
-                  onClick={() => {
-                    if (card.choiceId) {
-                      onSelectChoice(card.choiceId);
-                    }
-                  }}
-                >
-                  <div className="prompt-choice-topline">
-                    <strong>{card.name}</strong>
-                    <span className="prompt-choice-badge">
-                      {card.isHidden ? promptText.hiddenState.hidden : promptText.hiddenState.public}
-                    </span>
-                  </div>
-                  <small>{cleanCardDescription(card.description)}</small>
-                  {!card.isUsable ? <small className="prompt-choice-footnote">{promptText.hiddenState.unavailable}</small> : null}
-                </button>
-              ))}
+              {trickChoices.cards.map((card) => {
+                const canSelectCard =
+                  prompt.requestType === "hidden_trick_card" ? Boolean(card.choiceId) : card.isUsable && Boolean(card.choiceId);
+
+                return (
+                  <button
+                    type="button"
+                    key={card.key}
+                    className={`prompt-choice-card ${card.isHidden ? "hand-card-hidden" : ""}`}
+                    data-testid={`trick-choice-${card.key}`}
+                    data-card-name={card.name}
+                    data-card-visibility={card.isHidden ? "hidden" : "public"}
+                    disabled={busy || !canSelectCard}
+                    onClick={() => {
+                      if (card.choiceId) {
+                        onSelectChoice(card.choiceId);
+                      }
+                    }}
+                  >
+                    <div className="prompt-choice-topline">
+                      <strong>{card.name}</strong>
+                      <span className="prompt-choice-badge">
+                        {card.isHidden ? promptText.hiddenState.hidden : promptText.hiddenState.public}
+                      </span>
+                    </div>
+                    <small>{cleanCardDescription(card.description)}</small>
+                    {!card.isUsable && prompt.requestType !== "hidden_trick_card" ? (
+                      <small className="prompt-choice-footnote">{promptText.hiddenState.unavailable}</small>
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>
           </section>
         ) : null}

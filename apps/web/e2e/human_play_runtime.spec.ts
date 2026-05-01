@@ -1992,8 +1992,8 @@ test("mixed participant runtime keeps a long worker-success to fallback chain re
   await expect(page.getByTestId("core-action-latest")).toHaveAttribute("data-latest-event-code", "turn_end_snapshot");
   await expect(page.getByTestId("core-action-result-card")).toHaveAttribute("data-result-event-code", "fortune_resolved");
   await expect(page.getByTestId("core-action-result-card")).toHaveAttribute("data-result-kind", "effect");
-  await expect(page.getByTestId("core-action-result-card-2")).toHaveAttribute("data-result-event-code", "fortune_drawn");
-  await expect(page.getByTestId("core-action-result-card-2")).toHaveAttribute("data-result-kind", "effect");
+  await expect(page.getByTestId("core-action-result-card-1")).toHaveAttribute("data-result-event-code", "fortune_drawn");
+  await expect(page.getByTestId("core-action-result-card-1")).toHaveAttribute("data-result-kind", "effect");
 });
 
 test("mixed participant runtime keeps repeated fallback continuity readable across longer chains", async ({ page }) => {

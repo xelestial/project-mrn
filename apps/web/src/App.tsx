@@ -509,6 +509,9 @@ function eventEffectForReveal(args: {
   if (args.eventCode === "mark_resolved" || args.eventCode === "mark_queued") {
     return { effectIntent: "mystic", effectSource: "mark", effectEnhanced: true };
   }
+  if (args.eventCode === "ability_suppressed") {
+    return { effectIntent: "loss", effectSource: "character", effectEnhanced: true };
+  }
   if (args.eventCode === "bankruptcy") {
     return { effectIntent: "loss", effectSource: "economy", effectEnhanced: true };
   }
@@ -537,6 +540,8 @@ function eventOverlayKindForFeedItem(eventCode: string): EventOverlayEffectKind 
     case "mark_resolved":
     case "mark_queued":
       return "mark_success";
+    case "ability_suppressed":
+      return "economy";
     case "bankruptcy":
       return "bankruptcy";
     case "game_end":
@@ -615,6 +620,7 @@ const PROMPT_EFFECT_CONTEXT_EVENT_CODES = new Set([
   "mark_target_none",
   "mark_target_missing",
   "mark_blocked",
+  "ability_suppressed",
   "marker_flip",
   "bankruptcy",
 ]);
@@ -1603,6 +1609,15 @@ export function App() {
         label,
         detail,
         ...effect("mark_success"),
+        effectCharacter: effectCharacterFromPayload(sourcePayload, detail),
+      });
+    } else if (eventCode === "ability_suppressed") {
+      lastEnqueuedRevealSeqRef.current = seq;
+      eventQueue.enqueue({
+        kind: "economy",
+        label,
+        detail,
+        ...effect("economy"),
         effectCharacter: effectCharacterFromPayload(sourcePayload, detail),
       });
     } else if (eventCode === "bankruptcy") {

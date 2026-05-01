@@ -570,7 +570,7 @@ test("quick start human vs ai enters match and surfaces the first human prompt",
   });
 
   await page.goto("/#/lobby");
-  await page.getByRole("button", { name: "사람 1 + AI 3 빠른 시작" }).click();
+  await page.getByTestId("quick-start-human-vs-ai").click();
 
   await expect(page).toHaveURL(/#\/match/);
   const weatherSummary = page.getByTestId("board-weather-summary");
@@ -597,6 +597,130 @@ test("quick start human vs ai enters match and surfaces the first human prompt",
     page.getByTestId("trick-choice-13-3"),
     page.getByTestId("trick-choice-14-4"),
   ]);
+});
+
+test("finished engine transition shows a visible game-end state even with a stale backend turn projection", async ({ page }) => {
+  const manifest = buildManifest({
+    hash: "finished_engine_transition_hash_001",
+    topology: "ring",
+    tileCount: 40,
+    seats: [1, 2, 3, 4],
+  });
+  const sessionId = "sess_finished_engine_transition";
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({
+          seq: 1,
+          sessionId,
+          payload: {
+            event_type: "parameter_manifest",
+            parameter_manifest: manifest,
+          },
+        }),
+        eventMessage({
+          seq: 2,
+          sessionId,
+          payload: {
+            event_type: "round_start",
+            round_index: 6,
+          },
+        }),
+        eventMessage({
+          seq: 3,
+          sessionId,
+          payload: {
+            event_type: "turn_start",
+            round_index: 6,
+            turn_index: 21,
+            acting_player_id: 1,
+            character: "객주",
+          },
+        }),
+        eventMessage({
+          seq: 4,
+          sessionId,
+          payload: {
+            event_type: "turn_end_snapshot",
+            round_index: 6,
+            turn_index: 21,
+            acting_player_id: 1,
+            view_state: {
+              turn_stage: {
+                turn_start_seq: 3,
+                actor_player_id: 1,
+                round_index: 6,
+                turn_index: 21,
+                character: "객주",
+                weather_name: "맑음",
+                weather_effect: "-",
+                current_beat_kind: "system",
+                current_beat_event_code: "turn_end_snapshot",
+                current_beat_request_type: "movement",
+                current_beat_seq: 4,
+                focus_tile_index: 30,
+                focus_tile_indices: [30],
+                prompt_request_type: "movement",
+                progress_codes: ["turn_start", "turn_end_snapshot"],
+              },
+              scene: {
+                situation: {
+                  actor_player_id: 1,
+                  headline_seq: 4,
+                  headline_message_type: "event",
+                  headline_event_code: "turn_end_snapshot",
+                  round_index: 6,
+                  turn_index: 21,
+                  weather_name: "맑음",
+                  weather_effect: "-",
+                },
+                theater_feed: [],
+                core_action_feed: [],
+                timeline: [],
+                critical_alerts: [],
+              },
+            },
+          },
+        }),
+        eventMessage({
+          seq: 5,
+          sessionId,
+          payload: {
+            event_type: "engine_transition",
+            status: "finished",
+            reason: "end_rule",
+          },
+        }),
+      ],
+    },
+    startedSessions: {
+      [sessionId]: {
+        session_id: sessionId,
+        status: "finished",
+        round_index: 6,
+        turn_index: 21,
+        seats: [
+          { seat: 1, seat_type: "human", connected: true, player_id: 1 },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced" },
+          { seat: 3, seat_type: "ai", connected: true, player_id: 3, ai_profile: "balanced" },
+          { seat: 4, seat_type: "ai", connected: true, player_id: 4, ai_profile: "balanced" },
+        ],
+        parameter_manifest: manifest,
+      },
+    },
+  });
+
+  await page.goto(`/#/match?session=${sessionId}`);
+
+  await expect(page.getByTestId("board-weather-summary")).toBeVisible();
+  await expect(page.getByTestId("turn-notice-banner-title")).toHaveText("게임 종료");
+  await expect(page.getByTestId("turn-notice-banner-detail")).toContainText("end_rule");
+  await expect(page.getByTestId("spectator-turn-scene-title")).toHaveText("게임 종료");
+  await expect(page.getByTestId("spectator-turn-scene-detail")).toContainText("end_rule");
+  await expect(page.getByTestId("spectator-turn-prompt-title")).toHaveText("-");
+  await expect(page.getByTestId("turn-notice-banner")).not.toHaveAttribute("data-banner-player-id", "1");
 });
 
 test("trick use advances to tile target without resurrecting the stale trick picker", async ({ page }) => {

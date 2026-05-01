@@ -2282,6 +2282,52 @@ describe("streamSelectors", () => {
     expect(turnItems[0].detail).toContain("건설업자");
   });
 
+  it("includes suppressed character abilities in turn and round reveal stacks", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1010,
+        session_id: "s1",
+        payload: {
+          event_type: "round_start",
+          round_index: 10,
+        },
+      },
+      {
+        type: "event",
+        seq: 1011,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 10,
+          turn_index: 1,
+          acting_player_id: 1,
+          character: "자객",
+        },
+      },
+      {
+        type: "event",
+        seq: 1012,
+        session_id: "s1",
+        payload: {
+          event_type: "ability_suppressed",
+          round_index: 10,
+          turn_index: 1,
+          source_player_id: 1,
+          actor_name: "자객",
+          reason: "muroe_blocked_by_eosa",
+        },
+      },
+    ];
+
+    const turnItems = selectCurrentTurnRevealItems(messages, 8);
+    const roundItems = selectCurrentRoundRevealItems(messages, 8);
+
+    expect(turnItems.map((item) => item.eventCode)).toEqual(["ability_suppressed"]);
+    expect(roundItems.map((item) => item.eventCode)).toEqual(["ability_suppressed"]);
+    expect(turnItems[0].detail).toContain("어사");
+  });
+
   it("uses the revealed fortune card name when the resolved detail has no summary", () => {
     const items = selectCurrentTurnRevealItems([
       {
@@ -3052,6 +3098,51 @@ describe("streamSelectors", () => {
     expect(alerts.map((a) => a.seq)).toEqual([94, 93, 91]);
     expect(alerts[0].severity).toBe("critical");
     expect(alerts[2].severity).toBe("warning");
+  });
+
+  it("treats a finished engine transition as a critical game-end alert even when backend scene is stale", () => {
+    const alerts = selectCriticalAlerts([
+      {
+        type: "event",
+        seq: 100,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_end_snapshot",
+          view_state: {
+            scene: {
+              situation: {
+                actor_player_id: 1,
+                headline_seq: 100,
+                headline_message_type: "event",
+                headline_event_code: "turn_end_snapshot",
+                round_index: 6,
+                turn_index: 21,
+                weather_name: "-",
+                weather_effect: "-",
+              },
+              theater_feed: [],
+              core_action_feed: [],
+              timeline: [],
+              critical_alerts: [],
+            },
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 101,
+        session_id: "s1",
+        payload: { event_type: "engine_transition", status: "finished", reason: "end_rule" },
+      },
+    ]);
+
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      seq: 101,
+      severity: "critical",
+      title: "게임 종료",
+      detail: "end_rule",
+    });
   });
 
   it("prefers backend scene projection for critical alerts", () => {
@@ -4396,6 +4487,67 @@ describe("streamSelectors", () => {
     ]);
 
     expect(actorPlayerId).toBeNull();
+  });
+
+  it("promotes finished engine transitions to a visible game-end turn stage", () => {
+    const messages = [
+      {
+        type: "event",
+        seq: 900,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 6,
+          turn_index: 21,
+          acting_player_id: 1,
+        },
+      },
+      {
+        type: "event",
+        seq: 901,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_end_snapshot",
+          round_index: 6,
+          turn_index: 21,
+          acting_player_id: 1,
+          view_state: {
+            turn_stage: {
+              turn_start_seq: 900,
+              actor_player_id: 1,
+              round_index: 6,
+              turn_index: 21,
+              character: "-",
+              weather_name: "-",
+              weather_effect: "-",
+              current_beat_kind: "system",
+              current_beat_event_code: "turn_end_snapshot",
+              current_beat_request_type: "movement",
+              current_beat_seq: 901,
+              focus_tile_index: 30,
+              focus_tile_indices: [30],
+              prompt_request_type: "movement",
+              progress_codes: ["turn_start", "turn_end_snapshot"],
+            },
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 902,
+        session_id: "s1",
+        payload: { event_type: "engine_transition", status: "finished", reason: "end_rule" },
+      },
+    ] as const;
+
+    const stage = selectTurnStage([...messages]);
+
+    expect(stage.currentBeatEventCode).toBe("game_end");
+    expect(stage.currentBeatLabel).toBe("게임 종료");
+    expect(stage.actorPlayerId).toBeNull();
+    expect(stage.promptRequestType).toBe("-");
+    expect(stage.progressTrail.at(-1)).toBe("게임 종료");
+    expect(selectCurrentActorPlayerId([...messages])).toBeNull();
   });
 
   it("prefers backend-projected turn stage focus and external ai status", () => {

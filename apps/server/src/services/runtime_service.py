@@ -617,15 +617,10 @@ class RuntimeService:
         pending_prompt_type = str(getattr(state, "pending_prompt_type", "") or "")
         pending_instance_id = int(getattr(state, "pending_prompt_instance_id", 0) or 0)
         if pending_request_id and pending_instance_id > 0:
-            if (
-                pending_prompt_type in {"draft_card", "final_character"}
-                or ":draft_card:" in pending_request_id
-                or ":final_character:" in pending_request_id
-            ):
-                # Draft/final-character prompts happen inside round setup before
-                # the next priority order is committed. The previous round order
-                # can still be present in checkpoints, so identify this replay by
-                # prompt type and consume resolved draft decisions from the start.
+            if RuntimeService._is_round_setup_prompt(state):
+                # Round setup prompts happen before the next priority order is
+                # committed. Replay from setup start so resolved draft/final/
+                # hidden-card decisions are consumed deterministically.
                 return 0
             if pending_prompt_type == "movement" or ":movement:" in pending_request_id:
                 pending_actions = getattr(state, "pending_actions", None) or []
@@ -649,6 +644,54 @@ class RuntimeService:
                 return max(0, pending_instance_id - 2)
             return max(0, pending_instance_id - 1)
         return prompt_sequence
+
+    @staticmethod
+    def _has_round_setup_replay_base_from_state(state) -> bool:
+        replay_base = getattr(state, "round_setup_replay_base", None)
+        return isinstance(replay_base, dict) and bool(replay_base.get("tiles"))
+
+    @staticmethod
+    def _has_round_setup_replay_base_from_payload(payload: dict) -> bool:
+        replay_base = payload.get("round_setup_replay_base")
+        return isinstance(replay_base, dict) and bool(replay_base.get("tiles"))
+
+    @staticmethod
+    def _is_round_setup_prompt(state) -> bool:
+        pending_request_id = str(getattr(state, "pending_prompt_request_id", "") or "")
+        pending_prompt_type = str(getattr(state, "pending_prompt_type", "") or "")
+        if (
+            pending_prompt_type in {"draft_card", "final_character"}
+            or ":draft_card:" in pending_request_id
+            or ":final_character:" in pending_request_id
+        ):
+            return True
+        if pending_prompt_type == "hidden_trick_card" or ":hidden_trick_card:" in pending_request_id:
+            return RuntimeService._has_round_setup_replay_base_from_state(state)
+        return False
+
+    @staticmethod
+    def _is_round_setup_prompt_payload(payload: dict) -> bool:
+        pending_request_id = str(payload.get("pending_prompt_request_id") or "")
+        pending_prompt_type = str(payload.get("pending_prompt_type") or "")
+        if (
+            pending_prompt_type in {"draft_card", "final_character"}
+            or ":draft_card:" in pending_request_id
+            or ":final_character:" in pending_request_id
+        ):
+            return True
+        if pending_prompt_type == "hidden_trick_card" or ":hidden_trick_card:" in pending_request_id:
+            return RuntimeService._has_round_setup_replay_base_from_payload(payload)
+        return False
+
+    @staticmethod
+    def _prepare_state_for_transition_replay(state) -> None:
+        if RuntimeService._is_round_setup_prompt(state):
+            # Round setup prompts are replayed from setup start so previously
+            # accepted decisions can be consumed deterministically.
+            # Checkpoints may still carry the previous round order; leaving it
+            # in place makes run_next_transition skip draft and start a turn
+            # with an empty character.
+            state.current_round_order = []
 
     def _acquire_runtime_lease(self, session_id: str) -> bool:
         if self._runtime_state_store is None:
@@ -674,7 +717,14 @@ class RuntimeService:
         current_state = recovery.get("current_state")
         if not isinstance(current_state, dict) or "tiles" not in current_state:
             return None
-        return game_state_cls.from_checkpoint_payload(config, current_state)
+        payload = current_state
+        if self._is_round_setup_prompt_payload(current_state):
+            replay_base = current_state.get("round_setup_replay_base")
+            if isinstance(replay_base, dict) and replay_base.get("tiles"):
+                payload = dict(replay_base)
+                payload["current_round_order"] = []
+                payload["prompt_sequence"] = 0
+        return game_state_cls.from_checkpoint_payload(config, payload)
 
     def _run_engine_transition_once_for_recovery(self, session_id: str, seed: int = 42, policy_mode: str | None = None) -> dict:
         return self._run_engine_transition_once_sync(
@@ -740,6 +790,8 @@ class RuntimeService:
         if state is None:
             if require_checkpoint:
                 return {"status": "unavailable", "reason": "checkpoint_missing"}
+        else:
+            self._prepare_state_for_transition_replay(state)
         human_player_ids = [
             int(seat.seat)
             for seat in session.seats

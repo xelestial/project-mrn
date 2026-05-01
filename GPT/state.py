@@ -251,6 +251,7 @@ class GameState:
     scheduled_actions: List[ActionEnvelope] = field(default_factory=list)
     pending_action_log: dict[str, Any] = field(default_factory=dict)
     pending_turn_completion: dict[str, Any] = field(default_factory=dict)
+    round_setup_replay_base: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def create(cls, config: GameConfig) -> "GameState":
@@ -365,6 +366,7 @@ class GameState:
             "scheduled_actions": [action.to_payload() for action in self.scheduled_actions],
             "pending_action_log": dict(self.pending_action_log),
             "pending_turn_completion": dict(self.pending_turn_completion),
+            "round_setup_replay_base": dict(self.round_setup_replay_base),
             "tiles": [_tile_to_payload(tile) for tile in self.tiles],
             "players": [_player_to_payload(player) for player in self.players],
             "fortune_draw_pile": [_card_key(card) for card in self.fortune_draw_pile],
@@ -423,6 +425,7 @@ class GameState:
         ]
         state.pending_action_log = dict(payload.get("pending_action_log") or {})
         state.pending_turn_completion = dict(payload.get("pending_turn_completion") or {})
+        state.round_setup_replay_base = dict(payload.get("round_setup_replay_base") or {})
 
         for raw_tile in payload.get("tiles", []):
             if not isinstance(raw_tile, dict):

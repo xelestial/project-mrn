@@ -55,6 +55,10 @@ function withDebugMessage(messages: InboundMessage[], message: InboundMessage): 
   return nextMessages;
 }
 
+function sameStreamMessage(left: InboundMessage, right: InboundMessage): boolean {
+  return debugMessageKey(left) === debugMessageKey(right);
+}
+
 function carriesCurrentProjection(message: InboundMessage): boolean {
   return message.type !== "heartbeat" && typeof message.payload === "object" && message.payload !== null && "view_state" in message.payload;
 }
@@ -92,7 +96,7 @@ function flushPendingMessages(
 
     const firstProjectedSeq = pendingSeqs.find((seq) => {
       const candidate = pendingBySeq[seq];
-      return Boolean(candidate && carriesCurrentProjection(candidate));
+      return Boolean(candidate && (carriesCurrentProjection(candidate) || candidate.type === "prompt"));
     });
     if (firstProjectedSeq === undefined) {
       break;
@@ -161,6 +165,17 @@ export function gameStreamReducer(state: GameStreamState, action: GameStreamActi
   const debugMessages = withDebugMessage(state.debugMessages, action.message);
   const seq = typeof action.message.seq === "number" ? action.message.seq : state.lastSeq;
   if (!Number.isFinite(seq) || seq <= state.lastSeq) {
+    if (
+      Number.isFinite(seq) &&
+      carriesCurrentProjection(action.message) &&
+      !state.messages.some((message) => sameStreamMessage(message, action.message))
+    ) {
+      return {
+        ...state,
+        messages: withCappedMessages([...state.messages, action.message]),
+        debugMessages,
+      };
+    }
     return debugMessages === state.debugMessages ? state : { ...state, debugMessages };
   }
   const incomingManifestHash = extractManifestHash(action.message);

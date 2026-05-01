@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import type {
   ConnectionStatus,
   InboundMessage,
@@ -38,8 +38,9 @@ export function useGameStream({
     initialGameStreamState,
   );
   const lastSeqRef = useRef(0);
-  const activeSessionRef = useRef("");
+  const activeStreamKeyRef = useRef("");
   const lastResumeRequestAtRef = useRef(0);
+  const recoveryTimersRef = useRef<number[]>([]);
 
   useEffect(() => {
     const offMessage = client.onMessage((message) => {
@@ -75,14 +76,15 @@ export function useGameStream({
       client.disconnect();
       dispatch({ type: "reset" });
       lastSeqRef.current = 0;
-      activeSessionRef.current = "";
+      activeStreamKeyRef.current = "";
       lastResumeRequestAtRef.current = 0;
       return;
     }
-    if (activeSessionRef.current !== normalized) {
+    const streamKey = `${normalized}\n${token ?? ""}`;
+    if (activeStreamKeyRef.current !== streamKey) {
       lastSeqRef.current = 0;
       dispatch({ type: "reset" });
-      activeSessionRef.current = normalized;
+      activeStreamKeyRef.current = streamKey;
       lastResumeRequestAtRef.current = 0;
     }
     client.connect({
@@ -94,31 +96,52 @@ export function useGameStream({
     return () => client.disconnect();
   }, [baseUrl, client, sessionId, token]);
 
+  const recoverFromReplay = useCallback(
+    (signal?: AbortSignal) => {
+      const normalized = sessionId.trim();
+      if (!normalized) {
+        return;
+      }
+      void fetchReplayMessages({
+        sessionId: normalized,
+        token,
+        baseUrl,
+        signal,
+        projectionSeqFloor: lastSeqRef.current,
+      })
+        .then((messages) => {
+          for (const message of messages) {
+            dispatch({ type: "message", message });
+          }
+        })
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return;
+          }
+          dispatch({ type: "status", status: "error" });
+        });
+    },
+    [baseUrl, sessionId, token],
+  );
+
   useEffect(() => {
     const normalized = sessionId.trim();
     if (!normalized) {
       return;
     }
     const controller = new AbortController();
-    void fetchReplayMessages({
-      sessionId: normalized,
-      token,
-      baseUrl,
-      signal: controller.signal,
-    })
-      .then((messages) => {
-        for (const message of messages) {
-          dispatch({ type: "message", message });
-        }
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
-        dispatch({ type: "status", status: "error" });
-      });
+    recoverFromReplay(controller.signal);
     return () => controller.abort();
-  }, [baseUrl, sessionId, token]);
+  }, [recoverFromReplay, sessionId]);
+
+  useEffect(() => {
+    return () => {
+      for (const timer of recoveryTimersRef.current) {
+        window.clearTimeout(timer);
+      }
+      recoveryTimersRef.current = [];
+    };
+  }, []);
 
   const sendDecision = (args: {
     requestId: string;
@@ -126,7 +149,7 @@ export function useGameStream({
     choiceId: string;
     choicePayload?: Record<string, unknown>;
   }): boolean => {
-    return client.send({
+    const sent = client.send({
       type: "decision",
       request_id: args.requestId,
       player_id: args.playerId,
@@ -134,6 +157,18 @@ export function useGameStream({
       choice_payload: args.choicePayload,
       client_seq: lastSeqRef.current,
     });
+    if (sent) {
+      for (const delay of [750, 2000, 5000, 10000, 15000, 30000]) {
+        const timer = window.setTimeout(() => {
+          recoveryTimersRef.current = recoveryTimersRef.current.filter(
+            (item) => item !== timer,
+          );
+          recoverFromReplay();
+        }, delay);
+        recoveryTimersRef.current.push(timer);
+      }
+    }
+    return sent;
   };
 
   return {

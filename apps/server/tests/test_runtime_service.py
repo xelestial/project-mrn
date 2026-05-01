@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import socket
 import threading
 import time
@@ -3414,6 +3415,213 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertEqual(seed, 0)
 
+    def test_round_setup_prompt_replay_clears_stale_round_order(self) -> None:
+        checkpoint_state = type(
+            "CheckpointState",
+            (),
+            {
+                "pending_prompt_request_id": "sess_round_setup_replay:r1:t1:p1:draft_card:1",
+                "pending_prompt_type": "draft_card",
+                "current_round_order": [0, 1, 2, 3],
+            },
+        )()
+
+        RuntimeService._prepare_state_for_transition_replay(checkpoint_state)
+
+        self.assertEqual(checkpoint_state.current_round_order, [])
+
+    def test_round_setup_hidden_trick_replay_rewinds_to_setup_start_when_base_exists(self) -> None:
+        checkpoint_state = type(
+            "CheckpointState",
+            (),
+            {
+                "prompt_sequence": 3,
+                "pending_prompt_request_id": "sess_hidden_setup:r1:t1:p1:hidden_trick_card:3",
+                "pending_prompt_type": "hidden_trick_card",
+                "pending_prompt_instance_id": 3,
+                "current_round_order": [0, 1, 2, 3],
+                "round_setup_replay_base": {"tiles": [{"tile_id": 0}], "current_round_order": [0, 1, 2, 3]},
+            },
+        )()
+
+        seed = self.runtime_service._prompt_sequence_seed_for_transition(checkpoint_state)
+        RuntimeService._prepare_state_for_transition_replay(checkpoint_state)
+
+        self.assertEqual(seed, 0)
+        self.assertEqual(checkpoint_state.current_round_order, [])
+
+    def test_round_setup_hidden_trick_without_replay_base_keeps_bridge_replay_seed(self) -> None:
+        checkpoint_state = type(
+            "CheckpointState",
+            (),
+            {
+                "prompt_sequence": 3,
+                "pending_prompt_request_id": "sess_hidden_regular:r1:t1:p1:hidden_trick_card:3",
+                "pending_prompt_type": "hidden_trick_card",
+                "pending_prompt_instance_id": 3,
+                "current_round_order": [0, 1, 2, 3],
+            },
+        )()
+
+        seed = self.runtime_service._prompt_sequence_seed_for_transition(checkpoint_state)
+
+        self.assertEqual(seed, 2)
+        self.assertEqual(checkpoint_state.current_round_order, [0, 1, 2, 3])
+
+    def test_first_human_draft_resume_prompts_second_human_draft_before_turn_start(self) -> None:
+        store = _MutableGameStateStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            game_state_store=store,
+        )
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42, "runtime": {"ai_decision_delay_ms": 0}},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.start_session(session.session_id, session.host_token)
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            first = runtime._run_engine_transition_once_sync(
+                loop,
+                session.session_id,
+                42,
+                None,
+                False,
+                None,
+                None,
+            )
+            self.assertEqual(first["status"], "waiting_input")
+            self.assertEqual(first["request_type"], "draft_card")
+            self.assertEqual(first["player_id"], 1)
+
+            with self.prompt_service._lock:  # type: ignore[attr-defined]
+                pending_prompt = next(iter(self.prompt_service._pending.values()))  # type: ignore[attr-defined]
+            self.prompt_service.submit_decision(
+                {
+                    "request_id": pending_prompt.request_id,
+                    "player_id": 1,
+                    "choice_id": pending_prompt.payload["legal_choices"][0]["choice_id"],
+                }
+            )
+
+            second = runtime._run_engine_transition_once_sync(
+                loop,
+                session.session_id,
+                42,
+                None,
+                True,
+                None,
+                None,
+            )
+
+            self.assertEqual(second["status"], "waiting_input")
+            self.assertEqual(second["request_type"], "draft_card")
+            self.assertEqual(second["player_id"], 1)
+            self.assertEqual(store.current_state.get("pending_prompt_type"), "draft_card")
+            self.assertEqual(store.current_state.get("pending_prompt_player_id"), 1)
+            self.assertEqual(store.current_state.get("current_round_order"), [])
+            events = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot(session.session_id),
+                loop,
+            ).result(timeout=2.0)
+            turn_starts = [
+                msg
+                for msg in events
+                if msg.type == "event" and msg.payload.get("event_type") == "turn_start"
+            ]
+            self.assertEqual(turn_starts, [])
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_round_setup_prompt_replay_does_not_republish_previous_draft_events(self) -> None:
+        store = _MutableGameStateStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            game_state_store=store,
+        )
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42, "runtime": {"ai_decision_delay_ms": 0}},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.start_session(session.session_id, session.host_token)
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            runtime._run_engine_transition_once_sync(
+                loop,
+                session.session_id,
+                42,
+                None,
+                False,
+                None,
+                None,
+            )
+            with self.prompt_service._lock:  # type: ignore[attr-defined]
+                first_prompt = next(iter(self.prompt_service._pending.values()))  # type: ignore[attr-defined]
+            self.prompt_service.submit_decision(
+                {
+                    "request_id": first_prompt.request_id,
+                    "player_id": 1,
+                    "choice_id": first_prompt.payload["legal_choices"][0]["choice_id"],
+                }
+            )
+
+            runtime._run_engine_transition_once_sync(
+                loop,
+                session.session_id,
+                42,
+                None,
+                True,
+                None,
+                None,
+            )
+
+            messages = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot(session.session_id),
+                loop,
+            ).result(timeout=2.0)
+            events = [msg.payload for msg in messages if msg.type == "event"]
+            round_starts = [event for event in events if event.get("event_type") == "round_start"]
+            weather_reveals = [event for event in events if event.get("event_type") == "weather_reveal"]
+            p1_draft_phase_1 = [
+                event
+                for event in events
+                if event.get("event_type") == "draft_pick"
+                and event.get("acting_player_id") == 1
+                and event.get("draft_phase") == 1
+            ]
+
+            self.assertEqual(len(round_starts), 1)
+            self.assertEqual(len(weather_reveals), 1)
+            self.assertEqual(len(p1_draft_phase_1), 1)
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
     def test_pending_hidden_trick_replay_resumes_same_hidden_selection(self) -> None:
         from apps.server.src.services.decision_gateway import PromptRequired
         from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
@@ -4012,6 +4220,54 @@ class _RecoveryGameStateStoreStub:
     def load_view_state(self, session_id: str) -> dict:
         del session_id
         return {"legacy": True}
+
+
+class _MutableGameStateStoreStub:
+    def __init__(self) -> None:
+        self.current_state: dict = {}
+        self.checkpoint: dict = {}
+        self.commits: list[dict] = []
+
+    def load_checkpoint(self, session_id: str) -> dict | None:
+        del session_id
+        return copy.deepcopy(self.checkpoint) if self.checkpoint else None
+
+    def load_current_state(self, session_id: str) -> dict | None:
+        del session_id
+        return copy.deepcopy(self.current_state) if self.current_state else None
+
+    def load_projected_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict:
+        del session_id, viewer, player_id
+        return {}
+
+    def load_view_state(self, session_id: str) -> dict:
+        del session_id
+        return {}
+
+    def commit_transition(
+        self,
+        session_id: str,
+        *,
+        current_state: dict,
+        checkpoint: dict,
+        command_consumer_name: str | None = None,
+        command_seq: int | None = None,
+        runtime_event_payload: dict | None = None,
+        runtime_event_server_time_ms: int | None = None,
+    ) -> None:
+        self.current_state = copy.deepcopy(current_state)
+        self.checkpoint = copy.deepcopy(checkpoint)
+        self.commits.append(
+            {
+                "session_id": session_id,
+                "current_state": copy.deepcopy(current_state),
+                "checkpoint": copy.deepcopy(checkpoint),
+                "command_consumer_name": command_consumer_name,
+                "command_seq": command_seq,
+                "runtime_event_payload": copy.deepcopy(runtime_event_payload or {}),
+                "runtime_event_server_time_ms": runtime_event_server_time_ms,
+            }
+        )
 
 
 class _RuntimeStateStoreStub:

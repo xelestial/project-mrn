@@ -294,6 +294,7 @@ export const koLocale = {
       mark_target_none: "지목 대상 없음",
       mark_target_missing: "지목 대상 불일치",
       mark_blocked: "지목 차단",
+      ability_suppressed: "인물 능력 차단",
       active_flip_resolved: "카드 뒤집기 처리",
       bankruptcy: "파산",
       game_end: "게임 종료",
@@ -520,6 +521,10 @@ export const koLocale = {
       `P${source} / 지목 대상 ${targetCharacter || "-"}을(를) 현재 차례 순서에서 찾지 못함`,
     markBlocked: (source: unknown, target: unknown, targetCharacter: string) =>
       `P${source} / P${target}${targetCharacter ? ` (${targetCharacter})` : ""} 지목이 공개 상태라 차단됨`,
+    abilitySuppressed: (source: unknown, actorName: string, reason: string) =>
+      `${actorName || `P${source}`} 능력 차단 / ${
+        reason === "muroe_blocked_by_eosa" ? "어사가 무뢰 인물 능력을 막음" : reason || "효과가 적용되지 않음"
+      }`,
     markerFlipDetail: (from: string, to: string) => `${from} -> ${to}`,
     rentPaid: (payer: unknown, owner: unknown, amount: unknown, tileDisplay: string) =>
       `P${payer} -> P${owner} / ${amount}냥 / ${tileDisplay}번 칸`,

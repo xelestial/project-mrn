@@ -352,7 +352,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function messageKindFromPayload(payload: Record<string, unknown>): string {
   const eventType = payload["event_type"];
+  if (eventType === "engine_transition" && payload["status"] === "finished") {
+    return "game_end";
+  }
   return typeof eventType === "string" && eventType.trim() ? eventType : "";
+}
+
+function isFinishedEngineTransitionPayload(payload: Record<string, unknown>): boolean {
+  return payload["event_type"] === "engine_transition" && payload["status"] === "finished";
+}
+
+function findLatestTerminalGameEndMessage(messages: InboundMessage[]): InboundMessage | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.type !== "event") {
+      continue;
+    }
+    const eventCode = messageKindFromPayload(message.payload);
+    if (eventCode === "game_end") {
+      return message;
+    }
+  }
+  return null;
 }
 
 function decisionProviderFromPayload(payload: Record<string, unknown>): string {
@@ -638,7 +659,8 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
     if (typeof winner === "number") {
       return text.stream.winner(winner);
     }
-    return asString(payload["summary"] ?? text.stream.gameEndDefault);
+    const reason = asString(payload["summary"] ?? payload["reason"] ?? payload["end_reason"]);
+    return reason === "-" ? text.stream.gameEndDefault : reason;
   }
   if (eventType === "lap_reward_chosen") {
     const explicitSummary = asString(
@@ -741,6 +763,17 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
       payload["source_player_id"] ?? payload["player_id"] ?? "?",
       payload["target_player_id"] ?? "?",
       asString(payload["target_character"])
+    );
+  }
+  if (eventType === "ability_suppressed") {
+    const explicitSummary = asString(payload["summary"] ?? payload["effect_text"]);
+    if (explicitSummary !== "-") {
+      return explicitSummary;
+    }
+    return text.stream.abilitySuppressed(
+      payload["source_player_id"] ?? payload["player_id"] ?? "?",
+      asString(payload["actor_name"] ?? payload["character"]),
+      asString(payload["reason"])
     );
   }
   if (eventType === "marker_flip") {
@@ -853,6 +886,7 @@ const CORE_EVENT_CODES = new Set<string>([
   "mark_target_none",
   "mark_target_missing",
   "mark_blocked",
+  "ability_suppressed",
   "bankruptcy",
   "game_end",
   "turn_end_snapshot",
@@ -871,6 +905,7 @@ const CURRENT_TURN_REVEAL_EVENT_CODES = new Set<string>([
   "fortune_resolved",
   "mark_queued",
   "mark_resolved",
+  "ability_suppressed",
   "marker_flip",
   "marker_transferred",
   "bankruptcy",
@@ -890,6 +925,7 @@ const CURRENT_TURN_REVEAL_ORDER: Record<string, number> = {
   fortune_resolved: 70,
   mark_queued: 76,
   mark_resolved: 78,
+  ability_suppressed: 79,
   marker_flip: 80,
   marker_transferred: 82,
   bankruptcy: 90,
@@ -1050,7 +1086,7 @@ export function selectCriticalAlerts(
   if (backendScene) {
     const safeLimit = Math.max(1, limit);
     const messageBySeq = selectMessageBySeq(messages);
-    return backendScene.criticalAlerts.slice(0, safeLimit).map((item) => {
+    const alerts = backendScene.criticalAlerts.map((item) => {
       const sourceMessage = messageBySeq.get(item.seq);
       return {
         seq: item.seq,
@@ -1063,6 +1099,16 @@ export function selectCriticalAlerts(
         detail: sourceMessage ? pickMessageDetail(sourceMessage, text) || "-" : "-",
       };
     });
+    const terminalMessage = findLatestTerminalGameEndMessage(messages);
+    if (terminalMessage && !alerts.some((item) => item.seq === terminalMessage.seq)) {
+      alerts.unshift({
+        seq: terminalMessage.seq,
+        severity: "critical",
+        title: eventLabelForCode("game_end", text.eventLabel),
+        detail: pickMessageDetail(terminalMessage, text) || text.stream.gameEndDefault,
+      });
+    }
+    return alerts.sort((a, b) => b.seq - a.seq).slice(0, safeLimit);
   }
   const alerts: AlertItem[] = [];
   for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -1546,6 +1592,19 @@ export function selectTurnStage(
     }
   }
   if (turnStartIndex < 0) {
+    const terminalMessage = findLatestTerminalGameEndMessage(messages);
+    if (terminalMessage) {
+      return {
+        ...fallback,
+        currentBeatKind: "system",
+        currentBeatEventCode: "game_end",
+        currentBeatLabel: eventLabelForCode("game_end", text.eventLabel),
+        currentBeatDetail: pickMessageDetail(terminalMessage, text) || text.stream.gameEndDefault,
+        latestActionLabel: eventLabelForCode("game_end", text.eventLabel),
+        latestActionDetail: pickMessageDetail(terminalMessage, text) || text.stream.gameEndDefault,
+        progressTrail: [eventLabelForCode("game_end", text.eventLabel)],
+      };
+    }
     return fallback;
   }
 
@@ -1660,10 +1719,24 @@ export function selectTurnStage(
     if (message.type !== "event") {
       continue;
     }
+    const eventCode = messageKindFromPayload(message.payload);
+    if (eventCode === "game_end" && isFinishedEngineTransitionPayload(message.payload)) {
+      updateBeat(
+        eventCode,
+        pickMessageLabel(message, text),
+        detailFromEventCode(message.payload, eventCode, text) || "-",
+        "system",
+        null
+      );
+      model.actorPlayerId = null;
+      model.actor = "-";
+      model.promptSummary = "-";
+      model.promptRequestType = "-";
+      continue;
+    }
     if (!sameRoundTurn(message.payload, model.round, model.turn)) {
       continue;
     }
-    const eventCode = messageKindFromPayload(message.payload);
     if (eventCode === "turn_start") {
       continue;
     }
@@ -1828,7 +1901,8 @@ export function selectTurnStage(
       eventCode === "mark_queued" ||
       eventCode === "mark_target_none" ||
       eventCode === "mark_target_missing" ||
-      eventCode === "mark_blocked"
+      eventCode === "mark_blocked" ||
+      eventCode === "ability_suppressed"
     ) {
       const detail = detailFromEventCode(message.payload, eventCode, text);
       model.markSummary = detail;
@@ -1901,6 +1975,23 @@ export function selectTurnStage(
         .filter((label) => label !== "-")
         .slice(-6);
     }
+  }
+
+  const terminalMessage = findLatestTerminalGameEndMessage(messages);
+  if (terminalMessage) {
+    const label = eventLabelForCode("game_end", text.eventLabel);
+    const detail = pickMessageDetail(terminalMessage, text) || text.stream.gameEndDefault;
+    model.actorPlayerId = null;
+    model.actor = "-";
+    model.currentBeatKind = "system";
+    model.currentBeatEventCode = "game_end";
+    model.currentBeatLabel = label;
+    model.currentBeatDetail = detail;
+    model.latestActionLabel = label;
+    model.latestActionDetail = detail;
+    model.promptSummary = "-";
+    model.promptRequestType = "-";
+    model.progressTrail = [...model.progressTrail.filter((item) => item !== label), label].slice(-6);
   }
 
   return model;
@@ -3068,7 +3159,7 @@ export function selectLivePlayers(
 
 export function selectCurrentActorPlayerId(messages: InboundMessage[]): number | null {
   const backendTurnStage = selectBackendTurnStage(messages);
-  if (backendTurnStage?.currentBeatEventCode === "game_end") {
+  if (backendTurnStage?.currentBeatEventCode === "game_end" || findLatestTerminalGameEndMessage(messages)) {
     return null;
   }
   for (let i = messages.length - 1; i >= 0; i -= 1) {

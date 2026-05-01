@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from collections import defaultdict
 from dataclasses import dataclass
@@ -66,6 +67,8 @@ class StreamService:
             self._inject_display_names(session_id, enriched_payload)
             history = self._history_records_no_lock(session_id)
             duplicate = self._duplicate_request_message_no_lock(history, msg_type, enriched_payload)
+            if duplicate is None:
+                duplicate = self._duplicate_round_setup_event_no_lock(history, msg_type, enriched_payload)
             if duplicate is not None:
                 return duplicate
             pending_record = {
@@ -369,9 +372,9 @@ class StreamService:
         if msg_type == "prompt":
             expected_type = "prompt"
             expected_event_type = ""
-        elif msg_type == "event" and event_type == "decision_requested":
+        elif msg_type == "event" and event_type in {"decision_requested", "decision_resolved"}:
             expected_type = "event"
-            expected_event_type = "decision_requested"
+            expected_event_type = event_type
         else:
             return None
         for message in reversed(history):
@@ -386,6 +389,51 @@ class StreamService:
                 continue
             return self._message_from_payload(message)
         return None
+
+    def _duplicate_round_setup_event_no_lock(
+        self,
+        history: list[dict],
+        msg_type: str,
+        payload: dict,
+    ) -> StreamMessage | None:
+        if msg_type != "event":
+            return None
+        event_type = str(payload.get("event_type") or "").strip()
+        if event_type not in {
+            "round_start",
+            "weather_reveal",
+            "draft_pick",
+            "final_character_choice",
+            "round_order",
+        }:
+            return None
+        signature = self._round_setup_event_signature(payload)
+        for message in reversed(history):
+            if str(message.get("type", "")) != "event":
+                continue
+            message_payload = message.get("payload")
+            if not isinstance(message_payload, dict):
+                continue
+            if str(message_payload.get("event_type") or "").strip() != event_type:
+                continue
+            if self._round_setup_event_signature(message_payload) == signature:
+                return self._message_from_payload(message)
+        return None
+
+    @staticmethod
+    def _round_setup_event_signature(payload: dict) -> str:
+        def normalize(value):
+            if isinstance(value, dict):
+                return {
+                    str(key): normalize(item)
+                    for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+                    if key not in {"session_id", "step_index", "view_state"}
+                }
+            if isinstance(value, list):
+                return [normalize(item) for item in value]
+            return value
+
+        return json.dumps(normalize(payload), ensure_ascii=False, sort_keys=True, default=str)
 
     @staticmethod
     def _message_seq(message: dict) -> int:
