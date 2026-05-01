@@ -122,6 +122,12 @@ Reactions are lightweight social signals. Humans use them constantly — they sa
 
 Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes (camera names, SSH details, voice preferences) in `TOOLS.md`.
 
+### Generated Images
+
+- After generating images, always inspect the result before using or delivering it.
+- If the result has obvious issues (duplicate directions, bad crops, missing transparency, inconsistent layout, broken details), automatically regenerate or fix it instead of passing the flawed output along.
+- For sprite sheets, verify direction uniqueness, row/column count, cell alignment, cropping, file dimensions, and transparency before saving split assets.
+
 **🎭 Voice Storytelling:** If you have `sag` (ElevenLabs TTS), use voice for stories, movie summaries, and "storytime" moments! Way more engaging than walls of text. Surprise people with funny voices.
 
 **📝 Platform Formatting:**

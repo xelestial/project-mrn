@@ -29,3 +29,4 @@ apps/web/test-results/
 
 # OS/editor local files
 .DS_Store
+.gstack/
