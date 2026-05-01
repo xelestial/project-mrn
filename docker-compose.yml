@@ -47,6 +47,28 @@ services:
       retries: 6
     restart: unless-stopped
 
+  web:
+    image: node:22-alpine
+    container_name: project-mrn-web
+    working_dir: /app/apps/web
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      MRN_WEB_API_TARGET: http://server:9090
+    ports:
+      - "${MRN_WEB_PORT:-9000}:9000"
+    volumes:
+      - .:/app
+      - web-node-modules:/app/apps/web/node_modules
+    command:
+      [
+        "sh",
+        "-c",
+        "npm ci && npm run dev -- --host 0.0.0.0 --port 9000 --strictPort",
+      ]
+    restart: unless-stopped
+
   prompt-timeout-worker:
     image: project-mrn-server:dev
     container_name: project-mrn-prompt-timeout-worker
@@ -90,3 +112,4 @@ services:
 volumes:
   redis-data:
   game-logs:
+  web-node-modules:

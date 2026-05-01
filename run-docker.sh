@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="${MRN_COMPOSE_FILE:-${ROOT_DIR}/docker-compose.yml}"
 COMPOSE_PROJECT="${MRN_COMPOSE_PROJECT:-project-mrn}"
-SERVICES=(redis server prompt-timeout-worker command-wakeup-worker)
+SERVICES=(redis server prompt-timeout-worker command-wakeup-worker web)
 DETACHED=0
 BUILD=1
 PULL=0
@@ -15,8 +15,8 @@ usage() {
   cat <<EOF
 Usage: ./run-docker.sh [options]
 
-Runs the Redis-backed Docker runtime stack:
-  redis, server, prompt-timeout-worker, command-wakeup-worker
+Runs the Redis-backed Docker runtime stack and web client:
+  redis, server, prompt-timeout-worker, command-wakeup-worker, web
 
 Options:
   -d, --detached   Run in the background
@@ -29,6 +29,7 @@ Options:
 Environment:
   MRN_COMPOSE_FILE     Compose file path (default: docker-compose.yml)
   MRN_COMPOSE_PROJECT  Compose project name (default: project-mrn)
+  MRN_WEB_PORT         Host web port (default: 9000)
 EOF
 }
 
@@ -96,6 +97,8 @@ case "${ACTION}" in
     UP_ARGS+=("${SERVICES[@]}")
 
     echo "Starting MRN Docker runtime with project '${COMPOSE_PROJECT}'."
+    echo "Web client: http://127.0.0.1:${MRN_WEB_PORT:-9000}"
+    echo "Backend: http://127.0.0.1:9090"
     compose "${UP_ARGS[@]}"
     ;;
 esac

@@ -7,7 +7,7 @@ PYTHON_BIN="${MRN_PYTHON_BIN:-${ROOT_DIR}/.venv/bin/python}"
 SERVER_HOST="${MRN_SERVER_HOST:-127.0.0.1}"
 SERVER_PORT="${MRN_SERVER_PORT:-9090}"
 WEB_HOST="${MRN_WEB_HOST:-127.0.0.1}"
-WEB_PORT="${MRN_WEB_PORT:-5173}"
+WEB_PORT="${MRN_WEB_PORT:-9000}"
 SERVER_HEALTH_URL="http://${SERVER_HOST}:${SERVER_PORT}/health"
 
 SERVER_PID=""
@@ -42,7 +42,7 @@ Environment:
   MRN_SERVER_HOST    Backend host (default: 127.0.0.1)
   MRN_SERVER_PORT    Backend port (default: 9090)
   MRN_WEB_HOST       Web host (default: 127.0.0.1)
-  MRN_WEB_PORT       Web port (default: 5173)
+  MRN_WEB_PORT       Web port (default: 9000)
   MRN_RELOAD=1       Start backend uvicorn with --reload
 EOF
 }
