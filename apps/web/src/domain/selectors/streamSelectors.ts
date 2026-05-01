@@ -633,6 +633,9 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
     return asString(payload["summary"] ?? text.stream.gameEndDefault);
   }
   if (eventType === "lap_reward_chosen") {
+    const explicitSummary = asString(
+      payload["breakdown"] ?? payload["bonus_breakdown"] ?? payload["effect_text"] ?? payload["summary"] ?? payload["resolution"]
+    );
     const amountRaw = payload["amount"];
     if (isRecord(amountRaw)) {
       const cash = typeof amountRaw["cash"] === "number" ? amountRaw["cash"] : 0;
@@ -649,10 +652,15 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
         parts.push(text.stream.lapReward.coins(coins));
       }
       if (parts.length > 0) {
-        return text.stream.lapRewardChosen(actorFromPayload(payload, text), text.stream.lapRewardBundle(parts));
+        const amountDetail = text.stream.lapRewardBundle(parts);
+        const rewardDetail =
+          explicitSummary !== "-" && explicitSummary !== amountDetail
+            ? `${amountDetail} / ${explicitSummary}`
+            : amountDetail;
+        return text.stream.lapRewardChosen(actorFromPayload(payload, text), rewardDetail);
       }
     }
-    const choice = asString(payload["choice"] ?? payload["reward"] ?? payload["summary"]);
+    const choice = asString(payload["choice"] ?? payload["reward"] ?? explicitSummary);
     const amount = payload["amount"] ?? payload["cash_amount"] ?? payload["value"];
     if (typeof amount === "number") {
       return text.stream.lapRewardChosen(actorFromPayload(payload, text), `${choice} (${amount})`);

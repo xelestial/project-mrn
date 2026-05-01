@@ -16,6 +16,9 @@ export type GameEventKind =
   | "mark_success"
   | "economy";
 
+export type GameEventEffectIntent = "neutral" | "boost" | "gain" | "loss" | "mystic";
+export type GameEventEffectSource = "weather" | "fortune" | "trick" | "character" | "economy" | "mark" | "system";
+
 export type GameEvent = {
   kind: GameEventKind;
   label: string;
@@ -23,6 +26,9 @@ export type GameEvent = {
   seq: number;
   diceValues?: number[];
   diceTotal?: number | null;
+  effectIntent?: GameEventEffectIntent;
+  effectSource?: GameEventEffectSource;
+  effectEnhanced?: boolean;
 };
 
 const DISPLAY_DURATION_MS: Record<GameEventKind, number> = {

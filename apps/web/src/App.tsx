@@ -30,7 +30,11 @@ import {
 import { BoardPanel } from "./features/board/BoardPanel";
 import { GameEventOverlay } from "./features/board/GameEventOverlay";
 import privateCharacterSealUrl from "./assets/private-character-seal.svg";
-import { useEventQueue } from "./features/board/useEventQueue";
+import {
+  type GameEventEffectIntent,
+  type GameEventEffectSource,
+  useEventQueue,
+} from "./features/board/useEventQueue";
 import { LobbyView, type LobbySeatType } from "./features/lobby/LobbyView";
 import { PromptOverlay } from "./features/prompt/PromptOverlay";
 import { useGameStream } from "./hooks/useGameStream";
@@ -319,6 +323,217 @@ function rentOverlayKindForPlayer(
     return "rent_receive";
   }
   return "rent_observe";
+}
+
+type EventOverlayEffectKind =
+  | "rent_pay"
+  | "rent_receive"
+  | "rent_observe"
+  | "purchase"
+  | "lap_complete"
+  | "fortune"
+  | "trick"
+  | "weather"
+  | "mark_success"
+  | "bankruptcy"
+  | "game_end"
+  | "dice"
+  | "move"
+  | "economy";
+
+function gameEventTextMatches(text: string, pattern: RegExp): boolean {
+  return pattern.test(text.toLowerCase());
+}
+
+function economyEffectIntentForText(
+  text: string,
+  fallback: GameEventEffectIntent = "neutral"
+): GameEventEffectIntent {
+  if (
+    gameEventTextMatches(
+      text,
+      /벌금|지불|냈|차감|손실|잃|파산|pay|paid|penalty|fine|lose|lost|bankrupt|no lap cash/
+    )
+  ) {
+    return "loss";
+  }
+  if (
+    gameEventTextMatches(
+      text,
+      /보상|획득|얻|받|수입|현금 \+|조각 \+|승점 \+|reward|gain|receive|received|cash \+|shard \+|coin \+/
+    )
+  ) {
+    return "gain";
+  }
+  if (gameEventTextMatches(text, /강화|증가|상승|통행료|렌트|배|boost|increase|double|rent/)) {
+    return "boost";
+  }
+  return fallback;
+}
+
+function isWeatherEnhancedRent(weatherName: string, weatherEffect: string): boolean {
+  if (!hasReadableValue(weatherName) && !hasReadableValue(weatherEffect)) {
+    return false;
+  }
+  const weatherText = `${weatherName} ${weatherEffect}`;
+  return gameEventTextMatches(weatherText, /날씨|통행료|렌트|강화|증가|상승|배|weather|rent|toll|boost|increase|double/);
+}
+
+function weatherEffectIntent(weatherName: string, weatherEffect: string): GameEventEffectIntent {
+  const weatherText = `${weatherName} ${weatherEffect}`;
+  return economyEffectIntentForText(weatherText, gameEventTextMatches(weatherText, /weather|날씨/) ? "boost" : "neutral");
+}
+
+function isCharacterPassiveEffectText(text: string): boolean {
+  return gameEventTextMatches(
+    text,
+    /객주|캐릭터|인물|능력|패시브|추가 보상|보너스|innkeeper|character|passive|ability|bonus/
+  );
+}
+
+function eventEffectForReveal(args: {
+  eventCode: string;
+  kind: EventOverlayEffectKind;
+  label: string;
+  detail: string;
+  weatherName: string;
+  weatherEffect: string;
+}): {
+  effectIntent: GameEventEffectIntent;
+  effectSource: GameEventEffectSource;
+  effectEnhanced: boolean;
+} {
+  const text = `${args.label} ${args.detail}`;
+  if (args.eventCode === "weather_reveal") {
+    return {
+      effectIntent: weatherEffectIntent(args.weatherName || args.label, args.weatherEffect || args.detail),
+      effectSource: "weather",
+      effectEnhanced: true,
+    };
+  }
+  if (args.eventCode === "rent_paid") {
+    const enhancedByWeather = isWeatherEnhancedRent(args.weatherName, args.weatherEffect);
+    return {
+      effectIntent: enhancedByWeather
+        ? "boost"
+        : args.kind === "rent_receive"
+          ? "gain"
+          : args.kind === "rent_pay"
+            ? "loss"
+            : economyEffectIntentForText(text, "neutral"),
+      effectSource: enhancedByWeather ? "weather" : "economy",
+      effectEnhanced: enhancedByWeather,
+    };
+  }
+  if (args.eventCode === "fortune_drawn" || args.eventCode === "fortune_resolved") {
+    return {
+      effectIntent: economyEffectIntentForText(text, "mystic"),
+      effectSource: "fortune",
+      effectEnhanced: args.eventCode === "fortune_resolved",
+    };
+  }
+  if (args.eventCode === "trick_used") {
+    return {
+      effectIntent: economyEffectIntentForText(text, "mystic"),
+      effectSource: "trick",
+      effectEnhanced: true,
+    };
+  }
+  if (args.eventCode === "lap_reward_chosen") {
+    return {
+      effectIntent: "gain",
+      effectSource: isCharacterPassiveEffectText(text) ? "character" : "economy",
+      effectEnhanced: true,
+    };
+  }
+  if (args.eventCode === "tile_purchased") {
+    return { effectIntent: "loss", effectSource: "economy", effectEnhanced: false };
+  }
+  if (args.eventCode === "mark_resolved" || args.eventCode === "mark_queued") {
+    return { effectIntent: "mystic", effectSource: "mark", effectEnhanced: true };
+  }
+  if (args.eventCode === "bankruptcy") {
+    return { effectIntent: "loss", effectSource: "economy", effectEnhanced: true };
+  }
+  return { effectIntent: "neutral", effectSource: "system", effectEnhanced: false };
+}
+
+function eventOverlayKindForFeedItem(eventCode: string): EventOverlayEffectKind {
+  switch (eventCode) {
+    case "weather_reveal":
+      return "weather";
+    case "dice_roll":
+      return "dice";
+    case "player_move":
+      return "move";
+    case "tile_purchased":
+      return "purchase";
+    case "rent_paid":
+      return "rent_observe";
+    case "lap_reward_chosen":
+      return "lap_complete";
+    case "fortune_drawn":
+    case "fortune_resolved":
+      return "fortune";
+    case "trick_used":
+      return "trick";
+    case "mark_resolved":
+    case "mark_queued":
+      return "mark_success";
+    case "bankruptcy":
+      return "bankruptcy";
+    case "game_end":
+      return "game_end";
+    default:
+      return "economy";
+  }
+}
+
+function eventEffectAttributionLabel(
+  effect: ReturnType<typeof eventEffectForReveal>,
+  text: string,
+  locale: string
+): string | null {
+  const ko = isKoreanLocale(locale);
+  switch (effect.effectSource) {
+    case "weather":
+      if (effect.effectIntent === "loss") return ko ? "날씨 페널티" : "Weather penalty";
+      if (effect.effectIntent === "gain") return ko ? "날씨 보상" : "Weather reward";
+      return ko ? "날씨 강화" : "Weather boost";
+    case "fortune":
+      if (effect.effectIntent === "loss") return ko ? "운수 손실" : "Fortune loss";
+      if (effect.effectIntent === "gain") return ko ? "운수 보상" : "Fortune reward";
+      if (effect.effectIntent === "boost") return ko ? "운수 강화" : "Fortune boost";
+      return ko ? "운수 효과" : "Fortune effect";
+    case "trick":
+      if (effect.effectIntent === "loss") return ko ? "잔꾀 손실" : "Trick loss";
+      if (effect.effectIntent === "gain") return ko ? "잔꾀 보상" : "Trick reward";
+      return ko ? "잔꾀 효과" : "Trick effect";
+    case "character":
+      if (/객주|innkeeper/i.test(text)) {
+        return ko ? "객주 보너스" : "Innkeeper bonus";
+      }
+      return ko ? "캐릭터 보너스" : "Character bonus";
+    case "mark":
+      return ko ? "지목 효과" : "Mark effect";
+    default:
+      return null;
+  }
+}
+
+function eventEffectForFeedItem(
+  item: CurrentTurnRevealItem,
+  weatherName: string,
+  weatherEffect: string
+): ReturnType<typeof eventEffectForReveal> {
+  return eventEffectForReveal({
+    eventCode: item.eventCode,
+    kind: eventOverlayKindForFeedItem(item.eventCode),
+    label: item.label,
+    detail: item.detail,
+    weatherName,
+    weatherEffect,
+  });
 }
 
 function appNumberOrNull(value: unknown): number | null {
@@ -1175,52 +1390,69 @@ export function App() {
 
     const { eventCode, label, detail, seq } = latestCurrentTurnReveal;
     const sourcePayload = appRecordOrNull(stream.messages.find((message) => message.seq === seq)?.payload);
+    const effect = (kind: EventOverlayEffectKind) =>
+      eventEffectForReveal({
+        eventCode,
+        kind,
+        label,
+        detail,
+        weatherName: turnStage.weatherName,
+        weatherEffect: turnStage.weatherEffect,
+      });
+
     if (eventCode === "weather_reveal") {
       lastEnqueuedRevealSeqRef.current = seq;
-      eventQueue.enqueue({ kind: "weather", label, detail });
+      eventQueue.enqueue({ kind: "weather", label, detail, ...effect("weather") });
     } else if (eventCode === "dice_roll") {
       lastEnqueuedRevealSeqRef.current = seq;
       const dice = sourcePayload ? diceOverlayValues(sourcePayload) : { values: [], total: null };
-      eventQueue.enqueue({ kind: "dice", label, detail, diceValues: dice.values, diceTotal: dice.total });
+      eventQueue.enqueue({
+        kind: "dice",
+        label,
+        detail,
+        diceValues: dice.values,
+        diceTotal: dice.total,
+        ...effect("dice"),
+      });
     } else if (eventCode === "tile_purchased") {
       lastEnqueuedRevealSeqRef.current = seq;
-      eventQueue.enqueue({ kind: "purchase", label, detail });
+      eventQueue.enqueue({ kind: "purchase", label, detail, ...effect("purchase") });
     } else if (eventCode === "rent_paid") {
       lastEnqueuedRevealSeqRef.current = seq;
       const kind = rentOverlayKindForPlayer(detail, effectivePlayerId);
-      eventQueue.enqueue({ kind, label, detail });
+      eventQueue.enqueue({ kind, label, detail, ...effect(kind) });
     } else if (eventCode === "lap_reward_chosen") {
       lastEnqueuedRevealSeqRef.current = seq;
-      eventQueue.enqueue({ kind: "lap_complete", label, detail });
+      eventQueue.enqueue({ kind: "lap_complete", label, detail, ...effect("lap_complete") });
     } else if (eventCode === "fortune_drawn" || eventCode === "fortune_resolved") {
       lastEnqueuedRevealSeqRef.current = seq;
       const moveDetail = sourcePayload ? movementOverlayDetail(sourcePayload, locale) : null;
       if (moveDetail) {
         eventQueue.enqueue({ kind: "move", label: locale === "ko" ? "운수 이동" : "Fortune move", detail: moveDetail });
       }
-      eventQueue.enqueue({ kind: "fortune", label, detail });
+      eventQueue.enqueue({ kind: "fortune", label, detail, ...effect("fortune") });
     } else if (eventCode === "trick_used") {
       lastEnqueuedRevealSeqRef.current = seq;
       const moveDetail = sourcePayload ? movementOverlayDetail(sourcePayload, locale) : null;
       if (moveDetail) {
         eventQueue.enqueue({ kind: "move", label: locale === "ko" ? "잔꾀 이동" : "Trick move", detail: moveDetail });
       }
-      eventQueue.enqueue({ kind: "trick", label, detail });
+      eventQueue.enqueue({ kind: "trick", label, detail, ...effect("trick") });
     } else if (eventCode === "mark_resolved" || eventCode === "mark_queued") {
       lastEnqueuedRevealSeqRef.current = seq;
       const moveDetail = sourcePayload ? movementOverlayDetail(sourcePayload, locale) : null;
       if (moveDetail) {
         eventQueue.enqueue({ kind: "move", label: locale === "ko" ? "지목 이동" : "Mark move", detail: moveDetail });
       }
-      eventQueue.enqueue({ kind: "mark_success", label, detail });
+      eventQueue.enqueue({ kind: "mark_success", label, detail, ...effect("mark_success") });
     } else if (eventCode === "bankruptcy") {
       lastEnqueuedRevealSeqRef.current = seq;
-      eventQueue.enqueue({ kind: "bankruptcy", label, detail });
+      eventQueue.enqueue({ kind: "bankruptcy", label, detail, ...effect("bankruptcy") });
     } else if (eventCode === "game_end") {
       lastEnqueuedRevealSeqRef.current = seq;
-      eventQueue.enqueue({ kind: "game_end", label, detail });
+      eventQueue.enqueue({ kind: "game_end", label, detail, ...effect("game_end") });
     }
-  }, [latestCurrentTurnReveal, effectivePlayerId, eventQueue, locale, stream.messages]);
+  }, [latestCurrentTurnReveal, effectivePlayerId, eventQueue, locale, stream.messages, turnStage.weatherEffect, turnStage.weatherName]);
 
   useEffect(() => {
     if (route !== "match" || stream.status !== "connected") {
@@ -2483,29 +2715,50 @@ export function App() {
                           <strong>{locale === "ko" ? "공개 이벤트" : "Public events"}</strong>
                           <span>{locale === "ko" ? "이번 턴 흐름" : "This turn flow"}</span>
                         </div>
-                        {effectiveEventFeedSpotlightItem
-                          ? (() => {
-                              const spotlightDetail = compactEventDetail(
-                                effectiveEventFeedSpotlightItem.label,
-                                effectiveEventFeedSpotlightItem.detail
-                              );
-                              return (
-                                <article
-                                  className={`match-table-event-spotlight match-table-event-spotlight-${effectiveEventFeedSpotlightItem.tone}`}
-                                  data-testid={`board-event-spotlight-${effectiveEventFeedSpotlightItem.eventCode}`}
-                                  data-event-tone={effectiveEventFeedSpotlightItem.tone}
-                                  data-event-seq={effectiveEventFeedSpotlightItem.seq}
-                                >
-                                  <div className="match-table-event-meta">
-                                    <span className={`match-table-event-tone match-table-event-tone-${effectiveEventFeedSpotlightItem.tone}`}>
-                                      <span className="match-table-event-icon" aria-hidden="true">
-                                        {eventToneIcon(effectiveEventFeedSpotlightItem.tone)}
-                                      </span>
-                                      <span>{eventToneLabel(effectiveEventFeedSpotlightItem.tone, locale)}</span>
-                                    </span>
-                                    <span className="match-table-event-live-badge">
-                                      {latestCurrentTurnReveal
-                                        ? locale === "ko"
+	                        {effectiveEventFeedSpotlightItem
+	                          ? (() => {
+	                              const spotlightDetail = compactEventDetail(
+	                                effectiveEventFeedSpotlightItem.label,
+	                                effectiveEventFeedSpotlightItem.detail
+	                              );
+	                              const spotlightEffect = eventEffectForFeedItem(
+	                                effectiveEventFeedSpotlightItem,
+	                                turnStage.weatherName,
+	                                turnStage.weatherEffect
+	                              );
+	                              const spotlightAttribution = eventEffectAttributionLabel(
+	                                spotlightEffect,
+	                                `${effectiveEventFeedSpotlightItem.label} ${effectiveEventFeedSpotlightItem.detail}`,
+	                                locale
+	                              );
+	                              return (
+	                                <article
+	                                  className={`match-table-event-spotlight match-table-event-spotlight-${effectiveEventFeedSpotlightItem.tone}`}
+	                                  data-testid={`board-event-spotlight-${effectiveEventFeedSpotlightItem.eventCode}`}
+	                                  data-event-tone={effectiveEventFeedSpotlightItem.tone}
+	                                  data-event-seq={effectiveEventFeedSpotlightItem.seq}
+	                                  data-effect-source={spotlightEffect.effectSource}
+	                                  data-effect-intent={spotlightEffect.effectIntent}
+	                                  data-effect-enhanced={spotlightEffect.effectEnhanced ? "true" : "false"}
+	                                >
+	                                  <div className="match-table-event-meta">
+	                                    <span className={`match-table-event-tone match-table-event-tone-${effectiveEventFeedSpotlightItem.tone}`}>
+	                                      <span className="match-table-event-icon" aria-hidden="true">
+	                                        {eventToneIcon(effectiveEventFeedSpotlightItem.tone)}
+	                                      </span>
+	                                      <span>{eventToneLabel(effectiveEventFeedSpotlightItem.tone, locale)}</span>
+	                                    </span>
+	                                    {spotlightAttribution ? (
+	                                      <span
+	                                        className="match-table-event-attribution"
+	                                        data-testid={`board-event-attribution-${effectiveEventFeedSpotlightItem.eventCode}`}
+	                                      >
+	                                        {spotlightAttribution}
+	                                      </span>
+	                                    ) : null}
+	                                    <span className="match-table-event-live-badge">
+	                                      {latestCurrentTurnReveal
+	                                        ? locale === "ko"
                                           ? "방금 결과"
                                           : "Latest result"
                                         : locale === "ko"
@@ -2531,20 +2784,29 @@ export function App() {
                               );
                             })()
                           : null}
-                        {eventFeedHistoryItems.length > 0 ? (
-                          <div className="match-table-event-list match-table-event-history">
-                            {eventFeedHistoryItems.map((item, index) => {
-                              const itemDetail = compactEventDetail(item.label, item.detail);
-                              return (
-                                <article
-                                  key={`${item.seq}-${item.eventCode}`}
-                                  data-testid={`board-event-reveal-${item.eventCode}-${index + 1}`}
-                                  data-event-code={item.eventCode}
-                                  data-event-tone={item.tone}
-                                  data-event-seq={item.seq}
-                                  className={`match-table-event-card match-table-event-card-${item.tone}`}
-                                  style={{ "--event-order": String(index + 1) } as CSSProperties}
-                                >
+	                        {eventFeedHistoryItems.length > 0 ? (
+	                          <div className="match-table-event-list match-table-event-history">
+	                            {eventFeedHistoryItems.map((item, index) => {
+	                              const itemDetail = compactEventDetail(item.label, item.detail);
+	                              const itemEffect = eventEffectForFeedItem(item, turnStage.weatherName, turnStage.weatherEffect);
+	                              const itemAttribution = eventEffectAttributionLabel(
+	                                itemEffect,
+	                                `${item.label} ${item.detail}`,
+	                                locale
+	                              );
+	                              return (
+	                                <article
+	                                  key={`${item.seq}-${item.eventCode}`}
+	                                  data-testid={`board-event-reveal-${item.eventCode}-${index + 1}`}
+	                                  data-event-code={item.eventCode}
+	                                  data-event-tone={item.tone}
+	                                  data-event-seq={item.seq}
+	                                  data-effect-source={itemEffect.effectSource}
+	                                  data-effect-intent={itemEffect.effectIntent}
+	                                  data-effect-enhanced={itemEffect.effectEnhanced ? "true" : "false"}
+	                                  className={`match-table-event-card match-table-event-card-${item.tone}`}
+	                                  style={{ "--event-order": String(index + 1) } as CSSProperties}
+	                                >
                                   <div className="match-table-event-meta">
                                     <span className={`match-table-event-tone match-table-event-tone-${item.tone}`}>
                                       <span className="match-table-event-icon" aria-hidden="true">
@@ -2552,13 +2814,21 @@ export function App() {
                                       </span>
                                       <span>{eventToneLabel(item.tone, locale)}</span>
                                     </span>
-                                    <span className="match-table-event-index">
-                                      {locale === "ko" ? `${index + 1}단계` : `Step ${index + 1}`}
-                                    </span>
-                                  </div>
-                                  <div className="match-table-event-headline-row">
-                                    <strong data-testid={`board-event-reveal-title-${item.eventCode}-${index + 1}`}>{item.label}</strong>
-                                  </div>
+	                                    <span className="match-table-event-index">
+	                                      {locale === "ko" ? `${index + 1}단계` : `Step ${index + 1}`}
+	                                    </span>
+	                                  </div>
+	                                  {itemAttribution ? (
+	                                    <span
+	                                      className="match-table-event-attribution match-table-event-attribution-inline"
+	                                      data-testid={`board-event-reveal-attribution-${item.eventCode}-${index + 1}`}
+	                                    >
+	                                      {itemAttribution}
+	                                    </span>
+	                                  ) : null}
+	                                  <div className="match-table-event-headline-row">
+	                                    <strong data-testid={`board-event-reveal-title-${item.eventCode}-${index + 1}`}>{item.label}</strong>
+	                                  </div>
                                   {itemDetail ? <p data-testid={`board-event-reveal-detail-${item.eventCode}-${index + 1}`}>{itemDetail}</p> : null}
                                 </article>
                               );

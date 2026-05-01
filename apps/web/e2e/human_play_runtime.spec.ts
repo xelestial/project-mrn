@@ -253,6 +253,50 @@ async function expectCharacterPromptSingleRow(page: Page, viewportWidth: number)
   expect(metrics.gridOverflowsX).toBe(false);
 }
 
+async function expectProjectedBoardMessagesReadable(page: Page): Promise<void> {
+  const metrics = await page.locator(".board-projected-tile-layer").evaluate(() => {
+    const tileContents = Array.from(document.querySelectorAll<HTMLElement>(".board-projected-content"));
+    const zoneLabel = document.querySelector<HTMLElement>(".board-projected-zone strong");
+    const mainPanel = document.querySelector<HTMLElement>(".board-projected-main");
+    const economyPill = document.querySelector<HTMLElement>(
+      ".board-projected-cost, .board-projected-owner, .board-projected-score"
+    );
+    const specialLabel = document.querySelector<HTMLElement>(".board-projected-special strong");
+    const fontWeightValue = (element: HTMLElement | null): number => {
+      if (!element) return 0;
+      const weight = getComputedStyle(element).fontWeight;
+      if (weight === "bold") return 700;
+      const parsed = Number.parseInt(weight, 10);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    };
+    const hasVisibleBackground = (element: HTMLElement | null): boolean => {
+      if (!element) return false;
+      const style = getComputedStyle(element);
+      return style.backgroundImage !== "none" || style.backgroundColor !== "rgba(0, 0, 0, 0)";
+    };
+
+    return {
+      tileContentCount: tileContents.length,
+      zoneFontSize: zoneLabel ? Number.parseFloat(getComputedStyle(zoneLabel).fontSize) : 0,
+      zoneFontWeight: fontWeightValue(zoneLabel),
+      zoneTextShadow: zoneLabel ? getComputedStyle(zoneLabel).textShadow : "none",
+      mainHasVisibleBackground: hasVisibleBackground(mainPanel),
+      economyFontWeight: fontWeightValue(economyPill),
+      economyTextShadow: economyPill ? getComputedStyle(economyPill).textShadow : "none",
+      specialFontWeight: fontWeightValue(specialLabel),
+    };
+  });
+
+  expect(metrics.tileContentCount).toBeGreaterThan(0);
+  expect(metrics.zoneFontSize).toBeGreaterThanOrEqual(13);
+  expect(metrics.zoneFontWeight).toBeGreaterThanOrEqual(900);
+  expect(metrics.zoneTextShadow).not.toBe("none");
+  expect(metrics.mainHasVisibleBackground).toBe(true);
+  expect(metrics.economyFontWeight).toBeGreaterThanOrEqual(850);
+  expect(metrics.economyTextShadow).not.toBe("none");
+  expect(metrics.specialFontWeight).toBeGreaterThanOrEqual(900);
+}
+
 async function expectMyTurnCelebrationClearPlayerTwo(page: Page): Promise<void> {
   const overlap = await page.locator(".match-table-overlay").evaluate((overlay) => {
     const celebration = document.querySelector<HTMLElement>('[data-testid="my-turn-celebration"]');
@@ -1384,16 +1428,151 @@ test("mixed participant runtime keeps timeout fallback and weather continuity vi
     },
   });
 
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`/#/match?session=${sessionId}&token=session_p1_mixed_worker_not_ready_runtime`);
 
   await expect(page.getByTestId("board-weather-summary")).toHaveAttribute("data-weather-name", "Dry Season");
+  await expect(page.getByTestId("board-reveal-spotlight-rent_paid")).toHaveCount(1);
+  const boostedRentOverlay = page.locator(".game-event-overlay[data-event-kind='rent_receive']");
+  await expect(boostedRentOverlay).toBeVisible();
+  await expect(boostedRentOverlay).toHaveAttribute("data-effect-source", "weather");
+  await expect(boostedRentOverlay).toHaveAttribute("data-effect-intent", "boost");
+  await expect(boostedRentOverlay).toHaveAttribute("data-effect-enhanced", "true");
+  await expect(boostedRentOverlay).toHaveAttribute("data-effect-badge", "날씨 강화");
+  await expect(boostedRentOverlay.getByTestId("game-event-effect-badge")).toHaveText("날씨 강화");
+  await expect(boostedRentOverlay.locator(".game-event-effect-bolt")).toHaveCount(2);
+  await expectProjectedBoardMessagesReadable(page);
   await openPublicEvents(page);
-  await expect(page.getByTestId("board-event-reveal-rent_paid-1")).toHaveAttribute("data-event-code", "rent_paid");
-  await expect(page.getByTestId("board-reveal-spotlight-rent_paid")).toBeVisible();
-  await expect(page.getByTestId("core-action-result-card")).toHaveAttribute("data-result-event-code", "rent_paid");
-  await expect(page.getByTestId("core-action-result-card")).toHaveAttribute("data-result-kind", "economy");
-  await expect(page.getByTestId("core-action-latest")).toHaveAttribute("data-latest-event-code", "turn_end_snapshot");
-  await expect(page.getByTestId("core-action-latest")).toHaveAttribute("data-latest-kind", "effect");
+  await expect(page.getByTestId("board-event-spotlight-rent_paid")).toHaveAttribute("data-effect-source", "weather");
+  await expect(page.getByTestId("board-event-attribution-rent_paid")).toHaveText("Weather boost");
+  await expectPublicEventsNotDuplicated(page);
+});
+
+test("runtime keeps fortune cash loss cause readable in overlay and event feed", async ({ page }) => {
+  const sessionId = "sess_fortune_loss_attribution_runtime";
+  const manifest = buildManifest({
+    hash: "fortune_loss_attr_hash",
+    topology: "ring",
+    tileCount: 36,
+    seats: [1, 2],
+  });
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({ seq: 1, sessionId, payload: { event_type: "parameter_manifest", parameter_manifest: manifest } }),
+        eventMessage({ seq: 2, sessionId, payload: { event_type: "round_start", round_index: 7 } }),
+        eventMessage({ seq: 3, sessionId, payload: { event_type: "turn_start", round_index: 7, turn_index: 1, acting_player_id: 2, character: "Oracle" } }),
+        eventMessage({
+          seq: 4,
+          sessionId,
+          payload: { event_type: "fortune_drawn", round_index: 7, turn_index: 1, player_id: 2, card_name: "Unlucky Tax" },
+        }),
+        eventMessage({
+          seq: 5,
+          sessionId,
+          payload: {
+            event_type: "fortune_resolved",
+            round_index: 7,
+            turn_index: 1,
+            player_id: 2,
+            card_name: "Unlucky Tax",
+            summary: "Unlucky Tax: Lose 2 cash.",
+          },
+        }),
+      ],
+    },
+    startedSessions: {
+      [sessionId]: {
+        session_id: sessionId,
+        status: "in_progress",
+        round_index: 7,
+        turn_index: 1,
+        seats: [
+          { seat: 1, seat_type: "human", connected: true, player_id: 1, participant_client: "human_http" },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced", participant_client: "local_ai" },
+        ],
+        parameter_manifest: manifest,
+      },
+    },
+  });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_fortune_loss_attribution_runtime`);
+
+  const fortuneOverlay = page.locator(".game-event-overlay[data-event-kind='fortune']");
+  await expect(fortuneOverlay).toBeVisible();
+  await expect(fortuneOverlay).toHaveAttribute("data-effect-source", "fortune");
+  await expect(fortuneOverlay).toHaveAttribute("data-effect-intent", "loss");
+  await expect(fortuneOverlay).toHaveAttribute("data-effect-badge", "운수 손실");
+  await expect(fortuneOverlay.locator(".game-event-effect-shock")).toHaveCount(1);
+  await openPublicEvents(page);
+  await expect(page.getByTestId("board-event-spotlight-fortune_resolved")).toHaveAttribute("data-effect-source", "fortune");
+  await expect(page.getByTestId("board-event-attribution-fortune_resolved")).toHaveText("Fortune loss");
+  await expect(page.getByTestId("board-event-spotlight-detail-fortune_resolved")).toContainText("Lose 2 cash");
+  await expectPublicEventsNotDuplicated(page);
+});
+
+test("runtime keeps innkeeper lap bonus breakdown readable", async ({ page }) => {
+  const sessionId = "sess_innkeeper_bonus_attribution_runtime";
+  const manifest = buildManifest({
+    hash: "innkeeper_bonus_attr_hash",
+    topology: "ring",
+    tileCount: 36,
+    seats: [1, 2],
+  });
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({ seq: 1, sessionId, payload: { event_type: "parameter_manifest", parameter_manifest: manifest } }),
+        eventMessage({ seq: 2, sessionId, payload: { event_type: "round_start", round_index: 8 } }),
+        eventMessage({ seq: 3, sessionId, payload: { event_type: "turn_start", round_index: 8, turn_index: 1, acting_player_id: 1, character: "객주" } }),
+        eventMessage({
+          seq: 4,
+          sessionId,
+          payload: {
+            event_type: "lap_reward_chosen",
+            round_index: 8,
+            turn_index: 1,
+            player_id: 1,
+            amount: { cash: 4 },
+            summary: "기본 보상 2 + 객주 보너스 2",
+          },
+        }),
+      ],
+    },
+    startedSessions: {
+      [sessionId]: {
+        session_id: sessionId,
+        status: "in_progress",
+        round_index: 8,
+        turn_index: 1,
+        seats: [
+          { seat: 1, seat_type: "human", connected: true, player_id: 1, participant_client: "human_http" },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced", participant_client: "local_ai" },
+        ],
+        parameter_manifest: manifest,
+      },
+    },
+  });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_innkeeper_bonus_attribution_runtime`);
+
+  const lapOverlay = page.locator(".game-event-overlay[data-event-kind='lap_complete']");
+  await expect(lapOverlay).toBeVisible();
+  await expect(lapOverlay).toHaveAttribute("data-effect-source", "character");
+  await expect(lapOverlay).toHaveAttribute("data-effect-intent", "gain");
+  await expect(lapOverlay).toHaveAttribute("data-effect-badge", "캐릭터 보너스");
+  await expect(lapOverlay).toContainText("객주 보너스 2");
+  await openPublicEvents(page);
+  await expect(page.getByTestId("board-event-spotlight-lap_reward_chosen")).toHaveAttribute("data-effect-source", "character");
+  await expect(page.getByTestId("board-event-attribution-lap_reward_chosen")).toHaveText("Innkeeper bonus");
+  await expect(page.getByTestId("board-event-spotlight-detail-lap_reward_chosen")).toContainText("객주 보너스 2");
+  await expectPublicEventsNotDuplicated(page);
 });
 
 test("mixed participant runtime keeps a long worker-success to fallback chain readable", async ({ page }) => {
