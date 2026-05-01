@@ -80,6 +80,67 @@ function dataAttrValue(value: string | number | null | undefined): string | unde
   return normalized ? normalized : undefined;
 }
 
+function journeyPriority(key: string): number {
+  switch (key) {
+    case "worker":
+      return 0;
+    case "flip":
+      return 1;
+    case "mark":
+      return 2;
+    case "effect":
+    case "trick":
+      return 3;
+    case "fortune-effect":
+      return 4;
+    case "fortune-draw":
+      return 5;
+    case "rent":
+      return 6;
+    case "purchase":
+      return 7;
+    case "lap-reward":
+      return 8;
+    case "landing":
+      return 9;
+    case "move":
+      return 10;
+    case "prompt":
+      return 11;
+    case "character":
+      return 12;
+    case "weather":
+      return 13;
+    default:
+      return 20;
+  }
+}
+
+function payoffPriority(key: string): number {
+  switch (key) {
+    case "worker":
+      return 0;
+    case "flip":
+      return 1;
+    case "mark":
+      return 2;
+    case "trick":
+      return 3;
+    case "fortune-effect":
+      return 4;
+    case "fortune-draw":
+      return 5;
+    case "rent":
+      return 6;
+    case "purchase":
+      return 7;
+    case "lap-reward":
+      return 8;
+    default:
+      return 20;
+  }
+}
+
 export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: SpectatorTurnPanelProps) {
   const { app, turnStage, eventLabel, stream } = useI18n();
   const purchaseEventLabel = eventLabel.events.tile_purchased ?? turnStage.fields.purchase;
@@ -178,6 +239,12 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
   }
   const spotlightCards: SpotlightCard[] = [];
   const payoffBeats: SpectatorPayoffBeat[] = [];
+  const hasExternalWorkerStatus = hasWorkerStatus(model);
+  const hasWorkerPayoff =
+    hasExternalWorkerStatus &&
+    (model.externalAiAttemptCount !== null ||
+      model.externalAiAttemptLimit !== null ||
+      model.externalAiResolutionStatus === "resolved_by_worker");
   if (hasValue(model.weatherName) || hasValue(model.weatherEffect)) {
     spotlightCards.push({
       key: "weather",
@@ -186,19 +253,21 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
       tone: "effect",
     });
   }
-  if (hasWorkerStatus(model)) {
+  if (hasExternalWorkerStatus) {
     spotlightCards.push({
       key: "worker",
       title: app.spectatorFields.worker,
       detail: valueOrDash(workerStatusDetail),
       tone: "effect",
     });
-    payoffBeats.push({
-      key: "worker",
-      title: app.spectatorFields.worker,
-      detail: valueOrDash(workerStatusDetail),
-      tone: "effect",
-    });
+    if (hasWorkerPayoff) {
+      payoffBeats.push({
+        key: "worker",
+        title: app.spectatorFields.worker,
+        detail: valueOrDash(workerStatusDetail),
+        tone: "effect",
+      });
+    }
   }
   if (hasValue(model.lapRewardSummary)) {
     spotlightCards.push({ key: "lap-reward", title: lapRewardEventLabel, detail: model.lapRewardSummary, tone: "economy" });
@@ -249,6 +318,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
       tone: "effect",
     });
   }
+  const orderedPayoffBeats = payoffBeats.slice().sort((left, right) => payoffPriority(left.key) - payoffPriority(right.key));
   const journeyCards: JourneyCard[] = [];
   if (hasValue(model.weatherName) || hasValue(model.weatherEffect)) {
     journeyCards.push({
@@ -274,7 +344,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
       tone: "decision",
     });
   }
-  if (hasWorkerStatus(model)) {
+  if (hasExternalWorkerStatus) {
     journeyCards.push({
       key: "worker",
       label: app.spectatorFields.worker,
@@ -370,6 +440,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
       tone: "effect",
     });
   }
+  const orderedJourneyCards = journeyCards.slice().sort((left, right) => journeyPriority(left.key) - journeyPriority(right.key));
 
   return (
     <section className="panel spectator-turn-panel" data-testid="spectator-turn-panel">
@@ -471,14 +542,14 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
         </div>
       ) : null}
 
-      {payoffBeats.length > 0 ? (
+      {orderedPayoffBeats.length > 0 ? (
         <section className="core-action-payoff-sequence spectator-turn-payoff-sequence" data-testid="spectator-turn-payoff-sequence">
           <div className="core-action-journey-head">
             <strong>{payoffTitle}</strong>
             <small>{valueOrDash(latestActionTitle)}</small>
           </div>
           <div className="core-action-payoff-strip">
-            {payoffBeats.map((beat, index) => (
+            {orderedPayoffBeats.map((beat, index) => (
               <article
                 key={beat.key}
                 className={`core-action-result-card core-action-result-card-${beat.tone}`}
@@ -487,7 +558,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
                 data-beat-tone={beat.tone}
               >
                 <div className="core-action-result-head">
-                  <strong>{turnStage.sequenceIndex(index + 1, payoffBeats.length)}</strong>
+                  <strong>{turnStage.sequenceIndex(index + 1, orderedPayoffBeats.length)}</strong>
                   <span data-testid={`spectator-turn-payoff-step-title-${index + 1}`}>{beat.title}</span>
                 </div>
                 <p data-testid={`spectator-turn-payoff-step-detail-${index + 1}`}>{valueOrDash(beat.detail)}</p>
@@ -497,14 +568,14 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
         </section>
       ) : null}
 
-      {journeyCards.length > 0 ? (
+      {orderedJourneyCards.length > 0 ? (
         <section className="core-action-journey spectator-turn-journey" data-testid="spectator-turn-journey">
           <div className="core-action-journey-head">
             <strong>{turnStage.progressTitle}</strong>
             <small>{valueOrDash(latestActionTitle)}</small>
           </div>
           <div className="core-action-journey-strip">
-            {journeyCards.map((card, index) => (
+            {orderedJourneyCards.map((card, index) => (
               <article
                 key={card.key}
                 className={`core-action-journey-step core-action-journey-step-${card.tone}`}

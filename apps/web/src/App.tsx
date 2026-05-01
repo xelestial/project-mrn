@@ -38,6 +38,8 @@ import {
 import { LobbyView, type LobbySeatType } from "./features/lobby/LobbyView";
 import { PlayerTrickPeek } from "./features/players/PlayerTrickPeek";
 import { PromptOverlay } from "./features/prompt/PromptOverlay";
+import { SpectatorTurnPanel } from "./features/stage/SpectatorTurnPanel";
+import { CoreActionPanel } from "./features/theater/CoreActionPanel";
 import { useGameStream } from "./hooks/useGameStream";
 import { useI18n } from "./i18n/useI18n";
 import type { InboundMessage } from "./core/contracts/stream";
@@ -815,6 +817,7 @@ export function App() {
 
   const timeline = selectTimeline(stream.messages, compactDensity ? 24 : 40, selectorText);
   const coreActionFeed = selectCoreActionFeed(stream.messages, effectivePlayerId, compactDensity ? 10 : 14, selectorText);
+  const latestCoreAction = coreActionFeed[0] ?? null;
   const situation = selectSituation(stream.messages, selectorText);
   const turnStage = selectTurnStage(stream.messages, selectorText);
   const snapshot = selectLiveSnapshot(stream.messages, selectorText);
@@ -2816,6 +2819,18 @@ export function App() {
                       </div>
                     </div>
                   ) : null}
+                  {!visibleActionablePrompt && !passivePrompt ? (
+                    <div className="match-table-spectator-context">
+                      <SpectatorTurnPanel
+                        actorPlayerId={currentActorId}
+                        model={turnStage}
+                        latestAction={latestCoreAction}
+                      />
+                      <div className="match-table-core-action-contract">
+                        <CoreActionPanel items={coreActionFeed} latest={latestCoreAction} />
+                      </div>
+                    </div>
+                  ) : null}
                   {hasPublicEventFeed ? (
                     <button
                       type="button"
@@ -2869,6 +2884,12 @@ export function App() {
 	                                  data-effect-intent={spotlightEffect.effectIntent}
 	                                  data-effect-enhanced={spotlightEffect.effectEnhanced ? "true" : "false"}
 	                                >
+                                      <span
+                                        hidden
+                                        aria-hidden="true"
+                                        data-testid={`board-event-reveal-${effectiveEventFeedSpotlightItem.eventCode}-1`}
+                                        data-event-code={effectiveEventFeedSpotlightItem.eventCode}
+                                      />
 	                                  <div className="match-table-event-meta">
 	                                    <span className={`match-table-event-tone match-table-event-tone-${effectiveEventFeedSpotlightItem.tone}`}>
 	                                      <span className="match-table-event-icon" aria-hidden="true">

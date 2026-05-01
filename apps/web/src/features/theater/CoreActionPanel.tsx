@@ -35,6 +35,38 @@ function resultHeadline(kind: ActionKind, theaterText: ReturnType<typeof useI18n
   return theaterText.panelLead.system;
 }
 
+function journeyPriority(item: CoreActionItem): number {
+  switch (item.eventCode) {
+    case "decision_timeout_fallback":
+      return 0;
+    case "decision_resolved":
+      return 1;
+    case "decision_requested":
+      return 2;
+    case "fortune_resolved":
+    case "marker_flip":
+    case "mark_resolved":
+    case "marker_transferred":
+      return 3;
+    case "fortune_drawn":
+    case "trick_used":
+      return 4;
+    case "rent_paid":
+    case "tile_purchased":
+    case "lap_reward_chosen":
+      return 5;
+    case "player_move":
+    case "dice_roll":
+      return 6;
+    case "turn_start":
+      return 7;
+    case "turn_end_snapshot":
+      return 8;
+    default:
+      return 20;
+  }
+}
+
 export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
   const { theater } = useI18n();
   if (!latest && items.length === 0) {
@@ -47,8 +79,10 @@ export function CoreActionPanel({ items, latest }: CoreActionPanelProps) {
     latest && latest.round !== null && latest.turn !== null
       ? feedItems.filter((item) => item.round === latest.round && item.turn === latest.turn)
       : [];
-  const payoffScenes = buildPayoffSceneItems(sameTurnItemsNewestFirst, theater);
-  const turnFlowItems = sameTurnItemsNewestFirst.slice().reverse();
+  const payoffScenes = buildPayoffSceneItems(feedItems, theater);
+  const turnFlowItems = sameTurnItemsNewestFirst
+    .slice()
+    .sort((left, right) => journeyPriority(left) - journeyPriority(right) || right.seq - left.seq);
   const turnFlowSeqs = new Set(turnFlowItems.map((item) => item.seq));
   const historyItems = feedItems.filter((item) => !turnFlowSeqs.has(item.seq));
 

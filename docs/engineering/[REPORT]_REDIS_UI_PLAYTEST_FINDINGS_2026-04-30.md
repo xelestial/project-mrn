@@ -626,3 +626,99 @@ Validation:
 - `.venv/bin/python -m pytest apps/server/tests/test_view_state_player_selector.py -q`
 - `npm --prefix apps/web run test -- src/domain/selectors/streamSelectors.spec.ts --run`
 - `npm --prefix apps/web run e2e -- --project=chromium --grep "purchase and mark prompts render dedicated decision cards"`
+
+### 2026-05-01 REDIS-UI-10 Resolved: Effect And Spectator Context Regression In Human Runtime E2E
+
+Status: RESOLVED
+Severity: P1
+Retest method: Docker Redis runtime, `npm run e2e:human-runtime`, and one live `1 human + 3 AI` browser session.
+Live session: `sess_KGL_loUo4XDdTa1U-VX3prLN`
+Browser URL: `http://127.0.0.1:9000/#/match?session=sess_KGL_loUo4XDdTa1U-VX3prLN&token=session_p1_G2hGsQPTefhSOTraap25-A`
+
+Resolution update, 2026-05-01:
+
+- Restored the non-prompt spectator continuity surface in the match overlay and kept the previous `core-action-*` DOM contract available for browser verification.
+- Added addressable reveal markers for spotlighted latest public events so `board-event-reveal-*` remains provable even when the newest reveal is promoted out of the history list.
+- Reordered spectator and core-action sequences by cause/effect priority instead of raw insertion time, so worker fallback, marker/flip, and fortune resolution remain first-class readable causes.
+- Capped desktop character/draft prompt width and removed the desktop card minimum-height overflow that made blocking prompts scroll the document.
+- Restored projected economy text shadow for weather/economy readability.
+
+Resolution validation:
+
+```text
+npm --prefix apps/web run build
+npm --prefix apps/web run e2e:human-runtime
+18 passed
+
+cd apps/web
+npm exec -- playwright test e2e/parity.spec.ts --project=chromium --workers=1 --grep "trick use advances to tile target without resurrecting the stale trick picker|extreme separation trick closes picker while queued movement resolves"
+2 passed
+```
+
+Runtime health:
+
+- Docker services started with Redis-backed storage.
+- `/health` returned `sessions=redis`, `rooms=redis`, `streams=redis`, Redis `7.4.8`, key prefix `mrn:dev`.
+- Web app responded on `http://127.0.0.1:9000`.
+- Test environment was cleaned up with `./run-docker.sh down` after the run.
+
+What passed in the live browser session:
+
+- The browser did not hit the previous React crash (`Should not already be working`).
+- Console errors, page errors, and failed network requests were empty.
+- The screen rendered 4 player cards and 40 board tiles throughout the sampled run.
+- Weather context was visible as a current round panel.
+- Human prompts advanced through draft, trick pass, movement, purchase decline, a second draft/trick/movement cycle, and a `burden_exchange` prompt.
+- Redis replay contained 150 stream entries, so the runtime was actively progressing rather than failing at boot.
+
+Pre-fix live-browser gaps:
+
+- Event-feed controls were not discoverable by the test harness in the sampled DOM (`eventToggle: 0` at initial load, `eventReveals: 0` after attempted open).
+- `spectator-turn-panel` / `stage-flow-panel` were not present in the final sampled DOM, even while the user-facing screen showed a broad decision/stage bar.
+- The final screen was readable but did not expose a durable, test-addressable reveal stack for causal effects.
+
+Pre-fix human runtime e2e result:
+
+```text
+npm run e2e:human-runtime
+18 tests total
+9 passed
+9 failed
+```
+
+Pre-fix passed coverage:
+
+- quick-start first prompt and turn banner
+- local my-turn panel layout
+- remote-turn waiting continuity without local prompt
+- fortune cash-loss overlay/feed readability
+- innkeeper lap-bonus breakdown readability
+- Manshin and Baksu mark effect readability
+- matchmaker adjacent purchase prompt labeling
+- locale persistence
+
+Pre-fix failed coverage:
+
+1. Character selection prompt overflows vertically on desktop: `bodyOverflowsY` was `true`.
+2. Remote turn effect continuity could not find `spectator-turn-weather`.
+3. Mixed participant clean-load test could not find `spectator-turn-panel`.
+4. Remote timeout fallback test could not find `spectator-turn-panel`.
+5. Mixed participant timeout/payoff handoff test could not find `spectator-turn-panel`.
+6. Worker success/fallback continuity test could not find `spectator-turn-worker`.
+7. Weather continuity test found projected economy text without the required text shadow.
+8. Long worker-success-to-fallback chain test could not find `board-event-reveal-rent_paid-1`.
+9. Repeated fallback continuity test could not find `board-event-reveal-fortune_resolved-1`.
+
+Expected behavior:
+
+- Every visible stage/spectator/effect surface must have stable test selectors that match the current rendered UI, not only older component names.
+- `운수`, `잔꾀`, `날씨`, rent/payoff, worker fallback, and passive bonuses must remain visible through either a prompt-local context, reveal stack, spectator panel, stage panel, or event feed item.
+- If the UI intentionally replaced `spectator-turn-panel` with another visual surface, the e2e contract should be updated with the new selector names and the old expectations removed.
+- If the reveal/event feed is intentionally hidden until a user action, the toggle must be reachable and the resulting reveal items must be test-addressable.
+- Character draft must fit within a normal desktop viewport without document-level vertical overflow.
+
+Current assessment:
+
+- This was not a Redis boot or storage failure. Redis-backed gameplay progressed and the browser stayed alive.
+- Root cause was a UI contract/readability regression: the visible surface had moved, but spectator/core-action/reveal selectors and cause-first ordering were no longer preserved.
+- The issue is closed after a green `npm run e2e:human-runtime` run plus the two browser parity trick lifecycle checks for `긴장감 조성` and `극심한 분리불안`.

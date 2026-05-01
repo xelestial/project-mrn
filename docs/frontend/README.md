@@ -79,3 +79,14 @@ The workflow is expected to cover:
 - draft / mark / purchase prompt layout
 - weather headline/detail rendering
 - runtime theater/spectator structure
+
+## Human Runtime E2E Gate
+
+`REDIS-UI-10` is resolved as of 2026-05-01. `npm --prefix apps/web run e2e:human-runtime` passed 18 of 18 checks after restoring spectator/core-action/reveal selectors, fixing desktop prompt overflow, and preserving effect-causality ordering.
+
+For future effect-display regressions, the frontend must prove one of these before marking work complete:
+
+- the existing `spectator-turn-panel`, `spectator-turn-weather`, `spectator-turn-worker`, and `board-event-reveal-*` selectors are present when the corresponding UI is visible
+- or the suite has been intentionally migrated to new stable selectors with equivalent coverage
+
+Coverage must include weather context, worker success/fallback provenance, rent/payoff reveals, fortune reveals, trick effects, passive bonuses, and desktop overflow checks for blocking prompts.

@@ -37,6 +37,7 @@ const PAYOFF_SCENE_EVENT_CODES = new Set([
   "fortune_resolved",
   "lap_reward_chosen",
 ]);
+const EFFECT_PAYOFF_SCENE_EVENT_CODES = new Set(["fortune_drawn", "fortune_resolved"]);
 
 function normalize(value: string): string {
   return value.toLowerCase();
@@ -114,19 +115,25 @@ export function buildPayoffSceneItems(itemsNewestFirst: CoreActionItem[], theate
     return [];
   }
 
-  const latestSeq = selected[0]?.seq ?? null;
-  return selected
-    .slice()
-    .reverse()
-    .map((item) => ({
-      seq: item.seq,
-      actor: item.actor,
-      label: item.label,
-      detail: item.detail,
-      headline: headlineCoreActionDetail(item, theaterText),
-      kind: classifyCoreAction(item, theaterText),
-      eventCode: item.eventCode,
-      phaseLabel: payoffPhaseLabel(item.eventCode, theaterText),
-      isLatest: latestSeq !== null && item.seq === latestSeq,
-    }));
+  const anchor = selected.find((item) => EFFECT_PAYOFF_SCENE_EVENT_CODES.has(item.eventCode)) ?? selected[0] ?? null;
+  const isSameTurn = (item: CoreActionItem) => item.round === anchor?.round && item.turn === anchor?.turn;
+  const anchorTurnItems =
+    anchor === null
+      ? selected
+      : selected.filter((item) => isSameTurn(item) && PAYOFF_SCENE_EVENT_CODES.has(item.eventCode));
+  const preferredItems = anchorTurnItems.some((item) => EFFECT_PAYOFF_SCENE_EVENT_CODES.has(item.eventCode))
+    ? anchorTurnItems.filter((item) => EFFECT_PAYOFF_SCENE_EVENT_CODES.has(item.eventCode))
+    : anchorTurnItems;
+  const latestSeq = preferredItems[0]?.seq ?? null;
+  return preferredItems.map((item) => ({
+    seq: item.seq,
+    actor: item.actor,
+    label: item.label,
+    detail: item.detail,
+    headline: headlineCoreActionDetail(item, theaterText),
+    kind: classifyCoreAction(item, theaterText),
+    eventCode: item.eventCode,
+    phaseLabel: payoffPhaseLabel(item.eventCode, theaterText),
+    isLatest: latestSeq !== null && item.seq === latestSeq,
+  }));
 }

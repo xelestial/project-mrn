@@ -2,7 +2,7 @@
 
 Status: ACTIVE  
 Audience: Human readers  
-Updated: 2026-04-12
+Updated: 2026-05-01
 
 ## Why This File Exists
 
@@ -46,6 +46,23 @@ Override patterns:
 This exists specifically to prevent the stale-backend problem where the browser silently talks to an older local server on a different port.
 
 ## What Must Still Be Stabilized
+
+### Latest browser gate result: REDIS-UI-10
+
+As of 2026-05-01, `REDIS-UI-10` is resolved in
+`docs/engineering/[REPORT]_REDIS_UI_PLAYTEST_FINDINGS_2026-04-30.md`.
+
+The latest Docker Redis/browser retest proved that the game can boot, keep Redis-backed gameplay moving, render a readable board without console errors, and expose stable effect/spectator evidence:
+
+- `npm --prefix apps/web run e2e:human-runtime` passed 18 of 18 checks.
+- Targeted browser parity checks passed for `긴장감 조성` trick-target progression and `극심한 분리불안` trick-picker closure.
+- Stable spectator/effect selectors are present again for `spectator-turn-panel`, `spectator-turn-weather`, `spectator-turn-worker`, `core-action-*`, and `board-event-reveal-*`.
+- Character selection no longer overflows the desktop document.
+
+Future effect-display work should keep the same closure rule. Do not close a similar regression until either:
+
+- `npm run e2e:human-runtime` is green, or
+- the old e2e selector contract is intentionally migrated to new stable selectors with equivalent coverage for weather, worker provenance, rent/payoff, fortune, trick, and passive-bonus effects.
 
 ### 1. Identifier-driven gameplay rules
 
@@ -165,3 +182,4 @@ Rule for cleanup:
 - backend selectors are the primary source of UI truth
 - docs identify where logic lives and how it is tested
 - dead-code candidates are explicitly triaged
+- browser runtime effect-display closure is proven by a green `npm run e2e:human-runtime` run or an explicitly documented equivalent selector migration

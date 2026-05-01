@@ -8,6 +8,34 @@ Updated: 2026-05-01
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-01 REDIS-UI-10 Effect/Spectator Closure
+
+- What changed:
+  - restored non-prompt match spectator panel rendering and kept the legacy `core-action-*` verification contract available
+  - added reveal markers for spotlighted latest public events
+  - prioritized spectator/core-action cause/effect sequences so worker fallback, marker/flip, and fortune resolution are not displaced by weather, character, `turn_start`, or later rent
+  - capped character/draft prompt width and removed desktop overflow; restored projected economy text shadow
+  - updated REDIS-UI-10 report and first-read gate from open to resolved
+- Why:
+  - the runtime was progressing, but the UI had drifted away from stable effect/spectator selectors and machine-verifiable cause attribution
+  - a screen that looks playable is not enough when browser QA cannot prove the user can read weather, worker, rent/payoff, fortune, trick, and passive effect causality
+- Validation:
+  - `npm --prefix apps/web run build`
+  - `npm --prefix apps/web run e2e:human-runtime` (`18 passed`)
+  - `cd apps/web && npm exec -- playwright test e2e/parity.spec.ts --project=chromium --workers=1 --grep "trick use advances to tile target without resurrecting the stale trick picker|extreme separation trick closes picker while queued movement resolves"` (`2 passed`)
+
+## 2026-05-01 REDIS-UI-10 Documentation Sync
+
+- What changed:
+  - promoted the updated `REDIS-UI-10` report finding into the first-read stabilization guide and frontend README
+  - made `npm run e2e:human-runtime` the explicit effect-display closure gate in the playtest checklist and lessons doc
+  - documented that the latest Redis/browser retest is a UI contract/readability failure, not a Redis boot/storage failure
+- Why:
+  - the pre-fix live `1 human + 3 AI` session reached round 2 without console/page/network failures, but the human-runtime suite failed on spectator/effect selectors and desktop prompt overflow
+  - future work should not close the issue based only on visual playability or smaller selector/parity tests
+- Validation:
+  - documentation-only change; verified by reading the updated report and syncing the affected guide/checklist/lesson entry points
+
 ## 2026-05-01 Trick Prompt Lifecycle Closure
 
 - What changed:
