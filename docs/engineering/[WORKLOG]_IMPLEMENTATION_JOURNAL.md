@@ -1,12 +1,26 @@
 # [WORKLOG] Implementation Journal
 
 Status: ACTIVE  
-Updated: 2026-05-01
+Updated: 2026-05-02
 
 ## Rules
 
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
+
+## 2026-05-02 Turn-Start Mark / Trick Replay Loop Fix
+
+- What changed:
+  - updated `RuntimeService` prompt-sequence seeding so a pending `trick_to_use` prompt rewinds through a prior turn-start `mark_target` prompt when the current character requires one
+  - updated pending `movement` replay to rewind through `mark_target -> trick_to_use -> movement` rather than only the normal `trick_to_use -> movement` pair
+  - kept the hidden-trick synced movement shortcut unchanged because that path intentionally replays only the movement prompt
+  - documented the new replay-boundary lesson in the Redis runtime playtest lessons
+- Why:
+  - live play produced `지목 -> 느슨함 혐오자 -> 지목 -> 느슨함 혐오자 -> 지목 -> 잔꾀 사용안함` loops
+  - the engine was not re-running a new rule phase; replay was starting after the already-issued mark prompt, so stored trick decisions no longer matched the prompt request-id chain
+- Validation:
+  - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_turn_start_mark_prompt_replay_seed_matches_character_rule_cases apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_turn_start_mark_replay_rewinds_before_pending_trick_and_movement_prompts -q`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -q`
 
 ## 2026-05-01 REDIS-UI-10 Effect/Spectator Closure
 

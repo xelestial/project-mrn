@@ -3257,6 +3257,272 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_turn_start_mark_prompt_replay_seed_matches_character_rule_cases(self) -> None:
+        def make_state(character: str, active_by_card: dict[int, str], request_type: str, instance_id: int):
+            player = type(
+                "Player",
+                (),
+                {
+                    "player_id": 0,
+                    "current_character": character,
+                    "shards": 3,
+                },
+            )()
+            return type(
+                "CheckpointState",
+                (),
+                {
+                    "prompt_sequence": instance_id,
+                    "current_round_order": [0],
+                    "turn_index": 0,
+                    "players": [player],
+                    "active_by_card": active_by_card,
+                    "pending_prompt_request_id": (
+                        f"sess_mark_rule_seed:r1:t1:p1:{request_type}:{instance_id}"
+                    ),
+                    "pending_prompt_type": request_type,
+                    "pending_prompt_instance_id": instance_id,
+                },
+            )()
+
+        mark_cases = [
+            ("자객", {1: "탐관오리", 2: "자객"}),
+            ("산적", {1: "탐관오리", 2: "산적"}),
+            ("추노꾼", {1: "탐관오리", 3: "추노꾼"}),
+            ("박수", {1: "탐관오리", 6: "박수"}),
+            ("만신", {1: "탐관오리", 6: "만신"}),
+        ]
+        for character, active_by_card in mark_cases:
+            with self.subTest(character=character):
+                self.assertEqual(
+                    self.runtime_service._prompt_sequence_seed_for_transition(
+                        make_state(character, active_by_card, "trick_to_use", 2)
+                    ),
+                    0,
+                )
+                self.assertEqual(
+                    self.runtime_service._prompt_sequence_seed_for_transition(
+                        make_state(character, active_by_card, "movement", 3)
+                    ),
+                    0,
+                )
+
+        suppressed_by_eosa_cases = [
+            ("자객", {1: "어사", 2: "자객"}),
+            ("산적", {1: "어사", 2: "산적"}),
+        ]
+        for character, active_by_card in suppressed_by_eosa_cases:
+            with self.subTest(character=character, eosa=True):
+                self.assertEqual(
+                    self.runtime_service._prompt_sequence_seed_for_transition(
+                        make_state(character, active_by_card, "trick_to_use", 2)
+                    ),
+                    1,
+                )
+                self.assertEqual(
+                    self.runtime_service._prompt_sequence_seed_for_transition(
+                        make_state(character, active_by_card, "movement", 3)
+                    ),
+                    1,
+                )
+
+    def test_turn_start_mark_replay_rewinds_before_pending_trick_and_movement_prompts(self) -> None:
+        from apps.server.src.services.decision_gateway import PromptRequired
+        from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerHumanPolicyBridge(
+                session_id="sess_bridge_mark_trick_replay_test",
+                human_seats=[0],
+                ai_fallback=object(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+                blocking_human_prompts=False,
+            )
+            player = type(
+                "Player",
+                (),
+                {
+                    "player_id": 0,
+                    "current_character": "산적",
+                    "shards": 3,
+                },
+            )()
+            checkpoint_base = {
+                "prompt_sequence": 2,
+                "current_round_order": [0],
+                "turn_index": 0,
+                "players": [player],
+                "active_by_card": {1: "탐관오리", 2: "산적"},
+            }
+            pending_trick_state = type(
+                "CheckpointState",
+                (),
+                {
+                    **checkpoint_base,
+                    "pending_prompt_request_id": "sess_bridge_mark_trick_replay_test:r1:t1:p1:trick_to_use:2",
+                    "pending_prompt_type": "trick_to_use",
+                    "pending_prompt_instance_id": 2,
+                },
+            )()
+            pending_movement_state = type(
+                "CheckpointState",
+                (),
+                {
+                    **checkpoint_base,
+                    "prompt_sequence": 3,
+                    "pending_prompt_request_id": "sess_bridge_mark_trick_replay_test:r1:t1:p1:movement:3",
+                    "pending_prompt_type": "movement",
+                    "pending_prompt_instance_id": 3,
+                },
+            )()
+            seed = self.runtime_service._prompt_sequence_seed_for_transition(pending_trick_state)
+            self.assertEqual(seed, 0)
+            self.assertEqual(self.runtime_service._prompt_sequence_seed_for_transition(pending_movement_state), 0)
+
+            mark_prompt = {
+                "request_type": "mark_target",
+                "player_id": 1,
+                "timeout_ms": 2000,
+                "legal_choices": [{"choice_id": "none", "label": "Do not mark"}],
+                "fallback_policy": "timeout_fallback",
+                "public_context": {"round_index": 1, "turn_index": 1},
+            }
+            trick_prompt = {
+                "request_type": "trick_to_use",
+                "player_id": 1,
+                "timeout_ms": 2000,
+                "legal_choices": [{"choice_id": "none", "label": "Do not use a trick"}],
+                "fallback_policy": "timeout_fallback",
+                "public_context": {"round_index": 1, "turn_index": 1},
+            }
+            movement_prompt = {
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 2000,
+                "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                "fallback_policy": "timeout_fallback",
+                "public_context": {"round_index": 1, "turn_index": 1},
+            }
+            parse_choice = lambda response: str(response.get("choice_id", ""))
+
+            bridge.set_prompt_sequence(seed)
+            with self.assertRaises(PromptRequired) as mark_raised:
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    mark_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                )
+            self.assertEqual(
+                mark_raised.exception.prompt["request_id"],
+                "sess_bridge_mark_trick_replay_test:r1:t1:p1:mark_target:1",
+            )
+            self.prompt_service.submit_decision(
+                {
+                    "request_id": mark_raised.exception.prompt["request_id"],
+                    "player_id": 1,
+                    "choice_id": "none",
+                }
+            )
+
+            bridge.set_prompt_sequence(seed)
+            self.assertEqual(
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    mark_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                ),
+                "none",
+            )
+            with self.assertRaises(PromptRequired) as trick_raised:
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    trick_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                )
+            self.assertEqual(
+                trick_raised.exception.prompt["request_id"],
+                "sess_bridge_mark_trick_replay_test:r1:t1:p1:trick_to_use:2",
+            )
+            self.prompt_service.submit_decision(
+                {
+                    "request_id": trick_raised.exception.prompt["request_id"],
+                    "player_id": 1,
+                    "choice_id": "none",
+                }
+            )
+
+            bridge.set_prompt_sequence(seed)
+            self.assertEqual(
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    mark_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                ),
+                "none",
+            )
+            self.assertEqual(
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    trick_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                ),
+                "none",
+            )
+            with self.assertRaises(PromptRequired) as movement_raised:
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    movement_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                )
+            self.assertEqual(
+                movement_raised.exception.prompt["request_id"],
+                "sess_bridge_mark_trick_replay_test:r1:t1:p1:movement:3",
+            )
+            self.prompt_service.submit_decision(
+                {
+                    "request_id": movement_raised.exception.prompt["request_id"],
+                    "player_id": 1,
+                    "choice_id": "roll",
+                }
+            )
+
+            bridge.set_prompt_sequence(seed)
+            self.assertEqual(
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    mark_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                ),
+                "none",
+            )
+            self.assertEqual(
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    trick_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                ),
+                "none",
+            )
+            self.assertEqual(
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    movement_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                ),
+                "roll",
+            )
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
     def test_synced_hidden_trick_continuation_replays_same_movement_prompt(self) -> None:
         checkpoint_state = type(
             "CheckpointState",

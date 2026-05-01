@@ -31,6 +31,9 @@ from apps.server.src.services.engine_config_factory import EngineConfigFactory
 class RuntimeService:
     """Background runtime orchestration for mixed-seat (human + AI) sessions."""
 
+    _TURN_START_MARK_CHARACTERS = frozenset({"자객", "산적", "추노꾼", "박수", "만신"})
+    _MUROE_MARK_CHARACTERS = frozenset({"자객", "산적"})
+
     def __init__(
         self,
         session_service,
@@ -641,9 +644,67 @@ class RuntimeService:
                     and action_payload.get("hidden_trick_synced")
                 ):
                     return max(0, pending_instance_id - 1)
-                return max(0, pending_instance_id - 2)
+                turn_start_prompt_count = RuntimeService._turn_start_prompt_count_before_trick(state)
+                return max(0, pending_instance_id - 2 - turn_start_prompt_count)
+            if pending_prompt_type == "trick_to_use" or ":trick_to_use:" in pending_request_id:
+                turn_start_prompt_count = RuntimeService._turn_start_prompt_count_before_trick(state)
+                return max(0, pending_instance_id - 1 - turn_start_prompt_count)
             return max(0, pending_instance_id - 1)
         return prompt_sequence
+
+    @staticmethod
+    def _turn_start_prompt_count_before_trick(state) -> int:
+        if RuntimeService._turn_start_has_mark_prompt_before_trick(state):
+            return 1
+        return 0
+
+    @staticmethod
+    def _turn_start_has_mark_prompt_before_trick(state) -> bool:
+        player = RuntimeService._current_turn_player_for_prompt_replay(state)
+        if player is None:
+            return False
+        character = str(getattr(player, "current_character", "") or "")
+        if character not in RuntimeService._TURN_START_MARK_CHARACTERS:
+            return False
+        active_by_card = getattr(state, "active_by_card", {}) or {}
+        active_card_1 = ""
+        if isinstance(active_by_card, dict):
+            active_card_1 = str(active_by_card.get(1) or active_by_card.get("1") or "")
+        if character in RuntimeService._MUROE_MARK_CHARACTERS and active_card_1 == "어사":
+            return False
+        return True
+
+    @staticmethod
+    def _current_turn_player_for_prompt_replay(state):
+        players = list(getattr(state, "players", []) or [])
+        if not players:
+            return None
+        try:
+            turn_index = int(getattr(state, "turn_index", 0) or 0)
+        except (TypeError, ValueError):
+            turn_index = 0
+        order = list(getattr(state, "current_round_order", []) or [])
+        current_pid = turn_index % len(players)
+        if order:
+            try:
+                current_pid = int(order[turn_index % len(order)])
+            except (TypeError, ValueError):
+                current_pid = turn_index % len(players)
+        by_player_id: dict[int, object] = {}
+        for index, player in enumerate(players):
+            try:
+                player_id = int(getattr(player, "player_id", index))
+            except (TypeError, ValueError):
+                player_id = index
+            by_player_id[player_id] = player
+        if current_pid in by_player_id:
+            return by_player_id[current_pid]
+        if 0 <= current_pid < len(players):
+            return players[current_pid]
+        one_based_pid = current_pid - 1
+        if one_based_pid in by_player_id:
+            return by_player_id[one_based_pid]
+        return None
 
     @staticmethod
     def _has_round_setup_replay_base_from_state(state) -> bool:
