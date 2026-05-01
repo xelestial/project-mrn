@@ -81,11 +81,12 @@ describe("boardProjection", () => {
       expect(point.yPercent).toBeLessThanOrEqual(100);
       expect(point.zIndex).toBeGreaterThan(1000);
     }
-    expect(projected[0].lane).toBe("bottom");
-    expect(projected[11].lane).toBe("left");
-    expect(projected[20].lane).toBe("top");
-    expect(projected[31].lane).toBe("right");
-    expect(projected[0].yPercent).toBeGreaterThan(projected[20].yPercent);
+    expect(projected[0].lane).toBe("top");
+    expect(projected[10].lane).toBe("top");
+    expect(projected[11].lane).toBe("right");
+    expect(projected[20].lane).toBe("bottom");
+    expect(projected[31].lane).toBe("left");
+    expect(projected[0].yPercent).toBeLessThan(projected[20].yPercent);
   });
 
   it("derives a flattened quarterview geometry from split x/y spreads", () => {
@@ -108,6 +109,22 @@ describe("boardProjection", () => {
     expect(lanes.every((lane) => Math.abs(lane.rotationDeg) < 45)).toBe(true);
     expect(lanes.find((lane) => lane.lane === "top")?.cells.length).toBe(11);
     expect(lanes.find((lane) => lane.lane === "right")?.cells.length).toBe(9);
+  });
+
+  it("keeps quarterview tile numbers sequential around the visible board", () => {
+    const lanes = quarterviewLaneModels(40, "ring");
+    expect(lanes.find((lane) => lane.lane === "top")?.cells.map((cell) => cell.tileIndex + 1)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+    ]);
+    expect(lanes.find((lane) => lane.lane === "right")?.cells.map((cell) => cell.tileIndex + 1)).toEqual([
+      12, 13, 14, 15, 16, 17, 18, 19, 20,
+    ]);
+    expect(lanes.find((lane) => lane.lane === "bottom")?.cells.map((cell) => cell.tileIndex + 1)).toEqual([
+      21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+    ]);
+    expect(lanes.find((lane) => lane.lane === "left")?.cells.map((cell) => cell.tileIndex + 1)).toEqual([
+      32, 33, 34, 35, 36, 37, 38, 39, 40,
+    ]);
   });
 
   it("keeps lane-owned visual strip centers on the four diamond sides", () => {
@@ -168,9 +185,9 @@ describe("boardProjection", () => {
   });
 
   it("maps tile steps to the matching quarterview movement facing", () => {
-    expect(quarterviewFacingForTileStep(0, 1, 40, "ring")).toBe("back-left");
-    expect(quarterviewFacingForTileStep(10, 11, 40, "ring")).toBe("back-right");
-    expect(quarterviewFacingForTileStep(20, 21, 40, "ring")).toBe("front-right");
-    expect(quarterviewFacingForTileStep(30, 31, 40, "ring")).toBe("front-left");
+    expect(quarterviewFacingForTileStep(0, 1, 40, "ring")).toBe("front-right");
+    expect(quarterviewFacingForTileStep(10, 11, 40, "ring")).toBe("front-left");
+    expect(quarterviewFacingForTileStep(20, 21, 40, "ring")).toBe("back-left");
+    expect(quarterviewFacingForTileStep(30, 31, 40, "ring")).toBe("back-right");
   });
 });

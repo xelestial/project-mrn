@@ -188,8 +188,7 @@ export function projectTileQuarterview(
 
   const boardSize = boardSizeForTileCount(tileCount, normalizedTopology);
   const side = Math.max(MIN_RING_SIDE, boardSize);
-  const visualStartOffset = side + Math.max(0, side - 2);
-  const position = ringPosition(tileIndex + visualStartOffset, side);
+  const position = ringPosition(tileIndex, side);
   const denom = Math.max(1, position.boardSize - 1);
   const diagonal = (position.col - position.row) / denom;
   const depth = (position.row + position.col - (position.boardSize + 1)) / denom;
@@ -346,11 +345,10 @@ export function quarterviewTilePolygons(
   const boardSize = boardSizeForTileCount(tileCount, normalizedTopology);
   const side = Math.max(MIN_RING_SIDE, boardSize);
   const geometry = quarterviewBoardGeometry(side);
-  const visualStartOffset = side + Math.max(0, side - 2);
   const textAngle = geometry.tileAngleDeg;
 
   return Array.from({ length: tileCount }, (_, tileIndex) => {
-    const position = ringPosition(tileIndex + visualStartOffset, side);
+    const position = ringPosition(tileIndex, side);
     const lane = laneForRingPosition(position);
     const left = position.col - 1;
     const right = position.col;
