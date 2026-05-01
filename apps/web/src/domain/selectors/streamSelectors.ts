@@ -833,6 +833,7 @@ const CURRENT_TURN_REVEAL_EVENT_CODES = new Set<string>([
   "marker_flip",
   "marker_transferred",
   "bankruptcy",
+  "game_end",
 ]);
 
 const CURRENT_TURN_REVEAL_ORDER: Record<string, number> = {
@@ -851,6 +852,7 @@ const CURRENT_TURN_REVEAL_ORDER: Record<string, number> = {
   marker_flip: 80,
   marker_transferred: 82,
   bankruptcy: 90,
+  game_end: 95,
 };
 
 const PROMPT_EVENT_CODES = new Set<string>(["decision_requested", "decision_resolved", "decision_timeout_fallback"]);
@@ -1913,11 +1915,17 @@ export function selectCurrentTurnRevealItems(
       tone:
         eventCode === "dice_roll" || eventCode === "player_move"
           ? "move"
-          : eventCode === "tile_purchased" || eventCode === "rent_paid"
+          : eventCode === "tile_purchased" || eventCode === "rent_paid" || eventCode === "lap_reward_chosen"
             ? "economy"
             : "effect",
       focusTileIndex: focusTileIndexFromPayload(message.payload, eventCode),
-      isInterrupt: eventCode === "weather_reveal" || eventCode === "fortune_drawn" || eventCode === "fortune_resolved",
+      isInterrupt:
+        eventCode === "weather_reveal" ||
+        eventCode === "trick_used" ||
+        eventCode === "fortune_drawn" ||
+        eventCode === "fortune_resolved" ||
+        eventCode === "bankruptcy" ||
+        eventCode === "game_end",
     });
   }
 

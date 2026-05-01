@@ -738,11 +738,13 @@ Still intentionally incomplete:
 
 - The engine has a tested one-transition boundary and Redis-backed runtime uses it by default. The remaining runtime work is to make every human prompt a true continuation boundary rather than a blocking call inside the current engine stack.
 - Redis stores the latest canonical snapshot emitted by the engine stream and runtime can hydrate from it when it has the engine checkpoint shape. True mid-transition resume, inside an individual effect chain before the next committed boundary, is still out of scope.
-- Prompt timeout and command wakeup handling have standalone worker entrypoints plus local Docker Compose services. Production deployment still needs environment-specific process manager or orchestration settings.
-- Runtime lease refresh/release, command append, and game-state transition commit use Lua where available. Complete decision acceptance plus engine state mutation still needs one higher-level atomic command-processing envelope that covers command consumption, prompt resolution, event append, state commit, and offset update together.
-- The first command-processing envelope is now implemented for state/checkpoint/view-state commit plus command consumer offset update. `RuntimeService.process_command_once()` can process a command-triggered transition and commit `processed_command_seq`/consumer metadata with the state checkpoint, while `CommandStreamWakeupWorker` prefers this hook when available.
+- Prompt timeout and command wakeup handling have standalone worker entrypoints plus local Docker Compose services. The local process contract is documented; each production environment still needs to map those roles onto its process manager or orchestrator.
+- Runtime lease refresh/release, command append, prompt decision acceptance, and game-state transition commit use Lua where available.
+- The first command-processing envelope is now implemented for state/checkpoint/view-state commit, runtime event append, and command consumer offset update. `RuntimeService.process_command_once()` can process a command-triggered transition and commit `processed_command_seq`/consumer metadata with the state checkpoint, while `CommandStreamWakeupWorker` prefers this hook when available.
 - Prompt reentry integration coverage now verifies: prompt boundary commit, human decision command append, command-triggered runtime processing, submitted decision consumption, no duplicate prompt event for the same request id, and command offset commit.
 - `StreamService` deduplicates `prompt` and `decision_requested` publishes by `request_id`, adding a second guard against replayed prompt-boundary event duplication.
+- Engine `_request_decision()` sites are now covered by a continuation inventory contract. Every decision name must be classified as a turn, round setup, queued action, atomic effect, or legacy compatibility boundary before tests pass.
+- `PromptService.submit_decision()` now uses a Redis prompt accept envelope when backed by `RedisPromptStore` and `RedisCommandStore`: pending prompt deletion, submitted decision storage, resolved prompt marker, command dedupe, command sequence increment, and `decision_submitted` append are committed through one Lua script on Redis clients that support `EVAL`, with a transaction fallback for tests.
 
 ## Human Prompt Continuation Boundary Design
 
@@ -763,10 +765,10 @@ Implementation constraints:
 - The first implementation slice adds `PromptRequired` and commits `waiting_prompt_request_id`, `waiting_prompt_type`, and `waiting_prompt_player_id` in the checkpoint.
 - `DecisionGateway` now supports non-blocking human prompts. In that mode it publishes/stores the prompt and raises `PromptRequired` instead of blocking in `wait_for_decision()`.
 - `DecisionGateway` also checks for an already submitted decision for the same request id before creating a new prompt. This lets replayed prompt boundaries consume the decision and return the parsed choice without creating a duplicate pending prompt.
-- Prompt ids are stable when prompt metadata includes round, turn, player, type, and prompt instance.
+- Prompt ids use canonical session, round, turn, player, request type, and prompt instance fields even when public context is sparse. Sparse fields resolve to `r0`, `t0`, or prompt instance `0` rather than falling back to random request ids.
 - Canonical `GameState` now persists `prompt_sequence`, `pending_prompt_request_id`, `pending_prompt_type`, `pending_prompt_player_id`, and `pending_prompt_instance_id`. Runtime rehydrates this sequence into the human policy bridge before executing the next transition.
 - `GameEngine.prepare_run()` exposes the last prepared state to the runtime so a prompt raised during initial round setup still has a canonical state to commit.
-- Remaining hardening: move all prompt request id generation onto the canonical state fields even when public context is sparse, then expand the command-processing envelope to cover prompt resolution/deletion and event stream append in the same atomic boundary.
+- Implemented hardening: prompt metadata is canonical for the covered runtime reentry path, sparse prompt request id generation uses canonical fields, prompt decision acceptance has a Redis envelope, command-triggered transitions commit state/checkpoint/view-state/runtime-event/command-offset metadata, engine decision sites have a classification guard against unreviewed prompt boundaries, compatibility-helper callers are audited by contract tests, production worker orchestration expectations are documented, and the Redis verification hang was narrowed to an over-broad routing test.
 
 ## Action Pipeline / Movement Boundary
 
@@ -812,11 +814,15 @@ Implemented seed:
 
 Next action-pipeline hardening:
 
-- audit remaining direct compatibility helpers (`_advance_player()`, `_apply_fortune_arrival()`, and extension hooks) and explicitly mark the surviving callers as test/plugin-only APIs
+- completed compatibility-helper audit: surviving direct movement/fortune helpers are now limited by contract tests to test/plugin-only APIs or legacy engine fallback paths
 - expand the prompt-resumable pattern to any future human decisions that still appear during effect resolution
 - continue the tile-trait migration from `[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md`: audit remaining inline economic mutations and split rent payment itself into an explicit action only if a later prompt/animation boundary needs it
 - latest audit result: remaining inline economic mutations are intentionally kept atomic unless they introduce a prompt, distinct animation beat, recovery checkpoint, or shared modifier context. The contract tests now guard against reintroducing inline purchase/token placement prompts inside default landing effect handlers.
 - trick tile-rent target effects now follow the same rule: `재뿌리기` and `긴장감 조성` queue `resolve_trick_tile_rent_modifier`, so target selection prompts and rent modifier mutation are checkpointable.
+- engine decision inventory now classifies every production `GameEngine._request_decision()` call for Redis continuation review, including effect-handler prompts such as active character flips and lap rewards. New decision names fail the action-pipeline contract until their boundary type is explicitly recorded.
+- compatibility helper audit now has two contract guards: production modules outside `engine.py` may not call `_advance_player()`, `_apply_fortune_arrival()`, or `_apply_fortune_move_only()` directly, and engine-internal direct calls are limited to the legacy `_apply_fortune_card_impl()` non-queued fallback. `_advance_player()` has no production caller and remains for parity tests/compatibility hooks only.
+- production/local orchestration contract is now documented in `apps/server/README.md`: Redis-backed gameplay requires the FastAPI server, prompt-timeout worker, and command-wakeup worker as separately restarted long-lived roles on the same Redis URL/key prefix. Compose now healthchecks the server through `/health`, waits for it before starting workers, and gives the server a restart policy.
+- optional actionization watch-list status is explicit in `[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md`: rent payment, force sale/takeover, and global all-player payments stay atomic until they gain a prompt, per-target animation, partial recovery, or shared modifier boundary.
 
 ## Testing Strategy
 

@@ -13,6 +13,7 @@ from apps.server.src.services.room_service import (
 from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
+from apps.server.src.routes.sessions import _initial_active_by_card, _initial_public_snapshot
 
 router = APIRouter(prefix="/api/v1/rooms", tags=["rooms"])
 
@@ -191,6 +192,7 @@ async def start_room(
     session_id = str(result["session_id"])
     session = sessions.get_session(session_id)
     session = sessions.start_session(session_id=session_id, host_token=session.host_token)
+    active_by_card = _initial_active_by_card(session)
     await stream.publish(
         session_id,
         "event",
@@ -212,6 +214,8 @@ async def start_room(
                 }
                 for seat in session.seats
             ],
+            "active_by_card": active_by_card,
+            "snapshot": _initial_public_snapshot(session, active_by_card),
         },
     )
     await stream.publish(

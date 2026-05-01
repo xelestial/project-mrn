@@ -81,6 +81,25 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertTrue(public["recovery_checkpoint"]["current_state_available"])
         self.assertEqual(public["recovery_checkpoint"]["view_state"], {"players": {"items": []}})
 
+    def test_redis_backed_runtime_status_does_not_fall_back_to_stale_process_cache(self) -> None:
+        store = _RuntimeStateStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            runtime_state_store=store,
+        )
+        runtime._status["sess_deleted"] = {  # type: ignore[attr-defined]
+            "status": "waiting_input",
+            "request_id": "stale_request",
+            "player_id": 1,
+        }
+
+        status = runtime.runtime_status("sess_deleted")
+
+        self.assertEqual(status["status"], "idle")
+        self.assertNotIn("request_id", status)
+
     def test_execute_prompt_fallback_records_recent_history(self) -> None:
         session = self.session_service.create_session(
             seats=[
@@ -109,6 +128,47 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertGreaterEqual(len(recent), 1)
         self.assertEqual(recent[-1]["request_id"], "req_timeout_1")
         self.assertEqual(recent[-1]["choice_id"], "choice_default")
+
+    def test_process_command_once_continues_after_command_transition_until_prompt(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 73},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.start_session(session.session_id, session.host_token)
+        calls: list[tuple[str | None, int | None]] = []
+
+        def _transition_once(
+            _loop,
+            _session_id: str,
+            _seed: int,
+            _policy_mode: str | None,
+            _require_checkpoint: bool,
+            command_consumer_name: str | None,
+            command_seq: int | None,
+        ) -> dict:
+            calls.append((command_consumer_name, command_seq))
+            if len(calls) == 1:
+                return {"status": "committed", "pending_actions": 1}
+            return {"status": "waiting_input", "request_type": "purchase_tile", "player_id": 1}
+
+        with patch.object(self.runtime_service, "_run_engine_transition_once_sync", side_effect=_transition_once):
+            result = asyncio.run(
+                self.runtime_service.process_command_once(
+                    session_id=session.session_id,
+                    command_seq=7,
+                    consumer_name="runtime_wakeup",
+                    seed=73,
+                )
+            )
+
+        self.assertEqual(result["status"], "waiting_input")
+        self.assertEqual(result["transitions"], 2)
+        self.assertEqual(calls, [("runtime_wakeup", 7), (None, None)])
+        self.assertEqual(self.runtime_service.runtime_status(session.session_id)["status"], "waiting_input")
 
     def test_decision_request_type_for_method_uses_canonical_mapping(self) -> None:
         self.assertEqual(decision_request_type_for_method("choose_purchase_tile"), "purchase_tile")
@@ -2926,6 +2986,252 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_pending_prompt_replay_reuses_stable_request_id_then_advances_sequence(self) -> None:
+        from apps.server.src.services.decision_gateway import PromptRequired
+        from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerHumanPolicyBridge(
+                session_id="sess_bridge_stable_replay_test",
+                human_seats=[0],
+                ai_fallback=object(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+                blocking_human_prompts=False,
+            )
+            checkpoint_state = type(
+                "CheckpointState",
+                (),
+                {
+                    "prompt_sequence": 2,
+                    "pending_prompt_request_id": "sess_bridge_stable_replay_test:r1:t1:p1:trick_to_use:2",
+                    "pending_prompt_instance_id": 2,
+                },
+            )()
+            seed = self.runtime_service._prompt_sequence_seed_for_transition(checkpoint_state)
+            self.assertEqual(seed, 1)
+            bridge.set_prompt_sequence(seed)
+
+            trick_prompt = {
+                "request_type": "trick_to_use",
+                "player_id": 1,
+                "timeout_ms": 2000,
+                "legal_choices": [{"choice_id": "none", "label": "Do not use a trick"}],
+                "fallback_policy": "timeout_fallback",
+                "public_context": {"round_index": 1, "turn_index": 1},
+            }
+            parse_choice = lambda response: str(response.get("choice_id", ""))
+
+            with self.assertRaises(PromptRequired) as raised:
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    trick_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                )
+
+            request_id = raised.exception.prompt["request_id"]
+            self.assertEqual(request_id, "sess_bridge_stable_replay_test:r1:t1:p1:trick_to_use:2")
+            decision_state = self.prompt_service.submit_decision(
+                {
+                    "request_id": request_id,
+                    "player_id": 1,
+                    "choice_id": "none",
+                }
+            )
+            self.assertEqual(decision_state["status"], "accepted")
+
+            bridge.set_prompt_sequence(seed)
+            replayed = bridge._inner._ask(  # type: ignore[attr-defined]
+                trick_prompt,
+                parse_choice,
+                lambda: "fallback",
+            )
+            self.assertEqual(replayed, "none")
+
+            with self.assertRaises(PromptRequired) as movement_raised:
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    {
+                        "request_type": "movement",
+                        "player_id": 1,
+                        "timeout_ms": 2000,
+                        "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                        "fallback_policy": "timeout_fallback",
+                        "public_context": {"round_index": 1, "turn_index": 1},
+                    },
+                    parse_choice,
+                    lambda: "fallback",
+                )
+
+            self.assertEqual(
+                movement_raised.exception.prompt["request_id"],
+                "sess_bridge_stable_replay_test:r1:t1:p1:movement:3",
+            )
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_pending_movement_replay_replays_prior_trick_prompt_before_movement(self) -> None:
+        from apps.server.src.services.decision_gateway import PromptRequired
+        from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerHumanPolicyBridge(
+                session_id="sess_bridge_movement_replay_test",
+                human_seats=[0],
+                ai_fallback=object(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+                blocking_human_prompts=False,
+            )
+            checkpoint_state = type(
+                "CheckpointState",
+                (),
+                {
+                    "prompt_sequence": 2,
+                    "pending_prompt_request_id": "sess_bridge_movement_replay_test:r1:t1:p1:movement:2",
+                    "pending_prompt_type": "movement",
+                    "pending_prompt_instance_id": 2,
+                },
+            )()
+            seed = self.runtime_service._prompt_sequence_seed_for_transition(checkpoint_state)
+            self.assertEqual(seed, 0)
+            trick_prompt = {
+                "request_type": "trick_to_use",
+                "player_id": 1,
+                "timeout_ms": 2000,
+                "legal_choices": [{"choice_id": "none", "label": "Do not use a trick"}],
+                "fallback_policy": "timeout_fallback",
+                "public_context": {"round_index": 1, "turn_index": 1},
+            }
+            movement_prompt = {
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 2000,
+                "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                "fallback_policy": "timeout_fallback",
+                "public_context": {"round_index": 1, "turn_index": 1},
+            }
+            parse_choice = lambda response: str(response.get("choice_id", ""))
+
+            bridge.set_prompt_sequence(seed)
+            with self.assertRaises(PromptRequired) as trick_raised:
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    trick_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                )
+            self.assertEqual(
+                trick_raised.exception.prompt["request_id"],
+                "sess_bridge_movement_replay_test:r1:t1:p1:trick_to_use:1",
+            )
+            self.prompt_service.submit_decision(
+                {
+                    "request_id": trick_raised.exception.prompt["request_id"],
+                    "player_id": 1,
+                    "choice_id": "none",
+                }
+            )
+
+            bridge.set_prompt_sequence(seed)
+            self.assertEqual(
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    trick_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                ),
+                "none",
+            )
+            with self.assertRaises(PromptRequired) as movement_raised:
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    movement_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                )
+            self.assertEqual(
+                movement_raised.exception.prompt["request_id"],
+                "sess_bridge_movement_replay_test:r1:t1:p1:movement:2",
+            )
+            self.prompt_service.submit_decision(
+                {
+                    "request_id": movement_raised.exception.prompt["request_id"],
+                    "player_id": 1,
+                    "choice_id": "roll",
+                }
+            )
+
+            bridge.set_prompt_sequence(seed)
+            self.assertEqual(
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    trick_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                ),
+                "none",
+            )
+            self.assertEqual(
+                bridge._inner._ask(  # type: ignore[attr-defined]
+                    movement_prompt,
+                    parse_choice,
+                    lambda: "fallback",
+                ),
+                "roll",
+            )
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_decision_gateway_uses_canonical_prompt_id_when_context_is_sparse(self) -> None:
+        from apps.server.src.services.decision_gateway import DecisionGateway, PromptRequired
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            gateway = DecisionGateway(
+                session_id="sess_sparse_prompt_id_test",
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+                blocking_human_prompts=False,
+            )
+
+            with self.assertRaises(PromptRequired) as raised:
+                gateway.resolve_human_prompt(
+                    {
+                        "request_type": "movement",
+                        "player_id": 1,
+                        "timeout_ms": 2000,
+                        "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                        "fallback_policy": "timeout_fallback",
+                        "public_context": {},
+                    },
+                    lambda response: str(response.get("choice_id", "")),
+                    lambda: "fallback",
+                )
+
+            prompt = raised.exception.prompt
+            self.assertEqual(prompt["request_id"], "sess_sparse_prompt_id_test:r0:t0:p1:movement:0")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
     def test_human_bridge_keeps_pabal_dice_mode_on_prompt_flow(self) -> None:
         from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
 
@@ -3412,6 +3718,44 @@ class _RecoveryGameStateStoreStub:
     def load_view_state(self, session_id: str) -> dict:
         del session_id
         return {"legacy": True}
+
+
+class _RuntimeStateStoreStub:
+    def __init__(self) -> None:
+        self.statuses: dict[str, dict] = {}
+
+    def save_status(self, session_id: str, payload: dict) -> None:
+        self.statuses[session_id] = dict(payload)
+
+    def load_status(self, session_id: str) -> dict | None:
+        payload = self.statuses.get(session_id)
+        return dict(payload) if payload is not None else None
+
+    def lease_owner(self, session_id: str) -> str | None:
+        del session_id
+        return None
+
+    def acquire_lease(self, session_id: str, worker_id: str, ttl_ms: int) -> bool:
+        del session_id, worker_id, ttl_ms
+        return True
+
+    def refresh_lease(self, session_id: str, worker_id: str, ttl_ms: int) -> bool:
+        del session_id, worker_id, ttl_ms
+        return True
+
+    def release_lease(self, session_id: str, worker_id: str) -> bool:
+        del session_id, worker_id
+        return True
+
+    def append_fallback(self, session_id: str, record: dict, *, max_items: int = 20) -> None:
+        del session_id, record, max_items
+
+    def recent_fallbacks(self, session_id: str, limit: int = 10) -> list[dict]:
+        del session_id, limit
+        return []
+
+    def delete_session_data(self, session_id: str) -> None:
+        self.statuses.pop(session_id, None)
 
 
 if __name__ == "__main__":

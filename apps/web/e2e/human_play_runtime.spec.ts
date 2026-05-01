@@ -193,6 +193,94 @@ async function expectDesktopHudDensity(page: Page): Promise<void> {
   expect(metrics.verticalOverflow).toBe(false);
 }
 
+async function expectTurnNoticeAboveWeather(page: Page): Promise<void> {
+  const metrics = await page.evaluate(() => {
+    const turnNotice = document.querySelector<HTMLElement>(".turn-notice-banner");
+    const weather = document.querySelector<HTMLElement>(".match-table-weather-bar");
+    const boardOverlay = document.querySelector<HTMLElement>(".board-overlay-content");
+    const numericZIndex = (element: HTMLElement | null): number | null => {
+      if (!element) {
+        return null;
+      }
+      const value = Number.parseInt(getComputedStyle(element).zIndex, 10);
+      return Number.isNaN(value) ? null : value;
+    };
+
+    return {
+      turnNoticeZIndex: numericZIndex(turnNotice),
+      weatherZIndex: numericZIndex(weather),
+      boardOverlayZIndex: numericZIndex(boardOverlay),
+    };
+  });
+
+  expect(metrics.turnNoticeZIndex).not.toBeNull();
+  expect(metrics.weatherZIndex).not.toBeNull();
+  expect(metrics.boardOverlayZIndex).not.toBeNull();
+  expect(metrics.turnNoticeZIndex ?? 0).toBeGreaterThan(metrics.weatherZIndex ?? 0);
+  expect(metrics.turnNoticeZIndex ?? 0).toBeGreaterThan(metrics.boardOverlayZIndex ?? 0);
+}
+
+async function expectCharacterPromptSingleRow(page: Page, viewportWidth: number): Promise<void> {
+  const metrics = await page.getByTestId("prompt-overlay").evaluate((prompt) => {
+    const grid = prompt.querySelector<HTMLElement>(".prompt-character-card-grid");
+    const body = prompt.querySelector<HTMLElement>(".prompt-body");
+    const cards = Array.from(prompt.querySelectorAll<HTMLElement>(".prompt-character-card"));
+    const cardRows = new Set(cards.map((card) => Math.round(card.getBoundingClientRect().top)));
+    const gridStyle = grid ? getComputedStyle(grid) : null;
+    const gridColumns = gridStyle?.gridTemplateColumns
+      .split(" ")
+      .map((track) => track.trim())
+      .filter(Boolean).length ?? 0;
+
+    return {
+      promptWidth: prompt.getBoundingClientRect().width,
+      cardCount: cards.length,
+      rowCount: cardRows.size,
+      gridColumns,
+      bodyOverflowsY: body ? body.scrollHeight > body.clientHeight + 1 : null,
+      gridOverflowsY: grid ? grid.scrollHeight > grid.clientHeight + 1 : null,
+      gridOverflowsX: grid ? grid.scrollWidth > grid.clientWidth + 1 : null,
+    };
+  });
+
+  expect(metrics.promptWidth).toBeLessThanOrEqual(Math.min(viewportWidth * 0.8, 1280) + 2);
+  expect(metrics.promptWidth).toBeGreaterThanOrEqual(Math.min(viewportWidth * 0.8, 1280) - 8);
+  expect(metrics.cardCount).toBe(4);
+  expect(metrics.rowCount).toBe(1);
+  expect(metrics.gridColumns).toBe(4);
+  expect(metrics.bodyOverflowsY).toBe(false);
+  expect(metrics.gridOverflowsY).toBe(false);
+  expect(metrics.gridOverflowsX).toBe(false);
+}
+
+async function expectMyTurnCelebrationClearPlayerTwo(page: Page): Promise<void> {
+  const overlap = await page.locator(".match-table-overlay").evaluate((overlay) => {
+    const celebration = document.querySelector<HTMLElement>('[data-testid="my-turn-celebration"]');
+    const playerTwo = overlay.querySelector<HTMLElement>('[data-testid="match-player-card-2"]');
+    if (!celebration || !playerTwo) {
+      return null;
+    }
+
+    const waitingRect = celebration.getBoundingClientRect();
+    const playerRect = playerTwo.getBoundingClientRect();
+    return (
+      Math.max(0, Math.min(waitingRect.right, playerRect.right) - Math.max(waitingRect.left, playerRect.left)) *
+      Math.max(0, Math.min(waitingRect.bottom, playerRect.bottom) - Math.max(waitingRect.top, playerRect.top))
+    );
+  });
+
+  expect(overlap).not.toBeNull();
+  expect(overlap).toBe(0);
+}
+
+async function expectMyTurnCelebrationSpinningBorder(page: Page): Promise<void> {
+  const animationName = await page
+    .getByTestId("my-turn-celebration")
+    .evaluate((element) => getComputedStyle(element, "::before").animationName);
+
+  expect(animationName).toContain("myTurnBorderSpin");
+}
+
 async function installMockRuntime(
   page: Page,
   args: {
@@ -539,6 +627,113 @@ test("human quick start surfaces turn banner and first prompt through stable ids
   await expectDesktopHudDensity(page);
 });
 
+test("character selection prompt uses one four-card row without scrollbars on desktop viewports", async ({ page }) => {
+  const sessionId = "sess_character_prompt_layout";
+  const manifest = buildManifest({
+    hash: "character_prompt_layout_hash",
+    topology: "ring",
+    tileCount: 40,
+    seats: [1, 2, 3, 4],
+  });
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({ seq: 1, sessionId, payload: { event_type: "parameter_manifest", parameter_manifest: manifest } }),
+        eventMessage({ seq: 2, sessionId, payload: { event_type: "round_start", round_index: 1 } }),
+        eventMessage({
+          seq: 3,
+          sessionId,
+          payload: { event_type: "weather_reveal", weather_name: "Cold Front", effect_text: "No lap cash. Pay 2 cash to bank." },
+        }),
+        eventMessage({
+          seq: 4,
+          sessionId,
+          payload: { event_type: "turn_start", round_index: 1, turn_index: 1, acting_player_id: 1, character: "Hidden" },
+        }),
+        {
+          type: "prompt",
+          seq: 5,
+          session_id: sessionId,
+          server_time_ms: 1_700_000_000_005,
+          payload: {
+            request_id: "req_final_character_layout",
+            request_type: "final_character_choice",
+            player_id: 1,
+            timeout_ms: 300000,
+            public_context: {},
+            choices: [
+              { choice_id: "tamgwanori", title: "탐관오리", description: "세금과 통행료 흐름을 빠르게 굴립니다.", value: { character: "탐관오리" } },
+              { choice_id: "matchmaker", title: "뚜쟁이", description: "인접 토지와 협상 선택지를 강화합니다.", value: { character: "뚜쟁이" } },
+              { choice_id: "bandit", title: "도적", description: "상대의 자원 흐름을 끊고 기회를 만듭니다.", value: { character: "도적" } },
+              { choice_id: "doctrine_guard", title: "교리 감독관", description: "짐을 줄이고 안정적인 점수를 준비합니다.", value: { character: "교리 감독관" } },
+            ],
+          },
+        },
+      ],
+    },
+  });
+
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_character_layout`);
+  await expect(page.getByTestId("prompt-overlay")).toHaveAttribute("data-prompt-type", "final_character_choice");
+
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 1600, height: 1000 },
+    { width: 1920, height: 1080 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await expectCharacterPromptSingleRow(page, viewport.width);
+  }
+});
+
+test("my-turn celebration replaces the waiting panel and stays clear of the second player card", async ({ page }) => {
+  const sessionId = "sess_waiting_panel_layout";
+  const manifest = buildManifest({
+    hash: "waiting_panel_layout_hash",
+    topology: "ring",
+    tileCount: 40,
+    seats: [1, 2, 3, 4],
+  });
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({ seq: 1, sessionId, payload: { event_type: "parameter_manifest", parameter_manifest: manifest } }),
+        eventMessage({ seq: 2, sessionId, payload: { event_type: "round_start", round_index: 1 } }),
+        eventMessage({
+          seq: 3,
+          sessionId,
+          payload: { event_type: "weather_reveal", weather_name: "Cold Front", effect_text: "No lap cash. Pay 2 cash to bank." },
+        }),
+        eventMessage({
+          seq: 4,
+          sessionId,
+          payload: { event_type: "turn_start", round_index: 1, turn_index: 1, acting_player_id: 1, character: "Archivist" },
+        }),
+      ],
+    },
+  });
+
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_waiting_layout`);
+  await expect(page.getByTestId("my-turn-waiting-panel")).toHaveCount(0);
+  await expect(page.getByTestId("my-turn-celebration")).toBeVisible();
+  await expect(page.getByTestId("my-turn-celebration")).toHaveAttribute("data-turn-owner", "local");
+  await expect(page.getByTestId("my-turn-celebration")).toContainText(/당신의 턴!|Your turn!/);
+  await expectMyTurnCelebrationSpinningBorder(page);
+
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 1600, height: 1000 },
+    { width: 1920, height: 1080 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await expectMyTurnCelebrationClearPlayerTwo(page);
+  }
+});
+
 test("remote turn keeps spectator continuity visible and does not open a local prompt", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
 
@@ -614,6 +809,7 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await expect(page.getByTestId("turn-notice-banner")).toBeVisible();
   await expect(page.getByTestId("turn-notice-banner")).toHaveAttribute("data-banner-variant", "turn");
   await expect(page.getByTestId("turn-notice-banner")).toHaveAttribute("data-banner-player-id", "2");
+  await expectTurnNoticeAboveWeather(page);
   await openPublicEvents(page);
   await expectPublicEventsNotDuplicated(page);
   await expect(page.getByTestId("board-event-reveal-dice_roll-1")).toHaveAttribute("data-event-code", "dice_roll");

@@ -133,6 +133,9 @@ class PromptServiceTests(unittest.TestCase):
 
         self.assertIsNotNone(decision)
         self.assertEqual(decision["choice_id"], "roll")
+        replayed = self.service.wait_for_decision("r6", timeout_ms=1)
+        self.assertIsNotNone(replayed)
+        self.assertEqual(replayed["choice_id"], "roll")
 
     def test_wait_for_decision_times_out_and_expire_prompt_cleans_up(self) -> None:
         self.service.create_prompt(

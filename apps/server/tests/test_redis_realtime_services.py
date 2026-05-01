@@ -5,6 +5,7 @@ import threading
 import unittest
 import unittest.mock
 
+from apps.server.src.domain.view_state.projector import project_view_state
 from apps.server.src.infra.redis_client import RedisConnection, RedisConnectionSettings
 from apps.server.src.services.prompt_service import PromptService
 from apps.server.src.services.realtime_persistence import (
@@ -86,7 +87,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
 
         asyncio.run(_run())
 
-    def test_game_state_store_commits_transition_state_and_checkpoint_together(self) -> None:
+    def test_game_state_store_commits_transition_state_checkpoint_event_and_offset_together(self) -> None:
         game_state = RedisGameStateStore(self.connection)
         command_store = RedisCommandStore(self.connection)
 
@@ -114,18 +115,33 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             view_state={"board": {"turn": 3}},
             command_consumer_name="runtime_wakeup",
             command_seq=9,
+            runtime_event_payload={
+                "event_type": "engine_transition",
+                "status": "idle",
+                "turn_index": 3,
+            },
+            runtime_event_server_time_ms=1234,
         )
 
         self.assertEqual(game_state.load_current_state("s-commit")["turn_index"], 3)
         self.assertEqual(game_state.load_current_state("s-commit")["pending_actions"][0]["action_id"], "a1")
         self.assertEqual(game_state.load_current_state("s-commit")["scheduled_actions"][0]["action_id"], "s1")
         self.assertEqual(game_state.load_checkpoint("s-commit")["latest_event_type"], "engine_transition")
+        self.assertEqual(game_state.load_checkpoint("s-commit")["latest_seq"], 1)
         self.assertTrue(game_state.load_checkpoint("s-commit")["has_pending_actions"])
         self.assertTrue(game_state.load_checkpoint("s-commit")["has_scheduled_actions"])
         self.assertTrue(game_state.load_checkpoint("s-commit")["has_pending_turn_completion"])
         self.assertEqual(game_state.load_view_state("s-commit")["board"]["turn"], 3)
         self.assertEqual(game_state.load_projected_view_state("s-commit", "public")["board"]["turn"], 3)
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", "s-commit"), 9)
+        runtime_events = RedisStreamStore(self.connection).snapshot("s-commit")
+        self.assertEqual(len(runtime_events), 1)
+        self.assertEqual(runtime_events[0]["seq"], 1)
+        self.assertEqual(runtime_events[0]["payload"]["event_type"], "engine_transition")
+        self.assertIn(
+            ["set", "set", "set", "set", "hset", "hset", "xadd"],
+            self.fake_redis.pipeline_executions,
+        )
 
     def test_game_state_store_saves_view_state_projection_variants(self) -> None:
         game_state = RedisGameStateStore(self.connection)
@@ -160,6 +176,75 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertIsNone(game_state.load_projected_view_state("s-view", "admin"))
         self.assertIsNone(game_state.load_projection_checkpoint("s-view"))
 
+    def test_game_state_store_preserves_positions_and_trick_state_in_state_and_projection(self) -> None:
+        game_state = RedisGameStateStore(self.connection)
+        payload = {
+            "event_type": "turn_end_snapshot",
+            "round_index": 2,
+            "turn_index": 3,
+            "engine_checkpoint": {
+                "schema_version": 1,
+                "rounds_completed": 1,
+                "turn_index": 3,
+                "players": [
+                    {
+                        "player_id": 1,
+                        "position": 7,
+                        "trick_hand": [101, 202],
+                        "hidden_trick_deck_index": 202,
+                        "trick_obstacle_this_round": True,
+                        "trick_reroll_budget_this_turn": 1,
+                    }
+                ],
+            },
+            "snapshot": {
+                "players": [
+                    {
+                        "player_id": 1,
+                        "display_name": "P1",
+                        "alive": True,
+                        "position": 7,
+                        "public_tricks": ["땅도둑"],
+                        "hidden_trick_count": 1,
+                        "trick_count": 2,
+                    }
+                ],
+                "board": {
+                    "f_value": 9,
+                    "marker_owner_player_id": 1,
+                    "marker_draft_direction": "clockwise",
+                    "tiles": [
+                        {"tile_index": 0, "score_coin_count": 0, "owner_player_id": None, "pawn_player_ids": []},
+                        {"tile_index": 7, "score_coin_count": 1, "owner_player_id": 1, "pawn_player_ids": [1]},
+                    ],
+                },
+            },
+        }
+        message = {
+            "seq": 12,
+            "type": "event",
+            "session_id": "s-state-projection",
+            "server_time_ms": 12345,
+            "payload": {**payload, "view_state": project_view_state([{"seq": 12, "type": "event", "payload": payload}])},
+        }
+
+        game_state.apply_stream_message(message)
+
+        current_state = game_state.load_current_state("s-state-projection")
+        view_state = game_state.load_projected_view_state("s-state-projection", "public")
+        self.assertIsNotNone(current_state)
+        self.assertEqual(current_state["players"][0]["position"], 7)
+        self.assertEqual(current_state["players"][0]["trick_hand"], [101, 202])
+        self.assertEqual(current_state["players"][0]["hidden_trick_deck_index"], 202)
+        self.assertTrue(current_state["players"][0]["trick_obstacle_this_round"])
+        self.assertEqual(current_state["players"][0]["trick_reroll_budget_this_turn"], 1)
+        self.assertIsNotNone(view_state)
+        self.assertEqual(view_state["players"]["items"][0]["public_tricks"], ["땅도둑"])
+        self.assertEqual(view_state["players"]["items"][0]["hidden_trick_count"], 1)
+        self.assertEqual(view_state["players"]["items"][0]["trick_count"], 2)
+        self.assertEqual(view_state["board"]["tiles"][1]["pawn_player_ids"], [1])
+        self.assertEqual(view_state["board"]["tiles"][1]["owner_player_id"], 1)
+
     def test_prompt_service_uses_redis_store_for_decision_flow(self) -> None:
         command_store = RedisCommandStore(self.connection)
         service = PromptService(prompt_store=RedisPromptStore(self.connection), command_store=command_store)
@@ -182,11 +267,47 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         thread.join(timeout=1.0)
         self.assertIsNotNone(decision)
         self.assertEqual(decision["choice_id"], "roll")
+        replayed = service.wait_for_decision("r1", timeout_ms=1)
+        self.assertIsNotNone(replayed)
+        self.assertEqual(replayed["choice_id"], "roll")
         self.assertFalse(service.has_pending_for_session("s1"))
         commands = command_store.list_commands("s1")
         self.assertEqual(len(commands), 1)
         self.assertEqual(commands[0]["type"], "decision_submitted")
         self.assertEqual(commands[0]["payload"]["choice_id"], "roll")
+
+    def test_prompt_service_accepts_decision_with_single_redis_transaction(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        command_store = RedisCommandStore(self.connection)
+        service = PromptService(prompt_store=prompt_store, command_store=command_store)
+        service.create_prompt(
+            "s-atomic",
+            {
+                "request_id": "r-atomic",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 30000,
+            },
+        )
+
+        result = service.submit_decision({"request_id": "r-atomic", "player_id": 1, "choice_id": "roll"})
+
+        self.assertEqual(result["status"], "accepted")
+        self.assertIsNone(prompt_store.get_pending("r-atomic"))
+        self.assertEqual(prompt_store.get_resolved("r-atomic")["reason"], "accepted")
+        self.assertEqual(prompt_store.pop_decision("r-atomic")["choice_id"], "roll")
+        commands = command_store.list_commands("s-atomic")
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(commands[0]["payload"]["request_id"], "r-atomic")
+        self.assertIn(
+            [
+                "hdel",
+                "hset",
+                "hset",
+                "xadd",
+            ],
+            self.fake_redis.pipeline_executions,
+        )
 
     def test_prompt_timeout_worker_emits_timeout_once(self) -> None:
         command_store = RedisCommandStore(self.connection)
@@ -194,7 +315,8 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             stream_backend=RedisStreamStore(self.connection),
             command_store=command_store,
         )
-        prompt_service = PromptService(prompt_store=RedisPromptStore(self.connection), command_store=command_store)
+        prompt_store = RedisPromptStore(self.connection)
+        prompt_service = PromptService(prompt_store=prompt_store, command_store=command_store)
         sessions = SessionService()
         runtime = RuntimeService(
             session_service=sessions,
@@ -228,6 +350,15 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             self.assertEqual(second, [])
             self.assertIn("decision_resolved", event_types)
             self.assertIn("decision_timeout_fallback", event_types)
+            commands = command_store.list_commands("s-timeout")
+            self.assertEqual(len(commands), 1)
+            self.assertEqual(commands[0]["type"], "decision_submitted")
+            self.assertEqual(commands[0]["payload"]["request_id"], "req_timeout_1")
+            self.assertEqual(commands[0]["payload"]["choice_id"], "fallback_roll")
+            decision = prompt_store.get_decision("req_timeout_1")
+            self.assertIsNotNone(decision)
+            self.assertEqual(decision["choice_id"], "fallback_roll")
+            self.assertEqual(decision["provider"], "timeout_fallback")
 
         asyncio.run(_run())
 
@@ -1261,8 +1392,12 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         )
 
         saved_checkpoint = game_state.load_checkpoint(session.session_id)
+        runtime_events = RedisStreamStore(self.connection).snapshot(session.session_id)
         self.assertEqual(result["status"], "finished")
         self.assertEqual(saved_checkpoint["processed_command_seq"], 4)
+        self.assertEqual(runtime_events[-1]["seq"], saved_checkpoint["latest_seq"])
+        self.assertEqual(runtime_events[-1]["payload"]["event_type"], "engine_transition")
+        self.assertEqual(runtime_events[-1]["payload"]["processed_command_seq"], 4)
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 4)
 
     def test_human_prompt_reentry_consumes_decision_without_duplicate_prompt(self) -> None:
@@ -1424,25 +1559,26 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             runtime_state_store=RedisRuntimeStateStore(self.connection),
             game_state_store=game_state,
         )
-        async def _run() -> dict:
-            return await asyncio.to_thread(
-                runtime._run_engine_sync,
-                asyncio.get_running_loop(),
+
+        with unittest.mock.patch.object(
+            runtime,
+            "_run_engine_transition_loop_sync",
+            return_value={"status": "finished", "transitions": 1},
+        ) as transition_loop:
+            result = runtime._run_engine_sync(
+                unittest.mock.Mock(),
                 session.session_id,
                 42,
                 None,
             )
 
-        result = asyncio.run(_run())
-
-        saved_state = game_state.load_current_state(session.session_id)
-        saved_checkpoint = game_state.load_checkpoint(session.session_id)
-
-        self.assertEqual(result["status"], "finished")
-        self.assertIsNotNone(saved_state)
-        self.assertIn("tiles", saved_state)
-        self.assertEqual(saved_checkpoint["latest_event_type"], "engine_transition")
-        self.assertTrue(saved_checkpoint["has_snapshot"])
+        self.assertEqual(result, {"status": "finished", "transitions": 1})
+        transition_loop.assert_called_once_with(
+            unittest.mock.ANY,
+            session.session_id,
+            42,
+            None,
+        )
 
 
 class _FakeRedisPipeline:
@@ -1458,12 +1594,21 @@ class _FakeRedisPipeline:
         self._ops.append(("hset", (name,), {"key": key, "value": value, "mapping": mapping}))
         return self
 
+    def hdel(self, name: str, *keys: str) -> "_FakeRedisPipeline":
+        self._ops.append(("hdel", (name, *keys), {}))
+        return self
+
     def set(self, name: str, value: str) -> "_FakeRedisPipeline":
         self._ops.append(("set", (name, value), {}))
         return self
 
+    def xadd(self, name: str, fields: dict[str, str], maxlen: int | None = None, approximate: bool = False) -> "_FakeRedisPipeline":
+        self._ops.append(("xadd", (name, fields), {"maxlen": maxlen, "approximate": approximate}))
+        return self
+
     def execute(self) -> list[object]:
         results = []
+        self._client.pipeline_executions.append([name for name, _, _ in self._ops])
         for name, args, kwargs in self._ops:
             results.append(getattr(self._client, name)(*args, **kwargs))
         self._ops.clear()
@@ -1477,6 +1622,7 @@ class _FakeRedis:
         self._hashes: dict[str, dict[str, str]] = {}
         self._lists: dict[str, list[str]] = {}
         self._streams: dict[str, list[tuple[str, dict[str, str]]]] = {}
+        self.pipeline_executions: list[list[str]] = []
 
     def ping(self) -> bool:
         return True

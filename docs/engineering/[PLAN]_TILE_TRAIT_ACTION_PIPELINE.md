@@ -615,9 +615,13 @@ Watch list:
 - force sale / takeover can become actionized if future cards add target-selection prompts or multi-step animations around ownership transfer
 - global all-player payments can get a `resolve_global_payment` action if recovery needs to resume after each payer
 
+Decision as of 2026-04-30: keep these three as watch-list items, not active migration work. They are still atomic, deterministic runtime mutations with no current human prompt boundary. Convert them only when a new prompt, per-target animation beat, partial-failure recovery requirement, or shared modifier context makes the extra checkpoint useful.
+
 ### Guardrail
 
 `GPT/test_action_pipeline_contract.py` now prevents default effect handlers from reopening purchase, score-token placement, or trick tile-target prompts inline. New runtime purchase/token/trick-target decisions should be represented as queued request/resolve actions.
+
+The same contract file also inventories every production `GameEngine._request_decision()` call by Redis continuation boundary type, including calls made from `effect_handlers.py`. This keeps new human prompts from appearing in engine/effect code without an explicit review of whether they belong at a turn boundary, round setup boundary, queued action boundary, atomic effect boundary, or legacy compatibility boundary.
 
 ### 2026-04-30 Trick Tile Rent Modifier Action
 

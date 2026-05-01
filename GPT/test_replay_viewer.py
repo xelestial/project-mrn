@@ -54,6 +54,12 @@ def test_projection_basic(events: list[dict]) -> list[str]:
     elif "remaining_dice_cards" not in players[0]:
         errors.append("session_start missing remaining_dice_cards")
 
+    snapshot = session_start.get("snapshot")
+    board = snapshot.get("board") if isinstance(snapshot, dict) else None
+    tiles = board.get("tiles") if isinstance(board, dict) else None
+    if not isinstance(tiles, list) or len(tiles) != 40:
+        errors.append("session_start missing initial board snapshot")
+
     if not proj.turns:
         errors.append("No turns produced")
         return errors

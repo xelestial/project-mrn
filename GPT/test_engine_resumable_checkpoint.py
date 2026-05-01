@@ -363,7 +363,8 @@ def test_fortune_land_thief_produces_decision_action() -> None:
             return request.args[0][0]
 
     config = GameConfig(player_count=2)
-    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=PickFirstDecisionPort(), rng=random.Random(24))
+    stream = VisEventStream()
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=PickFirstDecisionPort(), rng=random.Random(24), event_stream=stream)
     state = GameState.create(config)
     player = state.players[0]
     owner = state.players[1]
@@ -384,6 +385,16 @@ def test_fortune_land_thief_produces_decision_action() -> None:
     assert state.tile_owner[target] == player.player_id
     assert player.tiles_owned == 1
     assert owner.tiles_owned == 0
+    result_events = [event for event in stream.events if event.event_type == "fortune_resolved" and event.payload.get("action_result")]
+    assert result_events[-1].payload["resolution"]["type"] == "STEAL_TILE"
+    assert result_events[-1].payload["resolution"]["transfer"] == {
+        "pos": target,
+        "from": owner.player_id + 1,
+        "to": player.player_id + 1,
+        "coins": 0,
+        "changed": True,
+    }
+    assert result_events[-1].payload["summary"] == f"땅 도둑: P1이 P2의 {target + 1}번 칸을 가져감"
 
 
 def test_fortune_donation_angel_produces_decision_action() -> None:

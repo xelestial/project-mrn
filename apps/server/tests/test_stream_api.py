@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import unittest
 
 from apps.server.src.routes.stream import _filter_stream_message
@@ -140,6 +141,71 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(replayed_seqs, [2, 3])
         self.assertIn("server_time_ms", gap_errors[0])
         self.assertEqual(gap_errors[0].get("payload", {}).get("category"), "transport")
+
+    def test_heartbeat_does_not_run_prompt_timeout_worker(self) -> None:
+        from apps.server.src import state
+
+        calls: list[str | None] = []
+
+        class CountingTimeoutWorker:
+            async def run_once(self, session_id: str | None = None) -> list[dict]:
+                calls.append(session_id)
+                return []
+
+        state.prompt_timeout_worker = CountingTimeoutWorker()  # type: ignore[assignment]
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 7, "visibility": "public"})
+
+        path = f"/api/v1/sessions/{session.session_id}/stream"
+        with self.client.websocket_connect(path) as ws:
+            heartbeat = ws.receive_json()
+
+        self.assertEqual(heartbeat.get("type"), "heartbeat")
+        self.assertEqual(calls, [])
+
+    def test_resume_projects_only_latest_replayed_message(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 303, "visibility": "public"})
+
+        async def _seed() -> None:
+            for n in range(1, 9):
+                await state.stream_service.publish(
+                    session.session_id,
+                    "event",
+                    {"event_type": "round_start", "round_index": n},
+                )
+
+        asyncio.run(_seed())
+
+        projected_seqs: list[int] = []
+        original_project = state.stream_service.project_message_for_viewer
+
+        async def _count_project(message: dict, viewer: object) -> dict | None:
+            projected_seqs.append(int(message.get("seq", 0)))
+            return await original_project(message, viewer)  # type: ignore[arg-type]
+
+        state.stream_service.project_message_for_viewer = _count_project  # type: ignore[method-assign]
+        try:
+            path = f"/api/v1/sessions/{session.session_id}/stream"
+            with self.client.websocket_connect(path) as ws:
+                ws.send_json({"type": "resume", "last_seq": 0})
+                seen: list[int] = []
+                latest_payload: dict | None = None
+                for _ in range(20):
+                    msg = ws.receive_json()
+                    if msg.get("type") != "event":
+                        continue
+                    seen.append(int(msg.get("seq", 0)))
+                    latest_payload = msg.get("payload") if msg.get("seq") == 8 else latest_payload
+                    if seen == list(range(1, 9)):
+                        break
+        finally:
+            state.stream_service.project_message_for_viewer = original_project  # type: ignore[method-assign]
+
+        self.assertEqual(seen, list(range(1, 9)))
+        self.assertEqual(projected_seqs, [8])
+        self.assertIsInstance(latest_payload, dict)
+        self.assertIn("view_state", latest_payload or {})
 
     def test_spectator_decision_is_rejected_with_unauthorized_seat(self) -> None:
         from apps.server.src import state
@@ -390,6 +456,8 @@ class StreamApiTests(unittest.TestCase):
         resolved_seq: int | None = None
         timeout_seq: int | None = None
         with self.client.websocket_connect(path) as ws:
+            time.sleep(0.01)
+            asyncio.run(state.prompt_timeout_worker.run_once(session_id=session.session_id))
             for _ in range(40):
                 msg = ws.receive_json()
                 if msg.get("type") != "event":

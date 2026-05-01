@@ -4278,6 +4278,49 @@ describe("streamSelectors", () => {
     expect(stage.progressTrail.at(-1)).toBe("게임 종료");
   });
 
+  it("keeps trick and game end in current-turn reveal items when backend projection is absent", () => {
+    const items = selectCurrentTurnRevealItems([
+      {
+        type: "event",
+        seq: 920,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 3,
+          turn_index: 8,
+          acting_player_id: 4,
+        },
+      },
+      {
+        type: "event",
+        seq: 921,
+        session_id: "s1",
+        payload: {
+          event_type: "trick_used",
+          round_index: 3,
+          turn_index: 8,
+          acting_player_id: 4,
+          card_name: "거대한 산불",
+          summary: "종료를 1칸 당깁니다.",
+        },
+      },
+      {
+        type: "event",
+        seq: 922,
+        session_id: "s1",
+        payload: {
+          event_type: "game_end",
+          round_index: 3,
+          turn_index: 8,
+          winner_player_id: 4,
+        },
+      },
+    ]);
+
+    expect(items.map((item) => item.eventCode)).toEqual(["trick_used", "game_end"]);
+    expect(items.every((item) => item.isInterrupt)).toBe(true);
+  });
+
   it("clears the current actor when the backend turn stage says the game ended", () => {
     const actorPlayerId = selectCurrentActorPlayerId([
       {

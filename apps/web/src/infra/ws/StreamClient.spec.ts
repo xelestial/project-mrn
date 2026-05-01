@@ -100,6 +100,19 @@ describe("StreamClient", () => {
     expect(JSON.parse(second.sent[0])).toEqual({ type: "resume", last_seq: 4 });
   });
 
+  it("does not open a duplicate socket for the same active connection", () => {
+    const client = new StreamClient();
+    client.connect({ sessionId: "sess_same", token: "seat-token", onOpenResumeSeq: 4 });
+    client.connect({ sessionId: "sess_same", token: "seat-token", onOpenResumeSeq: 9 });
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    const socket = MockWebSocket.instances[0];
+    socket.triggerOpen();
+    expect(socket.sent).toHaveLength(1);
+    expect(JSON.parse(socket.sent[0])).toEqual({ type: "resume", last_seq: 4 });
+  });
+
   it("does not reconnect after explicit disconnect", () => {
     vi.useFakeTimers();
     vi.spyOn(Math, "random").mockReturnValue(0);

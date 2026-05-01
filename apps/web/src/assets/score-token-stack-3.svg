@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 72" role="img" aria-label="score token stack 3">
+  <defs>
+    <linearGradient id="coinTop" x1="18" y1="6" x2="79" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff7c7"/>
+      <stop offset="0.5" stop-color="#efbd38"/>
+      <stop offset="1" stop-color="#9b5313"/>
+    </linearGradient>
+    <linearGradient id="coinSide" x1="18" y1="22" x2="80" y2="70" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#e39622"/>
+      <stop offset="1" stop-color="#70350d"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-25%" width="140%" height="155%">
+      <feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#071225" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <path d="M16 46c0 10 14 18 32 18s32-8 32-18v6c0 10-14 18-32 18s-32-8-32-18v-6Z" fill="url(#coinSide)"/>
+    <ellipse cx="48" cy="46" rx="32" ry="18" fill="url(#coinTop)" stroke="#e8b944" stroke-width="2"/>
+    <path d="M19 36c0 10 13 18 30 18s30-8 30-18v6c0 10-13 18-30 18s-30-8-30-18v-6Z" fill="url(#coinSide)"/>
+    <ellipse cx="49" cy="36" rx="30" ry="18" fill="url(#coinTop)" stroke="#f5d05c" stroke-width="2"/>
+    <path d="M23 26c0 11 12 19 27 19s27-8 27-19v7c0 11-12 19-27 19s-27-8-27-19v-7Z" fill="url(#coinSide)"/>
+    <ellipse cx="50" cy="26" rx="27" ry="19" fill="url(#coinTop)" stroke="#fff0a3" stroke-width="3"/>
+    <ellipse cx="50" cy="26" rx="18" ry="12" fill="none" stroke="#8f4c13" stroke-opacity="0.45" stroke-width="2.5"/>
+    <path d="M50 14l4 8 9 1-7 6 2 9-8-4-8 4 2-9-7-6 9-1 4-8Z" fill="#fff8cf" stroke="#9f5a17" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M32 31c8 7 27 8 37-2" fill="none" stroke="#fff4b8" stroke-opacity="0.52" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>

@@ -9,12 +9,23 @@ export class StreamClient {
   private reconnectAttempt = 0;
   private closedByUser = false;
   private lastConnectParams: { sessionId: string; token?: string; onOpenResumeSeq?: number; baseUrl?: string } | null = null;
+  private connectionKey = "";
 
   connect(params: { sessionId: string; token?: string; onOpenResumeSeq?: number; baseUrl?: string }): void {
     this.closedByUser = false;
     this.lastConnectParams = params;
     this.baseUrl = params.baseUrl ?? this.baseUrl;
     this.clearReconnectTimer();
+    const tokenQuery = params.token ? `?token=${encodeURIComponent(params.token)}` : "";
+    const url = this.buildSocketUrl(params.sessionId, tokenQuery);
+    const nextConnectionKey = `${params.sessionId}\n${params.token ?? ""}\n${this.baseUrl}`;
+    if (
+      this.socket &&
+      this.connectionKey === nextConnectionKey &&
+      (this.socket.readyState === WebSocket.CONNECTING || this.socket.readyState === WebSocket.OPEN)
+    ) {
+      return;
+    }
     if (this.socket) {
       this.socket.onclose = null;
       this.socket.onerror = null;
@@ -23,11 +34,14 @@ export class StreamClient {
       this.socket = null;
     }
     this.emitStatus("connecting");
-    const tokenQuery = params.token ? `?token=${encodeURIComponent(params.token)}` : "";
-    const url = this.buildSocketUrl(params.sessionId, tokenQuery);
-    this.socket = new WebSocket(url);
+    const socket = new WebSocket(url);
+    this.socket = socket;
+    this.connectionKey = nextConnectionKey;
 
-    this.socket.onopen = () => {
+    socket.onopen = () => {
+      if (this.socket !== socket) {
+        return;
+      }
       this.reconnectAttempt = 0;
       this.emitStatus("connected");
       if (typeof params.onOpenResumeSeq === "number" && params.onOpenResumeSeq >= 0) {
@@ -35,15 +49,26 @@ export class StreamClient {
       }
     };
 
-    this.socket.onclose = () => {
+    socket.onclose = () => {
+      if (this.socket !== socket) {
+        return;
+      }
       this.emitStatus("disconnected");
       this.socket = null;
+      this.connectionKey = "";
       if (!this.closedByUser) {
         this.scheduleReconnect();
       }
     };
-    this.socket.onerror = () => this.emitStatus("error");
-    this.socket.onmessage = (event) => {
+    socket.onerror = () => {
+      if (this.socket === socket) {
+        this.emitStatus("error");
+      }
+    };
+    socket.onmessage = (event) => {
+      if (this.socket !== socket) {
+        return;
+      }
       try {
         const parsed = JSON.parse(String(event.data)) as InboundMessage;
         this.onMessageHandlers.forEach((handler) => handler(parsed));
@@ -61,6 +86,7 @@ export class StreamClient {
       this.socket.close();
       this.socket = null;
     }
+    this.connectionKey = "";
     this.reconnectAttempt = 0;
   }
 

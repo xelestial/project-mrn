@@ -8,7 +8,11 @@ import type {
 } from "../../domain/selectors/streamSelectors";
 import { useI18n } from "../../i18n/useI18n";
 import pawnPieceUrl from "../../assets/pawn-piece.svg";
-import { characterSpritesForPlayer } from "../../domain/characters/characterSprites";
+import scoreTokenStack1Url from "../../assets/score-token-stack-1.svg";
+import scoreTokenStack2Url from "../../assets/score-token-stack-2.svg";
+import scoreTokenStack3Url from "../../assets/score-token-stack-3.svg";
+import { characterSpriteSetForPlayer } from "../../domain/characters/characterSprites";
+import type { CharacterSpriteSet, CharacterWalkSprite } from "../../domain/characters/characterSprites";
 import { usePawnAnimation } from "./usePawnAnimation";
 import {
   DEFAULT_RING_TILE_COUNT,
@@ -123,15 +127,47 @@ function playerColor(playerId: number): string {
   return palette[(Math.max(1, playerId) - 1) % palette.length];
 }
 
-const PLAYER_SPRITES: Record<number, Record<QuarterviewFacing, string>> = {
-  1: characterSpritesForPlayer(1),
-  2: characterSpritesForPlayer(2),
-  3: characterSpritesForPlayer(3),
-  4: characterSpritesForPlayer(4),
+const SCORE_TOKEN_STACK_URLS = [scoreTokenStack1Url, scoreTokenStack2Url, scoreTokenStack3Url] as const;
+
+function normalizedScoreTokenCount(scoreCoinCount: number): number {
+  return Number.isFinite(scoreCoinCount) ? Math.max(1, Math.trunc(scoreCoinCount)) : 1;
+}
+
+function scoreTokenStackUrl(scoreCoinCount: number): string {
+  const stackIndex = Math.min(3, normalizedScoreTokenCount(scoreCoinCount)) - 1;
+  return SCORE_TOKEN_STACK_URLS[stackIndex];
+}
+
+function renderScoreToken(scoreCoinCount: number, className: string, label: string): ReactNode {
+  const normalizedCount = normalizedScoreTokenCount(scoreCoinCount);
+  const stackCount = Math.min(3, normalizedCount);
+  return (
+    <span
+      className={`score-token score-token-stack-${stackCount} ${className}`}
+      data-score-count={normalizedCount}
+      aria-label={label}
+      title={label}
+    >
+      <img src={scoreTokenStackUrl(normalizedCount)} alt="" draggable={false} />
+      <span className="score-token-count">{normalizedCount}</span>
+    </span>
+  );
+}
+
+const PLAYER_SPRITE_SETS: Record<number, CharacterSpriteSet> = {
+  1: characterSpriteSetForPlayer(1),
+  2: characterSpriteSetForPlayer(2),
+  3: characterSpriteSetForPlayer(3),
+  4: characterSpriteSetForPlayer(4),
 };
+const BOARD_STANDEE_WALK_STEP_MS = 260;
 
 function playerSpriteUrl(playerId: number, facing: QuarterviewFacing): string | null {
-  return PLAYER_SPRITES[playerId]?.[facing] ?? null;
+  return PLAYER_SPRITE_SETS[playerId]?.sprites[facing] ?? null;
+}
+
+function playerWalkSprite(playerId: number, facing: QuarterviewFacing): CharacterWalkSprite | null {
+  return PLAYER_SPRITE_SETS[playerId]?.walkSprites?.[facing] ?? null;
 }
 
 function standeeBoardInwardOffset(position: Pick<QuarterviewPosition, "xPercent" | "yPercent" | "lane">): { x: number; y: number } {
@@ -461,6 +497,7 @@ export function BoardPanel({
       const facing = isAnimating
         ? quarterviewFacingForTileStep(animPreviousTileIndex, facingTileIndex, tiles.length, normalizedTopology)
         : quarterviewIdleFacingForPosition(position);
+      const walkSprite = isAnimating ? playerWalkSprite(player.playerId, facing) : null;
       standeePlayerIds.add(player.playerId);
       return {
         playerId: player.playerId,
@@ -470,6 +507,8 @@ export function BoardPanel({
         position,
         facing,
         assetUrl: playerSpriteUrl(player.playerId, facing),
+        walkSprite,
+        walkFrameDelayMs: walkSprite ? -Math.max(0, animStepIndex) * BOARD_STANDEE_WALK_STEP_MS : 0,
         isAnimating,
       };
     });
@@ -570,32 +609,37 @@ export function BoardPanel({
           height={100}
           transform={svgMatrix(polygon.contentTransform)}
         >
-        {isSpecial ? (
-          <div className="board-projected-special">
-            <span className="board-projected-special-icon" aria-hidden="true">
-              {tileLandmarkGlyph(tile.tileKind)}
-            </span>
-            <strong>{kindLabel}</strong>
-            <small>#{tile.tileIndex + 1}</small>
-          </div>
-        ) : (
-          <div className="board-projected-content">
-            <div className="board-projected-zone">
-              <span className="board-projected-index">{tile.tileIndex + 1}</span>
-              <strong>{kindLabel}</strong>
-            </div>
-            <div className="board-projected-main">
-              <span className="board-projected-cost">{costLabel(tile.purchaseCost, tile.rentCost, board)}</span>
-              <span className={`board-projected-owner ${ownerPlayerId === null ? "board-projected-owner-empty" : ""}`}>
-                {ownerPlayerId === null ? board.ownerNone : board.owner(ownerPlayerId)}
+          {isSpecial ? (
+            <div className="board-projected-special">
+              <span className="board-projected-special-icon" aria-hidden="true">
+                {tileLandmarkGlyph(tile.tileKind)}
               </span>
-              {tile.scoreCoinCount > 0 ? <span className="board-projected-score">{board.scoreCoins(tile.scoreCoinCount)}</span> : null}
+              <strong>{kindLabel}</strong>
+              <small>#{tile.tileIndex + 1}</small>
+              {tile.scoreCoinCount > 0
+                ? renderScoreToken(tile.scoreCoinCount, "board-projected-score-token", board.scoreCoins(tile.scoreCoinCount))
+                : null}
             </div>
-            <div className={`board-projected-stamp ${hasOwner ? "" : "board-projected-stamp-empty"}`}>
-              <span>{hasOwner ? `P${ownerPlayerId}` : ""}</span>
+          ) : (
+            <div className="board-projected-content">
+              <div className="board-projected-zone">
+                <span className="board-projected-index">{tile.tileIndex + 1}</span>
+                <strong>{kindLabel}</strong>
+              </div>
+              <div className="board-projected-main">
+                <span className="board-projected-cost">{costLabel(tile.purchaseCost, tile.rentCost, board)}</span>
+                <span className={`board-projected-owner ${ownerPlayerId === null ? "board-projected-owner-empty" : ""}`}>
+                  {ownerPlayerId === null ? board.ownerNone : board.owner(ownerPlayerId)}
+                </span>
+              </div>
+              <div className={`board-projected-stamp ${hasOwner ? "" : "board-projected-stamp-empty"}`}>
+                <span>{hasOwner ? `P${ownerPlayerId}` : ""}</span>
+              </div>
+              {tile.scoreCoinCount > 0
+                ? renderScoreToken(tile.scoreCoinCount, "board-projected-score-token", board.scoreCoins(tile.scoreCoinCount))
+                : null}
             </div>
-          </div>
-        )}
+          )}
         </foreignObject>
         {pathStep !== null ? (
           <text className="board-projected-path-step" x={polygon.centerX + polygon.bboxWidth * 0.23} y={polygon.centerY + polygon.bboxHeight * 0.2}>
@@ -841,6 +885,9 @@ export function BoardPanel({
                     {stageFocus.currentBeatDetail !== "-" ? <small>{stageFocus.currentBeatDetail}</small> : null}
                   </div>
                 ) : null}
+                {tile.scoreCoinCount > 0
+                  ? renderScoreToken(tile.scoreCoinCount, "tile-score-token", board.scoreCoins(tile.scoreCoinCount))
+                  : null}
                 <div className="tile-content">
                   <div className="tile-zone-strip" style={{ backgroundColor: zoneColorToCss(tile.zoneColor ?? "", board) }} />
                   {hasOwner || useQuarterview ? (
@@ -879,7 +926,6 @@ export function BoardPanel({
                       <small className={`tile-owner-badge ${ownerPlayerId === null ? "tile-owner-badge-empty" : ""}`}>
                         {ownerPlayerId === null ? board.ownerNone : board.owner(ownerPlayerId)}
                       </small>
-                      {tile.scoreCoinCount > 0 ? <small className="tile-score-badge">{board.scoreCoins(tile.scoreCoinCount)}</small> : null}
                     </div>
                     <div className="pawn-chips">
                       {tilePawns.filter((id) => !useQuarterview || !standeePlayerIds.has(id)).length > 0 ? (
@@ -930,6 +976,10 @@ export function BoardPanel({
                   "--board-standee-color": playerColor(placement.playerId),
                   "--board-standee-offset-x": `${tileMateOffsets.x + inwardOffset.x}px`,
                   "--board-standee-offset-y": `${tileMateOffsets.y + inwardOffset.y}px`,
+                  "--board-standee-walk-duration": placement.walkSprite
+                    ? `${(placement.walkSprite.frameCount - 1) * placement.walkSprite.frameStepMs}ms`
+                    : undefined,
+                  "--board-standee-walk-delay": placement.walkSprite ? `${placement.walkFrameDelayMs}ms` : undefined,
                 } as CSSProperties;
                 return (
                   <div
@@ -941,7 +991,14 @@ export function BoardPanel({
                     style={style}
                     title={`P${placement.playerId} ${placement.character}`}
                   >
-                    {placement.assetUrl ? (
+                    {placement.walkSprite ? (
+                      <span
+                        className="board-character-standee-walk-viewport"
+                        style={{ aspectRatio: `${placement.walkSprite.frameWidth} / ${placement.walkSprite.frameHeight}` }}
+                      >
+                        <img className="board-character-standee-walk-sheet" src={placement.walkSprite.url} alt="" draggable={false} />
+                      </span>
+                    ) : placement.assetUrl ? (
                       <img src={placement.assetUrl} alt="" draggable={false} />
                     ) : (
                       <span className="board-character-standee-fallback">P{placement.playerId}</span>

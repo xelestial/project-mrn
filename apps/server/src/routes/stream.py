@@ -20,6 +20,41 @@ def _filter_stream_message(message: dict[str, Any], auth_ctx: dict[str, Any]) ->
     return project_stream_message_for_viewer(message, viewer_from_auth_context(auth_ctx))
 
 
+def _strip_view_state(message: dict[str, Any]) -> dict[str, Any]:
+    payload = message.get("payload")
+    if isinstance(payload, dict):
+        payload.pop("view_state", None)
+    return message
+
+
+async def _project_replay_messages(
+    stream_service: Any,
+    replay_items: list[Any],
+    *,
+    viewer: Any,
+    auth_ctx: dict[str, Any],
+) -> list[dict[str, Any]]:
+    visible: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for item in replay_items:
+        raw = item.to_dict()
+        filtered = _filter_stream_message(raw, auth_ctx)
+        if filtered is not None:
+            visible.append((raw, _strip_view_state(filtered)))
+
+    if not visible:
+        return []
+
+    latest_raw, _ = visible[-1]
+    latest_projected = await stream_service.project_message_for_viewer(latest_raw, viewer)
+    projected: list[dict[str, Any]] = []
+    for index, (_, filtered) in enumerate(visible):
+        if index == len(visible) - 1 and latest_projected is not None:
+            projected.append(latest_projected)
+        else:
+            projected.append(filtered)
+    return projected
+
+
 @router.get("/{session_id}/stream-capability")
 def stream_capability(session_id: str) -> dict:
     """Temporary probe endpoint for B1 baseline.
@@ -42,7 +77,6 @@ def stream_capability(session_id: str) -> dict:
 async def stream_ws(websocket: WebSocket, session_id: str) -> None:
     from apps.server.src.state import (
         prompt_service,
-        prompt_timeout_worker,
         runtime_service,
         runtime_settings,
         session_service,
@@ -129,16 +163,6 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
         while not stop_event.is_set():
             latest = await stream_service.latest_seq(session_id)
             pressure = await stream_service.backpressure_stats(session_id)
-            timed_out = await prompt_timeout_worker.run_once(session_id=session_id)
-            for timeout_result in timed_out:
-                log_event(
-                    "decision_timeout_fallback",
-                    session_id=session_id,
-                    request_id=timeout_result.get("request_id"),
-                    player_id=timeout_result.get("player_id"),
-                    fallback_policy="timeout_fallback",
-                    fallback_status="executed",
-                )
             await websocket.send_json(
                 {
                     "type": "heartbeat",
@@ -193,10 +217,13 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                     )
                     last_seq = oldest_seq - 1
                 replay = await stream_service.replay_from(session_id, last_seq)
-                for item in replay:
-                    filtered = await stream_service.project_message_for_viewer(item.to_dict(), viewer)
-                    if filtered is not None:
-                        await websocket.send_json(filtered)
+                for filtered in await _project_replay_messages(
+                    stream_service,
+                    replay,
+                    viewer=viewer,
+                    auth_ctx=auth_ctx,
+                ):
+                    await websocket.send_json(filtered)
                 log_event(
                     "stream_resume",
                     session_id=session_id,

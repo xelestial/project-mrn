@@ -22,4 +22,16 @@ describe("character sprite roster", () => {
     expect(minseo.sprites["back-right"]).toContain("back-right.png");
     expect(minseo.sprites["back-left"]).toContain("back-left.png");
   });
+
+  it("adds the 10-frame walking sheets only to Minseo", () => {
+    const minseo = characterSpriteSetForPlayer(1);
+
+    expect(Object.keys(minseo.walkSprites ?? {}).sort()).toEqual(["back-left", "back-right", "front-left", "front-right"]);
+    expect(minseo.walkSprites?.["front-right"]?.url).toContain("walk-front-right-videoref-10f.png");
+    expect(minseo.walkSprites?.["front-right"]?.frameCount).toBe(10);
+    expect(minseo.walkSprites?.["front-right"]?.frameWidth).toBe(180);
+    expect(minseo.walkSprites?.["front-right"]?.frameHeight).toBe(270);
+    expect(minseo.walkSprites?.["front-right"]?.frameStepMs).toBe(160);
+    expect(characterSpriteSetForPlayer(2).walkSprites).toBeUndefined();
+  });
 });

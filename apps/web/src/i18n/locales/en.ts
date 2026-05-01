@@ -774,7 +774,7 @@ export const enLocale = {
       currentPlacedCoins: "Placed points",
       currentTotalScore: "Total score",
       ownedTiles: "Owned tiles",
-      rewardBudget: "Reward budget",
+      rewardBudget: "Required reward budget",
       rewardPools: "Reward pool",
       draftPhase: "Draft phase",
       targetTiles: "Target tiles",
@@ -842,7 +842,7 @@ export const enLocale = {
         if (cash > 0) parts.push(`Cash +${cash}`);
         if (shards > 0) parts.push(`Shards +${shards}`);
         if (coins > 0) parts.push(`Points +${coins}`);
-        if (spent !== null && budget !== null) parts.push(`Budget ${spent}/${budget}`);
+        if (spent !== null && budget !== null) parts.push(`Required ${spent}/${budget}`);
         return parts.join(" / ");
       },
       buyTileTitle: "Buy tile",

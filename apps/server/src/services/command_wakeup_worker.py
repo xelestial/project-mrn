@@ -24,6 +24,7 @@ class CommandStreamWakeupWorker:
         self._last_processed_seq: dict[str, int] = {}
 
     async def run_once(self, *, session_id: str | None = None) -> list[dict]:
+        self._refresh_sessions()
         session_ids = [session_id] if session_id else self._active_session_ids()
         wakeups: list[dict] = []
         for current_session_id in session_ids:
@@ -73,9 +74,16 @@ class CommandStreamWakeupWorker:
     def _active_session_ids(self) -> list[str]:
         result: list[str] = []
         for session in self._session_service.list_sessions():
-            if getattr(getattr(session, "status", None), "value", "") == "in_progress":
+            status = getattr(session, "status", "")
+            status_value = getattr(status, "value", status)
+            if str(status_value) == "in_progress":
                 result.append(str(session.session_id))
         return result
+
+    def _refresh_sessions(self) -> None:
+        refresh = getattr(self._session_service, "refresh_from_store", None)
+        if callable(refresh):
+            refresh()
 
     async def _start_runtime(self, session_id: str) -> None:
         session = self._session_service.get_session(session_id)
@@ -87,6 +95,7 @@ class CommandStreamWakeupWorker:
         )
 
     async def _process_or_start_runtime(self, session_id: str, seq: int) -> bool:
+        self._refresh_sessions()
         if callable(getattr(self._runtime_service, "process_command_once", None)):
             session = self._session_service.get_session(session_id)
             runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))

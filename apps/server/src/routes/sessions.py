@@ -77,6 +77,72 @@ def _initial_active_by_card(session) -> dict[int, str]:
     return dict(config.characters.starting_active_by_card)
 
 
+def _initial_public_snapshot(session, active_by_card: dict[int, str]) -> dict:
+    manifest = session.parameter_manifest if isinstance(session.parameter_manifest, dict) else {}
+    economy = manifest.get("economy") if isinstance(manifest.get("economy"), dict) else {}
+    resources = manifest.get("resources") if isinstance(manifest.get("resources"), dict) else {}
+    board = manifest.get("board") if isinstance(manifest.get("board"), dict) else {}
+    raw_tiles = board.get("tiles") if isinstance(board.get("tiles"), list) else []
+    player_ids = [
+        seat.player_id if isinstance(seat.player_id, int) else index + 1
+        for index, seat in enumerate(session.seats)
+    ]
+    starting_cash = economy.get("starting_cash", 0)
+    starting_shards = resources.get("starting_shards", 0)
+    dice = manifest.get("dice") if isinstance(manifest.get("dice"), dict) else {}
+    players = [
+        {
+            "player_id": player_id,
+            "seat": seat.seat,
+            "display_name": seat.display_name or f"Player {player_id}",
+            "alive": True,
+            "character": "",
+            "position": 0,
+            "cash": starting_cash if isinstance(starting_cash, int) else 0,
+            "shards": starting_shards if isinstance(starting_shards, int) else 0,
+            "hand_score_coins": 0,
+            "placed_score_coins": 0,
+            "owned_tile_count": 0,
+            "owned_tile_indices": [],
+            "public_tricks": [],
+            "hidden_trick_count": 0,
+            "mark_status": "clear",
+            "pending_mark_source": None,
+            "public_effects": [],
+            "burden_summary": [],
+            "remaining_dice_cards": list(dice.get("values") or []),
+        }
+        for player_id, seat in zip(player_ids, session.seats)
+    ]
+    tiles = [
+        {
+            "tile_index": tile.get("tile_index", fallback_index) if isinstance(tile, dict) else fallback_index,
+            "tile_kind": tile.get("tile_kind", "") if isinstance(tile, dict) else "",
+            "block_id": tile.get("block_id", -1) if isinstance(tile, dict) else -1,
+            "zone_color": tile.get("zone_color") if isinstance(tile, dict) else None,
+            "purchase_cost": tile.get("purchase_cost") if isinstance(tile, dict) else None,
+            "rent_cost": tile.get("rent_cost") if isinstance(tile, dict) else None,
+            "owner_player_id": None,
+            "score_coin_count": 0,
+            "pawn_player_ids": list(player_ids)
+            if (tile.get("tile_index", fallback_index) if isinstance(tile, dict) else fallback_index) == 0
+            else [],
+        }
+        for fallback_index, tile in enumerate(raw_tiles)
+    ]
+    return {
+        "players": players,
+        "board": {
+            "tiles": tiles,
+            "f_value": 0,
+            "marker_owner_player_id": player_ids[0] if player_ids else None,
+            "round_index": session.round_index + 1,
+            "turn_index": session.turn_index + 1,
+        },
+        "active_by_card": dict(active_by_card),
+    }
+
+
 def _error(code: str, message: str, http_status: int = status.HTTP_400_BAD_REQUEST) -> None:
     raise HTTPException(
         status_code=http_status,
@@ -196,6 +262,7 @@ async def start_session(
         _error("SESSION_NOT_FOUND", "Session not found.", status.HTTP_404_NOT_FOUND)
     except SessionStateError as exc:
         _error("INVALID_STATE_TRANSITION", str(exc))
+    active_by_card = _initial_active_by_card(session)
     await stream.publish(
         session_id,
         "event",
@@ -216,7 +283,8 @@ async def start_session(
                 }
                 for seat in session.seats
             ],
-            "active_by_card": _initial_active_by_card(session),
+            "active_by_card": active_by_card,
+            "snapshot": _initial_public_snapshot(session, active_by_card),
             "manifest_hash": session.parameter_manifest.get("manifest_hash"),
         },
     )

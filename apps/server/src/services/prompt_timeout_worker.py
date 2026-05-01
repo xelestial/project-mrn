@@ -31,6 +31,14 @@ class PromptTimeoutWorker:
                 fallback_policy=fallback_policy,
                 prompt_payload=prompt_payload,
             )
+            choice_id = str(fallback_result.get("choice_id") or "timeout_fallback")
+            record_decision = getattr(self._prompt_service, "record_timeout_fallback_decision", None)
+            if callable(record_decision):
+                record_decision(
+                    pending,
+                    choice_id=choice_id,
+                    submitted_at_ms=int(fallback_result.get("executed_at_ms") or 0) or None,
+                )
             await self._stream_service.publish(
                 pending.session_id,
                 "decision_ack",
@@ -50,7 +58,7 @@ class PromptTimeoutWorker:
                     player_id=pending.player_id,
                     request_type=str(prompt_payload.get("request_type") or ""),
                     resolution="timeout_fallback",
-                    choice_id=fallback_result.get("choice_id"),
+                    choice_id=choice_id,
                     provider="human",
                     round_index=public_context.get("round_index"),
                     turn_index=public_context.get("turn_index"),
@@ -65,7 +73,7 @@ class PromptTimeoutWorker:
                     request_type=str(prompt_payload.get("request_type") or ""),
                     fallback_policy=fallback_policy,
                     fallback_execution=fallback_result.get("status"),
-                    fallback_choice_id=fallback_result.get("choice_id"),
+                    fallback_choice_id=choice_id,
                     provider="human",
                     round_index=public_context.get("round_index"),
                     turn_index=public_context.get("turn_index"),
@@ -76,7 +84,7 @@ class PromptTimeoutWorker:
                     "session_id": pending.session_id,
                     "request_id": pending.request_id,
                     "player_id": pending.player_id,
-                    "fallback_choice_id": fallback_result.get("choice_id"),
+                    "fallback_choice_id": choice_id,
                 }
             )
         return results

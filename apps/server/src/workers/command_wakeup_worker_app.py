@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 from typing import Sequence
 
 from apps.server.src.infra.structured_log import log_event
@@ -21,6 +22,7 @@ async def run_from_state(
     session_id: str | None = None,
     max_iterations: int | None = None,
 ) -> dict[str, int]:
+    os.environ.setdefault("MRN_RESTART_RECOVERY_POLICY", "keep")
     from apps.server.src import state
 
     if state.redis_connection is None or state.command_wakeup_worker is None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from apps.server.src.services.session_service import SessionService, SessionStateError
+from apps.server.src.services.session_service import SessionNotFoundError, SessionService, SessionStateError
 
 
 def _default_seats() -> list[dict]:
@@ -213,6 +213,42 @@ class SessionServiceTests(unittest.TestCase):
                     {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
                 ]
             )
+
+    def test_store_backed_get_session_refreshes_deleted_sessions_from_store(self) -> None:
+        store = _MemorySessionStore()
+        owner = SessionService(session_store=store)
+        session = owner.create_session(_all_ai_seats())
+        stale_reader = SessionService(session_store=store)
+
+        self.assertEqual(stale_reader.get_session(session.session_id).session_id, session.session_id)
+
+        owner.delete_session(session.session_id)
+
+        with self.assertRaises(SessionNotFoundError):
+            stale_reader.get_session(session.session_id)
+
+    def test_store_backed_create_session_does_not_resurrect_deleted_cached_sessions(self) -> None:
+        store = _MemorySessionStore()
+        owner = SessionService(session_store=store)
+        deleted = owner.create_session(_all_ai_seats())
+        stale_creator = SessionService(session_store=store)
+
+        owner.delete_session(deleted.session_id)
+        created = stale_creator.create_session(_all_ai_seats())
+
+        persisted_ids = {payload["session_id"] for payload in store.load_sessions()}
+        self.assertEqual(persisted_ids, {created.session_id})
+
+
+class _MemorySessionStore:
+    def __init__(self) -> None:
+        self.sessions: list[dict] = []
+
+    def load_sessions(self) -> list[dict]:
+        return [dict(session) for session in self.sessions]
+
+    def save_sessions(self, sessions: list[dict]) -> None:
+        self.sessions = [dict(session) for session in sessions]
 
 
 if __name__ == "__main__":

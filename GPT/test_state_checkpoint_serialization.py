@@ -6,6 +6,24 @@ from config import GameConfig
 from state import ActionEnvelope, GameState
 
 
+def test_player_hidden_trick_count_requires_matching_hidden_card() -> None:
+    state = GameState.create(GameConfig(player_count=2))
+    player = state.players[0]
+    player.trick_hand = [state.trick_draw_pile.pop(0), state.trick_draw_pile.pop(0)]
+
+    player.hidden_trick_deck_index = None
+    assert player.hidden_trick_count() == 0
+    assert len(player.public_trick_names()) == 2
+
+    player.hidden_trick_deck_index = 999999
+    assert player.hidden_trick_count() == 0
+    assert len(player.public_trick_names()) == 2
+
+    player.hidden_trick_deck_index = player.trick_hand[0].deck_index
+    assert player.hidden_trick_count() == 1
+    assert len(player.public_trick_names()) == 1
+
+
 def test_game_state_checkpoint_payload_round_trips_runtime_state() -> None:
     config = GameConfig(player_count=3)
     state = GameState.create(config)

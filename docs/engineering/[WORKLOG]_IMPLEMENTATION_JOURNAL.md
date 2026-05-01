@@ -199,6 +199,94 @@ Updated: 2026-04-30
 - Follow-up:
   - keep admin-only auth in this shared dependency when adding future operator endpoints
 
+## 2026-04-30 Redis UI Playtest Findings
+
+- Scope: validate the Redis-backed gameplay migration through the actual browser screen, not only API or fast-check rule tests.
+- Evidence:
+  - added `docs/engineering/[REPORT]_REDIS_UI_PLAYTEST_FINDINGS_2026-04-30.md`
+  - local health confirmed Redis-backed `sessions`, `rooms`, and `streams`
+  - browser lobby and match screens rendered successfully with no console warnings/errors in the captured run
+  - P1 draft decision was accepted through the UI
+- Findings:
+  - P1 `Do not use a trick` was accepted but looped back into repeated `trick_to_use` prompts instead of advancing to movement
+  - match-screen runtime-status polling omitted the session token and repeatedly hit `SPECTATOR_NOT_ALLOWED`
+  - the background command wakeup worker did not visibly consume accepted UI decisions until a manual one-shot wakeup was run
+- Validation:
+  - `npm --prefix apps/web test -- src/domain/rules/engineCore.rules.spec.ts src/features/board/boardProjection.rules.spec.ts src/domain/characters/prioritySlots.rules.spec.ts src/test/harness/gameRuleHarness.spec.ts`
+- Result:
+  - fast-check rule specs passed, but the Redis UI gameplay path is not release-ready until the repeated trick prompt loop and authenticated runtime-status polling are fixed.
+
+## 2026-04-30 Redis Pending Prompt Replay Fix
+
+- Scope: root-cause and fix REDIS-UI-01 and REDIS-UI-02 from the Redis UI playtest report.
+- Root cause:
+  - runtime transition replay hydrated a checkpoint from before the pending human prompt, then seeded prompt sequence to the already-emitted instance id
+  - the replay therefore generated a new stable request id (`trick_to_use:3`) instead of the accepted pending id (`trick_to_use:2`)
+  - the accepted `Do not use a trick` decision could not be replayed, so the engine repeated the same turn-start/trick prompt path
+  - runtime-status polling also omitted the active session token because the web HTTP helper did not accept one and the match polling effect did not depend on `token`
+- Done:
+  - `RuntimeService` now seeds prompt sequence from `pending_prompt_instance_id - 1` when replaying a checkpoint with a pending prompt
+  - added a regression test proving accepted stable prompt ids are replayed once and the next prompt advances to the next instance id
+  - `getRuntimeStatus(sessionId, token)` now attaches authenticated viewer tokens to runtime-status reads
+  - updated the Redis UI playtest report with the fix note and lesson
+- Validation:
+  - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -k 'pending_prompt_replay_reuses_stable_request_id_then_advances_sequence or prompt_sequence_can_resume_from_checkpoint_value or human_bridge_can_raise_prompt_required_without_blocking' -q`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -q`
+  - `npm --prefix apps/web run build`
+- Lesson:
+  - Redis replay prompt ids are continuation state. Stable prompt ids must be regenerated deterministically until the accepted decision is consumed.
+  - viewer-scoped browser polling helpers should take credentials explicitly at the API helper boundary, even for redacted status payloads.
+- Follow-up:
+  - rerun the full browser Redis playtest to confirm the UI reaches movement and landing resolution
+  - address REDIS-UI-03 worker cadence separately
+
+## 2026-04-30 Redis Movement Replay And Worker Wakeup Fix
+
+- Scope: root-cause and fix updated REDIS-UI-04 and REDIS-UI-05 from the Redis UI playtest report.
+- Root cause:
+  - movement replay was seeded from the pending prompt id instead of the start of the same-turn deterministic prompt prefix; replay therefore opened `trick_to_use:2` before consuming accepted `movement:2`
+  - accepted prompt decisions were popped on first replay, so repeated runtime wakeups could no longer read prior accepted decisions needed to reconstruct the turn
+  - the command wakeup worker scanned a startup-time `SessionService` cache and missed Redis sessions created after worker startup
+  - standalone workers inherited the server restart recovery default unless explicitly configured, even though worker roles should not abort in-progress sessions
+- Done:
+  - movement pending prompts now seed replay before the earlier same-turn trick prompt
+  - `PromptService` keeps accepted decisions readable until resolved prompt TTL cleanup, including Redis-backed `get_decision()`
+  - `SessionService.refresh_from_store()` lets workers reload sessions from Redis before scans
+  - command wakeup worker refreshes session state before active-session discovery and command processing
+  - worker entrypoints and Compose worker services default `MRN_RESTART_RECOVERY_POLICY=keep`
+  - updated the Redis UI playtest report and server process contract
+- Validation:
+  - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_pending_prompt_replay_reuses_stable_request_id_then_advances_sequence apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_pending_movement_replay_replays_prior_trick_prompt_before_movement -q`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_prompt_service_uses_redis_store_for_decision_flow apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_prompt_service_accepts_decision_with_single_redis_transaction -q`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_command_wakeup_worker.py -q`
+- Lesson:
+  - deterministic prompt replay must preserve the whole replay prefix, not just the pending prompt's own id
+  - accepted human decisions are replay log entries and should be idempotently readable until their retention window closes
+  - long-lived Redis workers need an explicit refresh boundary before active-session scans
+
+## 2026-04-30 Redis Command Transition Drain And Live Play Verification
+
+- Scope: actually play the Redis-backed browser flow and fix the remaining live runtime blocker found during that playthrough.
+- Root cause:
+  - command-driven wakeup consumed the accepted movement command and ran exactly one engine transition
+  - that transition emitted `dice_roll` and committed a checkpoint with queued pending actions still present
+  - because the command offset had already advanced and no new human command existed, the runtime became `idle` before `player_move`, landing resolution, or purchase prompt setup
+- Done:
+  - `RuntimeService.process_command_once()` now runs the engine transition loop for command wakeups
+  - only the first loop iteration records command consumer/sequence metadata; later deterministic queued transitions run without re-recording the same command offset
+  - added regression coverage proving command wakeup continues after the command transition until the next prompt boundary
+  - updated the Redis UI playtest report, release gate notes, and server process contract
+- Live verification:
+  - played from the browser against Redis prefix `mrn:ui-live:1777548299`
+  - session `sess_i_4YOXJeO4L-sO_Znf8fnJ1_` reached draft, trick skip, movement, landing, and purchase prompt through background workers
+  - declining purchase cleared the prompt, processed AI turns, and returned to P1 with a round-2 draft prompt
+  - captured `/tmp/mrn-ui-live-play-fixed.png` and `/tmp/mrn-ui-live-play-after-purchase.png`
+- Validation:
+  - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_process_command_once_continues_after_command_transition_until_prompt apps/server/tests/test_command_wakeup_worker.py apps/server/tests/test_redis_realtime_services.py -q`
+- Lesson:
+  - a Redis command is a wakeup edge, not the entire unit of runtime work
+  - accepted-command offsets must be recorded once while deterministic queued engine actions drain until `waiting_input`, `finished`, or `unavailable`
+
 ## 2026-04-30 Tile Trait Action Pipeline Design
 
 - Scope: document a consistent tile trait/modifier/action architecture before implementation.

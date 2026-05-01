@@ -779,7 +779,7 @@ export const koLocale = {
       currentPlacedCoins: "배치 승점",
       currentTotalScore: "총 승점",
       ownedTiles: "보유 토지",
-      rewardBudget: "보상 예산",
+      rewardBudget: "정확히 써야 할 보상 예산",
       rewardPools: "남은 보상 풀",
       draftPhase: "드래프트 단계",
       targetTiles: "대상 토지",
@@ -841,7 +841,7 @@ export const koLocale = {
         if (cash > 0) parts.push(`현금 +${cash}`);
         if (shards > 0) parts.push(`조각 +${shards}`);
         if (coins > 0) parts.push(`승점 +${coins}`);
-        if (spent !== null && budget !== null) parts.push(`예산 ${spent}/${budget}`);
+        if (spent !== null && budget !== null) parts.push(`정확히 ${spent}/${budget}`);
         return parts.join(" / ");
       },
       buyTileTitle: "땅 사기",

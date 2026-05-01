@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 72" role="img" aria-label="score token stack 1">
+  <defs>
+    <linearGradient id="coinTop" x1="18" y1="14" x2="78" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff4b8"/>
+      <stop offset="0.5" stop-color="#f4c94d"/>
+      <stop offset="1" stop-color="#b66b18"/>
+    </linearGradient>
+    <linearGradient id="coinSide" x1="22" y1="36" x2="74" y2="68" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#e59d25"/>
+      <stop offset="1" stop-color="#8f4c13"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-25%" width="140%" height="155%">
+      <feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#071225" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <path d="M20 36c0 13 13 23 28 23s28-10 28-23v9c0 13-13 23-28 23S20 58 20 45v-9Z" fill="url(#coinSide)"/>
+    <ellipse cx="48" cy="36" rx="28" ry="22" fill="url(#coinTop)" stroke="#fff0a3" stroke-width="3"/>
+    <ellipse cx="48" cy="36" rx="19" ry="14" fill="none" stroke="#8f4c13" stroke-opacity="0.46" stroke-width="2.5"/>
+    <path d="M48 22l4 9 10 1-7 7 2 10-9-5-9 5 2-10-7-7 10-1 4-9Z" fill="#fff8cf" stroke="#9f5a17" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M30 41c8 8 28 9 38-2" fill="none" stroke="#fff4b8" stroke-opacity="0.55" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>

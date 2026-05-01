@@ -11,6 +11,7 @@ export type GameEventKind =
   | "fortune"
   | "lap_complete"
   | "bankruptcy"
+  | "game_end"
   | "trick"
   | "mark_success"
   | "economy";
@@ -35,6 +36,7 @@ const DISPLAY_DURATION_MS: Record<GameEventKind, number> = {
   fortune: 3000,
   lap_complete: 2500,
   bankruptcy: 3500,
+  game_end: 4500,
   trick: 3000,
   mark_success: 3400,
   economy: 2000,

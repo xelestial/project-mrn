@@ -55,6 +55,7 @@ class SessionService:
         seats: list[dict],
         config: dict | None = None,
     ) -> Session:
+        self._refresh_from_store_if_backed()
         raw_config = dict(config or {})
         visibility = self.normalize_visibility(raw_config)
         raw_config["visibility"] = visibility.value
@@ -91,9 +92,14 @@ class SessionService:
         return session
 
     def list_sessions(self) -> list[Session]:
+        self._refresh_from_store_if_backed()
         return list(self._sessions.values())
 
+    def refresh_from_store(self) -> None:
+        self._refresh_from_store_if_backed()
+
     def get_session(self, session_id: str) -> Session:
+        self._refresh_from_store_if_backed()
         session = self._sessions.get(session_id)
         if session is None:
             raise SessionNotFoundError(session_id)
@@ -209,6 +215,7 @@ class SessionService:
             self._persist_sessions()
 
     def delete_session(self, session_id: str) -> None:
+        self._refresh_from_store_if_backed()
         removed = self._sessions.pop(session_id, None)
         if removed is None:
             return
@@ -367,6 +374,12 @@ class SessionService:
             if not session.session_id:
                 continue
             self._sessions[session.session_id] = session
+
+    def _refresh_from_store_if_backed(self) -> None:
+        if self._session_store is None:
+            return
+        self._sessions.clear()
+        self._load_from_store()
 
     @staticmethod
     def _session_to_payload(session: Session) -> dict:

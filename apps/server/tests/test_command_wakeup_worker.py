@@ -5,6 +5,7 @@ import unittest
 
 from apps.server.src.services.command_wakeup_worker import CommandStreamWakeupWorker
 from apps.server.src.workers.command_wakeup_worker_app import build_parser
+from apps.server.src.services.persistence import RedisSessionStore
 from apps.server.src.services.realtime_persistence import RedisCommandStore
 from apps.server.tests.test_redis_realtime_services import _FakeRedis
 from apps.server.src.infra.redis_client import RedisConnection, RedisConnectionSettings
@@ -127,6 +128,47 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         self.assertEqual(len(wakeups), 1)
         self.assertEqual(runtime.processed, [(session.session_id, 1, "runtime_wakeup", 21, None)])
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 0)
+
+    def test_wakeup_worker_refreshes_redis_sessions_created_after_start(self) -> None:
+        connection = RedisConnection(
+            RedisConnectionSettings(
+                url="redis://127.0.0.1:6379/10",
+                key_prefix="mrn-wakeup-refresh",
+                socket_timeout_ms=250,
+            ),
+            client_factory=_FakeRedis,
+        )
+        command_store = RedisCommandStore(connection)
+        session_store = RedisSessionStore(connection)
+        worker_sessions = SessionService(session_store=session_store, restart_recovery_policy="keep")
+        backend_sessions = SessionService(session_store=session_store, restart_recovery_policy="keep")
+        session = backend_sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 37},
+        )
+        backend_sessions.start_session(session.session_id, session.host_token)
+        runtime = _RuntimeProcessStub(status="waiting_input")
+        worker = CommandStreamWakeupWorker(
+            command_store=command_store,
+            session_service=worker_sessions,
+            runtime_service=runtime,
+            poll_interval_ms=50,
+        )
+        command_store.append_command(
+            session.session_id,
+            "decision_submitted",
+            {"request_id": "req_refresh_1", "choice_id": "roll"},
+            request_id="req_refresh_1",
+        )
+
+        wakeups = asyncio.run(worker.run_once())
+
+        self.assertEqual(len(wakeups), 1)
+        self.assertEqual(wakeups[0]["session_id"], session.session_id)
+        self.assertEqual(runtime.processed, [(session.session_id, 1, "runtime_wakeup", 37, None)])
 
     def test_cli_parser_supports_once_mode(self) -> None:
         args = build_parser().parse_args(["--once", "--session-id", "sess_1", "--max-iterations", "2"])

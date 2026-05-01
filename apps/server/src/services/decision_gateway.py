@@ -1753,9 +1753,7 @@ class DecisionGateway:
         round_index = int(public_context.get("round_index", 0) or 0)
         turn_index = int(public_context.get("turn_index", 0) or 0)
         prompt_instance_id = int(envelope.get("prompt_instance_id", 0) or 0)
-        if round_index or turn_index or prompt_instance_id:
-            return f"{self._session_id}:r{round_index}:t{turn_index}:p{player_id}:{request_type}:{prompt_instance_id}"
-        return self.next_request_id()
+        return f"{self._session_id}:r{round_index}:t{turn_index}:p{player_id}:{request_type}:{prompt_instance_id}"
 
     def _parse_human_response(
         self,

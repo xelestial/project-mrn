@@ -26,6 +26,8 @@ function eventIcon(kind: GameEventKind): string {
       return "🎉";
     case "bankruptcy":
       return "💀";
+    case "game_end":
+      return "끝";
     case "trick":
       return "꾀";
     case "mark_success":
@@ -57,6 +59,8 @@ function eventThemeLabel(kind: GameEventKind): string {
       return "랩 보상";
     case "bankruptcy":
       return "파산";
+    case "game_end":
+      return "게임 종료";
     case "mark_success":
       return "지목";
     case "economy":
@@ -86,6 +90,8 @@ function eventCssClass(kind: GameEventKind): string {
       return "event-lap-complete";
     case "bankruptcy":
       return "event-bankruptcy";
+    case "game_end":
+      return "event-game-end";
     case "trick":
       return "event-trick";
     case "mark_success":

@@ -2,6 +2,10 @@ import minseoBackLeftUrl from "../../assets/characters/sprites/minseo/back-left.
 import minseoBackRightUrl from "../../assets/characters/sprites/minseo/back-right.png";
 import minseoFrontLeftUrl from "../../assets/characters/sprites/minseo/front-left.png";
 import minseoFrontRightUrl from "../../assets/characters/sprites/minseo/front-right.png";
+import minseoWalkBackLeftUrl from "../../assets/characters/sprites/minseo/walk-back-left-videoref-10f.png";
+import minseoWalkBackRightUrl from "../../assets/characters/sprites/minseo/walk-back-right-videoref-10f.png";
+import minseoWalkFrontLeftUrl from "../../assets/characters/sprites/minseo/walk-front-left-videoref-10f.png";
+import minseoWalkFrontRightUrl from "../../assets/characters/sprites/minseo/walk-front-right-videoref-10f.png";
 import seoyeonBackLeftUrl from "../../assets/characters/sprites/seoyeon/back-left.png";
 import seoyeonBackRightUrl from "../../assets/characters/sprites/seoyeon/back-right.png";
 import seoyeonFrontLeftUrl from "../../assets/characters/sprites/seoyeon/front-left.png";
@@ -21,11 +25,27 @@ import hayoonFrontRightUrl from "../../assets/characters/sprites/hayoon/front-ri
 
 export type CharacterSpriteFacing = "front-right" | "front-left" | "back-right" | "back-left";
 
+export type CharacterWalkSprite = {
+  readonly url: string;
+  readonly frameCount: number;
+  readonly frameWidth: number;
+  readonly frameHeight: number;
+  readonly frameStepMs: number;
+};
+
 export type CharacterSpriteSet = {
   readonly name: string;
   readonly assetKey: string;
   readonly sprites: Record<CharacterSpriteFacing, string>;
+  readonly walkSprites?: Partial<Record<CharacterSpriteFacing, CharacterWalkSprite>>;
 };
+
+const MINSEO_WALK_FRAME = {
+  frameCount: 10,
+  frameWidth: 180,
+  frameHeight: 270,
+  frameStepMs: 160,
+} as const;
 
 export const CHARACTER_SPRITE_ROSTER: readonly CharacterSpriteSet[] = [
   {
@@ -36,6 +56,12 @@ export const CHARACTER_SPRITE_ROSTER: readonly CharacterSpriteSet[] = [
       "front-left": minseoFrontLeftUrl,
       "back-right": minseoBackRightUrl,
       "back-left": minseoBackLeftUrl,
+    },
+    walkSprites: {
+      "front-right": { ...MINSEO_WALK_FRAME, url: minseoWalkFrontRightUrl },
+      "front-left": { ...MINSEO_WALK_FRAME, url: minseoWalkFrontLeftUrl },
+      "back-right": { ...MINSEO_WALK_FRAME, url: minseoWalkBackRightUrl },
+      "back-left": { ...MINSEO_WALK_FRAME, url: minseoWalkBackLeftUrl },
     },
   },
   {

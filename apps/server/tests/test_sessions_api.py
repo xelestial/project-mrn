@@ -482,9 +482,15 @@ class SessionsApiTests(unittest.TestCase):
             if event.get("type") == "event" and event.get("payload", {}).get("event_type") == "session_start"
         )
         active_by_card = session_start.get("payload", {}).get("active_by_card", {})
+        snapshot = session_start.get("payload", {}).get("snapshot", {})
+        snapshot_players = snapshot.get("players", [])
+        snapshot_tiles = snapshot.get("board", {}).get("tiles", [])
 
         self.assertEqual(len(active_by_card), 8)
         self.assertTrue(all(str(active_by_card.get(str(slot)) or active_by_card.get(slot) or "").strip() for slot in range(1, 9)))
+        self.assertEqual([player.get("player_id") for player in snapshot_players], [1, 2, 3, 4])
+        self.assertEqual(len(snapshot_tiles), 40)
+        self.assertEqual(snapshot_tiles[0].get("pawn_player_ids"), [1, 2, 3, 4])
 
     def test_start_replay_parameter_manifest_also_carries_initial_active_faces(self) -> None:
         payload = _all_ai_payload()

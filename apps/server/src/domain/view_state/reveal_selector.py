@@ -7,28 +7,51 @@ from .types import RevealItemViewState, RevealsViewState
 CURRENT_TURN_REVEAL_EVENT_CODES: tuple[str, ...] = (
     "weather_reveal",
     "dice_roll",
+    "trick_used",
     "player_move",
     "action_move",
     "landing_resolved",
     "tile_purchased",
     "rent_paid",
+    "lap_reward_chosen",
     "fortune_drawn",
     "fortune_resolved",
+    "mark_queued",
+    "mark_resolved",
+    "marker_flip",
+    "marker_transferred",
+    "bankruptcy",
+    "game_end",
 )
 
 CURRENT_TURN_REVEAL_ORDER: dict[str, int] = {
     "weather_reveal": 10,
     "dice_roll": 20,
+    "trick_used": 25,
     "player_move": 30,
     "action_move": 30,
     "landing_resolved": 40,
     "rent_paid": 50,
     "tile_purchased": 50,
+    "lap_reward_chosen": 58,
     "fortune_drawn": 60,
     "fortune_resolved": 70,
+    "mark_queued": 76,
+    "mark_resolved": 78,
+    "marker_flip": 80,
+    "marker_transferred": 82,
+    "bankruptcy": 90,
+    "game_end": 95,
 }
 
-INTERRUPT_REVEAL_EVENT_CODES = {"weather_reveal", "fortune_drawn", "fortune_resolved"}
+INTERRUPT_REVEAL_EVENT_CODES = {
+    "weather_reveal",
+    "trick_used",
+    "fortune_drawn",
+    "fortune_resolved",
+    "bankruptcy",
+    "game_end",
+}
 
 
 def _record(value: Any) -> dict[str, Any] | None:
@@ -77,8 +100,10 @@ def _focus_tile_index(payload: dict[str, Any], event_code: str) -> int | None:
 def _tone_for_event(event_code: str) -> str:
     if event_code in {"dice_roll", "player_move", "action_move", "fortune_move", "forced_move", "chain_move"}:
         return "move"
-    if event_code in {"tile_purchased", "rent_paid"}:
+    if event_code in {"tile_purchased", "rent_paid", "lap_reward_chosen"}:
         return "economy"
+    if event_code in {"bankruptcy", "game_end"}:
+        return "effect"
     return "effect"
 
 

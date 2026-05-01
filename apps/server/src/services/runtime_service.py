@@ -229,14 +229,13 @@ class RuntimeService:
         loop = asyncio.get_running_loop()
         try:
             result = await asyncio.to_thread(
-                self._run_engine_transition_once_sync,
+                self._run_engine_transition_loop_sync,
                 loop,
                 session_id,
                 seed,
                 policy_mode,
-                False,
-                consumer_name,
-                int(command_seq),
+                first_command_consumer_name=consumer_name,
+                first_command_seq=int(command_seq),
             )
             status = str(result.get("status", ""))
             if status == "waiting_input":
@@ -427,23 +426,27 @@ class RuntimeService:
         policy_mode: str | None,
         *,
         max_transitions: int | None = None,
+        first_command_consumer_name: str | None = None,
+        first_command_seq: int | None = None,
     ) -> dict:
         transitions = 0
         last_step: dict = {"status": "unavailable", "reason": "not_started"}
         while max_transitions is None or transitions < max(1, int(max_transitions)):
+            command_consumer_name = first_command_consumer_name if transitions == 0 else None
+            command_seq = first_command_seq if transitions == 0 else None
             last_step = self._run_engine_transition_once_sync(
                 loop,
                 session_id,
                 seed,
                 policy_mode,
                 False,
-                None,
-                None,
+                command_consumer_name,
+                command_seq,
             )
-            status = str(last_step.get("status", ""))
-            if status in {"finished", "unavailable"}:
-                return {**last_step, "transitions": transitions}
             transitions += 1
+            status = str(last_step.get("status", ""))
+            if status in {"finished", "unavailable", "waiting_input"}:
+                return {**last_step, "transitions": transitions}
             if self._prompt_service is not None and self._prompt_service.has_pending_for_session(session_id):
                 current = dict(self._status.get(session_id, {"status": "running"}))
                 current["status"] = "waiting_input"
@@ -576,6 +579,7 @@ class RuntimeService:
             payload = self._runtime_state_store.load_status(session_id)
             if payload is not None:
                 return dict(payload)
+            return {"status": "idle"}
         return dict(self._status.get(session_id, {"status": "idle"}))
 
     def _persist_runtime_state(self, session_id: str) -> None:
@@ -590,6 +594,18 @@ class RuntimeService:
             base["lease_expires_at_ms"] = int(last_activity_ms) + self._lease_ttl_ms
         base.setdefault("worker_id", self._worker_id)
         self._runtime_state_store.save_status(session_id, base)
+
+    @staticmethod
+    def _prompt_sequence_seed_for_transition(state) -> int:
+        prompt_sequence = int(getattr(state, "prompt_sequence", 0) or 0)
+        pending_request_id = str(getattr(state, "pending_prompt_request_id", "") or "")
+        pending_prompt_type = str(getattr(state, "pending_prompt_type", "") or "")
+        pending_instance_id = int(getattr(state, "pending_prompt_instance_id", 0) or 0)
+        if pending_request_id and pending_instance_id > 0:
+            if pending_prompt_type == "movement" or ":movement:" in pending_request_id:
+                return max(0, pending_instance_id - 2)
+            return max(0, pending_instance_id - 1)
+        return prompt_sequence
 
     def _acquire_runtime_lease(self, session_id: str) -> bool:
         if self._runtime_state_store is None:
@@ -708,7 +724,7 @@ class RuntimeService:
         try:
             state = engine.prepare_run(initial_state=state) if state is not None else engine.prepare_run()
             if callable(getattr(policy, "set_prompt_sequence", None)):
-                policy.set_prompt_sequence(int(getattr(state, "prompt_sequence", 0) or 0))
+                policy.set_prompt_sequence(self._prompt_sequence_seed_for_transition(state))
             step = engine.run_next_transition(state)
         except PromptRequired as exc:
             state = state or getattr(engine, "_last_prepared_state", None)
@@ -744,6 +760,8 @@ class RuntimeService:
                 for action in payload.get("scheduled_actions") or []
                 if isinstance(action, dict)
             ]
+            latest_event_type = "prompt_required" if step.get("status") == "waiting_input" else "engine_transition"
+            updated_at_ms = self._now_ms()
             self._game_state_store.commit_transition(
                 session_id,
                 current_state=payload,
@@ -751,7 +769,7 @@ class RuntimeService:
                     "schema_version": 1,
                     "session_id": session_id,
                     "latest_seq": self._latest_stream_seq_sync(loop, session_id),
-                    "latest_event_type": "prompt_required" if step.get("status") == "waiting_input" else "engine_transition",
+                    "latest_event_type": latest_event_type,
                     "round_index": int(payload.get("rounds_completed", 0)) + 1,
                     "turn_index": int(payload.get("turn_index", 0)),
                     "has_snapshot": True,
@@ -771,10 +789,23 @@ class RuntimeService:
                     "has_pending_turn_completion": bool(payload.get("pending_turn_completion")),
                     "processed_command_seq": command_seq,
                     "processed_command_consumer": command_consumer_name,
-                    "updated_at_ms": self._now_ms(),
+                    "updated_at_ms": updated_at_ms,
                 },
                 command_consumer_name=command_consumer_name,
                 command_seq=command_seq,
+                runtime_event_payload={
+                    "event_type": latest_event_type,
+                    "status": step.get("status"),
+                    "reason": step.get("reason"),
+                    "request_id": step.get("request_id"),
+                    "request_type": step.get("request_type"),
+                    "player_id": step.get("player_id"),
+                    "processed_command_seq": command_seq,
+                    "processed_command_consumer": command_consumer_name,
+                    "pending_action_count": len(payload.get("pending_actions") or []),
+                    "scheduled_action_count": len(payload.get("scheduled_actions") or []),
+                },
+                runtime_event_server_time_ms=updated_at_ms,
             )
         return step
 
@@ -1698,6 +1729,7 @@ class _FanoutVisEventStream:
             "marker_transferred",
             "marker_flip",
             "trick_used",
+            "game_end",
             "turn_end_snapshot",
         }:
             return 0.0

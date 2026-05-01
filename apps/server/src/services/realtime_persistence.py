@@ -144,6 +144,10 @@ class RedisPromptStore:
     def save_decision(self, request_id: str, payload: dict[str, Any]) -> None:
         self._connection.client().hset(self._decisions_key(), request_id, _json_dump(payload))
 
+    def get_decision(self, request_id: str) -> dict[str, Any] | None:
+        raw = self._connection.client().hget(self._decisions_key(), request_id)
+        return _json_load_dict(str(raw)) if raw is not None else None
+
     def pop_decision(self, request_id: str) -> dict[str, Any] | None:
         client = self._connection.client()
         raw = client.hget(self._decisions_key(), request_id)
@@ -154,6 +158,81 @@ class RedisPromptStore:
 
     def delete_decision(self, request_id: str) -> None:
         self._connection.client().hdel(self._decisions_key(), request_id)
+
+    def accept_decision_with_command(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        decision_payload: dict[str, Any],
+        resolved_payload: dict[str, Any],
+        command_store: "RedisCommandStore",
+        command_type: str,
+        command_payload: dict[str, Any],
+        server_time_ms: int,
+    ) -> dict[str, Any] | None:
+        normalized_request_id = str(request_id).strip()
+        if not normalized_request_id:
+            return None
+        client = self._connection.client()
+        decision_json = _json_dump(decision_payload)
+        resolved_json = _json_dump(resolved_payload)
+        command_json = _json_dump(command_payload)
+        seen_key = f"{session_id}:{normalized_request_id}"
+        if callable(getattr(client, "eval", None)):
+            result = client.eval(
+                _ACCEPT_PROMPT_DECISION_LUA,
+                6,
+                self._pending_key(),
+                self._decisions_key(),
+                self._resolved_key(),
+                command_store._seen_key(),
+                command_store._seq_key(session_id),
+                command_store._stream_key(session_id),
+                normalized_request_id,
+                decision_json,
+                resolved_json,
+                seen_key,
+                str(command_type),
+                str(session_id),
+                str(int(server_time_ms or 0)),
+                command_json,
+            )
+            if not result:
+                return None
+            return {
+                "stream_id": str(result[0]),
+                "seq": int(result[1]),
+                "type": str(command_type),
+                "session_id": str(session_id),
+                "server_time_ms": int(server_time_ms or 0),
+                "payload": dict(command_payload),
+            }
+        if not bool(client.hsetnx(command_store._seen_key(), seen_key, "1")):
+            return None
+        seq = int(client.incr(command_store._seq_key(session_id)))
+        fields = {
+            "seq": str(seq),
+            "type": str(command_type),
+            "session_id": str(session_id),
+            "server_time_ms": str(int(server_time_ms or 0)),
+            "payload": command_json,
+        }
+        pipeline = client.pipeline(transaction=True)
+        pipeline.hdel(self._pending_key(), normalized_request_id)
+        pipeline.hset(self._decisions_key(), normalized_request_id, decision_json)
+        pipeline.hset(self._resolved_key(), normalized_request_id, resolved_json)
+        pipeline.xadd(command_store._stream_key(session_id), fields)
+        results = pipeline.execute()
+        stream_id = str(results[-1]) if results else ""
+        return {
+            "stream_id": stream_id,
+            "seq": seq,
+            "type": str(command_type),
+            "session_id": str(session_id),
+            "server_time_ms": int(server_time_ms or 0),
+            "payload": dict(command_payload),
+        }
 
     def delete_session_data(self, session_id: str) -> None:
         for pending in self.list_pending():
@@ -443,10 +522,26 @@ class RedisGameStateStore:
         view_state: dict[str, Any] | None = None,
         command_consumer_name: str | None = None,
         command_seq: int | None = None,
+        runtime_event_payload: dict[str, Any] | None = None,
+        runtime_event_type: str = "event",
+        runtime_event_server_time_ms: int | None = None,
+        runtime_event_max_buffer: int | None = None,
     ) -> None:
         client = self._connection.client()
+        event_payload = dict(runtime_event_payload) if isinstance(runtime_event_payload, dict) else None
+        event_server_time_ms = int(runtime_event_server_time_ms or 0)
+        event_max_buffer = max(1, int(runtime_event_max_buffer or 0)) if runtime_event_max_buffer else 0
+        checkpoint_payload_source = dict(checkpoint)
+        event_fields_payload = _json_dump(event_payload) if event_payload is not None else ""
+        event_stream_key = self._runtime_stream_key(session_id) if event_payload is not None else ""
+        event_seq_key = self._runtime_stream_seq_key(session_id) if event_payload is not None else ""
+        if event_payload is not None and not callable(getattr(client, "eval", None)):
+            event_seq = int(client.incr(event_seq_key))
+            checkpoint_payload_source["latest_seq"] = event_seq
+            if event_server_time_ms:
+                checkpoint_payload_source["updated_at_ms"] = event_server_time_ms
         current_payload = _json_dump(current_state)
-        checkpoint_payload = _json_dump(checkpoint)
+        checkpoint_payload = _json_dump(checkpoint_payload_source)
         view_payload = _json_dump(view_state) if isinstance(view_state, dict) else ""
         offset_key = self._command_offset_key(command_consumer_name) if command_consumer_name else ""
         offset_index_key = self._command_offset_index_key() if command_consumer_name else ""
@@ -454,18 +549,24 @@ class RedisGameStateStore:
         if callable(getattr(client, "eval", None)):
             client.eval(
                 _COMMIT_GAME_TRANSITION_LUA,
-                6,
+                8,
                 self._current_state_key(session_id),
                 self._checkpoint_key(session_id),
                 self._view_state_key(session_id),
                 self._projected_view_state_key(session_id, "public"),
                 offset_key,
                 offset_index_key,
+                event_seq_key,
+                event_stream_key,
                 current_payload,
                 checkpoint_payload,
                 view_payload,
                 str(session_id),
                 offset_seq,
+                str(runtime_event_type or "event"),
+                str(event_server_time_ms),
+                event_fields_payload,
+                str(event_max_buffer),
             )
             return
         pipeline = client.pipeline(transaction=True)
@@ -477,6 +578,16 @@ class RedisGameStateStore:
         if offset_key and offset_seq:
             pipeline.hset(offset_index_key, offset_key, "1")
             pipeline.hset(offset_key, session_id, offset_seq)
+        if event_payload is not None:
+            fields = {
+                "seq": str(checkpoint_payload_source["latest_seq"]),
+                "type": str(runtime_event_type or "event"),
+                "session_id": str(session_id),
+                "server_time_ms": str(event_server_time_ms),
+                "payload": event_fields_payload,
+            }
+            kwargs = {"maxlen": event_max_buffer, "approximate": False} if event_max_buffer else {}
+            pipeline.xadd(event_stream_key, fields, **kwargs)
         pipeline.execute()
 
     def delete_session_data(self, session_id: str) -> None:
@@ -539,6 +650,12 @@ class RedisGameStateStore:
 
     def _command_offset_index_key(self) -> str:
         return self._connection.key("commands", "offset_indexes")
+
+    def _runtime_stream_key(self, session_id: str) -> str:
+        return self._connection.key("stream", session_id, "events")
+
+    def _runtime_stream_seq_key(self, session_id: str) -> str:
+        return self._connection.key("stream", session_id, "seq")
 
 
 def _json_dump(payload: dict[str, Any]) -> str:
@@ -608,8 +725,54 @@ return 1
 """
 
 _COMMIT_GAME_TRANSITION_LUA = """
+local checkpoint_payload = ARGV[2]
+if ARGV[8] ~= "" then
+  local seq = redis.call("INCR", KEYS[7])
+  local checkpoint = cjson.decode(ARGV[2])
+  checkpoint["latest_seq"] = seq
+  if ARGV[7] ~= "0" then
+    checkpoint["updated_at_ms"] = tonumber(ARGV[7])
+  end
+  checkpoint_payload = cjson.encode(checkpoint)
+  if ARGV[9] ~= "0" then
+    redis.call(
+      "XADD",
+      KEYS[8],
+      "MAXLEN",
+      "=",
+      tonumber(ARGV[9]),
+      "*",
+      "seq",
+      tostring(seq),
+      "type",
+      ARGV[6],
+      "session_id",
+      ARGV[4],
+      "server_time_ms",
+      ARGV[7],
+      "payload",
+      ARGV[8]
+    )
+  else
+    redis.call(
+      "XADD",
+      KEYS[8],
+      "*",
+      "seq",
+      tostring(seq),
+      "type",
+      ARGV[6],
+      "session_id",
+      ARGV[4],
+      "server_time_ms",
+      ARGV[7],
+      "payload",
+      ARGV[8]
+    )
+  end
+end
 redis.call("SET", KEYS[1], ARGV[1])
-redis.call("SET", KEYS[2], ARGV[2])
+redis.call("SET", KEYS[2], checkpoint_payload)
 if ARGV[3] ~= "" then
   redis.call("SET", KEYS[3], ARGV[3])
   redis.call("SET", KEYS[4], ARGV[3])
@@ -619,4 +782,33 @@ if ARGV[5] ~= "" then
   redis.call("HSET", KEYS[5], ARGV[4], ARGV[5])
 end
 return 1
+"""
+
+_ACCEPT_PROMPT_DECISION_LUA = """
+if redis.call("HEXISTS", KEYS[1], ARGV[1]) == 0 then
+  return nil
+end
+if redis.call("HSETNX", KEYS[4], ARGV[4], "1") == 0 then
+  return nil
+end
+redis.call("HDEL", KEYS[1], ARGV[1])
+redis.call("HSET", KEYS[2], ARGV[1], ARGV[2])
+redis.call("HSET", KEYS[3], ARGV[1], ARGV[3])
+local seq = redis.call("INCR", KEYS[5])
+local stream_id = redis.call(
+  "XADD",
+  KEYS[6],
+  "*",
+  "seq",
+  tostring(seq),
+  "type",
+  ARGV[5],
+  "session_id",
+  ARGV[6],
+  "server_time_ms",
+  ARGV[7],
+  "payload",
+  ARGV[8]
+)
+return {stream_id, seq}
 """

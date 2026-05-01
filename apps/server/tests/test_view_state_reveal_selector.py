@@ -93,20 +93,69 @@ class ViewStateRevealSelectorTests(unittest.TestCase):
                     "summary": "Gain 2 cash.",
                 },
             },
+            {
+                "type": "event",
+                "seq": 106,
+                "session_id": "s1",
+                "server_time_ms": 7,
+                "payload": {
+                    "event_type": "trick_used",
+                    "round_index": 4,
+                    "turn_index": 2,
+                    "acting_player_id": 2,
+                    "card_name": "거대한 산불",
+                    "summary": "종료를 1칸 당깁니다.",
+                },
+            },
+            {
+                "type": "event",
+                "seq": 107,
+                "session_id": "s1",
+                "server_time_ms": 8,
+                "payload": {
+                    "event_type": "lap_reward_chosen",
+                    "round_index": 4,
+                    "turn_index": 2,
+                    "player_id": 2,
+                    "summary": "현금 +2 / 조각 +2",
+                },
+            },
+            {
+                "type": "event",
+                "seq": 108,
+                "session_id": "s1",
+                "server_time_ms": 9,
+                "payload": {
+                    "event_type": "game_end",
+                    "round_index": 4,
+                    "turn_index": 2,
+                    "winner_player_id": 2,
+                },
+            },
         ]
 
-        view_state = build_reveals_view_state(messages, limit=6)
+        view_state = build_reveals_view_state(messages, limit=8)
 
         self.assertIsNotNone(view_state)
         self.assertEqual(view_state["round_index"], 4)
         self.assertEqual(view_state["turn_index"], 2)
         self.assertEqual(
             [item["event_code"] for item in view_state["items"]],
-            ["weather_reveal", "player_move", "landing_resolved", "tile_purchased", "fortune_resolved"],
+            [
+                "weather_reveal",
+                "trick_used",
+                "player_move",
+                "landing_resolved",
+                "tile_purchased",
+                "lap_reward_chosen",
+                "fortune_resolved",
+                "game_end",
+            ],
         )
-        self.assertEqual(view_state["items"][1]["focus_tile_index"], 9)
-        self.assertEqual(view_state["items"][3]["tone"], "economy")
+        self.assertEqual(view_state["items"][2]["focus_tile_index"], 9)
+        self.assertEqual(view_state["items"][4]["tone"], "economy")
         self.assertTrue(view_state["items"][0]["is_interrupt"])
+        self.assertTrue(view_state["items"][1]["is_interrupt"])
         self.assertTrue(view_state["items"][-1]["is_interrupt"])
 
     def test_build_board_view_state_projects_latest_move(self) -> None:

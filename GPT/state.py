@@ -148,7 +148,9 @@ class PlayerState:
         return [c.name for c in self.public_trick_cards()]
 
     def hidden_trick_count(self) -> int:
-        return 1 if self.trick_hand else 0
+        if self.hidden_trick_deck_index is None:
+            return 0
+        return 1 if any(c.deck_index == self.hidden_trick_deck_index for c in self.trick_hand) else 0
 
 
 @dataclass(slots=True)

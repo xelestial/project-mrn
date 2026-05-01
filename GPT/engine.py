@@ -342,6 +342,7 @@ class GameEngine:
             player_count=self.config.player_count,
             active_by_card=dict(state.active_by_card),
             players=[build_player_public_state(p, state).to_dict() for p in state.players],
+            snapshot=build_turn_end_snapshot(state),
         )
         self._start_new_round(state, initial=True)
         return state
@@ -4190,7 +4191,9 @@ class GameEngine:
     def _resolve_fortune_subscription_action(self, state: GameState, action: ActionEnvelope) -> dict:
         player = state.players[action.actor_player_id]
         name = str(action.payload.get("card_name") or action.source or "fortune_subscription")
-        return self._resolve_fortune_subscription(state, player, name)
+        result = self._resolve_fortune_subscription(state, player, name)
+        self._emit_fortune_action_result(state, player, name, result)
+        return result
 
     def _resolve_fortune_subscription(self, state: GameState, player: PlayerState, name: str) -> dict:
         pos = self._request_decision(
@@ -4217,9 +4220,54 @@ class GameEngine:
         state.pending_actions.append(action)
         return {"type": result_type, "queued_action_id": action.action_id}
 
+    def _emit_fortune_action_result(self, state: GameState, player: PlayerState, card_name: str, result: dict) -> None:
+        self._emit_vis(
+            "fortune_resolved",
+            Phase.FORTUNE,
+            player.player_id + 1,
+            state,
+            card_name=card_name,
+            resolution=result,
+            summary=self._fortune_action_summary(card_name, player, result),
+            action_result=True,
+        )
+
+    def _fortune_action_summary(self, card_name: str, player: PlayerState, result: dict) -> str:
+        result_type = str(result.get("type") or "")
+        transfer = result.get("transfer") if isinstance(result.get("transfer"), dict) else {}
+        pos = transfer.get("pos", result.get("pos"))
+        tile_text = f"{int(pos) + 1}번 칸" if isinstance(pos, int) else "선택한 칸"
+        from_player = transfer.get("from")
+        to_player = transfer.get("to")
+
+        if result_type == "STEAL_TILE":
+            return f"{card_name}: P{to_player}이 P{from_player}의 {tile_text}을 가져감"
+        if result_type in {"MUROE_GIVE_TILE", "GIVE_TILE"}:
+            return f"{card_name}: P{from_player}이 P{to_player}에게 {tile_text}을 넘김"
+        if result_type == "SUBSCRIPTION":
+            selection = result.get("selection")
+            selected_tile = f"{int(selection) + 1}번 칸" if isinstance(selection, int) else tile_text
+            return f"{card_name}: P{player.player_id + 1}이 {selected_tile}을 구매함"
+        if result_type == "FORCED_TRADE":
+            own = result.get("own_to_other") if isinstance(result.get("own_to_other"), dict) else {}
+            other = result.get("other_to_self") if isinstance(result.get("other_to_self"), dict) else {}
+            own_pos = own.get("pos")
+            other_pos = other.get("pos")
+            own_tile = f"{int(own_pos) + 1}번 칸" if isinstance(own_pos, int) else "내 칸"
+            other_tile = f"{int(other_pos) + 1}번 칸" if isinstance(other_pos, int) else "상대 칸"
+            return f"{card_name}: {own_tile}과 {other_tile}을 교환함"
+        if result_type == "PIOUS_MARKER_GAIN_TILE":
+            return f"{card_name}: {tile_text}을 획득함"
+        if result_type == "NO_EFFECT":
+            return f"{card_name}: 효과 없음"
+        return f"{card_name}: {result_type or '처리됨'}"
+
     def _resolve_fortune_land_thief_action(self, state: GameState, action: ActionEnvelope) -> dict:
         player = state.players[action.actor_player_id]
-        return self._resolve_fortune_land_thief(state, player, str(action.payload.get("card_name") or action.source))
+        name = str(action.payload.get("card_name") or action.source)
+        result = self._resolve_fortune_land_thief(state, player, name)
+        self._emit_fortune_action_result(state, player, name, result)
+        return result
 
     def _resolve_fortune_land_thief(self, state: GameState, player: PlayerState, name: str) -> dict:
         if self._is_muroe(player):
@@ -4254,7 +4302,10 @@ class GameEngine:
 
     def _resolve_fortune_donation_angel_action(self, state: GameState, action: ActionEnvelope) -> dict:
         player = state.players[action.actor_player_id]
-        return self._resolve_fortune_donation_angel(state, player, str(action.payload.get("card_name") or action.source))
+        name = str(action.payload.get("card_name") or action.source)
+        result = self._resolve_fortune_donation_angel(state, player, name)
+        self._emit_fortune_action_result(state, player, name, result)
+        return result
 
     def _resolve_fortune_donation_angel(self, state: GameState, player: PlayerState, name: str) -> dict:
         pos = self._request_decision(
@@ -4275,7 +4326,10 @@ class GameEngine:
 
     def _resolve_fortune_forced_trade_action(self, state: GameState, action: ActionEnvelope) -> dict:
         player = state.players[action.actor_player_id]
-        return self._resolve_fortune_forced_trade(state, player, str(action.payload.get("card_name") or action.source))
+        name = str(action.payload.get("card_name") or action.source)
+        result = self._resolve_fortune_forced_trade(state, player, name)
+        self._emit_fortune_action_result(state, player, name, result)
+        return result
 
     def _resolve_fortune_forced_trade(self, state: GameState, player: PlayerState, name: str) -> dict:
         own = self._request_decision(
@@ -4313,7 +4367,10 @@ class GameEngine:
 
     def _resolve_fortune_pious_marker_action(self, state: GameState, action: ActionEnvelope) -> dict:
         player = state.players[action.actor_player_id]
-        return self._resolve_fortune_pious_marker_gain(state, player, str(action.payload.get("card_name") or action.source))
+        name = str(action.payload.get("card_name") or action.source)
+        result = self._resolve_fortune_pious_marker_gain(state, player, name)
+        self._emit_fortune_action_result(state, player, name, result)
+        return result
 
     def _resolve_fortune_pious_marker_gain(self, state: GameState, player: PlayerState, name: str) -> dict:
         pos = self._request_decision(

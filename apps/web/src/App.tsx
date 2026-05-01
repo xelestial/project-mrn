@@ -496,7 +496,6 @@ export function App() {
 
   const timeline = selectTimeline(stream.messages, compactDensity ? 24 : 40, selectorText);
   const coreActionFeed = selectCoreActionFeed(stream.messages, effectivePlayerId, compactDensity ? 10 : 14, selectorText);
-  const latestCoreAction = coreActionFeed.find((item) => !item.isLocalActor) ?? coreActionFeed[0] ?? null;
   const situation = selectSituation(stream.messages, selectorText);
   const turnStage = selectTurnStage(stream.messages, selectorText);
   const snapshot = selectLiveSnapshot(stream.messages, selectorText);
@@ -715,19 +714,6 @@ export function App() {
   const boardTopology = sessionManifest?.board?.topology ?? "ring";
   const tileKindLabels = tileKindLabelsFromManifestLabels(sessionManifest?.labels);
   const characterAbilityLabels = characterAbilityLabelsFromManifestLabels(sessionManifest?.labels);
-  const activeCharacterAbility =
-    turnStage.character && turnStage.character !== "-" ? characterAbilityLabels[turnStage.character] ?? "-" : "-";
-  const tableSceneTitle = hasReadableValue(turnStage.currentBeatLabel)
-    ? turnStage.currentBeatLabel
-    : isMyTurn
-      ? app.myTurnWaitingTitle
-      : app.spectatorHeadline;
-  const tableSceneDetail = hasReadableValue(turnStage.currentBeatDetail)
-    ? turnStage.currentBeatDetail
-    : hasReadableValue(turnStage.promptSummary)
-      ? turnStage.promptSummary
-      : latestCoreAction?.detail ?? "-";
-  const tableSceneSupport = hasReadableValue(activeCharacterAbility) ? activeCharacterAbility : turnStageText.promptIdle;
   const currentPromptLabel = actionablePrompt ? promptLabelForType(actionablePrompt.requestType) : null;
   const visiblePrompt = activePrompt ?? null;
   const visiblePromptLabel = activePromptLabel;
@@ -762,7 +748,7 @@ export function App() {
       : null;
   const effectiveEventFeedSpotlightItem = gameEndSpotlight ?? eventFeedSpotlightItem;
   const effectiveTurnBanner =
-    turnBanner?.variant === "turn" && (visiblePrompt || passivePrompt || waitingForMyPrompt)
+    turnBanner?.variant === "turn" && (visiblePrompt || passivePrompt || waitingForMyPrompt || isMyTurn)
       ? null
       : turnBanner && turnBanner.variant === "turn" && boardTurnOverlay
         ? {
@@ -772,6 +758,14 @@ export function App() {
               boardTurnOverlay.detail && boardTurnOverlay.detail !== "-" ? boardTurnOverlay.detail : turnBanner.detail,
           }
         : turnBanner;
+  const myTurnCelebration = turnBanner?.variant === "turn" && isMyTurn ? turnBanner : null;
+  const myTurnCelebrationTitle = locale === "ko" ? "당신의 턴!" : "Your turn!";
+  const myTurnCelebrationDetail =
+    myTurnCelebration?.detail && myTurnCelebration.detail !== "-"
+      ? myTurnCelebration.detail
+      : locale === "ko"
+        ? "선택지를 준비하세요"
+        : "Get ready to choose";
   const overlayHandCards = useMemo(
     () => selectCurrentHandTrayCards(stream.messages, locale, effectivePlayerId),
     [stream.messages, locale, effectivePlayerId]
@@ -784,24 +778,12 @@ export function App() {
         : "Pick the burden target below."
       : null;
   const hasBoardBottomDock =
-    Boolean(passivePrompt) || waitingForMyPrompt || Boolean(actionablePrompt) || overlayHandCards.length > 0;
+    Boolean(passivePrompt) || Boolean(actionablePrompt) || overlayHandCards.length > 0;
   const hasPublicEventFeed =
     route !== "lobby" &&
     Boolean(eventFeedSpotlightItem) &&
     !visibleActionablePrompt;
   const showPublicEventFeed = hasPublicEventFeed && publicEventFeedOpen;
-  const decisionWaitingTitle = currentPromptLabel && currentPromptLabel !== "-" ? currentPromptLabel : tableSceneTitle;
-  const decisionWaitingLines = Array.from(
-    new Set(
-      [
-        tableSceneDetail,
-        hasReadableValue(turnStage.diceSummary) ? turnStage.diceSummary : null,
-        hasReadableValue(turnStage.moveSummary) ? turnStage.moveSummary : null,
-        hasReadableValue(turnStage.landingSummary) ? turnStage.landingSummary : null,
-        hasReadableValue(tableSceneSupport) ? tableSceneSupport : null,
-      ].filter((value): value is string => hasReadableValue(value))
-    )
-  );
   const playerStageFallbackLabel =
     currentPromptLabel && currentPromptLabel !== "-"
       ? currentPromptLabel
@@ -1234,6 +1216,9 @@ export function App() {
     } else if (eventCode === "bankruptcy") {
       lastEnqueuedRevealSeqRef.current = seq;
       eventQueue.enqueue({ kind: "bankruptcy", label, detail });
+    } else if (eventCode === "game_end") {
+      lastEnqueuedRevealSeqRef.current = seq;
+      eventQueue.enqueue({ kind: "game_end", label, detail });
     }
   }, [latestCurrentTurnReveal, effectivePlayerId, eventQueue, locale, stream.messages]);
 
@@ -2038,9 +2023,10 @@ export function App() {
         <section
           className={`turn-notice-banner ${
             effectiveTurnBanner.variant === "interrupt" ? "turn-notice-banner-interrupt" : "turn-notice-banner-turn"
-          }`}
+          } ${effectiveTurnBanner.variant === "turn" && isMyTurn ? "turn-notice-banner-local" : ""}`}
           data-testid="turn-notice-banner"
           data-banner-variant={effectiveTurnBanner.variant}
+          data-banner-local={effectiveTurnBanner.variant === "turn" && isMyTurn ? "true" : "false"}
           data-banner-has-detail={effectiveTurnBanner.detail && effectiveTurnBanner.detail !== "-" ? "true" : "false"}
           data-banner-player-id={currentActorId ? String(currentActorId) : undefined}
         >
@@ -2048,6 +2034,35 @@ export function App() {
           {effectiveTurnBanner.detail && effectiveTurnBanner.detail !== "-" ? (
             <small data-testid="turn-notice-banner-detail">{effectiveTurnBanner.detail}</small>
           ) : null}
+        </section>
+      ) : null}
+
+      {route !== "lobby" && myTurnCelebration ? (
+        <section
+          className="my-turn-celebration"
+          data-testid="my-turn-celebration"
+          data-turn-owner="local"
+          aria-live="polite"
+        >
+          <div className="my-turn-celebration-particles" aria-hidden="true">
+            {Array.from({ length: 14 }).map((_, index) => (
+              <span
+                key={index}
+                className="my-turn-celebration-particle"
+                style={
+                  {
+                    "--particle-angle": `${index * 25.7}deg`,
+                    "--particle-distance": `${82 + (index % 4) * 18}px`,
+                    "--particle-size": `${5 + (index % 3) * 2}px`,
+                    "--particle-delay": `${index * 24}ms`,
+                  } as CSSProperties
+                }
+              />
+            ))}
+          </div>
+          <span className="my-turn-celebration-kicker">{locale === "ko" ? "READY" : "READY"}</span>
+          <strong>{myTurnCelebrationTitle}</strong>
+          <small>{myTurnCelebrationDetail}</small>
         </section>
       ) : null}
 
@@ -2417,19 +2432,6 @@ export function App() {
                                   <div className="passive-prompt-badge">
                                     <span className="spinner" aria-hidden="true" />
                                   </div>
-                                </div>
-                              </section>
-                            ) : null}
-                            {waitingForMyPrompt ? (
-                              <section className="panel waiting-panel match-table-waiting" data-testid="my-turn-waiting-panel">
-                                <div className="waiting-panel-head">
-                                  <div>
-                                    <h2>{decisionWaitingTitle}</h2>
-                                    {decisionWaitingLines.map((line) => (
-                                      <p key={line}>{line}</p>
-                                    ))}
-                                  </div>
-                                  <span className="spinner" aria-hidden="true" />
                                 </div>
                               </section>
                             ) : null}

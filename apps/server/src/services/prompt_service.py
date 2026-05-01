@@ -81,23 +81,41 @@ class PromptService:
                 if player_id != pending.player_id:
                     return {"status": "rejected", "reason": "player_mismatch"}
 
-                self._delete_pending(request_id)
-                self._set_decision(request_id, dict(payload))
-                if self._command_store is not None:
-                    self._command_store.append_command(
-                        pending.session_id,
-                        "decision_submitted",
-                        {
-                            "request_id": request_id,
-                            "player_id": player_id,
-                            "choice_id": choice_id,
-                            "decision": dict(payload),
-                            "submitted_at_ms": now,
-                        },
+                decision_payload = dict(payload)
+                command_payload = {
+                    "request_id": request_id,
+                    "player_id": player_id,
+                    "choice_id": choice_id,
+                    "decision": decision_payload,
+                    "submitted_at_ms": now,
+                }
+                resolved_payload = {"resolved_at_ms": now, "reason": "accepted"}
+                atomic_accept = getattr(self._prompt_store, "accept_decision_with_command", None)
+                if callable(atomic_accept) and self._command_store is not None:
+                    accepted = atomic_accept(
+                        session_id=pending.session_id,
                         request_id=request_id,
+                        decision_payload=decision_payload,
+                        resolved_payload=resolved_payload,
+                        command_store=self._command_store,
+                        command_type="decision_submitted",
+                        command_payload=command_payload,
                         server_time_ms=now,
                     )
-                self._record_resolved(request_id=request_id, reason="accepted")
+                    if accepted is None:
+                        return {"status": "stale", "reason": "request_not_pending"}
+                else:
+                    self._delete_pending(request_id)
+                    self._set_decision(request_id, decision_payload)
+                    if self._command_store is not None:
+                        self._command_store.append_command(
+                            pending.session_id,
+                            "decision_submitted",
+                            command_payload,
+                            request_id=request_id,
+                            server_time_ms=now,
+                        )
+                    self._record_resolved(request_id=request_id, reason="accepted", now_ms=now)
                 waiter = self._waiters.get(request_id)
                 result = {"status": "accepted", "reason": None}
         if waiter is not None:
@@ -124,12 +142,50 @@ class PromptService:
             waiter.set()
         return timed_out
 
+    def record_timeout_fallback_decision(
+        self,
+        pending: PendingPrompt,
+        *,
+        choice_id: str,
+        submitted_at_ms: int | None = None,
+    ) -> dict:
+        now = submitted_at_ms if submitted_at_ms is not None else self._now_ms()
+        request_id = str(pending.request_id).strip()
+        fallback_choice_id = str(choice_id or "timeout_fallback").strip() or "timeout_fallback"
+        decision_payload = {
+            "type": "decision",
+            "request_id": request_id,
+            "player_id": int(pending.player_id),
+            "choice_id": fallback_choice_id,
+            "choice_payload": {},
+            "provider": "timeout_fallback",
+        }
+        command_payload = {
+            "request_id": request_id,
+            "player_id": int(pending.player_id),
+            "choice_id": fallback_choice_id,
+            "decision": decision_payload,
+            "submitted_at_ms": now,
+            "source": "timeout_fallback",
+        }
+        with self._lock:
+            self._set_decision(request_id, decision_payload)
+            if self._command_store is not None:
+                self._command_store.append_command(
+                    pending.session_id,
+                    "decision_submitted",
+                    command_payload,
+                    request_id=request_id,
+                    server_time_ms=now,
+                )
+        return decision_payload
+
     def wait_for_decision(self, request_id: str, timeout_ms: int) -> dict | None:
         if timeout_ms <= 0:
             timeout_ms = 1
         with self._lock:
             self._prune_resolved()
-            decision = self._pop_decision(request_id)
+            decision = self._get_decision(request_id)
             if decision is not None:
                 return decision
             waiter = self._waiters.get(request_id)
@@ -143,12 +199,12 @@ class PromptService:
         while self._now_ms() < deadline:
             waiter.wait(min(50, max(1, deadline - self._now_ms())) / 1000.0)
             with self._lock:
-                decision = self._pop_decision(request_id)
+                decision = self._get_decision(request_id)
                 if decision is not None:
                     self._waiters.pop(request_id, None)
                     return decision
         with self._lock:
-            decision = self._pop_decision(request_id)
+            decision = self._get_decision(request_id)
             self._waiters.pop(request_id, None)
             return decision
 
@@ -198,10 +254,12 @@ class PromptService:
                 resolved_at = int(payload.get("resolved_at_ms", 0))
                 if resolved_at < cutoff:
                     self._prompt_store.delete_resolved(request_id)
+                    self._prompt_store.delete_decision(request_id)
             return
         for request_id, (resolved_at, _) in list(self._resolved.items()):
             if resolved_at < cutoff:
                 self._resolved.pop(request_id, None)
+                self._decisions.pop(request_id, None)
 
     def _has_pending_request(self, request_id: str) -> bool:
         if self._prompt_store is not None:
@@ -271,6 +329,15 @@ class PromptService:
             self._prompt_store.save_decision(request_id, payload)
             return
         self._decisions[request_id] = payload
+
+    def _get_decision(self, request_id: str) -> dict | None:
+        if self._prompt_store is not None:
+            getter = getattr(self._prompt_store, "get_decision", None)
+            if callable(getter):
+                return getter(request_id)
+            return self._prompt_store.pop_decision(request_id)
+        decision = self._decisions.get(request_id)
+        return dict(decision) if decision is not None else None
 
     def _pop_decision(self, request_id: str) -> dict | None:
         if self._prompt_store is not None:
