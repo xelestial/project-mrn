@@ -180,6 +180,7 @@ async function expectDesktopHudDensity(page: Page): Promise<void> {
     });
     return {
       promptWidth: promptRect?.width ?? null,
+      viewportWidth: window.innerWidth,
       maxPersonaFont: Math.max(...cardMetrics.map((card) => card.personaFont), 0),
       maxStatValueFont: Math.max(...cardMetrics.map((card) => card.statValueFont), 0),
       verticalOverflow: cardMetrics.some((card) => card.verticalOverflow),
@@ -187,10 +188,65 @@ async function expectDesktopHudDensity(page: Page): Promise<void> {
   });
 
   expect(metrics.promptWidth).not.toBeNull();
-  expect(metrics.promptWidth ?? 0).toBeLessThanOrEqual(700);
+  expect(metrics.promptWidth ?? 0).toBeLessThanOrEqual(metrics.viewportWidth * 0.75 + 4);
   expect(metrics.maxPersonaFont).toBeLessThanOrEqual(13.5);
   expect(metrics.maxStatValueFont).toBeLessThanOrEqual(12.5);
   expect(metrics.verticalOverflow).toBe(false);
+}
+
+async function expectTrickPromptUsesSixSlots(page: Page): Promise<void> {
+  const metrics = await page.getByTestId("prompt-overlay").evaluate((prompt) => {
+    const grid = prompt.querySelector<HTMLElement>(".hand-grid-hidden-trick, .hand-grid-trick-to-use");
+    if (!grid) {
+      return null;
+    }
+    const gridRect = grid.getBoundingClientRect();
+    const cardRects = Array.from(grid.children).map((child) => child.getBoundingClientRect());
+    const columns = getComputedStyle(grid)
+      .gridTemplateColumns.split(" ")
+      .filter((column) => column.trim().length > 0);
+    const firstWidth = cardRects[0]?.width ?? 0;
+    return {
+      columnCount: columns.length,
+      gridWidth: gridRect.width,
+      firstWidth,
+      maxRightOverflow: Math.max(...cardRects.map((rect) => rect.right - gridRect.right), 0),
+      widthSpread: Math.max(...cardRects.map((rect) => Math.abs(rect.width - firstWidth)), 0),
+    };
+  });
+
+  expect(metrics).not.toBeNull();
+  expect(metrics?.columnCount).toBe(6);
+  expect(metrics?.maxRightOverflow ?? 0).toBeLessThanOrEqual(1);
+  expect(metrics?.widthSpread ?? 0).toBeLessThanOrEqual(1);
+  expect(metrics?.firstWidth ?? 0).toBeGreaterThan(0);
+  expect(metrics?.firstWidth ?? 0).toBeLessThan((metrics?.gridWidth ?? 0) / 5);
+}
+
+async function expectTrickPromptHoverKeepsTopBorder(page: Page): Promise<void> {
+  const card = page.getByTestId("trick-choice-10-0");
+  await card.hover();
+
+  const metrics = await card.evaluate((node) => {
+    const grid = node.closest<HTMLElement>(".hand-grid-hidden-trick, .hand-grid-trick-to-use");
+    const body = node.closest<HTMLElement>(".prompt-body");
+    const cardRect = node.getBoundingClientRect();
+    const gridRect = grid?.getBoundingClientRect();
+    const bodyRect = body?.getBoundingClientRect();
+    const gridStyle = grid ? getComputedStyle(grid) : null;
+    return {
+      cardTop: cardRect.top,
+      gridTop: gridRect?.top ?? null,
+      bodyTop: bodyRect?.top ?? null,
+      gridOverflowY: gridStyle?.overflowY ?? null,
+    };
+  });
+
+  expect(metrics.gridTop).not.toBeNull();
+  expect(metrics.bodyTop).not.toBeNull();
+  expect(metrics.gridOverflowY).toBe("visible");
+  expect(metrics.cardTop).toBeGreaterThanOrEqual((metrics.gridTop ?? 0) - 0.5);
+  expect(metrics.cardTop).toBeGreaterThanOrEqual((metrics.bodyTop ?? 0) - 0.5);
 }
 
 async function expectTurnNoticeAboveWeather(page: Page): Promise<void> {
@@ -668,6 +724,8 @@ test("human quick start surfaces turn banner and first prompt through stable ids
   await expect(page.getByRole("button", { name: "Debug log" })).toHaveCount(1);
   await expect(page.getByTestId("trick-choice-10-0")).toHaveAttribute("data-card-name", "Scout Route");
   await expect(page.getByTestId("trick-choice-14-4")).toBeVisible();
+  await expectTrickPromptUsesSixSlots(page);
+  await expectTrickPromptHoverKeepsTopBorder(page);
   await expectDesktopHudDensity(page);
 });
 

@@ -2973,7 +2973,7 @@ export function App() {
                             className="match-table-hand-tray-grid"
                             style={
                               {
-                                "--hand-card-columns": Math.max(1, Math.min(6, overlayHandCards.length)),
+                                "--hand-card-columns": 6,
                               } as CSSProperties
                             }
                           >

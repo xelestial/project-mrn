@@ -12,7 +12,7 @@ describe("boardHudScale", () => {
 
     expect(scale.sceneScale).toBeGreaterThanOrEqual(1);
     expect(scale.density).not.toBe("compact");
-    expect(scale.handGridColumns).toBe(5);
+    expect(scale.handGridColumns).toBe(6);
     expect(scale.promptMaxHeight).toBeGreaterThanOrEqual(196);
     expect(scale.promptShellMaxWidth).toBeGreaterThanOrEqual(1000);
     expect(scale.handTrayMaxHeight).toBeGreaterThanOrEqual(136);
@@ -31,7 +31,7 @@ describe("boardHudScale", () => {
     expect(scale.bodyFontSize).toBeLessThanOrEqual(12);
     expect(scale.overlayGap).toBeLessThanOrEqual(12);
     expect(scale.choiceMinWidth).toBeGreaterThanOrEqual(150);
-    expect(scale.handCardMinWidth).toBeGreaterThanOrEqual(138);
+    expect(scale.handCardMinWidth).toBeGreaterThanOrEqual(120);
     expect(scale.choiceMinHeight).toBeLessThanOrEqual(140);
     expect(scale.promptShellMaxWidth).toBeLessThanOrEqual(1000);
     expect(scale.handTrayMaxHeight).toBeLessThanOrEqual(220);
@@ -53,6 +53,6 @@ describe("boardHudScale", () => {
     expect(scale.promptMaxHeight).toBeGreaterThanOrEqual(240);
     expect(scale.promptShellMaxWidth).toBeGreaterThanOrEqual(960);
     expect(scale.choiceMinWidth).toBeGreaterThanOrEqual(150);
-    expect(scale.handGridColumns).toBe(5);
+    expect(scale.handGridColumns).toBe(6);
   });
 });

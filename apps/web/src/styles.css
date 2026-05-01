@@ -2092,12 +2092,13 @@ body {
 
 .match-table-hand-tray-grid {
   display: grid;
-  grid-template-columns: repeat(var(--hand-card-columns, 5), minmax(0, 1fr));
+  grid-template-columns: repeat(var(--hand-card-columns, 6), minmax(0, 1fr));
   gap: clamp(5px, 0.45vw, 8px);
   overflow: visible;
   padding: 2px 2px 4px;
   min-width: 0;
   align-items: stretch;
+  box-sizing: border-box;
 }
 
 .match-table-hand-card {
@@ -6235,27 +6236,40 @@ body {
   min-width: 0;
 }
 
+.prompt-overlay-hidden_trick .hand-grid,
+.hand-grid-hidden-trick,
 .prompt-overlay-trick_to_use .hand-grid,
 .hand-grid-trick-to-use {
-  gap: var(--board-hud-gap-tight, 8px);
+  --trick-card-slot-count: 6;
+  display: grid;
+  grid-template-columns: repeat(var(--trick-card-slot-count), minmax(0, 1fr));
+  gap: clamp(6px, 0.58vw, 10px);
+  width: 100%;
+  min-width: 0;
+  overflow: visible;
+  align-items: stretch;
+  box-sizing: border-box;
+  padding: 3px 1px 1px;
 }
 
 .prompt-overlay-hidden_trick .hand-grid > *,
 .hand-grid-hidden-trick > *,
 .prompt-overlay-trick_to_use .hand-grid > *,
 .hand-grid-trick-to-use > * {
-  flex: 0 0 12.5vw;
-  max-width: 12.5vw;
+  width: 100%;
   min-width: 0;
+  max-width: none;
 }
 
 .prompt-overlay-hidden_trick .prompt-choice-card {
+  width: 100%;
   min-height: calc(var(--board-hud-choice-min-height, 156px) + 8px);
   padding: var(--board-hud-card-padding, 12px);
   align-content: start;
 }
 
 .prompt-overlay-trick_to_use .prompt-choice-card {
+  width: 100%;
   min-height: var(--board-hud-choice-min-height, 156px);
   padding: var(--board-hud-card-padding, 12px);
   align-content: start;
@@ -6280,6 +6294,13 @@ body {
 .prompt-choices-decision,
 .prompt-choices-reward {
   overflow: hidden;
+}
+
+.prompt-overlay-hidden_trick .hand-grid,
+.hand-grid-hidden-trick,
+.prompt-overlay-trick_to_use .hand-grid,
+.hand-grid-trick-to-use {
+  overflow: visible;
 }
 
 .prompt-choices-compact {
@@ -7678,15 +7699,15 @@ body {
   .hand-grid-hidden-trick,
   .prompt-overlay-trick_to_use .hand-grid,
   .hand-grid-trick-to-use {
-    display: flex;
-    flex-wrap: nowrap;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: var(--board-hud-gap-tight, 10px);
-    overflow: hidden;
+    overflow: visible;
   }
 
   .prompt-overlay-hidden_trick .hand-grid,
   .hand-grid-hidden-trick {
-    display: flex;
+    display: grid;
     overflow: visible;
     padding-bottom: 0;
   }
@@ -7834,15 +7855,15 @@ body {
   .hand-grid-hidden-trick,
   .prompt-overlay-trick_to_use .hand-grid,
   .hand-grid-trick-to-use {
-    display: flex;
-    flex-wrap: nowrap;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: var(--board-hud-gap-tight, 10px);
-    overflow: hidden;
+    overflow: visible;
   }
 
   .prompt-overlay-hidden_trick .hand-grid,
   .hand-grid-hidden-trick {
-    display: flex;
+    display: grid;
     overflow: visible;
     padding-bottom: 0;
   }

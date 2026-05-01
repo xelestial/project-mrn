@@ -91,8 +91,8 @@ export function computeBoardHudScale({
     promptMiddleReserveBottom: roundPixel(clamp(safeBandHeight * 0.24, 150, 250)),
     choiceMinWidth: roundPixel(clamp(safeViewportWidth / 5.1, 150, 250)),
     choiceMinHeight: roundPixel(clamp(142 * sceneScale, 104, 156)),
-    handCardMinWidth: roundPixel(clamp(safeViewportWidth / 5.8, 138, 220)),
+    handCardMinWidth: roundPixel(clamp(safeViewportWidth / 6.4, 120, 200)),
     handCardMinHeight: roundPixel(clamp(118 * sceneScale, 88, 136)),
-    handGridColumns: 5,
+    handGridColumns: 6,
   };
 }
