@@ -158,7 +158,8 @@ function eventEffectIntent(event: GameEvent): GameEventEffectIntent {
 function eventEffectBadgeLabel(
   source: GameEventEffectSource,
   intent: GameEventEffectIntent,
-  enhanced: boolean
+  enhanced: boolean,
+  character?: string | null
 ): string | null {
   if (source === "weather") {
     if (intent === "loss") return "날씨 페널티";
@@ -177,10 +178,15 @@ function eventEffectBadgeLabel(
     return "잔꾀 효과";
   }
   if (source === "character") {
+    if (isMatchmakerEffect(character)) {
+      return "중매꾼 추가 구매";
+    }
     if (intent === "loss") return "캐릭터 페널티";
     return "캐릭터 보너스";
   }
   if (source === "mark") {
+    if (isBaksuEffect(character)) return "박수 지목 성공";
+    if (isManshinEffect(character)) return "만신 지목 성공";
     return "지목 효과";
   }
   if (source === "economy" && enhanced) {
@@ -191,19 +197,45 @@ function eventEffectBadgeLabel(
   return null;
 }
 
+function normalizedEffectCharacter(character?: string | null): string | null {
+  if (!character) return null;
+  const normalized = character.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized.includes("박수") || normalized.includes("baksu")) return "박수";
+  if (normalized.includes("만신") || normalized.includes("manshin")) return "만신";
+  if (normalized.includes("중매") || normalized.includes("matchmaker")) return "중매꾼";
+  return character.trim();
+}
+
+function isBaksuEffect(character?: string | null): boolean {
+  return normalizedEffectCharacter(character) === "박수";
+}
+
+function isManshinEffect(character?: string | null): boolean {
+  return normalizedEffectCharacter(character) === "만신";
+}
+
+function isMatchmakerEffect(character?: string | null): boolean {
+  return normalizedEffectCharacter(character) === "중매꾼";
+}
+
 function EventEffectParticles({
   intent,
   source,
   enhanced,
+  character,
 }: {
   intent: GameEventEffectIntent;
   source: GameEventEffectSource;
   enhanced: boolean;
+  character?: string | null;
 }) {
   const showLightning = source === "weather" && (enhanced || intent === "boost" || intent === "loss");
   const showGain = intent === "gain";
   const showLoss = intent === "loss";
   const showMystic = source === "fortune" || source === "trick" || source === "character" || intent === "mystic";
+  const showBaksuMark = source === "mark" && isBaksuEffect(character);
+  const showManshinMark = source === "mark" && isManshinEffect(character);
 
   return (
     <div className="game-event-overlay-effects" aria-hidden="true">
@@ -237,6 +269,21 @@ function EventEffectParticles({
           <span className="game-event-effect-wisp game-event-effect-wisp-2" />
           <span className="game-event-effect-rune game-event-effect-rune-1" />
           <span className="game-event-effect-rune game-event-effect-rune-2" />
+        </>
+      ) : null}
+      {showBaksuMark ? (
+        <>
+          <span className="game-event-effect-burden-card game-event-effect-burden-card-1" />
+          <span className="game-event-effect-burden-card game-event-effect-burden-card-2" />
+          <span className="game-event-effect-card-swap" />
+        </>
+      ) : null}
+      {showManshinMark ? (
+        <>
+          <span className="game-event-effect-cleansing-ring" />
+          <span className="game-event-effect-cleansing-spark game-event-effect-cleansing-spark-1" />
+          <span className="game-event-effect-cleansing-spark game-event-effect-cleansing-spark-2" />
+          <span className="game-event-effect-cleansing-spark game-event-effect-cleansing-spark-3" />
         </>
       ) : null}
     </div>
@@ -282,9 +329,10 @@ export function GameEventOverlay({ currentEvent }: GameEventOverlayProps) {
   if (!currentEvent) return null;
   const effectSource = eventEffectSource(currentEvent);
   const effectIntent = eventEffectIntent(currentEvent);
+  const effectCharacter = normalizedEffectCharacter(currentEvent.effectCharacter);
   const effectEnhanced =
     currentEvent.effectEnhanced === true || effectIntent === "boost" || (effectSource === "weather" && effectIntent !== "neutral");
-  const effectBadge = eventEffectBadgeLabel(effectSource, effectIntent, effectEnhanced);
+  const effectBadge = eventEffectBadgeLabel(effectSource, effectIntent, effectEnhanced, effectCharacter);
   const diceValues = currentEvent.diceValues?.length
     ? currentEvent.diceValues
     : typeof currentEvent.diceTotal === "number"
@@ -315,6 +363,7 @@ export function GameEventOverlay({ currentEvent }: GameEventOverlayProps) {
       data-event-kind={currentEvent.kind}
       data-effect-intent={effectIntent}
       data-effect-source={effectSource}
+      data-effect-character={effectCharacter ?? ""}
       data-effect-enhanced={effectEnhanced ? "true" : "false"}
       data-effect-badge={effectBadge ?? ""}
       role="status"
@@ -322,7 +371,7 @@ export function GameEventOverlay({ currentEvent }: GameEventOverlayProps) {
       aria-atomic="true"
     >
       <div className="game-event-overlay-sprite" aria-hidden="true" />
-      <EventEffectParticles intent={effectIntent} source={effectSource} enhanced={effectEnhanced} />
+      <EventEffectParticles intent={effectIntent} source={effectSource} enhanced={effectEnhanced} character={effectCharacter} />
       <div className="game-event-overlay-card">
         <div className="game-event-overlay-ribbon">{eventThemeLabel(currentEvent.kind)}</div>
         {currentEvent.kind === "dice" && diceValues.length > 0 ? (

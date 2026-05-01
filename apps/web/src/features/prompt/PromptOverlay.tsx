@@ -105,7 +105,7 @@ type CharacterPickOption = NonNullable<PromptViewModel["surface"]["characterPick
 
 type ChoiceGridVariant = "default" | "target" | "decision" | "reward";
 type SummaryPillValue = string | null | undefined;
-type PromptPillTone = "neutral" | "player" | "timer" | "resource" | "decision" | "target" | "danger" | "success";
+type PromptPillTone = "neutral" | "player" | "timer" | "resource" | "decision" | "target" | "danger" | "success" | "character";
 type ChoiceBodyParts = {
   eyebrow: string | null;
   summary: string;
@@ -264,6 +264,10 @@ function stringFromContext(context: Record<string, unknown>, ...keys: string[]):
   return "";
 }
 
+function isMatchmakerPurchaseSource(source: string): boolean {
+  return source === "matchmaker_adjacent" || source === "adjacent_extra" || /중매꾼|matchmaker/i.test(source);
+}
+
 function tileLabel(tileIndex: number | null): string {
   return tileIndex === null ? "-" : String(tileIndex + 1);
 }
@@ -311,9 +315,13 @@ function classifyPromptPill(value: string, source: "head" | "summary", index = 0
     normalized.includes("remaining") ||
     normalized.includes("budget") ||
     normalized.includes("selected") ||
-    normalized.includes("선택")
+    normalized.includes("선택") ||
+    normalized.includes("기본가")
   ) {
     return "decision";
+  }
+  if (normalized.includes("중매꾼") || normalized.includes("matchmaker") || normalized.includes("character")) {
+    return "character";
   }
   if (
     normalized.includes("대상") ||
@@ -603,7 +611,24 @@ function normalizeChoiceText(
   if (prompt.requestType === "purchase_tile") {
     const pos = asNumber(prompt.publicContext["tile_index"]);
     const cost = asNumber(prompt.publicContext["cost"]) ?? asNumber(prompt.publicContext["tile_purchase_cost"]);
+    const source = asString(prompt.publicContext["source"] ?? prompt.publicContext["purchase_source"]);
+    const baseCost = asNumber(prompt.publicContext["base_cost"]) ?? asNumber(prompt.publicContext["tile_purchase_cost"]);
+    const multiplier = baseCost !== null && cost !== null && baseCost > 0 ? Math.round((cost / baseCost) * 10) / 10 : null;
+    const costDetail =
+      baseCost !== null && cost !== null && multiplier !== null && multiplier !== 1
+        ? `기본 ${formatNumber(baseCost)} x ${multiplier} = ${formatNumber(cost)}`
+        : cost !== null
+          ? `비용 ${formatNumber(cost)}`
+          : "";
     if (choice.choiceId === "yes") {
+      if (isMatchmakerPurchaseSource(source)) {
+        return {
+          title: "중매꾼 추가 구매",
+          description: cleanDisplayText(
+            `${pos !== null ? tileLabel(pos) : "인접 토지"} 구매 / ${multiplier === 2 ? "2배 가격" : "기본가 적용"}${costDetail ? ` / ${costDetail}` : ""}`
+          ),
+        };
+      }
       return {
         title: promptText.choice.buyTileTitle,
         description: promptText.choice.buyTile(pos, cost),
@@ -755,9 +780,9 @@ type ChoiceSectionProps = {
 };
 
 function ChoiceSection({ summaryPills = [], children }: ChoiceSectionProps) {
-  void summaryPills;
   return (
     <section className="prompt-section prompt-hand-stage">
+      <SummaryPills values={summaryPills} />
       {children}
     </section>
   );
@@ -1113,6 +1138,17 @@ export function PromptOverlay({
   const currentCash = numberFromContext(prompt.publicContext, "player_cash");
   const currentCost = numberFromContext(prompt.publicContext, "cost", "tile_purchase_cost");
   const currentShards = numberFromContext(prompt.publicContext, "player_shards");
+  const purchaseSource = stringFromContext(prompt.publicContext, "source", "purchase_source");
+  const isMatchmakerPurchase = isPurchaseTile && isMatchmakerPurchaseSource(purchaseSource);
+  const purchaseBaseCost = numberFromContext(prompt.publicContext, "base_cost", "tile_purchase_cost");
+  const purchaseMultiplier =
+    purchaseBaseCost !== null && currentCost !== null && purchaseBaseCost > 0
+      ? Math.round((currentCost / purchaseBaseCost) * 10) / 10
+      : currentShards !== null && currentShards >= 8
+        ? 1
+        : isMatchmakerPurchase
+          ? 2
+          : null;
   const currentCoins = numberFromContext(prompt.publicContext, "player_hand_coins");
   const currentPlacedCoins = numberFromContext(prompt.publicContext, "player_placed_coins");
   const currentTotalScore = numberFromContext(prompt.publicContext, "player_total_score");
@@ -1291,9 +1327,13 @@ export function PromptOverlay({
   return (
     <section
       ref={rootRef}
-      className={`panel prompt-overlay prompt-overlay-docked prompt-overlay-${prompt.requestType}`}
+      className={`panel prompt-overlay prompt-overlay-docked prompt-overlay-${prompt.requestType}${
+        isMatchmakerPurchase ? " prompt-overlay-purchase-matchmaker" : ""
+      }`}
       data-testid="prompt-overlay"
       data-prompt-type={prompt.requestType}
+      data-purchase-source={purchaseSource || undefined}
+      data-effect-character={isMatchmakerPurchase ? "중매꾼" : undefined}
       data-presentation-mode={presentationMode}
       onKeyDown={onKeyDown}
       tabIndex={-1}
@@ -1628,19 +1668,49 @@ export function PromptOverlay({
         ) : null}
 
         {isPurchaseTile ? (
-          <DecisionChoiceSection
-            prompt={prompt}
-            orderedChoices={orderedChoices}
-            promptText={promptText}
-            compactChoices={compactChoices}
-            busy={busy}
-            onSelectChoice={onSelectChoice}
-            testIdPrefix="purchase-choice"
-            variant="decision"
-            mergeSecondaryChoices
-            summaryPills={[`${promptText.context.currentCash}: ${formatNumber(currentCash)}`]}
-            renderExtra={() => null}
-          />
+          <>
+            {isMatchmakerPurchase ? (
+              <section className="prompt-section-summary prompt-purchase-special" data-testid="matchmaker-purchase-context">
+                <div className="prompt-summary-pill-row">
+                  <span className="prompt-summary-pill" data-tone="character">중매꾼 추가 구매</span>
+                  <span className="prompt-summary-pill" data-tone={purchaseMultiplier === 2 ? "danger" : "decision"}>
+                    {purchaseMultiplier === 2 ? "2배 가격" : "기본가 적용"}
+                  </span>
+                  {purchaseBaseCost !== null && currentCost !== null ? (
+                    <span className="prompt-summary-pill" data-tone="resource">
+                      {`기본 ${formatNumber(purchaseBaseCost)} -> 비용 ${formatNumber(currentCost)}`}
+                    </span>
+                  ) : null}
+                </div>
+                <p>
+                  {purchaseMultiplier === 2
+                    ? "중매꾼 능력으로 발생한 두 번째 구매입니다. 조각 조건이 부족하면 인접 토지는 2배 가격으로 구매합니다."
+                    : "중매꾼 능력으로 발생한 두 번째 구매입니다. 조각 조건을 만족해 인접 토지를 기본가로 구매합니다."}
+                </p>
+              </section>
+            ) : null}
+            <DecisionChoiceSection
+              prompt={prompt}
+              orderedChoices={orderedChoices}
+              promptText={promptText}
+              compactChoices={compactChoices}
+              busy={busy}
+              onSelectChoice={onSelectChoice}
+              testIdPrefix="purchase-choice"
+              variant="decision"
+              mergeSecondaryChoices
+              summaryPills={[
+                `${promptText.context.currentCash}: ${formatNumber(currentCash)}`,
+                isMatchmakerPurchase ? "중매꾼 추가 구매" : null,
+                isMatchmakerPurchase && purchaseMultiplier !== null
+                  ? purchaseMultiplier === 2
+                    ? "2배 가격"
+                    : "기본가 적용"
+                  : null,
+              ]}
+              renderExtra={() => null}
+            />
+          </>
         ) : null}
 
         {isLapReward ? (

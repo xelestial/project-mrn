@@ -1575,6 +1575,226 @@ test("runtime keeps innkeeper lap bonus breakdown readable", async ({ page }) =>
   await expectPublicEventsNotDuplicated(page);
 });
 
+test("runtime gives Manshin successful mark a distinct readable effect", async ({ page }) => {
+  const sessionId = "sess_mark_character_effects_runtime";
+  const manifest = buildManifest({
+    hash: "mark_character_effects_hash",
+    topology: "ring",
+    tileCount: 36,
+    seats: [1, 2, 3],
+  });
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({ seq: 1, sessionId, payload: { event_type: "parameter_manifest", parameter_manifest: manifest } }),
+        eventMessage({ seq: 2, sessionId, payload: { event_type: "round_start", round_index: 9 } }),
+        eventMessage({ seq: 3, sessionId, payload: { event_type: "turn_start", round_index: 9, turn_index: 1, acting_player_id: 2, character: "박수" } }),
+        eventMessage({
+          seq: 4,
+          sessionId,
+          payload: {
+            event_type: "mark_resolved",
+            round_index: 9,
+            turn_index: 1,
+            player_id: 2,
+            source_player_id: 2,
+            target_player_id: 1,
+            actor_name: "박수",
+            effect_type: "baksu_transfer",
+            resolution: {
+              type: "baksu_transfer",
+              actor_name: "박수",
+              burden_count: 2,
+              reward_count: 2,
+              summary: "박수 지목 성공 / P2 -> P1 / 짐 2장 전달 / 잔꾀 2장 획득",
+            },
+            summary: "박수 지목 성공 / P2 -> P1 / 짐 2장 전달 / 잔꾀 2장 획득",
+          },
+        }),
+        eventMessage({ seq: 5, sessionId, payload: { event_type: "turn_start", round_index: 9, turn_index: 2, acting_player_id: 3, character: "만신" } }),
+        eventMessage({
+          seq: 6,
+          sessionId,
+          payload: {
+            event_type: "mark_resolved",
+            round_index: 9,
+            turn_index: 2,
+            player_id: 3,
+            source_player_id: 3,
+            target_player_id: 1,
+            actor_name: "만신",
+            effect_type: "manshin_remove_burdens",
+            resolution: {
+              type: "manshin_remove_burdens",
+              actor_name: "만신",
+              removed_count: 3,
+              paid_amount: 6,
+              cash_delta: 6,
+              summary: "만신 지목 성공 / P1 짐 3장 제거 / P3 +6냥",
+            },
+            summary: "만신 지목 성공 / P1 짐 3장 제거 / P3 +6냥",
+          },
+        }),
+      ],
+    },
+    startedSessions: {
+      [sessionId]: {
+        session_id: sessionId,
+        status: "in_progress",
+        round_index: 9,
+        turn_index: 2,
+        seats: [
+          { seat: 1, seat_type: "human", connected: true, player_id: 1, participant_client: "human_http" },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced", participant_client: "local_ai" },
+          { seat: 3, seat_type: "ai", connected: true, player_id: 3, ai_profile: "balanced", participant_client: "local_ai" },
+        ],
+        parameter_manifest: manifest,
+      },
+    },
+  });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_mark_character_effects_runtime`);
+
+  const manshinOverlay = page.locator(".game-event-overlay[data-event-kind='mark_success']");
+  await expect(manshinOverlay).toBeVisible();
+  await expect(manshinOverlay).toHaveAttribute("data-effect-source", "mark");
+  await expect(manshinOverlay).toHaveAttribute("data-effect-character", "만신");
+  await expect(manshinOverlay).toHaveAttribute("data-effect-badge", "만신 지목 성공");
+  await expect(manshinOverlay.locator(".game-event-effect-cleansing-ring")).toHaveCount(1);
+  await expect(manshinOverlay).toContainText("+6냥");
+
+  await openPublicEvents(page);
+  await expect(page.getByTestId("board-event-attribution-mark_resolved").first()).toHaveText("Manshin mark");
+  await expect(page.getByTestId("board-event-spotlight-detail-mark_resolved")).toContainText("만신 지목 성공");
+  await expectPublicEventsNotDuplicated(page);
+});
+
+test("runtime gives Baksu successful mark a distinct burden-transfer effect", async ({ page }) => {
+  const sessionId = "sess_baksu_mark_effect_runtime";
+  const manifest = buildManifest({
+    hash: "baksu_mark_effect_hash",
+    topology: "ring",
+    tileCount: 36,
+    seats: [1, 2],
+  });
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({ seq: 1, sessionId, payload: { event_type: "parameter_manifest", parameter_manifest: manifest } }),
+        eventMessage({ seq: 2, sessionId, payload: { event_type: "round_start", round_index: 9 } }),
+        eventMessage({ seq: 3, sessionId, payload: { event_type: "turn_start", round_index: 9, turn_index: 1, acting_player_id: 2, character: "박수" } }),
+        eventMessage({
+          seq: 4,
+          sessionId,
+          payload: {
+            event_type: "mark_resolved",
+            round_index: 9,
+            turn_index: 1,
+            player_id: 2,
+            source_player_id: 2,
+            target_player_id: 1,
+            actor_name: "박수",
+            effect_type: "baksu_transfer",
+            resolution: {
+              type: "baksu_transfer",
+              actor_name: "박수",
+              burden_count: 2,
+              reward_count: 2,
+              summary: "박수 지목 성공 / P2 -> P1 / 짐 2장 전달 / 잔꾀 2장 획득",
+            },
+            summary: "박수 지목 성공 / P2 -> P1 / 짐 2장 전달 / 잔꾀 2장 획득",
+          },
+        }),
+      ],
+    },
+  });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_baksu_mark_effect_runtime`);
+
+  const baksuOverlay = page.locator(".game-event-overlay[data-event-kind='mark_success']");
+  await expect(baksuOverlay).toBeVisible();
+  await expect(baksuOverlay).toHaveAttribute("data-effect-source", "mark");
+  await expect(baksuOverlay).toHaveAttribute("data-effect-character", "박수");
+  await expect(baksuOverlay).toHaveAttribute("data-effect-badge", "박수 지목 성공");
+  await expect(baksuOverlay.locator(".game-event-effect-burden-card")).toHaveCount(2);
+  await expect(baksuOverlay).toContainText("잔꾀 2장 획득");
+
+  await openPublicEvents(page);
+  await expect(page.getByTestId("board-event-attribution-mark_resolved")).toHaveText("Baksu mark");
+  await expect(page.getByTestId("board-event-spotlight-detail-mark_resolved")).toContainText("박수 지목 성공");
+  await expectPublicEventsNotDuplicated(page);
+});
+
+test("matchmaker adjacent purchase prompt labels the ability and double-price context", async ({ page }) => {
+  const sessionId = "sess_matchmaker_purchase_prompt_runtime";
+  const manifest = buildManifest({
+    hash: "matchmaker_purchase_prompt_hash",
+    topology: "ring",
+    tileCount: 36,
+    seats: [1, 2],
+    startingShards: 3,
+  });
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({ seq: 1, sessionId, payload: { event_type: "parameter_manifest", parameter_manifest: manifest } }),
+        eventMessage({ seq: 2, sessionId, payload: { event_type: "round_start", round_index: 10 } }),
+        eventMessage({ seq: 3, sessionId, payload: { event_type: "turn_start", round_index: 10, turn_index: 1, acting_player_id: 1, character: "중매꾼" } }),
+        {
+          type: "prompt",
+          seq: 4,
+          session_id: sessionId,
+          server_time_ms: 1_700_000_000_004,
+          payload: {
+            request_id: "req_matchmaker_purchase_1",
+            request_type: "purchase_tile",
+            player_id: 1,
+            timeout_ms: 300000,
+            public_context: {
+              source: "matchmaker_adjacent",
+              tile_index: 6,
+              landing_tile_index: 5,
+              cost: 8,
+              tile_purchase_cost: 4,
+              base_cost: 4,
+              player_cash: 20,
+              player_shards: 3,
+              candidate_tiles: [6],
+            },
+            choices: [
+              { choice_id: "yes", title: "Buy adjacent tile", description: "Buy tile 7 for 8 cash.", value: { buy: true } },
+              { choice_id: "no", title: "Skip purchase", description: "Do not buy.", value: { buy: false } },
+            ],
+          },
+        },
+      ],
+    },
+  });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_matchmaker_purchase_prompt_runtime`);
+
+  const prompt = page.getByTestId("prompt-overlay");
+  await expect(prompt).toBeVisible();
+  await expect(prompt).toHaveAttribute("data-prompt-type", "purchase_tile");
+  await expect(prompt).toHaveAttribute("data-purchase-source", "matchmaker_adjacent");
+  await expect(prompt).toHaveAttribute("data-effect-character", "중매꾼");
+  await expect(page.getByTestId("matchmaker-purchase-context")).toContainText("중매꾼 추가 구매");
+  await expect(page.getByTestId("matchmaker-purchase-context")).toContainText("2배 가격");
+  await expect(page.getByTestId("matchmaker-purchase-context")).toContainText("기본 4 -> 비용 8");
+  await expect(page.getByTestId("purchase-choice-yes")).toHaveAttribute("data-choice-title", "중매꾼 추가 구매");
+  await expect(page.getByTestId("purchase-choice-yes")).toHaveAttribute("data-choice-description", /2배 가격/);
+  await expect(page.getByTestId("purchase-choice-yes")).toHaveAttribute("data-choice-description", /기본 4 x 2 = 8/);
+});
+
 test("mixed participant runtime keeps a long worker-success to fallback chain readable", async ({ page }) => {
   const sessionId = "sess_mixed_long_chain_runtime";
   const manifest = buildManifest({

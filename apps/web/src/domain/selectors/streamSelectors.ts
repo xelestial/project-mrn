@@ -549,9 +549,17 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
   if (eventType === "tile_purchased") {
     const tile = numberOrNull(payload["tile_index"]);
     const cost = payload["cost"] ?? payload["purchase_cost"] ?? "?";
+    const source = asString(payload["purchase_source"] ?? payload["source"]);
+    const multiplier = numberOrNull(payload["purchase_multiplier"]);
+    const baseCost = payload["base_cost"];
+    const sourceDetail =
+      source === "matchmaker_adjacent" || source === "adjacent_extra"
+        ? `중매꾼 추가 구매 / ${multiplier === 2 ? "2배 가격" : "기본가"}${typeof baseCost === "number" ? ` / 기본 ${baseCost}` : ""}`
+        : "";
+    const purchaseDetail = text.stream.tilePurchased(tile === null ? "?" : String(tile + 1), cost);
     return text.stream.actorDetail(
       actorFromPayload(payload, text),
-      text.stream.tilePurchased(tile === null ? "?" : String(tile + 1), cost)
+      sourceDetail ? `${purchaseDetail} / ${sourceDetail}` : purchaseDetail
     );
   }
   if (eventType === "rent_paid") {
@@ -678,7 +686,32 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
   if (eventType === "mark_resolved") {
     const source = payload["source_player_id"];
     const target = payload["target_player_id"];
+    const resolution = isRecord(payload["resolution"]) ? payload["resolution"] : null;
+    const explicitSummary = asString(payload["summary"] ?? resolution?.["summary"] ?? payload["effect_text"]);
+    if (explicitSummary !== "-") {
+      return explicitSummary;
+    }
+    const effectType = asString(payload["effect_type"] ?? resolution?.["type"]);
+    const rawActorName = asString(payload["actor_name"] ?? resolution?.["actor_name"]);
+    const actorName =
+      rawActorName !== "-"
+        ? rawActorName
+        : effectType === "baksu_transfer"
+          ? "박수"
+          : effectType === "manshin_remove_burdens"
+            ? "만신"
+            : "지목";
     if (typeof source === "number" && typeof target === "number") {
+      if (effectType === "baksu_transfer") {
+        const burdenCount = numberOrNull(resolution?.["burden_count"]);
+        const rewardCount = numberOrNull(resolution?.["reward_count"]);
+        return `${actorName} 지목 성공 / P${source} -> P${target} / 짐 ${burdenCount ?? "?"}장 전달 / 잔꾀 ${rewardCount ?? "?"}장 획득`;
+      }
+      if (effectType === "manshin_remove_burdens") {
+        const removedCount = numberOrNull(resolution?.["removed_count"]);
+        const paidAmount = resolution?.["paid_amount"] ?? resolution?.["cash_delta"] ?? resolution?.["cost"] ?? "?";
+        return `${actorName} 지목 성공 / P${target} 짐 ${removedCount ?? "?"}장 제거 / P${source} +${paidAmount}냥`;
+      }
       return text.stream.markResolved(source, target);
     }
     return text.stream.landing.markResolved;

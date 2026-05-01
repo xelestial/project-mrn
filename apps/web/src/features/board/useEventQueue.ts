@@ -18,6 +18,7 @@ export type GameEventKind =
 
 export type GameEventEffectIntent = "neutral" | "boost" | "gain" | "loss" | "mystic";
 export type GameEventEffectSource = "weather" | "fortune" | "trick" | "character" | "economy" | "mark" | "system";
+export type GameEventEffectCharacter = "박수" | "만신" | "중매꾼" | "baksu" | "manshin" | "matchmaker" | string;
 
 export type GameEvent = {
   kind: GameEventKind;
@@ -29,6 +30,7 @@ export type GameEvent = {
   effectIntent?: GameEventEffectIntent;
   effectSource?: GameEventEffectSource;
   effectEnhanced?: boolean;
+  effectCharacter?: GameEventEffectCharacter;
 };
 
 const DISPLAY_DURATION_MS: Record<GameEventKind, number> = {

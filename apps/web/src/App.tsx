@@ -387,8 +387,12 @@ function weatherEffectIntent(weatherName: string, weatherEffect: string): GameEv
 function isCharacterPassiveEffectText(text: string): boolean {
   return gameEventTextMatches(
     text,
-    /객주|캐릭터|인물|능력|패시브|추가 보상|보너스|innkeeper|character|passive|ability|bonus/
+    /객주|중매꾼|캐릭터|인물|능력|패시브|추가 보상|추가 구매|보너스|innkeeper|matchmaker|character|passive|ability|bonus/
   );
+}
+
+function isMatchmakerPurchaseText(text: string): boolean {
+  return gameEventTextMatches(text, /중매꾼|matchmaker|matchmaker_adjacent|adjacent extra|추가 구매|인접 토지/);
 }
 
 function eventEffectForReveal(args: {
@@ -447,6 +451,9 @@ function eventEffectForReveal(args: {
     };
   }
   if (args.eventCode === "tile_purchased") {
+    if (isMatchmakerPurchaseText(text)) {
+      return { effectIntent: "boost", effectSource: "character", effectEnhanced: true };
+    }
     return { effectIntent: "loss", effectSource: "economy", effectEnhanced: false };
   }
   if (args.eventCode === "mark_resolved" || args.eventCode === "mark_queued") {
@@ -510,11 +517,20 @@ function eventEffectAttributionLabel(
       if (effect.effectIntent === "gain") return ko ? "잔꾀 보상" : "Trick reward";
       return ko ? "잔꾀 효과" : "Trick effect";
     case "character":
+      if (/중매꾼|matchmaker|추가 구매|인접 토지/i.test(text)) {
+        return ko ? "중매꾼 추가 구매" : "Matchmaker purchase";
+      }
       if (/객주|innkeeper/i.test(text)) {
         return ko ? "객주 보너스" : "Innkeeper bonus";
       }
       return ko ? "캐릭터 보너스" : "Character bonus";
     case "mark":
+      if (/박수|baksu/i.test(text)) {
+        return ko ? "박수 지목 성공" : "Baksu mark";
+      }
+      if (/만신|manshin/i.test(text)) {
+        return ko ? "만신 지목 성공" : "Manshin mark";
+      }
       return ko ? "지목 효과" : "Mark effect";
     default:
       return null;
@@ -540,8 +556,28 @@ function appNumberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function appStringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
 function appRecordOrNull(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function effectCharacterFromPayload(payload: Record<string, unknown> | null, detail: string): string | undefined {
+  const resolution = appRecordOrNull(payload?.["resolution"]);
+  const actorName =
+    appStringOrNull(payload?.["actor_name"]) ??
+    appStringOrNull(resolution?.["actor_name"]) ??
+    appStringOrNull(payload?.["character"]) ??
+    appStringOrNull(payload?.["card_name"]);
+  const effectType = appStringOrNull(payload?.["effect_type"]) ?? appStringOrNull(resolution?.["type"]);
+  const purchaseSource = appStringOrNull(payload?.["purchase_source"]) ?? appStringOrNull(payload?.["source"]);
+  const text = `${actorName ?? ""} ${effectType ?? ""} ${purchaseSource ?? ""} ${detail}`;
+  if (/baksu|박수/i.test(text)) return "박수";
+  if (/manshin|만신/i.test(text)) return "만신";
+  if (/matchmaker|matchmaker_adjacent|중매꾼|인접 토지|추가 구매/i.test(text)) return "중매꾼";
+  return actorName ?? undefined;
 }
 
 function diceOverlayValues(payload: Record<string, unknown>): { values: number[]; total: number | null } {
@@ -1416,7 +1452,13 @@ export function App() {
       });
     } else if (eventCode === "tile_purchased") {
       lastEnqueuedRevealSeqRef.current = seq;
-      eventQueue.enqueue({ kind: "purchase", label, detail, ...effect("purchase") });
+      eventQueue.enqueue({
+        kind: "purchase",
+        label,
+        detail,
+        ...effect("purchase"),
+        effectCharacter: effectCharacterFromPayload(sourcePayload, detail),
+      });
     } else if (eventCode === "rent_paid") {
       lastEnqueuedRevealSeqRef.current = seq;
       const kind = rentOverlayKindForPlayer(detail, effectivePlayerId);
@@ -1444,7 +1486,13 @@ export function App() {
       if (moveDetail) {
         eventQueue.enqueue({ kind: "move", label: locale === "ko" ? "지목 이동" : "Mark move", detail: moveDetail });
       }
-      eventQueue.enqueue({ kind: "mark_success", label, detail, ...effect("mark_success") });
+      eventQueue.enqueue({
+        kind: "mark_success",
+        label,
+        detail,
+        ...effect("mark_success"),
+        effectCharacter: effectCharacterFromPayload(sourcePayload, detail),
+      });
     } else if (eventCode === "bankruptcy") {
       lastEnqueuedRevealSeqRef.current = seq;
       eventQueue.enqueue({ kind: "bankruptcy", label, detail, ...effect("bankruptcy") });

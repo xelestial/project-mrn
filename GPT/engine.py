@@ -2433,7 +2433,7 @@ class GameEngine:
             )
             return {"type": "hunter_pull", "landing": landing, "no_lap_credit": True}
         if etype == "baksu_transfer":
-            self._resolve_baksu_transfer(state, source, player)
+            resolution = self._resolve_baksu_transfer(state, source, player)
             self._emit_vis(
                 "mark_resolved",
                 Phase.MARK,
@@ -2442,12 +2442,15 @@ class GameEngine:
                 source_player_id=source.player_id + 1,
                 effect_type=etype,
                 target_player_id=player.player_id + 1,
+                actor_name=source.current_character,
+                target_character=player.current_character,
                 success=True,
-                resolution={"type": "baksu_transfer"},
+                resolution=resolution,
+                summary=resolution.get("summary"),
             )
-            return {"type": "baksu_transfer"}
+            return resolution
         if etype == "manshin_remove_burdens":
-            self._resolve_manshin_remove_burdens(state, source, player)
+            resolution = self._resolve_manshin_remove_burdens(state, source, player)
             self._emit_vis(
                 "mark_resolved",
                 Phase.MARK,
@@ -2456,10 +2459,13 @@ class GameEngine:
                 source_player_id=source.player_id + 1,
                 effect_type=etype,
                 target_player_id=player.player_id + 1,
+                actor_name=source.current_character,
+                target_character=player.current_character,
                 success=True,
-                resolution={"type": "manshin_remove_burdens"},
+                resolution=resolution,
+                summary=resolution.get("summary"),
             )
-            return {"type": "manshin_remove_burdens"}
+            return resolution
         return {"type": "UNKNOWN_MARK", "effect_type": etype}
 
     def _apply_character_start(self, state: GameState, player: PlayerState) -> None:
@@ -3264,11 +3270,21 @@ class GameEngine:
     def _burden_cards(self, player: PlayerState) -> list[TrickCard]:
         return [c for c in player.trick_hand if c.is_burden]
 
-    def _resolve_baksu_transfer(self, state: GameState, source: PlayerState, target: PlayerState) -> None:
+    def _resolve_baksu_transfer(self, state: GameState, source: PlayerState, target: PlayerState) -> dict:
         burdens = list(self._burden_cards(source))
         if not burdens:
             self._log({"event": "baksu_transfer_none", "player": source.player_id + 1, "target_player": target.player_id + 1})
-            return
+            return {
+                "type": "baksu_transfer",
+                "actor_name": source.current_character,
+                "source_player_id": source.player_id + 1,
+                "target_player_id": target.player_id + 1,
+                "burden_count": 0,
+                "reward_count": 0,
+                "burden_names": [],
+                "reward_names": [],
+                "summary": f"박수 지목 성공 / P{source.player_id + 1} -> P{target.player_id + 1} / 전달할 짐 없음",
+            }
         for card in burdens:
             moved = self._remove_trick_from_hand(state, source, card)
             if moved is not None:
@@ -3306,16 +3322,45 @@ class GameEngine:
                     break
         self._sync_trick_visibility(state, source)
         self._sync_trick_visibility(state, target)
-        self._log({"event": "baksu_transfer", "player": source.player_id + 1, "target_player": target.player_id + 1, "moved": [c.name for c in burdens], "rewarded": rewards, **self._public_trick_snapshot(source), "target_public_tricks": target.public_trick_names(), "target_hidden_trick_count": target.hidden_trick_count()})
+        burden_names = [c.name for c in burdens]
+        result = {
+            "type": "baksu_transfer",
+            "actor_name": source.current_character,
+            "source_player_id": source.player_id + 1,
+            "target_player_id": target.player_id + 1,
+            "burden_count": len(burdens),
+            "reward_count": len(rewards),
+            "burden_names": burden_names,
+            "reward_names": rewards,
+            "summary": f"박수 지목 성공 / P{source.player_id + 1} -> P{target.player_id + 1} / 짐 {len(burdens)}장 전달 / 잔꾀 {len(rewards)}장 획득",
+        }
+        self._log({"event": "baksu_transfer", "player": source.player_id + 1, "target_player": target.player_id + 1, "moved": burden_names, "rewarded": rewards, **self._public_trick_snapshot(source), "target_public_tricks": target.public_trick_names(), "target_hidden_trick_count": target.hidden_trick_count()})
+        return result
 
-    def _resolve_manshin_remove_burdens(self, state: GameState, source: PlayerState, target: PlayerState) -> None:
+    def _resolve_manshin_remove_burdens(self, state: GameState, source: PlayerState, target: PlayerState) -> dict:
         burdens = list(self._burden_cards(target))
         cost = sum(c.burden_cost for c in burdens)
         for card in burdens:
             self._discard_trick(state, target, card)
         outcome = self._pay_or_bankrupt(state, target, cost, source.player_id) if cost > 0 else {"cost": 0, "paid": True, "bankrupt": False, "receiver": source.player_id + 1}
         self._sync_trick_visibility(state, target)
-        self._log({"event": "manshin_burden_clear", "player": source.player_id + 1, "target_player": target.player_id + 1, "removed": [c.name for c in burdens], **outcome, "target_public_tricks": target.public_trick_names(), "target_hidden_trick_count": target.hidden_trick_count()})
+        removed_names = [c.name for c in burdens]
+        paid_amount = outcome.get("amount_paid", outcome.get("paid_amount", outcome.get("cost", cost)))
+        result = {
+            "type": "manshin_remove_burdens",
+            "actor_name": source.current_character,
+            "source_player_id": source.player_id + 1,
+            "target_player_id": target.player_id + 1,
+            "removed_count": len(burdens),
+            "removed_names": removed_names,
+            "paid_amount": paid_amount,
+            "cash_delta": paid_amount,
+            "bankrupt": outcome.get("bankrupt", False),
+            "summary": f"만신 지목 성공 / P{target.player_id + 1} 짐 {len(burdens)}장 제거 / P{source.player_id + 1} +{paid_amount}냥",
+            **outcome,
+        }
+        self._log({"event": "manshin_burden_clear", "player": source.player_id + 1, "target_player": target.player_id + 1, "removed": removed_names, **outcome, "target_public_tricks": target.public_trick_names(), "target_hidden_trick_count": target.hidden_trick_count()})
+        return result
 
     def _eligible_doctrine_relief_targets(self, state: GameState, player: PlayerState) -> list[PlayerState]:
         player_team = getattr(player, "team_id", None)
