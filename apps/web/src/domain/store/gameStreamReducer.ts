@@ -4,6 +4,7 @@ export type GameStreamState = {
   status: ConnectionStatus;
   lastSeq: number;
   messages: InboundMessage[];
+  debugMessages: InboundMessage[];
   pendingBySeq: Record<number, InboundMessage>;
   manifestHash: string | null;
 };
@@ -19,12 +20,39 @@ export const initialGameStreamState: GameStreamState = {
   status: "idle",
   lastSeq: 0,
   messages: [],
+  debugMessages: [],
   pendingBySeq: {},
   manifestHash: null,
 };
 
 function withCappedMessages(messages: InboundMessage[]): InboundMessage[] {
   return messages.length <= MAX_STREAM_MESSAGES ? messages : messages.slice(messages.length - MAX_STREAM_MESSAGES);
+}
+
+function debugMessageKey(message: InboundMessage): string {
+  return [
+    message.session_id,
+    message.seq,
+    message.type,
+    message.server_time_ms ?? "",
+    JSON.stringify(message.payload),
+  ].join(":");
+}
+
+function withDebugMessage(messages: InboundMessage[], message: InboundMessage): InboundMessage[] {
+  const key = debugMessageKey(message);
+  if (messages.some((existing) => debugMessageKey(existing) === key)) {
+    return messages;
+  }
+  const nextMessages = [...messages, message];
+  nextMessages.sort((left, right) => {
+    const seqDiff = left.seq - right.seq;
+    if (seqDiff !== 0) {
+      return seqDiff;
+    }
+    return (left.server_time_ms ?? 0) - (right.server_time_ms ?? 0);
+  });
+  return nextMessages;
 }
 
 function carriesCurrentProjection(message: InboundMessage): boolean {
@@ -130,9 +158,10 @@ export function gameStreamReducer(state: GameStreamState, action: GameStreamActi
   if (action.message.type === "heartbeat") {
     return state;
   }
+  const debugMessages = withDebugMessage(state.debugMessages, action.message);
   const seq = typeof action.message.seq === "number" ? action.message.seq : state.lastSeq;
   if (!Number.isFinite(seq) || seq <= state.lastSeq) {
-    return state;
+    return debugMessages === state.debugMessages ? state : { ...state, debugMessages };
   }
   const incomingManifestHash = extractManifestHash(action.message);
   if (incomingManifestHash && state.manifestHash && incomingManifestHash !== state.manifestHash) {
@@ -140,6 +169,7 @@ export function gameStreamReducer(state: GameStreamState, action: GameStreamActi
       ...state,
       lastSeq: seq,
       messages: [action.message],
+      debugMessages,
       pendingBySeq: {},
       manifestHash: incomingManifestHash,
     };
@@ -150,6 +180,7 @@ export function gameStreamReducer(state: GameStreamState, action: GameStreamActi
     ...state,
     lastSeq: flushed.lastSeq,
     messages: withCappedMessages(flushed.messages),
+    debugMessages,
     pendingBySeq,
     manifestHash: flushed.manifestHash,
   };

@@ -24,6 +24,7 @@ export function useGameStream({
   status: ConnectionStatus;
   lastSeq: number;
   messages: InboundMessage[];
+  debugMessages: InboundMessage[];
   sendDecision: (args: {
     requestId: string;
     playerId: number;
@@ -138,6 +139,7 @@ export function useGameStream({
   return {
     status: state.status,
     messages: state.messages,
+    debugMessages: state.debugMessages,
     lastSeq: state.lastSeq,
     sendDecision,
   };

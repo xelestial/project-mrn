@@ -162,14 +162,61 @@ function escapeDebugHtml(value: string): string {
     .replaceAll("\"", "&quot;");
 }
 
-function debugMessageKey(message: InboundMessage): string {
-  return [
-    message.session_id,
-    message.seq,
-    message.type,
-    message.server_time_ms ?? "",
-    JSON.stringify(message.payload),
-  ].join(":");
+type DebugTurnGroup = {
+  key: string;
+  label: string;
+  messages: InboundMessage[];
+};
+
+function debugPayloadRecord(message: InboundMessage): Record<string, unknown> | null {
+  return typeof message.payload === "object" && message.payload !== null
+    ? (message.payload as Record<string, unknown>)
+    : null;
+}
+
+function debugTurnLabel(message: InboundMessage): string | null {
+  const payload = debugPayloadRecord(message);
+  const roundIndex = payload?.["round_index"];
+  const turnIndex = payload?.["turn_index"];
+  if (typeof roundIndex === "number" && typeof turnIndex === "number") {
+    return `Round ${roundIndex} / Turn ${turnIndex}`;
+  }
+  if (typeof turnIndex === "number") {
+    return `Turn ${turnIndex}`;
+  }
+  return null;
+}
+
+function groupDebugMessagesByTurn(messages: InboundMessage[], locale: string): DebugTurnGroup[] {
+  const fallbackLabel = locale === "ko" ? "턴 정보 없음" : "No turn metadata";
+  const groups: DebugTurnGroup[] = [];
+  let current: DebugTurnGroup | null = null;
+  const sortedMessages = [...messages].sort((left, right) => {
+    const seqDiff = left.seq - right.seq;
+    if (seqDiff !== 0) {
+      return seqDiff;
+    }
+    return (left.server_time_ms ?? 0) - (right.server_time_ms ?? 0);
+  });
+
+  for (const message of sortedMessages) {
+    const label = debugTurnLabel(message);
+    const payload = debugPayloadRecord(message);
+    const eventType = typeof payload?.["event_type"] === "string" ? payload["event_type"] : "";
+    const startsTurn = eventType === "turn_start" || eventType === "turn_context_started";
+    if (!current || (label && (startsTurn || current.label !== label))) {
+      const groupLabel: string = label ?? fallbackLabel;
+      current = {
+        key: `${groups.length}:${groupLabel}:${message.seq}`,
+        label: groupLabel,
+        messages: [],
+      };
+      groups.push(current);
+    }
+    current.messages.push(message);
+  }
+
+  return groups;
 }
 
 function saveStoredSessionToken(sessionId: string, token: string | undefined): void {
@@ -734,7 +781,6 @@ export function App() {
   const [weatherExpanded, setWeatherExpanded] = useState(false);
   const [showRawMessages, setShowRawMessages] = useState(false);
   const [publicEventFeedOpen, setPublicEventFeedOpen] = useState(false);
-  const [debugMessages, setDebugMessages] = useState<InboundMessage[]>([]);
   const [promptCollapsed, setPromptCollapsed] = useState(false);
   const [promptBusy, setPromptBusy] = useState(false);
   const [promptRequestId, setPromptRequestId] = useState("");
@@ -750,12 +796,12 @@ export function App() {
     variant: "turn" | "interrupt";
   } | null>(null);
   const debugWindowRef = useRef<Window | null>(null);
-  const debugMessageKeysRef = useRef<Set<string>>(new Set());
   const lastTurnBannerSeqRef = useRef<number>(0);
   const lastRevealBannerSeqRef = useRef<number>(0);
   const promptSubmitRequestIdRef = useRef<string | null>(null);
 
   const stream = useGameStream({ sessionId, token, baseUrl: serverBaseUrl });
+  const debugMessages = stream.debugMessages;
   const eventQueue = useEventQueue();
   const selectorText = useMemo(
     () => ({
@@ -1573,33 +1619,26 @@ export function App() {
     }
   }, [hasPublicEventFeed, publicEventFeedOpen]);
 
-  useEffect(() => {
-    debugMessageKeysRef.current.clear();
-    setDebugMessages([]);
-  }, [sessionId]);
+  const openDebugWindow = () => {
+    if (debugWindowRef.current && !debugWindowRef.current.closed) {
+      return debugWindowRef.current;
+    }
+    const popup = window.open("", "mrn-debug-log", "width=900,height=960,resizable=yes,scrollbars=yes");
+    if (popup) {
+      debugWindowRef.current = popup;
+    }
+    return popup;
+  };
 
-  useEffect(() => {
-    if (stream.messages.length === 0) {
+  const toggleRawMessages = () => {
+    if (showRawMessages) {
+      setShowRawMessages(false);
       return;
     }
-    setDebugMessages((previousMessages) => {
-      let changed = false;
-      const nextMessages = [...previousMessages];
-      for (const message of stream.messages) {
-        if (sessionId.trim() && message.session_id !== sessionId.trim()) {
-          continue;
-        }
-        const key = debugMessageKey(message);
-        if (debugMessageKeysRef.current.has(key)) {
-          continue;
-        }
-        debugMessageKeysRef.current.add(key);
-        nextMessages.push(message);
-        changed = true;
-      }
-      return changed ? nextMessages : previousMessages;
-    });
-  }, [sessionId, stream.messages]);
+    if (openDebugWindow()) {
+      setShowRawMessages(true);
+    }
+  };
 
   useEffect(() => {
     if (!showRawMessages) {
@@ -1609,15 +1648,12 @@ export function App() {
       debugWindowRef.current = null;
       return;
     }
-    const popup =
-      debugWindowRef.current && !debugWindowRef.current.closed
-        ? debugWindowRef.current
-        : window.open("", "mrn-debug-log", "width=900,height=960,resizable=yes,scrollbars=yes");
+    const popup = debugWindowRef.current && !debugWindowRef.current.closed ? debugWindowRef.current : null;
     if (!popup) {
+      debugWindowRef.current = null;
       setShowRawMessages(false);
       return;
     }
-    debugWindowRef.current = popup;
     const debugTimeline = selectTimeline(debugMessages, Math.max(debugMessages.length, compactDensity ? 24 : 40), selectorText);
     const debugCoreActionFeed = selectCoreActionFeed(
       debugMessages,
@@ -1649,10 +1685,22 @@ export function App() {
         `
       )
       .join("");
-    const rawMarkup = debugMessages
+    const debugTurnGroups = groupDebugMessagesByTurn(debugMessages, locale);
+    const rawMarkup = debugTurnGroups
       .slice()
       .reverse()
-      .map((message) => `<pre>${escapeDebugHtml(JSON.stringify(message, null, 2))}</pre>`)
+      .map(
+        (group) => `
+          <article class="debug-turn-group">
+            <h3>${escapeDebugHtml(group.label)} <span>${group.messages.length}</span></h3>
+            ${group.messages
+              .slice()
+              .reverse()
+              .map((message) => `<pre>${escapeDebugHtml(JSON.stringify(message, null, 2))}</pre>`)
+              .join("")}
+          </article>
+        `
+      )
       .join("");
     popup.document.open();
     popup.document.write(`
@@ -1676,6 +1724,9 @@ export function App() {
             .debug-core-item-local { border-color: #d4ad54; }
             .debug-core-item strong { display: block; color: #f2f6ff; margin-bottom: 6px; font-family: "Noto Sans KR", sans-serif; }
             .debug-core-item p { margin: 0; color: #cddcff; font-family: "Noto Sans KR", sans-serif; line-height: 1.5; }
+            .debug-turn-group { margin-bottom: 18px; }
+            .debug-turn-group h3 { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid #3a5f95; background: #0f2749; color: #ffda77; font-family: "Noto Sans KR", sans-serif; font-size: 14px; }
+            .debug-turn-group h3 span { color: #b9c7e6; font-family: "SF Mono", ui-monospace, monospace; font-size: 12px; }
             pre { margin: 0 0 10px; padding: 12px; border-radius: 10px; background: #091427; border: 1px solid #203a63; white-space: pre-wrap; word-break: break-word; }
           </style>
         </head>
@@ -1692,7 +1743,7 @@ export function App() {
               ${coreActionMarkup || "<p>-</p>"}
             </div>
             <section>
-              <h2>Raw Messages (${debugMessages.length})</h2>
+              <h2>Raw Messages by Turn (${debugTurnGroups.length} / ${debugMessages.length})</h2>
               ${rawMarkup || "<p>-</p>"}
             </section>
           </main>
@@ -2344,7 +2395,7 @@ export function App() {
               <button type="button" className="route-tab" onClick={() => setCompactDensity((prev) => !prev)}>
                 {compactDensity ? app.densityStandard : app.densityCompact}
               </button>
-              <button type="button" className="route-tab" onClick={() => setShowRawMessages((prev) => !prev)}>
+              <button type="button" className="route-tab" onClick={toggleRawMessages}>
                 {showRawMessages ? app.rawHide : app.rawShow}
               </button>
             </div>

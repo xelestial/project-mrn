@@ -21,6 +21,24 @@ describe("gameStreamReducer", () => {
     expect(state.messages).toHaveLength(MAX_STREAM_MESSAGES);
     expect(state.messages[0].seq).toBe(11);
     expect(state.messages[MAX_STREAM_MESSAGES - 1]?.seq).toBe(MAX_STREAM_MESSAGES + 10);
+    expect(state.debugMessages).toHaveLength(MAX_STREAM_MESSAGES + 10);
+    expect(state.debugMessages[0].seq).toBe(1);
+  });
+
+  it("keeps older replay messages in the debug log after live stream advances", () => {
+    let state = initialGameStreamState;
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: { type: "event", seq: 5, session_id: "s1", payload: { event_type: "turn_start", turn_index: 2, view_state: {} } },
+    });
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: { type: "event", seq: 1, session_id: "s1", payload: { event_type: "turn_start", turn_index: 1 } },
+    });
+
+    expect(state.lastSeq).toBe(5);
+    expect(state.messages.map((message) => message.seq)).toEqual([5]);
+    expect(state.debugMessages.map((message) => message.seq)).toEqual([1, 5]);
   });
 
   it("buffers out-of-order messages and flushes contiguous sequence", () => {
