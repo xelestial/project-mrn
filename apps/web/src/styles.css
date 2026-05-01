@@ -1795,7 +1795,10 @@ body {
 
 .match-table-player-card:hover .match-table-player-trick-peek,
 .match-table-player-card:focus .match-table-player-trick-peek,
-.match-table-player-card:focus-within .match-table-player-trick-peek {
+.match-table-player-card:focus-within .match-table-player-trick-peek,
+.player-card:hover .match-table-player-trick-peek,
+.player-card:focus .match-table-player-trick-peek,
+.player-card:focus-within .match-table-player-trick-peek {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0) scale(1);
@@ -5596,12 +5599,20 @@ body {
 }
 
 .player-card {
+  position: relative;
   background: linear-gradient(180deg, rgba(8, 20, 39, 0.96), rgba(11, 24, 46, 0.98));
   border: 1px solid rgba(53, 85, 136, 0.8);
   border-radius: 14px;
   padding: 12px;
   display: grid;
   gap: 6px;
+  overflow: visible;
+}
+
+.player-card:hover,
+.player-card:focus,
+.player-card:focus-within {
+  z-index: 20;
 }
 
 .player-card-active {

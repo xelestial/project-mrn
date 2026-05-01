@@ -36,6 +36,7 @@ import {
   useEventQueue,
 } from "./features/board/useEventQueue";
 import { LobbyView, type LobbySeatType } from "./features/lobby/LobbyView";
+import { PlayerTrickPeek } from "./features/players/PlayerTrickPeek";
 import { PromptOverlay } from "./features/prompt/PromptOverlay";
 import { useGameStream } from "./hooks/useGameStream";
 import { useI18n } from "./i18n/useI18n";
@@ -552,6 +553,27 @@ function eventEffectForFeedItem(
   });
 }
 
+const PROMPT_EFFECT_CONTEXT_EVENT_CODES = new Set([
+  "weather_reveal",
+  "fortune_drawn",
+  "fortune_resolved",
+  "trick_used",
+  "rent_paid",
+  "tile_purchased",
+  "lap_reward_chosen",
+  "mark_resolved",
+  "mark_queued",
+  "mark_target_none",
+  "mark_target_missing",
+  "mark_blocked",
+  "marker_flip",
+  "bankruptcy",
+]);
+
+function isPromptEffectContextEvent(item: CurrentTurnRevealItem): boolean {
+  return PROMPT_EFFECT_CONTEXT_EVENT_CODES.has(item.eventCode);
+}
+
 function appNumberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -1035,6 +1057,37 @@ export function App() {
     Boolean(eventFeedSpotlightItem) &&
     !visibleActionablePrompt;
   const showPublicEventFeed = hasPublicEventFeed && publicEventFeedOpen;
+  const promptEffectContextItem = useMemo(() => {
+    if (!visibleActionablePrompt) {
+      return null;
+    }
+    const candidates = [
+      ...currentTurnRevealItems.filter(isPromptEffectContextEvent),
+      ...currentRoundRevealItems.filter((item) => item.eventCode === "weather_reveal"),
+    ];
+    candidates.sort((a, b) => b.seq - a.seq);
+    return candidates[0] ?? null;
+  }, [currentRoundRevealItems, currentTurnRevealItems, visibleActionablePrompt]);
+  const promptEffectContext = useMemo(() => {
+    if (!promptEffectContextItem) {
+      return null;
+    }
+    const detail = compactEventDetail(promptEffectContextItem.label, promptEffectContextItem.detail);
+    const effect = eventEffectForFeedItem(promptEffectContextItem, turnStage.weatherName, turnStage.weatherEffect);
+    return {
+      label: promptEffectContextItem.label,
+      detail: hasReadableValue(detail) ? detail : promptEffectContextItem.label,
+      attribution: eventEffectAttributionLabel(
+        effect,
+        `${promptEffectContextItem.label} ${promptEffectContextItem.detail}`,
+        locale
+      ),
+      tone: promptEffectContextItem.tone,
+      source: effect.effectSource,
+      intent: effect.effectIntent,
+      enhanced: effect.effectEnhanced,
+    };
+  }, [locale, promptEffectContextItem, turnStage.weatherEffect, turnStage.weatherName]);
   const playerStageFallbackLabel =
     currentPromptLabel && currentPromptLabel !== "-"
       ? currentPromptLabel
@@ -2495,10 +2548,9 @@ export function App() {
                               player?.hiddenTrickCount ?? 0,
                               (player?.trickCount ?? 0) - publicTrickNames.length
                             );
-                            const hiddenTrickCount = Math.min(Math.max(0, 5 - publicTrickNames.length), rawHiddenTrickCount);
+                            const hiddenTrickCount = Math.max(0, rawHiddenTrickCount);
                             const trickPeekCardCount = publicTrickNames.length + hiddenTrickCount;
-                            const shouldShowTrickPeek = !isLocalPlayer && trickPeekCardCount > 0;
-                            const hiddenTrickLabel = locale === "ko" ? "비공개 잔꾀" : "Hidden trick";
+                            const shouldShowTrickPeek = trickPeekCardCount > 0;
                             const playerStats = [
                               { key: "cash", tone: "cash", label: locale === "ko" ? "현금" : "Cash", value: player?.cash ?? "-" },
                               { key: "shards", tone: "shards", label: locale === "ko" ? "조각" : "Shard", value: player?.shards ?? "-" },
@@ -2581,47 +2633,13 @@ export function App() {
                                   ))}
                                 </div>
                                 {shouldShowTrickPeek ? (
-                                  <section
-                                    className="match-table-player-trick-peek"
-                                    data-testid={`player-${playerId ?? seatEntry.seat}-trick-peek`}
-                                    aria-label={
-                                      locale === "ko"
-                                        ? `P${seatEntry.seat} 보유 잔꾀`
-                                        : `P${seatEntry.seat} trick cards`
-                                    }
-                                  >
-                                    <div className="match-table-player-trick-peek-head">
-                                      <strong>{locale === "ko" ? "보유 잔꾀" : "Trick cards"}</strong>
-                                      <span>
-                                        {locale === "ko"
-                                          ? `공개 ${publicTrickNames.length} / 비공개 ${hiddenTrickCount}`
-                                          : `Public ${publicTrickNames.length} / Hidden ${hiddenTrickCount}`}
-                                      </span>
-                                    </div>
-                                    <div className="match-table-player-trick-peek-grid">
-                                      {publicTrickNames.map((trickName, index) => (
-                                        <article
-                                          key={`public-${trickName}-${index}`}
-                                          className="match-table-player-trick-mini-card match-table-player-trick-mini-card-public"
-                                          data-card-visibility="public"
-                                        >
-                                          <small>{locale === "ko" ? "공개패" : "Public"}</small>
-                                          <strong>{trickName}</strong>
-                                        </article>
-                                      ))}
-                                      {Array.from({ length: hiddenTrickCount }).map((_, index) => (
-                                        <article
-                                          key={`hidden-${index}`}
-                                          className="match-table-player-trick-mini-card match-table-player-trick-mini-card-hidden"
-                                          data-card-visibility="hidden"
-                                          aria-label={hiddenTrickLabel}
-                                        >
-                                          <div className="match-table-player-trick-card-back" aria-hidden="true" />
-                                          <strong>{hiddenTrickLabel}</strong>
-                                        </article>
-                                      ))}
-                                    </div>
-                                  </section>
+                                  <PlayerTrickPeek
+                                    locale={locale}
+                                    playerLabel={`P${seatEntry.seat}`}
+                                    publicTricks={publicTrickNames}
+                                    hiddenTrickCount={hiddenTrickCount}
+                                    testId={`player-${playerId ?? seatEntry.seat}-trick-peek`}
+                                  />
                                 ) : null}
                               </article>
                             );
@@ -2726,6 +2744,7 @@ export function App() {
                                   feedbackMessage={promptFeedbackMessage}
                                   compactChoices={compactDensity}
                                   presentationMode="decision-focus"
+                                  effectContext={promptEffectContext}
                                   onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
                                   onSelectChoice={onSelectPromptChoice}
                                 />
