@@ -67,7 +67,43 @@ def _latest_runtime_module(messages: list[dict]) -> dict[str, Any] | None:
         runtime_module = payload.get("runtime_module")
         if isinstance(runtime_module, dict):
             return runtime_module
+        payload_module = _runtime_module_from_payload_fields(payload)
+        if payload_module is not None:
+            return payload_module
     return None
+
+
+def _runtime_module_from_payload_fields(payload: dict[str, Any]) -> dict[str, Any] | None:
+    module_type = str(payload.get("module_type") or "")
+    module_id = str(payload.get("module_id") or "")
+    frame_id = str(payload.get("frame_id") or "")
+    if not module_type and not module_id and not frame_id:
+        return None
+    frame_type = str(payload.get("frame_type") or "") or _frame_type_from_frame_id(frame_id)
+    module_path = _string_list(payload.get("module_path"))
+    if not module_path:
+        module_path = [item for item in [frame_id, module_id] if item]
+    return {
+        "runner_kind": str(payload.get("runner_kind") or payload.get("runtime_runner_kind") or "module"),
+        "frame_id": frame_id,
+        "frame_type": frame_type,
+        "module_id": module_id,
+        "module_type": module_type,
+        "module_path": module_path,
+        "idempotency_key": str(payload.get("idempotency_key") or ""),
+    }
+
+
+def _frame_type_from_frame_id(frame_id: str) -> str:
+    if frame_id.startswith("round:"):
+        return "round"
+    if frame_id.startswith("turn:"):
+        return "turn"
+    if frame_id.startswith("seq:"):
+        return "sequence"
+    if frame_id.startswith("simul:"):
+        return "simultaneous"
+    return ""
 
 
 def _runtime_module_from_checkpoint(checkpoint: Any) -> dict[str, Any] | None:
@@ -192,7 +228,7 @@ def _is_draft_prompt(messages: list[dict], request_id: str) -> bool:
         request_type = str(payload.get("request_type") or "")
         context = payload.get("public_context")
         draft_phase = context.get("draft_phase") if isinstance(context, dict) else None
-        return request_type in {"character_pick", "final_character_choice"} or draft_phase is not None
+        return request_type in {"draft_card", "character_pick", "final_character", "final_character_choice"} or draft_phase is not None
     return False
 
 

@@ -8,6 +8,14 @@ export type PromptChoiceViewModel = {
   secondary: boolean;
 };
 
+export type PromptContinuationViewModel = {
+  resumeToken: string | null;
+  frameId: string | null;
+  moduleId: string | null;
+  moduleType: string | null;
+  batchId: string | null;
+};
+
 export type PromptViewModel = {
   requestId: string;
   requestType: string;
@@ -15,6 +23,7 @@ export type PromptViewModel = {
   timeoutMs: number;
   choices: PromptChoiceViewModel[];
   publicContext: Record<string, unknown>;
+  continuation: PromptContinuationViewModel;
   behavior: {
     normalizedRequestType: string;
     singleSurface: boolean;
@@ -490,6 +499,16 @@ function parsePromptBehavior(raw: unknown, requestType: string, publicContext: R
         : typeof publicContext["card_deck_index"] === "number"
           ? publicContext["card_deck_index"]
           : null,
+  };
+}
+
+function parsePromptContinuation(raw: Record<string, unknown>): PromptContinuationViewModel {
+  return {
+    resumeToken: stringOrEmpty(raw["resume_token"]) || null,
+    frameId: stringOrEmpty(raw["frame_id"]) || null,
+    moduleId: stringOrEmpty(raw["module_id"]) || null,
+    moduleType: stringOrEmpty(raw["module_type"]) || null,
+    batchId: stringOrEmpty(raw["batch_id"]) || null,
   };
 }
 
@@ -1223,6 +1242,7 @@ function selectBackendActivePrompt(messages: InboundMessage[]): PromptViewModel 
     timeoutMs: typeof active["timeout_ms"] === "number" ? active["timeout_ms"] : 30000,
     choices: parseChoices(active["choices"]),
     publicContext: isRecord(active["public_context"]) ? { ...active["public_context"] } : {},
+    continuation: parsePromptContinuation(active),
     behavior: parsePromptBehavior(active["behavior"], requestType, isRecord(active["public_context"]) ? active["public_context"] : {}),
     surface: parsePromptSurface(
       active["surface"],
@@ -1267,6 +1287,7 @@ export function selectActivePrompt(messages: InboundMessage[]): PromptViewModel 
       timeoutMs: typeof promptMessage.payload["timeout_ms"] === "number" ? promptMessage.payload["timeout_ms"] : 30000,
       choices: parseChoices(choicesRaw),
       publicContext: isRecord(promptMessage.payload["public_context"]) ? { ...promptMessage.payload["public_context"] } : {},
+      continuation: parsePromptContinuation(promptMessage.payload),
       behavior: parsePromptBehavior(
         null,
         requestType,

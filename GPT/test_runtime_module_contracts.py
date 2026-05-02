@@ -37,6 +37,29 @@ def test_draft_module_rejected_in_turn_frame() -> None:
         ])
 
 
+def test_round_end_card_flip_rejected_in_turn_frame() -> None:
+    frame = FrameState(frame_id="turn:0:p0", frame_type="turn", owner_player_id=0, parent_frame_id=None)
+
+    with pytest.raises(QueueValidationError, match="RoundEndCardFlipModule"):
+        FrameQueueApi([frame]).apply([
+            {"op": "push_back", "target_frame_id": frame.frame_id, "module": _module("RoundEndCardFlipModule")}
+        ])
+
+
+def test_resupply_module_rejected_in_action_sequence_frame() -> None:
+    frame = FrameState(
+        frame_id="seq:action:0:p0:0",
+        frame_type="sequence",
+        owner_player_id=0,
+        parent_frame_id="turn:0:p0",
+    )
+
+    with pytest.raises(QueueValidationError, match="ResupplyModule"):
+        FrameQueueApi([frame]).apply([
+            {"op": "push_back", "target_frame_id": frame.frame_id, "module": _module("ResupplyModule")}
+        ])
+
+
 def test_completed_frame_rejects_queue_insertion() -> None:
     frame = FrameState(
         frame_id="round:0",

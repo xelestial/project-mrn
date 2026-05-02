@@ -49,6 +49,7 @@ def test_duplicate_decision_ack_rejected_without_runtime_wake() -> None:
             "resume_token": "token_1",
             "frame_id": "turn:1:p0",
             "module_id": "mod:turn:1:p0:movement",
+            "module_type": "MapMoveModule",
         }
     )
     duplicate = service.submit_decision(
@@ -59,6 +60,7 @@ def test_duplicate_decision_ack_rejected_without_runtime_wake() -> None:
             "resume_token": "token_1",
             "frame_id": "turn:1:p0",
             "module_id": "mod:turn:1:p0:movement",
+            "module_type": "MapMoveModule",
         }
     )
 
@@ -78,10 +80,30 @@ def test_stale_module_token_rejected() -> None:
             "resume_token": "old",
             "frame_id": "turn:1:p0",
             "module_id": "mod:turn:1:p0:movement",
+            "module_type": "MapMoveModule",
         }
     )
 
     assert result == {"status": "rejected", "reason": "token_mismatch"}
+
+
+def test_module_type_mismatch_rejected() -> None:
+    service = PromptService()
+    service.create_prompt("s1", _module_prompt())
+
+    result = service.submit_decision(
+        {
+            "request_id": "req_1",
+            "player_id": 1,
+            "choice_id": "roll",
+            "resume_token": "token_1",
+            "frame_id": "turn:1:p0",
+            "module_id": "mod:turn:1:p0:movement",
+            "module_type": "DiceRollModule",
+        }
+    )
+
+    assert result == {"status": "rejected", "reason": "module_mismatch"}
 
 
 def test_choice_not_legal_rejected() -> None:
@@ -96,6 +118,7 @@ def test_choice_not_legal_rejected() -> None:
             "resume_token": "token_1",
             "frame_id": "turn:1:p0",
             "module_id": "mod:turn:1:p0:movement",
+            "module_type": "MapMoveModule",
         }
     )
 
@@ -116,3 +139,18 @@ def test_batch_prompt_payload_contains_batch_and_module_ids() -> None:
 
     assert pending.payload["batch_id"] == "batch_1"
     assert pending.payload["module_type"] == "ResupplyModule"
+
+
+def test_simultaneous_module_prompt_requires_batch_id() -> None:
+    service = PromptService()
+    prompt = {
+        **_module_prompt(),
+        "request_id": "resupply_1:p1",
+        "request_type": "resupply_choice",
+        "frame_id": "simul:resupply:1:0",
+        "module_id": "mod:simul:resupply:1:0:resupply",
+        "module_type": "ResupplyModule",
+    }
+
+    with pytest.raises(ValueError, match="missing_batch_id"):
+        service.create_prompt("s1", prompt)

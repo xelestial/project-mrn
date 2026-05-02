@@ -76,6 +76,21 @@ def test_action_sequence_frame_maps_pending_actions_to_typed_modules() -> None:
     assert frame.module_queue[0].payload["action"]["action_id"] == "a1"
 
 
+def test_supply_threshold_action_is_not_built_as_action_sequence_module() -> None:
+    frame = build_action_sequence_frame(
+        1,
+        0,
+        0,
+        [{"type": "resolve_supply_threshold", "actor_player_id": 0}],
+        parent_frame_id="turn:1:p0",
+        parent_module_id="mod:turn:1:p0:arrival",
+        session_id="s1",
+    )
+
+    assert all(module.module_type != "ResupplyModule" for module in frame.module_queue)
+    assert frame.module_queue[0].module_type == "LegacyActionAdapterModule"
+
+
 def test_module_runner_promotes_pending_actions_before_execution() -> None:
     class FakeEngine:
         _vis_session_id = "test-session"

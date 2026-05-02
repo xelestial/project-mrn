@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
+import os
 import socket
+import tempfile
 import threading
 import time
 import unittest
 import warnings
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -22,7 +26,12 @@ from apps.server.src.services.decision_gateway import (
 )
 from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.runtime_service import _LocalHumanDecisionClient
-from apps.server.src.services.runtime_service import resolve_runtime_runner_kind, runtime_checkpoint_schema_version_for_runner
+from apps.server.src.services.runtime_service import (
+    _FanoutVisEventStream,
+    _runtime_module_debug_fields,
+    resolve_runtime_runner_kind,
+    runtime_checkpoint_schema_version_for_runner,
+)
 from apps.server.src.config.runtime_settings import RuntimeSettings
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
@@ -88,6 +97,126 @@ class RuntimeServiceTests(unittest.TestCase):
     def test_runtime_runner_explicit_session_kind_wins(self) -> None:
         self.assertEqual(resolve_runtime_runner_kind({"runner_kind": "module"}, RuntimeSettings()), "module")
         self.assertEqual(resolve_runtime_runner_kind({"runner_kind": "legacy"}, RuntimeSettings()), "legacy")
+
+    def test_runtime_module_debug_fields_flatten_step_and_payload_metadata(self) -> None:
+        fields = _runtime_module_debug_fields(
+            {
+                "runner_kind": "module",
+                "module_type": "MapMoveModule",
+                "frame_id": "seq:roll_and_arrive:1:p0:1",
+                "runtime_module": {
+                    "runner_kind": "legacy",
+                    "module_id": "mod:seq:roll_and_arrive:1:p0:1:mapmove",
+                    "module_type": "LegacyEventModule",
+                    "idempotency_key": "idem:move",
+                },
+            }
+        )
+
+        self.assertEqual(
+            fields,
+            {
+                "runner_kind": "module",
+                "module_type": "MapMoveModule",
+                "module_id": "mod:seq:roll_and_arrive:1:p0:1:mapmove",
+                "frame_id": "seq:roll_and_arrive:1:p0:1",
+                "idempotency_key": "idem:move",
+            },
+        )
+
+    def test_runtime_module_debug_fields_fills_active_module_from_state(self) -> None:
+        active_module = type(
+            "Module",
+            (),
+            {
+                "module_id": "mod:turn:1:p0:movement",
+                "module_type": "MapMoveModule",
+                "idempotency_key": "idem:movement",
+            },
+        )()
+        inactive_module = type(
+            "Module",
+            (),
+            {
+                "module_id": "mod:turn:1:p0:dice",
+                "module_type": "DiceRollModule",
+                "idempotency_key": "idem:dice",
+            },
+        )()
+        active_frame = type(
+            "Frame",
+            (),
+            {
+                "frame_id": "turn:1:p0",
+                "active_module_id": "mod:turn:1:p0:movement",
+                "module_queue": [inactive_module, active_module],
+            },
+        )()
+        state = type(
+            "State",
+            (),
+            {
+                "runtime_runner_kind": "module",
+                "runtime_frame_stack": [active_frame],
+            },
+        )()
+
+        fields = _runtime_module_debug_fields({"status": "committed"}, state)
+
+        self.assertEqual(
+            fields,
+            {
+                "runner_kind": "module",
+                "module_type": "MapMoveModule",
+                "module_id": "mod:turn:1:p0:movement",
+                "frame_id": "turn:1:p0",
+                "idempotency_key": "idem:movement",
+            },
+        )
+
+    def test_fanout_debug_log_writes_only_committed_events_with_module_fields(self) -> None:
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir, _temporary_debug_env(enabled="1", log_dir=temp_dir):
+                stream = _IdempotentStreamServiceStub()
+                fanout = _FanoutVisEventStream(
+                    loop,
+                    stream,
+                    "sess_debug_fanout",
+                    lambda _session_id: None,
+                )
+                event = _DebugEventStub(
+                    {
+                        "event_type": "dice_roll",
+                        "runtime_module": {
+                            "runner_kind": "module",
+                            "frame_id": "seq:roll_and_arrive:1:p0:1",
+                            "module_id": "mod:seq:roll_and_arrive:1:p0:1:diceroll",
+                            "module_type": "DiceRollModule",
+                            "idempotency_key": "idem:dice",
+                        },
+                    }
+                )
+
+                fanout.append(event)
+                stream.deduplicate_next_publish = True
+                fanout.append(event)
+
+                rows = (Path(temp_dir) / "engine.jsonl").read_text(encoding="utf-8").splitlines()
+                self.assertEqual(len(rows), 1)
+                parsed = json.loads(rows[0])
+                self.assertEqual(parsed["event"], "dice_roll")
+                self.assertEqual(parsed["runner_kind"], "module")
+                self.assertEqual(parsed["frame_id"], "seq:roll_and_arrive:1:p0:1")
+                self.assertEqual(parsed["module_id"], "mod:seq:roll_and_arrive:1:p0:1:diceroll")
+                self.assertEqual(parsed["module_type"], "DiceRollModule")
+                self.assertEqual(parsed["idempotency_key"], "idem:dice")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
 
     def test_public_runtime_status_does_not_expose_canonical_current_state(self) -> None:
         session = self.session_service.create_session(
@@ -4659,6 +4788,61 @@ class _RuntimeStateStoreStub:
 
     def delete_session_data(self, session_id: str) -> None:
         self.statuses.pop(session_id, None)
+
+
+class _DebugEventStub:
+    def __init__(self, payload: dict) -> None:
+        self._payload = copy.deepcopy(payload)
+
+    def to_dict(self) -> dict:
+        return copy.deepcopy(self._payload)
+
+
+class _PublishedEventStub:
+    def __init__(self, seq: int) -> None:
+        self.seq = seq
+
+
+class _IdempotentStreamServiceStub:
+    def __init__(self) -> None:
+        self.seq = 0
+        self.deduplicate_next_publish = False
+
+    async def latest_seq(self, session_id: str) -> int:
+        del session_id
+        return self.seq
+
+    async def publish(self, session_id: str, event_type: str, payload: dict) -> _PublishedEventStub:
+        del session_id, event_type, payload
+        if self.deduplicate_next_publish:
+            self.deduplicate_next_publish = False
+            return _PublishedEventStub(self.seq)
+        self.seq += 1
+        return _PublishedEventStub(self.seq)
+
+
+class _temporary_debug_env:
+    def __init__(self, *, enabled: str, log_dir: str) -> None:
+        self._enabled = enabled
+        self._log_dir = log_dir
+        self._before_enabled: str | None = None
+        self._before_dir: str | None = None
+
+    def __enter__(self) -> None:
+        self._before_enabled = os.environ.get("MRN_DEBUG_GAME_LOGS")
+        self._before_dir = os.environ.get("MRN_DEBUG_GAME_LOG_DIR")
+        os.environ["MRN_DEBUG_GAME_LOGS"] = self._enabled
+        os.environ["MRN_DEBUG_GAME_LOG_DIR"] = self._log_dir
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if self._before_enabled is None:
+            os.environ.pop("MRN_DEBUG_GAME_LOGS", None)
+        else:
+            os.environ["MRN_DEBUG_GAME_LOGS"] = self._before_enabled
+        if self._before_dir is None:
+            os.environ.pop("MRN_DEBUG_GAME_LOG_DIR", None)
+        else:
+            os.environ["MRN_DEBUG_GAME_LOG_DIR"] = self._before_dir
 
 
 if __name__ == "__main__":

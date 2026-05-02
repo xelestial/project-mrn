@@ -415,6 +415,11 @@ def _require_module_continuation(prompt: dict) -> None:
     missing = [field for field in required if not str(prompt.get(field) or "").strip()]
     if missing:
         raise ValueError(f"missing_module_continuation:{','.join(missing)}")
+    module_type = str(prompt.get("module_type") or "").strip()
+    frame_id = str(prompt.get("frame_id") or "").strip()
+    if module_type in {"ResupplyModule", "SimultaneousPromptBatchModule"} or frame_id.startswith("simul:"):
+        if not str(prompt.get("batch_id") or "").strip():
+            raise ValueError("missing_batch_id")
 
 
 def _module_decision_mismatch(prompt: dict, decision: dict) -> str:
@@ -422,6 +427,7 @@ def _module_decision_mismatch(prompt: dict, decision: dict) -> str:
         ("resume_token", "token_mismatch"),
         ("frame_id", "module_mismatch"),
         ("module_id", "module_mismatch"),
+        ("module_type", "module_mismatch"),
     ):
         expected = str(prompt.get(field) or "").strip()
         actual = str(decision.get(field) or "").strip()

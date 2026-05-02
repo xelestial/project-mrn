@@ -329,6 +329,55 @@ describe("gameStreamReducer", () => {
     expect(state.messages.map((message) => message.seq)).toEqual([1, 2, 78]);
   });
 
+  it("does not fast-forward to a projected message from an older runtime frame", () => {
+    let state = gameStreamReducer(initialGameStreamState, {
+      type: "message",
+      message: {
+        type: "event",
+        seq: 10,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          view_state: {
+            runtime: {
+              latest_module_path: ["turn:2:p1", "mod:turn:2:p1:start"],
+              round_stage: "in_round",
+              turn_stage: "turn_start",
+            },
+          },
+          runtime_module: {
+            frame_id: "turn:2:p1",
+            module_id: "mod:turn:2:p1:start",
+            module_type: "TurnStartModule",
+          },
+        },
+      },
+    });
+
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "prompt",
+        seq: 12,
+        session_id: "s1",
+        payload: {
+          request_id: "old:draft",
+          request_type: "draft_card",
+          view_state: {
+            runtime: {
+              latest_module_path: ["round:1", "mod:round:1:draft"],
+              round_stage: "draft",
+              draft_active: true,
+            },
+          },
+        },
+      },
+    });
+
+    expect(state.lastSeq).toBe(10);
+    expect(state.pendingBySeq[12]).toBeDefined();
+  });
+
   it("fast-forwards to a single projected end-state message across a missing private gap", () => {
     let state = initialGameStreamState;
     state = gameStreamReducer(state, {

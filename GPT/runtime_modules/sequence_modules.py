@@ -25,7 +25,6 @@ ACTION_SEQUENCE_MODULE_TYPES = (
     "ScoreTokenPlacementCommitModule",
     "LandingPostEffectsModule",
     "TrickTileRentModifierModule",
-    "ResupplyModule",
     "FortuneResolveModule",
     "LegacyActionAdapterModule",
 )
@@ -46,7 +45,6 @@ ACTION_TYPE_TO_MODULE_TYPE = {
     "resolve_landing_post_effects": "LandingPostEffectsModule",
     "continue_after_trick_phase": "TrickDeferredFollowupsModule",
     "resolve_trick_tile_rent_modifier": "TrickTileRentModifierModule",
-    "resolve_supply_threshold": "ResupplyModule",
 }
 
 

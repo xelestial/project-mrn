@@ -16,6 +16,7 @@ from .sequence_modules import (
     build_action_sequence_frame,
     build_turn_completion_sequence_frame,
 )
+from .simultaneous import build_resupply_frame
 
 
 class ModuleRunnerError(RuntimeError):
@@ -54,6 +55,12 @@ class ModuleRunner:
         contracts.
         """
         self._promote_pending_work_to_sequence_frames(engine, state)
+        simultaneous_frame = self._active_simultaneous_frame(state)
+        if simultaneous_frame is not None:
+            result = self._advance_simultaneous_frame(engine, state, simultaneous_frame)
+            self._promote_pending_work_to_sequence_frames(engine, state)
+            self._sync_active_player_turn_after_legacy_work(state)
+            return {**result, "runner_kind": "module"}
         sequence_frame = self._active_sequence_frame(state)
         if sequence_frame is not None:
             result = self._advance_sequence_frame(engine, state, sequence_frame)
@@ -74,6 +81,12 @@ class ModuleRunner:
             return {"status": "committed", "runner_kind": "module", "module_type": "TurnSchedulerModule"}
 
         self._promote_pending_work_to_sequence_frames(engine, state)
+        simultaneous_frame = self._active_simultaneous_frame(state)
+        if simultaneous_frame is not None:
+            result = self._advance_simultaneous_frame(engine, state, simultaneous_frame)
+            self._promote_pending_work_to_sequence_frames(engine, state)
+            self._sync_active_player_turn_after_legacy_work(state)
+            return {**result, "runner_kind": "module"}
         sequence_frame = self._active_sequence_frame(state)
         if sequence_frame is not None:
             result = self._advance_sequence_frame(engine, state, sequence_frame)
@@ -200,6 +213,35 @@ class ModuleRunner:
         self._complete_module(state, frame, module)
         return {"status": "committed", "module_type": module.module_type, "frame_id": frame.frame_id}
 
+    def _advance_simultaneous_frame(self, engine: Any, state: Any, frame: FrameState) -> dict[str, Any]:
+        module = self._next_live_module(frame)
+        if module is None:
+            frame.status = "completed"
+            frame.active_module_id = None
+            return {"status": "committed", "module_type": "SimultaneousFrameComplete", "frame_id": frame.frame_id}
+        frame.active_module_id = module.module_id
+        module.status = "running"
+        if module.module_type == "ResupplyModule":
+            action_payload = dict(module.payload.get("action") or {})
+            result = (
+                engine._execute_action(state, self._action_from_payload(action_payload), queue_followups=True)
+                if action_payload
+                else {"type": "RESUPPLY_NOOP"}
+            )
+            self._complete_module(state, frame, module)
+            return {
+                "status": "committed",
+                "module_type": module.module_type,
+                "frame_id": frame.frame_id,
+                "pending_actions": len(state.pending_actions),
+                "pending_modules": self._pending_sequence_module_count(state),
+                "result": result,
+            }
+        self._complete_module(state, frame, module)
+        if module.module_type == "CompleteSimultaneousResolutionModule":
+            frame.status = "completed"
+        return {"status": "committed", "module_type": module.module_type, "frame_id": frame.frame_id}
+
     def _advance_action_adapter_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> dict[str, Any]:
         action = self._action_from_payload(dict(module.payload.get("action") or {}))
         try:
@@ -322,8 +364,24 @@ class ModuleRunner:
                 )
             )
         if state.pending_actions:
-            actions = [action.to_payload() for action in state.pending_actions]
+            supply_actions, actions = self._split_supply_threshold_actions(
+                [action.to_payload() for action in state.pending_actions]
+            )
             state.pending_actions = []
+            for action in supply_actions:
+                ordinal = self._next_simultaneous_ordinal(state)
+                resupply_frame = build_resupply_frame(
+                    round_index,
+                    ordinal,
+                    parent_frame_id=frame.frame_id,
+                    parent_module_id=parent_module_id,
+                    session_id=session_id,
+                    participants=self._resupply_participants(state, action),
+                )
+                resupply_frame.module_queue[0].payload["action"] = dict(action)
+                state.runtime_frame_stack.append(resupply_frame)
+            if not actions:
+                return
             owner = self._sequence_owner(actions, getattr(frame, "owner_player_id", None))
             state.runtime_frame_stack.append(
                 build_action_sequence_frame(
@@ -357,8 +415,49 @@ class ModuleRunner:
         return None
 
     @staticmethod
+    def _active_simultaneous_frame(state: Any) -> FrameState | None:
+        for frame in reversed(state.runtime_frame_stack):
+            if frame.frame_type == "simultaneous" and frame.status in {"running", "suspended"}:
+                return frame
+        return None
+
+    @staticmethod
+    def _split_supply_threshold_actions(actions: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        supply_actions: list[dict[str, Any]] = []
+        remaining_actions: list[dict[str, Any]] = []
+        for action in actions:
+            if action.get("type") == "resolve_supply_threshold":
+                supply_actions.append(action)
+            else:
+                remaining_actions.append(action)
+        return supply_actions, remaining_actions
+
+    @staticmethod
+    def _resupply_participants(state: Any, action: dict[str, Any]) -> list[int]:
+        payload = action.get("payload") if isinstance(action.get("payload"), dict) else {}
+        raw_participants = payload.get("participants") if isinstance(payload, dict) else None
+        if isinstance(raw_participants, list):
+            participants: list[int] = []
+            for item in raw_participants:
+                try:
+                    participants.append(int(item))
+                except (TypeError, ValueError):
+                    continue
+            return participants
+        return [
+            int(getattr(player, "player_id"))
+            for player in getattr(state, "players", [])
+            if getattr(player, "alive", True)
+        ]
+
+    @staticmethod
     def _next_sequence_ordinal(state: Any) -> int:
         existing = [frame for frame in state.runtime_frame_stack if frame.frame_type == "sequence"]
+        return len(existing) + len(getattr(state, "runtime_module_journal", [])) + 1
+
+    @staticmethod
+    def _next_simultaneous_ordinal(state: Any) -> int:
+        existing = [frame for frame in state.runtime_frame_stack if frame.frame_type == "simultaneous"]
         return len(existing) + len(getattr(state, "runtime_module_journal", [])) + 1
 
     @staticmethod

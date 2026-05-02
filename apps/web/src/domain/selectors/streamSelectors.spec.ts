@@ -178,6 +178,55 @@ const snapshotEvent: InboundMessage = {
 };
 
 describe("streamSelectors", () => {
+  it("does not apply backend turn_stage when runtime is in draft stage", () => {
+    const model = selectTurnStage([
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 1,
+          turn_index: 4,
+          acting_player_id: 1,
+        },
+      },
+      {
+        type: "prompt",
+        seq: 2,
+        session_id: "s1",
+        payload: {
+          request_id: "r2:draft:p0",
+          request_type: "draft_card",
+          player_id: 0,
+          view_state: {
+            runtime: { round_stage: "draft", turn_stage: "", draft_active: true },
+            turn_stage: {
+              turn_start_seq: 1,
+              actor_player_id: 1,
+              round_index: 2,
+              turn_index: 4,
+              character: "-",
+              current_beat_kind: "decision",
+              current_beat_event_code: "prompt_active",
+              current_beat_request_type: "draft_card",
+              current_beat_seq: 2,
+              focus_tile_index: null,
+              focus_tile_indices: [],
+              prompt_request_type: "draft_card",
+              progress_codes: ["turn_start", "prompt_active"],
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(model.round).toBe(1);
+    expect(model.turn).toBe(4);
+    expect(model.promptRequestType).toBe("-");
+    expect(model.progressTrail).not.toContain("드래프트");
+  });
+
   it("prefers backend runtime projection over later raw runtime module replay", () => {
     const messages: InboundMessage[] = [
       {

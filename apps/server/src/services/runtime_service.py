@@ -16,6 +16,7 @@ from urllib import request as urllib_request
 
 from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.config.runtime_settings import RuntimeSettings, load_runtime_settings
+from apps.server.src.domain.runtime_semantic_guard import validate_checkpoint_payload
 from apps.server.src.domain.session_models import ParticipantClientType, SeatConfig, SeatType, SessionStatus
 from apps.server.src.infra.game_debug_log import write_game_debug_log
 from apps.server.src.infra.structured_log import log_event
@@ -69,6 +70,45 @@ def resolve_runtime_runner_kind(runtime: dict | None, settings: RuntimeSettings 
 
 def runtime_checkpoint_schema_version_for_runner(runner_kind: str) -> int:
     return 3 if str(runner_kind or "").strip().lower() == "module" else 1
+
+
+def _runtime_module_debug_fields(source: dict | None, state: object | None = None) -> dict[str, str]:
+    source = dict(source or {})
+    runtime_module = source.get("runtime_module")
+    runtime_module = dict(runtime_module) if isinstance(runtime_module, dict) else {}
+    active_fields = _active_runtime_module_debug_fields(state)
+    candidates = {
+        "runner_kind": source.get("runner_kind") or runtime_module.get("runner_kind") or active_fields.get("runner_kind"),
+        "module_type": source.get("module_type") or runtime_module.get("module_type") or active_fields.get("module_type"),
+        "module_id": source.get("module_id") or runtime_module.get("module_id") or active_fields.get("module_id"),
+        "frame_id": source.get("frame_id") or runtime_module.get("frame_id") or active_fields.get("frame_id"),
+        "idempotency_key": source.get("idempotency_key")
+        or runtime_module.get("idempotency_key")
+        or active_fields.get("idempotency_key"),
+    }
+    return {key: str(value) for key, value in candidates.items() if value not in (None, "")}
+
+
+def _active_runtime_module_debug_fields(state: object | None) -> dict[str, str]:
+    if state is None:
+        return {}
+    fields: dict[str, object] = {"runner_kind": getattr(state, "runtime_runner_kind", None)}
+    frames = getattr(state, "runtime_frame_stack", None)
+    if not isinstance(frames, list):
+        return {key: str(value) for key, value in fields.items() if value not in (None, "")}
+    for frame in reversed(frames):
+        active_module_id = getattr(frame, "active_module_id", None)
+        if not active_module_id:
+            continue
+        fields["frame_id"] = getattr(frame, "frame_id", None)
+        fields["module_id"] = active_module_id
+        for module in getattr(frame, "module_queue", []) or []:
+            if getattr(module, "module_id", None) == active_module_id:
+                fields["module_type"] = getattr(module, "module_type", None)
+                fields["idempotency_key"] = getattr(module, "idempotency_key", None)
+                break
+        break
+    return {key: str(value) for key, value in fields.items() if value not in (None, "")}
 
 
 def _runtime_bool(value) -> bool:
@@ -1023,6 +1063,7 @@ class RuntimeService:
         self._persist_runtime_state(session_id)
         if self._game_state_store is not None:
             payload = state.to_checkpoint_payload()
+            validate_checkpoint_payload(payload)
             pending_action_types = [
                 str(action.get("type") or "")
                 for action in payload.get("pending_actions") or []
@@ -1035,6 +1076,13 @@ class RuntimeService:
             ]
             latest_event_type = "prompt_required" if step.get("status") == "waiting_input" else "engine_transition"
             updated_at_ms = self._now_ms()
+            module_debug_fields = _runtime_module_debug_fields(
+                {
+                    **step,
+                    "runner_kind": step.get("runner_kind") or effective_runner_kind,
+                },
+                state,
+            )
             self._game_state_store.commit_transition(
                 session_id,
                 current_state=payload,
@@ -1078,6 +1126,7 @@ class RuntimeService:
                     "processed_command_consumer": command_consumer_name,
                     "pending_action_count": len(payload.get("pending_actions") or []),
                     "scheduled_action_count": len(payload.get("scheduled_actions") or []),
+                    **module_debug_fields,
                 },
                 runtime_event_server_time_ms=updated_at_ms,
             )
@@ -1096,6 +1145,7 @@ class RuntimeService:
                 processed_command_consumer=command_consumer_name,
                 pending_action_count=len(payload.get("pending_actions") or []),
                 scheduled_action_count=len(payload.get("scheduled_actions") or []),
+                **module_debug_fields,
             )
         return step
 
@@ -1998,6 +2048,7 @@ class _FanoutVisEventStream:
                 "engine",
                 str(payload.get("event_type") or "engine_event"),
                 session_id=self._session_id,
+                **_runtime_module_debug_fields(payload),
                 payload=payload,
             )
         else:

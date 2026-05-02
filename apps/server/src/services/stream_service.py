@@ -6,6 +6,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 
+from apps.server.src.domain.runtime_semantic_guard import validate_stream_payload
 from apps.server.src.domain.visibility import ViewerContext, project_stream_message_for_viewer
 from apps.server.src.domain.view_state import project_view_state
 from apps.server.src.services.persistence import StreamStore
@@ -66,6 +67,7 @@ class StreamService:
             enriched_payload = dict(payload)
             self._inject_display_names(session_id, enriched_payload)
             history = self._history_records_no_lock(session_id)
+            validate_stream_payload(history=history, msg_type=msg_type, payload=enriched_payload)
             duplicate = self._duplicate_idempotency_key_message_no_lock(history, enriched_payload)
             if duplicate is None:
                 duplicate = self._duplicate_request_message_no_lock(history, msg_type, enriched_payload)

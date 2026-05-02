@@ -6,6 +6,25 @@ from runtime_modules.prompts import PromptApi, PromptContinuationError
 from runtime_modules.simultaneous import batch_is_ready_to_commit, build_resupply_frame
 
 
+def test_resupply_frame_contains_batch_commit_and_complete_modules() -> None:
+    frame = build_resupply_frame(
+        1,
+        0,
+        parent_frame_id="turn:1:p0",
+        parent_module_id="mod:turn:1:p0:arrival",
+        session_id="s1",
+        participants=[0, 1, 2],
+    )
+
+    assert frame.frame_type == "simultaneous"
+    assert [module.module_type for module in frame.module_queue] == [
+        "ResupplyModule",
+        "SimultaneousCommitModule",
+        "CompleteSimultaneousResolutionModule",
+    ]
+    assert frame.module_queue[0].payload["participants"] == [0, 1, 2]
+
+
 def test_resupply_batch_waits_for_all_required_players() -> None:
     frame = build_resupply_frame(
         1,

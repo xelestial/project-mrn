@@ -24,6 +24,35 @@ function loadSharedPromptFixture(filename: string) {
 }
 
 describe("promptSelectors", () => {
+  it("preserves module continuation fields on the active prompt", () => {
+    const prompt = selectActivePrompt([
+      {
+        type: "prompt",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          request_id: "req_move",
+          request_type: "movement",
+          player_id: 1,
+          timeout_ms: 30000,
+          resume_token: "tok_1",
+          frame_id: "turn:1:p1",
+          module_id: "mod:move",
+          module_type: "MapMoveModule",
+          legal_choices: [{ choice_id: "roll", title: "roll" }],
+        },
+      },
+    ]);
+
+    expect(prompt?.continuation).toEqual({
+      resumeToken: "tok_1",
+      frameId: "turn:1:p1",
+      moduleId: "mod:move",
+      moduleType: "MapMoveModule",
+      batchId: null,
+    });
+  });
+
   it("returns active prompt when unresolved", () => {
     const promptMessage: InboundMessage = {
       type: "prompt",
@@ -717,6 +746,13 @@ describe("promptSelectors", () => {
       timeoutMs: 30000,
       choices: [],
       publicContext: {},
+      continuation: {
+        resumeToken: null,
+        frameId: null,
+        moduleId: null,
+        moduleType: null,
+        batchId: null,
+      },
       behavior: {
         normalizedRequestType: "movement",
         singleSurface: false,
@@ -793,6 +829,13 @@ describe("promptSelectors", () => {
         timeoutMs: 30000,
         choices: [],
         publicContext: {},
+        continuation: {
+          resumeToken: null,
+          frameId: null,
+          moduleId: null,
+          moduleType: null,
+          batchId: null,
+        },
         behavior: {
           normalizedRequestType: "movement",
           singleSurface: false,
@@ -843,6 +886,13 @@ describe("promptSelectors", () => {
         timeoutMs: 30000,
         choices: [],
         publicContext: {},
+        continuation: {
+          resumeToken: null,
+          frameId: null,
+          moduleId: null,
+          moduleType: null,
+          batchId: null,
+        },
         behavior: {
           normalizedRequestType: "movement",
           singleSurface: false,
