@@ -22,7 +22,7 @@ import {
   projectTileQuarterview,
   quarterviewBoardGeometry,
   quarterviewFacingForTileStep,
-  quarterviewIdleFacingForPosition,
+  quarterviewIdleFacingForTile,
   quarterviewTilePolygons,
 } from "./boardProjection";
 import type { QuarterviewFacing } from "./boardProjection";
@@ -505,7 +505,7 @@ export function BoardPanel({
       const facingTileIndex = isAnimating && animTileIndex !== null ? animTileIndex : player.position;
       const facing = isAnimating
         ? quarterviewFacingForTileStep(animPreviousTileIndex, facingTileIndex, tiles.length, normalizedTopology)
-        : quarterviewIdleFacingForPosition(position);
+        : quarterviewIdleFacingForTile(player.position, tiles.length, normalizedTopology);
       const walkSprite = isAnimating ? playerWalkSprite(player.playerId, facing) : null;
       standeePlayerIds.add(player.playerId);
       return {

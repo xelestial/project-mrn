@@ -7,6 +7,7 @@ import {
   quarterviewBoardGeometry,
   quarterviewFacingForLane,
   quarterviewFacingForTileStep,
+  quarterviewIdleFacingForTile,
   quarterviewIdleFacingForPosition,
   quarterviewLaneModels,
   quarterviewTilePolygons,
@@ -189,5 +190,12 @@ describe("boardProjection", () => {
     expect(quarterviewFacingForTileStep(10, 11, 40, "ring")).toBe("front-left");
     expect(quarterviewFacingForTileStep(20, 21, 40, "ring")).toBe("back-left");
     expect(quarterviewFacingForTileStep(30, 31, 40, "ring")).toBe("back-right");
+  });
+
+  it("keeps idle standees facing the clockwise next tile direction", () => {
+    expect(quarterviewIdleFacingForTile(8, 40, "ring")).toBe("front-right");
+    expect(quarterviewIdleFacingForTile(10, 40, "ring")).toBe("front-left");
+    expect(quarterviewIdleFacingForTile(20, 40, "ring")).toBe("back-left");
+    expect(quarterviewIdleFacingForTile(30, 40, "ring")).toBe("back-right");
   });
 });

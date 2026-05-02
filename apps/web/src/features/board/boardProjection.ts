@@ -446,3 +446,19 @@ export function quarterviewFacingForTileStep(
   const from = projectTileQuarterview(fromTileIndex, tileCount, topology);
   return quarterviewFacingFromPositions(from, to);
 }
+
+export function quarterviewIdleFacingForTile(
+  tileIndex: number,
+  tileCount: number,
+  topology: string | undefined
+): QuarterviewFacing {
+  const normalizedTopology: BoardTopology = topology === "line" ? "line" : "ring";
+  const current = projectTileQuarterview(tileIndex, tileCount, normalizedTopology);
+  if (normalizedTopology === "line") {
+    return quarterviewIdleFacingForPosition(current);
+  }
+  const safeTileCount = Math.max(1, Math.trunc(tileCount));
+  const nextTileIndex = ((tileIndex + 1) % safeTileCount + safeTileCount) % safeTileCount;
+  const next = projectTileQuarterview(nextTileIndex, safeTileCount, normalizedTopology);
+  return quarterviewFacingFromPositions(current, next);
+}
