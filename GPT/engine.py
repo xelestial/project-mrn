@@ -85,6 +85,8 @@ from policy.environment_traits import (
     fortune_card_id_for_name,
     has_weather_id,
 )
+from runtime_modules.legacy_metadata import legacy_runtime_module_for_event
+from runtime_modules.runner import ModuleRunner
 from policy_hooks import PolicyDecisionLogHook
 from rule_script_engine import RuleScriptEngine
 from viewer.events import Phase, VisEvent
@@ -169,6 +171,7 @@ class GameEngine:
         self._vis_stream: VisEventStream | None = event_stream
         self._vis_step: int = 0
         self._vis_session_id: str = ""
+        self._vis_session_id_override: str = ""
         self._vis_buffer: list[tuple[str, str, int | None, dict[str, Any]]] | None = None
         self._suppress_hidden_trick_selection: bool = False
         self._deferred_arrival_action_id: str = ""
@@ -373,6 +376,8 @@ class GameEngine:
         })
 
     def run_next_transition(self, state: GameState) -> dict[str, Any]:
+        if getattr(state, "runtime_runner_kind", "legacy") == "module":
+            return ModuleRunner().advance_engine(self, state)
         if state.pending_actions:
             return self._run_next_action_transition(state)
         if state.pending_turn_completion:
@@ -457,7 +462,7 @@ class GameEngine:
         self._player_bankruptcy_info = {}
         self._last_semantic_event_name = None
         self._vis_step = 0
-        self._vis_session_id = str(uuid.uuid4())
+        self._vis_session_id = str(self._vis_session_id_override or uuid.uuid4())
         self._strategy_stats = [
             {
                 "purchases": 0, "purchase_t2": 0, "purchase_t3": 0,
@@ -527,6 +532,21 @@ class GameEngine:
         if self._vis_buffer is not None:
             self._vis_buffer.append((event_type, public_phase, acting_player_id, dict(payload)))
             return
+        runtime_module = dict(payload.get("runtime_module") or {})
+        if not runtime_module:
+            runtime_module = legacy_runtime_module_for_event(
+                state,
+                event_type,
+                str(public_phase),
+                acting_player_id,
+                payload,
+                session_id=self._vis_session_id,
+            )
+            payload = {
+                **payload,
+                "runtime_module": runtime_module,
+                "idempotency_key": runtime_module["idempotency_key"],
+            }
         if event_type in {"turn_end_snapshot", "game_end"} and "engine_checkpoint" not in payload:
             payload = {**payload, "engine_checkpoint": state.to_checkpoint_payload()}
         self._vis_stream.append(

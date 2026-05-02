@@ -66,7 +66,9 @@ class StreamService:
             enriched_payload = dict(payload)
             self._inject_display_names(session_id, enriched_payload)
             history = self._history_records_no_lock(session_id)
-            duplicate = self._duplicate_request_message_no_lock(history, msg_type, enriched_payload)
+            duplicate = self._duplicate_idempotency_key_message_no_lock(history, enriched_payload)
+            if duplicate is None:
+                duplicate = self._duplicate_request_message_no_lock(history, msg_type, enriched_payload)
             if duplicate is None:
                 duplicate = self._duplicate_round_setup_event_no_lock(history, msg_type, enriched_payload)
             if duplicate is not None:
@@ -389,6 +391,32 @@ class StreamService:
                 continue
             return self._message_from_payload(message)
         return None
+
+    def _duplicate_idempotency_key_message_no_lock(
+        self,
+        history: list[dict],
+        payload: dict,
+    ) -> StreamMessage | None:
+        key = self._idempotency_key_from_payload(payload)
+        if not key:
+            return None
+        for message in reversed(history):
+            message_payload = message.get("payload")
+            if not isinstance(message_payload, dict):
+                continue
+            if self._idempotency_key_from_payload(message_payload) == key:
+                return self._message_from_payload(message)
+        return None
+
+    @staticmethod
+    def _idempotency_key_from_payload(payload: dict) -> str:
+        key = str(payload.get("idempotency_key") or "").strip()
+        if key:
+            return key
+        runtime_module = payload.get("runtime_module")
+        if isinstance(runtime_module, dict):
+            return str(runtime_module.get("idempotency_key") or "").strip()
+        return ""
 
     def _duplicate_round_setup_event_no_lock(
         self,

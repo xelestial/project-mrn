@@ -148,4 +148,15 @@ describe("StreamClient", () => {
     const sent = client.requestResume(10);
     expect(sent).toBe(false);
   });
+
+  it("sends explicit resume requests without decision payload fields", () => {
+    const client = new StreamClient();
+    client.connect({ sessionId: "sess_resume" });
+    const socket = MockWebSocket.instances[0];
+    socket.triggerOpen();
+
+    expect(client.requestResume(12.9)).toBe(true);
+    expect(socket.sent).toHaveLength(1);
+    expect(JSON.parse(socket.sent[0])).toEqual({ type: "resume", last_seq: 12 });
+  });
 });

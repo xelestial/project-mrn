@@ -489,6 +489,91 @@ describe("promptSelectors", () => {
     expect(selectActivePrompt(messages)).toBeNull();
   });
 
+  it("does not reopen a draft prompt after runtime projection leaves draft", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "prompt",
+        seq: 60,
+        session_id: "s1",
+        payload: {
+          request_id: "req_draft_projection",
+          request_type: "draft_card",
+          player_id: 1,
+          legal_choices: [{ choice_id: "card_1", title: "중매꾼" }],
+        },
+      },
+      {
+        type: "event",
+        seq: 61,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          view_state: {
+            runtime: {
+              round_stage: "in_round",
+              turn_stage: "dice",
+              active_prompt_request_id: "",
+              draft_active: false,
+              trick_sequence_active: false,
+              card_flip_legal: false,
+            },
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 62,
+        session_id: "s1",
+        payload: { event_type: "dice_roll", player_id: 0 },
+      },
+    ];
+
+    expect(selectActivePrompt(messages)).toBeNull();
+  });
+
+  it("does not reopen a trick prompt after runtime projection exits the trick sequence", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "prompt",
+        seq: 70,
+        session_id: "s1",
+        payload: {
+          request_id: "req_trick_projection",
+          request_type: "trick_to_use",
+          player_id: 1,
+          legal_choices: [{ choice_id: "42", title: "긴장감 조성" }],
+        },
+      },
+      {
+        type: "event",
+        seq: 71,
+        session_id: "s1",
+        payload: {
+          event_type: "trick_window_closed",
+          view_state: {
+            runtime: {
+              round_stage: "in_round",
+              turn_stage: "dice",
+              active_sequence: "",
+              active_prompt_request_id: "",
+              draft_active: false,
+              trick_sequence_active: false,
+              card_flip_legal: false,
+            },
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 72,
+        session_id: "s1",
+        payload: { event_type: "dice_roll", player_id: 0 },
+      },
+    ];
+
+    expect(selectActivePrompt(messages)).toBeNull();
+  });
+
   it("uses a newer raw prompt when the latest backend view_state is stale", () => {
     const messages: InboundMessage[] = [
       {

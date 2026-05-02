@@ -39,6 +39,8 @@ class PromptService:
                 raise ValueError("duplicate_pending_request_id")
             if self._has_recently_resolved_request(request_id):
                 raise ValueError("duplicate_recent_request_id")
+            if _is_module_prompt(prompt):
+                _require_module_continuation(prompt)
             player_id = int(prompt.get("player_id", 0))
             timeout_ms = int(prompt.get("timeout_ms", 30000))
             superseded_waiters = self._supersede_pending_for_player(
@@ -88,6 +90,17 @@ class PromptService:
                 player_id = int(payload.get("player_id", 0))
                 if player_id != pending.player_id:
                     return {"status": "rejected", "reason": "player_mismatch"}
+                if _is_module_prompt(pending.payload):
+                    mismatch = _module_decision_mismatch(pending.payload, payload)
+                    if mismatch:
+                        return {"status": "rejected", "reason": mismatch}
+                    legal = {
+                        str(choice.get("choice_id") or "").strip()
+                        for choice in pending.payload.get("legal_choices", [])
+                        if isinstance(choice, dict)
+                    }
+                    if legal and choice_id not in legal:
+                        return {"status": "rejected", "reason": "choice_not_legal"}
 
                 decision_payload = dict(payload)
                 command_payload = {
@@ -387,3 +400,31 @@ class PromptService:
     @staticmethod
     def _now_ms() -> int:
         return int(time.time() * 1000)
+
+
+def _is_module_prompt(prompt: dict) -> bool:
+    return (
+        str(prompt.get("runner_kind") or prompt.get("runtime_runner_kind") or "").strip() == "module"
+        or isinstance(prompt.get("runtime_module"), dict)
+        or bool(prompt.get("resume_token"))
+    )
+
+
+def _require_module_continuation(prompt: dict) -> None:
+    required = ("resume_token", "frame_id", "module_id", "module_type")
+    missing = [field for field in required if not str(prompt.get(field) or "").strip()]
+    if missing:
+        raise ValueError(f"missing_module_continuation:{','.join(missing)}")
+
+
+def _module_decision_mismatch(prompt: dict, decision: dict) -> str:
+    for field, reason in (
+        ("resume_token", "token_mismatch"),
+        ("frame_id", "module_mismatch"),
+        ("module_id", "module_mismatch"),
+    ):
+        expected = str(prompt.get(field) or "").strip()
+        actual = str(decision.get(field) or "").strip()
+        if expected and actual != expected:
+            return reason
+    return ""

@@ -232,6 +232,21 @@ function latestBackendViewStateEntry(messages: InboundMessage[]): { index: numbe
   return null;
 }
 
+function latestRuntimeProjectionAfterPrompt(
+  messages: InboundMessage[],
+  promptIndex: number
+): Record<string, unknown> | null {
+  for (let i = messages.length - 1; i > promptIndex; i -= 1) {
+    const payload = isRecord(messages[i].payload) ? messages[i].payload : null;
+    const viewState = isRecord(payload?.["view_state"]) ? payload["view_state"] : null;
+    const runtime = isRecord(viewState?.["runtime"]) ? viewState["runtime"] : null;
+    if (runtime) {
+      return runtime;
+    }
+  }
+  return null;
+}
+
 function isBackendProjectionCurrent(messages: InboundMessage[], index: number): boolean {
   const latestStatefulIndex = latestStateBearingMessageIndex(messages);
   return latestStatefulIndex === null || index >= latestStatefulIndex;
@@ -318,6 +333,9 @@ function closesPromptByPhaseProgress(requestType: string, payload: Record<string
 }
 
 function isPromptClosed(messages: InboundMessage[], promptIndex: number, requestId: string, requestType: string, playerId: number): boolean {
+  if (isPromptClosedByRuntimeProjection(messages, promptIndex, requestId, requestType)) {
+    return true;
+  }
   for (let i = promptIndex + 1; i < messages.length; i += 1) {
     const message = messages[i];
     if (message.type === "decision_ack") {
@@ -342,6 +360,33 @@ function isPromptClosed(messages: InboundMessage[], promptIndex: number, request
     if (closesPromptByPhaseProgress(requestType, message.payload, playerId)) {
       return true;
     }
+  }
+  return false;
+}
+
+function isPromptClosedByRuntimeProjection(
+  messages: InboundMessage[],
+  promptIndex: number,
+  requestId: string,
+  requestType: string
+): boolean {
+  const runtime = latestRuntimeProjectionAfterPrompt(messages, promptIndex);
+  if (!runtime) {
+    return false;
+  }
+  const activePromptRequestId = stringOrEmpty(runtime["active_prompt_request_id"]);
+  if (activePromptRequestId && activePromptRequestId !== requestId) {
+    return true;
+  }
+  if (requestType === "draft_card" || requestType === "final_character" || requestType === "final_character_choice") {
+    return runtime["draft_active"] !== true;
+  }
+  if (requestType === "active_flip") {
+    return runtime["card_flip_legal"] !== true;
+  }
+  if (requestType === "trick_to_use" || requestType === "hidden_trick_card" || requestType === "hand_choice") {
+    const activeSequence = stringOrEmpty(runtime["active_sequence"]);
+    return runtime["trick_sequence_active"] !== true && activeSequence !== "trick";
   }
   return false;
 }

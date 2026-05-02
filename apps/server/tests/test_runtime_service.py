@@ -22,6 +22,8 @@ from apps.server.src.services.decision_gateway import (
 )
 from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.runtime_service import _LocalHumanDecisionClient
+from apps.server.src.services.runtime_service import resolve_runtime_runner_kind, runtime_checkpoint_schema_version_for_runner
+from apps.server.src.config.runtime_settings import RuntimeSettings
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
 from apps.server.src.services.prompt_service import PromptService
@@ -56,6 +58,36 @@ class RuntimeServiceTests(unittest.TestCase):
             stream_service=self.stream_service,
             prompt_service=self.prompt_service,
         )
+
+    def test_runtime_runner_defaults_to_legacy_until_all_module_flags_enabled(self) -> None:
+        self.assertEqual(resolve_runtime_runner_kind({}, RuntimeSettings()), "legacy")
+        self.assertEqual(
+            resolve_runtime_runner_kind(
+                {"flags": {"module_metadata_v1": True}},
+                RuntimeSettings(),
+            ),
+            "legacy",
+        )
+
+    def test_runtime_runner_uses_module_when_all_settings_flags_enabled(self) -> None:
+        settings = RuntimeSettings(
+            runtime_module_metadata_v1=True,
+            runtime_checkpoint_v3=True,
+            runtime_prompt_continuation_v1=True,
+            runtime_simultaneous_resolution_v1=True,
+            runtime_module_runner_round_v1=True,
+            runtime_module_runner_turn_v1=True,
+            runtime_module_runner_sequence_v1=True,
+            runtime_stream_idempotency_v1=True,
+            runtime_frontend_projection_v1=True,
+        )
+
+        self.assertEqual(resolve_runtime_runner_kind({}, settings), "module")
+        self.assertEqual(runtime_checkpoint_schema_version_for_runner("module"), 3)
+
+    def test_runtime_runner_explicit_session_kind_wins(self) -> None:
+        self.assertEqual(resolve_runtime_runner_kind({"runner_kind": "module"}, RuntimeSettings()), "module")
+        self.assertEqual(resolve_runtime_runner_kind({"runner_kind": "legacy"}, RuntimeSettings()), "legacy")
 
     def test_public_runtime_status_does_not_expose_canonical_current_state(self) -> None:
         session = self.session_service.create_session(

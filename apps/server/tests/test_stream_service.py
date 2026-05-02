@@ -108,6 +108,72 @@ class StreamServiceTests(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_publish_deduplicates_runtime_module_idempotency_key(self) -> None:
+        service = StreamService()
+
+        async def _run() -> None:
+            first = await service.publish(
+                "s1",
+                "event",
+                {
+                    "event_type": "dice_roll",
+                    "runtime_module": {
+                        "module_type": "DiceRollModule",
+                        "idempotency_key": "idem:dice:1",
+                    },
+                },
+            )
+            second = await service.publish(
+                "s1",
+                "event",
+                {
+                    "event_type": "dice_roll",
+                    "dice": [6],
+                    "runtime_module": {
+                        "module_type": "DiceRollModule",
+                        "idempotency_key": "idem:dice:1",
+                    },
+                },
+            )
+            snapshot = await service.snapshot("s1")
+
+            self.assertEqual(first.seq, second.seq)
+            self.assertEqual(len(snapshot), 1)
+
+        asyncio.run(_run())
+
+    def test_publish_keeps_distinct_runtime_idempotency_keys(self) -> None:
+        service = StreamService()
+
+        async def _run() -> None:
+            await service.publish(
+                "s1",
+                "event",
+                {
+                    "event_type": "dice_roll",
+                    "runtime_module": {
+                        "module_type": "DiceRollModule",
+                        "idempotency_key": "idem:dice:1",
+                    },
+                },
+            )
+            await service.publish(
+                "s1",
+                "event",
+                {
+                    "event_type": "dice_roll",
+                    "runtime_module": {
+                        "module_type": "DiceRollModule",
+                        "idempotency_key": "idem:dice:2",
+                    },
+                },
+            )
+            snapshot = await service.snapshot("s1")
+
+            self.assertEqual(len(snapshot), 2)
+
+        asyncio.run(_run())
+
     def test_publish_attaches_public_safe_view_state_only(self) -> None:
         service = StreamService()
 

@@ -1,11 +1,17 @@
 # Modular Game Runtime Result#1
 
-Status: Review recorded  
+Status: Implementation in progress; M10 gate advanced
 Date: 2026-05-02  
 Reviewed inputs:
 
 - `docs/superpowers/plans/2026-05-02-modular-game-runtime-draft-1.md`
 - `docs/superpowers/plans/2026-05-02-modular-game-runtime-bug-1.md`
+
+Latest implementation note:
+
+- Module-runner sessions now promote legacy `pending_actions` and `pending_turn_completion` into explicit `SequenceFrame` modules before execution.
+- Runtime stream replay now uses a stable session-scoped visual id in server transitions so round setup replay events dedupe by idempotency key instead of republishing.
+- Verification: `183 passed, 7 subtests passed` for the runtime Python suite; web projection/reducer/WS Vitest suite `157 passed`; web production build passed.
 
 ## 1. Review Question
 
@@ -108,7 +114,7 @@ Bug coverage:
 
 Residual risk:
 
-- Existing trick effect handlers may still enqueue global actions until ported. The compatibility adapter must force every legacy trick follow-up into a child frame or an explicit parent-frame insertion.
+- Existing trick effect handlers may still enqueue ambient pending actions until ported. The compatibility adapter must force every legacy trick follow-up into a child frame, a simultaneous frame, or an explicit parent-frame insertion.
 
 ### CR-005: Draft Is Round-Only and Idempotent
 
@@ -220,7 +226,7 @@ Residual risk:
 | BUG-004 marker transfer/card flip confusion | Safe | Immediate marker transfer and round-end card flip are different modules. |
 | BUG-005 trick lacks boundary | Safe | Trick is a child `SequenceFrame`. |
 | BUG-006 prompt resumes wrong place | Safe | Resume token binds decision to frame/module. |
-| BUG-007 global pending action leakage | Safe if fully ported | Queue ops target a frame; legacy global actions must be adapted. |
+| BUG-007 ambient pending action leakage | Safe if fully ported | Queue ops target a frame; synchronized multi-player work uses `SimultaneousResolutionFrame`; legacy pending actions must be adapted. |
 | BUG-008 modifier leakage | Safe if registry enforced | Modifier scope/expiry/propagation are explicit. |
 | BUG-009 stream duplicate/suppression | Safe if idempotency key required | Dedupe moves from heuristic to stable module id. |
 | BUG-010 frontend wrong stage inference | Safe if projection-first rule enforced | UI uses module projection first. |

@@ -75,6 +75,7 @@ GameRuntimeState = {
     "frame_stack": list[FrameState],
     "module_journal": list[ModuleJournalEntry],
     "active_prompt": PromptContinuation | None,
+    "active_prompt_batch": SimultaneousPromptBatchContinuation | None,
     "scheduled_turn_injections": dict[str, list[ModuleRef]],
     "modifier_registry": ModifierRegistryState,
 }
@@ -84,8 +85,8 @@ GameRuntimeState = {
 
 ```python
 FrameState = {
-    "frame_id": "round:3" | "turn:3:p2" | "seq:trick:3:p2:1",
-    "frame_type": "round" | "turn" | "sequence",
+    "frame_id": "round:3" | "turn:3:p2" | "seq:trick:3:p2:1" | "simul:resupply:3:1",
+    "frame_type": "round" | "turn" | "sequence" | "simultaneous",
     "owner_player_id": int | None,
     "parent_frame_id": str | None,
     "module_queue": list[ModuleRef],
@@ -98,7 +99,8 @@ Frame types:
 
 - `RoundFrame`: first layer. Owns weather, draft, turn scheduling, player turn modules, round-end card flip.
 - `TurnFrame`: second layer. Owns one player's turn modules.
-- `SequenceFrame`: nested layer. Owns special sub-sequences such as trick resolution, fortune follow-up, prompt batches, purchase chains, and zone chains.
+- `SequenceFrame`: nested layer. Owns special single-actor sub-sequences such as trick resolution, fortune follow-up, purchase chains, and zone chains.
+- `SimultaneousResolutionFrame`: synchronized layer. Owns all-player or multi-player prompt batches such as resupply, then commits once after every required response/default is present.
 
 ### 4.3 ModuleRef
 
@@ -285,7 +287,7 @@ Responsibilities:
 
 Safety rule:
 
-- Scheduled actions must carry `target_frame_id` or a resolvable phase key. They cannot be placed in a global untyped pending queue.
+- Scheduled actions must carry `target_frame_id` or a resolvable phase key. They cannot be placed in an ambient untyped pending queue.
 
 ### 6.3 PendingMarkResolutionModule
 
@@ -358,7 +360,7 @@ flowchart TD
 Responsibilities:
 
 - Keep all trick-local work inside one child frame.
-- Queue deferred supply threshold actions inside the child frame or as explicit parent-frame insertions.
+- Queue deferred supply threshold actions inside the child frame, as explicit parent-frame insertions, or as a `SimultaneousResolutionFrame` when the rule requires synchronized multi-player input such as resupply.
 - Return to the parent `TurnFrame` only after visibility sync and deferred follow-ups are complete.
 
 Safety rule:
@@ -409,7 +411,7 @@ Responsibilities:
 
 Safety rule:
 
-- Follow-ups are child sequence frames or explicit queue insertions, not anonymous global pending actions.
+- Follow-ups are child sequence frames, simultaneous frames, or explicit queue insertions, not anonymous ambient pending actions.
 
 ### 6.12 LapRewardModule
 

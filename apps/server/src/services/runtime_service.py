@@ -15,6 +15,7 @@ from urllib import error as urllib_error
 from urllib import request as urllib_request
 
 from apps.server.src.core.error_payload import build_error_payload
+from apps.server.src.config.runtime_settings import RuntimeSettings, load_runtime_settings
 from apps.server.src.domain.session_models import ParticipantClientType, SeatConfig, SeatType, SessionStatus
 from apps.server.src.infra.game_debug_log import write_game_debug_log
 from apps.server.src.infra.structured_log import log_event
@@ -27,6 +28,57 @@ from apps.server.src.services.decision_gateway import (
     build_routed_decision_call,
 )
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
+
+
+_MODULE_RUNNER_FLAGS: tuple[tuple[str, str], ...] = (
+    ("module_metadata_v1", "runtime_module_metadata_v1"),
+    ("checkpoint_v3", "runtime_checkpoint_v3"),
+    ("prompt_continuation_v1", "runtime_prompt_continuation_v1"),
+    ("simultaneous_resolution_v1", "runtime_simultaneous_resolution_v1"),
+    ("module_runner_round_v1", "runtime_module_runner_round_v1"),
+    ("module_runner_turn_v1", "runtime_module_runner_turn_v1"),
+    ("module_runner_sequence_v1", "runtime_module_runner_sequence_v1"),
+    ("stream_idempotency_v1", "runtime_stream_idempotency_v1"),
+    ("frontend_projection_v1", "runtime_frontend_projection_v1"),
+)
+
+
+def runtime_module_flags_enabled(runtime: dict | None, settings: RuntimeSettings | None = None) -> bool:
+    runtime = dict(runtime or {})
+    settings = settings or load_runtime_settings()
+    flags = runtime.get("flags")
+    flags = flags if isinstance(flags, dict) else {}
+    for runtime_key, settings_attr in _MODULE_RUNNER_FLAGS:
+        if _runtime_bool(runtime.get(runtime_key)) or _runtime_bool(flags.get(runtime_key)):
+            continue
+        if bool(getattr(settings, settings_attr, False)):
+            continue
+        return False
+    return True
+
+
+def resolve_runtime_runner_kind(runtime: dict | None, settings: RuntimeSettings | None = None) -> str:
+    runtime = dict(runtime or {})
+    explicit = str(runtime.get("runner_kind") or runtime.get("runtime_runner_kind") or "").strip().lower()
+    if explicit == "module":
+        return "module"
+    if explicit == "legacy":
+        return "legacy"
+    return "module" if runtime_module_flags_enabled(runtime, settings) else "legacy"
+
+
+def runtime_checkpoint_schema_version_for_runner(runner_kind: str) -> int:
+    return 3 if str(runner_kind or "").strip().lower() == "module" else 1
+
+
+def _runtime_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+    return False
 
 
 class RuntimeService:
@@ -88,7 +140,14 @@ class RuntimeService:
             return
         now_ms = self._now_ms()
         self._last_activity_ms[session_id] = now_ms
-        self._status[session_id] = {"status": "running", "watchdog_state": "ok", "started_at_ms": now_ms}
+        runner_kind = self._runner_kind_for_session(session_id)
+        self._status[session_id] = {
+            "status": "running",
+            "watchdog_state": "ok",
+            "started_at_ms": now_ms,
+            "runner_kind": runner_kind,
+            "checkpoint_schema_version": runtime_checkpoint_schema_version_for_runner(runner_kind),
+        }
         self._persist_runtime_state(session_id)
         self._runtime_tasks[session_id] = asyncio.create_task(
             self._run_engine_async(session_id=session_id, seed=seed, policy_mode=policy_mode),
@@ -370,6 +429,8 @@ class RuntimeService:
         session = self._session_service.get_session(session_id)
         resolved = dict(session.resolved_parameters or {})
         runtime = dict(resolved.get("runtime", {}))
+        runner_kind = resolve_runtime_runner_kind(runtime)
+        checkpoint_schema_version = runtime_checkpoint_schema_version_for_runner(runner_kind)
         selected_policy_mode = policy_mode or runtime.get("policy_mode") or "heuristic_v3_gpt"
         ai_policy = PolicyFactory.create_runtime_policy(
             policy_mode=selected_policy_mode,
@@ -432,8 +493,20 @@ class RuntimeService:
             event_stream=vis_stream,
         )
         initial_state = self._hydrate_engine_state(session_id, engine_config, GameState)
+        if initial_state is not None:
+            self._apply_runner_kind(initial_state, runner_kind, checkpoint_schema_version)
+        current_status = dict(self._status.get(session_id, {"status": "running"}))
+        current_status["runner_kind"] = runner_kind
+        current_status["checkpoint_schema_version"] = checkpoint_schema_version
+        self._status[session_id] = current_status
+        self._persist_runtime_state(session_id)
         if initial_state is None:
-            engine.run()
+            if runner_kind == "module":
+                initial_state = engine.create_initial_state()
+                self._apply_runner_kind(initial_state, runner_kind, checkpoint_schema_version)
+                engine.run(initial_state=initial_state)
+            else:
+                engine.run()
         else:
             engine.run(initial_state=initial_state)
 
@@ -552,6 +625,28 @@ class RuntimeService:
         import time
 
         return int(time.time() * 1000)
+
+    def _runner_kind_for_session(self, session_id: str) -> str:
+        try:
+            session = self._session_service.get_session(session_id)
+        except Exception:
+            return "legacy"
+        resolved = dict(getattr(session, "resolved_parameters", {}) or {})
+        return resolve_runtime_runner_kind(dict(resolved.get("runtime", {}) or {}))
+
+    @staticmethod
+    def _apply_runner_kind(state, runner_kind: str, checkpoint_schema_version: int) -> None:
+        existing_kind = str(getattr(state, "runtime_runner_kind", "") or "").strip().lower()
+        if existing_kind == "module":
+            state.runtime_runner_kind = "module"
+            state.runtime_checkpoint_schema_version = max(
+                3,
+                int(getattr(state, "runtime_checkpoint_schema_version", 1) or 1),
+                int(checkpoint_schema_version or 1),
+            )
+            return
+        state.runtime_runner_kind = runner_kind
+        state.runtime_checkpoint_schema_version = int(checkpoint_schema_version or 1)
 
     @staticmethod
     def _ensure_gpt_import_path() -> None:
@@ -817,6 +912,8 @@ class RuntimeService:
         session = self._session_service.get_session(session_id)
         resolved = dict(session.resolved_parameters or {})
         runtime = dict(resolved.get("runtime", {}))
+        runner_kind = resolve_runtime_runner_kind(runtime)
+        checkpoint_schema_version = runtime_checkpoint_schema_version_for_runner(runner_kind)
         selected_policy_mode = policy_mode or runtime.get("policy_mode") or "heuristic_v3_gpt"
         ai_policy = PolicyFactory.create_runtime_policy(policy_mode=selected_policy_mode, lap_policy_mode=selected_policy_mode)
         policy = ai_policy
@@ -854,6 +951,8 @@ class RuntimeService:
                 return {"status": "unavailable", "reason": "checkpoint_missing"}
         else:
             self._prepare_state_for_transition_replay(state)
+        if state is not None:
+            self._apply_runner_kind(state, runner_kind, checkpoint_schema_version)
         human_player_ids = [
             int(seat.seat)
             for seat in session.seats
@@ -878,8 +977,16 @@ class RuntimeService:
             rng=random.Random(seed),
             event_stream=event_stream,
         )
+        engine._vis_session_id_override = session_id
         try:
-            state = engine.prepare_run(initial_state=state) if state is not None else engine.prepare_run()
+            if state is None and runner_kind == "module":
+                state = engine.create_initial_state()
+                self._apply_runner_kind(state, runner_kind, checkpoint_schema_version)
+                state = engine.prepare_run(initial_state=state)
+            elif state is None:
+                state = engine.prepare_run()
+            else:
+                state = engine.prepare_run(initial_state=state)
             if callable(getattr(policy, "set_prompt_sequence", None)):
                 policy.set_prompt_sequence(self._prompt_sequence_seed_for_transition(state))
             step = engine.run_next_transition(state)
@@ -905,6 +1012,15 @@ class RuntimeService:
             state.pending_prompt_type = ""
             state.pending_prompt_player_id = 0
             state.pending_prompt_instance_id = 0
+        effective_runner_kind = str(getattr(state, "runtime_runner_kind", runner_kind) or runner_kind)
+        effective_checkpoint_schema_version = int(
+            getattr(state, "runtime_checkpoint_schema_version", checkpoint_schema_version) or checkpoint_schema_version
+        )
+        current_status = dict(self._status.get(session_id, {"status": "running"}))
+        current_status["runner_kind"] = effective_runner_kind
+        current_status["checkpoint_schema_version"] = effective_checkpoint_schema_version
+        self._status[session_id] = current_status
+        self._persist_runtime_state(session_id)
         if self._game_state_store is not None:
             payload = state.to_checkpoint_payload()
             pending_action_types = [
@@ -923,8 +1039,9 @@ class RuntimeService:
                 session_id,
                 current_state=payload,
                 checkpoint={
-                    "schema_version": 1,
+                    "schema_version": effective_checkpoint_schema_version,
                     "session_id": session_id,
+                    "runner_kind": effective_runner_kind,
                     "latest_seq": self._latest_stream_seq_sync(loop, session_id),
                     "latest_event_type": latest_event_type,
                     "round_index": int(payload.get("rounds_completed", 0)) + 1,

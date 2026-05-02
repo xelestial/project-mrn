@@ -46,6 +46,18 @@ export type AlertItem = {
   detail: string;
 };
 
+export type RuntimeProjectionViewModel = {
+  runnerKind: string;
+  latestModulePath: string[];
+  roundStage: string;
+  turnStage: string;
+  activeSequence: string;
+  activePromptRequestId: string;
+  draftActive: boolean;
+  trickSequenceActive: boolean;
+  cardFlipLegal: boolean;
+};
+
 export type SituationViewModel = {
   actor: string;
   round: string;
@@ -2615,6 +2627,62 @@ function selectLatestBackendViewState(messages: InboundMessage[]): Record<string
     if (viewState) {
       return viewState;
     }
+  }
+  return null;
+}
+
+export function selectRuntimeProjection(messages: InboundMessage[]): RuntimeProjectionViewModel | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const payload = isRecord(messages[i].payload) ? messages[i].payload : null;
+    const viewState = isRecord(payload?.["view_state"]) ? payload["view_state"] : null;
+    const runtime = isRecord(viewState?.["runtime"]) ? viewState["runtime"] : null;
+    if (!runtime) {
+      continue;
+    }
+    return {
+      runnerKind: asString(runtime["runner_kind"]),
+      latestModulePath: stringArray(runtime["latest_module_path"]),
+      roundStage: typeof runtime["round_stage"] === "string" ? runtime["round_stage"] : "",
+      turnStage: typeof runtime["turn_stage"] === "string" ? runtime["turn_stage"] : "",
+      activeSequence: typeof runtime["active_sequence"] === "string" ? runtime["active_sequence"] : "",
+      activePromptRequestId:
+        typeof runtime["active_prompt_request_id"] === "string" ? runtime["active_prompt_request_id"] : "",
+      draftActive: runtime["draft_active"] === true,
+      trickSequenceActive: runtime["trick_sequence_active"] === true,
+      cardFlipLegal: runtime["card_flip_legal"] === true,
+    };
+  }
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const payload = isRecord(messages[i].payload) ? messages[i].payload : null;
+    const runtimeModule = isRecord(payload?.["runtime_module"]) ? payload["runtime_module"] : null;
+    if (!runtimeModule) {
+      continue;
+    }
+    const moduleType = typeof runtimeModule["module_type"] === "string" ? runtimeModule["module_type"] : "";
+    const modulePath = stringArray(runtimeModule["module_path"]);
+    const activeSequence = modulePath.some((item) => item.startsWith("seq:trick"))
+      ? "trick"
+      : modulePath.some((item) => item.startsWith("seq:fortune"))
+        ? "fortune"
+        : "";
+    return {
+      runnerKind: asString(runtimeModule["runner_kind"]),
+      latestModulePath: modulePath,
+      roundStage:
+        moduleType === "DraftModule"
+          ? "draft"
+          : moduleType === "RoundEndCardFlipModule"
+            ? "round_end_card_flip"
+            : moduleType
+              ? "in_round"
+              : "",
+      turnStage: moduleType.startsWith("Trick") ? "trick" : "",
+      activeSequence,
+      activePromptRequestId: "",
+      draftActive: moduleType === "DraftModule",
+      trickSequenceActive: activeSequence === "trick" || moduleType.startsWith("Trick"),
+      cardFlipLegal: moduleType === "RoundEndCardFlipModule",
+    };
   }
   return null;
 }

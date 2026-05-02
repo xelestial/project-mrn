@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { selectRuntimeProjection } from "../selectors/streamSelectors";
 import { gameStreamReducer, initialGameStreamState, MAX_STREAM_MESSAGES } from "./gameStreamReducer";
 
 describe("gameStreamReducer", () => {
@@ -89,6 +90,54 @@ describe("gameStreamReducer", () => {
         },
       },
     ]);
+  });
+
+  it("keeps older replay runtime projections from overriding newer runtime stage", () => {
+    let state = initialGameStreamState;
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "event",
+        seq: 100,
+        session_id: "s1",
+        payload: {
+          event_type: "dice_roll",
+          view_state: {
+            runtime: {
+              runner_kind: "module",
+              latest_module_path: ["round:1", "turn:1:p0", "mod:turn:1:p0:dice"],
+              round_stage: "in_round",
+              turn_stage: "dice",
+            },
+          },
+        },
+      },
+    });
+    state = gameStreamReducer(state, {
+      type: "message",
+      message: {
+        type: "event",
+        seq: 80,
+        session_id: "s1",
+        payload: {
+          event_type: "replay_projection",
+          view_state: {
+            runtime: {
+              runner_kind: "module",
+              latest_module_path: ["round:1", "mod:round:1:draft"],
+              round_stage: "draft",
+              turn_stage: "",
+            },
+          },
+        },
+      },
+    });
+
+    expect(state.messages.map((message) => message.seq)).toEqual([80, 100]);
+    expect(selectRuntimeProjection(state.messages)).toMatchObject({
+      roundStage: "in_round",
+      turnStage: "dice",
+    });
   });
 
   it("buffers out-of-order messages and flushes contiguous sequence", () => {

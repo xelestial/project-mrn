@@ -90,12 +90,15 @@ These are blockers for every implementation slice:
 2. Compatibility metadata may be added to legacy events, but it must not change gameplay order.
 3. `RoundFrame` owns weather, draft, turn scheduling, player turn modules, round-end card flip, and round cleanup.
 4. `TurnFrame` owns one player's turn from turn start through `TurnEndSnapshotModule`.
-5. `SequenceFrame` owns nested work such as trick, fortune extra roll, purchase/rent chains, prompt batches, and zone chains.
-6. Every module has a stable `module_id` and `idempotency_key`.
-7. Every prompt-producing module suspends itself and stores a `PromptContinuation`.
-8. Every queue mutation goes through typed `QueueOp`; modules do not mutate another frame queue directly.
-9. Modifiers are structured and scoped. Ad hoc turn flags remain only behind adapters until removed.
-10. Stream dedupe uses stable keys. Debug logs record committed messages, not attempted messages.
+5. `SequenceFrame` owns nested single-actor work such as trick, fortune extra roll, purchase/rent chains, and zone chains.
+6. `SimultaneousResolutionFrame` owns synchronized multi-player work such as resupply: every required participant responds against one captured snapshot, then the frame commits once.
+7. Every module has a stable `module_id` and `idempotency_key`.
+8. Every single-player prompt-producing module suspends itself and stores a `PromptContinuation`.
+9. Every simultaneous prompt-producing module suspends its frame and stores a `SimultaneousPromptBatchContinuation`.
+10. Every queue mutation goes through typed `QueueOp`; modules do not mutate another frame queue directly.
+11. Simultaneous resolution is explicit module work, not an ambient pending queue.
+12. Modifiers are structured and scoped. Ad hoc turn flags remain only behind adapters until removed.
+13. Stream dedupe uses stable keys. Debug logs record committed messages, not attempted messages.
 
 ## 1-6. Known Bug Coverage
 
@@ -107,7 +110,7 @@ These are blockers for every implementation slice:
 | BUG-004 marker transfer/card flip confusion | `ImmediateMarkerTransferModule` and `RoundEndCardFlipModule` are separate modules. |
 | BUG-005 trick boundary missing | `TrickWindowModule` spawns `TrickSequenceFrame` and resumes parent after completion. |
 | BUG-006 wrong prompt continuation | `PromptContinuation` binds request to frame/module/resume token. |
-| BUG-007 global pending action leaks | `QueueOp` targets an active frame and rejects completed frames. |
+| BUG-007 untyped pending action leaks | `QueueOp` targets an active frame and rejects completed frames; synchronized multi-player work must use `SimultaneousResolutionFrame`. |
 | BUG-008 modifier scope leaks | `ModifierRegistry` defines scope, propagation, priority, and expiry. |
 | BUG-009 stream duplicate/suppression | `idempotency_key` is required for module-originated domain events. |
 | BUG-010 frontend stage inference | Backend projection is canonical; event text is display-only. |
@@ -130,6 +133,8 @@ flowchart TD
   G --> H["TurnStart -> Marks -> Character -> Trick -> Dice -> Move -> Arrival -> Fortune -> TurnEnd"]
   H --> I["Optional SequenceFrame children"]
   I --> G
+  H --> S["Optional SimultaneousResolutionFrame children"]
+  S --> G
   G --> J["PlayerTurnModule complete"]
   J --> K["RoundEndCardFlipModule"]
   K --> L["RoundCleanupAndNextRoundModule"]
@@ -140,8 +145,9 @@ The important boundary is ownership:
 1. Round frame decides which player turns exist.
 2. Player turn module owns exactly one child turn frame.
 3. Turn frame owns the actor's turn work.
-4. Sequence frame owns nested, temporary work and returns to its parent frame.
-5. Backend and frontend observe these frames; they do not create gameplay truth.
+4. Sequence frame owns nested, temporary single-actor work and returns to its parent frame.
+5. Simultaneous resolution frame owns all-player or multi-player prompt batches and commits after all required responses/defaults are collected.
+6. Backend and frontend observe these frames; they do not create gameplay truth.
 
 ## 1-8. Migration Phases
 
@@ -273,11 +279,13 @@ The migration is complete when:
 
 1. `run_next_transition` delegates to module runner for new sessions by default.
 2. `pending_actions` and `pending_turn_completion` are no longer gameplay-order owners in module sessions.
-3. Every prompt payload includes frame/module continuation fields.
-4. Every engine event includes module causality metadata.
-5. Card flip events always have `module_type=RoundEndCardFlipModule`.
-6. Draft events always have `module_type=DraftModule`.
-7. Trick events inside the trick window carry `SequenceFrame` identity.
-8. Backend `view_state` includes stable active module/stage fields.
-9. Frontend tests prove stale replay cannot reopen draft/trick/card-flip UI.
-10. Legacy runner cleanup has an explicit final diff and all acceptance commands pass.
+3. Every single-player prompt payload includes frame/module continuation fields.
+4. Every simultaneous prompt batch includes `batch_id`, participant ids, per-player request ids, missing participant ids, and the owning frame/module ids.
+5. Resupply and other synchronized multi-player prompts are handled by `SimultaneousProcessingModule` plus a typed `SimultaneousResolutionFrame`, not by sequential turn prompts.
+6. Every engine event includes module causality metadata.
+7. Card flip events always have `module_type=RoundEndCardFlipModule`.
+8. Draft events always have `module_type=DraftModule`.
+9. Trick events inside the trick window carry `SequenceFrame` identity.
+10. Backend `view_state` includes stable active module/stage fields.
+11. Frontend tests prove stale replay cannot reopen draft/trick/card-flip/resupply UI.
+12. Legacy runner cleanup has an explicit final diff and all acceptance commands pass.
