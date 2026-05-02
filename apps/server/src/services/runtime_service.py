@@ -16,6 +16,7 @@ from urllib import request as urllib_request
 
 from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.domain.session_models import ParticipantClientType, SeatConfig, SeatType, SessionStatus
+from apps.server.src.infra.game_debug_log import write_game_debug_log
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.decision_gateway import (
     DecisionGateway,
@@ -963,6 +964,22 @@ class RuntimeService:
                 },
                 runtime_event_server_time_ms=updated_at_ms,
             )
+            write_game_debug_log(
+                "engine",
+                latest_event_type,
+                session_id=session_id,
+                round_index=int(payload.get("rounds_completed", 0)) + 1,
+                turn_index=int(payload.get("turn_index", 0)),
+                status=step.get("status"),
+                reason=step.get("reason"),
+                request_id=step.get("request_id"),
+                request_type=step.get("request_type"),
+                player_id=step.get("player_id"),
+                processed_command_seq=command_seq,
+                processed_command_consumer=command_consumer_name,
+                pending_action_count=len(payload.get("pending_actions") or []),
+                scheduled_action_count=len(payload.get("scheduled_actions") or []),
+            )
         return step
 
     def _latest_stream_seq_sync(self, loop: asyncio.AbstractEventLoop | None, session_id: str) -> int:
@@ -1846,6 +1863,12 @@ class _FanoutVisEventStream:
         self._events.append(event)
         self._touch_activity(self._session_id)
         payload = event.to_dict()
+        write_game_debug_log(
+            "engine",
+            str(payload.get("event_type") or "engine_event"),
+            session_id=self._session_id,
+            payload=payload,
+        )
         fut = asyncio.run_coroutine_threadsafe(
             self._stream_service.publish(self._session_id, "event", payload),
             self._loop,

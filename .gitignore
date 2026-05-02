@@ -1,6 +1,7 @@
 /.pytest_cache/
 pytest-cache-files-*/
 /result/
+/.log/
 replay_output/
 /replay_output/
 

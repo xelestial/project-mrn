@@ -20,6 +20,17 @@ def _env_str(name: str, default: str) -> str:
     return raw or default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return default
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 @dataclass(frozen=True)
 class RuntimeSettings:
     stream_heartbeat_interval_ms: int = 5000
@@ -42,6 +53,8 @@ class RuntimeSettings:
     prompt_timeout_worker_poll_interval_ms: int = 250
     command_wakeup_worker_poll_interval_ms: int = 250
     admin_token: str = ""
+    debug_game_logs_enabled: bool = False
+    debug_game_log_dir: str = ".log"
 
 
 def load_runtime_settings() -> RuntimeSettings:
@@ -66,4 +79,6 @@ def load_runtime_settings() -> RuntimeSettings:
         prompt_timeout_worker_poll_interval_ms=_env_int("MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS", 250, 50),
         command_wakeup_worker_poll_interval_ms=_env_int("MRN_COMMAND_WAKEUP_WORKER_POLL_INTERVAL_MS", 250, 50),
         admin_token=_env_str("MRN_ADMIN_TOKEN", ""),
+        debug_game_logs_enabled=_env_bool("MRN_DEBUG_GAME_LOGS", False),
+        debug_game_log_dir=_env_str("MRN_DEBUG_GAME_LOG_DIR", ".log"),
     )

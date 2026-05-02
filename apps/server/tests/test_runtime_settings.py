@@ -30,6 +30,8 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.prompt_timeout_worker_poll_interval_ms, 250)
         self.assertEqual(settings.command_wakeup_worker_poll_interval_ms, 250)
         self.assertEqual(settings.admin_token, "")
+        self.assertEqual(settings.debug_game_logs_enabled, False)
+        self.assertEqual(settings.debug_game_log_dir, ".log")
 
     def test_env_overrides_with_minimum_clamp(self) -> None:
         with _temporary_env(
@@ -54,6 +56,8 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS": "750",
                 "MRN_COMMAND_WAKEUP_WORKER_POLL_INTERVAL_MS": "900",
                 "MRN_ADMIN_TOKEN": "admin-secret",
+                "MRN_DEBUG_GAME_LOGS": "on",
+                "MRN_DEBUG_GAME_LOG_DIR": "result/debug_logs",
             }
         ):
             settings = load_runtime_settings()
@@ -77,6 +81,8 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.prompt_timeout_worker_poll_interval_ms, 750)
         self.assertEqual(settings.command_wakeup_worker_poll_interval_ms, 900)
         self.assertEqual(settings.admin_token, "admin-secret")
+        self.assertEqual(settings.debug_game_logs_enabled, True)
+        self.assertEqual(settings.debug_game_log_dir, "result/debug_logs")
 
     def test_invalid_env_values_fallback_to_defaults(self) -> None:
         with _temporary_env(
@@ -101,6 +107,8 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS": "10",
                 "MRN_COMMAND_WAKEUP_WORKER_POLL_INTERVAL_MS": "10",
                 "MRN_ADMIN_TOKEN": "",
+                "MRN_DEBUG_GAME_LOGS": "maybe",
+                "MRN_DEBUG_GAME_LOG_DIR": "",
             }
         ):
             settings = load_runtime_settings()
@@ -124,6 +132,8 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.prompt_timeout_worker_poll_interval_ms, 250)
         self.assertEqual(settings.command_wakeup_worker_poll_interval_ms, 250)
         self.assertEqual(settings.admin_token, "")
+        self.assertEqual(settings.debug_game_logs_enabled, False)
+        self.assertEqual(settings.debug_game_log_dir, ".log")
 
 
 class _temporary_env:
@@ -151,6 +161,8 @@ class _temporary_env:
             "MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS",
             "MRN_COMMAND_WAKEUP_WORKER_POLL_INTERVAL_MS",
             "MRN_ADMIN_TOKEN",
+            "MRN_DEBUG_GAME_LOGS",
+            "MRN_DEBUG_GAME_LOG_DIR",
         ]
 
     def __enter__(self) -> None:

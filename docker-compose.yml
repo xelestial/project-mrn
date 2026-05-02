@@ -29,10 +29,13 @@ services:
       MRN_ARCHIVE_HOT_RETENTION_SECONDS: "300"
       MRN_RESTART_RECOVERY_POLICY: abort_in_progress
       MRN_LOG_LEVEL: INFO
+      MRN_DEBUG_GAME_LOGS: ${MRN_DEBUG_GAME_LOGS:-0}
+      MRN_DEBUG_GAME_LOG_DIR: ${MRN_DEBUG_GAME_LOG_DIR:-/app/.log}
     ports:
       - "9090:9090"
     volumes:
       - game-logs:/app/data/game_logs
+      - ./.log:/app/.log
     command: ["python", "-m", "uvicorn", "apps.server.src.app:app", "--host", "0.0.0.0", "--port", "9090"]
     healthcheck:
       test:
@@ -56,6 +59,7 @@ services:
         condition: service_healthy
     environment:
       MRN_WEB_API_TARGET: http://server:9090
+      VITE_MRN_DEBUG_GAME_LOGS: ${MRN_DEBUG_GAME_LOGS:-0}
     ports:
       - "${MRN_WEB_PORT:-9000}:9000"
     volumes:
@@ -84,8 +88,11 @@ services:
       MRN_RESTART_RECOVERY_POLICY: keep
       MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS: "250"
       MRN_LOG_LEVEL: INFO
+      MRN_DEBUG_GAME_LOGS: ${MRN_DEBUG_GAME_LOGS:-0}
+      MRN_DEBUG_GAME_LOG_DIR: ${MRN_DEBUG_GAME_LOG_DIR:-/app/.log}
     volumes:
       - game-logs:/app/data/game_logs
+      - ./.log:/app/.log
     command: ["python", "-m", "apps.server.src.workers.prompt_timeout_worker_app"]
     restart: unless-stopped
 
@@ -104,8 +111,11 @@ services:
       MRN_RESTART_RECOVERY_POLICY: keep
       MRN_COMMAND_WAKEUP_WORKER_POLL_INTERVAL_MS: "250"
       MRN_LOG_LEVEL: INFO
+      MRN_DEBUG_GAME_LOGS: ${MRN_DEBUG_GAME_LOGS:-0}
+      MRN_DEBUG_GAME_LOG_DIR: ${MRN_DEBUG_GAME_LOG_DIR:-/app/.log}
     volumes:
       - game-logs:/app/data/game_logs
+      - ./.log:/app/.log
     command: ["python", "-m", "apps.server.src.workers.command_wakeup_worker_app"]
     restart: unless-stopped
 

@@ -8,6 +8,7 @@ import {
   initialGameStreamState,
 } from "../domain/store/gameStreamReducer";
 import { fetchReplayMessages } from "../infra/http/replayClient";
+import { logFrontendDebugEvent } from "../infra/http/frontendDebugLogClient";
 import { StreamClient } from "../infra/ws/StreamClient";
 
 type UseGameStreamArgs = {
@@ -51,6 +52,7 @@ export function useGameStream({
   );
   const lastSeqRef = useRef(0);
   const activeStreamKeyRef = useRef("");
+  const logContextRef = useRef({ sessionId: "", baseUrl: "" });
   const lastResumeRequestAtRef = useRef(0);
   const recoveryTimersRef = useRef<number[]>([]);
   const replayAbortControllersRef = useRef<AbortController[]>([]);
@@ -75,7 +77,25 @@ export function useGameStream({
   }, [abortReplayRecoveries, clearRecoveryTimers]);
 
   useEffect(() => {
+    logContextRef.current = {
+      sessionId: sessionId.trim(),
+      baseUrl: baseUrl ?? "",
+    };
+  }, [baseUrl, sessionId]);
+
+  useEffect(() => {
     const offMessage = client.onMessage((message) => {
+      logFrontendDebugEvent({
+        event: "stream_message",
+        sessionId: message.session_id || logContextRef.current.sessionId,
+        seq: message.seq,
+        baseUrl: logContextRef.current.baseUrl,
+        payload: {
+          type: message.type,
+          payload: message.payload,
+          server_time_ms: message.server_time_ms,
+        },
+      });
       if (typeof message.seq === "number") {
         const expected = lastSeqRef.current + 1;
         if (message.seq > expected) {
@@ -88,9 +108,15 @@ export function useGameStream({
       }
       dispatch({ type: "message", message });
     });
-    const offStatus = client.onStatus((next) =>
-      dispatch({ type: "status", status: next }),
-    );
+    const offStatus = client.onStatus((next) => {
+      logFrontendDebugEvent({
+        event: "stream_status",
+        sessionId: logContextRef.current.sessionId,
+        baseUrl: logContextRef.current.baseUrl,
+        payload: { status: next },
+      });
+      dispatch({ type: "status", status: next });
+    });
     return () => {
       offMessage();
       offStatus();
@@ -222,6 +248,18 @@ export function useGameStream({
       client_seq: lastSeqRef.current,
     });
     if (sent) {
+      logFrontendDebugEvent({
+        event: "decision_sent",
+        sessionId: sessionId.trim(),
+        seq: lastSeqRef.current,
+        baseUrl,
+        payload: {
+          request_id: args.requestId,
+          player_id: args.playerId,
+          choice_id: args.choiceId,
+          choice_payload: args.choicePayload,
+        },
+      });
       for (const delay of [750, 2000, 5000, 10000, 15000, 30000]) {
         const timer = window.setTimeout(() => {
           recoveryTimersRef.current = recoveryTimersRef.current.filter(

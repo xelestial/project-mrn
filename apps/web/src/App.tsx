@@ -27,6 +27,12 @@ import {
   selectTimeline,
   selectTurnStage,
 } from "./domain/selectors/streamSelectors";
+import {
+  DEBUG_TURN_SELECTION_ALL,
+  DEBUG_TURN_SELECTION_LATEST,
+  groupDebugMessagesByTurn,
+  selectDebugMessagesForTurn,
+} from "./domain/selectors/debugLogSelectors";
 import { BoardPanel } from "./features/board/BoardPanel";
 import { GameEventOverlay } from "./features/board/GameEventOverlay";
 import privateCharacterSealUrl from "./assets/private-character-seal.svg";
@@ -42,7 +48,6 @@ import { SpectatorTurnPanel } from "./features/stage/SpectatorTurnPanel";
 import { CoreActionPanel } from "./features/theater/CoreActionPanel";
 import { useGameStream } from "./hooks/useGameStream";
 import { useI18n } from "./i18n/useI18n";
-import type { InboundMessage } from "./core/contracts/stream";
 import {
   createSession,
   createRoom,
@@ -162,63 +167,6 @@ function escapeDebugHtml(value: string): string {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll("\"", "&quot;");
-}
-
-type DebugTurnGroup = {
-  key: string;
-  label: string;
-  messages: InboundMessage[];
-};
-
-function debugPayloadRecord(message: InboundMessage): Record<string, unknown> | null {
-  return typeof message.payload === "object" && message.payload !== null
-    ? (message.payload as Record<string, unknown>)
-    : null;
-}
-
-function debugTurnLabel(message: InboundMessage): string | null {
-  const payload = debugPayloadRecord(message);
-  const roundIndex = payload?.["round_index"];
-  const turnIndex = payload?.["turn_index"];
-  if (typeof roundIndex === "number" && typeof turnIndex === "number") {
-    return `Round ${roundIndex} / Turn ${turnIndex}`;
-  }
-  if (typeof turnIndex === "number") {
-    return `Turn ${turnIndex}`;
-  }
-  return null;
-}
-
-function groupDebugMessagesByTurn(messages: InboundMessage[], locale: string): DebugTurnGroup[] {
-  const fallbackLabel = locale === "ko" ? "턴 정보 없음" : "No turn metadata";
-  const groups: DebugTurnGroup[] = [];
-  let current: DebugTurnGroup | null = null;
-  const sortedMessages = [...messages].sort((left, right) => {
-    const seqDiff = left.seq - right.seq;
-    if (seqDiff !== 0) {
-      return seqDiff;
-    }
-    return (left.server_time_ms ?? 0) - (right.server_time_ms ?? 0);
-  });
-
-  for (const message of sortedMessages) {
-    const label = debugTurnLabel(message);
-    const payload = debugPayloadRecord(message);
-    const eventType = typeof payload?.["event_type"] === "string" ? payload["event_type"] : "";
-    const startsTurn = eventType === "turn_start" || eventType === "turn_context_started";
-    if (!current || (label && (startsTurn || current.label !== label))) {
-      const groupLabel: string = label ?? fallbackLabel;
-      current = {
-        key: `${groups.length}:${groupLabel}:${message.seq}`,
-        label: groupLabel,
-        messages: [],
-      };
-      groups.push(current);
-    }
-    current.messages.push(message);
-  }
-
-  return groups;
 }
 
 function saveStoredSessionToken(sessionId: string, token: string | undefined): void {
@@ -788,6 +736,7 @@ export function App() {
   const [sessionInfoExpanded, setSessionInfoExpanded] = useState(false);
   const [weatherExpanded, setWeatherExpanded] = useState(false);
   const [showRawMessages, setShowRawMessages] = useState(false);
+  const [debugTurnSelectionKey, setDebugTurnSelectionKey] = useState(DEBUG_TURN_SELECTION_LATEST);
   const [publicEventFeedOpen, setPublicEventFeedOpen] = useState(false);
   const [promptCollapsed, setPromptCollapsed] = useState(false);
   const [promptBusy, setPromptBusy] = useState(false);
@@ -1677,6 +1626,27 @@ export function App() {
   };
 
   useEffect(() => {
+    const handleDebugSelectionMessage = (event: MessageEvent) => {
+      if (event.source !== debugWindowRef.current) {
+        return;
+      }
+      const data = event.data;
+      if (!data || typeof data !== "object" || Array.isArray(data)) {
+        return;
+      }
+      if ((data as Record<string, unknown>)["type"] !== "mrn-debug-turn-selection") {
+        return;
+      }
+      const key = (data as Record<string, unknown>)["key"];
+      if (typeof key === "string") {
+        setDebugTurnSelectionKey(key);
+      }
+    };
+    window.addEventListener("message", handleDebugSelectionMessage);
+    return () => window.removeEventListener("message", handleDebugSelectionMessage);
+  }, []);
+
+  useEffect(() => {
     if (!showRawMessages) {
       if (debugWindowRef.current && !debugWindowRef.current.closed) {
         debugWindowRef.current.close();
@@ -1690,13 +1660,48 @@ export function App() {
       setShowRawMessages(false);
       return;
     }
-    const debugTimeline = selectTimeline(debugMessages, Math.max(debugMessages.length, compactDensity ? 24 : 40), selectorText);
-    const debugCoreActionFeed = selectCoreActionFeed(
-      debugMessages,
-      effectivePlayerId,
-      Math.max(debugMessages.length, compactDensity ? 10 : 14),
+    const debugTurnGroups = groupDebugMessagesByTurn(debugMessages, locale);
+    const explicitDebugGroup =
+      debugTurnSelectionKey === DEBUG_TURN_SELECTION_LATEST || debugTurnSelectionKey === DEBUG_TURN_SELECTION_ALL
+        ? undefined
+        : debugTurnGroups.find((group) => group.key === debugTurnSelectionKey);
+    const selectedDebugGroup =
+      debugTurnSelectionKey === DEBUG_TURN_SELECTION_LATEST
+        ? debugTurnGroups[debugTurnGroups.length - 1]
+        : explicitDebugGroup ?? debugTurnGroups[debugTurnGroups.length - 1];
+    const selectedDebugMessages = selectDebugMessagesForTurn(debugMessages, debugTurnGroups, debugTurnSelectionKey);
+    const selectedDebugGroupKey =
+      debugTurnSelectionKey === DEBUG_TURN_SELECTION_ALL
+        ? DEBUG_TURN_SELECTION_ALL
+        : debugTurnSelectionKey === DEBUG_TURN_SELECTION_LATEST
+          ? DEBUG_TURN_SELECTION_LATEST
+          : explicitDebugGroup?.key ?? DEBUG_TURN_SELECTION_LATEST;
+    const debugTimeline = selectTimeline(
+      selectedDebugMessages,
+      Math.max(selectedDebugMessages.length, compactDensity ? 24 : 40),
       selectorText
     );
+    const debugCoreActionFeed = selectCoreActionFeed(
+      selectedDebugMessages,
+      effectivePlayerId,
+      Math.max(selectedDebugMessages.length, compactDensity ? 10 : 14),
+      selectorText
+    );
+    const turnSelectLabel = locale === "ko" ? "조회 라운드/턴" : "View round/turn";
+    const latestLabel = locale === "ko" ? "현재 턴 따라가기" : "Follow latest turn";
+    const allLabel = locale === "ko" ? "전체 누적 로그" : "All accumulated logs";
+    const messagesLabel = locale === "ko" ? "메시지" : "messages";
+    const turnOptionsMarkup = [
+      `<option value="${DEBUG_TURN_SELECTION_LATEST}" ${selectedDebugGroupKey === DEBUG_TURN_SELECTION_LATEST ? "selected" : ""}>${escapeDebugHtml(latestLabel)}</option>`,
+      `<option value="${DEBUG_TURN_SELECTION_ALL}" ${selectedDebugGroupKey === DEBUG_TURN_SELECTION_ALL ? "selected" : ""}>${escapeDebugHtml(allLabel)} (${debugMessages.length})</option>`,
+      ...debugTurnGroups
+        .slice()
+        .reverse()
+        .map((group) => {
+          const selected = selectedDebugGroupKey === group.key ? "selected" : "";
+          return `<option value="${escapeDebugHtml(group.key)}" ${selected}>${escapeDebugHtml(group.label)} (${group.messages.length})</option>`;
+        }),
+    ].join("");
     const timelineMarkup = debugTimeline
       .slice()
       .sort((left, right) => right.seq - left.seq)
@@ -1721,8 +1726,13 @@ export function App() {
         `
       )
       .join("");
-    const debugTurnGroups = groupDebugMessagesByTurn(debugMessages, locale);
-    const rawMarkup = debugTurnGroups
+    const visibleDebugTurnGroups =
+      selectedDebugGroupKey === DEBUG_TURN_SELECTION_ALL
+        ? debugTurnGroups
+        : selectedDebugGroup
+          ? [selectedDebugGroup]
+          : [];
+    const rawMarkup = visibleDebugTurnGroups
       .slice()
       .reverse()
       .map(
@@ -1753,6 +1763,8 @@ export function App() {
             section { padding: 16px; overflow: auto; }
             h1, h2 { margin: 0 0 12px; font-family: "Noto Sans KR", sans-serif; }
             .meta { margin-bottom: 16px; color: #a9bbdf; font-family: "Noto Sans KR", sans-serif; }
+            .debug-filter { display: grid; gap: 6px; margin-bottom: 16px; color: #d7e5ff; font-family: "Noto Sans KR", sans-serif; font-size: 13px; }
+            .debug-filter select { width: 100%; min-height: 36px; border-radius: 8px; border: 1px solid #3a5f95; background: #071225; color: #e6efff; padding: 0 10px; font: inherit; }
             .debug-timeline-item { padding: 10px; border-radius: 10px; background: #0d1f3d; border: 1px solid #274679; margin-bottom: 8px; }
             .debug-timeline-item strong { display: block; color: #ffda77; margin-bottom: 6px; }
             .debug-timeline-item p { margin: 0; color: #d7e5ff; font-family: "Noto Sans KR", sans-serif; line-height: 1.5; }
@@ -1771,6 +1783,10 @@ export function App() {
             <aside>
               <h1>Debug Log</h1>
               <div class="meta">session=${escapeDebugHtml(sessionId || "-")} / runtime=${escapeDebugHtml(runtime.status)} / seq=${stream.lastSeq} / accumulated=${debugMessages.length}</div>
+              <label class="debug-filter">
+                <span>${escapeDebugHtml(turnSelectLabel)}</span>
+                <select id="debug-turn-select">${turnOptionsMarkup}</select>
+              </label>
               <h2>Timeline</h2>
               ${timelineMarkup || "<p>-</p>"}
             </aside>
@@ -1779,10 +1795,21 @@ export function App() {
               ${coreActionMarkup || "<p>-</p>"}
             </div>
             <section>
-              <h2>Raw Messages by Turn (${debugTurnGroups.length} / ${debugMessages.length})</h2>
+              <h2>Raw Messages by Turn (${visibleDebugTurnGroups.length} / ${selectedDebugMessages.length} ${escapeDebugHtml(messagesLabel)})</h2>
               ${rawMarkup || "<p>-</p>"}
             </section>
           </main>
+          <script>
+            (() => {
+              const select = document.getElementById("debug-turn-select");
+              if (!select || !window.opener) {
+                return;
+              }
+              select.addEventListener("change", () => {
+                window.opener.postMessage({ type: "mrn-debug-turn-selection", key: select.value }, "*");
+              });
+            })();
+          </script>
         </body>
       </html>
     `);
@@ -1802,6 +1829,7 @@ export function App() {
     runtime.status,
     selectorText,
     sessionId,
+    debugTurnSelectionKey,
     showRawMessages,
     stream.lastSeq,
   ]);

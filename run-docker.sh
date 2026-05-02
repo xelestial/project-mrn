@@ -30,6 +30,7 @@ Environment:
   MRN_COMPOSE_FILE     Compose file path (default: docker-compose.yml)
   MRN_COMPOSE_PROJECT  Compose project name (default: project-mrn)
   MRN_WEB_PORT         Host web port (default: 9000)
+  MRN_DEBUG_GAME_LOGS  Enable .log debug JSONL output when set to 1/on/true (default: 0)
 EOF
 }
 

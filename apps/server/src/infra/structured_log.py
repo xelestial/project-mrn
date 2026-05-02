@@ -7,6 +7,8 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
+from apps.server.src.infra.game_debug_log import write_game_debug_log
+
 
 LOGGER_NAME = "mrn.server"
 _CONFIGURED = False
@@ -70,3 +72,6 @@ def configure_structured_logging(
 def log_event(event: str, **fields: Any) -> None:
     payload = build_log_payload(event, **fields)
     _logger().info(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    debug_fields = dict(payload)
+    debug_fields.pop("event", None)
+    write_game_debug_log("backend", event, **debug_fields)
