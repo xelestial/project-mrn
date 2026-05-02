@@ -55,6 +55,15 @@ class RuntimeSettings:
     admin_token: str = ""
     debug_game_logs_enabled: bool = False
     debug_game_log_dir: str = ".log"
+    runtime_module_metadata_v1: bool = False
+    runtime_checkpoint_v3: bool = False
+    runtime_prompt_continuation_v1: bool = False
+    runtime_simultaneous_resolution_v1: bool = False
+    runtime_module_runner_round_v1: bool = False
+    runtime_module_runner_turn_v1: bool = False
+    runtime_module_runner_sequence_v1: bool = False
+    runtime_stream_idempotency_v1: bool = False
+    runtime_frontend_projection_v1: bool = False
 
 
 def load_runtime_settings() -> RuntimeSettings:
@@ -81,4 +90,13 @@ def load_runtime_settings() -> RuntimeSettings:
         admin_token=_env_str("MRN_ADMIN_TOKEN", ""),
         debug_game_logs_enabled=_env_bool("MRN_DEBUG_GAME_LOGS", False),
         debug_game_log_dir=_env_str("MRN_DEBUG_GAME_LOG_DIR", ".log"),
+        runtime_module_metadata_v1=_env_bool("MRN_RUNTIME_MODULE_METADATA_V1", False),
+        runtime_checkpoint_v3=_env_bool("MRN_RUNTIME_CHECKPOINT_V3", False),
+        runtime_prompt_continuation_v1=_env_bool("MRN_RUNTIME_PROMPT_CONTINUATION_V1", False),
+        runtime_simultaneous_resolution_v1=_env_bool("MRN_RUNTIME_SIMULTANEOUS_RESOLUTION_V1", False),
+        runtime_module_runner_round_v1=_env_bool("MRN_RUNTIME_MODULE_RUNNER_ROUND_V1", False),
+        runtime_module_runner_turn_v1=_env_bool("MRN_RUNTIME_MODULE_RUNNER_TURN_V1", False),
+        runtime_module_runner_sequence_v1=_env_bool("MRN_RUNTIME_MODULE_RUNNER_SEQUENCE_V1", False),
+        runtime_stream_idempotency_v1=_env_bool("MRN_RUNTIME_STREAM_IDEMPOTENCY_V1", False),
+        runtime_frontend_projection_v1=_env_bool("MRN_RUNTIME_FRONTEND_PROJECTION_V1", False),
     )

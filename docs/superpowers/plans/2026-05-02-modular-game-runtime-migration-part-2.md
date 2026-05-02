@@ -24,6 +24,7 @@ class GameRuntimeState:
     frame_stack: list[FrameState]
     module_journal: list[ModuleJournalEntry]
     active_prompt: PromptContinuation | None
+    active_prompt_batch: SimultaneousPromptBatchContinuation | None
     scheduled_turn_injections: dict[str, list[ModuleRef]]
     modifier_registry: ModifierRegistryState
 ```
@@ -40,7 +41,7 @@ Boundary:
 @dataclass(slots=True)
 class FrameState:
     frame_id: str
-    frame_type: Literal["round", "turn", "sequence"]
+    frame_type: Literal["round", "turn", "sequence", "simultaneous"]
     owner_player_id: int | None
     parent_frame_id: str | None
     module_queue: list[ModuleRef]
@@ -55,8 +56,10 @@ Frame rules:
 1. `RoundFrame` has no parent.
 2. `TurnFrame` parent is a `PlayerTurnModule` in `RoundFrame`.
 3. `SequenceFrame` parent is a module in `TurnFrame` or another `SequenceFrame`.
-4. A suspended child frame suspends its parent frame.
-5. A completed frame cannot receive new queue operations.
+4. `SimultaneousResolutionFrame` parent is a module in `RoundFrame`, `TurnFrame`, or `SequenceFrame`; it has no single owner player.
+5. A suspended child frame suspends its parent frame.
+6. A completed frame cannot receive new queue operations.
+7. A simultaneous frame captures its participant set and eligibility snapshot before opening prompts.
 
 ## 2-3. Shared Contract: ModuleRef
 
@@ -78,8 +81,9 @@ Module id rules:
 1. Round modules use `mod:round:{round}:...`.
 2. Turn modules use `mod:turn:{round}:p{player}:...`.
 3. Sequence modules use `mod:seq:{kind}:{round}:p{player}:{ordinal}:...`.
-4. Legacy metadata may use `legacy:` prefix during M1-M3.
-5. `idempotency_key` must be stable across hydration and replay.
+4. Simultaneous modules use `mod:simul:{kind}:{round}:{ordinal}:...`.
+5. Legacy metadata may use `legacy:` prefix during M1-M3.
+6. `idempotency_key` must be stable across hydration and replay.
 
 ## 2-4. Shared Contract: ModuleContext
 
@@ -117,14 +121,14 @@ class ModuleResult:
     events: list[DomainEvent]
     queue_ops: list[QueueOp]
     modifier_ops: list[ModifierOp]
-    prompt: PromptRequest | None
+    prompt: PromptRequest | SimultaneousPromptBatchRequest | None
     error: ModuleError | None
 ```
 
 Result rules:
 
 1. `completed` means the runner may mark the module complete and advance the frame.
-2. `suspended` requires a prompt or child frame.
+2. `suspended` requires a single-player prompt, simultaneous prompt batch, or child frame.
 3. `failed` stores failure in the journal and returns runtime status `failed`.
 4. Queue and modifier operations are applied by the runner after the module returns.
 
@@ -147,8 +151,10 @@ Validation:
 2. `DraftModule` is allowed only in `RoundFrame`.
 3. `RoundEndCardFlipModule` is allowed only in `RoundFrame`.
 4. `TurnEndSnapshotModule` is allowed only in `TurnFrame`.
-5. Child frame `parent_frame_id` must equal the active module's frame.
-6. Completed frames reject all queue ops except idempotent duplicate `complete_frame`.
+5. `SimultaneousResolutionFrame` may contain only simultaneous modules such as `ResupplyModule`, `SimultaneousPromptBatchModule`, `SimultaneousCommitModule`, and `CompleteSimultaneousResolutionModule`.
+6. `SimultaneousProcessingModule` may spawn a `SimultaneousResolutionFrame` but may not directly mutate gameplay facts.
+7. Child frame `parent_frame_id` must equal the active module's frame.
+8. Completed frames reject all queue ops except idempotent duplicate `complete_frame`.
 
 ## 2-7. Shared Contract: Modifier
 
@@ -198,6 +204,38 @@ Prompt rules:
 3. Backend validates request/player/choice before waking runtime.
 4. Engine validates `resume_token`, `frame_id`, and `module_id` before applying the choice.
 5. Duplicate or stale decisions emit rejected `decision_ack` and do not advance gameplay.
+
+## 2-8A. Shared Contract: SimultaneousPromptBatchContinuation
+
+`SimultaneousPromptBatchContinuation` is used when multiple players must respond against the same rule snapshot before gameplay may continue. It is not an ambient queue; it is the suspension record for one `SimultaneousResolutionFrame`.
+
+```python
+@dataclass(slots=True)
+class SimultaneousPromptBatchContinuation:
+    batch_id: str
+    frame_id: str
+    module_id: str
+    module_type: str
+    request_type: str
+    participant_player_ids: list[int]
+    prompts_by_player_id: dict[int, PromptContinuation]
+    responses_by_player_id: dict[int, dict[str, Any]]
+    missing_player_ids: list[int]
+    eligibility_snapshot: dict[str, Any]
+    commit_policy: Literal["all_required", "timeout_default"]
+    default_policy: dict[str, Any]
+    expires_at_ms: int | None
+```
+
+Batch rules:
+
+1. The module captures `participant_player_ids` and `eligibility_snapshot` before any player response is accepted.
+2. Each participant receives a normal `PromptContinuation`, but all prompts share one `batch_id`.
+3. A partial response records only that player's response and emits acknowledgement; it does not advance parent gameplay.
+4. The owning simultaneous module resumes only when `missing_player_ids` is empty or the timeout/default policy closes the batch.
+5. The commit step applies all accepted responses once, in deterministic player-id order for logging, while preserving simultaneous rule semantics.
+6. Duplicate, stale, or non-participant decisions are rejected without waking unrelated modules.
+7. AI participants may be filled by deterministic policy immediately after the batch opens, but human participants remain blocking until they respond or the policy closes them.
 
 ## 2-9. Shared Contract: DomainEvent Metadata
 
@@ -499,8 +537,9 @@ Outputs:
 
 Boundary:
 
-1. Rejects untyped global actions.
-2. Does not execute the inserted action itself.
+1. Rejects untyped pending actions.
+2. Routes synchronized multi-player work to `SimultaneousProcessingModule` instead of inserting it into a single player's turn queue.
+3. Does not execute the inserted action itself.
 
 ## 2-21. PendingMarkResolutionModule
 
@@ -879,6 +918,88 @@ Boundary:
 1. Bankruptcy may end the actor or another player, but it must still return a terminal module result.
 2. If game end triggers, the sequence emits explicit game-end status and prevents parent from continuing into illegal modules.
 
+## 2-35A. SimultaneousProcessingModule
+
+Role:
+
+1. Acts as the typed gateway for synchronized multi-player work.
+2. Spawns a `SimultaneousResolutionFrame` with the concrete simultaneous module that owns the rule, such as `ResupplyModule`.
+3. Suspends its parent frame until the simultaneous frame completes.
+
+Inputs:
+
+1. `trigger_source_module_id`
+2. `trigger_reason`, for example `end_value_multiple_resupply`
+3. `participant_policy`, for example all active players or all players matching a snapshot predicate
+4. `module_type`, for example `ResupplyModule`
+5. rule payload needed by the concrete module
+
+Outputs:
+
+1. `QueueOp(spawn_child_frame)` for a `SimultaneousResolutionFrame`
+2. `simultaneous_resolution_started` event with trigger reason, frame id, and participant ids
+3. completion event when the child frame returns
+
+Boundary:
+
+1. It never directly mutates gameplay facts.
+2. It never accepts arbitrary callbacks or untyped pending actions.
+3. It is legal only when the triggering rule requires multiple players to respond before the parent frame can continue.
+4. It must not be used for draft, normal player turns, trick windows, or round-end card flip.
+
+## 2-35B. SimultaneousResolutionFrame Modules
+
+A simultaneous frame is small and closed over one synchronized rule. The default layout is:
+
+```text
+SimultaneousResolutionFrame
+  -> SimultaneousPromptBatchModule
+  -> Concrete simultaneous rule module, e.g. ResupplyModule
+  -> SimultaneousCommitModule
+  -> CompleteSimultaneousResolutionModule
+```
+
+Frame rules:
+
+1. The frame captures participants and eligibility at creation.
+2. Only simultaneous modules may be queued inside it.
+3. Parent frame execution is blocked while the simultaneous frame is running or suspended.
+4. Partial player responses update only `active_prompt_batch`.
+5. Gameplay mutation occurs only during the concrete rule module or commit module after the batch closes.
+6. Completion returns control to the parent module that spawned it.
+
+## 2-35C. ResupplyModule
+
+Role:
+
+1. Handles resupply when an end value matches the configured multiple and the rules require burden processing/resupply.
+2. Requests all required players' choices simultaneously.
+3. Applies burden removal, payments, and resupply results once after all required responses/defaults are present.
+
+Inputs:
+
+1. `trigger_reason`, normally `end_value_multiple_resupply`
+2. `end_value`
+3. configured multiple
+4. participant player ids
+5. burden/resupply eligibility snapshot captured at module start
+
+Processing:
+
+1. Build a `SimultaneousPromptBatchContinuation` with one prompt per required participant.
+2. Use request type `burden_exchange` or a more specific versioned request type such as `resupply_burden_exchange_v1`.
+3. Record each accepted response under `responses_by_player_id`.
+4. Keep parent gameplay suspended until all required responses are present.
+5. Resolve automatic AI/default responses through the same legality validator used for human choices.
+6. Commit accepted choices once, using the start snapshot so cards gained after the prompt opened cannot become eligible retroactively.
+7. Emit per-player decision events and one final `resupply_resolved` event.
+
+Boundary:
+
+1. The module is semantically simultaneous even if commit logs are emitted in deterministic player-id order.
+2. No player's response may trigger another player's turn, draft, card flip, or unrelated module while the batch is incomplete.
+3. A stale response for a closed batch is rejected without reopening UI or runtime work.
+
 ## 2-36. Backend Runtime Boundary
 
 Runtime service contract:
@@ -890,7 +1011,7 @@ apply accepted command if present
 engine.advance_one()
 persist checkpoint
 publish emitted events
-mirror active_prompt to PromptService
+mirror active_prompt or active_prompt_batch to PromptService
 return committed / waiting_input / finished / failed
 ```
 
@@ -899,7 +1020,7 @@ Backend may:
 1. Persist checkpoint.
 2. Publish stream events.
 3. Build `view_state`.
-4. Validate prompt decisions before waking runtime.
+4. Validate prompt and simultaneous batch decisions before waking runtime.
 
 Backend may not:
 
@@ -920,14 +1041,16 @@ WebSocket inbound:
 
 1. `resume`: replay messages with `seq > last_seq`; no engine work.
 2. `decision`: validate and enqueue command; may wake runtime after accepted validation.
+3. `batch_decision`: validate participant/request/batch and enqueue command; wakes runtime only when the batch is complete or the engine needs to acknowledge the partial response.
 
 WebSocket outbound:
 
 1. `event`
 2. `prompt`
-3. `decision_ack`
-4. `error`
-5. `heartbeat`
+3. `prompt_batch`
+4. `decision_ack`
+5. `error`
+6. `heartbeat`
 
 Heartbeat diagnostic fields:
 
@@ -936,6 +1059,7 @@ Heartbeat diagnostic fields:
 3. active frame id
 4. active module id
 5. active prompt request id when present
+6. active prompt batch id and missing participant ids when present
 
 ## 2-38. Backend View-State Contract
 
@@ -950,6 +1074,9 @@ Add `view_state.runtime`:
     "turn_stage": "dice",
     "active_sequence": null,
     "active_prompt_request_id": null,
+    "active_prompt_batch_id": null,
+    "prompt_batch_missing_player_ids": [],
+    "simultaneous_resolution_active": false,
     "card_flip_legal": false,
     "draft_active": false,
     "trick_sequence_active": false
@@ -960,9 +1087,10 @@ Add `view_state.runtime`:
 Projection priority:
 
 1. Checkpoint active frame/module if available.
-2. Event `runtime_module`.
-3. Existing stable event fields.
-4. Localized text never determines gameplay truth.
+2. Checkpoint active prompt batch if available.
+3. Event `runtime_module`.
+4. Existing stable event fields.
+5. Localized text never determines gameplay truth.
 
 ## 2-39. Frontend Contract
 
@@ -978,8 +1106,10 @@ UI rules:
 1. Draft UI requires `draft_active=true` or an active draft prompt.
 2. Trick UI requires `trick_sequence_active=true`, active trick prompt, or active trick window module.
 3. Card flip UI requires `module_type=RoundEndCardFlipModule` or projected legal card-flip event.
-4. Replayed old events cannot override newer projected runtime stage.
-5. Animation may consume event history but cannot set gameplay stage.
+4. Resupply UI requires a matching active `prompt_batch` whose `request_type` is resupply/burden exchange and whose participant list includes the local player.
+5. A partial batch response switches that player's UI to waiting state but does not close other participants' prompts.
+6. Replayed old events cannot override newer projected runtime stage.
+7. Animation may consume event history but cannot set gameplay stage.
 
 ## 2-40. Observability Contract
 
@@ -990,8 +1120,9 @@ Every module-runner transition records:
 3. queue ops applied
 4. modifier ops applied
 5. prompt continuation created/resumed
-6. emitted event count
-7. checkpoint schema version
+6. simultaneous prompt batch created/partial/completed
+7. emitted event count
+8. checkpoint schema version
 
 Debug log rule:
 

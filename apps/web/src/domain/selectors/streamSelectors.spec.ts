@@ -17,6 +17,7 @@ import {
   selectLivePlayers,
   selectMarkTargetCharacterSlots,
   selectMarkerOrderedPlayers,
+  selectRuntimeProjection,
   selectSituation,
   selectTheaterFeed,
   selectTimeline,
@@ -177,6 +178,74 @@ const snapshotEvent: InboundMessage = {
 };
 
 describe("streamSelectors", () => {
+  it("prefers backend runtime projection over later raw runtime module replay", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          view_state: {
+            runtime: {
+              runner_kind: "module",
+              latest_module_path: ["round:1", "turn:1:p0", "mod:turn:1:p0:dice"],
+              round_stage: "in_round",
+              turn_stage: "dice",
+              active_sequence: "",
+              active_prompt_request_id: "",
+              draft_active: false,
+              trick_sequence_active: false,
+              card_flip_legal: false,
+            },
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 2,
+        session_id: "s1",
+        payload: {
+          event_type: "draft_pick",
+          runtime_module: {
+            runner_kind: "legacy",
+            module_type: "DraftModule",
+            module_path: ["round:1", "legacy:round:1:draft"],
+          },
+        },
+      },
+    ];
+
+    expect(selectRuntimeProjection(messages)).toMatchObject({
+      runnerKind: "module",
+      turnStage: "dice",
+      draftActive: false,
+    });
+  });
+
+  it("falls back to runtime module metadata when backend projection is absent", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "trick_used",
+          runtime_module: {
+            runner_kind: "legacy",
+            module_type: "TrickResolveModule",
+            module_path: ["round:1", "turn:1:p0", "seq:trick:1:p0:legacy", "legacy:seq:trick:1:p0:trick_resolve"],
+          },
+        },
+      },
+    ];
+
+    expect(selectRuntimeProjection(messages)).toMatchObject({
+      activeSequence: "trick",
+      trickSequenceActive: true,
+    });
+  });
+
   it("extracts latest snapshot from event payload", () => {
     const snapshot = selectLatestSnapshot([snapshotEvent]);
     expect(snapshot).not.toBeNull();

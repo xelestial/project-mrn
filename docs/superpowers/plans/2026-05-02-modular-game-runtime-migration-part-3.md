@@ -248,8 +248,9 @@ Implementation:
    - `QueueOp`
    - `Modifier`
    - `PromptContinuation`
+   - `SimultaneousPromptBatchContinuation`
    - `DomainEvent`
-2. In `GPT/runtime_modules/ids.py`, implement stable id builders for round/turn/sequence modules.
+2. In `GPT/runtime_modules/ids.py`, implement stable id builders for round/turn/sequence/simultaneous modules.
 3. In `GPT/runtime_modules/queue.py`, implement `FrameQueueApi.apply(queue_ops)`.
 4. In `GPT/runtime_modules/journal.py`, implement append-only module journal entries.
 5. In `GPT/runtime_modules/modifiers.py`, implement registry add/query/consume/expire behavior.
@@ -261,6 +262,7 @@ Implementation:
    - `runtime_frame_stack`
    - `runtime_module_journal`
    - `runtime_active_prompt`
+   - `runtime_active_prompt_batch`
    - `runtime_modifier_registry`
 9. Extend `GameState.to_checkpoint_payload` and `from_checkpoint_payload` to round-trip those fields.
 
@@ -271,7 +273,10 @@ Tests:
 3. `test_runtime_module_contracts.py::test_duplicate_module_id_is_idempotent_only_with_same_key`
 4. `test_runtime_module_contracts.py::test_prompt_resume_token_mismatch_rejected`
 5. `test_runtime_module_contracts.py::test_modifier_single_use_consumed_once`
-6. `test_runtime_module_contracts.py::test_checkpoint_round_trips_runtime_state`
+6. `test_runtime_module_contracts.py::test_simultaneous_frame_rejects_turn_only_module`
+7. `test_runtime_module_contracts.py::test_prompt_batch_partial_response_does_not_advance_parent`
+8. `test_runtime_module_contracts.py::test_prompt_batch_completes_after_all_required_responses`
+9. `test_runtime_module_contracts.py::test_checkpoint_round_trips_runtime_state`
 
 Acceptance:
 
@@ -392,16 +397,20 @@ Implementation:
    - lap reward
    - purchase/coin placement
    - fortune/trick special choices
-2. In `apps/server/src/services/decision_gateway.py`, include `resume_token`, `frame_id`, `module_id`, `module_type` in prompt payload.
-3. In `apps/server/src/services/prompt_service.py`, store continuation fields and reject decisions missing required fields for module-runner sessions.
-4. In `runtime_service.py`, wake module runner only after decision command is accepted.
-5. Keep `_prompt_sequence_seed_for_transition` only for legacy runner.
-6. Add backend `decision_ack` rejection codes:
+2. In engine `PromptApi`, create `SimultaneousPromptBatchContinuation` for synchronized multi-player decisions such as resupply.
+3. In `apps/server/src/services/decision_gateway.py`, include `resume_token`, `frame_id`, `module_id`, `module_type`, and optional `batch_id` in prompt payload.
+4. In `apps/server/src/services/prompt_service.py`, store continuation fields and reject decisions missing required fields for module-runner sessions.
+5. For batch prompts, accept partial participant responses, persist `missing_player_ids`, and wake gameplay advancement only when the batch is complete or a default policy closes it.
+6. In `runtime_service.py`, wake module runner only after decision command is accepted.
+7. Keep `_prompt_sequence_seed_for_transition` only for legacy runner.
+8. Add backend `decision_ack` rejection codes:
    - `STALE_PROMPT`
    - `TOKEN_MISMATCH`
    - `MODULE_MISMATCH`
    - `CHOICE_NOT_LEGAL`
    - `PLAYER_NOT_OWNER`
+   - `BATCH_NOT_ACTIVE`
+   - `BATCH_PARTICIPANT_MISMATCH`
 
 Tests:
 
@@ -411,11 +420,56 @@ Tests:
 4. `apps/server/tests/test_prompt_module_continuation.py::test_prompt_payload_contains_module_continuation`
 5. `apps/server/tests/test_prompt_module_continuation.py::test_duplicate_decision_ack_rejected_without_runtime_wake`
 6. `apps/server/tests/test_prompt_module_continuation.py::test_runtime_status_waiting_input_mirrors_checkpoint_active_prompt`
+7. `apps/server/tests/test_prompt_module_continuation.py::test_batch_prompt_payload_contains_batch_and_module_ids`
+8. `apps/server/tests/test_prompt_module_continuation.py::test_partial_batch_response_keeps_runtime_waiting`
 
 Acceptance:
 
 ```bash
 PYTHONPATH=$PWD .venv/bin/python -m pytest GPT/test_runtime_prompt_continuation.py apps/server/tests/test_prompt_module_continuation.py apps/server/tests/test_runtime_service.py -q
+```
+
+## 3-12A. M7A Simultaneous Resolution And Resupply
+
+Purpose:
+
+1. Add the special synchronized processing path for rules that require multiple players to respond at the same time.
+2. Move resupply/burden exchange out of sequential turn prompts.
+3. Keep the module runtime free of untyped pending actions while still supporting all-player prompt batches.
+
+Implementation:
+
+1. In `GPT/runtime_modules/simultaneous.py`, implement:
+   - `SimultaneousProcessingModule`
+   - `SimultaneousPromptBatchModule`
+   - `ResupplyModule`
+   - `SimultaneousCommitModule`
+   - `CompleteSimultaneousResolutionModule`
+2. In `FrameQueueApi`, allow `SimultaneousProcessingModule` to spawn only `SimultaneousResolutionFrame`.
+3. Add `PromptApi.create_batch(...)` and `PromptApi.record_batch_response(...)` for `SimultaneousPromptBatchContinuation`.
+4. When the end value matches the configured multiple and the rule requires burden/resupply processing, enqueue `SimultaneousProcessingModule` with `trigger_reason=end_value_multiple_resupply`.
+5. `ResupplyModule` captures participant ids and each player's eligible burden/resupply options before opening prompts.
+6. AI seats use the same legality validator as human decisions and may auto-fill deterministic responses.
+7. Human responses are accepted independently, but no burden removal/payment/draw mutation occurs until all required responses/defaults are present.
+8. The commit step applies choices once in deterministic player-id order for logs while preserving simultaneous rule semantics.
+9. Backend mirrors `runtime_active_prompt_batch` into PromptService and `view_state.runtime`.
+10. Frontend prompt selectors show the local player's batch prompt, then a waiting state after that player responds while other participants are still missing.
+
+Tests:
+
+1. `GPT/test_runtime_simultaneous_modules.py::test_resupply_batch_waits_for_all_required_players`
+2. `GPT/test_runtime_simultaneous_modules.py::test_partial_resupply_response_does_not_mutate_burdens`
+3. `GPT/test_runtime_simultaneous_modules.py::test_resupply_commit_uses_start_snapshot`
+4. `GPT/test_runtime_simultaneous_modules.py::test_stale_resupply_batch_response_rejected`
+5. `apps/server/tests/test_prompt_module_continuation.py::test_batch_prompt_payload_contains_batch_and_module_ids`
+6. `apps/server/tests/test_runtime_service.py::test_partial_batch_response_returns_waiting_input`
+7. `apps/web/src/domain/selectors/promptSelectors.spec.ts::resupply_batch_prompt_uses_active_batch_projection`
+
+Acceptance:
+
+```bash
+PYTHONPATH=$PWD .venv/bin/python -m pytest GPT/test_runtime_simultaneous_modules.py GPT/test_runtime_prompt_continuation.py apps/server/tests/test_prompt_module_continuation.py apps/server/tests/test_runtime_service.py -q
+npm --prefix apps/web test -- promptSelectors.spec.ts streamSelectors.spec.ts
 ```
 
 ## 3-13. M8 Stream And WebSocket Hardening
@@ -588,7 +642,7 @@ Trick:
 
 1. Trick sequence owns trick prompt, resolution, discard, deferred follow-ups, and visibility sync.
 2. Parent turn frame resumes at dice after trick sequence completion.
-3. A trick that queues extra actions creates typed modules, not global pending actions.
+3. A trick that queues extra actions creates typed modules, not untyped pending actions.
 
 Draft:
 
@@ -608,17 +662,19 @@ Stop and fix before continuing if any of these occurs:
 
 1. A module-runner session writes or consumes legacy `pending_actions` as the next work owner.
 2. A prompt payload lacks frame/module continuation in a module session.
-3. `RoundEndCardFlipModule` can run while any player turn module is incomplete.
-4. WebSocket `resume` calls runtime transition code.
-5. Frontend shows draft or card flip UI from an old replayed event while projection says turn/dice/movement.
-6. Legacy and module parity diverges on final state for deterministic no-human seeds.
+3. A simultaneous prompt response mutates gameplay before the batch is complete.
+4. Resupply runs as sequential player-turn prompts instead of a `SimultaneousResolutionFrame`.
+5. `RoundEndCardFlipModule` can run while any player turn module or simultaneous frame is incomplete.
+6. WebSocket `resume` calls runtime transition code.
+7. Frontend shows draft, card flip, or resupply UI from an old replayed event while projection says turn/dice/movement or batch closed.
+8. Legacy and module parity diverges on final state for deterministic no-human seeds.
 
 ## 3-20. Final Verification Bundle
 
 Run this before claiming migration complete:
 
 ```bash
-PYTHONPATH=$PWD .venv/bin/python -m pytest GPT/test_rule_fixes.py GPT/test_runtime_module_contracts.py GPT/test_runtime_legacy_module_metadata.py GPT/test_runtime_round_modules.py GPT/test_runtime_turn_modules.py GPT/test_runtime_sequence_modules.py GPT/test_runtime_prompt_continuation.py GPT/test_runtime_module_parity.py -q
+PYTHONPATH=$PWD .venv/bin/python -m pytest GPT/test_rule_fixes.py GPT/test_runtime_module_contracts.py GPT/test_runtime_legacy_module_metadata.py GPT/test_runtime_round_modules.py GPT/test_runtime_turn_modules.py GPT/test_runtime_sequence_modules.py GPT/test_runtime_prompt_continuation.py GPT/test_runtime_simultaneous_modules.py GPT/test_runtime_module_parity.py -q
 PYTHONPATH=$PWD .venv/bin/python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_runtime_module_runner.py apps/server/tests/test_runtime_runner_kind.py apps/server/tests/test_stream_module_idempotency.py apps/server/tests/test_stream_ws_resume_replay_only.py apps/server/tests/test_view_state_runtime_projection.py apps/server/tests/test_prompt_module_continuation.py -q
 npm --prefix apps/web test
 npm --prefix apps/web run build

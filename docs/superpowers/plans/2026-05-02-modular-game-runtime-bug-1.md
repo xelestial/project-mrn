@@ -127,7 +127,7 @@ Observed/suspected symptom:
 
 Likely structural causes:
 
-- Trick flow is represented by function return value and global pending actions.
+- Trick flow is represented by function return value and ambient pending actions.
 - The return value can conflate "a trick was used" with "the rest of the turn is deferred."
 
 Draft#1 guard:
@@ -164,7 +164,7 @@ Required tests:
 - Duplicate decision for an already-resolved prompt is rejected.
 - Decision with valid request id but stale resume token is rejected.
 
-### BUG-007: Global Pending Actions Cross Round/Turn Boundaries
+### BUG-007: Ambient Pending Actions Cross Round/Turn Boundaries
 
 Observed/suspected symptom:
 
@@ -173,12 +173,13 @@ Observed/suspected symptom:
 
 Likely structural causes:
 
-- `pending_actions` is global and untyped by frame ownership.
+- `pending_actions` is ambient and untyped by frame ownership.
 - Action order is based on list position, not parent frame semantics.
 
 Draft#1 guard:
 
 - Follow-ups are inserted into a specific frame or child sequence.
+- Synchronized multi-player follow-ups such as resupply use `SimultaneousResolutionFrame`.
 - `QueueOp` records target frame id.
 - Runner rejects queue operations targeting completed frames.
 

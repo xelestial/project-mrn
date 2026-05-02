@@ -207,6 +207,43 @@ class StreamApiTests(unittest.TestCase):
         self.assertIsInstance(latest_payload, dict)
         self.assertIn("view_state", latest_payload or {})
 
+    def test_resume_replays_stream_without_runtime_transition(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 304, "visibility": "public"})
+
+        async def _seed() -> None:
+            await state.stream_service.publish(session.session_id, "event", {"event_type": "round_start", "round_index": 1})
+            await state.stream_service.publish(session.session_id, "event", {"event_type": "turn_start", "turn_index": 1})
+
+        asyncio.run(_seed())
+
+        transition_calls: list[str] = []
+        original_once = state.runtime_service._run_engine_transition_once_sync
+
+        def _fail_transition(*args, **kwargs):  # type: ignore[no-untyped-def]
+            transition_calls.append("transition")
+            raise AssertionError("resume must not advance runtime")
+
+        state.runtime_service._run_engine_transition_once_sync = _fail_transition  # type: ignore[method-assign]
+        try:
+            path = f"/api/v1/sessions/{session.session_id}/stream"
+            with self.client.websocket_connect(path) as ws:
+                ws.send_json({"type": "resume", "last_seq": 0})
+                seen: list[int] = []
+                for _ in range(8):
+                    msg = ws.receive_json()
+                    if msg.get("type") != "event":
+                        continue
+                    seen.append(int(msg.get("seq", 0)))
+                    if seen == [1, 2]:
+                        break
+        finally:
+            state.runtime_service._run_engine_transition_once_sync = original_once  # type: ignore[method-assign]
+
+        self.assertEqual(seen, [1, 2])
+        self.assertEqual(transition_calls, [])
+
     def test_spectator_decision_is_rejected_with_unauthorized_seat(self) -> None:
         from apps.server.src import state
 

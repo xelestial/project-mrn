@@ -454,6 +454,18 @@ class SceneViewState(TypedDict):
     critical_alerts: list[CriticalAlertItemViewState]
 
 
+class RuntimeProjectionViewState(TypedDict, total=False):
+    runner_kind: str
+    latest_module_path: list[str]
+    round_stage: str
+    turn_stage: str
+    active_sequence: str
+    active_prompt_request_id: str
+    draft_active: bool
+    trick_sequence_active: bool
+    card_flip_legal: bool
+
+
 class ViewStatePayload(TypedDict, total=False):
     players: PlayerOrderingViewState
     active_slots: ActiveSlotsViewState
@@ -464,3 +476,4 @@ class ViewStatePayload(TypedDict, total=False):
     hand_tray: HandTrayViewState
     turn_stage: TurnStageViewState
     scene: SceneViewState
+    runtime: RuntimeProjectionViewState

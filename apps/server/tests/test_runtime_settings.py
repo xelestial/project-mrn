@@ -32,6 +32,15 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.admin_token, "")
         self.assertEqual(settings.debug_game_logs_enabled, False)
         self.assertEqual(settings.debug_game_log_dir, ".log")
+        self.assertEqual(settings.runtime_module_metadata_v1, False)
+        self.assertEqual(settings.runtime_checkpoint_v3, False)
+        self.assertEqual(settings.runtime_prompt_continuation_v1, False)
+        self.assertEqual(settings.runtime_simultaneous_resolution_v1, False)
+        self.assertEqual(settings.runtime_module_runner_round_v1, False)
+        self.assertEqual(settings.runtime_module_runner_turn_v1, False)
+        self.assertEqual(settings.runtime_module_runner_sequence_v1, False)
+        self.assertEqual(settings.runtime_stream_idempotency_v1, False)
+        self.assertEqual(settings.runtime_frontend_projection_v1, False)
 
     def test_env_overrides_with_minimum_clamp(self) -> None:
         with _temporary_env(
@@ -58,6 +67,15 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "MRN_ADMIN_TOKEN": "admin-secret",
                 "MRN_DEBUG_GAME_LOGS": "on",
                 "MRN_DEBUG_GAME_LOG_DIR": "result/debug_logs",
+                "MRN_RUNTIME_MODULE_METADATA_V1": "true",
+                "MRN_RUNTIME_CHECKPOINT_V3": "true",
+                "MRN_RUNTIME_PROMPT_CONTINUATION_V1": "true",
+                "MRN_RUNTIME_SIMULTANEOUS_RESOLUTION_V1": "true",
+                "MRN_RUNTIME_MODULE_RUNNER_ROUND_V1": "true",
+                "MRN_RUNTIME_MODULE_RUNNER_TURN_V1": "true",
+                "MRN_RUNTIME_MODULE_RUNNER_SEQUENCE_V1": "true",
+                "MRN_RUNTIME_STREAM_IDEMPOTENCY_V1": "true",
+                "MRN_RUNTIME_FRONTEND_PROJECTION_V1": "true",
             }
         ):
             settings = load_runtime_settings()
@@ -83,6 +101,15 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.admin_token, "admin-secret")
         self.assertEqual(settings.debug_game_logs_enabled, True)
         self.assertEqual(settings.debug_game_log_dir, "result/debug_logs")
+        self.assertEqual(settings.runtime_module_metadata_v1, True)
+        self.assertEqual(settings.runtime_checkpoint_v3, True)
+        self.assertEqual(settings.runtime_prompt_continuation_v1, True)
+        self.assertEqual(settings.runtime_simultaneous_resolution_v1, True)
+        self.assertEqual(settings.runtime_module_runner_round_v1, True)
+        self.assertEqual(settings.runtime_module_runner_turn_v1, True)
+        self.assertEqual(settings.runtime_module_runner_sequence_v1, True)
+        self.assertEqual(settings.runtime_stream_idempotency_v1, True)
+        self.assertEqual(settings.runtime_frontend_projection_v1, True)
 
     def test_invalid_env_values_fallback_to_defaults(self) -> None:
         with _temporary_env(
@@ -109,6 +136,15 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "MRN_ADMIN_TOKEN": "",
                 "MRN_DEBUG_GAME_LOGS": "maybe",
                 "MRN_DEBUG_GAME_LOG_DIR": "",
+                "MRN_RUNTIME_MODULE_METADATA_V1": "maybe",
+                "MRN_RUNTIME_CHECKPOINT_V3": "maybe",
+                "MRN_RUNTIME_PROMPT_CONTINUATION_V1": "maybe",
+                "MRN_RUNTIME_SIMULTANEOUS_RESOLUTION_V1": "maybe",
+                "MRN_RUNTIME_MODULE_RUNNER_ROUND_V1": "maybe",
+                "MRN_RUNTIME_MODULE_RUNNER_TURN_V1": "maybe",
+                "MRN_RUNTIME_MODULE_RUNNER_SEQUENCE_V1": "maybe",
+                "MRN_RUNTIME_STREAM_IDEMPOTENCY_V1": "maybe",
+                "MRN_RUNTIME_FRONTEND_PROJECTION_V1": "maybe",
             }
         ):
             settings = load_runtime_settings()
@@ -134,6 +170,15 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.admin_token, "")
         self.assertEqual(settings.debug_game_logs_enabled, False)
         self.assertEqual(settings.debug_game_log_dir, ".log")
+        self.assertEqual(settings.runtime_module_metadata_v1, False)
+        self.assertEqual(settings.runtime_checkpoint_v3, False)
+        self.assertEqual(settings.runtime_prompt_continuation_v1, False)
+        self.assertEqual(settings.runtime_simultaneous_resolution_v1, False)
+        self.assertEqual(settings.runtime_module_runner_round_v1, False)
+        self.assertEqual(settings.runtime_module_runner_turn_v1, False)
+        self.assertEqual(settings.runtime_module_runner_sequence_v1, False)
+        self.assertEqual(settings.runtime_stream_idempotency_v1, False)
+        self.assertEqual(settings.runtime_frontend_projection_v1, False)
 
 
 class _temporary_env:
@@ -163,6 +208,15 @@ class _temporary_env:
             "MRN_ADMIN_TOKEN",
             "MRN_DEBUG_GAME_LOGS",
             "MRN_DEBUG_GAME_LOG_DIR",
+            "MRN_RUNTIME_MODULE_METADATA_V1",
+            "MRN_RUNTIME_CHECKPOINT_V3",
+            "MRN_RUNTIME_PROMPT_CONTINUATION_V1",
+            "MRN_RUNTIME_SIMULTANEOUS_RESOLUTION_V1",
+            "MRN_RUNTIME_MODULE_RUNNER_ROUND_V1",
+            "MRN_RUNTIME_MODULE_RUNNER_TURN_V1",
+            "MRN_RUNTIME_MODULE_RUNNER_SEQUENCE_V1",
+            "MRN_RUNTIME_STREAM_IDEMPOTENCY_V1",
+            "MRN_RUNTIME_FRONTEND_PROJECTION_V1",
         ]
 
     def __enter__(self) -> None:

@@ -6,6 +6,13 @@ from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequ
 from characters import CHARACTERS
 from config import CellKind, GameConfig, TileMetadata
 from fortune_cards import FortuneCard, build_fortune_deck
+from runtime_modules.contracts import (
+    FrameState,
+    ModifierRegistryState,
+    ModuleJournalEntry,
+    PromptContinuation,
+    SimultaneousPromptBatchContinuation,
+)
 from trick_cards import TrickCard, build_trick_deck
 from weather_cards import WeatherCard, build_weather_deck
 
@@ -252,6 +259,14 @@ class GameState:
     pending_action_log: dict[str, Any] = field(default_factory=dict)
     pending_turn_completion: dict[str, Any] = field(default_factory=dict)
     round_setup_replay_base: dict[str, Any] = field(default_factory=dict)
+    runtime_runner_kind: str = "legacy"
+    runtime_checkpoint_schema_version: int = 1
+    runtime_frame_stack: List[FrameState] = field(default_factory=list)
+    runtime_module_journal: List[ModuleJournalEntry] = field(default_factory=list)
+    runtime_active_prompt: PromptContinuation | None = None
+    runtime_active_prompt_batch: SimultaneousPromptBatchContinuation | None = None
+    runtime_scheduled_turn_injections: Dict[str, List[dict[str, Any]]] = field(default_factory=dict)
+    runtime_modifier_registry: ModifierRegistryState = field(default_factory=ModifierRegistryState)
 
     @classmethod
     def create(cls, config: GameConfig) -> "GameState":
@@ -367,6 +382,16 @@ class GameState:
             "pending_action_log": dict(self.pending_action_log),
             "pending_turn_completion": dict(self.pending_turn_completion),
             "round_setup_replay_base": dict(self.round_setup_replay_base),
+            "runtime_runner_kind": self.runtime_runner_kind,
+            "runtime_checkpoint_schema_version": self.runtime_checkpoint_schema_version,
+            "runtime_frame_stack": [frame.to_payload() for frame in self.runtime_frame_stack],
+            "runtime_module_journal": [entry.to_payload() for entry in self.runtime_module_journal],
+            "runtime_active_prompt": None if self.runtime_active_prompt is None else self.runtime_active_prompt.to_payload(),
+            "runtime_active_prompt_batch": None
+            if self.runtime_active_prompt_batch is None
+            else self.runtime_active_prompt_batch.to_payload(),
+            "runtime_scheduled_turn_injections": dict(self.runtime_scheduled_turn_injections),
+            "runtime_modifier_registry": self.runtime_modifier_registry.to_payload(),
             "tiles": [_tile_to_payload(tile) for tile in self.tiles],
             "players": [_player_to_payload(player) for player in self.players],
             "fortune_draw_pile": [_card_key(card) for card in self.fortune_draw_pile],
@@ -426,6 +451,39 @@ class GameState:
         state.pending_action_log = dict(payload.get("pending_action_log") or {})
         state.pending_turn_completion = dict(payload.get("pending_turn_completion") or {})
         state.round_setup_replay_base = dict(payload.get("round_setup_replay_base") or {})
+        state.runtime_runner_kind = str(payload.get("runtime_runner_kind", state.runtime_runner_kind) or "legacy")
+        state.runtime_checkpoint_schema_version = int(
+            payload.get("runtime_checkpoint_schema_version", state.runtime_checkpoint_schema_version) or 1
+        )
+        state.runtime_frame_stack = [
+            FrameState.from_payload(raw_frame)
+            for raw_frame in payload.get("runtime_frame_stack", [])
+            if isinstance(raw_frame, dict)
+        ]
+        state.runtime_module_journal = [
+            ModuleJournalEntry.from_payload(raw_entry)
+            for raw_entry in payload.get("runtime_module_journal", [])
+            if isinstance(raw_entry, dict)
+        ]
+        raw_runtime_prompt = payload.get("runtime_active_prompt")
+        state.runtime_active_prompt = (
+            PromptContinuation.from_payload(raw_runtime_prompt)
+            if isinstance(raw_runtime_prompt, dict)
+            else None
+        )
+        raw_runtime_prompt_batch = payload.get("runtime_active_prompt_batch")
+        state.runtime_active_prompt_batch = (
+            SimultaneousPromptBatchContinuation.from_payload(raw_runtime_prompt_batch)
+            if isinstance(raw_runtime_prompt_batch, dict)
+            else None
+        )
+        state.runtime_scheduled_turn_injections = dict(payload.get("runtime_scheduled_turn_injections") or {})
+        raw_modifier_registry = payload.get("runtime_modifier_registry")
+        state.runtime_modifier_registry = (
+            ModifierRegistryState.from_payload(raw_modifier_registry)
+            if isinstance(raw_modifier_registry, dict)
+            else ModifierRegistryState()
+        )
 
         for raw_tile in payload.get("tiles", []):
             if not isinstance(raw_tile, dict):

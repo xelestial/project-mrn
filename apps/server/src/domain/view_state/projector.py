@@ -7,6 +7,7 @@ from .hand_selector import build_hand_tray_view_state
 from .player_selector import build_active_slots_view_state, build_mark_target_view_state, build_player_view_state
 from .prompt_selector import build_prompt_view_state
 from .reveal_selector import build_reveals_view_state
+from .runtime_selector import build_runtime_view_state
 from .scene_selector import build_scene_view_state
 from .turn_selector import build_turn_stage_view_state
 from .types import ViewStatePayload
@@ -43,6 +44,9 @@ def project_view_state(messages: list[dict], viewer: ViewerContext | None = None
     scene = build_scene_view_state(messages)
     if scene:
         payload["scene"] = scene
+    runtime = build_runtime_view_state(messages)
+    if runtime:
+        payload["runtime"] = runtime
     return payload
 
 

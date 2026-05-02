@@ -163,13 +163,28 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
         while not stop_event.is_set():
             latest = await stream_service.latest_seq(session_id)
             pressure = await stream_service.backpressure_stats(session_id)
+            runtime_diag = runtime_service.runtime_status(session_id)
+            active_module = None
+            checkpoint = runtime_diag.get("checkpoint") if isinstance(runtime_diag, dict) else None
+            if isinstance(checkpoint, dict):
+                frames = checkpoint.get("runtime_frame_stack")
+                if isinstance(frames, list):
+                    for frame in reversed(frames):
+                        if isinstance(frame, dict) and frame.get("active_module_id"):
+                            active_module = frame.get("active_module_id")
+                            break
             await websocket.send_json(
                 {
                     "type": "heartbeat",
                     "seq": latest,
                     "session_id": session_id,
                     "server_time_ms": int(time.time() * 1000),
-                    "payload": {"interval_ms": heartbeat_interval_ms, "backpressure": pressure},
+                    "payload": {
+                        "interval_ms": heartbeat_interval_ms,
+                        "backpressure": pressure,
+                        "runner_kind": runtime_diag.get("runner_kind") if isinstance(runtime_diag, dict) else None,
+                        "active_module_id": active_module,
+                    },
                 }
             )
             try:

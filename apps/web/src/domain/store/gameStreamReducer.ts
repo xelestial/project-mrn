@@ -59,6 +59,18 @@ function sameStreamMessage(left: InboundMessage, right: InboundMessage): boolean
   return debugMessageKey(left) === debugMessageKey(right);
 }
 
+function withOrderedReplayMessage(messages: InboundMessage[], message: InboundMessage): InboundMessage[] {
+  const nextMessages = [...messages, message];
+  nextMessages.sort((left, right) => {
+    const seqDiff = left.seq - right.seq;
+    if (seqDiff !== 0) {
+      return seqDiff;
+    }
+    return (left.server_time_ms ?? 0) - (right.server_time_ms ?? 0);
+  });
+  return withCappedMessages(nextMessages);
+}
+
 function carriesCurrentProjection(message: InboundMessage): boolean {
   return message.type !== "heartbeat" && typeof message.payload === "object" && message.payload !== null && "view_state" in message.payload;
 }
@@ -170,9 +182,13 @@ export function gameStreamReducer(state: GameStreamState, action: GameStreamActi
       carriesCurrentProjection(action.message) &&
       !state.messages.some((message) => sameStreamMessage(message, action.message))
     ) {
+      const messages =
+        seq < state.lastSeq
+          ? withOrderedReplayMessage(state.messages, action.message)
+          : withCappedMessages([...state.messages, action.message]);
       return {
         ...state,
-        messages: withCappedMessages([...state.messages, action.message]),
+        messages,
         debugMessages,
       };
     }
