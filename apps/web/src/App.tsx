@@ -757,6 +757,7 @@ export function App() {
   const lastTurnBannerSeqRef = useRef<number>(0);
   const lastRevealBannerSeqRef = useRef<number>(0);
   const promptSubmitRequestIdRef = useRef<string | null>(null);
+  const submittedPromptRequestIdsRef = useRef<Set<string>>(new Set());
   const spectatorPanelDragRef = useRef<{
     pointerId: number;
     startX: number;
@@ -768,6 +769,10 @@ export function App() {
   const stream = useGameStream({ sessionId, token, baseUrl: serverBaseUrl });
   const debugMessages = stream.debugMessages;
   const eventQueue = useEventQueue();
+
+  useEffect(() => {
+    submittedPromptRequestIdsRef.current.clear();
+  }, [sessionId, token]);
   const selectorText = useMemo(
     () => ({
       eventLabel,
@@ -1432,6 +1437,11 @@ export function App() {
         ? (actionablePrompt.publicContext["card_deck_index"] as number)
         : null;
     const shouldRemove = currentDeckIndex !== null && burdenExchangeQueuedDeckIndexes.includes(currentDeckIndex);
+    if (submittedPromptRequestIdsRef.current.has(actionablePrompt.requestId)) {
+      return;
+    }
+    submittedPromptRequestIdsRef.current.add(actionablePrompt.requestId);
+    promptSubmitRequestIdRef.current = actionablePrompt.requestId;
     const sent = stream.sendDecision({
       requestId: actionablePrompt.requestId,
       playerId: actionablePrompt.playerId,
@@ -1440,6 +1450,8 @@ export function App() {
       continuation: actionablePrompt.continuation,
     });
     if (!sent) {
+      submittedPromptRequestIdsRef.current.delete(actionablePrompt.requestId);
+      promptSubmitRequestIdRef.current = null;
       setPromptFeedback(app.errors.sendPrompt);
       setBurdenExchangeQueuedDeckIndexes([]);
       setBurdenExchangeQueuedPlayerId(null);
@@ -2298,14 +2310,31 @@ export function App() {
     setSeatTypes(next);
   };
 
+  const markPromptSubmissionStarted = (requestId: string): boolean => {
+    if (submittedPromptRequestIdsRef.current.has(requestId)) {
+      return false;
+    }
+    submittedPromptRequestIdsRef.current.add(requestId);
+    promptSubmitRequestIdRef.current = requestId;
+    return true;
+  };
+
+  const releasePromptSubmissionForRetry = (requestId: string): void => {
+    submittedPromptRequestIdsRef.current.delete(requestId);
+    if (promptSubmitRequestIdRef.current === requestId) {
+      promptSubmitRequestIdRef.current = null;
+    }
+  };
+
   const onSelectPromptChoice = (choiceId: string) => {
     if (!actionablePrompt || promptUiBusy) {
       return;
     }
-    if (promptSubmitRequestIdRef.current === actionablePrompt.requestId) {
+    if (!markPromptSubmissionStarted(actionablePrompt.requestId)) {
       return;
     }
     if (!actionablePrompt.playerId) {
+      releasePromptSubmissionForRetry(actionablePrompt.requestId);
       setError(app.errors.invalidPromptPlayer);
       return;
     }
@@ -2316,10 +2345,10 @@ export function App() {
         .map((value) => value.trim())
         .filter((value) => value.length > 0 && value !== "none");
       if (requestedIds.length === 0) {
+        releasePromptSubmissionForRetry(actionablePrompt.requestId);
         setPromptFeedback(locale === "ko" ? "뒤집을 카드를 한 장 이상 선택하세요." : "Choose at least one card to flip.");
         return;
       }
-      promptSubmitRequestIdRef.current = actionablePrompt.requestId;
       const sent = stream.sendDecision({
         requestId: actionablePrompt.requestId,
         playerId: actionablePrompt.playerId,
@@ -2331,7 +2360,7 @@ export function App() {
         continuation: actionablePrompt.continuation,
       });
       if (!sent) {
-        promptSubmitRequestIdRef.current = null;
+        releasePromptSubmissionForRetry(actionablePrompt.requestId);
         setPromptFeedback(app.errors.sendPrompt);
         return;
       }
@@ -2360,6 +2389,7 @@ export function App() {
         continuation: actionablePrompt.continuation,
       });
       if (!sent) {
+        releasePromptSubmissionForRetry(actionablePrompt.requestId);
         setPromptFeedback(app.errors.sendPrompt);
         return;
       }
@@ -2373,7 +2403,6 @@ export function App() {
     setPromptFeedback("");
     setBurdenExchangeQueuedDeckIndexes([]);
     setBurdenExchangeQueuedPlayerId(null);
-    promptSubmitRequestIdRef.current = actionablePrompt.requestId;
     const sent = stream.sendDecision({
       requestId: actionablePrompt.requestId,
       playerId: actionablePrompt.playerId,
@@ -2382,7 +2411,7 @@ export function App() {
       continuation: actionablePrompt.continuation,
     });
     if (!sent) {
-      promptSubmitRequestIdRef.current = null;
+      releasePromptSubmissionForRetry(actionablePrompt.requestId);
       setPromptFeedback(app.errors.sendPrompt);
       return;
     }

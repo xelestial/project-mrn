@@ -30,6 +30,38 @@ export function shouldApplyReplayResponse(
   return requestedStreamKey === activeStreamKey && !signal?.aborted;
 }
 
+export function createDecisionRequestLedger(): {
+  shouldSend: (streamKey: string, requestId: string) => boolean;
+  recordSent: (streamKey: string, requestId: string) => void;
+  clear: () => void;
+} {
+  let activeStreamKey = "";
+  let sentRequestIds = new Set<string>();
+
+  const resetIfStreamChanged = (streamKey: string) => {
+    if (activeStreamKey === streamKey) {
+      return;
+    }
+    activeStreamKey = streamKey;
+    sentRequestIds = new Set<string>();
+  };
+
+  return {
+    shouldSend: (streamKey, requestId) => {
+      resetIfStreamChanged(streamKey);
+      return !sentRequestIds.has(requestId);
+    },
+    recordSent: (streamKey, requestId) => {
+      resetIfStreamChanged(streamKey);
+      sentRequestIds.add(requestId);
+    },
+    clear: () => {
+      activeStreamKey = "";
+      sentRequestIds = new Set<string>();
+    },
+  };
+}
+
 export function useGameStream({
   sessionId,
   token,
@@ -58,6 +90,7 @@ export function useGameStream({
   const lastResumeRequestAtRef = useRef(0);
   const recoveryTimersRef = useRef<number[]>([]);
   const replayAbortControllersRef = useRef<AbortController[]>([]);
+  const decisionRequestLedgerRef = useRef(createDecisionRequestLedger());
 
   const clearRecoveryTimers = useCallback(() => {
     for (const timer of recoveryTimersRef.current) {
@@ -139,6 +172,7 @@ export function useGameStream({
       lastSeqRef.current = 0;
       activeStreamKeyRef.current = "";
       lastResumeRequestAtRef.current = 0;
+      decisionRequestLedgerRef.current.clear();
       return;
     }
     const streamKey = buildGameStreamKey(normalized, token);
@@ -148,6 +182,7 @@ export function useGameStream({
       dispatch({ type: "reset" });
       activeStreamKeyRef.current = streamKey;
       lastResumeRequestAtRef.current = 0;
+      decisionRequestLedgerRef.current.clear();
     }
     client.connect({
       sessionId: normalized,
@@ -243,6 +278,21 @@ export function useGameStream({
     continuation?: PromptContinuationViewModel;
   }): boolean => {
     const continuation = args.continuation;
+    const streamKey = activeStreamKeyRef.current;
+    if (streamKey && !decisionRequestLedgerRef.current.shouldSend(streamKey, args.requestId)) {
+      logFrontendDebugEvent({
+        event: "decision_suppressed_duplicate",
+        sessionId: sessionId.trim(),
+        seq: lastSeqRef.current,
+        baseUrl,
+        payload: {
+          request_id: args.requestId,
+          player_id: args.playerId,
+          choice_id: args.choiceId,
+        },
+      });
+      return true;
+    }
     const sent = client.send({
       type: "decision",
       request_id: args.requestId,
@@ -257,6 +307,9 @@ export function useGameStream({
       client_seq: lastSeqRef.current,
     });
     if (sent) {
+      if (streamKey) {
+        decisionRequestLedgerRef.current.recordSent(streamKey, args.requestId);
+      }
       logFrontendDebugEvent({
         event: "decision_sent",
         sessionId: sessionId.trim(),

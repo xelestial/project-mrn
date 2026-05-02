@@ -31,6 +31,7 @@ services:
       MRN_LOG_LEVEL: INFO
       MRN_DEBUG_GAME_LOGS: ${MRN_DEBUG_GAME_LOGS:-0}
       MRN_DEBUG_GAME_LOG_DIR: ${MRN_DEBUG_GAME_LOG_DIR:-/app/.log}
+      MRN_DEBUG_GAME_LOG_RUN_ID: ${MRN_DEBUG_GAME_LOG_RUN_ID:-}
     ports:
       - "9090:9090"
     volumes:
@@ -90,6 +91,7 @@ services:
       MRN_LOG_LEVEL: INFO
       MRN_DEBUG_GAME_LOGS: ${MRN_DEBUG_GAME_LOGS:-0}
       MRN_DEBUG_GAME_LOG_DIR: ${MRN_DEBUG_GAME_LOG_DIR:-/app/.log}
+      MRN_DEBUG_GAME_LOG_RUN_ID: ${MRN_DEBUG_GAME_LOG_RUN_ID:-}
     volumes:
       - game-logs:/app/data/game_logs
       - ./.log:/app/.log
@@ -113,6 +115,7 @@ services:
       MRN_LOG_LEVEL: INFO
       MRN_DEBUG_GAME_LOGS: ${MRN_DEBUG_GAME_LOGS:-0}
       MRN_DEBUG_GAME_LOG_DIR: ${MRN_DEBUG_GAME_LOG_DIR:-/app/.log}
+      MRN_DEBUG_GAME_LOG_RUN_ID: ${MRN_DEBUG_GAME_LOG_RUN_ID:-}
     volumes:
       - game-logs:/app/data/game_logs
       - ./.log:/app/.log
