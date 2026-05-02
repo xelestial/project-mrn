@@ -158,7 +158,7 @@ const PLAYER_SPRITE_SETS: Record<number, CharacterSpriteSet> = {
   3: characterSpriteSetForPlayer(3),
   4: characterSpriteSetForPlayer(4),
 };
-const BOARD_STANDEE_WALK_STEP_MS = 260;
+const BOARD_STANDEE_WALK_STEP_MS = 420;
 
 function playerSpriteUrl(playerId: number, facing: QuarterviewFacing): string | null {
   return PLAYER_SPRITE_SETS[playerId]?.sprites[facing] ?? null;
@@ -585,6 +585,7 @@ export function BoardPanel({
       (Boolean(revealFocus) &&
         actorRevealFallbackTileIndex !== null &&
         actorRevealFallbackTileIndex === tile.tileIndex);
+    const isPurchaseRevealFocus = isRevealFocus && revealFocus?.eventCode === "tile_purchased";
     const zoneColor = tileFaceColor(tile.tileKind, tile.tileIndex, tile.zoneColor ?? "", board);
     const ownerColor = hasOwner ? playerColor(ownerPlayerId) : "transparent";
 
@@ -599,7 +600,9 @@ export function BoardPanel({
           isStageFocus ? "board-projected-tile-stage-focus" : ""
         } ${isStageCandidate ? "board-projected-tile-stage-candidate" : ""} ${
           isRevealFocus ? "board-projected-tile-reveal-focus" : ""
-        } ${hasOwner ? "board-projected-tile-owned" : ""}`}
+        } ${isPurchaseRevealFocus ? "board-projected-tile-purchase-stamped" : ""} ${
+          hasOwner ? "board-projected-tile-owned" : ""
+        }`}
         data-lane={polygon.lane}
         data-tile-kind={tile.tileKind}
         style={

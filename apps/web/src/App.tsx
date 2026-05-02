@@ -789,14 +789,21 @@ export function App() {
   const lastMove = selectLastMove(stream.messages);
   const latestManifest = selectLatestManifest(stream.messages);
   const currentTurnRevealItems = useMemo(
-    () => selectCurrentTurnRevealItems(stream.messages, 6, selectorText),
+    () => selectCurrentTurnRevealItems(stream.messages, 14, selectorText),
     [stream.messages, selectorText]
   );
   const currentRoundRevealItems = useMemo(
     () => selectCurrentRoundRevealItems(stream.messages, 24, selectorText),
     [stream.messages, selectorText]
   );
-  const latestCurrentTurnReveal = currentTurnRevealItems[currentTurnRevealItems.length - 1] ?? null;
+  const latestCurrentTurnReveal = useMemo(
+    () =>
+      currentTurnRevealItems.reduce<CurrentTurnRevealItem | null>(
+        (latest, item) => (latest === null || item.seq > latest.seq ? item : latest),
+        null
+      ),
+    [currentTurnRevealItems]
+  );
   const latestCurrentRoundReveal = currentRoundRevealItems[currentRoundRevealItems.length - 1] ?? null;
   const fallbackRevealSpotlight = useMemo(() => {
     if (currentTurnRevealItems.length > 0) {
@@ -1497,95 +1504,95 @@ export function App() {
   // Enqueue game event overlays for notable economy events
   const lastEnqueuedRevealSeqRef = useRef<number>(0);
   useEffect(() => {
-    if (!latestCurrentTurnReveal) return;
-    if (latestCurrentTurnReveal.seq <= lastEnqueuedRevealSeqRef.current) return;
+    const pendingRevealItems = currentTurnRevealItems
+      .filter((item) => item.seq > lastEnqueuedRevealSeqRef.current)
+      .sort((a, b) => a.seq - b.seq);
+    if (pendingRevealItems.length === 0) return;
 
-    const { eventCode, label, detail, seq } = latestCurrentTurnReveal;
-    const sourcePayload = appRecordOrNull(stream.messages.find((message) => message.seq === seq)?.payload);
-    const effect = (kind: EventOverlayEffectKind) =>
-      eventEffectForReveal({
-        eventCode,
-        kind,
-        label,
-        detail,
-        weatherName: turnStage.weatherName,
-        weatherEffect: turnStage.weatherEffect,
-      });
+    for (const item of pendingRevealItems) {
+      const { eventCode, label, detail, seq } = item;
+      const sourcePayload = appRecordOrNull(stream.messages.find((message) => message.seq === seq)?.payload);
+      const effect = (kind: EventOverlayEffectKind) =>
+        eventEffectForReveal({
+          eventCode,
+          kind,
+          label,
+          detail,
+          weatherName: turnStage.weatherName,
+          weatherEffect: turnStage.weatherEffect,
+        });
 
-    if (eventCode === "weather_reveal") {
-      lastEnqueuedRevealSeqRef.current = seq;
-      eventQueue.enqueue({ kind: "weather", label, detail, ...effect("weather") });
-    } else if (eventCode === "dice_roll") {
-      lastEnqueuedRevealSeqRef.current = seq;
-      const dice = sourcePayload ? diceOverlayValues(sourcePayload) : { values: [], total: null };
-      eventQueue.enqueue({
-        kind: "dice",
-        label,
-        detail,
-        diceValues: dice.values,
-        diceTotal: dice.total,
-        ...effect("dice"),
-      });
-    } else if (eventCode === "tile_purchased") {
-      lastEnqueuedRevealSeqRef.current = seq;
-      eventQueue.enqueue({
-        kind: "purchase",
-        label,
-        detail,
-        ...effect("purchase"),
-        effectCharacter: effectCharacterFromPayload(sourcePayload, detail),
-      });
-    } else if (eventCode === "rent_paid") {
-      lastEnqueuedRevealSeqRef.current = seq;
-      const kind = rentOverlayKindForPlayer(detail, effectivePlayerId);
-      eventQueue.enqueue({ kind, label, detail, ...effect(kind) });
-    } else if (eventCode === "lap_reward_chosen") {
-      lastEnqueuedRevealSeqRef.current = seq;
-      eventQueue.enqueue({ kind: "lap_complete", label, detail, ...effect("lap_complete") });
-    } else if (eventCode === "fortune_drawn" || eventCode === "fortune_resolved") {
-      lastEnqueuedRevealSeqRef.current = seq;
-      const moveDetail = sourcePayload ? movementOverlayDetail(sourcePayload, locale) : null;
-      if (moveDetail) {
-        eventQueue.enqueue({ kind: "move", label: locale === "ko" ? "운수 이동" : "Fortune move", detail: moveDetail });
+      if (eventCode === "weather_reveal") {
+        eventQueue.enqueue({ kind: "weather", label, detail, ...effect("weather") });
+      } else if (eventCode === "dice_roll") {
+        const dice = sourcePayload ? diceOverlayValues(sourcePayload) : { values: [], total: null };
+        eventQueue.enqueue({
+          kind: "dice",
+          label,
+          detail,
+          diceValues: dice.values,
+          diceTotal: dice.total,
+          ...effect("dice"),
+        });
+      } else if (eventCode === "player_move" || eventCode === "landing_resolved") {
+        const moveDetail = sourcePayload ? movementOverlayDetail(sourcePayload, locale) : null;
+        eventQueue.enqueue({ kind: "move", label, detail: moveDetail ?? detail, ...effect("move") });
+      } else if (eventCode === "tile_purchased") {
+        eventQueue.enqueue({
+          kind: "purchase",
+          label,
+          detail,
+          ...effect("purchase"),
+          effectCharacter: effectCharacterFromPayload(sourcePayload, detail),
+        });
+      } else if (eventCode === "rent_paid") {
+        const kind = rentOverlayKindForPlayer(detail, effectivePlayerId);
+        eventQueue.enqueue({ kind, label, detail, ...effect(kind) });
+      } else if (eventCode === "lap_reward_chosen") {
+        eventQueue.enqueue({ kind: "lap_complete", label, detail, ...effect("lap_complete") });
+      } else if (eventCode === "fortune_drawn" || eventCode === "fortune_resolved") {
+        const moveDetail = sourcePayload ? movementOverlayDetail(sourcePayload, locale) : null;
+        if (moveDetail) {
+          eventQueue.enqueue({ kind: "move", label: locale === "ko" ? "운수 이동" : "Fortune move", detail: moveDetail });
+        }
+        eventQueue.enqueue({ kind: "fortune", label, detail, ...effect("fortune") });
+      } else if (eventCode === "trick_used") {
+        const moveDetail = sourcePayload ? movementOverlayDetail(sourcePayload, locale) : null;
+        if (moveDetail) {
+          eventQueue.enqueue({ kind: "move", label: locale === "ko" ? "잔꾀 이동" : "Trick move", detail: moveDetail });
+        }
+        eventQueue.enqueue({ kind: "trick", label, detail, ...effect("trick") });
+      } else if (eventCode === "mark_resolved" || eventCode === "mark_queued") {
+        const moveDetail = sourcePayload ? movementOverlayDetail(sourcePayload, locale) : null;
+        if (moveDetail) {
+          eventQueue.enqueue({ kind: "move", label: locale === "ko" ? "지목 이동" : "Mark move", detail: moveDetail });
+        }
+        eventQueue.enqueue({
+          kind: "mark_success",
+          label,
+          detail,
+          ...effect("mark_success"),
+          effectCharacter: effectCharacterFromPayload(sourcePayload, detail),
+        });
+      } else if (eventCode === "ability_suppressed") {
+        eventQueue.enqueue({
+          kind: "economy",
+          label,
+          detail,
+          ...effect("economy"),
+          effectCharacter: effectCharacterFromPayload(sourcePayload, detail),
+        });
+      } else if (eventCode === "bankruptcy") {
+        eventQueue.enqueue({ kind: "bankruptcy", label, detail, ...effect("bankruptcy") });
+      } else if (eventCode === "game_end") {
+        eventQueue.enqueue({ kind: "game_end", label, detail, ...effect("game_end") });
+      } else {
+        const kind = eventOverlayKindForFeedItem(eventCode);
+        eventQueue.enqueue({ kind, label, detail, ...effect(kind) });
       }
-      eventQueue.enqueue({ kind: "fortune", label, detail, ...effect("fortune") });
-    } else if (eventCode === "trick_used") {
-      lastEnqueuedRevealSeqRef.current = seq;
-      const moveDetail = sourcePayload ? movementOverlayDetail(sourcePayload, locale) : null;
-      if (moveDetail) {
-        eventQueue.enqueue({ kind: "move", label: locale === "ko" ? "잔꾀 이동" : "Trick move", detail: moveDetail });
-      }
-      eventQueue.enqueue({ kind: "trick", label, detail, ...effect("trick") });
-    } else if (eventCode === "mark_resolved" || eventCode === "mark_queued") {
-      lastEnqueuedRevealSeqRef.current = seq;
-      const moveDetail = sourcePayload ? movementOverlayDetail(sourcePayload, locale) : null;
-      if (moveDetail) {
-        eventQueue.enqueue({ kind: "move", label: locale === "ko" ? "지목 이동" : "Mark move", detail: moveDetail });
-      }
-      eventQueue.enqueue({
-        kind: "mark_success",
-        label,
-        detail,
-        ...effect("mark_success"),
-        effectCharacter: effectCharacterFromPayload(sourcePayload, detail),
-      });
-    } else if (eventCode === "ability_suppressed") {
-      lastEnqueuedRevealSeqRef.current = seq;
-      eventQueue.enqueue({
-        kind: "economy",
-        label,
-        detail,
-        ...effect("economy"),
-        effectCharacter: effectCharacterFromPayload(sourcePayload, detail),
-      });
-    } else if (eventCode === "bankruptcy") {
-      lastEnqueuedRevealSeqRef.current = seq;
-      eventQueue.enqueue({ kind: "bankruptcy", label, detail, ...effect("bankruptcy") });
-    } else if (eventCode === "game_end") {
-      lastEnqueuedRevealSeqRef.current = seq;
-      eventQueue.enqueue({ kind: "game_end", label, detail, ...effect("game_end") });
+      lastEnqueuedRevealSeqRef.current = Math.max(lastEnqueuedRevealSeqRef.current, seq);
     }
-  }, [latestCurrentTurnReveal, effectivePlayerId, eventQueue, locale, stream.messages, turnStage.weatherEffect, turnStage.weatherName]);
+  }, [currentTurnRevealItems, effectivePlayerId, eventQueue, locale, stream.messages, turnStage.weatherEffect, turnStage.weatherName]);
 
   useEffect(() => {
     if (route !== "match" || stream.status !== "connected") {
@@ -2383,9 +2390,9 @@ export function App() {
   };
 
   const clampSpectatorPanelOffset = (x: number, y: number) => {
-    const maxX = window.innerWidth * 0.38;
-    const minY = -window.innerHeight * 0.12;
-    const maxY = window.innerHeight * 0.42;
+    const maxX = window.innerWidth * 0.42;
+    const minY = -window.innerHeight * 0.18;
+    const maxY = window.innerHeight * 0.68;
     return {
       x: Math.max(-maxX, Math.min(maxX, x)),
       y: Math.max(minY, Math.min(maxY, y)),

@@ -35,19 +35,19 @@ export type GameEvent = {
 
 const DISPLAY_DURATION_MS: Record<GameEventKind, number> = {
   weather: 3000,
-  dice: 2000,
-  move: 2400,
-  purchase: 2200,
+  dice: 2800,
+  move: 3600,
+  purchase: 3400,
   rent_pay: 3000,
   rent_receive: 2500,
-  rent_observe: 2000,
+  rent_observe: 2600,
   fortune: 3000,
-  lap_complete: 2500,
+  lap_complete: 3000,
   bankruptcy: 3500,
   game_end: 4500,
   trick: 3000,
   mark_success: 3400,
-  economy: 2000,
+  economy: 2600,
 };
 
 export type EventQueueApi = {

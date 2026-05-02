@@ -19,8 +19,8 @@ const IDLE: PawnAnimState = {
   animPhase: "idle",
 };
 
-const STEP_MS = 260;
-const ARRIVED_LINGER_MS = 1200;
+const STEP_MS = 420;
+const ARRIVED_LINGER_MS = 1800;
 
 function buildFallbackPath(fromTileIndex: number | null, toTileIndex: number | null, tileCount: number): number[] {
   if (fromTileIndex === null || toTileIndex === null || fromTileIndex === toTileIndex || tileCount <= 0) {
