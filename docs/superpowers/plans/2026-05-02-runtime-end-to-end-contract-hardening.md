@@ -1,6 +1,8 @@
 # Runtime End-to-End Contract Hardening Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+Status: Closed on 2026-05-03. Implemented, merged into `main`, pushed to `origin/main`, and verified with the targeted backend/engine pytest suite, frontend selector/reducer Vitest suite, and frontend production build.
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make every round/turn/sequence/simultaneous action legal in the engine only when it is also legal in backend persistence, Redis-backed runtime flow, WebSocket replay, and frontend projection.
 
@@ -116,7 +118,7 @@ Each round may contain these action groups. Every group must be controlled from 
 - Modify: `GPT/runtime_modules/queue.py`
 - Test: `GPT/test_runtime_module_contracts.py`
 
-- [ ] **Step 1: Write failing placement tests**
+- [x] **Step 1: Write failing placement tests**
 
 Add these tests to `GPT/test_runtime_module_contracts.py`:
 
@@ -148,7 +150,7 @@ PYTHONPATH=GPT pytest GPT/test_runtime_module_contracts.py -q
 
 Expected: the new `ResupplyModule` sequence test fails until catalog validation is added.
 
-- [ ] **Step 2: Create catalog**
+- [x] **Step 2: Create catalog**
 
 Create `GPT/runtime_modules/catalog.py`:
 
@@ -224,7 +226,7 @@ def validate_module_placement(module_type: str, frame_type: str, *, frame_id: st
         raise ValueError(f"{module_type} is not allowed in {frame_type} frame{location}; allowed: {allowed}")
 ```
 
-- [ ] **Step 3: Use catalog from queue validation**
+- [x] **Step 3: Use catalog from queue validation**
 
 Modify `GPT/runtime_modules/queue.py`:
 
@@ -243,7 +245,7 @@ Replace `_validate_module_for_frame()` body with:
             raise QueueValidationError(str(exc)) from exc
 ```
 
-- [ ] **Step 4: Run engine contract tests**
+- [x] **Step 4: Run engine contract tests**
 
 Run:
 
@@ -253,7 +255,7 @@ PYTHONPATH=GPT pytest GPT/test_runtime_module_contracts.py -q
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add GPT/runtime_modules/catalog.py GPT/runtime_modules/queue.py GPT/test_runtime_module_contracts.py
@@ -268,7 +270,7 @@ git commit -m "feat: centralize runtime module placement rules"
 - Test: `GPT/test_runtime_sequence_modules.py`
 - Test: `GPT/test_runtime_simultaneous_modules.py`
 
-- [ ] **Step 1: Write failing tests for resupply routing**
+- [x] **Step 1: Write failing tests for resupply routing**
 
 Add to `GPT/test_runtime_sequence_modules.py`:
 
@@ -318,7 +320,7 @@ PYTHONPATH=GPT pytest GPT/test_runtime_sequence_modules.py GPT/test_runtime_simu
 
 Expected: first test fails while `resolve_supply_threshold` still maps directly to `ResupplyModule`.
 
-- [ ] **Step 2: Remove direct action mapping**
+- [x] **Step 2: Remove direct action mapping**
 
 In `GPT/runtime_modules/sequence_modules.py`, remove `"ResupplyModule"` from `ACTION_SEQUENCE_MODULE_TYPES` and remove this mapping:
 
@@ -328,7 +330,7 @@ In `GPT/runtime_modules/sequence_modules.py`, remove `"ResupplyModule"` from `AC
 
 The fallback `LegacyActionAdapterModule` remains until `runner.py` promotes that action into a simultaneous frame.
 
-- [ ] **Step 3: Promote supply threshold action in runner**
+- [x] **Step 3: Promote supply threshold action in runner**
 
 In `GPT/runtime_modules/runner.py`, find the branch that promotes `pending_actions` to `build_action_sequence_frame()`. Before building the generic action frame, split supply-threshold actions:
 
@@ -381,7 +383,7 @@ if ordinary_actions:
 
 Keep exact variable names aligned with the existing promotion function when implementing.
 
-- [ ] **Step 4: Run resupply tests**
+- [x] **Step 4: Run resupply tests**
 
 Run:
 
@@ -391,7 +393,7 @@ PYTHONPATH=GPT pytest GPT/test_runtime_sequence_modules.py GPT/test_runtime_simu
 
 Expected: PASS.
 
-- [ ] **Step 5: Run full runtime module tests**
+- [x] **Step 5: Run full runtime module tests**
 
 Run:
 
@@ -401,7 +403,7 @@ PYTHONPATH=GPT pytest GPT/test_runtime_module_contracts.py GPT/test_runtime_sequ
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add GPT/runtime_modules/sequence_modules.py GPT/runtime_modules/runner.py GPT/test_runtime_sequence_modules.py GPT/test_runtime_simultaneous_modules.py
@@ -417,7 +419,7 @@ git commit -m "feat: route resupply through simultaneous runtime frame"
 - Test: `apps/server/tests/test_runtime_semantic_guard.py`
 - Test: `apps/server/tests/test_stream_service.py`
 
-- [ ] **Step 1: Write semantic guard tests**
+- [x] **Step 1: Write semantic guard tests**
 
 Create `apps/server/tests/test_runtime_semantic_guard.py`:
 
@@ -513,7 +515,7 @@ pytest apps/server/tests/test_runtime_semantic_guard.py -q
 
 Expected: FAIL because the guard file does not exist.
 
-- [ ] **Step 2: Implement guard**
+- [x] **Step 2: Implement guard**
 
 Create `apps/server/src/domain/runtime_semantic_guard.py`:
 
@@ -730,7 +732,7 @@ def _record(value: Any) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 ```
 
-- [ ] **Step 3: Call guard from stream publish**
+- [x] **Step 3: Call guard from stream publish**
 
 In `apps/server/src/services/stream_service.py`, import:
 
@@ -744,7 +746,7 @@ Inside `publish()`, after `history = ...` and before duplicate checks:
 validate_stream_payload(history=history, msg_type=msg_type, payload=enriched_payload)
 ```
 
-- [ ] **Step 4: Call guard before runtime commit**
+- [x] **Step 4: Call guard before runtime commit**
 
 In `apps/server/src/services/runtime_service.py`, import:
 
@@ -758,7 +760,7 @@ Before `self._game_state_store.commit_transition(...)`, after `payload = state.t
 validate_checkpoint_payload(payload)
 ```
 
-- [ ] **Step 5: Add stream-service rejection test**
+- [x] **Step 5: Add stream-service rejection test**
 
 Add to `apps/server/tests/test_stream_service.py`:
 
@@ -788,7 +790,7 @@ def test_publish_rejects_runtime_impossible_module_placement() -> None:
     asyncio.run(_run())
 ```
 
-- [ ] **Step 6: Run backend guard tests**
+- [x] **Step 6: Run backend guard tests**
 
 Run:
 
@@ -798,7 +800,7 @@ pytest apps/server/tests/test_runtime_semantic_guard.py apps/server/tests/test_s
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/server/src/domain/runtime_semantic_guard.py apps/server/src/services/stream_service.py apps/server/src/services/runtime_service.py apps/server/tests/test_runtime_semantic_guard.py apps/server/tests/test_stream_service.py
@@ -811,7 +813,7 @@ git commit -m "feat: enforce runtime semantic guard before persistence"
 - Modify: `apps/server/src/services/prompt_service.py`
 - Test: `apps/server/tests/test_prompt_module_continuation.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Add to `apps/server/tests/test_prompt_module_continuation.py`:
 
@@ -858,7 +860,7 @@ pytest apps/server/tests/test_prompt_module_continuation.py -q
 
 Expected: first new test fails because `module_type` is not compared; second fails until batch validation is added.
 
-- [ ] **Step 2: Compare module_type during decision submit**
+- [x] **Step 2: Compare module_type during decision submit**
 
 Modify `_module_decision_mismatch()` in `apps/server/src/services/prompt_service.py`:
 
@@ -871,7 +873,7 @@ Modify `_module_decision_mismatch()` in `apps/server/src/services/prompt_service
     ):
 ```
 
-- [ ] **Step 3: Require batch_id for simultaneous prompts**
+- [x] **Step 3: Require batch_id for simultaneous prompts**
 
 Modify `_require_module_continuation()`:
 
@@ -883,7 +885,7 @@ Modify `_require_module_continuation()`:
             raise ValueError("missing_batch_id")
 ```
 
-- [ ] **Step 4: Run prompt tests**
+- [x] **Step 4: Run prompt tests**
 
 Run:
 
@@ -893,7 +895,7 @@ pytest apps/server/tests/test_prompt_module_continuation.py apps/server/tests/te
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/server/src/services/prompt_service.py apps/server/tests/test_prompt_module_continuation.py
@@ -908,7 +910,7 @@ git commit -m "fix: validate module continuation decisions"
 - Test: `apps/server/tests/test_view_state_turn_selector.py`
 - Test: `apps/server/tests/test_view_state_runtime_projection.py`
 
-- [ ] **Step 1: Write failing turn selector regression**
+- [x] **Step 1: Write failing turn selector regression**
 
 Add to `apps/server/tests/test_view_state_turn_selector.py`:
 
@@ -972,7 +974,7 @@ pytest apps/server/tests/test_view_state_turn_selector.py -q
 
 Expected: FAIL because current prompt branch accepts pre-character-selection prompts after turn start.
 
-- [ ] **Step 2: Restrict prompt branch to same turn context**
+- [x] **Step 2: Restrict prompt branch to same turn context**
 
 In `apps/server/src/domain/view_state/turn_selector.py`, replace the prompt acceptance condition at the prompt branch with:
 
@@ -1001,7 +1003,7 @@ def _prompt_round_turn(payload: dict) -> tuple[int | None, int | None]:
 
 Do not use `_is_pre_character_selection_request_type()` in turn-stage prompt inclusion. Keep it only if another selector still needs it.
 
-- [ ] **Step 3: Normalize runtime draft prompt detection**
+- [x] **Step 3: Normalize runtime draft prompt detection**
 
 In `apps/server/src/domain/view_state/runtime_selector.py`, modify `_is_draft_prompt()` to treat these request types as draft:
 
@@ -1037,7 +1039,7 @@ def test_runtime_projection_treats_draft_card_prompt_as_draft_active() -> None:
     assert view_state["turn_stage"] == ""
 ```
 
-- [ ] **Step 4: Run projection tests**
+- [x] **Step 4: Run projection tests**
 
 Run:
 
@@ -1047,7 +1049,7 @@ pytest apps/server/tests/test_view_state_turn_selector.py apps/server/tests/test
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/server/src/domain/view_state/turn_selector.py apps/server/src/domain/view_state/runtime_selector.py apps/server/tests/test_view_state_turn_selector.py apps/server/tests/test_view_state_runtime_projection.py
@@ -1064,7 +1066,7 @@ git commit -m "fix: separate round prompts from turn projection"
 - Test: `apps/web/src/domain/selectors/promptSelectors.spec.ts`
 - Test: `apps/web/src/domain/selectors/streamSelectors.spec.ts`
 
-- [ ] **Step 1: Add failing prompt continuation selector test**
+- [x] **Step 1: Add failing prompt continuation selector test**
 
 Add to `apps/web/src/domain/selectors/promptSelectors.spec.ts`:
 
@@ -1099,7 +1101,7 @@ it("preserves module continuation fields on the active prompt", () => {
 });
 ```
 
-- [ ] **Step 2: Add failing stream selector test for backend turn-stage override**
+- [x] **Step 2: Add failing stream selector test for backend turn-stage override**
 
 Add to `apps/web/src/domain/selectors/streamSelectors.spec.ts`:
 
@@ -1163,7 +1165,7 @@ npm test -- src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/st
 
 Expected: FAIL until fields and projection guard are implemented.
 
-- [ ] **Step 3: Add continuation fields to contracts and prompt view model**
+- [x] **Step 3: Add continuation fields to contracts and prompt view model**
 
 Modify `apps/web/src/domain/selectors/promptSelectors.ts`:
 
@@ -1205,7 +1207,7 @@ Modify `apps/web/src/core/contracts/stream.ts` outbound decision:
       batch_id?: string;
 ```
 
-- [ ] **Step 4: Send continuation fields with decisions**
+- [x] **Step 4: Send continuation fields with decisions**
 
 Modify `sendDecision()` in `apps/web/src/hooks/useGameStream.ts` to accept optional continuation:
 
@@ -1237,7 +1239,7 @@ Include fields in the outbound message:
 
 Update UI decision call sites to pass `activePrompt.continuation`.
 
-- [ ] **Step 5: Ignore backend turn_stage outside turn runtime stages**
+- [x] **Step 5: Ignore backend turn_stage outside turn runtime stages**
 
 In `apps/web/src/domain/selectors/streamSelectors.ts`, before applying `backendTurnStage`, read latest runtime projection and guard:
 
@@ -1251,7 +1253,7 @@ if (backendTurnStage && !roundOnlyRuntimeStage) {
 
 Keep manual fallback model building for old streams, but do not let backend `turn_stage` override the current model when runtime says this is round/draft/card-flip context.
 
-- [ ] **Step 6: Run frontend selector tests**
+- [x] **Step 6: Run frontend selector tests**
 
 Run:
 
@@ -1262,7 +1264,7 @@ npm test -- src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/st
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/web/src/core/contracts/stream.ts apps/web/src/domain/selectors/promptSelectors.ts apps/web/src/hooks/useGameStream.ts apps/web/src/domain/selectors/promptSelectors.spec.ts apps/web/src/domain/selectors/streamSelectors.ts apps/web/src/domain/selectors/streamSelectors.spec.ts
@@ -1275,7 +1277,7 @@ git commit -m "fix: carry runtime continuation and guard turn projection"
 - Modify: `apps/web/src/domain/store/gameStreamReducer.ts`
 - Test: `apps/web/src/domain/store/gameStreamReducer.spec.ts`
 
-- [ ] **Step 1: Add failing stale projection fast-forward test**
+- [x] **Step 1: Add failing stale projection fast-forward test**
 
 Add to `apps/web/src/domain/store/gameStreamReducer.spec.ts`:
 
@@ -1332,7 +1334,7 @@ npm test -- src/domain/store/gameStreamReducer.spec.ts
 
 Expected: FAIL until stale projection guard is added.
 
-- [ ] **Step 2: Add projection compatibility helper**
+- [x] **Step 2: Add projection compatibility helper**
 
 In `apps/web/src/domain/store/gameStreamReducer.ts`, add:
 
@@ -1367,7 +1369,7 @@ In `flushPendingMessages()`, change `firstProjectedSeq` predicate:
 return Boolean(candidate && (carriesCurrentProjection(candidate) || candidate.type === "prompt") && projectedMessageIsCompatibleWithLatest(nextMessages, candidate));
 ```
 
-- [ ] **Step 3: Run reducer tests**
+- [x] **Step 3: Run reducer tests**
 
 Run:
 
@@ -1378,7 +1380,7 @@ npm test -- src/domain/store/gameStreamReducer.spec.ts
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/web/src/domain/store/gameStreamReducer.ts apps/web/src/domain/store/gameStreamReducer.spec.ts
@@ -1392,7 +1394,7 @@ git commit -m "fix: reject stale projected replay fast-forward"
 - Modify as needed: `apps/server/tests/test_runtime_service.py`
 - Optional frontend: `apps/web/src/domain/selectors/streamSelectors.spec.ts`
 
-- [ ] **Step 1: Add log-shape regression test**
+- [x] **Step 1: Add log-shape regression test**
 
 Create `apps/server/tests/test_runtime_end_to_end_contract.py`:
 
@@ -1472,7 +1474,7 @@ pytest apps/server/tests/test_runtime_end_to_end_contract.py -q
 
 Expected: PASS after Tasks 3-5.
 
-- [ ] **Step 2: Add impossible event rejection test through StreamService**
+- [x] **Step 2: Add impossible event rejection test through StreamService**
 
 Add to the same file:
 
@@ -1523,7 +1525,7 @@ def test_stream_service_rejects_round_end_flip_from_turn_frame() -> None:
     asyncio.run(_run())
 ```
 
-- [ ] **Step 3: Run full targeted verification**
+- [x] **Step 3: Run full targeted verification**
 
 Run:
 
@@ -1545,7 +1547,7 @@ PYTHONPATH=GPT pytest \
 
 Expected: PASS.
 
-- [ ] **Step 4: Run frontend targeted verification**
+- [x] **Step 4: Run frontend targeted verification**
 
 Run:
 
@@ -1559,7 +1561,7 @@ npm test -- \
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/server/tests/test_runtime_end_to_end_contract.py
@@ -1572,7 +1574,7 @@ git commit -m "test: lock runtime end-to-end phase contract"
 - Create: `docs/runtime/end-to-end-contract.md`
 - Create: `docs/runtime/round-action-control-matrix.md`
 
-- [ ] **Step 1: Write end-to-end contract document**
+- [x] **Step 1: Write end-to-end contract document**
 
 Create `docs/runtime/end-to-end-contract.md`:
 
@@ -1600,11 +1602,11 @@ The engine is the source of legal game progression. Backend services, Redis pers
 6. Redis stores committed state atomically but does not replace backend semantic validation.
 ```
 
-- [ ] **Step 2: Write round action matrix document**
+- [x] **Step 2: Write round action matrix document**
 
 Create `docs/runtime/round-action-control-matrix.md` using the table from section `0-2. Round Action Matrix`.
 
-- [ ] **Step 3: Commit docs**
+- [x] **Step 3: Commit docs**
 
 ```bash
 git add docs/runtime/end-to-end-contract.md docs/runtime/round-action-control-matrix.md
