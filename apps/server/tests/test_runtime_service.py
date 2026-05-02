@@ -33,6 +33,7 @@ from apps.server.src.services.runtime_service import (
     runtime_checkpoint_schema_version_for_runner,
 )
 from apps.server.src.config.runtime_settings import RuntimeSettings
+from apps.server.src.infra.game_debug_log import debug_game_log_run_dir
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
 from apps.server.src.services.prompt_service import PromptService
@@ -179,7 +180,7 @@ class RuntimeServiceTests(unittest.TestCase):
         loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
         loop_thread.start()
         try:
-            with tempfile.TemporaryDirectory() as temp_dir, _temporary_debug_env(enabled="1", log_dir=temp_dir):
+            with tempfile.TemporaryDirectory() as temp_dir, _temporary_debug_env(enabled="1", log_dir=temp_dir, run_id="fanout-run"):
                 stream = _IdempotentStreamServiceStub()
                 fanout = _FanoutVisEventStream(
                     loop,
@@ -204,7 +205,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 stream.deduplicate_next_publish = True
                 fanout.append(event)
 
-                rows = (Path(temp_dir) / "engine.jsonl").read_text(encoding="utf-8").splitlines()
+                rows = (debug_game_log_run_dir() / "engine.jsonl").read_text(encoding="utf-8").splitlines()
                 self.assertEqual(len(rows), 1)
                 parsed = json.loads(rows[0])
                 self.assertEqual(parsed["event"], "dice_roll")
@@ -3962,7 +3963,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
                 {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
             ],
-            config={"seed": 42, "runtime": {"ai_decision_delay_ms": 0}},
+            config={"seed": 314305415, "runtime": {"ai_decision_delay_ms": 0}},
         )
         self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
         self.session_service.start_session(session.session_id, session.host_token)
@@ -3974,7 +3975,7 @@ class RuntimeServiceTests(unittest.TestCase):
             first = runtime._run_engine_transition_once_sync(
                 loop,
                 session.session_id,
-                42,
+                314305415,
                 None,
                 False,
                 None,
@@ -3986,18 +3987,22 @@ class RuntimeServiceTests(unittest.TestCase):
 
             with self.prompt_service._lock:  # type: ignore[attr-defined]
                 pending_prompt = next(iter(self.prompt_service._pending.values()))  # type: ignore[attr-defined]
+            legal_choices = list(pending_prompt.payload["legal_choices"])
+            legal_choice_ids = [str(choice["choice_id"]) for choice in legal_choices]
+            self.assertIn("6", legal_choice_ids)
+            selected_choice_id = "6"
             self.prompt_service.submit_decision(
                 {
                     "request_id": pending_prompt.request_id,
                     "player_id": 1,
-                    "choice_id": pending_prompt.payload["legal_choices"][0]["choice_id"],
+                    "choice_id": selected_choice_id,
                 }
             )
 
             second = runtime._run_engine_transition_once_sync(
                 loop,
                 session.session_id,
-                42,
+                314305415,
                 None,
                 True,
                 None,
@@ -4013,6 +4018,8 @@ class RuntimeServiceTests(unittest.TestCase):
             with self.prompt_service._lock:  # type: ignore[attr-defined]
                 final_prompt = next(iter(self.prompt_service._pending.values()))  # type: ignore[attr-defined]
             self.assertEqual(len(final_prompt.payload["legal_choices"]), 2)
+            final_choice_ids = {str(choice["choice_id"]) for choice in final_prompt.payload["legal_choices"]}
+            self.assertIn(selected_choice_id, final_choice_ids)
             events = asyncio.run_coroutine_threadsafe(
                 self.stream_service.snapshot(session.session_id),
                 loop,
@@ -4211,6 +4218,62 @@ class RuntimeServiceTests(unittest.TestCase):
 
             prompt = raised.exception.prompt
             self.assertEqual(prompt["request_id"], "sess_sparse_prompt_id_test:r0:t0:p1:movement:0")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_decision_gateway_rejects_replayed_decision_when_prompt_shape_changes(self) -> None:
+        from apps.server.src.services.decision_gateway import (
+            DecisionGateway,
+            PromptFingerprintMismatch,
+            PromptRequired,
+        )
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            gateway = DecisionGateway(
+                session_id="sess_prompt_fingerprint_test",
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+                blocking_human_prompts=False,
+            )
+            original_prompt = {
+                "request_id": "shape_req_1",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 2000,
+                "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                "fallback_policy": "timeout_fallback",
+                "public_context": {"round_index": 1, "turn_index": 0},
+            }
+
+            with self.assertRaises(PromptRequired):
+                gateway.resolve_human_prompt(
+                    original_prompt,
+                    lambda response: str(response.get("choice_id", "")),
+                    lambda: "fallback",
+                )
+            accepted = self.prompt_service.submit_decision(
+                {"request_id": "shape_req_1", "player_id": 1, "choice_id": "roll"}
+            )
+            self.assertEqual(accepted["status"], "accepted")
+
+            changed_prompt = {
+                **original_prompt,
+                "legal_choices": [{"choice_id": "card_1", "label": "Use card"}],
+            }
+            with self.assertRaises(PromptFingerprintMismatch):
+                gateway.resolve_human_prompt(
+                    changed_prompt,
+                    lambda response: str(response.get("choice_id", "")),
+                    lambda: "fallback",
+                )
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -4822,17 +4885,24 @@ class _IdempotentStreamServiceStub:
 
 
 class _temporary_debug_env:
-    def __init__(self, *, enabled: str, log_dir: str) -> None:
+    def __init__(self, *, enabled: str, log_dir: str, run_id: str | None = None) -> None:
         self._enabled = enabled
         self._log_dir = log_dir
+        self._run_id = run_id
         self._before_enabled: str | None = None
         self._before_dir: str | None = None
+        self._before_run_id: str | None = None
 
     def __enter__(self) -> None:
         self._before_enabled = os.environ.get("MRN_DEBUG_GAME_LOGS")
         self._before_dir = os.environ.get("MRN_DEBUG_GAME_LOG_DIR")
+        self._before_run_id = os.environ.get("MRN_DEBUG_GAME_LOG_RUN_ID")
         os.environ["MRN_DEBUG_GAME_LOGS"] = self._enabled
         os.environ["MRN_DEBUG_GAME_LOG_DIR"] = self._log_dir
+        if self._run_id is None:
+            os.environ.pop("MRN_DEBUG_GAME_LOG_RUN_ID", None)
+        else:
+            os.environ["MRN_DEBUG_GAME_LOG_RUN_ID"] = self._run_id
 
     def __exit__(self, exc_type, exc, tb) -> None:
         if self._before_enabled is None:
@@ -4843,6 +4913,10 @@ class _temporary_debug_env:
             os.environ.pop("MRN_DEBUG_GAME_LOG_DIR", None)
         else:
             os.environ["MRN_DEBUG_GAME_LOG_DIR"] = self._before_dir
+        if self._before_run_id is None:
+            os.environ.pop("MRN_DEBUG_GAME_LOG_RUN_ID", None)
+        else:
+            os.environ["MRN_DEBUG_GAME_LOG_RUN_ID"] = self._before_run_id
 
 
 if __name__ == "__main__":

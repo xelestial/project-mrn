@@ -77,6 +77,7 @@ def test_game_state_checkpoint_payload_round_trips_runtime_state() -> None:
     ]
     state.pending_action_log = {"actor_player_id": 1, "segments": [{"start_pos": 3, "end_pos": 7}]}
     state.pending_turn_completion = {"player_id": 1, "finisher_before": 2, "disruption_before": {"leader_id": 0}}
+    state.rng_state_b64 = "checkpoint-rng-state"
 
     payload = json.loads(json.dumps(state.to_checkpoint_payload(), ensure_ascii=False))
     restored = GameState.from_checkpoint_payload(config, payload)
@@ -122,3 +123,4 @@ def test_game_state_checkpoint_payload_round_trips_runtime_state() -> None:
     assert restored.scheduled_actions[0].priority == 10
     assert restored.pending_action_log == {"actor_player_id": 1, "segments": [{"start_pos": 3, "end_pos": 7}]}
     assert restored.pending_turn_completion == {"player_id": 1, "finisher_before": 2, "disruption_before": {"leader_id": 0}}
+    assert restored.rng_state_b64 == "checkpoint-rng-state"

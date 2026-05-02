@@ -259,6 +259,7 @@ class GameState:
     pending_action_log: dict[str, Any] = field(default_factory=dict)
     pending_turn_completion: dict[str, Any] = field(default_factory=dict)
     round_setup_replay_base: dict[str, Any] = field(default_factory=dict)
+    rng_state_b64: str = ""
     runtime_runner_kind: str = "legacy"
     runtime_checkpoint_schema_version: int = 1
     runtime_frame_stack: List[FrameState] = field(default_factory=list)
@@ -382,6 +383,7 @@ class GameState:
             "pending_action_log": dict(self.pending_action_log),
             "pending_turn_completion": dict(self.pending_turn_completion),
             "round_setup_replay_base": dict(self.round_setup_replay_base),
+            "rng_state_b64": self.rng_state_b64,
             "runtime_runner_kind": self.runtime_runner_kind,
             "runtime_checkpoint_schema_version": self.runtime_checkpoint_schema_version,
             "runtime_frame_stack": [frame.to_payload() for frame in self.runtime_frame_stack],
@@ -451,6 +453,7 @@ class GameState:
         state.pending_action_log = dict(payload.get("pending_action_log") or {})
         state.pending_turn_completion = dict(payload.get("pending_turn_completion") or {})
         state.round_setup_replay_base = dict(payload.get("round_setup_replay_base") or {})
+        state.rng_state_b64 = str(payload.get("rng_state_b64") or "")
         state.runtime_runner_kind = str(payload.get("runtime_runner_kind", state.runtime_runner_kind) or "legacy")
         state.runtime_checkpoint_schema_version = int(
             payload.get("runtime_checkpoint_schema_version", state.runtime_checkpoint_schema_version) or 1

@@ -23,6 +23,70 @@ class PromptServiceTests(unittest.TestCase):
         result = self.service.submit_decision({"request_id": "r1", "player_id": 1, "choice_id": "roll"})
         self.assertEqual(result["status"], "accepted")
 
+    def test_attaches_prompt_fingerprint_to_accepted_decision(self) -> None:
+        pending = self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "r1fp",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                "public_context": {"round_index": 1, "turn_index": 0},
+            },
+        )
+        self.assertIn("prompt_fingerprint", pending.payload)
+
+        result = self.service.submit_decision({"request_id": "r1fp", "player_id": 1, "choice_id": "roll"})
+        self.assertEqual(result["status"], "accepted")
+        decision = self.service.wait_for_decision("r1fp", timeout_ms=1)
+
+        self.assertIsNotNone(decision)
+        self.assertEqual(decision["prompt_fingerprint"], pending.payload["prompt_fingerprint"])
+
+    def test_rejects_prompt_fingerprint_mismatch(self) -> None:
+        self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "r1fp_mismatch",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+            },
+        )
+
+        result = self.service.submit_decision(
+            {
+                "request_id": "r1fp_mismatch",
+                "player_id": 1,
+                "choice_id": "roll",
+                "prompt_fingerprint": "stale-client-fingerprint",
+            }
+        )
+
+        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(result["reason"], "prompt_fingerprint_mismatch")
+
+    def test_rejects_illegal_choice_for_any_prompt_with_legal_choices(self) -> None:
+        self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "r1_illegal",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+            },
+        )
+
+        result = self.service.submit_decision(
+            {"request_id": "r1_illegal", "player_id": 1, "choice_id": "teleport"}
+        )
+
+        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(result["reason"], "choice_not_legal")
+
     def test_rejects_player_mismatch(self) -> None:
         self.service.create_prompt(
             "s1",

@@ -9,6 +9,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, Literal
 
+from apps.server.src.services.prompt_fingerprint import ensure_prompt_fingerprint, prompt_fingerprint_mismatch
+
 DecisionProvider = Literal["human", "ai"]
 
 ChoiceSerializer = Callable[[Any], str]
@@ -1686,9 +1688,18 @@ class DecisionGateway:
 
         envelope["request_id"] = request_id
         envelope["timeout_ms"] = timeout_ms
+        envelope = ensure_prompt_fingerprint(envelope)
 
         replayed_response = self._prompt_service.wait_for_decision(request_id=request_id, timeout_ms=1)
         if replayed_response is not None:
+            self._require_matching_prompt_fingerprint(
+                request_id=request_id,
+                player_id=player_id,
+                request_type=request_type,
+                public_context=public_context,
+                prompt_payload=envelope,
+                response=replayed_response,
+            )
             return self._parse_human_response(
                 request_id=request_id,
                 player_id=player_id,
@@ -1701,11 +1712,14 @@ class DecisionGateway:
 
         try:
             self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
-        except ValueError:
+        except ValueError as exc:
+            if str(exc) == "prompt_fingerprint_mismatch":
+                raise PromptFingerprintMismatch(request_id=request_id) from exc
             if not self._blocking_human_prompts:
                 raise PromptRequired(envelope)
             request_id = self.next_request_id()
             envelope["request_id"] = request_id
+            envelope = ensure_prompt_fingerprint(envelope)
             self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
 
         self.publish("prompt", {**envelope, "provider": "human"})
@@ -1767,6 +1781,14 @@ class DecisionGateway:
             )
             return fallback_fn()
 
+        self._require_matching_prompt_fingerprint(
+            request_id=request_id,
+            player_id=player_id,
+            request_type=request_type,
+            public_context=public_context,
+            prompt_payload=envelope,
+            response=response,
+        )
         return self._parse_human_response(
             request_id=request_id,
             player_id=player_id,
@@ -1784,6 +1806,29 @@ class DecisionGateway:
         turn_index = int(public_context.get("turn_index", 0) or 0)
         prompt_instance_id = int(envelope.get("prompt_instance_id", 0) or 0)
         return f"{self._session_id}:r{round_index}:t{turn_index}:p{player_id}:{request_type}:{prompt_instance_id}"
+
+    def _require_matching_prompt_fingerprint(
+        self,
+        *,
+        request_id: str,
+        player_id: int,
+        request_type: str,
+        public_context: dict[str, Any],
+        prompt_payload: dict[str, Any],
+        response: dict[str, Any],
+    ) -> None:
+        if not prompt_fingerprint_mismatch(prompt_payload, response):
+            return
+        self._publish_decision_resolved(
+            request_id=request_id,
+            player_id=player_id,
+            request_type=request_type,
+            resolution="prompt_fingerprint_mismatch",
+            choice_id=str(response.get("choice_id", "")),
+            provider="human",
+            public_context=public_context,
+        )
+        raise PromptFingerprintMismatch(request_id=request_id)
 
     def _parse_human_response(
         self,
@@ -1867,3 +1912,11 @@ class PromptRequired(RuntimeError):
     def __init__(self, prompt: dict[str, Any]) -> None:
         super().__init__("prompt_required")
         self.prompt = dict(prompt)
+
+
+class PromptFingerprintMismatch(RuntimeError):
+    """Raised when a decision is replayed against a different prompt contract."""
+
+    def __init__(self, *, request_id: str) -> None:
+        super().__init__(f"prompt_fingerprint_mismatch:{request_id}")
+        self.request_id = request_id

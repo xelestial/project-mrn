@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 import random
 import inspect
 import uuid
@@ -187,6 +189,24 @@ class GameEngine:
             self.policy.register_policy_hook("policy.before_decision", decision_log_hook.before_decision)
             self.policy.register_policy_hook("policy.after_decision", decision_log_hook.after_decision)
 
+    def _sync_rng_state_to_state(self, state: GameState) -> None:
+        rng_state = self.rng.getstate()
+        payload = [int(rng_state[0]), list(rng_state[1]), rng_state[2]]
+        state.rng_state_b64 = base64.b64encode(
+            json.dumps(payload, separators=(",", ":")).encode("ascii")
+        ).decode("ascii")
+
+    def _restore_rng_state_from_state(self, state: GameState) -> None:
+        encoded = str(getattr(state, "rng_state_b64", "") or "")
+        if not encoded:
+            return
+        try:
+            payload = json.loads(base64.b64decode(encoded.encode("ascii")).decode("ascii"))
+            rng_state = (int(payload[0]), tuple(int(item) for item in payload[1]), payload[2])
+            self.rng.setstate(rng_state)
+        except Exception as exc:
+            raise ValueError("Invalid rng_state_b64 checkpoint payload") from exc
+
     def _request_decision(
         self,
         decision_name: str,
@@ -335,6 +355,7 @@ class GameEngine:
     def prepare_run(self, initial_state: GameState | None = None) -> GameState:
         self._reset_run_trackers()
         if initial_state is not None:
+            self._restore_rng_state_from_state(initial_state)
             self._last_prepared_state = initial_state
             return initial_state
         state = self.create_initial_state(deal_initial_tricks=False)
@@ -350,6 +371,7 @@ class GameEngine:
             snapshot=build_turn_end_snapshot(state),
         )
         self._start_new_round(state, initial=True)
+        self._sync_rng_state_to_state(state)
         return state
 
     def create_initial_state(self, *, deal_initial_tricks: bool = True) -> GameState:
@@ -360,6 +382,7 @@ class GameEngine:
         self.rng.shuffle(state.weather_draw_pile)
         if deal_initial_tricks:
             self._deal_initial_tricks(state)
+        self._sync_rng_state_to_state(state)
         return state
 
     def _deal_initial_tricks(self, state: GameState) -> None:
@@ -376,44 +399,47 @@ class GameEngine:
         })
 
     def run_next_transition(self, state: GameState) -> dict[str, Any]:
-        if getattr(state, "runtime_runner_kind", "legacy") == "module":
-            return ModuleRunner().advance_engine(self, state)
-        if state.pending_actions:
-            return self._run_next_action_transition(state)
-        if state.pending_turn_completion:
-            return self._complete_pending_turn_transition(state)
-        if not state.current_round_order:
-            if self._check_end(state):
-                return {"status": "finished", "reason": "end_rule"}
-            initial_round = (
-                state.rounds_completed == 0
-                and state.turn_index == 0
-                and state.current_weather is None
-                and not any(p.turns_taken for p in state.players)
-            )
-            self._start_new_round(state, initial=initial_round)
+        try:
+            if getattr(state, "runtime_runner_kind", "legacy") == "module":
+                return ModuleRunner().advance_engine(self, state)
+            if state.pending_actions:
+                return self._run_next_action_transition(state)
+            if state.pending_turn_completion:
+                return self._complete_pending_turn_transition(state)
             if not state.current_round_order:
-                return {"status": "finished", "reason": "empty_round_order"}
-        current_pid = state.current_round_order[state.turn_index % len(state.current_round_order)]
-        player = state.players[current_pid]
-        if self._materialize_scheduled_actions(state, phase="turn_start", player_id=current_pid):
-            return self._run_next_action_transition(state)
-        if player.alive:
-            player.turns_taken += 1
-            self._take_turn(state, player)
-            if state.pending_actions or state.pending_turn_completion:
-                return {"status": "committed", "player_id": current_pid + 1, "turn_index": state.turn_index, "pending_actions": len(state.pending_actions)}
-            if self._check_end(state):
-                return {"status": "finished", "reason": "end_rule", "player_id": current_pid + 1}
-        round_ending = self._is_advancing_past_round_end(state)
-        if round_ending:
-            self._apply_round_end_marker_management(state)
-            self._resolve_marker_flip(state)
-        state.turn_index += 1
-        if round_ending:
-            state.rounds_completed += 1
-            self._start_new_round(state, initial=False)
-        return {"status": "committed", "player_id": current_pid + 1, "turn_index": state.turn_index}
+                if self._check_end(state):
+                    return {"status": "finished", "reason": "end_rule"}
+                initial_round = (
+                    state.rounds_completed == 0
+                    and state.turn_index == 0
+                    and state.current_weather is None
+                    and not any(p.turns_taken for p in state.players)
+                )
+                self._start_new_round(state, initial=initial_round)
+                if not state.current_round_order:
+                    return {"status": "finished", "reason": "empty_round_order"}
+            current_pid = state.current_round_order[state.turn_index % len(state.current_round_order)]
+            player = state.players[current_pid]
+            if self._materialize_scheduled_actions(state, phase="turn_start", player_id=current_pid):
+                return self._run_next_action_transition(state)
+            if player.alive:
+                player.turns_taken += 1
+                self._take_turn(state, player)
+                if state.pending_actions or state.pending_turn_completion:
+                    return {"status": "committed", "player_id": current_pid + 1, "turn_index": state.turn_index, "pending_actions": len(state.pending_actions)}
+                if self._check_end(state):
+                    return {"status": "finished", "reason": "end_rule", "player_id": current_pid + 1}
+            round_ending = self._is_advancing_past_round_end(state)
+            if round_ending:
+                self._apply_round_end_marker_management(state)
+                self._resolve_marker_flip(state)
+            state.turn_index += 1
+            if round_ending:
+                state.rounds_completed += 1
+                self._start_new_round(state, initial=False)
+            return {"status": "committed", "player_id": current_pid + 1, "turn_index": state.turn_index}
+        finally:
+            self._sync_rng_state_to_state(state)
 
     def _is_advancing_past_round_end(self, state: GameState) -> bool:
         return bool(state.current_round_order) and ((state.turn_index + 1) % len(state.current_round_order) == 0)
@@ -548,6 +574,7 @@ class GameEngine:
                 "idempotency_key": runtime_module["idempotency_key"],
             }
         if event_type in {"turn_end_snapshot", "game_end"} and "engine_checkpoint" not in payload:
+            self._sync_rng_state_to_state(state)
             payload = {**payload, "engine_checkpoint": state.to_checkpoint_payload()}
         self._vis_stream.append(
             VisEvent(
@@ -1931,6 +1958,7 @@ class GameEngine:
         state.current_round_order = []
         state.round_setup_replay_base = {}
         state.prompt_sequence = 0
+        self._sync_rng_state_to_state(state)
         state.round_setup_replay_base = state.to_checkpoint_payload()
         for p in state.players:
             p.immune_to_marks_this_round = False

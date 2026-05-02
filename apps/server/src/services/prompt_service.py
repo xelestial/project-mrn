@@ -4,6 +4,12 @@ import time
 import threading
 from dataclasses import dataclass
 
+from apps.server.src.services.prompt_fingerprint import (
+    PROMPT_FINGERPRINT_VERSION,
+    ensure_prompt_fingerprint,
+    prompt_fingerprint_mismatch,
+)
+
 
 @dataclass(slots=True)
 class PendingPrompt:
@@ -32,10 +38,14 @@ class PromptService:
         superseded_waiters: list[threading.Event] = []
         with self._lock:
             self._prune_resolved()
+            prompt = ensure_prompt_fingerprint(dict(prompt))
             request_id = str(prompt.get("request_id", "")).strip()
             if not request_id:
                 raise ValueError("missing_request_id")
-            if self._has_pending_request(request_id):
+            existing = self._get_pending(request_id)
+            if existing is not None:
+                if prompt_fingerprint_mismatch(existing.payload, prompt):
+                    raise ValueError("prompt_fingerprint_mismatch")
                 raise ValueError("duplicate_pending_request_id")
             if self._has_recently_resolved_request(request_id):
                 raise ValueError("duplicate_recent_request_id")
@@ -90,19 +100,26 @@ class PromptService:
                 player_id = int(payload.get("player_id", 0))
                 if player_id != pending.player_id:
                     return {"status": "rejected", "reason": "player_mismatch"}
+                expected_fingerprint = str(pending.payload.get("prompt_fingerprint") or "").strip()
+                submitted_fingerprint = str(payload.get("prompt_fingerprint") or "").strip()
+                if submitted_fingerprint and expected_fingerprint and submitted_fingerprint != expected_fingerprint:
+                    return {"status": "rejected", "reason": "prompt_fingerprint_mismatch"}
+                legal = {
+                    str(choice.get("choice_id") or "").strip()
+                    for choice in pending.payload.get("legal_choices", [])
+                    if isinstance(choice, dict)
+                }
+                if legal and choice_id not in legal:
+                    return {"status": "rejected", "reason": "choice_not_legal"}
                 if _is_module_prompt(pending.payload):
                     mismatch = _module_decision_mismatch(pending.payload, payload)
                     if mismatch:
                         return {"status": "rejected", "reason": mismatch}
-                    legal = {
-                        str(choice.get("choice_id") or "").strip()
-                        for choice in pending.payload.get("legal_choices", [])
-                        if isinstance(choice, dict)
-                    }
-                    if legal and choice_id not in legal:
-                        return {"status": "rejected", "reason": "choice_not_legal"}
 
                 decision_payload = dict(payload)
+                if expected_fingerprint:
+                    decision_payload["prompt_fingerprint"] = expected_fingerprint
+                    decision_payload["prompt_fingerprint_version"] = PROMPT_FINGERPRINT_VERSION
                 command_payload = {
                     "request_id": request_id,
                     "player_id": player_id,
@@ -181,6 +198,10 @@ class PromptService:
             "choice_payload": {},
             "provider": "timeout_fallback",
         }
+        expected_fingerprint = str(pending.payload.get("prompt_fingerprint") or "").strip()
+        if expected_fingerprint:
+            decision_payload["prompt_fingerprint"] = expected_fingerprint
+            decision_payload["prompt_fingerprint_version"] = PROMPT_FINGERPRINT_VERSION
         command_payload = {
             "request_id": request_id,
             "player_id": int(pending.player_id),
