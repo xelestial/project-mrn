@@ -129,7 +129,7 @@ def _validate_event_against_active_turn(
 ) -> None:
     if event_type not in {"marker_flip", "active_flip"}:
         return
-    if _latest_turn_start(history) is None:
+    if _latest_active_turn_start(history) is None:
         return
     if runtime_module and str(runtime_module.get("module_type") or "") == "RoundEndCardFlipModule":
         raise RuntimeSemanticViolation("RoundEndCardFlipModule cannot be emitted from active turn context")
@@ -169,10 +169,13 @@ def _validate_card_flip_not_before_turns_complete(frame: dict[str, Any]) -> None
         raise RuntimeSemanticViolation("card flip cannot run before all player turns complete")
 
 
-def _latest_turn_start(history: list[dict]) -> dict[str, Any] | None:
+def _latest_active_turn_start(history: list[dict]) -> dict[str, Any] | None:
     for message in reversed(history):
         payload = _record(message.get("payload")) or {}
-        if str(payload.get("event_type") or "") == "turn_start":
+        event_type = str(payload.get("event_type") or "")
+        if event_type in {"turn_end_snapshot", "game_end", "round_start"}:
+            return None
+        if event_type == "turn_start":
             return payload
     return None
 

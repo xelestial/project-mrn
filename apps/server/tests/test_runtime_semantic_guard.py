@@ -60,6 +60,47 @@ def test_rejects_marker_flip_in_active_turn_context() -> None:
         )
 
 
+def test_allows_round_end_marker_flip_after_turn_end_snapshot() -> None:
+    history = [
+        {
+            "type": "event",
+            "seq": 10,
+            "payload": {
+                "event_type": "turn_start",
+                "round_index": 1,
+                "turn_index": 4,
+                "acting_player_id": 4,
+            },
+        },
+        {
+            "type": "event",
+            "seq": 20,
+            "payload": {
+                "event_type": "turn_end_snapshot",
+                "round_index": 1,
+                "turn_index": 4,
+                "acting_player_id": 4,
+            },
+        },
+    ]
+
+    validate_stream_payload(
+        history=history,
+        msg_type="event",
+        payload={
+            "event_type": "marker_flip",
+            "round_index": 1,
+            "turn_index": 4,
+            "runtime_module": {
+                "frame_type": "round",
+                "frame_id": "round:1",
+                "module_type": "RoundEndCardFlipModule",
+                "module_id": "mod:flip",
+            },
+        },
+    )
+
+
 def test_checkpoint_rejects_round_card_flip_with_suspended_player_turn() -> None:
     with pytest.raises(RuntimeSemanticViolation, match="card flip"):
         validate_checkpoint_payload(
