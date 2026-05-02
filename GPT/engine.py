@@ -400,17 +400,26 @@ class GameEngine:
                 return {"status": "committed", "player_id": current_pid + 1, "turn_index": state.turn_index, "pending_actions": len(state.pending_actions)}
             if self._check_end(state):
                 return {"status": "finished", "reason": "end_rule", "player_id": current_pid + 1}
-        state.turn_index += 1
-        if state.turn_index % max(1, len(state.current_round_order)) == 0:
+        round_ending = self._is_advancing_past_round_end(state)
+        if round_ending:
             self._apply_round_end_marker_management(state)
+            self._resolve_marker_flip(state)
+        state.turn_index += 1
+        if round_ending:
             state.rounds_completed += 1
             self._start_new_round(state, initial=False)
         return {"status": "committed", "player_id": current_pid + 1, "turn_index": state.turn_index}
 
+    def _is_advancing_past_round_end(self, state: GameState) -> bool:
+        return bool(state.current_round_order) and ((state.turn_index + 1) % len(state.current_round_order) == 0)
+
     def _advance_turn_cursor_after_completion(self, state: GameState, player_id: int) -> dict[str, Any]:
-        state.turn_index += 1
-        if state.turn_index % max(1, len(state.current_round_order)) == 0:
+        round_ending = self._is_advancing_past_round_end(state)
+        if round_ending:
             self._apply_round_end_marker_management(state)
+            self._resolve_marker_flip(state)
+        state.turn_index += 1
+        if round_ending:
             state.rounds_completed += 1
             self._start_new_round(state, initial=False)
         return {"status": "committed", "player_id": player_id + 1, "turn_index": state.turn_index}
@@ -1932,7 +1941,6 @@ class GameEngine:
         state.current_weather = None
         state.current_weather_effects = set()
         self._suppress_hidden_trick_selection = True
-        self._resolve_marker_flip(state)
         alive_ids = [p.player_id + 1 for p in state.players if p.alive]
         self._emit_vis(
             "round_start",
@@ -2009,6 +2017,42 @@ class GameEngine:
                 ordered.append(pid)
         return ordered
 
+    def _complete_draft_pick(
+        self,
+        state: GameState,
+        pid: int,
+        pool: list[int],
+        draft_phase: int,
+    ) -> None:
+        player = state.players[pid]
+        offered_cards = list(pool)
+        if len(offered_cards) == 1:
+            pick = offered_cards[0]
+            draft_debug = {
+                "auto_resolved": True,
+                "forced": True,
+                "offered_count": 1,
+                "offered_cards": list(offered_cards),
+            }
+            record_debug = None
+        else:
+            pick = self._request_decision("choose_draft_card", state, player, offered_cards)
+            draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
+            record_debug = draft_debug
+
+        player.drafted_cards.append(pick)
+        self._record_ai_decision(
+            state,
+            player,
+            "draft_card",
+            record_debug,
+            result={"picked_card": pick, "draft_phase": draft_phase},
+            source_event="draft_pick",
+        )
+        self._log({"event": "draft_pick", "phase": draft_phase, "player": pid + 1, "picked_card": pick, "decision": draft_debug})
+        self._emit_vis("draft_pick", Phase.DRAFT, pid + 1, state, draft_phase=draft_phase, picked_card=pick)
+        pool.remove(pick)
+
     def _run_draft(self, state: GameState) -> None:
         cards = list(CARD_TO_NAMES.keys())
         self.rng.shuffle(cards)
@@ -2024,53 +2068,14 @@ class GameEngine:
 
             pool = list(phase1_pool)
             for pid in clockwise:
-                pick = self._request_decision("choose_draft_card", state, state.players[pid], list(pool))
-                state.players[pid].drafted_cards.append(pick)
-                draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
-                self._record_ai_decision(
-                    state,
-                    state.players[pid],
-                    "draft_card",
-                    draft_debug,
-                    result={"picked_card": pick, "draft_phase": 1},
-                    source_event="draft_pick",
-                )
-                self._log({"event": "draft_pick", "phase": 1, "player": pid + 1, "picked_card": pick, "decision": draft_debug})
-                self._emit_vis("draft_pick", Phase.DRAFT, pid + 1, state, draft_phase=1, picked_card=pick)
-                pool.remove(pick)
+                self._complete_draft_pick(state, pid, pool, 1)
 
             second_pool = list(reserve_pool) + list(pool)
             last_pid = clockwise[-1]
-            pick = self._request_decision("choose_draft_card", state, state.players[last_pid], list(second_pool))
-            state.players[last_pid].drafted_cards.append(pick)
-            draft_debug = self.policy.pop_debug("draft_card", last_pid) if hasattr(self.policy, "pop_debug") else None
-            self._record_ai_decision(
-                state,
-                state.players[last_pid],
-                "draft_card",
-                draft_debug,
-                result={"picked_card": pick, "draft_phase": 2},
-                source_event="draft_pick",
-            )
-            self._log({"event": "draft_pick", "phase": 2, "player": last_pid + 1, "picked_card": pick, "decision": draft_debug})
-            self._emit_vis("draft_pick", Phase.DRAFT, last_pid + 1, state, draft_phase=2, picked_card=pick)
-            second_pool.remove(pick)
+            self._complete_draft_pick(state, last_pid, second_pool, 2)
 
             for pid in reverse[1:]:
-                pick = self._request_decision("choose_draft_card", state, state.players[pid], list(second_pool))
-                state.players[pid].drafted_cards.append(pick)
-                draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
-                self._record_ai_decision(
-                    state,
-                    state.players[pid],
-                    "draft_card",
-                    draft_debug,
-                    result={"picked_card": pick, "draft_phase": 2},
-                    source_event="draft_pick",
-                )
-                self._log({"event": "draft_pick", "phase": 2, "player": pid + 1, "picked_card": pick, "decision": draft_debug})
-                self._emit_vis("draft_pick", Phase.DRAFT, pid + 1, state, draft_phase=2, picked_card=pick)
-                second_pool.remove(pick)
+                self._complete_draft_pick(state, pid, second_pool, 2)
 
         else:
             first_pack_size = alive_count
@@ -2083,37 +2088,11 @@ class GameEngine:
 
             pool = list(first_pool)
             for pid in clockwise:
-                pick = self._request_decision("choose_draft_card", state, state.players[pid], list(pool))
-                state.players[pid].drafted_cards.append(pick)
-                draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
-                self._record_ai_decision(
-                    state,
-                    state.players[pid],
-                    "draft_card",
-                    draft_debug,
-                    result={"picked_card": pick, "draft_phase": 1},
-                    source_event="draft_pick",
-                )
-                self._log({"event": "draft_pick", "phase": 1, "player": pid + 1, "picked_card": pick, "decision": draft_debug})
-                self._emit_vis("draft_pick", Phase.DRAFT, pid + 1, state, draft_phase=1, picked_card=pick)
-                pool.remove(pick)
+                self._complete_draft_pick(state, pid, pool, 1)
 
             pool = list(second_pool)
             for pid in reverse:
-                pick = self._request_decision("choose_draft_card", state, state.players[pid], list(pool))
-                state.players[pid].drafted_cards.append(pick)
-                draft_debug = self.policy.pop_debug("draft_card", pid) if hasattr(self.policy, "pop_debug") else None
-                self._record_ai_decision(
-                    state,
-                    state.players[pid],
-                    "draft_card",
-                    draft_debug,
-                    result={"picked_card": pick, "draft_phase": 2},
-                    source_event="draft_pick",
-                )
-                self._log({"event": "draft_pick", "phase": 2, "player": pid + 1, "picked_card": pick, "decision": draft_debug})
-                self._emit_vis("draft_pick", Phase.DRAFT, pid + 1, state, draft_phase=2, picked_card=pick)
-                pool.remove(pick)
+                self._complete_draft_pick(state, pid, pool, 2)
 
         for p in state.players:
             if not p.alive:

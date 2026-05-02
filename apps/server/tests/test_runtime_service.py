@@ -377,7 +377,19 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(routed.choice_parser("102", invocation.args, invocation.kwargs, invocation.state, invocation.player), reward_b)
     def test_draft_context_exposes_phase_and_offered_candidates(self) -> None:
         state = type("State", (), {"rounds_completed": 0, "turn_index": 0, "active_by_card": {1: "산적", 2: "건설업자"}})()
-        player = type("Player", (), {"cash": 10, "position": 3, "drafted_cards": [7]})()
+        card_a = type("Card", (), {"deck_index": 41, "name": "가벼운 짐", "description": "desc-a"})()
+        card_b = type("Card", (), {"deck_index": 42, "name": "건강 검진", "description": "desc-b"})()
+        player = type(
+            "Player",
+            (),
+            {
+                "cash": 10,
+                "position": 3,
+                "drafted_cards": [7],
+                "hidden_trick_deck_index": 42,
+                "trick_hand": [card_a, card_b],
+            },
+        )()
 
         context = build_public_context("choose_draft_card", (state, player, [1, 2]), {})
 
@@ -387,6 +399,31 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(context["draft_phase"], 2)
         self.assertEqual(context["draft_phase_label"], "draft_phase_2")
         self.assertEqual(context["active_by_card"], {1: "산적", 2: "건설업자"})
+        self.assertEqual(context["total_hand_count"], 2)
+        self.assertEqual(context["hidden_trick_count"], 1)
+        self.assertEqual([card["name"] for card in context["full_hand"]], ["가벼운 짐", "건강 검진"])
+
+    def test_final_character_context_keeps_trick_hand_for_bottom_tray(self) -> None:
+        state = type("State", (), {"rounds_completed": 0, "turn_index": 0, "active_by_card": {1: "산적", 2: "건설업자"}})()
+        card_a = type("Card", (), {"deck_index": 51, "name": "긴장감 조성", "description": "desc-a"})()
+        card_b = type("Card", (), {"deck_index": 52, "name": "극심한 분리불안", "description": "desc-b"})()
+        player = type(
+            "Player",
+            (),
+            {
+                "cash": 10,
+                "position": 3,
+                "hidden_trick_deck_index": 51,
+                "trick_hand": [card_a, card_b],
+            },
+        )()
+
+        context = build_public_context("choose_final_character", (state, player, [1, 2]), {})
+
+        self.assertTrue(context["final_choice"])
+        self.assertEqual(context["total_hand_count"], 2)
+        self.assertEqual(context["hidden_trick_deck_index"], 51)
+        self.assertEqual([card["name"] for card in context["full_hand"]], ["긴장감 조성", "극심한 분리불안"])
 
     def test_local_human_prompt_merges_gateway_public_context_for_hidden_trick(self) -> None:
         class _Gateway:
@@ -480,7 +517,20 @@ class RuntimeServiceTests(unittest.TestCase):
                 "current_weather": weather,
             },
         )()
-        player = type("Player", (), {"player_id": 0, "cash": 20, "position": 5, "shards": 4, "drafted_cards": []})()
+        trick_card = type("Card", (), {"deck_index": 61, "name": "월척회", "description": "desc-trick"})()
+        player = type(
+            "Player",
+            (),
+            {
+                "player_id": 0,
+                "cash": 20,
+                "position": 5,
+                "shards": 4,
+                "drafted_cards": [],
+                "hidden_trick_deck_index": None,
+                "trick_hand": [trick_card],
+            },
+        )()
 
         gateway = _Gateway()
         client = _LocalHumanDecisionClient(human_seats=[0], ai_fallback=_DummyAi(), gateway=gateway)
@@ -496,6 +546,8 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(public_context.get("weather_effect"), "징표를 가진 참가자는 3냥을 은행에 지불합니다.")
         self.assertEqual(public_context.get("draft_phase"), 1)
         self.assertEqual(public_context.get("offered_count"), 4)
+        self.assertEqual(public_context.get("total_hand_count"), 1)
+        self.assertEqual([card.get("name") for card in public_context.get("full_hand", [])], ["월척회"])
 
     def test_mark_target_context_uses_public_active_faces_for_future_slots(self) -> None:
         state = type(
@@ -3734,7 +3786,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(seed, 2)
         self.assertEqual(checkpoint_state.current_round_order, [0, 1, 2, 3])
 
-    def test_first_human_draft_resume_prompts_second_human_draft_before_turn_start(self) -> None:
+    def test_first_human_draft_resume_auto_resolves_forced_draft_before_final_character(self) -> None:
         store = _MutableGameStateStoreStub()
         runtime = RuntimeService(
             session_service=self.session_service,
@@ -3792,11 +3844,14 @@ class RuntimeServiceTests(unittest.TestCase):
             )
 
             self.assertEqual(second["status"], "waiting_input")
-            self.assertEqual(second["request_type"], "draft_card")
+            self.assertEqual(second["request_type"], "final_character")
             self.assertEqual(second["player_id"], 1)
-            self.assertEqual(store.current_state.get("pending_prompt_type"), "draft_card")
+            self.assertEqual(store.current_state.get("pending_prompt_type"), "final_character")
             self.assertEqual(store.current_state.get("pending_prompt_player_id"), 1)
             self.assertEqual(store.current_state.get("current_round_order"), [])
+            with self.prompt_service._lock:  # type: ignore[attr-defined]
+                final_prompt = next(iter(self.prompt_service._pending.values()))  # type: ignore[attr-defined]
+            self.assertEqual(len(final_prompt.payload["legal_choices"]), 2)
             events = asyncio.run_coroutine_threadsafe(
                 self.stream_service.snapshot(session.session_id),
                 loop,

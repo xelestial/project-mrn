@@ -380,6 +380,59 @@ describe("promptSelectors", () => {
     expect(selectActivePrompt(messages)).toBeNull();
   });
 
+  it("keeps draft phase and option count on character pick prompts", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "prompt",
+        seq: 30,
+        session_id: "s1",
+        payload: {
+          request_id: "req_draft_phase_2",
+          request_type: "draft_card",
+          player_id: 3,
+          timeout_ms: 300000,
+          legal_choices: [{ choice_id: "card_8", title: "만신", description: "pick" }],
+          public_context: { draft_phase: 2, draft_phase_label: "draft_phase_2", offered_count: 1 },
+          view_state: {
+            prompt: {
+              active: {
+                request_id: "req_draft_phase_2",
+                request_type: "draft_card",
+                player_id: 3,
+                timeout_ms: 300000,
+                choices: [{ choice_id: "card_8", title: "만신", description: "pick", value: null, secondary: false }],
+                public_context: { draft_phase: 2, draft_phase_label: "draft_phase_2", offered_count: 1 },
+                behavior: {
+                  normalized_request_type: "draft_card",
+                  single_surface: false,
+                  auto_continue: false,
+                },
+                surface: {
+                  kind: "character_pick",
+                  blocks_public_events: true,
+                  character_pick: {
+                    phase: "draft",
+                    draft_phase: 2,
+                    draft_phase_label: "draft_phase_2",
+                    choice_count: 1,
+                    options: [{ choice_id: "card_8", name: "만신", description: "pick" }],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    ];
+
+    expect(selectActivePrompt(messages)?.surface.characterPick).toMatchObject({
+      phase: "draft",
+      draftPhase: 2,
+      draftPhaseLabel: "draft_phase_2",
+      choiceCount: 1,
+    });
+  });
+
   it("returns null when a later final_character_choice already completed the same player's final selection prompt", () => {
     const messages: InboundMessage[] = [
       {
@@ -879,6 +932,69 @@ describe("promptSelectors", () => {
     ];
 
     expect(selectCurrentHandTrayCards(messages, "ko", 1)).toHaveLength(5);
+  });
+
+  it("keeps the initial setup trick hand visible during draft prompts", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "initial_public_tricks",
+          players: [
+            {
+              player: 1,
+              public_tricks: ["월척회", "건강 검진"],
+              hidden_trick_count: 1,
+            },
+          ],
+        },
+      },
+      {
+        type: "prompt",
+        seq: 2,
+        session_id: "s1",
+        payload: {
+          request_id: "req_draft_1",
+          request_type: "draft_card",
+          player_id: 1,
+          timeout_ms: 300000,
+          public_context: {
+            draft_phase: 1,
+            offered_count: 4,
+          },
+          choices: [{ choice_id: "draft_mansin", title: "만신", description: "pick" }],
+        },
+      },
+    ];
+
+    expect(selectCurrentHandTrayCards(messages, "ko", 1)).toEqual([
+      {
+        key: "public-1-0-월척회",
+        title: "월척회",
+        effect: "공개된 잔꾀입니다.",
+        serial: "",
+        hidden: false,
+        currentTarget: false,
+      },
+      {
+        key: "public-1-1-건강 검진",
+        title: "건강 검진",
+        effect: "공개된 잔꾀입니다.",
+        serial: "",
+        hidden: false,
+        currentTarget: false,
+      },
+      {
+        key: "hidden-1-0",
+        title: "비공개 잔꾀",
+        effect: "아직 공개되지 않은 잔꾀입니다.",
+        serial: "",
+        hidden: true,
+        currentTarget: false,
+      },
+    ]);
   });
 
   it("prefers the latest state-bearing hand tray over an older backend projection", () => {

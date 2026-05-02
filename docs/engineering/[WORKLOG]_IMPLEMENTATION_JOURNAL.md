@@ -8,6 +8,22 @@ Updated: 2026-05-02
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-02 Initial Trick Hand Draft Visibility Fix
+
+- What changed:
+  - updated web hand-tray fallback matching so engine `initial_public_tricks.players[].player` is treated as the player id
+  - kept initial trick-hand setup events out of the generic live board snapshot path when they do not contain full `player_id` player state
+  - added trick-hand snapshots to draft and final-character prompt contexts in the server decision gateway and local `HumanHttpPolicy`
+  - extended browser parity coverage so the draft prompt must show both active character faces and the bottom 잔꾀 hand tray before any card flip events arrive
+- Why:
+  - the 잔꾀 hand is initial setup/player state, not a UI surface that only exists while a 잔꾀 prompt is active
+  - the frontend could not read the engine's initial setup payload shape, so a draft prompt without `full_hand` made the bottom hand tray disappear
+  - the same initial setup payload carried a lightweight `players` list that could be mistaken for a full board snapshot and briefly blank active character slots
+- Validation:
+  - `npm --prefix apps/web run test -- src/domain/selectors/promptSelectors.spec.ts src/domain/selectors/streamSelectors.spec.ts --run`
+  - `.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_draft_context_exposes_phase_and_offered_candidates apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_final_character_context_keeps_trick_hand_for_bottom_tray apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_local_human_prompt_merges_gateway_public_context_for_draft GPT/test_human_policy_prompt_payloads.py::test_draft_prompt_contains_character_ability_payload -q`
+  - `npm --prefix apps/web run e2e -- --project=chromium --grep "draft prompt keeps active strip hydrated before any flip events arrive"`
+
 ## 2026-05-02 Turn-Start Mark / Trick Replay Loop Fix
 
 - What changed:
@@ -4578,6 +4594,38 @@ Updated: 2026-05-02
   - `cd apps/web && npm run build`
   - browser 1920x1080 AI-session check: `40` `.board-projected-tile`, `0` `.board-lane-strip`, no console errors
   - browser 1920x1080 human draft prompt check: character cards render generated 2:3 portraits and keep visible card metadata/ability text
+
+## 2026-05-02 Round-End Marker Flip Timing
+
+- What changed:
+  - moved round-end marker flip resolution out of `_start_new_round()` and into the round-boundary turn completion path before the turn/round cursor advances
+  - changed `marker_flip` visual events to use `public_phase='turn_end'`
+  - aligned frontend and backend reveal ordering so `marker_transferred` appears before the final `marker_flip`
+  - documented the rule/source-map contract that card flip is the just-finished turn's final event, not the next round's first prelude event
+- Why:
+  - live play showed card flips feeling like they happened at the beginning of the next round, before weather/draft
+  - the engine was resolving `pending_marker_flip_owner_id` inside `_start_new_round()`, which stamped `marker_flip` with the next `round_index` and `weather` phase
+- Validation:
+  - `.venv/bin/python -m pytest GPT/test_rule_fixes.py::TrickSystemTests::test_round_end_marker_flip_is_last_event_of_previous_turn -q`
+
+## 2026-05-02 Forced Draft Pick Auto-Resolution
+
+- What changed:
+  - updated `GPT/engine.py` so one-card draft pools are auto-resolved instead of routed through `choose_draft_card`
+  - kept `draft_pick` event emission for forced picks so replay/order history still shows the full snake draft
+  - added an engine regression asserting scheduled mark effects resolve before the target player's `turn_start`
+  - promoted `mark_queued` to a first-class effect beat in the theater/stage UI and clarified the text as "target turn start first"
+  - updated engine and runtime regression tests to expect final-character selection immediately after P1's first draft when P1's phase-2 draft has only one remaining card
+  - clarified the game rules and Redis runtime playtest lessons: one-card draft pools are forced picks, not human prompts, and mark effects are target-turn-first effects
+- Why:
+  - live first-turn testing showed P1 choosing `만신`, then receiving a separate `건설업자` one-card draft prompt, then choosing between `만신/건설업자`
+  - that second prompt was not a legal choice; it was the final remaining card in the reverse draft and should not interrupt priority iteration
+  - mark selection could be recorded correctly but visually buried behind the next turn-start stage, making `만신`/`산적` targeting look like it had no payoff or had restarted the wrong actor
+- Validation:
+  - `.venv/bin/python -m pytest GPT/test_rule_fixes.py::TrickSystemTests::test_four_player_second_draft_uses_reverse_choice_order GPT/test_rule_fixes.py::TrickSystemTests::test_four_player_draft_starts_from_marker_owner_then_snakes_back -q`
+  - `.venv/bin/python -m pytest GPT/test_rule_fixes.py::RuleFixTests::test_scheduled_mark_resolves_before_target_turn_start -q`
+  - `.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_first_human_draft_resume_auto_resolves_forced_draft_before_final_character -q`
+  - `npm --prefix apps/web run test -- src/features/theater/coreActionScene.spec.ts src/domain/selectors/streamSelectors.spec.ts --run`
 
 ## 2026-05-01 Turn / Draft Ordering And Mark Target Projection Fix
 

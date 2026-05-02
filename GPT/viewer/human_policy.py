@@ -47,6 +47,35 @@ def _lap_reward_choice_id(cash_units: int, shard_units: int, coin_units: int) ->
     return f"cash-{cash_units}_shards-{shard_units}_coins-{coin_units}"
 
 
+def _player_trick_hand_context(player: Any, *, usable_cards: list[Any] | None = None) -> dict[str, Any]:
+    full_hand_cards = list(getattr(player, "trick_hand", []) or usable_cards or [])
+    hidden_deck_index = getattr(player, "hidden_trick_deck_index", None)
+    usable_deck_indices = {
+        getattr(card, "deck_index", None)
+        for card in (usable_cards or [])
+    }
+    return {
+        "total_hand_count": len(full_hand_cards),
+        "hidden_trick_count": sum(
+            1
+            for card in full_hand_cards
+            if hidden_deck_index is not None and getattr(card, "deck_index", None) == hidden_deck_index
+        ),
+        "hidden_trick_deck_index": hidden_deck_index,
+        "hand_names": [getattr(card, "name", str(card)) for card in full_hand_cards],
+        "full_hand": [
+            {
+                "deck_index": getattr(card, "deck_index", None),
+                "name": getattr(card, "name", str(card)),
+                "card_description": getattr(card, "description", ""),
+                "is_hidden": hidden_deck_index is not None and getattr(card, "deck_index", None) == hidden_deck_index,
+                "is_usable": usable_cards is not None and getattr(card, "deck_index", None) in usable_deck_indices,
+            }
+            for card in full_hand_cards
+        ],
+    }
+
+
 def _legal_adjacent_purchase_targets(state: Any, anchor_pos: int) -> list[int]:
     try:
         block_ids = list(getattr(state, "block_ids", []) or [])
@@ -454,6 +483,7 @@ class HumanHttpPolicy:
                 "offered_abilities": [opt["character_ability"] for opt in options],
                 "draft_phase": len(list(getattr(player, "drafted_cards", []) or [])) + 1,
                 "draft_phase_label": f"draft_phase_{len(list(getattr(player, 'drafted_cards', []) or [])) + 1}",
+                **_player_trick_hand_context(player),
             },
             timeout_ms=int(TIMEOUT_S * 1000),
         )
@@ -512,6 +542,7 @@ class HumanHttpPolicy:
                 "choice_abilities": [opt["character_ability"] for opt in options],
                 "final_choice": True,
                 "decision_phase_label": "final_character_confirmation",
+                **_player_trick_hand_context(player),
             },
             timeout_ms=int(TIMEOUT_S * 1000),
         )

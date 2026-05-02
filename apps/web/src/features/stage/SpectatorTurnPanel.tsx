@@ -16,13 +16,6 @@ function hasValue(value: string): boolean {
   return value.trim() !== "" && value.trim() !== "-";
 }
 
-type SpotlightCard = {
-  key: string;
-  title: string;
-  detail: string;
-  tone: "economy" | "effect";
-};
-
 type JourneyCard = {
   key: string;
   label: string;
@@ -45,6 +38,21 @@ type SpectatorPayoffBeat = {
 };
 
 type PayoffTone = "economy" | "effect" | "neutral";
+
+type SpectatorTrainTone = "move" | "economy" | "effect" | "decision" | "system";
+
+type SpectatorTrainItem = {
+  key: string;
+  label: string;
+  value: string;
+  detail: string;
+  tone: SpectatorTrainTone;
+  testId?: string;
+  labelTestId?: string;
+  valueTestId?: string;
+  detailTestId?: string;
+  attrs?: Record<string, string | undefined>;
+};
 
 function payoffToneForEventCode(eventCode: string): PayoffTone {
   if (eventCode === "tile_purchased" || eventCode === "rent_paid" || eventCode === "lap_reward_chosen") {
@@ -78,6 +86,23 @@ function dataAttrValue(value: string | number | null | undefined): string | unde
   }
   const normalized = String(value).trim();
   return normalized ? normalized : undefined;
+}
+
+function compactText(value: string, maxLength = 22): string {
+  const normalized = valueOrDash(value);
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(1, maxLength - 3))}...`;
+}
+
+function joinDetail(label: string, value: string, detail: string): string {
+  const detailText = valueOrDash(detail);
+  const valueText = valueOrDash(value);
+  if (detailText === valueText) {
+    return `${label}: ${detailText}`;
+  }
+  return `${label}: ${valueText} - ${detailText}`;
 }
 
 function journeyPriority(key: string): number {
@@ -149,8 +174,9 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
   const fortuneResolvedEventLabel = eventLabel.events.fortune_resolved ?? app.spectatorFields.effect;
   const landingEventLabel = eventLabel.events.landing_resolved ?? app.spectatorFields.landing;
   const lapRewardEventLabel = eventLabel.events.lap_reward_chosen ?? app.spectatorFields.economy;
+  const markEventCode = model.currentBeatEventCode === "mark_queued" ? "mark_queued" : "mark_resolved";
   const markEventLabel =
-    (eventLabel.events as Record<string, string>)["mark_resolved"] ??
+    (eventLabel.events as Record<string, string>)[markEventCode] ??
     app.spectatorFields.effect;
   const flipEventLabel = eventLabel.events.marker_flip ?? app.spectatorFields.effect;
   const turnEndLabel =
@@ -160,15 +186,6 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
   const latestActionTitle = latestAction?.label ?? "-";
   const latestActionDetail = latestAction?.detail?.trim() ? latestAction.detail : "-";
   const latestActionTone = payoffToneForEventCode(latestAction?.eventCode ?? "");
-  const economyText = app.spectatorEconomySummary([model.purchaseSummary, model.rentSummary]);
-  const effectText = app.spectatorEffectSummary([
-    model.trickSummary,
-    model.fortuneResolvedSummary || model.fortuneSummary,
-    model.fortuneDrawSummary,
-    model.markSummary,
-    model.flipSummary,
-    model.weatherSummary,
-  ]);
   const spotlightSummary = app.spectatorSpotlightSummary([
     model.currentBeatDetail,
     model.turnEndSummary,
@@ -212,12 +229,6 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
       : latestActionTone === "effect"
         ? app.spectatorFields.effect
         : app.spectatorFields.beat;
-  const payoffSummary =
-    latestActionTone === "economy"
-      ? economyText
-      : latestActionTone === "effect"
-        ? effectText
-        : app.spectatorNeutralSummary([model.currentBeatDetail, latestActionDetail]);
   let persistentPayoff: PersistentPayoff | null = null;
   if (hasValue(model.rentSummary)) {
     persistentPayoff = { key: "rent", title: rentEventLabel, detail: model.rentSummary, tone: "economy" };
@@ -237,7 +248,6 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
   } else if (hasValue(model.trickSummary)) {
     persistentPayoff = { key: "trick", title: turnStage.fields.trick, detail: model.trickSummary, tone: "effect" };
   }
-  const spotlightCards: SpotlightCard[] = [];
   const payoffBeats: SpectatorPayoffBeat[] = [];
   const hasExternalWorkerStatus = hasWorkerStatus(model);
   const hasWorkerPayoff =
@@ -245,21 +255,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     (model.externalAiAttemptCount !== null ||
       model.externalAiAttemptLimit !== null ||
       model.externalAiResolutionStatus === "resolved_by_worker");
-  if (hasValue(model.weatherName) || hasValue(model.weatherEffect)) {
-    spotlightCards.push({
-      key: "weather",
-      title: app.spectatorFields.weather,
-      detail: valueOrDash(model.weatherSummary),
-      tone: "effect",
-    });
-  }
   if (hasExternalWorkerStatus) {
-    spotlightCards.push({
-      key: "worker",
-      title: app.spectatorFields.worker,
-      detail: valueOrDash(workerStatusDetail),
-      tone: "effect",
-    });
     if (hasWorkerPayoff) {
       payoffBeats.push({
         key: "worker",
@@ -270,28 +266,18 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     }
   }
   if (hasValue(model.lapRewardSummary)) {
-    spotlightCards.push({ key: "lap-reward", title: lapRewardEventLabel, detail: model.lapRewardSummary, tone: "economy" });
     payoffBeats.push({ key: "lap-reward", title: lapRewardEventLabel, detail: model.lapRewardSummary, tone: "economy" });
   }
   if (hasValue(model.purchaseSummary)) {
-    spotlightCards.push({ key: "purchase", title: purchaseEventLabel, detail: model.purchaseSummary, tone: "economy" });
     payoffBeats.push({ key: "purchase", title: purchaseEventLabel, detail: model.purchaseSummary, tone: "economy" });
   }
   if (hasValue(model.rentSummary)) {
-    spotlightCards.push({ key: "rent", title: rentEventLabel, detail: model.rentSummary, tone: "economy" });
     payoffBeats.push({ key: "rent", title: rentEventLabel, detail: model.rentSummary, tone: "economy" });
   }
   if (hasValue(model.fortuneDrawSummary)) {
-    spotlightCards.push({ key: "fortune-draw", title: fortuneDrawEventLabel, detail: model.fortuneDrawSummary, tone: "effect" });
     payoffBeats.push({ key: "fortune-draw", title: fortuneDrawEventLabel, detail: model.fortuneDrawSummary, tone: "effect" });
   }
   if (hasValue(model.fortuneResolvedSummary || model.fortuneSummary)) {
-    spotlightCards.push({
-      key: "fortune-effect",
-      title: fortuneResolvedEventLabel,
-      detail: model.fortuneResolvedSummary || model.fortuneSummary,
-      tone: "effect",
-    });
     payoffBeats.push({
       key: "fortune-effect",
       title: fortuneResolvedEventLabel,
@@ -299,24 +285,11 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
       tone: "effect",
     });
   }
-  if (hasValue(model.trickSummary)) {
-    spotlightCards.push({ key: "trick", title: turnStage.fields.trick, detail: model.trickSummary, tone: "effect" });
-  }
   if (hasValue(model.markSummary)) {
-    spotlightCards.push({ key: "mark", title: markEventLabel, detail: model.markSummary, tone: "effect" });
     payoffBeats.push({ key: "mark", title: markEventLabel, detail: model.markSummary, tone: "effect" });
   }
   if (hasValue(model.flipSummary)) {
-    spotlightCards.push({ key: "flip", title: flipEventLabel, detail: model.flipSummary, tone: "effect" });
     payoffBeats.push({ key: "flip", title: flipEventLabel, detail: model.flipSummary, tone: "effect" });
-  }
-  if (hasValue(model.turnEndSummary)) {
-    spotlightCards.push({
-      key: "turn-end",
-      title: turnEndLabel,
-      detail: model.turnEndSummary,
-      tone: "effect",
-    });
   }
   const orderedPayoffBeats = payoffBeats.slice().sort((left, right) => payoffPriority(left.key) - payoffPriority(right.key));
   const journeyCards: JourneyCard[] = [];
@@ -441,6 +414,215 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
     });
   }
   const orderedJourneyCards = journeyCards.slice().sort((left, right) => journeyPriority(left.key) - journeyPriority(right.key));
+  const visibleJourneyCards = orderedJourneyCards.slice(0, 8);
+  const hiddenJourneyCount = Math.max(0, orderedJourneyCards.length - visibleJourneyCards.length);
+  const visiblePayoffBeats = orderedPayoffBeats.slice(0, 4);
+  const hiddenPayoffCount = Math.max(0, orderedPayoffBeats.length - visiblePayoffBeats.length);
+  const diceEventLabel = (eventLabel.events as Record<string, string>)["dice_roll"] ?? app.spectatorFields.move;
+  const moveEventLabel = (eventLabel.events as Record<string, string>)["player_move"] ?? app.spectatorFields.move;
+  const trickEventLabel = (eventLabel.events as Record<string, string>)["trick_used"] ?? turnStage.fields.trick;
+  const fortuneCommonEffect =
+    hasValue(model.fortuneResolvedSummary) || (hasValue(model.fortuneSummary) && model.fortuneSummary !== model.fortuneDrawSummary)
+      ? model.fortuneResolvedSummary || model.fortuneSummary
+      : "-";
+  const commonEffectDetail = valueOrDash(app.spectatorEffectSummary([model.weatherSummary || model.weatherEffect, fortuneCommonEffect]));
+  const trainItems: SpectatorTrainItem[] = [];
+  const addTrainItem = (item: SpectatorTrainItem) => {
+    trainItems.push(item);
+  };
+  const payoffAttrs = (key: string, tone: "economy" | "effect") =>
+    persistentPayoff?.key === key
+      ? {
+          testId: "spectator-turn-result",
+          labelTestId: "spectator-turn-result-title",
+          detailTestId: "spectator-turn-result-detail",
+          attrs: {
+            "data-result-key": key,
+            "data-result-tone": tone,
+          },
+        }
+      : {};
+
+  if (hasValue(model.markSummary)) {
+    addTrainItem({
+      key: "mark",
+      label: markEventLabel,
+      value: compactText(model.markSummary, 18),
+      detail: model.markSummary,
+      tone: "effect",
+    });
+  }
+  if (hasValue(model.character)) {
+    addTrainItem({
+      key: "character",
+      label: app.spectatorFields.character,
+      value: model.character,
+      detail: model.character,
+      tone: "decision",
+      testId: "spectator-turn-character",
+      valueTestId: "spectator-turn-character-name",
+      attrs: { "data-character-name": dataAttrValue(model.character) },
+    });
+  }
+  if (hasValue(model.trickSummary)) {
+    addTrainItem({
+      key: "trick",
+      label: trickEventLabel,
+      value: compactText(model.trickSummary, 20),
+      detail: model.trickSummary,
+      tone: "effect",
+      ...payoffAttrs("trick", "effect"),
+    });
+  }
+  if (hasValue(model.fortuneDrawSummary)) {
+    addTrainItem({
+      key: "fortune-draw",
+      label: fortuneDrawEventLabel,
+      value: compactText(model.fortuneDrawSummary, 20),
+      detail: model.fortuneDrawSummary,
+      tone: "effect",
+      ...payoffAttrs("fortune-draw", "effect"),
+    });
+  }
+  if (!hasValue(fortuneCommonEffect) && hasValue(model.fortuneResolvedSummary || model.fortuneSummary)) {
+    addTrainItem({
+      key: "fortune-effect",
+      label: fortuneResolvedEventLabel,
+      value: compactText(model.fortuneResolvedSummary || model.fortuneSummary, 20),
+      detail: model.fortuneResolvedSummary || model.fortuneSummary,
+      tone: "effect",
+      ...payoffAttrs("fortune-effect", "effect"),
+    });
+  }
+  if (hasValue(model.promptSummary)) {
+    addTrainItem({
+      key: "prompt",
+      label: app.spectatorFields.prompt,
+      value: compactText(model.promptSummary, 18),
+      detail: model.currentBeatDetail || model.promptSummary,
+      tone: "decision",
+      testId: "spectator-turn-prompt",
+      valueTestId: "spectator-turn-prompt-title",
+      detailTestId: "spectator-turn-prompt-detail",
+    });
+  }
+  if (hasExternalWorkerStatus) {
+    addTrainItem({
+      key: "worker",
+      label: app.spectatorFields.worker,
+      value: valueOrDash(turnStage.workerStatusLabel(model.externalAiResolutionStatus)),
+      detail: workerStatusDetail,
+      tone: "decision",
+      testId: "spectator-turn-worker",
+      valueTestId: "spectator-turn-worker-title",
+      detailTestId: "spectator-turn-worker-detail",
+      attrs: {
+        "data-worker-id": dataAttrValue(model.externalAiWorkerId),
+        "data-worker-failure-code": dataAttrValue(model.externalAiFailureCode),
+        "data-worker-fallback-mode": dataAttrValue(model.externalAiFallbackMode),
+        "data-worker-resolution-status": dataAttrValue(model.externalAiResolutionStatus),
+        "data-worker-ready-state": dataAttrValue(model.externalAiReadyState),
+        "data-worker-policy-mode": dataAttrValue(model.externalAiPolicyMode),
+        "data-worker-adapter": dataAttrValue(model.externalAiWorkerAdapter),
+        "data-worker-policy-class": dataAttrValue(model.externalAiPolicyClass),
+        "data-worker-decision-style": dataAttrValue(model.externalAiDecisionStyle),
+        "data-worker-attempt-count": dataAttrValue(model.externalAiAttemptCount),
+        "data-worker-attempt-limit": dataAttrValue(model.externalAiAttemptLimit),
+      },
+    });
+  }
+  if (hasValue(model.diceSummary)) {
+    addTrainItem({
+      key: "dice",
+      label: diceEventLabel,
+      value: compactText(model.diceSummary, 18),
+      detail: model.diceSummary,
+      tone: "move",
+    });
+  }
+  if (hasValue(model.moveSummary)) {
+    addTrainItem({
+      key: "move",
+      label: moveEventLabel,
+      value: compactText(model.moveSummary, 18),
+      detail: model.moveSummary,
+      tone: "move",
+      testId: "spectator-turn-move",
+      valueTestId: "spectator-turn-move-title",
+    });
+  }
+  if (hasValue(model.landingSummary)) {
+    addTrainItem({
+      key: "landing",
+      label: landingEventLabel,
+      value: compactText(model.landingSummary, 18),
+      detail: model.landingSummary,
+      tone: "effect",
+      testId: "spectator-turn-landing",
+      valueTestId: "spectator-turn-landing-title",
+    });
+  }
+  if (hasValue(model.rentSummary)) {
+    addTrainItem({
+      key: "rent",
+      label: rentEventLabel,
+      value: compactText(model.rentSummary, 18),
+      detail: model.rentSummary,
+      tone: "economy",
+      ...payoffAttrs("rent", "economy"),
+    });
+  }
+  if (hasValue(model.purchaseSummary)) {
+    addTrainItem({
+      key: "purchase",
+      label: purchaseEventLabel,
+      value: compactText(model.purchaseSummary, 18),
+      detail: model.purchaseSummary,
+      tone: "economy",
+      ...payoffAttrs("purchase", "economy"),
+    });
+  }
+  if (hasValue(model.lapRewardSummary)) {
+    addTrainItem({
+      key: "lap-reward",
+      label: lapRewardEventLabel,
+      value: compactText(model.lapRewardSummary, 18),
+      detail: model.lapRewardSummary,
+      tone: "economy",
+      ...payoffAttrs("lap-reward", "economy"),
+    });
+  }
+  if (hasValue(model.flipSummary)) {
+    addTrainItem({
+      key: "flip",
+      label: flipEventLabel,
+      value: compactText(model.flipSummary, 18),
+      detail: model.flipSummary,
+      tone: "effect",
+    });
+  }
+  if (hasValue(model.turnEndSummary)) {
+    addTrainItem({
+      key: "turn-end",
+      label: turnEndLabel,
+      value: compactText(model.turnEndSummary, 18),
+      detail: model.turnEndSummary,
+      tone: "system",
+      testId: "spectator-turn-handoff",
+      valueTestId: "spectator-turn-handoff-title",
+    });
+  }
+  if (trainItems.length === 0) {
+    addTrainItem({
+      key: "beat",
+      label: app.spectatorFields.beat,
+      value: valueOrDash(model.currentBeatLabel),
+      detail: valueOrDash(model.currentBeatDetail || latestActionDetail),
+      tone: "system",
+    });
+  }
+  const visibleTrainItems = trainItems.slice(0, 8);
+  const hiddenTrainCount = Math.max(0, trainItems.length - visibleTrainItems.length);
 
   return (
     <section className="panel spectator-turn-panel" data-testid="spectator-turn-panel">
@@ -454,7 +636,48 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
         </p>
       </div>
 
-      <div className="spectator-turn-grid">
+      <div className="spectator-turn-train" data-testid="spectator-turn-train">
+        {visibleTrainItems.map((item, index) => (
+          <article
+            key={item.key}
+            className={`spectator-turn-train-step spectator-turn-train-step-${item.tone}`}
+            data-testid={item.testId ?? `spectator-turn-train-step-${index + 1}`}
+            data-event-key={item.key}
+            data-event-tone={item.tone}
+            aria-label={joinDetail(item.label, item.value, item.detail)}
+            tabIndex={0}
+            title={joinDetail(item.label, item.value, item.detail)}
+            {...item.attrs}
+          >
+            <span className="spectator-turn-train-index">{turnStage.sequenceIndex(index + 1, trainItems.length)}</span>
+            <span className="spectator-turn-train-copy">
+              <strong data-testid={item.labelTestId}>{item.label}</strong>
+              <small data-testid={item.valueTestId}>{valueOrDash(item.value)}</small>
+            </span>
+            <span className="spectator-turn-train-tooltip" data-testid={item.detailTestId} role="tooltip">
+              {joinDetail(item.label, item.value, item.detail)}
+            </span>
+          </article>
+        ))}
+        {hiddenTrainCount > 0 ? (
+          <article className="spectator-turn-train-step spectator-turn-train-step-system spectator-turn-train-more">
+            <span className="spectator-turn-train-index">{`+${hiddenTrainCount}`}</span>
+            <span className="spectator-turn-train-copy">
+              <strong>{app.spectatorFields.progress}</strong>
+              <small>{app.spectatorEffectSummary(trainItems.slice(visibleTrainItems.length).map((item) => item.detail))}</small>
+            </span>
+          </article>
+        ) : null}
+      </div>
+
+      {hasValue(commonEffectDetail) ? (
+        <aside className="spectator-turn-common-effect" data-testid="spectator-turn-common-effect">
+          <strong>{app.spectatorFields.commonEffect}</strong>
+          <span data-testid="spectator-turn-common-effect-detail">{commonEffectDetail}</span>
+        </aside>
+      ) : null}
+
+      <div className="spectator-turn-contracts" aria-hidden="true">
         <article className="spectator-turn-card spectator-turn-card-hero" data-testid="spectator-turn-scene">
           <span>{app.spectatorFields.beat}</span>
           <strong data-testid="spectator-turn-scene-title">{valueOrDash(model.currentBeatLabel)}</strong>
@@ -472,84 +695,36 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
           <strong data-testid="spectator-turn-weather-name">{valueOrDash(model.weatherName)}</strong>
           <small data-testid="spectator-turn-weather-detail">{valueOrDash(model.weatherEffect)}</small>
         </article>
-        <article
-          className="spectator-turn-card"
-          data-testid="spectator-turn-character"
-          data-character-name={dataAttrValue(model.character)}
-        >
-          <span>{app.spectatorFields.character}</span>
-          <strong data-testid="spectator-turn-character-name">{valueOrDash(model.character)}</strong>
-        </article>
+        {!hasValue(model.character) ? (
+          <article
+            className="spectator-turn-card"
+            data-testid="spectator-turn-character"
+            data-character-name={dataAttrValue(model.character)}
+          >
+            <span>{app.spectatorFields.character}</span>
+            <strong data-testid="spectator-turn-character-name">{valueOrDash(model.character)}</strong>
+          </article>
+        ) : null}
         <article className="spectator-turn-card" data-testid="spectator-turn-action">
           <span>{app.spectatorFields.action}</span>
           <strong data-testid="spectator-turn-action-title">{valueOrDash(latestActionTitle)}</strong>
           <small data-testid="spectator-turn-action-detail">{valueOrDash(latestActionDetail)}</small>
         </article>
-      {latestActionTitle !== "-" ? (
-          <article
-            className={`spectator-turn-card spectator-turn-card-payoff spectator-turn-card-payoff-${latestActionTone}`}
-            data-testid="spectator-turn-payoff"
-          >
-            <span>{payoffTitle}</span>
-            <strong data-testid="spectator-turn-payoff-title">{valueOrDash(payoffSummary)}</strong>
-            <small data-testid="spectator-turn-payoff-detail">{valueOrDash(latestActionTitle)}</small>
+        {!hasValue(model.promptSummary) ? (
+          <article className="spectator-turn-card" data-testid="spectator-turn-prompt">
+            <span>{app.spectatorFields.prompt}</span>
+            <strong data-testid="spectator-turn-prompt-title">{valueOrDash(model.promptSummary)}</strong>
+            <small data-testid="spectator-turn-prompt-detail">{valueOrDash(model.currentBeatDetail)}</small>
           </article>
         ) : null}
-        <article className="spectator-turn-card" data-testid="spectator-turn-prompt">
-          <span>{app.spectatorFields.prompt}</span>
-          <strong data-testid="spectator-turn-prompt-title">{valueOrDash(model.promptSummary)}</strong>
-          <small data-testid="spectator-turn-prompt-detail">{valueOrDash(model.currentBeatDetail)}</small>
-        </article>
-        {hasWorkerStatus(model) ? (
-          <article
-            className={`spectator-turn-card spectator-turn-card-worker spectator-turn-card-worker-${model.externalAiResolutionStatus || "idle"}`}
-            data-testid="spectator-turn-worker"
-            data-worker-id={dataAttrValue(model.externalAiWorkerId)}
-            data-worker-failure-code={dataAttrValue(model.externalAiFailureCode)}
-            data-worker-fallback-mode={dataAttrValue(model.externalAiFallbackMode)}
-            data-worker-resolution-status={dataAttrValue(model.externalAiResolutionStatus)}
-            data-worker-ready-state={dataAttrValue(model.externalAiReadyState)}
-            data-worker-policy-mode={dataAttrValue(model.externalAiPolicyMode)}
-            data-worker-adapter={dataAttrValue(model.externalAiWorkerAdapter)}
-            data-worker-policy-class={dataAttrValue(model.externalAiPolicyClass)}
-            data-worker-decision-style={dataAttrValue(model.externalAiDecisionStyle)}
-            data-worker-attempt-count={dataAttrValue(model.externalAiAttemptCount)}
-            data-worker-attempt-limit={dataAttrValue(model.externalAiAttemptLimit)}
-          >
-            <span>{app.spectatorFields.worker}</span>
-            <strong data-testid="spectator-turn-worker-title">{valueOrDash(turnStage.workerStatusLabel(model.externalAiResolutionStatus))}</strong>
-            <small data-testid="spectator-turn-worker-detail">{valueOrDash(workerStatusDetail)}</small>
-          </article>
-        ) : null}
-        <article className="spectator-turn-card" data-testid="spectator-turn-move">
-          <span>{app.spectatorFields.move}</span>
-          <strong data-testid="spectator-turn-move-title">{valueOrDash(model.moveSummary)}</strong>
-        </article>
-        <article className="spectator-turn-card" data-testid="spectator-turn-landing">
-          <span>{app.spectatorFields.landing}</span>
-          <strong data-testid="spectator-turn-landing-title">{valueOrDash(model.landingSummary)}</strong>
-        </article>
-      </div>
-
-      {spotlightCards.length > 0 ? (
-        <div className="spectator-turn-spotlight" data-testid="spectator-turn-spotlight">
-          {spotlightCards.map((card) => (
-            <article key={card.key} className={`spectator-turn-spotlight-card spectator-turn-spotlight-card-${card.tone}`}>
-              <span>{card.title}</span>
-              <strong>{valueOrDash(card.detail)}</strong>
-            </article>
-          ))}
-        </div>
-      ) : null}
-
-      {orderedPayoffBeats.length > 0 ? (
+        {orderedPayoffBeats.length > 0 ? (
         <section className="core-action-payoff-sequence spectator-turn-payoff-sequence" data-testid="spectator-turn-payoff-sequence">
           <div className="core-action-journey-head">
             <strong>{payoffTitle}</strong>
             <small>{valueOrDash(latestActionTitle)}</small>
           </div>
           <div className="core-action-payoff-strip">
-            {orderedPayoffBeats.map((beat, index) => (
+            {visiblePayoffBeats.map((beat, index) => (
               <article
                 key={beat.key}
                 className={`core-action-result-card core-action-result-card-${beat.tone}`}
@@ -564,18 +739,27 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
                 <p data-testid={`spectator-turn-payoff-step-detail-${index + 1}`}>{valueOrDash(beat.detail)}</p>
               </article>
             ))}
+            {hiddenPayoffCount > 0 ? (
+              <article className="core-action-result-card core-action-result-card-effect spectator-turn-more-card">
+                <div className="core-action-result-head">
+                  <strong>{`+${hiddenPayoffCount}`}</strong>
+                  <span>{app.spectatorFields.effect}</span>
+                </div>
+                <p>{app.spectatorEffectSummary(orderedPayoffBeats.slice(visiblePayoffBeats.length).map((beat) => beat.detail))}</p>
+              </article>
+            ) : null}
           </div>
         </section>
-      ) : null}
+        ) : null}
 
-      {orderedJourneyCards.length > 0 ? (
+        {orderedJourneyCards.length > 0 ? (
         <section className="core-action-journey spectator-turn-journey" data-testid="spectator-turn-journey">
           <div className="core-action-journey-head">
             <strong>{turnStage.progressTitle}</strong>
             <small>{valueOrDash(latestActionTitle)}</small>
           </div>
           <div className="core-action-journey-strip">
-            {orderedJourneyCards.map((card, index) => (
+            {visibleJourneyCards.map((card, index) => (
               <article
                 key={card.key}
                 className={`core-action-journey-step core-action-journey-step-${card.tone}`}
@@ -588,11 +772,20 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
                 <small data-testid={`spectator-turn-journey-step-detail-${index + 1}`}>{valueOrDash(card.detail)}</small>
               </article>
             ))}
+            {hiddenJourneyCount > 0 ? (
+              <article className="core-action-journey-step core-action-journey-step-effect spectator-turn-more-card">
+                <span className="core-action-journey-index">{`+${hiddenJourneyCount}`}</span>
+                <strong>{app.spectatorFields.progress}</strong>
+                <small>
+                  {app.spectatorEffectSummary(orderedJourneyCards.slice(visibleJourneyCards.length).map((card) => card.detail))}
+                </small>
+              </article>
+            ) : null}
           </div>
         </section>
-      ) : null}
+        ) : null}
 
-      {persistentPayoff ? (
+        {persistentPayoff && !visibleTrainItems.some((item) => item.testId === "spectator-turn-result") ? (
         <article
           className={`spectator-turn-card spectator-turn-card-payoff spectator-turn-card-payoff-${persistentPayoff.tone}`}
           data-testid="spectator-turn-result"
@@ -603,16 +796,16 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
           <strong data-testid="spectator-turn-result-title">{valueOrDash(persistentPayoff.title)}</strong>
           <small data-testid="spectator-turn-result-detail">{valueOrDash(persistentPayoff.detail)}</small>
         </article>
-      ) : null}
+        ) : null}
 
-      {hasValue(model.turnEndSummary) ? (
+        {hasValue(model.turnEndSummary) && !visibleTrainItems.some((item) => item.testId === "spectator-turn-handoff") ? (
         <article className="spectator-turn-card spectator-turn-card-handoff" data-testid="spectator-turn-handoff">
           <span>{turnEndLabel}</span>
           <strong data-testid="spectator-turn-handoff-title">{valueOrDash(model.turnEndSummary)}</strong>
           <small>{app.spectatorDescription}</small>
         </article>
-      ) : null}
-
+        ) : null}
+      </div>
     </section>
   );
 }

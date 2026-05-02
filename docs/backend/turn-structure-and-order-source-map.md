@@ -57,20 +57,17 @@ Scope: `GPT` 엔진 턴 진행 순서(라운드 시작 포함)와 로그 생성 
 순서:
 
 1. 라운드/턴 플래그 리셋 (플레이어별 임시 효과 초기화)
-2. 카드 플립 처리
-   - 호출: `_resolve_marker_flip` -> `marker.flip.resolve` 디스패치
-   - semantic trace row 생성 (`event_kind=semantic_event`)
-3. `round_start` 시각 이벤트 emit
-4. 날씨 적용
+2. `round_start` 시각 이벤트 emit
+3. 날씨 적용
    - `_apply_round_weather`
    - 현재는 직접 구현이 아니라 `weather.round.apply` 이벤트 버스 래퍼
    - runtime row: `weather_round`
-5. `weather_reveal` 시각 이벤트 emit
-6. 드래프트
+4. `weather_reveal` 시각 이벤트 emit
+5. 드래프트
    - `_run_draft`
    - runtime rows: `draft_pick`, `final_character_choice` (+ hidden card 로그)
    - 시각 이벤트: `draft_pick`, `final_character_choice`
-7. 우선권 계산 및 `round_order` runtime row 기록
+6. 우선권 계산 및 `round_order` runtime row 기록
 
 관련 소스:
 
@@ -123,11 +120,14 @@ Scope: `GPT` 엔진 턴 진행 순서(라운드 시작 포함)와 로그 생성 
 
 ## 3.4 End-of-Turn
 
-1. `_apply_marker_management`
-   - semantic: `marker.management.apply`
+1. 종료 윈도우 보정(`_maybe_award_control_finisher_window`)
+2. `turn_end_snapshot` 시각 이벤트 emit
+3. 라운드 마지막 턴이면 징표/카드 플립을 같은 턴의 마지막 공개 이벤트로 처리
+   - `_apply_round_end_marker_management`
    - doctrine 계열이면 runtime `marker_moved` + 시각 `marker_transferred`
-2. 종료 윈도우 보정(`_maybe_award_control_finisher_window`)
-3. `turn_end_snapshot` 시각 이벤트 emit
+   - `_resolve_marker_flip` -> `marker.flip.resolve`
+   - 카드 플립 시각 이벤트는 `public_phase='turn_end'`로 emit
+4. 턴 커서 증가, 라운드 경계면 `rounds_completed` 증가 후 `_start_new_round`
 
 ---
 

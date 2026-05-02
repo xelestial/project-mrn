@@ -1023,7 +1023,7 @@ export function PromptOverlay({
   }
 
   const promptLabel = promptLabelForType(prompt.requestType, promptType);
-  const promptHelp = promptHelperForType(prompt.requestType, promptHelper);
+  const basePromptHelp = promptHelperForType(prompt.requestType, promptHelper);
   const usesSpecializedSurface = isSpecializedPromptType(prompt.requestType);
   const promptTimeRatio =
     secondsLeft !== null && prompt.timeoutMs > 0
@@ -1258,8 +1258,8 @@ export function PromptOverlay({
         .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
         .join(" / ")
     : "";
-  const draftPhase = numberFromContext(prompt.publicContext, "draft_phase");
-  const offeredCount = numberFromContext(prompt.publicContext, "offered_count");
+  const draftPhase = prompt.surface.characterPick?.draftPhase ?? numberFromContext(prompt.publicContext, "draft_phase");
+  const offeredCount = prompt.surface.characterPick?.choiceCount ?? numberFromContext(prompt.publicContext, "offered_count");
   const offeredNames = Array.isArray(prompt.publicContext["offered_names"])
     ? prompt.publicContext["offered_names"].map((value) => asString(value)).filter((value) => value.length > 0)
     : [];
@@ -1294,6 +1294,12 @@ export function PromptOverlay({
   const burdenTrayGuide = locale.startsWith("ko")
     ? "제거할 짐을 2장이나 3장까지 한 번에 고르면, 나머지 보급 처리도 자동으로 이어집니다."
     : "Pick two or three burdens together and the remaining supply cleanup will continue automatically.";
+  const promptHelp =
+    prompt.requestType === "draft_card"
+      ? draftPhase === 2
+        ? promptText.character.draftReversePrompt(offeredCount)
+        : promptText.character.draftForwardPrompt(offeredCount)
+      : basePromptHelp;
   const burdenRemoveButtonLabel = locale.startsWith("ko")
     ? "선택한 짐 없애기"
     : "Remove selected burdens";

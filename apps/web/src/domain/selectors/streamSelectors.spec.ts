@@ -1747,6 +1747,51 @@ describe("streamSelectors", () => {
     ).toEqual(["어사", "산적", "탈출 노비", "아전", "교리 감독관", "만신", "중매꾼", "사기꾼"]);
   });
 
+  it("does not treat initial trick-hand setup as a full board snapshot", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "round_start",
+          active_by_card: {
+            "1": "어사",
+            "2": "산적",
+          },
+          players: [
+            {
+              player_id: 1,
+              display_name: "Player 1",
+              character: "-",
+              alive: true,
+              position: 0,
+              cash: 20,
+              shards: 4,
+            },
+          ],
+        },
+      },
+      {
+        type: "event",
+        seq: 2,
+        session_id: "s1",
+        payload: {
+          event_type: "initial_public_tricks",
+          players: [
+            {
+              player: 1,
+              public_tricks: ["월척회"],
+              hidden_trick_count: 1,
+            },
+          ],
+        },
+      },
+    ];
+
+    expect(selectLatestSnapshot(messages)?.activeByCard).toEqual({ 1: "어사", 2: "산적" });
+  });
+
   it("ignores stale backend mark-target projections when a newer raw prompt arrives", () => {
     const messages: InboundMessage[] = [
       {
@@ -3663,6 +3708,42 @@ describe("streamSelectors", () => {
     expect(stage.effectSummary).toContain("기본 처리");
     expect(stage.progressTrail).toContain("지목 예약");
     expect(stage.progressTrail).toContain("지목 대상 없음");
+  });
+
+  it("describes queued marks as first-at-target-turn effects", () => {
+    const stage = selectTurnStage([
+      {
+        type: "event",
+        seq: 810,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 9,
+          turn_index: 3,
+          acting_player_id: 1,
+          character: "만신",
+        },
+      },
+      {
+        type: "event",
+        seq: 811,
+        session_id: "s1",
+        payload: {
+          event_type: "mark_queued",
+          round_index: 9,
+          turn_index: 3,
+          acting_player_id: 1,
+          source_player_id: 1,
+          target_player_id: 3,
+          target_character: "객주",
+          effect_type: "manshin_remove_burdens",
+        },
+      },
+    ]);
+
+    expect(stage.currentBeatEventCode).toBe("mark_queued");
+    expect(stage.currentBeatKind).toBe("effect");
+    expect(stage.markSummary).toContain("대상 턴 시작 최우선 처리 예약");
   });
 
   it("uses prompt actor and hides stale character during draft and final-character phases", () => {

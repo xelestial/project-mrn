@@ -167,7 +167,48 @@ def _load_selector_prompt_fixture(name: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-class RuleFixTests(unittest.TestCase):
+class DraftRuleAssertionMixin:
+    def expected_marker_draft_order(self, marker_owner_id, clockwise=True):
+        player_count = DEFAULT_CONFIG.player_count
+        step = 1 if clockwise else -1
+        return [(marker_owner_id + step * offset) % player_count for offset in range(player_count)]
+
+    def assert_draft_prompt_calls_follow_snake_rule(self, draft_calls, marker_owner_id, clockwise=True):
+        player_count = DEFAULT_CONFIG.player_count
+        phase1_order = self.expected_marker_draft_order(marker_owner_id, clockwise=clockwise)
+        phase2_order = list(reversed(phase1_order))
+        expected_offer_counts = list(range(player_count, 1, -1))
+        prompt_count_per_phase = player_count - 1
+
+        self.assertEqual(len(draft_calls), prompt_count_per_phase * 2)
+        self.assertEqual([pid for pid, _, _ in draft_calls[:prompt_count_per_phase]], phase1_order[:-1])
+        self.assertEqual([phase for _, phase, _ in draft_calls[:prompt_count_per_phase]], [1] * prompt_count_per_phase)
+        self.assertEqual([len(offered) for _, _, offered in draft_calls[:prompt_count_per_phase]], expected_offer_counts)
+        self.assertEqual([pid for pid, _, _ in draft_calls[prompt_count_per_phase:]], phase2_order[:-1])
+        self.assertEqual([phase for _, phase, _ in draft_calls[prompt_count_per_phase:]], [2] * prompt_count_per_phase)
+        self.assertEqual([len(offered) for _, _, offered in draft_calls[prompt_count_per_phase:]], expected_offer_counts)
+
+    def assert_draft_events_follow_snake_rule(self, action_log, marker_owner_id, clockwise=True):
+        player_count = DEFAULT_CONFIG.player_count
+        phase1_order = self.expected_marker_draft_order(marker_owner_id, clockwise=clockwise)
+        phase2_order = list(reversed(phase1_order))
+        draft_rows = [row for row in action_log if row.get("event") == "draft_pick"]
+
+        self.assertEqual(len(draft_rows), player_count * 2)
+        self.assertEqual([row["player"] - 1 for row in draft_rows[:player_count]], phase1_order)
+        self.assertEqual([row["phase"] for row in draft_rows[:player_count]], [1] * player_count)
+        self.assertEqual([row["player"] - 1 for row in draft_rows[player_count:]], phase2_order)
+        self.assertEqual([row["phase"] for row in draft_rows[player_count:]], [2] * player_count)
+
+        forced_rows = [
+            row
+            for row in draft_rows
+            if isinstance(row.get("decision"), dict) and row["decision"].get("auto_resolved")
+        ]
+        self.assertEqual([(row["phase"], row["player"] - 1) for row in forced_rows], [(1, phase1_order[-1]), (2, phase2_order[-1])])
+
+
+class RuleFixTests(DraftRuleAssertionMixin, unittest.TestCase):
     def make_engine(self, policy=None, rng=None):
         return GameEngine(DEFAULT_CONFIG, policy or DummyPolicy(), rng=rng or random.Random(0), enable_logging=True)
 
@@ -682,6 +723,47 @@ class RuleFixTests(unittest.TestCase):
 
         engine._queue_mark(state, bandit.player_id, "아전", {"type": "bandit_tax"})
         self.assertEqual(target.pending_marks, [])
+
+    def test_scheduled_mark_resolves_before_target_turn_start(self):
+        stream = VisEventStream()
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True, event_stream=stream)
+        state = self.make_state(engine)
+        source = state.players[0]
+        target = state.players[1]
+        source.current_character = "만신"
+        target.current_character = "객주"
+        state.current_round_order = [source.player_id, target.player_id]
+        state.turn_index = 1
+        mark = {"type": "manshin_remove_burdens", "source_pid": source.player_id}
+        target.pending_marks.append(mark)
+        engine._schedule_action(
+            state,
+            "resolve_mark",
+            source,
+            "mark:manshin_remove_burdens",
+            {"mark": dict(mark), "target_player_id": target.player_id, "target_character": target.current_character},
+            target_player_id=target.player_id,
+            phase="turn_start",
+            priority=10,
+        )
+
+        first = engine.run_next_transition(state)
+        event_types = [event.event_type for event in stream.events]
+
+        self.assertEqual(first["action_type"], "resolve_mark")
+        self.assertEqual(event_types, ["mark_resolved"])
+        self.assertEqual(target.pending_marks, [])
+        self.assertEqual(target.turns_taken, 0)
+        self.assertEqual(state.turn_index, 1)
+
+        second = engine.run_next_transition(state)
+        event_types = [event.event_type for event in stream.events]
+
+        self.assertEqual(second["player_id"], target.player_id + 1)
+        self.assertEqual(event_types.count("mark_resolved"), 1)
+        self.assertIn("turn_start", event_types)
+        self.assertLess(event_types.index("mark_resolved"), event_types.index("turn_start"))
+        self.assertEqual(target.turns_taken, 1)
 
     def _legacy_test_mark_target_must_be_future_turn_character(self):
         policy = TargetPolicy(target_name="아전")
@@ -1231,7 +1313,7 @@ class RuleFixTests(unittest.TestCase):
         self.assertGreater(enriched_score, base_score + 2.0)
 
 
-class TrickSystemTests(unittest.TestCase):
+class TrickSystemTests(DraftRuleAssertionMixin, unittest.TestCase):
     def make_engine(self, policy=None, rng=None):
         return GameEngine(DEFAULT_CONFIG, policy or DummyPolicy(), rng=rng or random.Random(0), enable_logging=True)
 
@@ -1464,11 +1546,17 @@ class TrickSystemTests(unittest.TestCase):
         engine._initialize_active_faces(state)
         engine._run_draft(state)
 
-        self.assertEqual(len(policy.draft_calls), DEFAULT_CONFIG.player_count * 2)
-        self.assertEqual([pid for pid, phase, _ in policy.draft_calls[:4]], [0, 1, 2, 3])
-        self.assertEqual([phase for _, phase, _ in policy.draft_calls[:4]], [1, 1, 1, 1])
-        self.assertEqual([pid for pid, phase, _ in policy.draft_calls[4:]], [3, 2, 1, 0])
-        self.assertEqual([phase for _, phase, _ in policy.draft_calls[4:]], [2, 2, 2, 2])
+        self.assert_draft_prompt_calls_follow_snake_rule(
+            policy.draft_calls,
+            marker_owner_id=state.marker_owner_id,
+            clockwise=state.marker_draft_clockwise,
+        )
+        self.assert_draft_events_follow_snake_rule(
+            engine._action_log,
+            marker_owner_id=state.marker_owner_id,
+            clockwise=state.marker_draft_clockwise,
+        )
+        self.assertTrue(all(len(offered) > 1 for _, _, offered in policy.draft_calls))
         self.assertTrue(all(len(p.drafted_cards) == 2 for p in state.players))
         phase2 = [
             row
@@ -1477,7 +1565,48 @@ class TrickSystemTests(unittest.TestCase):
         ]
         self.assertEqual(len(phase2), DEFAULT_CONFIG.player_count)
         self.assertFalse(any(row.get("random_assigned", False) for row in phase2))
-        self.assertEqual([row["player"] for row in phase2], [4, 3, 2, 1])
+        expected_phase2_public_ids = [
+            player_id + 1
+            for player_id in reversed(
+                self.expected_marker_draft_order(state.marker_owner_id, clockwise=state.marker_draft_clockwise)
+            )
+        ]
+        self.assertEqual([row["player"] for row in phase2], expected_phase2_public_ids)
+
+    def test_four_player_draft_starts_from_marker_owner_then_snakes_back(self):
+        class CountingDraftPolicy(DummyPolicy):
+            def __init__(self):
+                super().__init__()
+                self.draft_calls = []
+
+            def choose_draft_card(self, state, player, offered_cards):
+                self.draft_calls.append((player.player_id, len(player.drafted_cards) + 1, tuple(offered_cards)))
+                return offered_cards[0]
+
+            def choose_final_character(self, state, player, card_choices):
+                return state.active_by_card[card_choices[0]]
+
+        policy = CountingDraftPolicy()
+        engine = self.make_engine(policy=policy)
+        state = self.make_state(engine)
+        state.marker_owner_id = 2
+        state.marker_draft_clockwise = True
+        engine._initialize_active_faces(state)
+
+        engine._run_draft(state)
+
+        self.assert_draft_prompt_calls_follow_snake_rule(
+            policy.draft_calls,
+            marker_owner_id=state.marker_owner_id,
+            clockwise=state.marker_draft_clockwise,
+        )
+        self.assert_draft_events_follow_snake_rule(
+            engine._action_log,
+            marker_owner_id=state.marker_owner_id,
+            clockwise=state.marker_draft_clockwise,
+        )
+        self.assertTrue(all(len(offered) > 1 for _, _, offered in policy.draft_calls))
+        self.assertEqual(len(state.players[2].drafted_cards), 2)
 
     def test_marker_management_moves_owner_to_doctrine_player_at_round_end(self):
         engine = self.make_engine(policy=DummyPolicy())
@@ -1516,6 +1645,41 @@ class TrickSystemTests(unittest.TestCase):
         self.assertEqual(result["cards"], [1, 2])
         flip_rows = [row for row in engine._action_log if row.get("event") == "marker_flip"]
         self.assertEqual([row.get("card_no") for row in flip_rows[-2:]], [1, 2])
+
+    def test_round_end_marker_flip_is_last_event_of_previous_turn(self):
+        class OneFlipPolicy(DummyPolicy):
+            def choose_active_flip_card(self, state, player, flippable_cards):
+                del state, player, flippable_cards
+                return [1]
+
+            def choose_final_character(self, state, player, card_choices):
+                return state.active_by_card[card_choices[0]]
+
+        stream = VisEventStream()
+        engine = GameEngine(
+            DEFAULT_CONFIG,
+            OneFlipPolicy(),
+            rng=random.Random(0),
+            enable_logging=True,
+            event_stream=stream,
+        )
+        state = self.make_state(engine)
+        engine._initialize_active_faces(state)
+        state.current_round_order = [0, 1, 2, 3]
+        state.turn_index = 3
+        state.rounds_completed = 0
+        state.players[3].current_character = "교리 감독관"
+
+        engine._advance_turn_cursor_after_completion(state, 3)
+
+        events = stream.to_list()
+        marker_flip = next(row for row in events if row["event_type"] == "marker_flip")
+        round_start = next(row for row in events if row["event_type"] == "round_start")
+        self.assertEqual(marker_flip["round_index"], 1)
+        self.assertEqual(marker_flip["turn_index"], 4)
+        self.assertEqual(marker_flip["public_phase"], "turn_end")
+        self.assertLess(marker_flip["step_index"], round_start["step_index"])
+        self.assertIsNone(state.pending_marker_flip_owner_id)
 
     def test_trick_phase_uses_only_one_card_per_turn(self):
         class FirstUsablePolicy(DummyPolicy):

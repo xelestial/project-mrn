@@ -75,8 +75,9 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
   const rentEventLabel = eventLabel.events.rent_paid ?? turnStage.fields.rent;
   const fortuneDrawEventLabel = eventLabel.events.fortune_drawn ?? turnStage.fields.fortune;
   const fortuneResolvedEventLabel = eventLabel.events.fortune_resolved ?? turnStage.cardEffectTitle;
-  const markResolvedEventLabel =
-    (eventLabel.events as Record<string, string>)["mark_resolved"] ??
+  const markEventCode = model.currentBeatEventCode === "mark_queued" ? "mark_queued" : "mark_resolved";
+  const markEventLabel =
+    (eventLabel.events as Record<string, string>)[markEventCode] ??
     turnStage.fields.beat;
   const turnEndLabel =
     (eventLabel.events as Record<string, string>)["turn_end_snapshot"] ??
@@ -164,7 +165,7 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
         }
       : null,
     hasMeaningfulValue(model.markSummary)
-      ? { key: "mark", label: markResolvedEventLabel, value: model.markSummary, detail: turnStage.sequenceBeat.mark, tone: "effect" }
+      ? { key: "mark", label: markEventLabel, value: model.markSummary, detail: turnStage.sequenceBeat.mark, tone: "effect" }
       : null,
     hasMeaningfulValue(model.flipSummary)
       ? { key: "flip", label: eventLabel.events.marker_flip ?? turnStage.cardEffectTitle, value: model.flipSummary, detail: turnStage.sequenceBeat.flip, tone: "effect" }
@@ -277,7 +278,7 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
           </div>
           {stageLine(turnStage.fields.trick, model.trickSummary)}
           {stageLine(eventLabel.events.lap_reward_chosen ?? turnStage.fields.beat, model.lapRewardSummary)}
-          {stageLine(markResolvedEventLabel, model.markSummary)}
+          {stageLine(markEventLabel, model.markSummary)}
           {stageLine(eventLabel.events.marker_flip ?? turnStage.cardEffectTitle, model.flipSummary)}
           {stageLine(fortuneDrawEventLabel, model.fortuneDrawSummary)}
           {stageLine(fortuneResolvedEventLabel, model.fortuneResolvedSummary || model.fortuneSummary)}

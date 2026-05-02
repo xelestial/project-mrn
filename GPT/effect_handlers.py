@@ -515,7 +515,7 @@ class EngineEffectHandlers:
                 engine._log(event)
                 engine._emit_vis(
                     "marker_flip",
-                    Phase.WEATHER,
+                    Phase.TURN_END,
                     owner.player_id + 1,
                     state,
                     card_no=chosen_card_index,

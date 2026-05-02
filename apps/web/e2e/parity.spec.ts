@@ -1173,9 +1173,23 @@ test("draft prompt keeps active strip hydrated before any flip events arrive", a
             weather_name: "긴급 피난",
           },
         }),
+        eventMessage({
+          seq: 4,
+          sessionId,
+          payload: {
+            event_type: "initial_public_tricks",
+            players: [
+              {
+                player: 1,
+                public_tricks: ["월척회", "건강 검진"],
+                hidden_trick_count: 1,
+              },
+            ],
+          },
+        }),
         {
           type: "prompt",
-          seq: 4,
+          seq: 5,
           session_id: sessionId,
           server_time_ms: 1_700_000_000_304,
           payload: {
@@ -1238,6 +1252,9 @@ test("draft prompt keeps active strip hydrated before any flip events arrive", a
   await expect(page.getByTestId("character-choice-draft_matchmaker")).toContainText("조각 8+이면 인접 토지 추가 매입 1배");
   await expect(page.getByTestId("character-choice-draft_doctrine_guard")).not.toContainText("능력2");
   await expect(page.getByTestId("character-choice-draft_doctrine_guard")).toContainText("조각 8+이면 짐 1장 제거");
+  await expect(page.getByTestId("board-hand-tray")).toBeVisible();
+  await expect(page.getByTestId("board-hand-tray")).toContainText("월척회");
+  await expect(page.getByTestId("board-hand-tray")).toContainText("비공개 잔꾀");
 });
 
 test("round start shows weather and active strip before any prompt appears", async ({ page }) => {

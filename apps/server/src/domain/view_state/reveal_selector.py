@@ -38,8 +38,8 @@ CURRENT_TURN_REVEAL_ORDER: dict[str, int] = {
     "fortune_resolved": 70,
     "mark_queued": 76,
     "mark_resolved": 78,
-    "marker_flip": 80,
-    "marker_transferred": 82,
+    "marker_transferred": 80,
+    "marker_flip": 82,
     "bankruptcy": 90,
     "game_end": 95,
 }

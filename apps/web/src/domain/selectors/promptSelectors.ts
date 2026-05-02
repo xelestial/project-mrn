@@ -77,6 +77,9 @@ export type PromptViewModel = {
     } | null;
     characterPick: {
       phase: string;
+      draftPhase: number | null;
+      draftPhaseLabel: string | null;
+      choiceCount: number;
       options: Array<{
         choiceId: string;
         name: string;
@@ -704,6 +707,13 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
       characterPick
         ? {
             phase: stringOrEmpty(characterPick["phase"]) || (requestType === "draft_card" ? "draft" : "final"),
+            draftPhase: numberOrNull(characterPick["draft_phase"]) ?? numberOrNull(publicContext["draft_phase"]),
+            draftPhaseLabel: stringOrEmpty(characterPick["draft_phase_label"]) || stringOrEmpty(publicContext["draft_phase_label"]) || null,
+            choiceCount:
+              numberOrNull(characterPick["choice_count"]) ??
+              numberOrNull(publicContext["offered_count"]) ??
+              numberOrNull(publicContext["choice_count"]) ??
+              (Array.isArray(characterPick["options"]) ? characterPick["options"].length : 0),
             options: Array.isArray(characterPick["options"])
               ? characterPick["options"].flatMap((item) => {
                   if (!isRecord(item)) {
@@ -721,6 +731,12 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
         : requestType === "draft_card" || requestType === "final_character" || requestType === "final_character_choice"
           ? {
               phase: requestType === "draft_card" ? "draft" : "final",
+              draftPhase: numberOrNull(publicContext["draft_phase"]),
+              draftPhaseLabel: stringOrEmpty(publicContext["draft_phase_label"]) || null,
+              choiceCount:
+                numberOrNull(publicContext["offered_count"]) ??
+                numberOrNull(publicContext["choice_count"]) ??
+                (Array.isArray(choicesRaw) ? choicesRaw.length : 0),
               options: Array.isArray(choicesRaw)
                 ? choicesRaw.flatMap((item) => {
                     if (!isRecord(item)) {
@@ -1316,7 +1332,7 @@ function playerRecordFromPayload(payload: Record<string, unknown>, preferredPlay
       if (!isRecord(item)) {
         return false;
       }
-      const rawPlayerId = item["player_id"] ?? item["playerId"] ?? item["id"];
+      const rawPlayerId = numberOrNull(item["player_id"] ?? item["playerId"] ?? item["id"] ?? item["player"]);
       return rawPlayerId === preferredPlayerId;
     });
     if (isRecord(match)) {

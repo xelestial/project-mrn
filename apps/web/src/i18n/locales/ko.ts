@@ -45,6 +45,7 @@ export const koLocale = {
       economy: "경제 처리",
       effect: "효과 처리",
       progress: "턴 진행 흐름",
+      commonEffect: "공통효과",
     },
     topSummaryEmpty: "세션을 선택하세요",
     topSummary: (sessionId: string, runtimeStatus: string) => `세션 ${sessionId} / 상태 ${runtimeStatus}`,
@@ -514,7 +515,7 @@ export const koLocale = {
               : effectType === "manshin_remove_burdens"
                 ? "만신"
                 : "지목";
-      return `[${effect}] P${source} -> P${target} / ${targetCharacter}`;
+      return `[${effect}] P${source} -> P${target} / ${targetCharacter} / 대상 턴 시작 최우선 처리 예약`;
     },
     markTargetNone: (source: unknown, actorName: string) => `${actorName || `P${source}`} / 지목 가능한 대상이 없어 기본 처리`,
     markTargetMissing: (source: unknown, targetCharacter: string) =>
@@ -829,6 +830,10 @@ export const koLocale = {
       finalPrompt: "[최종으로 사용할 인물을 고르세요]",
       ability: (name: string) => `[${name} 능력]`,
       draftPhaseLabel: (phase: number | null) => (phase !== null ? `${phase}차 드래프트` : "드래프트"),
+      draftForwardPrompt: (count: number | null) =>
+        `1차 드래프트: 징표 소유자부터 전달 방향 순서로 1장 선택합니다.${count !== null ? ` 현재 선택지 ${count}장.` : ""}`,
+      draftReversePrompt: (count: number | null) =>
+        `2차 드래프트: 1차의 역순으로 1장 선택합니다.${count !== null ? ` 현재 선택지 ${count}장.` : ""}`,
       finalPhaseLabel: "최종 확정",
     },
     mark: {

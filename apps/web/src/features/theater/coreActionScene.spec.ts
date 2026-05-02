@@ -24,6 +24,7 @@ describe("coreActionScene", () => {
       ["rent_paid", "economy"],
       ["fortune_drawn", "effect"],
       ["fortune_resolved", "effect"],
+      ["mark_queued", "effect"],
       ["decision_requested", "decision"],
       ["player_move", "move"],
     ];

@@ -45,6 +45,7 @@ export const enLocale = {
       economy: "Economy",
       effect: "Effect",
       progress: "Turn flow",
+      commonEffect: "Common effect",
     },
     topSummaryEmpty: "Select a session",
     topSummary: (sessionId: string, runtimeStatus: string) => `Session ${sessionId} / ${runtimeStatus}`,
@@ -509,7 +510,7 @@ export const enLocale = {
               : effectType === "manshin_remove_burdens"
                 ? "Manshin"
                 : "Mark";
-      return `[${effect}] P${source} -> P${target} / ${targetCharacter}`;
+      return `[${effect}] P${source} -> P${target} / ${targetCharacter} / queued first at target turn start`;
     },
     markTargetNone: (source: unknown, actorName: string) => `${actorName || `P${source}`} / no legal mark target, fallback applied`,
     markTargetMissing: (source: unknown, targetCharacter: string) =>
@@ -824,6 +825,10 @@ export const enLocale = {
       finalPrompt: "Choose the final character.",
       ability: (name: string) => `${name} ability`,
       draftPhaseLabel: (phase: number | null) => (phase !== null ? `Draft phase ${phase}` : "Draft"),
+      draftForwardPrompt: (count: number | null) =>
+        `Draft phase 1: choose one card starting from the marker owner in marker direction.${count !== null ? ` ${count} option${count === 1 ? "" : "s"} now.` : ""}`,
+      draftReversePrompt: (count: number | null) =>
+        `Draft phase 2: choose one card in reverse order from phase 1.${count !== null ? ` ${count} option${count === 1 ? "" : "s"} now.` : ""}`,
       finalPhaseLabel: "Final confirmation",
     },
     pabal: {

@@ -163,6 +163,64 @@ async function expectPublicEventsClearRightPlayerCards(page: Page): Promise<void
   expect(overlap).toEqual([0, 0, 0, 0]);
 }
 
+async function expectSpectatorPanelCompact(page: Page, viewportWidth: number): Promise<void> {
+  const metrics = await page.locator(".match-table-spectator-context").evaluate((context) => {
+    const panel = context.querySelector<HTMLElement>(".spectator-turn-panel");
+    const handle = context.querySelector<HTMLElement>(".match-table-spectator-drag-handle");
+    const train = context.querySelector<HTMLElement>(".spectator-turn-train");
+    const trainSteps = Array.from(context.querySelectorAll<HTMLElement>(".spectator-turn-train-step"));
+    const trainRows = new Set(trainSteps.map((step) => Math.round(step.getBoundingClientRect().top)));
+    const contextRect = context.getBoundingClientRect();
+    return {
+      contextWidth: contextRect.width,
+      panelHasInternalScroll: panel ? panel.scrollHeight > panel.clientHeight + 1 : null,
+      trainHasInternalScroll: train ? train.scrollHeight > train.clientHeight + 1 : null,
+      trainStepCount: trainSteps.length,
+      trainRowCount: trainRows.size,
+      handleVisible: handle ? getComputedStyle(handle).display !== "none" : false,
+      handleCursor: handle ? getComputedStyle(handle).cursor : "",
+      panelCursor: panel ? getComputedStyle(panel).cursor : "",
+    };
+  });
+
+  expect(metrics.contextWidth).toBeLessThanOrEqual(Math.min(770, viewportWidth - 48));
+  expect(metrics.panelHasInternalScroll).toBe(false);
+  expect(metrics.trainHasInternalScroll).toBe(false);
+  expect(metrics.trainStepCount).toBeGreaterThan(0);
+  expect(metrics.trainRowCount).toBeLessThanOrEqual(3);
+  expect(metrics.handleVisible).toBe(true);
+  expect(metrics.handleCursor).toBe("grab");
+  expect(metrics.panelCursor).toBe("grab");
+}
+
+async function expectSpectatorPanelDraggable(page: Page): Promise<void> {
+  const context = page.locator(".match-table-spectator-context");
+  const handle = page.getByTestId("spectator-turn-drag-handle");
+  await expect(handle).toBeVisible();
+
+  const before = await context.boundingBox();
+  const handleBox = await handle.boundingBox();
+  expect(before).not.toBeNull();
+  expect(handleBox).not.toBeNull();
+  if (!before || !handleBox) {
+    return;
+  }
+
+  const startX = handleBox.x + handleBox.width / 2;
+  const startY = handleBox.y + handleBox.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 88, startY + 42, { steps: 6 });
+  await page.mouse.up();
+
+  const after = await context.boundingBox();
+  expect(after).not.toBeNull();
+  expect((after?.x ?? before.x) - before.x).toBeGreaterThan(48);
+  expect((after?.y ?? before.y) - before.y).toBeGreaterThan(24);
+
+  await handle.dblclick();
+}
+
 async function expectDesktopHudDensity(page: Page): Promise<void> {
   const metrics = await page.locator(".match-table-overlay").evaluate((overlay) => {
     const prompt = overlay.querySelector(".prompt-overlay");
@@ -926,12 +984,18 @@ test("remote turn keeps spectator continuity visible and does not open a local p
   await expect(page.getByTestId("board-actor-banner")).toHaveCount(1);
   await expect(page.getByTestId("turn-stage-actor-status")).toHaveCount(0);
   await expect(page.getByTestId("prompt-overlay")).toHaveCount(0);
+  await expectSpectatorPanelDraggable(page);
+  await expect(page.locator(".spectator-turn-train-step[data-event-key='dice']")).toBeVisible();
+  await expect(page.locator(".spectator-turn-train-step[data-event-key='move']")).toBeVisible();
+  await expect(page.locator(".spectator-turn-train-step[data-event-key='purchase']")).toBeVisible();
+  await expect(page.getByTestId("spectator-turn-common-effect")).toBeVisible();
   for (const viewport of [
     { width: 1440, height: 900 },
     { width: 1600, height: 1000 },
     { width: 1920, height: 1080 },
   ]) {
     await page.setViewportSize(viewport);
+    await expectSpectatorPanelCompact(page, viewport.width);
     await expectPublicEventsClearRightPlayerCards(page);
   }
 });

@@ -87,6 +87,41 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
             },
         )
 
+    def test_character_pick_surface_exposes_draft_phase_and_choice_count(self) -> None:
+        view_state = build_prompt_view_state(
+            [
+                {
+                    "type": "prompt",
+                    "seq": 1,
+                    "session_id": "s1",
+                    "server_time_ms": 1,
+                    "payload": {
+                        "request_id": "req_draft_phase_2",
+                        "request_type": "draft_card",
+                        "player_id": 3,
+                        "timeout_ms": 300000,
+                        "legal_choices": [{"choice_id": "card_8", "title": "만신", "description": "pick"}],
+                        "public_context": {
+                            "draft_phase": 2,
+                            "draft_phase_label": "draft_phase_2",
+                            "offered_count": 1,
+                        },
+                    },
+                }
+            ]
+        )
+
+        self.assertEqual(
+            view_state["active"]["surface"]["character_pick"],
+            {
+                "phase": "draft",
+                "draft_phase": 2,
+                "draft_phase_label": "draft_phase_2",
+                "choice_count": 1,
+                "options": [{"choice_id": "card_8", "name": "만신", "description": "pick"}],
+            },
+        )
+
     def test_build_prompt_view_state_keeps_accepted_feedback_after_prompt_closes(self) -> None:
         view_state = build_prompt_view_state(
             [

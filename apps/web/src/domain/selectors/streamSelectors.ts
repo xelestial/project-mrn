@@ -489,6 +489,8 @@ function turnBeatKindFromEventCode(eventCode: string): TurnStageViewModel["curre
     eventCode === "trick_used" ||
     eventCode === "marker_flip" ||
     eventCode === "marker_transferred" ||
+    eventCode === "mark_queued" ||
+    eventCode === "mark_resolved" ||
     eventCode === "landing_resolved"
   ) {
     return "effect";
@@ -926,8 +928,8 @@ const CURRENT_TURN_REVEAL_ORDER: Record<string, number> = {
   mark_queued: 76,
   mark_resolved: 78,
   ability_suppressed: 79,
-  marker_flip: 80,
-  marker_transferred: 82,
+  marker_transferred: 80,
+  marker_flip: 82,
   bankruptcy: 90,
   game_end: 95,
 };
@@ -2197,7 +2199,13 @@ function latestTurnStartSequence(messages: InboundMessage[]): number {
 }
 
 function isMovementBearingEvent(eventCode: string): boolean {
-  return eventCode === "player_move" || eventCode === "fortune_resolved" || eventCode === "trick_used" || eventCode === "mark_resolved";
+  return (
+    eventCode === "player_move" ||
+    eventCode === "fortune_resolved" ||
+    eventCode === "trick_used" ||
+    eventCode === "mark_queued" ||
+    eventCode === "mark_resolved"
+  );
 }
 
 function toPlayerViewModel(raw: unknown): PlayerViewModel | null {
@@ -2293,6 +2301,9 @@ function snapshotFromMessage(message: InboundMessage): SnapshotViewModel | null 
   const boardTiles = snapshotBoard?.["tiles"];
   const tilesSource = Array.isArray(boardTiles) ? boardTiles : [];
   const players = playersSource.map(toPlayerViewModel).filter((item): item is PlayerViewModel => item !== null);
+  if (!explicitSnapshot && players.length === 0) {
+    return null;
+  }
   const tiles = tilesSource.map((tile, index) => toTileViewModel(tile, index)).filter((item): item is TileViewModel => item !== null);
 
   const markerOwner = snapshotBoard?.["marker_owner_player_id"];

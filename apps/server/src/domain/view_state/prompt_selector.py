@@ -252,7 +252,11 @@ def _mark_target_surface(public_context: dict[str, Any], raw_choices: Any) -> Pr
     }
 
 
-def _character_pick_surface(request_type: str, raw_choices: Any) -> PromptSurfaceCharacterPickViewState | None:
+def _character_pick_surface(
+    request_type: str,
+    public_context: dict[str, Any],
+    raw_choices: Any,
+) -> PromptSurfaceCharacterPickViewState | None:
     if request_type not in {"draft_card", "final_character", "final_character_choice"}:
         return None
     options: list[PromptSurfaceCharacterPickOptionViewState] = []
@@ -270,6 +274,9 @@ def _character_pick_surface(request_type: str, raw_choices: Any) -> PromptSurfac
         )
     return {
         "phase": "draft" if request_type == "draft_card" else "final",
+        "draft_phase": _number(public_context.get("draft_phase")) if request_type == "draft_card" else None,
+        "draft_phase_label": _string(public_context.get("draft_phase_label")) if request_type == "draft_card" else None,
+        "choice_count": len(options),
         "options": options,
     }
 
@@ -559,7 +566,7 @@ def _prompt_surface(payload: dict[str, Any], public_context: dict[str, Any]) -> 
         if mark_target:
             surface["mark_target"] = mark_target
     elif request_type in {"draft_card", "final_character", "final_character_choice"}:
-        character_pick = _character_pick_surface(request_type, raw_choices)
+        character_pick = _character_pick_surface(request_type, public_context, raw_choices)
         if character_pick:
             surface["kind"] = "character_pick"
             surface["character_pick"] = character_pick

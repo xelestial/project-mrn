@@ -104,6 +104,35 @@ def _trim_public_context(data: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in data.items() if value is not None}
 
 
+def _build_player_trick_hand_context(player: Any, *, usable_cards: list[Any] | None = None) -> dict[str, Any]:
+    full_hand_cards = list(getattr(player, "trick_hand", []) or usable_cards or [])
+    hidden_deck_index = getattr(player, "hidden_trick_deck_index", None)
+    usable_deck_indices = {
+        getattr(card, "deck_index", None)
+        for card in (usable_cards or [])
+    }
+    return {
+        "total_hand_count": len(full_hand_cards),
+        "hidden_trick_count": sum(
+            1
+            for card in full_hand_cards
+            if hidden_deck_index is not None and getattr(card, "deck_index", None) == hidden_deck_index
+        ),
+        "hidden_trick_deck_index": hidden_deck_index,
+        "hand_names": [getattr(card, "name", str(card)) for card in full_hand_cards],
+        "full_hand": [
+            {
+                "deck_index": getattr(card, "deck_index", None),
+                "name": getattr(card, "name", str(card)),
+                "card_description": getattr(card, "description", ""),
+                "is_hidden": hidden_deck_index is not None and getattr(card, "deck_index", None) == hidden_deck_index,
+                "is_usable": usable_cards is not None and getattr(card, "deck_index", None) in usable_deck_indices,
+            }
+            for card in full_hand_cards
+        ],
+    }
+
+
 def _round_index_from_state(state: Any) -> int | None:
     rounds_completed = _number_or_none(getattr(state, "rounds_completed", None))
     if rounds_completed is None:
@@ -267,6 +296,7 @@ def _build_draft_choice_context(
             "draft_phase_label": f"draft_phase_{draft_phase}",
         }
     )
+    context.update(_build_player_trick_hand_context(player))
     return context
 
 
@@ -279,6 +309,7 @@ def _build_final_character_context(
     context = _build_card_choice_context(args, kwargs, state, player)
     context["final_choice"] = True
     context["decision_phase_label"] = "final_character_confirmation"
+    context.update(_build_player_trick_hand_context(player))
     return context
 
 

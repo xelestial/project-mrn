@@ -1,4 +1,4 @@
-import { CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, FormEvent, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { mergeSessionManifest } from "./domain/manifest/manifestRehydrate";
 import {
   characterAbilityLabelsFromManifestLabels,
@@ -796,6 +796,7 @@ export function App() {
   const [promptFeedback, setPromptFeedback] = useState("");
   const [burdenExchangeQueuedDeckIndexes, setBurdenExchangeQueuedDeckIndexes] = useState<number[]>([]);
   const [burdenExchangeQueuedPlayerId, setBurdenExchangeQueuedPlayerId] = useState<number | null>(null);
+  const [spectatorPanelOffset, setSpectatorPanelOffset] = useState({ x: 0, y: 0 });
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [turnBanner, setTurnBanner] = useState<{
     seq: number;
@@ -807,6 +808,13 @@ export function App() {
   const lastTurnBannerSeqRef = useRef<number>(0);
   const lastRevealBannerSeqRef = useRef<number>(0);
   const promptSubmitRequestIdRef = useRef<string | null>(null);
+  const spectatorPanelDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
 
   const stream = useGameStream({ sessionId, token, baseUrl: serverBaseUrl });
   const debugMessages = stream.debugMessages;
@@ -2342,6 +2350,57 @@ export function App() {
     setPromptBusy(true);
   };
 
+  const clampSpectatorPanelOffset = (x: number, y: number) => {
+    const maxX = window.innerWidth * 0.38;
+    const minY = -window.innerHeight * 0.12;
+    const maxY = window.innerHeight * 0.42;
+    return {
+      x: Math.max(-maxX, Math.min(maxX, x)),
+      y: Math.max(minY, Math.min(maxY, y)),
+    };
+  };
+
+  const onSpectatorPanelDragStart = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || window.innerWidth < 981) {
+      return;
+    }
+    spectatorPanelDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: spectatorPanelOffset.x,
+      originY: spectatorPanelOffset.y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const onSpectatorPanelDragMove = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = spectatorPanelDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    const next = clampSpectatorPanelOffset(
+      drag.originX + event.clientX - drag.startX,
+      drag.originY + event.clientY - drag.startY
+    );
+    setSpectatorPanelOffset(next);
+  };
+
+  const onSpectatorPanelDragEnd = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = spectatorPanelDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    spectatorPanelDragRef.current = null;
+  };
+
+  const onSpectatorPanelReset = () => {
+    setSpectatorPanelOffset({ x: 0, y: 0 });
+  };
+
   return (
     <main className={`page ${compactDensity ? "page-compact" : ""} ${route === "match" ? "page-match" : "page-lobby"}`}>
       {route === "lobby" ? (
@@ -2835,7 +2894,42 @@ export function App() {
                     </div>
                   ) : null}
                   {!visibleActionablePrompt && !passivePrompt ? (
-                    <div className="match-table-spectator-context">
+                    <div
+                      className={`match-table-spectator-context ${
+                        spectatorPanelOffset.x !== 0 || spectatorPanelOffset.y !== 0
+                          ? "match-table-spectator-context-moved"
+                          : ""
+                      }`}
+                      style={
+                        {
+                          "--spectator-panel-drag-x": `${spectatorPanelOffset.x}px`,
+                          "--spectator-panel-drag-y": `${spectatorPanelOffset.y}px`,
+                        } as CSSProperties
+                      }
+                      onPointerDown={onSpectatorPanelDragStart}
+                      onPointerMove={onSpectatorPanelDragMove}
+                      onPointerUp={onSpectatorPanelDragEnd}
+                      onPointerCancel={onSpectatorPanelDragEnd}
+                    >
+                      <button
+                        type="button"
+                        className="match-table-spectator-drag-handle"
+                        data-testid="spectator-turn-drag-handle"
+                        aria-label={locale === "ko" ? "관전자 패널 이동" : "Move spectator panel"}
+                        title={
+                          locale === "ko"
+                            ? "드래그해서 관전자 패널 이동, 더블클릭으로 위치 초기화"
+                            : "Drag to move the spectator panel, double-click to reset"
+                        }
+                        onDoubleClick={onSpectatorPanelReset}
+                      >
+                        <span aria-hidden="true" />
+                        <span aria-hidden="true" />
+                        <span aria-hidden="true" />
+                        <span aria-hidden="true" />
+                        <span aria-hidden="true" />
+                        <span aria-hidden="true" />
+                      </button>
                       <SpectatorTurnPanel
                         actorPlayerId={currentActorId}
                         model={turnStage}

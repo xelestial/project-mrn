@@ -72,6 +72,11 @@ def test_draft_prompt_contains_character_ability_payload():
     policy = HumanHttpPolicy(human_seat=0, ai_fallback=_DummyAi())
     state = _fake_state()
     player = _fake_player(0)
+    player.trick_hand = [
+        SimpleNamespace(deck_index=21, name="월척회", description="설명A"),
+        SimpleNamespace(deck_index=22, name="건강 검진", description="설명B"),
+    ]
+    player.hidden_trick_deck_index = 22
     result_holder = {}
 
     thread = threading.Thread(
@@ -97,6 +102,9 @@ def test_draft_prompt_contains_character_ability_payload():
     assert result_holder["result"] in (1, 2)
     assert pending["public_context"]["draft_phase"] == 1
     assert pending["public_context"]["offered_names"] == ["어사", "자객"]
+    assert pending["public_context"]["total_hand_count"] == 2
+    assert pending["public_context"]["hidden_trick_count"] == 1
+    assert [card["name"] for card in pending["public_context"]["full_hand"]] == ["월척회", "건강 검진"]
 
 
 def test_hidden_trick_prompt_contains_full_hand_context():

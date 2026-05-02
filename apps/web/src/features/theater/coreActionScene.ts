@@ -26,6 +26,7 @@ const EFFECT_EVENT_CODES = new Set([
   "trick_used",
   "marker_flip",
   "marker_transferred",
+  "mark_queued",
   "mark_resolved",
   "landing_resolved",
 ]);

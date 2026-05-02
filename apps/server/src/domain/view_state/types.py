@@ -181,6 +181,9 @@ class PromptSurfaceCharacterPickOptionViewState(TypedDict):
 
 class PromptSurfaceCharacterPickViewState(TypedDict):
     phase: str
+    draft_phase: int | None
+    draft_phase_label: str | None
+    choice_count: int
     options: list[PromptSurfaceCharacterPickOptionViewState]
 
 
