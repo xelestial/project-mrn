@@ -207,6 +207,18 @@ def test_play_html_renderer() -> list[str]:
         errors.append("play HTML missing economy tracking helpers")
     if "runaway_step_choice" not in html or "runaway_choice" not in html:
         errors.append("play HTML missing runaway-step choice wiring")
+    if "function tileLabel(value)" not in html:
+        errors.append("play HTML missing tile-label normalization helper")
+    for raw_tile_snippet in (
+        "현재 위치 ${ctx.player_position",
+        "위치 ${ctx.player_position",
+        "landing=v.use_cards?((start+total)%40)",
+        "${ctx.tile_index??\"?\"}번 칸",
+        "${v.tile_index??\"?\"}번 타일",
+        "${idx}번 타일",
+    ):
+        if raw_tile_snippet in html:
+            errors.append(f"play HTML still renders raw zero-based tile snippet '{raw_tile_snippet}'")
     if "setTimeout(hideDecision,180)" in html:
         errors.append("play HTML still hides decision overlay before backend state advances")
     for stale_field in (
