@@ -1592,15 +1592,7 @@ export function PromptOverlay({
                 (() => {
                   const body = splitChoiceBodyText(choice.description);
                   const prioritySlot = prioritySlotForCharacterName(choice.name);
-                  const cardLabel = isKoreanLocale(locale) ? "인물 카드" : "Character card";
                   const priorityLabel = isKoreanLocale(locale) ? "우선권" : "Priority";
-                  const abilityLabel = isKoreanLocale(locale) ? "특수 능력" : "Special ability";
-                  const attributeText =
-                    body.eyebrow && !isInternalAbilityLabel(body.eyebrow)
-                      ? body.eyebrow
-                      : isKoreanLocale(locale)
-                        ? "인물"
-                        : "Character";
                   const portraitIndex = portraitIndexForCharacter(choice.name);
                   const portraitCol = portraitIndex % 4;
                   const portraitRow = Math.floor(portraitIndex / 4);
@@ -1616,7 +1608,6 @@ export function PromptOverlay({
                 >
                     <div className="prompt-character-card-frame">
                       <div className="prompt-character-card-top">
-                        <span className="prompt-character-card-label">{cardLabel}</span>
                         <span className="prompt-character-card-priority">
                           {priorityLabel} {prioritySlot ?? "-"}
                         </span>
@@ -1636,9 +1627,7 @@ export function PromptOverlay({
                       </div>
                       <div className="prompt-character-card-body">
                         <strong>{choice.name}</strong>
-                        <span className="prompt-character-card-attribute">{attributeText}</span>
                         <div className="prompt-choice-body">
-                          <span className="prompt-choice-eyebrow">{abilityLabel}</span>
                           {body.summary ? <p className="prompt-choice-summary">{body.summary}</p> : null}
                           {body.detail ? <small className="prompt-choice-detail">{body.detail}</small> : null}
                         </div>

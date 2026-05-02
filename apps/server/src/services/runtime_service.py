@@ -1863,17 +1863,28 @@ class _FanoutVisEventStream:
         self._events.append(event)
         self._touch_activity(self._session_id)
         payload = event.to_dict()
-        write_game_debug_log(
-            "engine",
-            str(payload.get("event_type") or "engine_event"),
-            session_id=self._session_id,
-            payload=payload,
-        )
+        latest_seq = 0
+        if callable(getattr(self._stream_service, "latest_seq", None)):
+            latest_seq_fut = asyncio.run_coroutine_threadsafe(
+                self._stream_service.latest_seq(self._session_id),
+                self._loop,
+            )
+            latest_seq = int(latest_seq_fut.result() or 0)
         fut = asyncio.run_coroutine_threadsafe(
             self._stream_service.publish(self._session_id, "event", payload),
             self._loop,
         )
-        fut.result()
+        published = fut.result()
+        published_seq = int(getattr(published, "seq", 0) or 0)
+        if published_seq > latest_seq:
+            write_game_debug_log(
+                "engine",
+                str(payload.get("event_type") or "engine_event"),
+                session_id=self._session_id,
+                payload=payload,
+            )
+        else:
+            return
         delay_seconds = self._delay_seconds_after_event(payload)
         if delay_seconds > 0:
             time.sleep(delay_seconds)

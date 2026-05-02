@@ -7200,7 +7200,7 @@ body {
 .prompt-overlay-draft_card,
 .prompt-overlay-final_character,
 .prompt-overlay-final_character_choice {
-  max-height: clamp(610px, 76vh, 820px);
+  max-height: clamp(640px, 78vh, 820px);
 }
 
 .prompt-overlay-draft_card .prompt-body,
@@ -7215,7 +7215,7 @@ body {
 .prompt-overlay-final_character_choice .prompt-character-card-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-auto-rows: clamp(390px, 52vh, 560px);
+  grid-auto-rows: clamp(430px, 56vh, 590px);
   overflow-x: hidden;
   overflow-y: hidden;
   padding-bottom: 4px;
@@ -7241,9 +7241,10 @@ body {
 .prompt-overlay-final_character .prompt-character-card-frame,
 .prompt-overlay-final_character_choice .prompt-character-card-frame {
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 58fr) minmax(0, 42fr);
+  position: relative;
   align-items: stretch;
-  gap: clamp(7px, 1vh, 12px);
+  gap: clamp(6px, 0.8vh, 10px);
   padding: clamp(10px, 0.95vw, 16px);
   overflow: hidden;
 }
@@ -7251,13 +7252,18 @@ body {
 .prompt-overlay-draft_card .prompt-character-card-top,
 .prompt-overlay-final_character .prompt-character-card-top,
 .prompt-overlay-final_character_choice .prompt-character-card-top {
-  grid-column: 1 / -1;
+  position: absolute;
+  top: clamp(14px, 1.1vw, 18px);
+  right: clamp(14px, 1.1vw, 18px);
+  z-index: 2;
+  grid-column: auto;
 }
 
 .prompt-overlay-draft_card .prompt-character-card-body,
 .prompt-overlay-final_character .prompt-character-card-body,
 .prompt-overlay-final_character_choice .prompt-character-card-body {
   grid-column: 1;
+  grid-row: 2;
   min-width: 0;
   overflow: hidden;
 }
@@ -7333,8 +7339,9 @@ body {
 .prompt-overlay-final_character .prompt-character-card-art,
 .prompt-overlay-final_character_choice .prompt-character-card-art {
   grid-column: 1;
-  grid-row: 2;
-  width: min(100%, clamp(128px, 14vw, 240px));
+  grid-row: 1;
+  align-self: center;
+  width: min(100%, clamp(118px, 12vw, 220px));
 }
 
 .prompt-character-card-art::before,
@@ -7389,6 +7396,13 @@ body {
   background:
     linear-gradient(180deg, rgba(255, 248, 219, 0.08), rgba(12, 27, 52, 0.5)),
     rgba(5, 13, 28, 0.18);
+}
+
+.prompt-overlay-draft_card .prompt-character-card-body .prompt-choice-body,
+.prompt-overlay-final_character .prompt-character-card-body .prompt-choice-body,
+.prompt-overlay-final_character_choice .prompt-character-card-body .prompt-choice-body {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .prompt-overlay-draft_card .prompt-character-card-body > strong,
@@ -12420,14 +12434,14 @@ body {
   .page.page-match .prompt-overlay-final_character .prompt-character-card-frame,
   .page.page-match .prompt-overlay-final_character_choice .prompt-character-card-frame {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    gap: clamp(8px, 1vh, 13px);
+    grid-template-rows: minmax(0, 58fr) minmax(0, 42fr);
+    gap: clamp(6px, 0.8vh, 10px);
     padding: clamp(12px, 1vw, 18px);
   }
 
   .page.page-match .prompt-overlay-draft_card .prompt-character-card-art,
   .page.page-match .prompt-overlay-final_character .prompt-character-card-art,
   .page.page-match .prompt-overlay-final_character_choice .prompt-character-card-art {
-    width: min(100%, clamp(136px, 14vw, 260px));
+    width: min(100%, clamp(128px, 12vw, 230px));
   }
 }

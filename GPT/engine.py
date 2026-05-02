@@ -1910,6 +1910,7 @@ class GameEngine:
     def _start_new_round(self, state: GameState, initial: bool) -> None:
         state.current_round_order = []
         state.round_setup_replay_base = {}
+        state.prompt_sequence = 0
         state.round_setup_replay_base = state.to_checkpoint_payload()
         for p in state.players:
             p.immune_to_marks_this_round = False
@@ -3823,7 +3824,8 @@ class GameEngine:
                         continuation_payload,
                     )
                 )
-            return True
+                return True
+            return False
 
         # 규칙 정합성: 잔꾀는 매 턴 1장만 선택/사용한다.
         usable_hand = [c for c in player.trick_hand if self._is_trick_phase_usable(c)]

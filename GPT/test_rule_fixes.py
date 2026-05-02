@@ -1514,6 +1514,21 @@ class TrickSystemTests(DraftRuleAssertionMixin, unittest.TestCase):
         self.assertIn("draft_pick", timeline)
         self.assertLess(timeline.index("weather_round"), timeline.index("draft_pick"))
 
+    def test_round_setup_resets_prompt_sequence_for_stable_replay_ids(self):
+        class FirstChoicePolicy(DummyPolicy):
+            def choose_final_character(self, state, player, card_choices):
+                return state.active_by_card[card_choices[0]]
+
+        engine = self.make_engine(policy=FirstChoicePolicy())
+        state = self.make_state(engine)
+        engine._initialize_active_faces(state)
+        state.prompt_sequence = 7
+
+        engine._start_new_round(state, initial=False)
+
+        self.assertEqual(state.prompt_sequence, 0)
+        self.assertEqual(state.round_setup_replay_base, {})
+
     def test_initial_weather_does_not_eliminate_players_before_first_draft(self):
         class FirstChoicePolicy(DummyPolicy):
             def choose_final_character(self, state, player, card_choices):
@@ -1712,6 +1727,65 @@ class TrickSystemTests(DraftRuleAssertionMixin, unittest.TestCase):
             if row.get("event") == "trick_used" and row.get("player") == player.player_id + 1
         ]
         self.assertEqual(len(trick_events), 1)
+
+    def test_non_deferred_trick_continues_into_movement_and_turn_completion(self):
+        class SimpleTrickPolicy(DummyPolicy):
+            def choose_trick_to_use(self, state, player, hand):
+                return hand[0] if hand else None
+
+        engine = self.make_engine(policy=SimpleTrickPolicy(), rng=FixedRandom([2, 3]))
+        state = self.make_state(engine)
+        player = state.players[0]
+        player.current_character = "아전"
+        state.current_round_order = [0, 1, 2, 3]
+        state.turn_index = 0
+        player.trick_hand = [TrickCard(deck_index=999, name="테스트 잔꾀", description="")]
+        engine._strategy_stats[player.player_id].update(
+            {"tricks_used": 0, "anytime_tricks_used": 0, "regular_tricks_used": 0}
+        )
+
+        engine._take_turn(state, player)
+
+        event_names = [row.get("event") for row in engine._action_log]
+        self.assertIn("trick_used", event_names)
+        self.assertEqual([action.type for action in state.pending_actions], ["apply_move"])
+        self.assertTrue(state.pending_turn_completion)
+
+    def test_round_end_marker_flip_waits_until_turn_completion_after_trick(self):
+        class SimpleTrickPolicy(DummyPolicy):
+            def choose_trick_to_use(self, state, player, hand):
+                return hand[0] if hand else None
+
+            def choose_active_flip_card(self, state, player, flippable_cards):
+                del state, player, flippable_cards
+                return [1]
+
+        stream = VisEventStream()
+        engine = GameEngine(
+            DEFAULT_CONFIG,
+            SimpleTrickPolicy(),
+            rng=FixedRandom([2, 3]),
+            enable_logging=True,
+            event_stream=stream,
+        )
+        state = self.make_state(engine)
+        engine._initialize_active_faces(state)
+        player = state.players[3]
+        player.current_character = "교리 감독관"
+        state.current_round_order = [3]
+        state.turn_index = 0
+        player.trick_hand = [TrickCard(deck_index=999, name="테스트 잔꾀", description="")]
+        engine._strategy_stats[player.player_id].update(
+            {"tricks_used": 0, "anytime_tricks_used": 0, "regular_tricks_used": 0}
+        )
+
+        step = engine.run_next_transition(state)
+
+        self.assertEqual(step["status"], "committed")
+        self.assertEqual(step["pending_actions"], 1)
+        self.assertEqual([action.type for action in state.pending_actions], ["apply_move"])
+        self.assertTrue(state.pending_turn_completion)
+        self.assertFalse(any(row["event_type"] == "marker_flip" for row in stream.to_list()))
 
     def test_hidden_trick_prompt_resumes_after_applied_trick(self):
         class PromptRaised(Exception):
