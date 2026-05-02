@@ -6,6 +6,60 @@ from apps.server.src.domain.view_state.turn_selector import build_turn_stage_vie
 
 
 class ViewStateTurnSelectorTests(unittest.TestCase):
+    def test_draft_prompt_after_turn_does_not_mutate_previous_turn_stage(self) -> None:
+        view_state = build_turn_stage_view_state(
+            [
+                {
+                    "type": "event",
+                    "seq": 10,
+                    "session_id": "s1",
+                    "server_time_ms": 1,
+                    "payload": {
+                        "event_type": "turn_start",
+                        "round_index": 1,
+                        "turn_index": 4,
+                        "acting_player_id": 2,
+                        "character": "객주",
+                    },
+                },
+                {
+                    "type": "event",
+                    "seq": 11,
+                    "session_id": "s1",
+                    "server_time_ms": 2,
+                    "payload": {
+                        "event_type": "turn_end_snapshot",
+                        "round_index": 1,
+                        "turn_index": 4,
+                        "acting_player_id": 2,
+                    },
+                },
+                {
+                    "type": "prompt",
+                    "seq": 12,
+                    "session_id": "s1",
+                    "server_time_ms": 3,
+                    "payload": {
+                        "request_id": "r2:draft:p0",
+                        "request_type": "draft_card",
+                        "player_id": 0,
+                        "runner_kind": "module",
+                        "resume_token": "tok",
+                        "frame_id": "round:2",
+                        "module_id": "mod:round:2:draft",
+                        "module_type": "DraftModule",
+                        "public_context": {"round_index": 2, "draft_phase": 1},
+                    },
+                },
+            ]
+        )
+
+        self.assertEqual(view_state["round_index"], 1)
+        self.assertEqual(view_state["turn_index"], 4)
+        self.assertEqual(view_state["prompt_request_type"], "-")
+        self.assertEqual(view_state["current_beat_event_code"], "turn_end_snapshot")
+        self.assertNotIn("prompt_active", view_state["progress_codes"])
+
     def test_build_turn_stage_projects_current_beat_and_progress_codes(self) -> None:
         view_state = build_turn_stage_view_state(
             [

@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import unittest
 
+import pytest
+
 from apps.server.src.domain.visibility import ViewerContext
 from apps.server.src.services.stream_service import StreamService
 
@@ -171,6 +173,27 @@ class StreamServiceTests(unittest.TestCase):
             snapshot = await service.snapshot("s1")
 
             self.assertEqual(len(snapshot), 2)
+
+        asyncio.run(_run())
+
+    def test_publish_rejects_runtime_impossible_module_placement(self) -> None:
+        service = StreamService()
+
+        async def _run() -> None:
+            with pytest.raises(Exception, match="DraftModule"):
+                await service.publish(
+                    "s1",
+                    "event",
+                    {
+                        "event_type": "draft_pick",
+                        "runtime_module": {
+                            "frame_type": "turn",
+                            "frame_id": "turn:1:p0",
+                            "module_type": "DraftModule",
+                            "module_id": "mod:draft",
+                        },
+                    },
+                )
 
         asyncio.run(_run())
 

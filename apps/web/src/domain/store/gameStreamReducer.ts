@@ -75,6 +75,62 @@ function carriesCurrentProjection(message: InboundMessage): boolean {
   return message.type !== "heartbeat" && typeof message.payload === "object" && message.payload !== null && "view_state" in message.payload;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function runtimeFramePath(message: InboundMessage): string[] {
+  const payload = message.payload;
+  const viewState = isRecord(payload["view_state"]) ? payload["view_state"] : null;
+  const viewRuntime = isRecord(viewState?.["runtime"]) ? viewState["runtime"] : null;
+  const viewPath = stringArray(viewRuntime?.["latest_module_path"]);
+  if (viewPath.length > 0) {
+    return viewPath;
+  }
+
+  const runtimeModule = isRecord(payload["runtime_module"]) ? payload["runtime_module"] : null;
+  const runtimeModulePath = stringArray(runtimeModule?.["module_path"]);
+  if (runtimeModulePath.length > 0) {
+    return runtimeModulePath;
+  }
+
+  const frameId = typeof runtimeModule?.["frame_id"] === "string" ? runtimeModule["frame_id"] : payload["frame_id"];
+  const moduleId = typeof runtimeModule?.["module_id"] === "string" ? runtimeModule["module_id"] : payload["module_id"];
+  return [frameId, moduleId].filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function onePathExtendsTheOther(left: string[], right: string[]): boolean {
+  const sharedLength = Math.min(left.length, right.length);
+  for (let index = 0; index < sharedLength; index += 1) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function projectedMessageIsCompatibleWithLatest(messages: InboundMessage[], candidate: InboundMessage): boolean {
+  const candidatePath = runtimeFramePath(candidate);
+  if (candidatePath.length === 0) {
+    return true;
+  }
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const latestPath = runtimeFramePath(messages[index]);
+    if (latestPath.length === 0) {
+      continue;
+    }
+    return onePathExtendsTheOther(candidatePath, latestPath);
+  }
+  return true;
+}
+
 function flushPendingMessages(
   startSeq: number,
   pendingBySeq: Record<number, InboundMessage>,
@@ -108,7 +164,11 @@ function flushPendingMessages(
 
     const firstProjectedSeq = pendingSeqs.find((seq) => {
       const candidate = pendingBySeq[seq];
-      return Boolean(candidate && (carriesCurrentProjection(candidate) || candidate.type === "prompt"));
+      return Boolean(
+        candidate &&
+          (carriesCurrentProjection(candidate) || candidate.type === "prompt") &&
+          projectedMessageIsCompatibleWithLatest(nextMessages, candidate)
+      );
     });
     if (firstProjectedSeq === undefined) {
       break;

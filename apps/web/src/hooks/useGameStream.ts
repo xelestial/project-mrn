@@ -3,6 +3,7 @@ import type {
   ConnectionStatus,
   InboundMessage,
 } from "../core/contracts/stream";
+import type { PromptContinuationViewModel } from "../domain/selectors/promptSelectors";
 import {
   gameStreamReducer,
   initialGameStreamState,
@@ -43,6 +44,7 @@ export function useGameStream({
     playerId: number;
     choiceId: string;
     choicePayload?: Record<string, unknown>;
+    continuation?: PromptContinuationViewModel;
   }) => boolean;
 } {
   const client = useMemo(() => new StreamClient(), []);
@@ -238,13 +240,20 @@ export function useGameStream({
     playerId: number;
     choiceId: string;
     choicePayload?: Record<string, unknown>;
+    continuation?: PromptContinuationViewModel;
   }): boolean => {
+    const continuation = args.continuation;
     const sent = client.send({
       type: "decision",
       request_id: args.requestId,
       player_id: args.playerId,
       choice_id: args.choiceId,
       choice_payload: args.choicePayload,
+      ...(continuation?.resumeToken ? { resume_token: continuation.resumeToken } : {}),
+      ...(continuation?.frameId ? { frame_id: continuation.frameId } : {}),
+      ...(continuation?.moduleId ? { module_id: continuation.moduleId } : {}),
+      ...(continuation?.moduleType ? { module_type: continuation.moduleType } : {}),
+      ...(continuation?.batchId ? { batch_id: continuation.batchId } : {}),
       client_seq: lastSeqRef.current,
     });
     if (sent) {
@@ -258,6 +267,7 @@ export function useGameStream({
           player_id: args.playerId,
           choice_id: args.choiceId,
           choice_payload: args.choicePayload,
+          continuation,
         },
       });
       for (const delay of [750, 2000, 5000, 10000, 15000, 30000]) {

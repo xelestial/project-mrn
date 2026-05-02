@@ -1430,6 +1430,7 @@ export function App() {
       playerId: actionablePrompt.playerId,
       choiceId: shouldRemove ? "yes" : "no",
       choicePayload: {},
+      continuation: actionablePrompt.continuation,
     });
     if (!sent) {
       setPromptFeedback(app.errors.sendPrompt);
@@ -2320,6 +2321,7 @@ export function App() {
           selected_choice_ids: requestedIds,
           finish_after_selection: true,
         },
+        continuation: actionablePrompt.continuation,
       });
       if (!sent) {
         promptSubmitRequestIdRef.current = null;
@@ -2348,6 +2350,7 @@ export function App() {
         playerId: actionablePrompt.playerId,
         choiceId: shouldRemoveCurrent ? "yes" : "no",
         choicePayload: {},
+        continuation: actionablePrompt.continuation,
       });
       if (!sent) {
         setPromptFeedback(app.errors.sendPrompt);
@@ -2369,6 +2372,7 @@ export function App() {
       playerId: actionablePrompt.playerId,
       choiceId,
       choicePayload: {},
+      continuation: actionablePrompt.continuation,
     });
     if (!sent) {
       promptSubmitRequestIdRef.current = null;

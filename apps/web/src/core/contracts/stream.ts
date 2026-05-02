@@ -51,6 +51,11 @@ export type OutboundMessage =
       player_id: number;
       choice_id: string;
       choice_payload?: Record<string, unknown>;
+      resume_token?: string;
+      frame_id?: string;
+      module_id?: string;
+      module_type?: string;
+      batch_id?: string;
       client_seq: number;
     };
 

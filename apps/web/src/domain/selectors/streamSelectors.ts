@@ -1331,6 +1331,14 @@ function roundTurnOfPayload(payload: Record<string, unknown>): { round: number |
   };
 }
 
+function promptRoundTurnOfPayload(payload: Record<string, unknown>): { round: number | null; turn: number | null } {
+  const publicContext = isRecord(payload["public_context"]) ? payload["public_context"] : null;
+  return {
+    round: numberOrNull(payload["round_index"] ?? publicContext?.["round_index"]),
+    turn: numberOrNull(payload["turn_index"] ?? publicContext?.["turn_index"]),
+  };
+}
+
 function sameRoundTurn(payload: Record<string, unknown>, targetRound: number | null, targetTurn: number | null): boolean {
   if (targetRound === null || targetTurn === null) {
     return false;
@@ -1501,6 +1509,20 @@ function isPreCharacterSelectionRequestType(requestType: string): boolean {
   return requestType === "draft_card" || requestType === "final_character" || requestType === "final_character_choice";
 }
 
+function isTurnScopedPrompt(payload: Record<string, unknown>, targetRound: number | null, targetTurn: number | null): boolean {
+  if (targetRound === null || targetTurn === null) {
+    return false;
+  }
+  const promptRoundTurn = promptRoundTurnOfPayload(payload);
+  if (promptRoundTurn.turn !== null) {
+    return true;
+  }
+  if (promptRoundTurn.round !== null) {
+    return promptRoundTurn.round === targetRound;
+  }
+  return true;
+}
+
 function updateActorFromPrompt(
   model: TurnStageViewModel,
   payload: Record<string, unknown>,
@@ -1643,6 +1665,10 @@ export function selectTurnStage(
     currentBeatDetail: actorPlayerId === null ? "-" : text.turnStage.turnStartDetail(playerLabel(actorPlayerId, text)),
   };
   const trail: string[] = [eventLabelForCode("turn_start", text.eventLabel)];
+  const runtime = selectRuntimeProjection(messages);
+  const roundOnlyRuntimeStage =
+    runtime !== null &&
+    ["round_setup", "draft", "turn_scheduler", "round_end_card_flip", "round_cleanup"].includes(runtime.roundStage);
 
   const updateBeat = (
     eventCode: string,
@@ -1707,10 +1733,12 @@ export function selectTurnStage(
       const requestType = asString(message.payload["request_type"]);
       const promptActor = numberOrNull(message.payload["player_id"]);
       if (
+        !roundOnlyRuntimeStage &&
         requestType !== "-" &&
         (model.actorPlayerId === null ||
           model.actorPlayerId === promptActor ||
-          isPreCharacterSelectionRequestType(requestType))
+          isPreCharacterSelectionRequestType(requestType)) &&
+        isTurnScopedPrompt(message.payload, model.round, model.turn)
       ) {
         updateActorFromPrompt(model, message.payload, text);
         updateActorStatusFromContext(model, message.payload);
@@ -1933,7 +1961,7 @@ export function selectTurnStage(
 
   model.progressTrail = trail.slice(-6);
 
-  if (backendTurnStage) {
+  if (backendTurnStage && !roundOnlyRuntimeStage) {
     const messageBySeq = new Map<number, InboundMessage>();
     for (const message of messages) {
       messageBySeq.set(message.seq, message);

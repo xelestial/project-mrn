@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .catalog import validate_module_placement
 from .contracts import FrameState, ModuleRef, QueueOp
 
 
@@ -76,24 +77,10 @@ class FrameQueueApi:
 
     @staticmethod
     def _validate_module_for_frame(frame: FrameState, module: ModuleRef) -> None:
-        if frame.frame_type == "simultaneous":
-            allowed = {
-                "ResupplyModule",
-                "SimultaneousPromptBatchModule",
-                "SimultaneousCommitModule",
-                "CompleteSimultaneousResolutionModule",
-            }
-            if module.module_type not in allowed:
-                raise QueueValidationError(
-                    f"{module.module_type} is not allowed in SimultaneousResolutionFrame"
-                )
-            return
-        if module.module_type == "DraftModule" and frame.frame_type != "round":
-            raise QueueValidationError("DraftModule is allowed only in RoundFrame")
-        if module.module_type == "RoundEndCardFlipModule" and frame.frame_type != "round":
-            raise QueueValidationError("RoundEndCardFlipModule is allowed only in RoundFrame")
-        if module.module_type == "TurnEndSnapshotModule" and frame.frame_type != "turn":
-            raise QueueValidationError("TurnEndSnapshotModule is allowed only in TurnFrame")
+        try:
+            validate_module_placement(frame, module)
+        except ValueError as exc:
+            raise QueueValidationError(str(exc)) from exc
 
 
 def _op_modules(op: QueueOp) -> list[ModuleRef]:

@@ -385,3 +385,113 @@ The first implementation slice must include these tests before broad porting:
 - Prompt resume token mismatch is rejected.
 - WebSocket resume does not advance engine.
 - Frontend replayed draft cannot reopen draft UI after turn stage projection exists.
+
+## 5. Log Recheck Findings - 2026-05-02
+
+Source logs:
+
+- `.log/engine.jsonl`
+- `.log/backend.jsonl`
+- `.log/frontend.jsonl`
+
+This recheck separates actual engine execution from backend/frontend projection artifacts. The engine log does not prove that draft or card flip literally executed inside an active player turn. It does prove that legacy prompt continuation can re-enter already-completed early turn modules, and that the backend/frontend can display round-level activity as if it belonged to a turn.
+
+### 5.1 First Turn Execution
+
+Observed engine order:
+
+- `.log/engine.jsonl:22` records `turn_start` for round 1, turn 1, player 1.
+- `.log/engine.jsonl:32` records `dice_roll`.
+- `.log/engine.jsonl:34` records `player_move`.
+- `.log/engine.jsonl:40` records `tile_purchased`.
+- `.log/engine.jsonl:43` records `turn_end_snapshot`.
+
+Verdict:
+
+- The first turn did execute.
+- The original symptom is still valid as a structural risk, but the more precise diagnosis is "first-turn prompt continuation/recovery re-entered previous early modules" rather than "the first turn never ran."
+
+Violation evidence:
+
+- `.log/engine.jsonl:21`, `.log/engine.jsonl:25`, and `.log/engine.jsonl:30` repeat `mark_resolved` within the same round/turn.
+- `.log/engine.jsonl:23` and `.log/engine.jsonl:31` repeat `trick_window_open` before the first dice roll.
+
+Required structural guard:
+
+- Prompt resume must resume the suspended module only.
+- Completed modules must be idempotent by module id and prompt resume token, not by event name alone.
+- Re-entering a turn frame must not re-emit `PendingMarkResolutionModule`, `TurnStartModule`, or `TrickWindowModule` events that were already committed.
+
+### 5.2 Draft Timing
+
+Observed engine order:
+
+- Round 1 draft occurs before round 1 turns.
+- Round 2 starts only after round 1 turn 4 closes: `.log/engine.jsonl:52` `turn_end_snapshot`, `.log/engine.jsonl:53` `marker_transferred`, `.log/engine.jsonl:54-61` `marker_flip`, `.log/engine.jsonl:62` `round_start`, `.log/engine.jsonl:63` `weather_reveal`, then `.log/engine.jsonl:64` `draft_pick`.
+- Round 2 draft later continues through `.log/engine.jsonl:67-74`, still under `runtime_module.module_type = DraftModule`.
+
+Verdict:
+
+- The engine log does not show draft executing mid-turn.
+- The observed issue is a projection/prompt lifecycle problem: round-level draft prompts are attached to a turn-shaped view and can appear to be turn progress.
+- Prompt request ids around round 2 draft are unstable/non-monotonic, which makes replay and UI ordering easier to misread.
+
+Required structural guard:
+
+- `DraftModule` must be a round-level module and must never be mounted inside a `TurnFrame`.
+- Draft prompt ids must be monotonic within a session and scoped to `RoundFrame/DraftModule`.
+- Frontend draft UI must open from `runtime.round_stage == draft` or explicit `DraftModule` active state, not from `turn_stage.progress_codes`.
+
+### 5.3 Card Flip Timing
+
+Observed engine order:
+
+- `.log/engine.jsonl:52` records the final round 1 turn end snapshot.
+- `.log/engine.jsonl:53` records immediate marker transfer caused by the doctrine/researcher effect.
+- `.log/engine.jsonl:54-61` records the round-end card flips.
+- `.log/engine.jsonl:62` records round 2 start.
+
+Verdict:
+
+- The engine log does not show card flip occurring before all round 1 turns finish.
+- The rule distinction remains important: marker transfer is immediate in the doctrine/researcher turn, while card flip is round-end.
+- The current event metadata is ambiguous because round-end card flip events still carry the last turn index (`turn_index = 4`) even though their runtime frame is `round:1`.
+
+Required structural guard:
+
+- `ImmediateMarkerTransferModule` remains callable from a turn frame and applies "has marker" effects immediately.
+- `RoundEndCardFlipModule` must be scheduled only after all `TurnFrame`s finish.
+- UI/projection must treat `runtime_module.frame_type = round` and `module_type = RoundEndCardFlipModule` as round-end activity even when the legacy `turn_index` field is the last turn index.
+
+### 5.4 Backend and Frontend Projection Artifact
+
+Observed frontend state:
+
+- `.log/frontend.jsonl:77`, `.log/frontend.jsonl:97`, and `.log/frontend.jsonl:104` show `view_state.turn_stage.progress_codes` for round 2 draft containing old round 1 `turn_end_snapshot`, repeated `marker_flip`, and round 2 `draft_pick` in the same turn-stage array.
+
+Observed backend selector risk:
+
+- `apps/server/src/domain/view_state/turn_selector.py:297-327` builds prompt-active turn stage entries from recent messages.
+- The prompt branch accepts pre-character-selection request types without the same strict round/turn boundary used for ordinary events.
+- `apps/server/src/domain/view_state/runtime_selector.py:43-55` already exposes canonical runtime stage information such as `round_stage`, `turn_stage`, `draft_active`, and `latest_module_path`, but the legacy turn-stage projection can still mix frames.
+
+Verdict:
+
+- The strongest visible "mid-turn draft/card-flip" evidence is a view-state projection bug.
+- The projection recomputes a plausible turn stage from mixed history instead of using the module frame as the source of truth.
+
+Required structural guard:
+
+- `turn_stage` must close at `TurnEndSnapshotModule` and must not ingest later round-level events.
+- Round setup, draft, simultaneous-response, and round-end card flip must project through round/concurrent stage selectors, not through turn-stage progress.
+- Frontend reducers must converge by `seq` plus module frame/path and tolerate replay/live ordering without reopening stale prompts.
+
+### 5.5 Rechecked Bug Matrix
+
+| Suspicion | Engine verdict | Projection verdict | Structural requirement |
+| --- | --- | --- | --- |
+| First turn did not execute | Not confirmed; first turn executed through movement, purchase, and turn-end snapshot | UI may appear stalled because early modules re-enter before movement | Resume suspended module only; idempotent completed-module journal |
+| Draft ran multiple times mid-turn | Not confirmed as mid-turn engine execution | Confirmed as possible visual/projection confusion during round 2 draft | Draft is round-level only; prompt ids scoped and monotonic |
+| Card flip happened mid-turn | Not confirmed as engine execution; flip happens after all round 1 turns | Confirmed as possible visual/projection confusion because turn-stage mixes old flips with new draft | Card flip is round-end module; projection respects frame type |
+| Marker transfer timing | Confirmed immediate before flip | Must be displayed separately from card flip | Immediate marker transfer module inside turn; card flip only after round turns |
+| WebSocket/replay ordering | Contributing factor, not root engine cause | Can amplify stale projection and prompt reopening | Client/server converge by sequence, prompt token, and module path |

@@ -6,6 +6,28 @@ from apps.server.src.domain.view_state.runtime_selector import build_runtime_vie
 
 
 class RuntimeProjectionViewStateTests(unittest.TestCase):
+    def test_runtime_projection_treats_draft_card_prompt_as_draft_active(self) -> None:
+        view_state = build_runtime_view_state([
+            {
+                "type": "prompt",
+                "payload": {
+                    "request_id": "r2:draft:p0",
+                    "request_type": "draft_card",
+                    "player_id": 0,
+                    "runner_kind": "module",
+                    "resume_token": "tok",
+                    "frame_id": "round:2",
+                    "module_id": "mod:round:2:draft",
+                    "module_type": "DraftModule",
+                    "public_context": {"round_index": 2},
+                },
+            }
+        ])
+
+        self.assertTrue(view_state["draft_active"])
+        self.assertEqual(view_state["round_stage"], "draft")
+        self.assertEqual(view_state["turn_stage"], "")
+
     def test_draft_active_only_for_draft_module_or_prompt(self) -> None:
         draft = build_runtime_view_state([
             {

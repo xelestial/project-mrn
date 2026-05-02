@@ -58,6 +58,13 @@ def _round_turn(payload: dict[str, Any]) -> tuple[int | None, int | None]:
     return (_number(payload.get("round_index")), _number(payload.get("turn_index")))
 
 
+def _prompt_round_turn(payload: dict[str, Any]) -> tuple[int | None, int | None]:
+    public_context = _record(payload.get("public_context")) or {}
+    round_index = _number(payload.get("round_index", public_context.get("round_index")))
+    turn_index = _number(payload.get("turn_index", public_context.get("turn_index")))
+    return round_index, turn_index
+
+
 def _same_round_turn(payload: dict[str, Any], round_index: int | None, turn_index: int | None) -> bool:
     if round_index is None or turn_index is None:
         return False
@@ -300,11 +307,14 @@ def build_turn_stage_view_state(messages: list[dict[str, Any]]) -> TurnStageView
             request_type = _string(payload.get("request_type"))
             prompt_actor = _number(payload.get("player_id"))
             public_context = _record(payload.get("public_context")) or {}
+            prompt_round, prompt_turn = _prompt_round_turn(payload)
+            is_turn_scoped_prompt = (
+                prompt_turn is not None and prompt_round == model["round_index"] and prompt_turn == model["turn_index"]
+            )
             if request_type and (
                 model["actor_player_id"] is None
                 or model["actor_player_id"] == prompt_actor
-                or _is_pre_character_selection_request_type(request_type)
-            ):
+            ) and is_turn_scoped_prompt:
                 _update_actor_from_prompt(model, payload)
                 _update_actor_status(model, payload)
                 model["prompt_request_type"] = request_type
