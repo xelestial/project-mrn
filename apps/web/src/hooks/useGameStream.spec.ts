@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDecisionMessage,
   buildGameStreamKey,
   createDecisionRequestLedger,
   shouldApplyReplayResponse,
@@ -47,5 +48,37 @@ describe("useGameStream replay recovery guards", () => {
 
     expect(ledger.shouldSend(firstStream, "req_1")).toBe(false);
     expect(ledger.shouldSend(secondStream, "req_1")).toBe(true);
+  });
+
+  it("builds decision messages with the backend-issued module continuation", () => {
+    expect(
+      buildDecisionMessage({
+        requestId: "req_move_1",
+        playerId: 1,
+        choiceId: "roll",
+        choicePayload: { dice: 4 },
+        continuation: {
+          resumeToken: "resume-token-1",
+          frameId: "turn:1:p1",
+          moduleId: "mod:turn:1:p1:dice",
+          moduleType: "DiceRollModule",
+          moduleCursor: "dice:await_choice",
+          batchId: null,
+        },
+        clientSeq: 42,
+      }),
+    ).toEqual({
+      type: "decision",
+      request_id: "req_move_1",
+      player_id: 1,
+      choice_id: "roll",
+      choice_payload: { dice: 4 },
+      resume_token: "resume-token-1",
+      frame_id: "turn:1:p1",
+      module_id: "mod:turn:1:p1:dice",
+      module_type: "DiceRollModule",
+      module_cursor: "dice:await_choice",
+      client_seq: 42,
+    });
   });
 });

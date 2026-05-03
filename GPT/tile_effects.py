@@ -6,6 +6,7 @@ from typing import Protocol
 
 from config import CellKind
 from policy.character_traits import is_builder
+from runtime_modules.modifiers import builder_purchase_modifier
 from state import GameState, PlayerState, TileState
 from weather_cards import COLOR_RENT_DOUBLE_WEATHERS
 
@@ -155,7 +156,13 @@ class BuilderFreePurchaseModifier:
     priority = 10
 
     def applies(self, context: PurchaseContext) -> bool:
-        return context.final_cost > 0 and is_builder(context.tile_context.player.current_character)
+        if context.final_cost <= 0:
+            return False
+        state = context.tile_context.state
+        player = context.tile_context.player
+        if getattr(state, "runtime_runner_kind", "legacy") == "module":
+            return builder_purchase_modifier(state, player_id=player.player_id) is not None
+        return is_builder(player.current_character)
 
     def apply(self, context: PurchaseContext) -> None:
         before = context.final_cost

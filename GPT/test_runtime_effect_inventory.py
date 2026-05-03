@@ -92,3 +92,21 @@ def test_effect_inventory_runtime_boundaries_have_handlers_or_adapters():
     from runtime_modules.effect_inventory import EFFECT_INVENTORY, runtime_handler_coverage_errors
 
     assert runtime_handler_coverage_errors(EFFECT_INVENTORY) == []
+
+
+def test_native_runtime_effects_do_not_depend_on_legacy_action_adapter_boundaries():
+    from runtime_modules.effect_inventory import EFFECT_INVENTORY, effect_by_id
+
+    native_effect_ids = (
+        "character:bandit:mark_target",
+        "character:eosa:suppress_muroe",
+        "character:pabalggun:dice_modifier",
+        "character:builder:free_purchase",
+        "trick:sequence",
+        "fortune:extra_arrival",
+        "simultaneous:resupply",
+    )
+
+    for effect_id in native_effect_ids:
+        entry = effect_by_id(EFFECT_INVENTORY, effect_id)
+        assert "LegacyActionAdapterModule" not in entry.runtime_boundary_modules

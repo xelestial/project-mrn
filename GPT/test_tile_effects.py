@@ -7,6 +7,8 @@ bootstrap_local_test_imports(__file__)
 from ai_policy import HeuristicPolicy
 from config import CellKind, GameConfig
 from engine import GameEngine
+from runtime_modules.contracts import Modifier
+from runtime_modules.modifiers import BUILDER_FREE_PURCHASE_KIND, ModifierRegistry
 from state import GameState
 from tile_effects import (
     build_purchase_context,
@@ -44,6 +46,50 @@ def test_purchase_context_builder_free_purchase_does_not_consume_one_shot_flag()
     assert context.final_cost == 0
     assert context.one_shot_consumptions == []
     assert context.cost_breakdown[-1]["modifier"] == "builder_free_purchase"
+
+
+def test_module_purchase_context_uses_builder_modifier_without_character_name() -> None:
+    config = GameConfig(player_count=2)
+    state = GameState.create(config)
+    state.runtime_runner_kind = "module"
+    player = state.players[0]
+    player.current_character = "어사"
+    tile_index = state.first_tile_position(kinds=[CellKind.T2])
+    ModifierRegistry(state.runtime_modifier_registry).add(
+        Modifier(
+            modifier_id="modifier:test:builder:free_purchase",
+            source_module_id="CharacterStartModule:test",
+            target_module_type="PurchaseDecisionModule",
+            scope="turn",
+            owner_player_id=player.player_id,
+            priority=10,
+            payload={"kind": BUILDER_FREE_PURCHASE_KIND},
+            propagation=["PurchaseCommitModule", "ArrivalTileModule"],
+            expires_on="turn_completed",
+        )
+    )
+
+    context = build_purchase_context(state, player, tile_index, state.board[tile_index], source="landing_purchase")
+
+    assert context.base_cost > 0
+    assert context.final_cost == 0
+    assert context.one_shot_consumptions == []
+    assert context.cost_breakdown[-1]["modifier"] == "builder_free_purchase"
+
+
+def test_module_purchase_context_does_not_use_builder_name_without_modifier() -> None:
+    config = GameConfig(player_count=2)
+    state = GameState.create(config)
+    state.runtime_runner_kind = "module"
+    player = state.players[0]
+    player.current_character = "건설업자"
+    tile_index = state.first_tile_position(kinds=[CellKind.T2])
+
+    context = build_purchase_context(state, player, tile_index, state.board[tile_index], source="landing_purchase")
+
+    assert context.base_cost > 0
+    assert context.final_cost == context.base_cost
+    assert all(item["modifier"] != "builder_free_purchase" for item in context.cost_breakdown)
 
 
 def test_successful_trick_free_purchase_consumes_flag_once() -> None:

@@ -168,3 +168,15 @@ def consume_pabal_dice_modifier(state: Any, *, player_id: int) -> Modifier | Non
             continue
         return registry.consume(modifier.modifier_id)
     return None
+
+
+def builder_purchase_modifier(state: Any, *, player_id: int, module_type: str = "PurchaseDecisionModule") -> Modifier | None:
+    registry_state = getattr(state, "runtime_modifier_registry", None)
+    if registry_state is None:
+        return None
+    registry = ModifierRegistry(registry_state)
+    for modifier in registry.applicable(module_type, owner_player_id=player_id):
+        if modifier.payload.get("kind") != BUILDER_FREE_PURCHASE_KIND:
+            continue
+        return modifier
+    return None

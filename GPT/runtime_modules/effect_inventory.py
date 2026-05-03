@@ -199,7 +199,7 @@ EFFECT_INVENTORY: tuple[EffectInventoryEntry, ...] = (
         redis_resume_contracts=("PromptContinuation",),
         modifier_kind=BUILDER_FREE_PURCHASE_KIND,
         runtime_boundary_modules=("CharacterStartModule", "PurchaseDecisionModule", "PurchaseCommitModule"),
-        notes="턴 시작 무료 구매 modifier를 구매 결정/커밋 시퀀스에서만 소비한다.",
+        notes="턴 시작 무료 구매 modifier를 구매 결정/커밋 시퀀스에서만 적용한다.",
     ),
     EffectInventoryEntry(
         effect_id="character:swindler:takeover",

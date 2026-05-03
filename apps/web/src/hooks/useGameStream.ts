@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import type {
   ConnectionStatus,
   InboundMessage,
+  OutboundMessage,
 } from "../core/contracts/stream";
 import type { PromptContinuationViewModel } from "../domain/selectors/promptSelectors";
 import {
@@ -59,6 +60,31 @@ export function createDecisionRequestLedger(): {
       activeStreamKey = "";
       sentRequestIds = new Set<string>();
     },
+  };
+}
+
+export function buildDecisionMessage(args: {
+  requestId: string;
+  playerId: number;
+  choiceId: string;
+  choicePayload?: Record<string, unknown>;
+  continuation?: PromptContinuationViewModel;
+  clientSeq: number;
+}): OutboundMessage {
+  const continuation = args.continuation;
+  return {
+    type: "decision",
+    request_id: args.requestId,
+    player_id: args.playerId,
+    choice_id: args.choiceId,
+    choice_payload: args.choicePayload,
+    ...(continuation?.resumeToken ? { resume_token: continuation.resumeToken } : {}),
+    ...(continuation?.frameId ? { frame_id: continuation.frameId } : {}),
+    ...(continuation?.moduleId ? { module_id: continuation.moduleId } : {}),
+    ...(continuation?.moduleType ? { module_type: continuation.moduleType } : {}),
+    ...(continuation?.moduleCursor ? { module_cursor: continuation.moduleCursor } : {}),
+    ...(continuation?.batchId ? { batch_id: continuation.batchId } : {}),
+    client_seq: args.clientSeq,
   };
 }
 
@@ -293,20 +319,16 @@ export function useGameStream({
       });
       return true;
     }
-    const sent = client.send({
-      type: "decision",
-      request_id: args.requestId,
-      player_id: args.playerId,
-      choice_id: args.choiceId,
-      choice_payload: args.choicePayload,
-      ...(continuation?.resumeToken ? { resume_token: continuation.resumeToken } : {}),
-      ...(continuation?.frameId ? { frame_id: continuation.frameId } : {}),
-      ...(continuation?.moduleId ? { module_id: continuation.moduleId } : {}),
-      ...(continuation?.moduleType ? { module_type: continuation.moduleType } : {}),
-      ...(continuation?.moduleCursor ? { module_cursor: continuation.moduleCursor } : {}),
-      ...(continuation?.batchId ? { batch_id: continuation.batchId } : {}),
-      client_seq: lastSeqRef.current,
-    });
+    const sent = client.send(
+      buildDecisionMessage({
+        requestId: args.requestId,
+        playerId: args.playerId,
+        choiceId: args.choiceId,
+        choicePayload: args.choicePayload,
+        continuation,
+        clientSeq: lastSeqRef.current,
+      }),
+    );
     if (sent) {
       if (streamKey) {
         decisionRequestLedgerRef.current.recordSent(streamKey, args.requestId);

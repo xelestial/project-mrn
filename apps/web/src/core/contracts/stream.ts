@@ -55,6 +55,7 @@ export type OutboundMessage =
       frame_id?: string;
       module_id?: string;
       module_type?: string;
+      module_cursor?: string;
       batch_id?: string;
       client_seq: number;
     };
