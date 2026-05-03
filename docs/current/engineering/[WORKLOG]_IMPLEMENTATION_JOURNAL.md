@@ -8,6 +8,24 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Prompt Fallback Legality And Surface Fixture Expansion
+
+- What changed:
+  - made backend timeout fallback choose only legal prompt choices and reject prompts that have no legal choice surface
+  - added shared backend/frontend prompt surface fixtures for draft character, final character, doctrine relief, specific trick reward, and pabal dice mode
+  - expanded canonical effect-owner mapping for 박수/만신 effect-type events
+  - added a machine-readable 1-5 round-combination regression pack fixture and linked it from the playtest matrix
+  - removed frontend public-context synthesis for backend-owned character pick, doctrine relief, specific trick reward, and pabal dice mode prompt surfaces
+- Why:
+  - timeout fallback must never select an impossible choice, even when a stale explicit default remains in prompt metadata
+  - prompt UI shape should come from backend `view_state.surface`, not frontend reconstruction from old public context fields
+  - the 1-5 regression pack needs a fixture-level contract so future docs or e2e automation cannot drift silently
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_rule_fixes.py::RuleFixTests::test_effect_type_event_carries_canonical_effect_owner_contract apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_execute_prompt_fallback_records_recent_history apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_execute_prompt_fallback_uses_first_legal_choice_when_no_explicit_default apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_execute_prompt_fallback_ignores_illegal_explicit_default apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_execute_prompt_fallback_rejects_prompt_without_legal_choices apps/server/tests/test_view_state_prompt_selector.py tests/test_module_runtime_playtest_matrix_doc.py -q`
+  - `npm --prefix apps/web run test -- --run src/domain/selectors/promptSelectors.spec.ts src/features/prompt/promptSurfaceCatalog.spec.ts`
+  - `npm --prefix apps/web run build`
+  - `git diff --check`
+
 ## 2026-05-04 Canonical Effect Ownership And Prompt Surface Contract Pass
 
 - What changed:

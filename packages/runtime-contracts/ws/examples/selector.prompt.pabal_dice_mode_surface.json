@@ -1,0 +1,66 @@
+{
+  "case_id": "prompt_pabal_dice_mode_surface",
+  "metadata": {
+    "expected_choice_ids": ["plus_one", "minus_one"],
+    "surface_kind": "pabal_dice_mode"
+  },
+  "messages": [
+    {
+      "type": "prompt",
+      "seq": 85,
+      "session_id": "sess_prompt_surface",
+      "server_time_ms": 85,
+      "payload": {
+        "request_id": "req_pabal_dice_mode_surface_1",
+        "request_type": "pabal_dice_mode",
+        "player_id": 1,
+        "timeout_ms": 30000,
+        "legal_choices": [
+          {
+            "choice_id": "plus_one",
+            "title": "Roll three dice",
+            "description": "Use the default three-die roll this turn.",
+            "value": {
+              "dice_mode": "plus_one"
+            }
+          },
+          {
+            "choice_id": "minus_one",
+            "title": "Roll one die",
+            "description": "Reduce the roll to one die this turn.",
+            "value": {
+              "dice_mode": "minus_one"
+            }
+          }
+        ],
+        "public_context": {}
+      }
+    }
+  ],
+  "expected": {
+    "prompt": {
+      "active": {
+        "surface": {
+          "kind": "pabal_dice_mode",
+          "blocks_public_events": true,
+          "pabal_dice_mode": {
+            "options": [
+              {
+                "choice_id": "plus_one",
+                "dice_mode": "plus_one",
+                "title": "Roll three dice",
+                "description": "Use the default three-die roll this turn."
+              },
+              {
+                "choice_id": "minus_one",
+                "dice_mode": "minus_one",
+                "title": "Roll one die",
+                "description": "Reduce the roll to one die this turn."
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

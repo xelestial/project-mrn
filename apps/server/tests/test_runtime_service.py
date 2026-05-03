@@ -341,7 +341,10 @@ class RuntimeServiceTests(unittest.TestCase):
                 request_id="req_timeout_1",
                 player_id=2,
                 fallback_policy="timeout_fallback",
-                prompt_payload={"fallback_choice_id": "choice_default"},
+                prompt_payload={
+                    "fallback_choice_id": "choice_default",
+                    "legal_choices": [{"choice_id": "choice_default", "title": "Default"}],
+                },
             )
         )
 
@@ -384,6 +387,68 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(result["choice_id"], "dice")
         recent = self.runtime_service.runtime_status(session.session_id).get("recent_fallbacks", [])
         self.assertEqual(recent[-1]["choice_id"], "dice")
+
+    def test_execute_prompt_fallback_ignores_illegal_explicit_default(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "human"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+
+        result = asyncio.run(
+            self.runtime_service.execute_prompt_fallback(
+                session_id=session.session_id,
+                request_id="req_timeout_illegal_default",
+                player_id=2,
+                fallback_policy="timeout_fallback",
+                prompt_payload={
+                    "request_type": "movement",
+                    "fallback_choice_id": "timeout_fallback",
+                    "legal_choices": [
+                        {"choice_id": "dice", "title": "Roll dice"},
+                        {"choice_id": "card_1", "title": "Use card 1"},
+                    ],
+                },
+            )
+        )
+
+        self.assertEqual(result["status"], "executed")
+        self.assertEqual(result["choice_id"], "dice")
+        recent = self.runtime_service.runtime_status(session.session_id).get("recent_fallbacks", [])
+        self.assertEqual(recent[-1]["choice_id"], "dice")
+
+    def test_execute_prompt_fallback_rejects_prompt_without_legal_choices(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "human"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+
+        with self.assertRaises(ValueError):
+            asyncio.run(
+                self.runtime_service.execute_prompt_fallback(
+                    session_id=session.session_id,
+                    request_id="req_timeout_empty_legal_choices",
+                    player_id=2,
+                    fallback_policy="timeout_fallback",
+                    prompt_payload={
+                        "request_type": "movement",
+                        "fallback_choice_id": "timeout_fallback",
+                        "legal_choices": [],
+                    },
+                )
+            )
+
+        recent = self.runtime_service.runtime_status(session.session_id).get("recent_fallbacks", [])
+        self.assertEqual(recent, [])
 
     def test_process_command_once_continues_after_command_transition_until_prompt(self) -> None:
         session = self.session_service.create_session(

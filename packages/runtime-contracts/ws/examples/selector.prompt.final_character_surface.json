@@ -1,0 +1,64 @@
+{
+  "case_id": "prompt_final_character_surface",
+  "metadata": {
+    "expected_choice_ids": ["박수", "산적"],
+    "surface_kind": "character_pick"
+  },
+  "messages": [
+    {
+      "type": "prompt",
+      "seq": 82,
+      "session_id": "sess_prompt_surface",
+      "server_time_ms": 82,
+      "payload": {
+        "request_id": "req_final_character_surface_1",
+        "request_type": "final_character",
+        "player_id": 1,
+        "timeout_ms": 30000,
+        "legal_choices": [
+          {
+            "choice_id": "박수",
+            "title": "박수",
+            "description": "Finalize 박수 as your active character."
+          },
+          {
+            "choice_id": "산적",
+            "title": "산적",
+            "description": "Finalize 산적 as your active character."
+          }
+        ],
+        "public_context": {
+          "choice_count": 2
+        }
+      }
+    }
+  ],
+  "expected": {
+    "prompt": {
+      "active": {
+        "surface": {
+          "kind": "character_pick",
+          "blocks_public_events": true,
+          "character_pick": {
+            "phase": "final",
+            "draft_phase": null,
+            "draft_phase_label": null,
+            "choice_count": 2,
+            "options": [
+              {
+                "choice_id": "박수",
+                "name": "박수",
+                "description": "Finalize 박수 as your active character."
+              },
+              {
+                "choice_id": "산적",
+                "name": "산적",
+                "description": "Finalize 산적 as your active character."
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

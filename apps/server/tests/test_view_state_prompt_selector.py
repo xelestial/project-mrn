@@ -560,6 +560,24 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
             fixture["expected"]["prompt"]["active"]["surface"],
         )
 
+    def test_build_prompt_view_state_matches_shared_draft_character_surface_fixture(self) -> None:
+        fixture = _load_selector_prompt_fixture("selector.prompt.draft_character_surface.json")
+        view_state = build_prompt_view_state(fixture["messages"])
+
+        self.assertEqual(
+            view_state["active"]["surface"],
+            fixture["expected"]["prompt"]["active"]["surface"],
+        )
+
+    def test_build_prompt_view_state_matches_shared_final_character_surface_fixture(self) -> None:
+        fixture = _load_selector_prompt_fixture("selector.prompt.final_character_surface.json")
+        view_state = build_prompt_view_state(fixture["messages"])
+
+        self.assertEqual(
+            view_state["active"]["surface"],
+            fixture["expected"]["prompt"]["active"]["surface"],
+        )
+
     def test_build_prompt_view_state_matches_shared_purchase_tile_surface_fixture(self) -> None:
         fixture = _load_selector_prompt_fixture("selector.prompt.purchase_tile_surface.json")
         view_state = build_prompt_view_state(fixture["messages"])
@@ -571,6 +589,33 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
 
     def test_build_prompt_view_state_matches_shared_trick_tile_target_surface_fixture(self) -> None:
         fixture = _load_selector_prompt_fixture("selector.prompt.trick_tile_target_surface.json")
+        view_state = build_prompt_view_state(fixture["messages"])
+
+        self.assertEqual(
+            view_state["active"]["surface"],
+            fixture["expected"]["prompt"]["active"]["surface"],
+        )
+
+    def test_build_prompt_view_state_matches_shared_doctrine_relief_surface_fixture(self) -> None:
+        fixture = _load_selector_prompt_fixture("selector.prompt.doctrine_relief_surface.json")
+        view_state = build_prompt_view_state(fixture["messages"])
+
+        self.assertEqual(
+            view_state["active"]["surface"],
+            fixture["expected"]["prompt"]["active"]["surface"],
+        )
+
+    def test_build_prompt_view_state_matches_shared_specific_trick_reward_surface_fixture(self) -> None:
+        fixture = _load_selector_prompt_fixture("selector.prompt.specific_trick_reward_surface.json")
+        view_state = build_prompt_view_state(fixture["messages"])
+
+        self.assertEqual(
+            view_state["active"]["surface"],
+            fixture["expected"]["prompt"]["active"]["surface"],
+        )
+
+    def test_build_prompt_view_state_matches_shared_pabal_dice_mode_surface_fixture(self) -> None:
+        fixture = _load_selector_prompt_fixture("selector.prompt.pabal_dice_mode_surface.json")
         view_state = build_prompt_view_state(fixture["messages"])
 
         self.assertEqual(

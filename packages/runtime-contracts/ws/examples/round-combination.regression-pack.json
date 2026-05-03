@@ -1,0 +1,101 @@
+{
+  "$schema": "project-mrn.round-combination-regression-pack.v1",
+  "pack_id": "MRN-MOD-ROUND-COMBINATION-1-5",
+  "title": "1-5 round-combination module runtime regression pack",
+  "automation_commands": [
+    "npm run e2e:module-runtime"
+  ],
+  "scenarios": [
+    {
+      "scenario_id": "MRN-MOD-003",
+      "title": "산적 지목 후 잔꾀",
+      "required_modules": [
+        "CharacterStartModule",
+        "TargetJudicatorModule",
+        "TrickSequenceFrame"
+      ],
+      "automation": [
+        "GPT/test_runtime_sequence_modules.py",
+        "apps/server/tests/test_prompt_module_continuation.py",
+        "apps/web/src/hooks/useGameStream.spec.ts"
+      ]
+    },
+    {
+      "scenario_id": "MRN-MOD-004",
+      "title": "잔꾀 후속 선택",
+      "required_modules": [
+        "TrickChoiceModule",
+        "TrickResolveModule",
+        "TrickDeferredFollowupsModule"
+      ],
+      "automation": [
+        "GPT/test_runtime_sequence_modules.py",
+        "GPT/test_runtime_prompt_continuation.py"
+      ]
+    },
+    {
+      "scenario_id": "MRN-MOD-005",
+      "title": "운수 추가 이동/도착",
+      "required_modules": [
+        "FortuneResolveModule",
+        "MapMoveModule",
+        "ArrivalTileModule"
+      ],
+      "automation": [
+        "GPT/test_runtime_sequence_modules.py",
+        "GPT/test_runtime_sequence_handlers.py",
+        "GPT/test_runtime_effect_inventory.py",
+        "apps/server/tests/test_runtime_semantic_guard.py",
+        "npm run e2e:module-runtime"
+      ]
+    },
+    {
+      "scenario_id": "MRN-MOD-010",
+      "title": "라운드 종료 카드 플립",
+      "required_modules": [
+        "TurnEndSnapshotModule",
+        "RoundEndCardFlipModule",
+        "PlayerTurnModule"
+      ],
+      "automation": [
+        "GPT/test_runtime_round_modules.py",
+        "GPT/test_runtime_sequence_modules.py",
+        "apps/server/tests/test_runtime_semantic_guard.py"
+      ]
+    },
+    {
+      "scenario_id": "MRN-MOD-014",
+      "title": "재보급 eligible 스냅샷 재개",
+      "required_modules": [
+        "SimultaneousResolutionFrame",
+        "ResupplyModule"
+      ],
+      "automation": [
+        "GPT/test_runtime_simultaneous_modules.py",
+        "apps/server/tests/test_runtime_service.py",
+        "apps/web/src/domain/selectors/promptSelectors.spec.ts"
+      ]
+    },
+    {
+      "scenario_id": "MRN-MOD-015",
+      "title": "잔꾀 후속 재시도 idempotency",
+      "required_modules": [
+        "TrickResolveModule",
+        "TrickChoiceModule",
+        "TrickSequenceFrame"
+      ],
+      "automation": [
+        "GPT/test_runtime_sequence_modules.py",
+        "apps/server/tests/test_prompt_module_continuation.py",
+        "apps/web/src/hooks/useGameStream.spec.ts"
+      ]
+    }
+  ],
+  "invariants": [
+    "CharacterStartModule",
+    "TargetJudicatorModule",
+    "RoundEndCardFlipModule",
+    "SimultaneousResolutionFrame",
+    "프론트 생성 request id나 stale continuation이 엔진을 진행시키지 않는지 확인한다"
+  ]
+}

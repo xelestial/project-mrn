@@ -578,9 +578,17 @@ class GameEngine:
         if event_type == "ability_suppressed" and isinstance(actor_name, str) and actor_name.strip():
             return actor_name.strip()
 
+        effect_type = str(payload.get("effect_type") or payload.get("type") or "")
+        effect_character_by_type = {
+            "baksu_transfer": "박수",
+            "manshin_remove_burdens": "만신",
+        }
+        if effect_type in effect_character_by_type:
+            return effect_character_by_type[effect_type]
+
         if event_type == "tile_purchased":
             purchase_source = str(payload.get("purchase_source") or payload.get("source") or "")
-            if purchase_source != "matchmaker_adjacent":
+            if purchase_source not in {"matchmaker_adjacent", "adjacent_extra"}:
                 return None
         elif event_type not in {
             "mark_resolved",

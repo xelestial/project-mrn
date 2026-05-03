@@ -1,0 +1,57 @@
+{
+  "case_id": "prompt_doctrine_relief_surface",
+  "metadata": {
+    "expected_choice_ids": ["2"],
+    "surface_kind": "doctrine_relief"
+  },
+  "messages": [
+    {
+      "type": "prompt",
+      "seq": 83,
+      "session_id": "sess_prompt_surface",
+      "server_time_ms": 83,
+      "payload": {
+        "request_id": "req_doctrine_relief_surface_1",
+        "request_type": "doctrine_relief",
+        "player_id": 1,
+        "timeout_ms": 30000,
+        "legal_choices": [
+          {
+            "choice_id": "2",
+            "title": "P2",
+            "description": "Remove 1 burden from P2.",
+            "value": {
+              "target_player_id": 2,
+              "burden_count": 1
+            }
+          }
+        ],
+        "public_context": {
+          "candidate_count": 1
+        }
+      }
+    }
+  ],
+  "expected": {
+    "prompt": {
+      "active": {
+        "surface": {
+          "kind": "doctrine_relief",
+          "blocks_public_events": true,
+          "doctrine_relief": {
+            "candidate_count": 1,
+            "options": [
+              {
+                "choice_id": "2",
+                "target_player_id": 2,
+                "burden_count": 1,
+                "title": "P2",
+                "description": "Remove 1 burden from P2."
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

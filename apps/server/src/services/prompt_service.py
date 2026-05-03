@@ -192,6 +192,13 @@ class PromptService:
         now = submitted_at_ms if submitted_at_ms is not None else self._now_ms()
         request_id = str(pending.request_id).strip()
         fallback_choice_id = str(choice_id or "timeout_fallback").strip() or "timeout_fallback"
+        legal_choice_ids = {
+            str(choice.get("choice_id") or "").strip()
+            for choice in pending.payload.get("legal_choices", [])
+            if isinstance(choice, dict) and str(choice.get("choice_id") or "").strip()
+        }
+        if legal_choice_ids and fallback_choice_id not in legal_choice_ids:
+            raise ValueError("prompt_fallback_choice_not_legal")
         decision_payload = {
             "type": "decision",
             "request_id": request_id,

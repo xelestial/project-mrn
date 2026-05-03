@@ -791,6 +791,30 @@ class RuleFixTests(DraftRuleAssertionMixin, unittest.TestCase):
         self.assertLess(event_types.index("mark_resolved"), event_types.index("turn_start"))
         self.assertEqual(target.turns_taken, 1)
 
+    def test_effect_type_event_carries_canonical_effect_owner_contract(self):
+        engine = self.make_engine()
+        state = self.make_state(engine)
+
+        baksu_payload = engine._with_effect_character_contract(
+            "mark_resolved",
+            state,
+            None,
+            {"effect_type": "baksu_transfer"},
+        )
+        manshin_payload = engine._with_effect_character_contract(
+            "mark_resolved",
+            state,
+            None,
+            {"effect_type": "manshin_remove_burdens"},
+        )
+
+        self.assertEqual(baksu_payload["effect_character_name"], "박수")
+        self.assertEqual(baksu_payload["effect_card_no"], 6)
+        self.assertEqual(baksu_payload["effect_character_id"], "character.card.6.face.1")
+        self.assertEqual(manshin_payload["effect_character_name"], "만신")
+        self.assertEqual(manshin_payload["effect_card_no"], 6)
+        self.assertEqual(manshin_payload["effect_character_id"], "character.card.6.face.2")
+
     def _legacy_test_mark_target_must_be_future_turn_character(self):
         policy = TargetPolicy(target_name="아전")
         engine = self.make_engine(policy=policy)

@@ -58,6 +58,8 @@
 
 이번 구조 회귀 묶음은 다음 순서로 확인한다.
 
+기계 판독용 회귀 pack은 `packages/runtime-contracts/ws/examples/round-combination.regression-pack.json`에 둔다. 문서/fixture/브라우저 시작점은 `tests/test_module_runtime_playtest_matrix_doc.py`가 함께 감시하며, 브라우저 회귀 시작점은 `npm run e2e:module-runtime`이다.
+
 1. `MRN-MOD-003`/`MRN-MOD-004`/`MRN-MOD-015`: 산적 지목 후 잔꾀를 사용하고, 후속 잔꾀 선택이 필요한 카드에서 worker 재시도 또는 재연결이 있어도 `CharacterStartModule`과 `TargetJudicatorModule`이 다시 열리지 않는지 확인한다.
 2. `MRN-MOD-005`: 모든 `resolve_fortune_*` 결정형 운수 action이 `FortuneResolveModule -> MapMoveModule -> ArrivalTileModule`로 이어지고 새 `TurnFrame`이나 `LegacyActionAdapterModule`로 빠지지 않는지 확인한다.
 3. `MRN-MOD-010`: `TurnEndSnapshotModule`은 active `TurnFrame`에서 턴을 닫고, `RoundEndCardFlipModule`은 모든 `PlayerTurnModule`과 child frame이 종료된 뒤에만 실행되는지 확인한다.

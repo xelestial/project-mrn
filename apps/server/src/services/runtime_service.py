@@ -331,13 +331,7 @@ class RuntimeService:
 
     @staticmethod
     def _fallback_choice_id(prompt_payload: dict) -> str:
-        explicit = str(
-            prompt_payload.get("fallback_choice_id")
-            or prompt_payload.get("default_choice_id")
-            or ""
-        ).strip()
-        if explicit:
-            return explicit
+        legal_choice_ids: list[str] = []
         legal_choices = prompt_payload.get("legal_choices")
         if isinstance(legal_choices, list):
             for choice in legal_choices:
@@ -345,8 +339,18 @@ class RuntimeService:
                     continue
                 choice_id = str(choice.get("choice_id") or "").strip()
                 if choice_id:
-                    return choice_id
-        return "timeout_fallback"
+                    legal_choice_ids.append(choice_id)
+        if not legal_choice_ids:
+            raise ValueError("prompt_fallback_has_no_legal_choice")
+
+        explicit = str(
+            prompt_payload.get("fallback_choice_id")
+            or prompt_payload.get("default_choice_id")
+            or ""
+        ).strip()
+        if explicit and explicit in legal_choice_ids:
+            return explicit
+        return legal_choice_ids[0]
 
     async def process_command_once(
         self,

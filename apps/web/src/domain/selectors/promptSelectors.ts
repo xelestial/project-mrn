@@ -794,30 +794,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                 })
               : [],
           }
-        : requestType === "draft_card" || requestType === "final_character" || requestType === "final_character_choice"
-          ? {
-              phase: requestType === "draft_card" ? "draft" : "final",
-              draftPhase: numberOrNull(publicContext["draft_phase"]),
-              draftPhaseLabel: stringOrEmpty(publicContext["draft_phase_label"]) || null,
-              choiceCount:
-                numberOrNull(publicContext["offered_count"]) ??
-                numberOrNull(publicContext["choice_count"]) ??
-                (Array.isArray(choicesRaw) ? choicesRaw.length : 0),
-              options: Array.isArray(choicesRaw)
-                ? choicesRaw.flatMap((item) => {
-                    if (!isRecord(item)) {
-                      return [];
-                    }
-                    const choiceId = stringOrEmpty(item["choice_id"]);
-                    const name = stringOrEmpty(item["title"] ?? item["label"]);
-                    if (!choiceId || !name) {
-                      return [];
-                    }
-                    return [{ choiceId, name, description: choiceDescriptionText(item, choiceValueRecord(item)) }];
-                  })
-                : [],
-            }
-          : null,
+        : null,
     handChoice:
       handChoice
         ? {
@@ -993,30 +970,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                 })
               : [],
           }
-        : requestType === "doctrine_relief"
-          ? {
-              candidateCount: numberOrNull(publicContext["candidate_count"]) ?? 0,
-              options: Array.isArray(choicesRaw)
-                ? choicesRaw.flatMap((item) => {
-                    if (!isRecord(item)) {
-                      return [];
-                    }
-                    const choiceId = stringOrEmpty(item["choice_id"]);
-                    if (!choiceId) {
-                      return [];
-                    }
-                    const value = choiceValueRecord(item);
-                    return [{
-                      choiceId,
-                      targetPlayerId: numberOrNull(value?.["target_player_id"]),
-                      burdenCount: numberOrNull(value?.["burden_count"]),
-                      title: stringOrEmpty(item["title"] ?? item["label"]) || choiceId,
-                      description: choiceDescriptionText(item, value),
-                    }];
-                  })
-                : [],
-            }
-          : null,
+        : null,
     geoBonus:
       geoBonus
         ? {
@@ -1084,29 +1038,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                 })
               : [],
           }
-        : requestType === "specific_trick_reward"
-          ? {
-              rewardCount: numberOrNull(publicContext["reward_count"]) ?? 0,
-              options: Array.isArray(choicesRaw)
-                ? choicesRaw.flatMap((item) => {
-                    if (!isRecord(item)) {
-                      return [];
-                    }
-                    const choiceId = stringOrEmpty(item["choice_id"]);
-                    if (!choiceId) {
-                      return [];
-                    }
-                    const value = choiceValueRecord(item);
-                    return [{
-                      choiceId,
-                      deckIndex: numberOrNull(value?.["deck_index"]),
-                      name: stringOrEmpty(item["title"] ?? item["label"]) || choiceId,
-                      description: choiceDescriptionText(item, value),
-                    }];
-                  })
-                : [],
-            }
-          : null,
+        : null,
     pabalDiceMode:
       pabalDiceMode
         ? {
@@ -1128,28 +1060,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                 })
               : [],
           }
-        : requestType === "pabal_dice_mode"
-          ? {
-              options: Array.isArray(choicesRaw)
-                ? choicesRaw.flatMap((item) => {
-                    if (!isRecord(item)) {
-                      return [];
-                    }
-                    const choiceId = stringOrEmpty(item["choice_id"]);
-                    if (!choiceId) {
-                      return [];
-                    }
-                    const value = choiceValueRecord(item);
-                    return [{
-                      choiceId,
-                      diceMode: stringOrEmpty(value?.["dice_mode"]) || choiceId,
-                      title: stringOrEmpty(item["title"] ?? item["label"]) || choiceId,
-                      description: choiceDescriptionText(item, value),
-                    }];
-                  })
-                : [],
-            }
-          : null,
+        : null,
     runawayStep:
       runawayStep
         ? {

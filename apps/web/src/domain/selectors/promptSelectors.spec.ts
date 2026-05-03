@@ -128,6 +128,67 @@ describe("promptSelectors", () => {
     expect(model?.choices[0].description).toBe("Reduce the roll to one die this turn.");
   });
 
+  it("does not synthesize backend-owned prompt surfaces from public_context fallbacks", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "prompt",
+        seq: 10,
+        session_id: "s1",
+        payload: {
+          request_id: "req_draft_raw",
+          request_type: "draft_card",
+          player_id: 1,
+          timeout_ms: 300000,
+          legal_choices: [{ choice_id: "박수", title: "박수" }],
+          public_context: { draft_phase: 1, offered_count: 1 },
+        },
+      },
+      {
+        type: "prompt",
+        seq: 11,
+        session_id: "s1",
+        payload: {
+          request_id: "req_doctrine_raw",
+          request_type: "doctrine_relief",
+          player_id: 1,
+          timeout_ms: 30000,
+          legal_choices: [{ choice_id: "2", title: "P2", value: { target_player_id: 2, burden_count: 1 } }],
+          public_context: { candidate_count: 1 },
+        },
+      },
+      {
+        type: "prompt",
+        seq: 12,
+        session_id: "s1",
+        payload: {
+          request_id: "req_reward_raw",
+          request_type: "specific_trick_reward",
+          player_id: 1,
+          timeout_ms: 30000,
+          legal_choices: [{ choice_id: "17", title: "월리권 #17", value: { deck_index: 17 } }],
+          public_context: { reward_count: 1 },
+        },
+      },
+      {
+        type: "prompt",
+        seq: 13,
+        session_id: "s1",
+        payload: {
+          request_id: "req_pabal_raw",
+          request_type: "pabal_dice_mode",
+          player_id: 1,
+          timeout_ms: 30000,
+          legal_choices: [{ choice_id: "minus_one", title: "Roll one die", value: { dice_mode: "minus_one" } }],
+        },
+      },
+    ];
+
+    expect(selectActivePrompt([messages[0]])?.surface.characterPick).toBeNull();
+    expect(selectActivePrompt([messages[1]])?.surface.doctrineRelief).toBeNull();
+    expect(selectActivePrompt([messages[2]])?.surface.specificTrickReward).toBeNull();
+    expect(selectActivePrompt([messages[3]])?.surface.pabalDiceMode).toBeNull();
+  });
+
   it("marks passive canonical choices as secondary", () => {
     const promptMessage: InboundMessage = {
       type: "prompt",
@@ -1581,6 +1642,74 @@ describe("promptSelectors", () => {
     });
   });
 
+  it("matches shared selector prompt draft character surface fixture", () => {
+    const fixture = loadSharedPromptFixture("selector.prompt.draft_character_surface.json");
+    const messages = fixture.messages.map((message, index, items) =>
+      index === items.length - 1
+        ? {
+            ...message,
+            payload: {
+              ...message.payload,
+              view_state: {
+                prompt: {
+                  active: {
+                    ...(message.payload as Record<string, unknown>),
+                    choices: (message.payload as Record<string, unknown>).legal_choices,
+                    surface: fixture.expected.prompt.active.surface,
+                  },
+                },
+              },
+            },
+          }
+        : message
+    );
+
+    expect(selectActivePrompt(messages)?.surface.characterPick).toEqual({
+      phase: "draft",
+      draftPhase: 1,
+      draftPhaseLabel: "1차 드래프트",
+      choiceCount: 2,
+      options: [
+        { choiceId: "박수", name: "박수", description: "Select 박수 for your draft pool." },
+        { choiceId: "산적", name: "산적", description: "Select 산적 for your draft pool." },
+      ],
+    });
+  });
+
+  it("matches shared selector prompt final character surface fixture", () => {
+    const fixture = loadSharedPromptFixture("selector.prompt.final_character_surface.json");
+    const messages = fixture.messages.map((message, index, items) =>
+      index === items.length - 1
+        ? {
+            ...message,
+            payload: {
+              ...message.payload,
+              view_state: {
+                prompt: {
+                  active: {
+                    ...(message.payload as Record<string, unknown>),
+                    choices: (message.payload as Record<string, unknown>).legal_choices,
+                    surface: fixture.expected.prompt.active.surface,
+                  },
+                },
+              },
+            },
+          }
+        : message
+    );
+
+    expect(selectActivePrompt(messages)?.surface.characterPick).toEqual({
+      phase: "final",
+      draftPhase: null,
+      draftPhaseLabel: null,
+      choiceCount: 2,
+      options: [
+        { choiceId: "박수", name: "박수", description: "Finalize 박수 as your active character." },
+        { choiceId: "산적", name: "산적", description: "Finalize 산적 as your active character." },
+      ],
+    });
+  });
+
   it("matches shared selector prompt purchase tile surface fixture", () => {
     const fixture = loadSharedPromptFixture("selector.prompt.purchase_tile_surface.json");
     const messages = fixture.messages.map((message, index, items) =>
@@ -1642,6 +1771,102 @@ describe("promptSelectors", () => {
       options: [
         { choiceId: "tile_5", tileIndex: 5, title: "6번 칸", description: "Apply the trick to tile 6." },
         { choiceId: "tile_12", tileIndex: 12, title: "13번 칸", description: "Apply the trick to tile 13." },
+      ],
+    });
+  });
+
+  it("matches shared selector prompt doctrine relief surface fixture", () => {
+    const fixture = loadSharedPromptFixture("selector.prompt.doctrine_relief_surface.json");
+    const messages = fixture.messages.map((message, index, items) =>
+      index === items.length - 1
+        ? {
+            ...message,
+            payload: {
+              ...message.payload,
+              view_state: {
+                prompt: {
+                  active: {
+                    ...(message.payload as Record<string, unknown>),
+                    choices: (message.payload as Record<string, unknown>).legal_choices,
+                    surface: fixture.expected.prompt.active.surface,
+                  },
+                },
+              },
+            },
+          }
+        : message
+    );
+
+    expect(selectActivePrompt(messages)?.surface.doctrineRelief).toEqual({
+      candidateCount: 1,
+      options: [{ choiceId: "2", targetPlayerId: 2, burdenCount: 1, title: "P2", description: "Remove 1 burden from P2." }],
+    });
+  });
+
+  it("matches shared selector prompt specific trick reward surface fixture", () => {
+    const fixture = loadSharedPromptFixture("selector.prompt.specific_trick_reward_surface.json");
+    const messages = fixture.messages.map((message, index, items) =>
+      index === items.length - 1
+        ? {
+            ...message,
+            payload: {
+              ...message.payload,
+              view_state: {
+                prompt: {
+                  active: {
+                    ...(message.payload as Record<string, unknown>),
+                    choices: (message.payload as Record<string, unknown>).legal_choices,
+                    surface: fixture.expected.prompt.active.surface,
+                  },
+                },
+              },
+            },
+          }
+        : message
+    );
+
+    expect(selectActivePrompt(messages)?.surface.specificTrickReward).toEqual({
+      rewardCount: 1,
+      options: [{ choiceId: "17", deckIndex: 17, name: "월리권 #17", description: "Draw one more time." }],
+    });
+  });
+
+  it("matches shared selector prompt pabal dice mode surface fixture", () => {
+    const fixture = loadSharedPromptFixture("selector.prompt.pabal_dice_mode_surface.json");
+    const messages = fixture.messages.map((message, index, items) =>
+      index === items.length - 1
+        ? {
+            ...message,
+            payload: {
+              ...message.payload,
+              view_state: {
+                prompt: {
+                  active: {
+                    ...(message.payload as Record<string, unknown>),
+                    choices: (message.payload as Record<string, unknown>).legal_choices,
+                    surface: fixture.expected.prompt.active.surface,
+                  },
+                },
+              },
+            },
+          }
+        : message
+    );
+
+    expect(selectActivePrompt(messages)?.surface.pabalDiceMode).toEqual({
+      options: [
+        {
+          choiceId: "plus_one",
+          diceMode: "plus_one",
+          title: "Roll three dice",
+          description: "Use the default three-die roll this turn.",
+        },
+        {
+          choiceId: "minus_one",
+          diceMode: "minus_one",
+          title: "Roll one die",
+          description: "Reduce the roll to one die this turn.",
+        },
       ],
     });
   });

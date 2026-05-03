@@ -1,0 +1,55 @@
+{
+  "case_id": "prompt_specific_trick_reward_surface",
+  "metadata": {
+    "expected_choice_ids": ["17"],
+    "surface_kind": "specific_trick_reward"
+  },
+  "messages": [
+    {
+      "type": "prompt",
+      "seq": 84,
+      "session_id": "sess_prompt_surface",
+      "server_time_ms": 84,
+      "payload": {
+        "request_id": "req_specific_trick_reward_surface_1",
+        "request_type": "specific_trick_reward",
+        "player_id": 1,
+        "timeout_ms": 30000,
+        "legal_choices": [
+          {
+            "choice_id": "17",
+            "title": "월리권 #17",
+            "description": "Draw one more time.",
+            "value": {
+              "deck_index": 17
+            }
+          }
+        ],
+        "public_context": {
+          "reward_count": 1
+        }
+      }
+    }
+  ],
+  "expected": {
+    "prompt": {
+      "active": {
+        "surface": {
+          "kind": "specific_trick_reward",
+          "blocks_public_events": true,
+          "specific_trick_reward": {
+            "reward_count": 1,
+            "options": [
+              {
+                "choice_id": "17",
+                "deck_index": 17,
+                "name": "월리권 #17",
+                "description": "Draw one more time."
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

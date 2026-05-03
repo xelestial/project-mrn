@@ -15,6 +15,9 @@ REDIS_STATE_PLAN_DOC = ROOT / "docs/current/engineering/[PLAN]_REDIS_AUTHORITATI
 SERVER_README = ROOT / "apps/server/README.md"
 DEPLOYMENT_CONTRACT_DOC = ROOT / "docs/current/engineering/[CONTRACT]_REDIS_RUNTIME_DEPLOYMENT.md"
 DEPLOYMENT_PROCESS_CONTRACT = ROOT / "deploy/redis-runtime/process-contract.json"
+ROUND_COMBINATION_REGRESSION_PACK = (
+    ROOT / "packages/runtime-contracts/ws/examples/round-combination.regression-pack.json"
+)
 
 REQUIRED_SCENARIOS = {
     "MRN-MOD-001": "첫 턴 실행",
@@ -76,6 +79,29 @@ def test_module_runtime_playtest_matrix_documents_round_combination_regression_p
         "프론트 생성 request id나 stale continuation이 엔진을 진행시키지 않는지 확인한다",
     }:
         assert phrase in text
+
+
+def test_round_combination_regression_pack_fixture_matches_matrix_doc() -> None:
+    text = MATRIX_DOC.read_text(encoding="utf-8")
+    pack = json.loads(ROUND_COMBINATION_REGRESSION_PACK.read_text(encoding="utf-8"))
+
+    assert pack["pack_id"] == "MRN-MOD-ROUND-COMBINATION-1-5"
+    assert "packages/runtime-contracts/ws/examples/round-combination.regression-pack.json" in text
+    assert "npm run e2e:module-runtime" in pack["automation_commands"]
+
+    scenario_ids = {scenario["scenario_id"] for scenario in pack["scenarios"]}
+    assert scenario_ids == {"MRN-MOD-003", "MRN-MOD-004", "MRN-MOD-005", "MRN-MOD-010", "MRN-MOD-014", "MRN-MOD-015"}
+
+    for scenario in pack["scenarios"]:
+        assert scenario["scenario_id"] in text
+        assert scenario["title"] in text
+        for module_name in scenario["required_modules"]:
+            assert module_name in text
+        for token in scenario["automation"]:
+            assert token in text
+
+    for invariant in pack["invariants"]:
+        assert invariant in text
 
 
 def test_redis_state_plan_documents_authoritative_continuation_boundary() -> None:
