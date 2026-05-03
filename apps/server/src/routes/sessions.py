@@ -54,6 +54,7 @@ def _runtime() -> RuntimeService:
 
     return runtime_service
 
+
 def _stream_service() -> StreamService:
     from apps.server.src.state import stream_service
 
@@ -62,6 +63,36 @@ def _stream_service() -> StreamService:
 
 def _ok(data: dict) -> dict:
     return {"ok": True, "data": data, "error": None}
+
+
+async def _recover_runtime_for_authenticated_seat(
+    *,
+    session_id: str,
+    auth_ctx: dict,
+    service: SessionService,
+    runtime: RuntimeService,
+) -> None:
+    if auth_ctx.get("role") != "seat":
+        return
+    runtime_state = runtime.runtime_status(session_id)
+    if runtime_state.get("status") != "recovery_required":
+        return
+    try:
+        session = service.get_session(session_id)
+        runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
+        await runtime.start_runtime(
+            session_id=session_id,
+            seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
+            policy_mode=runtime_cfg.get("policy_mode"),
+        )
+        log_event(
+            "runtime_recovery_started",
+            session_id=session_id,
+            reason=runtime_state.get("reason"),
+            trigger="runtime_status",
+        )
+    except Exception as exc:  # pragma: no cover - defensive recovery path
+        log_event("runtime_recovery_failed", session_id=session_id, trigger="runtime_status", error=str(exc))
 
 
 def _initial_active_by_card(session) -> dict[int, str]:
@@ -340,6 +371,12 @@ async def runtime_status(
         session_id=session_id,
         seat=auth_ctx.get("seat"),
         player_id=auth_ctx.get("player_id"),
+    )
+    await _recover_runtime_for_authenticated_seat(
+        session_id=session_id,
+        auth_ctx=auth_ctx,
+        service=service,
+        runtime=runtime,
     )
     runtime_payload = runtime.public_runtime_status(session_id)
     recovery = runtime_payload.get("recovery_checkpoint")

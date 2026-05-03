@@ -91,11 +91,13 @@ Those themes should reopen only if a concrete regression or rollout need appears
    local worker wiring, local JSON archive export, live checkpoint/view-state
    storage, canonical GameState checkpoint serialization/hydration, recovery
    checkpoint fixture, restart integration coverage, Redis-persisted command
-   worker offsets, and Lua-backed command/lease primitives are implemented as
-   the first migration batch. Remaining work is splitting `GameEngine.run()`
-   into explicit transition commit steps, full transition-level Lua/transaction
-   commits, real process restart smoke, and production-specific worker
-   deployment settings. See `docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`.
+   worker offsets, Lua-backed command/lease primitives, command-triggered
+   transition commit metadata, Redis hash-tag health reporting, local backend
+   restart smoke, authenticated REST restart recovery, and worker readiness
+   commands are implemented. Remaining work is running restart smoke against
+   the target production topology, adding platform-specific worker deployment
+   manifests, and continuing the larger engine-native module migration beyond
+   the guarded prompt continuation boundaries. See `docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`.
 2. Runtime contract stabilization. Keep end-to-end payload shape, round/action
    control, prompt lifecycle, and modular-runtime frame semantics synchronized
    between `GPT/`, `apps/server/`, and `apps/web/`.

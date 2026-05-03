@@ -1506,9 +1506,24 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         runtime_events = RedisStreamStore(self.connection).snapshot(session.session_id)
         self.assertEqual(result["status"], "finished")
         self.assertEqual(saved_checkpoint["processed_command_seq"], 4)
+        self.assertEqual(
+            saved_checkpoint["command_commit_envelope"],
+            {
+                "version": 1,
+                "atomic_commit": "redis_transition_state_checkpoint_event_offset",
+                "consumer": "runtime_wakeup",
+                "seq": 4,
+                "state": True,
+                "checkpoint": True,
+                "view_state": False,
+                "runtime_event": True,
+                "consumer_offset": True,
+            },
+        )
         self.assertEqual(runtime_events[-1]["seq"], saved_checkpoint["latest_seq"])
         self.assertEqual(runtime_events[-1]["payload"]["event_type"], "engine_transition")
         self.assertEqual(runtime_events[-1]["payload"]["processed_command_seq"], 4)
+        self.assertEqual(runtime_events[-1]["payload"]["command_commit_envelope"], saved_checkpoint["command_commit_envelope"])
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 4)
 
     def test_human_prompt_reentry_consumes_decision_without_duplicate_prompt(self) -> None:

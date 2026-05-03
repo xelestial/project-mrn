@@ -213,6 +213,53 @@ class SessionsApiTests(unittest.TestCase):
         )
         self.assertEqual(runtime_with_token.status_code, 200)
 
+    def test_authenticated_runtime_status_starts_recovery_runtime(self) -> None:
+        from apps.server.src import state
+
+        created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
+        self.assertEqual(created.status_code, 200)
+        data = created.json()["data"]
+        session_id = data["session_id"]
+        joined = self.client.post(
+            f"/api/v1/sessions/{session_id}/join",
+            json={"seat": 1, "join_token": data["join_tokens"]["1"], "display_name": "P1"},
+        )
+        self.assertEqual(joined.status_code, 200)
+        session_token = joined.json()["data"]["session_token"]
+
+        original = state.runtime_service.start_runtime
+
+        async def _noop_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+            del session_id, seed, policy_mode
+
+        state.runtime_service.start_runtime = _noop_start_runtime  # type: ignore[assignment]
+        try:
+            started = self.client.post(
+                f"/api/v1/sessions/{session_id}/start",
+                json={"host_token": data["host_token"]},
+            )
+        finally:
+            state.runtime_service.start_runtime = original  # type: ignore[assignment]
+        self.assertEqual(started.status_code, 200)
+        self.assertEqual(state.runtime_service.runtime_status(session_id).get("status"), "recovery_required")
+
+        calls: list[tuple[str, int, str | None]] = []
+
+        async def _fake_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+            calls.append((session_id, seed, policy_mode))
+
+        state.runtime_service.start_runtime = _fake_start_runtime  # type: ignore[assignment]
+        try:
+            response = self.client.get(
+                f"/api/v1/sessions/{session_id}/runtime-status",
+                params={"token": session_token},
+            )
+        finally:
+            state.runtime_service.start_runtime = original  # type: ignore[assignment]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(calls, [(session_id, 120, None)])
+
     def test_public_session_allows_spectator_replay_and_runtime_status(self) -> None:
         payload = _all_ai_payload()
         payload["config"]["visibility"] = "public"

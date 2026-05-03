@@ -4,7 +4,7 @@ import asyncio
 import unittest
 
 from apps.server.src.services.command_wakeup_worker import CommandStreamWakeupWorker
-from apps.server.src.workers.command_wakeup_worker_app import build_parser
+from apps.server.src.workers.command_wakeup_worker_app import build_parser, health_from_state
 from apps.server.src.services.persistence import RedisSessionStore
 from apps.server.src.services.realtime_persistence import RedisCommandStore
 from apps.server.tests.test_redis_realtime_services import _FakeRedis
@@ -57,6 +57,35 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
             poll_interval_ms=50,
         )
         self.assertEqual(asyncio.run(restarted_worker.run_once()), [])
+
+    def test_cli_parser_supports_health_mode(self) -> None:
+        args = build_parser().parse_args(["--health", "--once", "--max-iterations", "3"])
+
+        self.assertTrue(args.health)
+        self.assertTrue(args.once)
+        self.assertEqual(args.max_iterations, 3)
+
+    def test_health_mode_reports_redis_readiness(self) -> None:
+        from apps.server.src import state
+
+        original_redis = state.redis_connection
+        original_worker = state.command_wakeup_worker
+        state.redis_connection = _HealthRedis(ok=True)  # type: ignore[assignment]
+        state.command_wakeup_worker = object()  # type: ignore[assignment]
+        try:
+            payload = health_from_state()
+        finally:
+            state.redis_connection = original_redis  # type: ignore[assignment]
+            state.command_wakeup_worker = original_worker  # type: ignore[assignment]
+
+        self.assertEqual(
+            payload,
+            {
+                "ok": True,
+                "role": "command-wakeup-worker",
+                "redis": {"ok": True, "cluster_hash_tag": "mrn-test", "cluster_hash_tag_valid": True},
+            },
+        )
 
     def test_wakeup_worker_restarts_waiting_input_runtime_after_decision_command(self) -> None:
         connection = RedisConnection(
@@ -265,6 +294,14 @@ class _RuntimeProcessStub:
         self.processed.append((session_id, command_seq, consumer_name, seed, policy_mode))
         self._status = "idle"
         return {"status": "committed"}
+
+
+class _HealthRedis:
+    def __init__(self, *, ok: bool) -> None:
+        self.ok = ok
+
+    def health_check(self) -> dict[str, object]:
+        return {"ok": self.ok, "cluster_hash_tag": "mrn-test", "cluster_hash_tag_valid": True}
 
 
 if __name__ == "__main__":

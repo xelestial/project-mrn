@@ -8,6 +8,38 @@ Updated: 2026-05-03
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-03 Redis Command Commit / Restart Smoke / Payoff Scene Hardening
+
+- What changed:
+  - added `command_commit_envelope` metadata to command-triggered runtime transitions so checkpoint and runtime stream events record the accepted command seq plus state/checkpoint/event/offset commit participation
+  - exposed Redis Cluster hash-tag parsing in `/health` via `cluster_hash_tag` and `cluster_hash_tag_valid`
+  - made Docker Compose accept `MRN_REDIS_KEY_PREFIX` for server and worker roles instead of hard-coding `mrn:dev`
+  - added `tools/scripts/redis_restart_smoke.py` to start Redis-backed backend roles, create a live human+AI session, restart backend/worker processes, and verify health/runtime/replay continuity
+  - ran the actual local Redis restart smoke; it exposed a REST recovery gap where authenticated `/runtime-status?token=...` could remain `recovery_required` after process restart even though WebSocket recovery already restarted the runtime
+  - fixed authenticated seat runtime-status recovery so REST polling also starts the recoverable runtime from Redis using the session runtime seed/policy
+  - added process-local `--health` readiness modes for `prompt-timeout-worker` and `command-wakeup-worker`
+  - fixed theater payoff grouping so the newest payoff turn owns the scene instead of an older 운수 effect stealing the final 결정/구매 payoff surface
+- Why:
+  - accepted decisions need auditable Redis continuation evidence at the same boundary that advances command offsets
+  - Redis Cluster safety must be visible before production rollout, not discovered as a runtime cross-slot failure
+  - live restart recovery must be available from both browser WebSocket reconnects and authenticated REST status/replay polling
+  - production supervisors need a non-looping worker readiness command before routing sessions to the deployment
+  - frontend payoff grouping should reflect the newest engine payoff, not an older effect in the same retained event window
+- Validation:
+  - `PYTHONPATH=.:GPT uv run pytest -q apps/server/tests/test_redis_persistence.py::RedisPersistenceTests::test_health_check_reports_version_and_database apps/server/tests/test_redis_persistence.py::RedisPersistenceTests::test_cluster_hash_tag_prefix_is_preserved_inside_all_keys apps/server/tests/test_redis_persistence.py::RedisPersistenceTests::test_cluster_hash_tag_prefix_rejects_unbalanced_braces`
+  - `PYTHONPATH=.:GPT uv run pytest -q apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_runtime_process_command_once_commits_state_and_command_offset`
+  - `PYTHONPATH=.:GPT uv run pytest -q apps/server/tests/test_command_wakeup_worker.py::CommandStreamWakeupWorkerTests::test_cli_parser_supports_health_mode apps/server/tests/test_command_wakeup_worker.py::CommandStreamWakeupWorkerTests::test_health_mode_reports_redis_readiness apps/server/tests/test_prompt_timeout_worker.py::PromptTimeoutWorkerLoopTests::test_cli_parser_supports_health_mode apps/server/tests/test_prompt_timeout_worker.py::PromptTimeoutWorkerLoopTests::test_health_mode_reports_redis_readiness apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_runtime_process_command_once_commits_state_and_command_offset`
+  - `PYTHONPATH=.:GPT uv run pytest -q apps/server/tests/test_sessions_api.py::SessionsApiTests::test_authenticated_runtime_status_starts_recovery_runtime apps/server/tests/test_stream_api.py::StreamApiTests::test_seat_stream_connection_recovers_runtime_when_in_progress`
+  - `npm --prefix apps/web test -- coreActionScene.spec.ts`
+  - `PYTHONPATH=.:GPT uv run pytest -q apps/server/tests/test_redis_persistence.py apps/server/tests/test_redis_realtime_services.py`
+  - `PYTHONPATH=.:GPT uv run pytest -q GPT/test_action_pipeline_contract.py apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_valid_module_continuation_passed_to_engine_transition apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_stale_module_continuation_rejected_without_engine_advance apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_rejects_module_type_mismatch_without_engine_advance apps/server/tests/test_prompt_module_continuation.py`
+  - `npm --prefix apps/web run build`
+  - `python3 tools/plan_policy_gate.py`
+  - `PYTHONPATH=.:GPT python3 -m apps.server.src.workers.prompt_timeout_worker_app --help`
+  - `PYTHONPATH=.:GPT python3 -m apps.server.src.workers.command_wakeup_worker_app --help`
+  - `python3 tools/scripts/redis_restart_smoke.py`
+  - restart smoke result: `ok=true`, session `sess_nLQ64iczvkr5tOSbqRA6iVci`, prefix `mrn:{restart-smoke-1777821085}`, status `waiting_input -> waiting_input`, replay events `11 -> 12`
+
 ## 2026-05-03 Simultaneous Resupply And Redis Continuation Contract Hardening
 
 - What changed:

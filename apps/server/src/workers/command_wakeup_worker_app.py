@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 from typing import Sequence
 
@@ -10,10 +11,26 @@ from apps.server.src.infra.structured_log import log_event
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the MRN command stream wakeup worker.")
+    parser.add_argument("--health", action="store_true", help="Check Redis/worker readiness and exit.")
     parser.add_argument("--once", action="store_true", help="Run one command scan and exit.")
     parser.add_argument("--session-id", default=None, help="Limit command wakeup processing to one session.")
     parser.add_argument("--max-iterations", type=int, default=None, help="Run at most this many loop iterations.")
     return parser
+
+
+def health_from_state() -> dict[str, object]:
+    os.environ.setdefault("MRN_RESTART_RECOVERY_POLICY", "keep")
+    from apps.server.src import state
+
+    if state.redis_connection is None or state.command_wakeup_worker is None:
+        raise RuntimeError("redis_required_for_command_wakeup_worker")
+    redis_health = state.redis_connection.health_check()
+    ok = bool(redis_health.get("ok") is True)
+    return {
+        "ok": ok,
+        "role": "command-wakeup-worker",
+        "redis": redis_health,
+    }
 
 
 async def run_from_state(
@@ -44,6 +61,10 @@ async def run_from_state(
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if bool(args.health):
+            payload = health_from_state()
+            print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            return 0 if payload.get("ok") is True else 2
         summary = asyncio.run(
             run_from_state(
                 once=bool(args.once),

@@ -60,6 +60,20 @@ describe("coreActionScene", () => {
     expect(scenes.map((scene) => scene.isLatest)).toEqual([false, false, true]);
   });
 
+  it("uses the newest payoff turn instead of anchoring to an older fortune effect", () => {
+    const scenes = buildPayoffSceneItems(
+      [
+        item({ seq: 20, eventCode: "tile_purchased", turn: 5, label: "땅 사기", detail: "P1 / 3번 칸 구매" }),
+        item({ seq: 14, eventCode: "fortune_resolved", turn: 4, label: "운수 처리", detail: "P2 / 현금 -2" }),
+        item({ seq: 13, eventCode: "fortune_drawn", turn: 4, label: "운수 공개", detail: "P2 / 세금" }),
+      ],
+      koLocale.theater
+    );
+
+    expect(scenes.map((scene) => scene.eventCode)).toEqual(["tile_purchased"]);
+    expect(scenes.map((scene) => scene.isLatest)).toEqual([true]);
+  });
+
   it("keeps compact detail chunks for scene cards", () => {
     expect(splitCoreActionDetail("P2 / 9번 칸 구매 / 비용 5", koLocale.theater.noDetail)).toEqual([
       "P2",

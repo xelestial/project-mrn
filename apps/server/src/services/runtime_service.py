@@ -1243,6 +1243,17 @@ class RuntimeService:
                 },
                 state,
             )
+            command_commit_envelope = {
+                "version": 1,
+                "atomic_commit": "redis_transition_state_checkpoint_event_offset",
+                "consumer": str(command_consumer_name or ""),
+                "seq": command_seq,
+                "state": True,
+                "checkpoint": True,
+                "view_state": False,
+                "runtime_event": True,
+                "consumer_offset": bool(command_consumer_name and command_seq is not None),
+            }
             self._game_state_store.commit_transition(
                 session_id,
                 current_state=payload,
@@ -1277,6 +1288,7 @@ class RuntimeService:
                     "has_pending_turn_completion": bool(payload.get("pending_turn_completion")),
                     "processed_command_seq": command_seq,
                     "processed_command_consumer": command_consumer_name,
+                    "command_commit_envelope": command_commit_envelope,
                     "updated_at_ms": updated_at_ms,
                 },
                 command_consumer_name=command_consumer_name,
@@ -1290,6 +1302,7 @@ class RuntimeService:
                     "player_id": step.get("player_id"),
                     "processed_command_seq": command_seq,
                     "processed_command_consumer": command_consumer_name,
+                    "command_commit_envelope": command_commit_envelope,
                     "pending_action_count": len(payload.get("pending_actions") or []),
                     "scheduled_action_count": len(payload.get("scheduled_actions") or []),
                     **module_debug_fields,

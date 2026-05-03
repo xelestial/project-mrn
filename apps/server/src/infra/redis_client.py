@@ -58,13 +58,26 @@ class RedisConnection:
         parsed = urlparse(self._settings.url)
         db_text = parsed.path.lstrip("/") if parsed.path else ""
         database = int(db_text) if db_text.isdigit() else 0
+        hash_tag = self.cluster_hash_tag()
         return {
             "configured": True,
             "ok": ping_ok,
             "version": str(info.get("redis_version", "")),
             "key_prefix": self._settings.key_prefix,
+            "cluster_hash_tag": hash_tag,
+            "cluster_hash_tag_valid": bool(hash_tag),
             "database": database,
         }
+
+    def cluster_hash_tag(self) -> str:
+        prefix = str(self._settings.key_prefix or "")
+        start = prefix.find("{")
+        end = prefix.find("}", start + 1)
+        if start < 0 or end < 0 or end <= start + 1:
+            return ""
+        if prefix.find("{", start + 1) >= 0 or prefix.find("}", end + 1) >= 0:
+            return ""
+        return prefix[start + 1 : end]
 
     def close(self) -> None:
         if self._client is None:
@@ -86,4 +99,3 @@ class RedisConnection:
             socket_connect_timeout=timeout_seconds,
             health_check_interval=30,
         )
-

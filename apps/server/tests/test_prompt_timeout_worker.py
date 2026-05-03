@@ -4,7 +4,7 @@ import asyncio
 import unittest
 
 from apps.server.src.services.prompt_timeout_worker import PromptTimeoutWorkerLoop
-from apps.server.src.workers.prompt_timeout_worker_app import build_parser
+from apps.server.src.workers.prompt_timeout_worker_app import build_parser, health_from_state
 
 
 class PromptTimeoutWorkerLoopTests(unittest.TestCase):
@@ -42,6 +42,30 @@ class PromptTimeoutWorkerLoopTests(unittest.TestCase):
         self.assertEqual(args.poll_interval_ms, 500)
         self.assertEqual(args.max_iterations, 4)
 
+    def test_cli_parser_supports_health_mode(self) -> None:
+        args = build_parser().parse_args(["--health"])
+
+        self.assertTrue(args.health)
+
+    def test_health_mode_reports_redis_readiness(self) -> None:
+        from apps.server.src import state
+
+        original_redis = state.redis_connection
+        state.redis_connection = _HealthRedis(ok=True)  # type: ignore[assignment]
+        try:
+            payload = health_from_state()
+        finally:
+            state.redis_connection = original_redis  # type: ignore[assignment]
+
+        self.assertEqual(
+            payload,
+            {
+                "ok": True,
+                "role": "prompt-timeout-worker",
+                "redis": {"ok": True, "cluster_hash_tag": "mrn-test", "cluster_hash_tag_valid": True},
+            },
+        )
+
 
 class _WorkerStub:
     def __init__(self, *, results: list[list[dict]]) -> None:
@@ -53,6 +77,14 @@ class _WorkerStub:
         if not self._results:
             return []
         return self._results.pop(0)
+
+
+class _HealthRedis:
+    def __init__(self, *, ok: bool) -> None:
+        self.ok = ok
+
+    def health_check(self) -> dict[str, object]:
+        return {"ok": self.ok, "cluster_hash_tag": "mrn-test", "cluster_hash_tag_valid": True}
 
 
 if __name__ == "__main__":

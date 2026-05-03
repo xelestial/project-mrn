@@ -736,15 +736,20 @@ Implemented in the first Redis migration batch:
 
 Still intentionally incomplete:
 
-- The engine has a tested one-transition boundary and Redis-backed runtime uses it by default. The remaining runtime work is to make every human prompt a true continuation boundary rather than a blocking call inside the current engine stack.
+- The engine has a tested one-transition boundary and Redis-backed runtime uses it by default. Human prompt continuation boundaries are now guarded by the engine decision inventory and module continuation tests; future new prompt names must be explicitly classified before tests pass.
 - Redis stores the latest canonical snapshot emitted by the engine stream and runtime can hydrate from it when it has the engine checkpoint shape. True mid-transition resume, inside an individual effect chain before the next committed boundary, is still out of scope.
-- Prompt timeout and command wakeup handling have standalone worker entrypoints plus local Docker Compose services. The local process contract is documented; each production environment still needs to map those roles onto its process manager or orchestrator.
+- Prompt timeout and command wakeup handling have standalone worker entrypoints plus local Docker Compose services and process-local `--health` checks. Each production environment still needs to map those roles onto its process manager or orchestrator.
 - Runtime lease refresh/release, command append, prompt decision acceptance, and game-state transition commit use Lua where available.
-- The first command-processing envelope is now implemented for state/checkpoint/view-state commit, runtime event append, and command consumer offset update. `RuntimeService.process_command_once()` can process a command-triggered transition and commit `processed_command_seq`/consumer metadata with the state checkpoint, while `CommandStreamWakeupWorker` prefers this hook when available.
+- The first command-processing envelope is now implemented for canonical state/checkpoint commit, optional view-state commit when supplied to the transition store, runtime event append, and command consumer offset update. `RuntimeService.process_command_once()` can process a command-triggered transition and commit `processed_command_seq`/consumer metadata with the state checkpoint, while `CommandStreamWakeupWorker` prefers this hook when available.
 - Prompt reentry integration coverage now verifies: prompt boundary commit, human decision command append, command-triggered runtime processing, submitted decision consumption, no duplicate prompt event for the same request id, and command offset commit.
 - `StreamService` deduplicates `prompt` and `decision_requested` publishes by `request_id`, adding a second guard against replayed prompt-boundary event duplication.
 - Engine `_request_decision()` sites are now covered by a continuation inventory contract. Every decision name must be classified as a turn, round setup, queued action, atomic effect, or legacy compatibility boundary before tests pass.
 - `PromptService.submit_decision()` now uses a Redis prompt accept envelope when backed by `RedisPromptStore` and `RedisCommandStore`: pending prompt deletion, submitted decision storage, resolved prompt marker, command dedupe, command sequence increment, and `decision_submitted` append are committed through one Lua script on Redis clients that support `EVAL`, with a transaction fallback for tests.
+- Command-triggered runtime processing records a versioned `command_commit_envelope` in both the saved checkpoint and the runtime stream event. The envelope names the Redis transition atomic boundary and states whether canonical state, checkpoint, optional view-state, runtime event, and consumer offset were committed for the accepted command sequence.
+- Redis health now exposes `cluster_hash_tag` and `cluster_hash_tag_valid`, so production and cluster-like smoke tests can fail early when server/workers are not sharing one stable hash-tagged key prefix.
+- `tools/scripts/redis_restart_smoke.py` provides the local process restart smoke: it starts the Redis-backed backend roles, creates a live human+AI session, restarts backend/worker processes, and verifies health, runtime status, hash-tag reporting, and replay continuity.
+- Actual local restart smoke now covers the authenticated REST recovery path as well as WebSocket-triggered recovery. A private seat calling `/runtime-status?token=...` after process restart starts the recoverable runtime from Redis instead of leaving the session stuck at `recovery_required`.
+- Standalone worker entrypoints expose `--health` so process managers can verify Redis/key-prefix readiness for `prompt-timeout-worker` and `command-wakeup-worker` without running a scan loop.
 
 ## Human Prompt Continuation Boundary Design
 
@@ -768,7 +773,7 @@ Implementation constraints:
 - Prompt ids use canonical session, round, turn, player, request type, and prompt instance fields even when public context is sparse. Sparse fields resolve to `r0`, `t0`, or prompt instance `0` rather than falling back to random request ids.
 - Canonical `GameState` now persists `prompt_sequence`, `pending_prompt_request_id`, `pending_prompt_type`, `pending_prompt_player_id`, and `pending_prompt_instance_id`. Runtime rehydrates this sequence into the human policy bridge before executing the next transition.
 - `GameEngine.prepare_run()` exposes the last prepared state to the runtime so a prompt raised during initial round setup still has a canonical state to commit.
-- Implemented hardening: prompt metadata is canonical for the covered runtime reentry path, sparse prompt request id generation uses canonical fields, prompt decision acceptance has a Redis envelope, command-triggered transitions commit state/checkpoint/view-state/runtime-event/command-offset metadata, engine decision sites have a classification guard against unreviewed prompt boundaries, compatibility-helper callers are audited by contract tests, production worker orchestration expectations are documented, and the Redis verification hang was narrowed to an over-broad routing test.
+- Implemented hardening: prompt metadata is canonical for the covered runtime reentry path, sparse prompt request id generation uses canonical fields, prompt decision acceptance has a Redis envelope, command-triggered transitions commit state/checkpoint/runtime-event/command-offset metadata through one transition store boundary, engine decision sites have a classification guard against unreviewed prompt boundaries, compatibility-helper callers are audited by contract tests, production worker orchestration expectations are documented, and the Redis verification hang was narrowed to an over-broad routing test.
 
 ## Action Pipeline / Movement Boundary
 
@@ -885,10 +890,8 @@ Performance:
 
 Recommended next implementation PR:
 
-1. Split `GameEngine.run()` into explicit transition steps with commit points after each prompt/turn boundary.
-2. Move full decision acceptance plus engine state mutation to one Redis transaction/Lua commit boundary.
-3. Add real Redis restart smoke that kills/recreates backend service processes around a running game and verifies hydrated continuation.
-4. Add production deployment settings for the timeout/command workers after the target hosting environment is chosen.
-5. Before multi-node Redis deployment, verify every process role uses the same hash-tagged `MRN_REDIS_KEY_PREFIX` and run restart/decision smoke tests against that exact prefix.
+1. Run `tools/scripts/redis_restart_smoke.py` against the target production-like topology, not only local Compose, and preserve the output as rollout evidence.
+2. Add platform-specific production deployment manifests for the timeout/command workers after the target hosting environment is chosen; the process contract and worker `--health` commands are ready.
+3. Before multi-node Redis deployment, verify every process role uses the same hash-tagged `MRN_REDIS_KEY_PREFIX` and run restart/decision smoke tests against that exact prefix.
 
 This keeps the current incremental path honest: Redis now owns the live records, while resumable engine execution remains the next large refactor.

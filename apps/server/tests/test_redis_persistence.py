@@ -35,6 +35,8 @@ class RedisPersistenceTests(unittest.TestCase):
         self.assertEqual(health["version"], "7.4.8")
         self.assertEqual(health["database"], 9)
         self.assertEqual(health["key_prefix"], "mrn-test")
+        self.assertEqual(health["cluster_hash_tag"], "")
+        self.assertEqual(health["cluster_hash_tag_valid"], False)
 
     def test_cluster_hash_tag_prefix_is_preserved_inside_all_keys(self) -> None:
         connection = RedisConnection(
@@ -54,6 +56,24 @@ class RedisPersistenceTests(unittest.TestCase):
             connection.key(":commands:", "sess_1", ":stream:"),
             "mrn:{project-mrn-prod}:commands:sess_1:stream",
         )
+        health = connection.health_check()
+        self.assertEqual(health["cluster_hash_tag"], "project-mrn-prod")
+        self.assertEqual(health["cluster_hash_tag_valid"], True)
+
+    def test_cluster_hash_tag_prefix_rejects_unbalanced_braces(self) -> None:
+        connection = RedisConnection(
+            RedisConnectionSettings(
+                url="redis://127.0.0.1:6379/9",
+                key_prefix="mrn:{project-mrn-prod",
+                socket_timeout_ms=250,
+            ),
+            client_factory=lambda: self.fake_redis,
+        )
+
+        health = connection.health_check()
+
+        self.assertEqual(health["cluster_hash_tag"], "")
+        self.assertEqual(health["cluster_hash_tag_valid"], False)
 
     def test_session_store_survives_service_reconstruction(self) -> None:
         store = RedisSessionStore(self.connection)
