@@ -71,6 +71,7 @@ EVENT_REQUIRED_MODULES = {
 
 def validate_stream_payload(*, history: list[dict], msg_type: str, payload: dict[str, Any]) -> None:
     runtime_module = _record(payload.get("runtime_module"))
+    checkpoint = _record(payload.get("engine_checkpoint"))
     if runtime_module:
         _validate_runtime_module(runtime_module)
     event_type = str(payload.get("event_type") or "").strip()
@@ -78,8 +79,7 @@ def validate_stream_payload(*, history: list[dict], msg_type: str, payload: dict
         _validate_prompt_payload(payload)
     if msg_type == "event" and event_type:
         _validate_event_payload(event_type, runtime_module)
-        _validate_event_against_active_turn(history, event_type, runtime_module)
-    checkpoint = _record(payload.get("engine_checkpoint"))
+        _validate_event_against_active_turn(history, event_type, runtime_module, checkpoint)
     if checkpoint:
         validate_checkpoint_payload(checkpoint)
 
@@ -127,6 +127,7 @@ def _validate_event_against_active_turn(
     history: list[dict],
     event_type: str,
     runtime_module: dict[str, Any] | None,
+    checkpoint: dict[str, Any] | None,
 ) -> None:
     if event_type not in {"marker_flip", "active_flip"}:
         return
@@ -137,8 +138,47 @@ def _validate_event_against_active_turn(
         and str(runtime_module.get("module_type") or "") == "RoundEndCardFlipModule"
         and str(runtime_module.get("frame_type") or "") == "round"
     ):
-        return
+        if _checkpoint_proves_round_end_card_flip(checkpoint, runtime_module):
+            return
+        raise RuntimeSemanticViolation("RoundEndCardFlipModule cannot be emitted from active turn context")
     raise RuntimeSemanticViolation(f"{event_type} cannot be projected as active turn progress")
+
+
+def _checkpoint_proves_round_end_card_flip(
+    checkpoint: dict[str, Any] | None,
+    runtime_module: dict[str, Any],
+) -> bool:
+    if not checkpoint:
+        return False
+    frames = checkpoint.get("runtime_frame_stack")
+    runtime_state = _record(checkpoint.get("runtime_state")) or {}
+    if not isinstance(frames, list):
+        frames = runtime_state.get("frame_stack")
+    if not isinstance(frames, list):
+        return False
+    frame_id = str(runtime_module.get("frame_id") or "")
+    module_id = str(runtime_module.get("module_id") or "")
+    for frame in frames:
+        if not isinstance(frame, dict):
+            continue
+        if str(frame.get("frame_type") or "") != "round":
+            continue
+        if frame_id and str(frame.get("frame_id") or "") != frame_id:
+            continue
+        if module_id and str(frame.get("active_module_id") or "") != module_id:
+            continue
+        modules = [module for module in frame.get("module_queue") or [] if isinstance(module, dict)]
+        active = next((module for module in modules if str(module.get("module_id") or "") == module_id), None)
+        if not active or str(active.get("module_type") or "") != "RoundEndCardFlipModule":
+            return False
+        pending_turns = [
+            module
+            for module in modules
+            if str(module.get("module_type") or "") == "PlayerTurnModule"
+            and str(module.get("status") or "queued") not in {"completed", "skipped"}
+        ]
+        return not pending_turns
+    return False
 
 
 def _validate_prompt_payload(payload: dict[str, Any]) -> None:

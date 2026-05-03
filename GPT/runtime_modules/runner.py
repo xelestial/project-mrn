@@ -7,16 +7,14 @@ from viewer.events import Phase
 from viewer.public_state import build_turn_end_snapshot
 
 from .contracts import FrameState, ModuleJournalEntry, ModuleRef, ModuleResult
+from .handlers.round import ROUND_FRAME_HANDLERS, RoundFrameHandlerContext
 from .handlers.sequence import SEQUENCE_FRAME_HANDLERS, SEQUENCE_PAYLOAD_HANDLERS, SequenceFrameHandlerContext
 from .handlers.simultaneous import SIMULTANEOUS_FRAME_HANDLERS, SimultaneousFrameHandlerContext
 from .handlers.turn import TURN_FRAME_HANDLERS, TurnFrameHandlerContext
 from .ids import round_frame_id
 from .modifiers import ModifierRegistry
 from .prompts import PromptApi
-from .round_modules import (
-    assert_round_end_card_flip_ready,
-    build_round_frame,
-)
+from .round_modules import build_round_frame
 from .sequence_modules import (
     build_action_sequence_frame,
     build_turn_completion_sequence_frame,
@@ -124,23 +122,11 @@ class ModuleRunner:
             return {"status": "committed", "runner_kind": "module", "module_type": "RoundFrameComplete"}
         frame.active_module_id = module.module_id
         module.status = "running"
-        if module.module_type == "PlayerTurnModule":
-            return self._advance_player_turn_module(engine, state, frame, module)
-        if module.module_type == "RoundEndCardFlipModule":
-            assert_round_end_card_flip_ready(frame)
-            engine._apply_round_end_marker_management(state)
-            engine._resolve_marker_flip(state)
-            self._complete_module(state, frame, module)
-            return {"status": "committed", "runner_kind": "module", "module_type": module.module_type}
-        if module.module_type == "RoundCleanupAndNextRoundModule":
-            state.rounds_completed += 1
-            frame.status = "completed"
-            self._complete_module(state, frame, module)
-            state.current_round_order = []
-            state.runtime_frame_stack = []
-            return {"status": "committed", "runner_kind": "module", "module_type": module.module_type}
-        self._complete_module(state, frame, module)
-        return {"status": "committed", "runner_kind": "module", "module_type": module.module_type}
+        handler = ROUND_FRAME_HANDLERS.get(module.module_type)
+        if handler is None:
+            raise ModuleRunnerError(f"no round handler for module type: {module.module_type}")
+        result = handler(RoundFrameHandlerContext(self, engine, state, frame, module))
+        return {**result, "runner_kind": "module"}
 
     @staticmethod
     def _active_frame(frame_stack: list[FrameState]) -> FrameState | None:

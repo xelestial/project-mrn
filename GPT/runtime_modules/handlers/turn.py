@@ -8,6 +8,7 @@ from viewer.events import Phase
 from viewer.public_state import build_turn_end_snapshot
 
 from ..contracts import FrameState, ModuleRef
+from ..modifiers import MUROE_SKILL_SUPPRESSION_KIND, ModifierRegistry
 from ..sequence_modules import build_trick_sequence_frame
 
 
@@ -126,6 +127,80 @@ def handle_character_start(ctx: TurnFrameHandlerContext) -> dict[str, Any]:
     return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
 
 
+def handle_target_judicator(ctx: TurnFrameHandlerContext) -> dict[str, Any]:
+    runner = ctx.runner
+    engine = ctx.engine
+    state = ctx.state
+    frame = ctx.frame
+    module = ctx.module
+    player_id = ctx.player_id
+    if _has_suppression_modifier(state, module, player_id):
+        runner._complete_module(state, frame, module)
+        return {
+            "status": "committed",
+            "module_type": module.module_type,
+            "player_id": player_id + 1,
+            "suppressed": True,
+        }
+    module.cursor = "await_mark_target"
+    try:
+        adjudication = engine._adjudicate_character_mark(state, ctx.player)
+    except Exception:
+        module.status = "suspended"
+        module.suspension_id = frame.frame_id
+        frame.status = "suspended"
+        raise
+    if isinstance(adjudication, dict) and adjudication.get("mode") == "immediate":
+        _insert_immediate_marker_transfer(frame, module, adjudication)
+    runner._complete_module(state, frame, module)
+    return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
+
+
+def handle_immediate_marker_transfer(ctx: TurnFrameHandlerContext) -> dict[str, Any]:
+    runner = ctx.runner
+    engine = ctx.engine
+    state = ctx.state
+    frame = ctx.frame
+    module = ctx.module
+    player_id = ctx.player_id
+    engine._apply_immediate_marker_transfer(state, ctx.player, dict(module.payload or {}))
+    runner._complete_module(state, frame, module)
+    return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
+
+
+def _has_suppression_modifier(state: Any, module: ModuleRef, player_id: int) -> bool:
+    registry = ModifierRegistry(state.runtime_modifier_registry)
+    modifier_ids = set(module.modifiers)
+    candidates = registry.applicable(module.module_type, owner_player_id=player_id)
+    for modifier in candidates:
+        if modifier_ids and modifier.modifier_id not in modifier_ids:
+            continue
+        if modifier.payload.get("kind") == MUROE_SKILL_SUPPRESSION_KIND:
+            registry.consume(modifier.modifier_id)
+            return True
+    return False
+
+
+def _insert_immediate_marker_transfer(frame: FrameState, current: ModuleRef, payload: dict[str, Any]) -> None:
+    module_id = f"{current.module_id}:immediate_marker_transfer"
+    if any(module.module_id == module_id for module in frame.module_queue):
+        return
+    inserted = ModuleRef(
+        module_id=module_id,
+        module_type="ImmediateMarkerTransferModule",
+        phase="immediate_marker_transfer",
+        owner_player_id=current.owner_player_id,
+        payload=dict(payload),
+        idempotency_key=f"{current.idempotency_key}:immediate_marker_transfer",
+    )
+    try:
+        index = frame.module_queue.index(current)
+    except ValueError:
+        frame.module_queue.append(inserted)
+        return
+    frame.module_queue.insert(index + 1, inserted)
+
+
 def handle_trick_window(ctx: TurnFrameHandlerContext) -> dict[str, Any]:
     runner = ctx.runner
     engine = ctx.engine
@@ -232,6 +307,8 @@ TURN_FRAME_HANDLERS: dict[str, TurnFrameHandler] = {
     "ScheduledStartActionsModule": handle_scheduled_start_actions,
     "PendingMarkResolutionModule": handle_pending_mark_resolution,
     "CharacterStartModule": handle_character_start,
+    "TargetJudicatorModule": handle_target_judicator,
+    "ImmediateMarkerTransferModule": handle_immediate_marker_transfer,
     "TrickWindowModule": handle_trick_window,
     "DiceRollModule": handle_dice_roll,
 }

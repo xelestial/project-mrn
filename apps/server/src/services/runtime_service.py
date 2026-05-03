@@ -1045,6 +1045,9 @@ class RuntimeService:
         expected_request_type = str(getattr(continuation, "request_type", "") or "").strip()
         if expected_request_type and resume.request_type and expected_request_type != resume.request_type:
             raise ValueError("request type mismatch")
+        expected_module_type = str(getattr(continuation, "module_type", "") or "").strip()
+        if expected_module_type and resume.module_type and expected_module_type != resume.module_type:
+            raise ValueError("module type mismatch")
 
     def _save_rejected_command_offset(self, command_consumer_name: str | None, session_id: str, command_seq: int | None) -> None:
         if not command_consumer_name or command_seq is None or self._command_store is None:
@@ -1170,7 +1173,10 @@ class RuntimeService:
             else:
                 state = engine.prepare_run(initial_state=state)
             self._prepare_prompt_sequence_for_transition(policy, state, runner_kind)
-            step = engine.run_next_transition(state, decision_resume=decision_resume)
+            if decision_resume is None:
+                step = engine.run_next_transition(state)
+            else:
+                step = engine.run_next_transition(state, decision_resume=decision_resume)
         except RuntimeDecisionResumeMismatch as exc:
             self._save_rejected_command_offset(command_consumer_name, session_id, command_seq)
             return {

@@ -10,8 +10,11 @@ def test_hostile_mark_characters_are_declared_as_target_judicator_effects():
     for entry in by_name.values():
         assert entry.producer_module == "CharacterStartModule"
         assert "TargetJudicatorModule" in entry.consumer_modules
+        assert "TargetJudicatorModule" in entry.runtime_boundary_modules
         assert entry.prompt_contract == "mark_target"
         assert "PromptContinuation" in entry.redis_resume_contracts
+    assert "ImmediateMarkerTransferModule" in by_name["자객"].runtime_boundary_modules
+    assert "PendingMarkResolutionModule" in by_name["산적"].runtime_boundary_modules
 
 
 def test_eosa_declares_muroe_suppression_as_character_start_modifier():
@@ -23,6 +26,7 @@ def test_eosa_declares_muroe_suppression_as_character_start_modifier():
     assert entry.source_name == "어사"
     assert entry.producer_module == "CharacterModifierSeedModule"
     assert "CharacterStartModule" in entry.consumer_modules
+    assert "TargetJudicatorModule" in entry.consumer_modules
     assert entry.modifier_kind == MUROE_SKILL_SUPPRESSION_KIND
 
 

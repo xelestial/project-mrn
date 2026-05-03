@@ -2726,6 +2726,9 @@ class GameEngine:
             )
             return
 
+        if self._module_runtime_uses_target_judicator(state) and self._character_mark_intent(state, player) is not None:
+            return
+
         # Card 2: mark branch (front=assassin, back=bandit)
         if card_no == 2 and is_front_face:
             target, mark_debug = _resolve_mark_target()
@@ -2916,6 +2919,165 @@ class GameEngine:
         # Card 8 front (builder): free purchase for this turn.
         if card_no == 8 and is_front_face:
             player.free_purchase_this_turn = True
+
+    @staticmethod
+    def _module_runtime_uses_target_judicator(state: GameState) -> bool:
+        return str(getattr(state, "runtime_runner_kind", "") or "").strip() == "module"
+
+    def _character_mark_intent(self, state: GameState, player: PlayerState) -> dict | None:
+        del state
+        card_no = self._character_card_no(player)
+        is_front_face = self._is_character_front_face(player)
+        if card_no == 2 and is_front_face:
+            return {"mode": "immediate", "effect_type": "assassin_reveal", "queued_payload": None}
+        if card_no == 2 and not is_front_face:
+            return {"mode": "queued", "effect_type": "bandit_tax", "queued_payload": {"type": "bandit_tax"}}
+        if card_no == 3 and is_front_face:
+            return {
+                "mode": "queued",
+                "effect_type": "hunter_pull",
+                "queued_payload": {"type": "hunter_pull", "source_pos": player.position},
+            }
+        if card_no == 6 and is_front_face:
+            return {"mode": "queued", "effect_type": "baksu_transfer", "queued_payload": {"type": "baksu_transfer"}}
+        if card_no == 6 and not is_front_face:
+            return {
+                "mode": "queued",
+                "effect_type": "manshin_remove_burdens",
+                "queued_payload": {"type": "manshin_remove_burdens"},
+            }
+        return None
+
+    def _resolve_character_mark_target_decision(
+        self,
+        state: GameState,
+        player: PlayerState,
+    ) -> tuple[Optional[str], dict | None]:
+        requested = self._request_decision("choose_mark_target", state, player, player.current_character)
+        target, coerced = self._coerce_mark_target_character(state, player, requested)
+        mark_debug = self.policy.pop_debug("mark_target", player.player_id) if hasattr(self.policy, "pop_debug") else None
+        if mark_debug is not None and coerced:
+            mark_debug = dict(mark_debug)
+            mark_debug["coerced_by_engine"] = True
+            mark_debug["coerced_target_character"] = target
+        if coerced:
+            self._log(
+                {
+                    "event": "mark_target_coerced",
+                    "player": player.player_id + 1,
+                    "character": player.current_character,
+                    "requested_target_character": requested,
+                    "target_character": target,
+                }
+            )
+        return target, mark_debug
+
+    def _adjudicate_character_mark(self, state: GameState, player: PlayerState) -> dict | None:
+        intent = self._character_mark_intent(state, player)
+        if intent is None:
+            return None
+        if self._is_muroe_skill_blocked(state, player):
+            return {"mode": "suppressed", "effect_type": intent.get("effect_type")}
+
+        target, mark_debug = self._resolve_character_mark_target_decision(state, player)
+        self._record_ai_decision(
+            state,
+            player,
+            "mark_target",
+            mark_debug,
+            result={"target_character": target},
+            source_event="target_judicator",
+        )
+        if intent["mode"] == "queued":
+            self._queue_mark(
+                state,
+                player.player_id,
+                target,
+                dict(intent.get("queued_payload") or {}),
+                decision=mark_debug,
+            )
+            return {
+                "mode": "queued",
+                "effect_type": intent.get("effect_type"),
+                "target_character": target,
+                "decision": mark_debug,
+            }
+
+        target_player = self._find_mark_target_player(state, player, target)
+        return {
+            "mode": "immediate",
+            "effect_type": intent.get("effect_type"),
+            "target_character": target,
+            "target_player_id": None if target_player is None else int(target_player.player_id),
+            "decision": mark_debug,
+        }
+
+    def _apply_immediate_marker_transfer(
+        self,
+        state: GameState,
+        player: PlayerState,
+        adjudication: dict,
+    ) -> None:
+        effect_type = str(adjudication.get("effect_type") or "")
+        target = adjudication.get("target_character")
+        target_character = str(target) if target else None
+        decision = adjudication.get("decision") if isinstance(adjudication.get("decision"), dict) else None
+        if effect_type != "assassin_reveal":
+            return
+        target_p = self._find_mark_target_player(state, player, target_character)
+        if target_p is not None:
+            self._record_mark_attempt(player.player_id, "success", state)
+            target_p.pending_marks.clear()
+            target_p.immune_to_marks_this_round = True
+            target_p.skipped_turn = True
+            target_p.revealed_this_round = True
+            self._strategy_stats[player.player_id]["marked_target_names"].append(target_character)
+            self._emit_vis(
+                "mark_resolved",
+                Phase.MARK,
+                player.player_id + 1,
+                state,
+                source_player_id=player.player_id + 1,
+                target_player_id=target_p.player_id + 1,
+                target_character=target_character,
+                success=True,
+                effect_type="assassin_reveal",
+                resolution={"type": "assassin_reveal"},
+            )
+            self._log(
+                {
+                    "event": "assassin_reveal",
+                    "player": player.player_id + 1,
+                    "target_player": target_p.player_id + 1,
+                    "target_character": target_character,
+                    "decision": decision,
+                }
+            )
+            return
+
+        self._record_mark_attempt(player.player_id, "none" if not target_character else "missing", state)
+        self._emit_vis(
+            "mark_target_none" if not target_character else "mark_target_missing",
+            Phase.MARK,
+            player.player_id + 1,
+            state,
+            source_player_id=player.player_id + 1,
+            actor_name=player.current_character,
+            target_character=target_character,
+            effect_type="assassin_reveal",
+            fallback_applied=False,
+        )
+        if decision is not None:
+            event_name = "mark_target_none" if not target_character else "mark_target_missing"
+            row = {
+                "event": event_name,
+                "player": player.player_id + 1,
+                "character": player.current_character,
+                "decision": decision,
+            }
+            if target_character:
+                row["target_character"] = target_character
+            self._log(row)
 
     def _queue_mark(self, state: GameState, source_pid: int, target_character: Optional[str], payload: dict, decision: dict | None = None) -> None:
         source = state.players[source_pid]

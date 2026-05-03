@@ -4414,6 +4414,106 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(command_store.offsets, [("runtime-worker", session.session_id, 1)])
         self.assertEqual(store.commits, [])
 
+    def test_module_resume_rejects_module_type_mismatch_without_engine_advance(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        import engine
+        from runtime_modules.contracts import PromptContinuation
+        from state import GameState
+
+        class _CommandStoreStub:
+            def __init__(self) -> None:
+                self.commands: list[dict] = []
+                self.offsets: list[tuple[str, str, int]] = []
+
+            def list_commands(self, session_id: str) -> list[dict]:
+                return [copy.deepcopy(command) for command in self.commands if command["session_id"] == session_id]
+
+            def save_consumer_offset(self, consumer_name: str, session_id: str, seq: int) -> None:
+                self.offsets.append((consumer_name, session_id, int(seq)))
+
+        store = _MutableGameStateStoreStub()
+        command_store = _CommandStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            game_state_store=store,
+            command_store=command_store,
+        )
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42, "runtime": {"runner_kind": "module", "ai_decision_delay_ms": 0}},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.start_session(session.session_id, session.host_token)
+        config = runtime._config_factory.create(session.resolved_parameters)  # type: ignore[attr-defined]
+        state = GameState.create(config)
+        state.runtime_runner_kind = "module"
+        state.runtime_checkpoint_schema_version = 3
+        state.runtime_active_prompt = PromptContinuation(
+            request_id="req_1",
+            prompt_instance_id=1,
+            resume_token="token_1",
+            frame_id="turn:1:p0",
+            module_id="mod:turn:1:p0:target_judicator",
+            module_type="TargetJudicatorModule",
+            module_cursor="await_mark_target",
+            player_id=0,
+            request_type="choose_mark_target",
+            legal_choices=[{"choice_id": "p1"}],
+        )
+        store.current_state = state.to_checkpoint_payload()
+        store.checkpoint = {
+            "schema_version": 3,
+            "session_id": session.session_id,
+            "runner_kind": "module",
+            "has_snapshot": True,
+        }
+        command_store.commands.append(
+            {
+                "seq": 1,
+                "type": "decision_submitted",
+                "session_id": session.session_id,
+                "payload": {
+                    "request_id": "req_1",
+                    "player_id": 1,
+                    "request_type": "choose_mark_target",
+                    "choice_id": "p1",
+                    "resume_token": "token_1",
+                    "frame_id": "turn:1:p0",
+                    "module_id": "mod:turn:1:p0:target_judicator",
+                    "module_type": "CharacterStartModule",
+                    "module_cursor": "await_mark_target",
+                    "decision": {},
+                },
+            }
+        )
+
+        with patch.object(
+            engine.GameEngine,
+            "run_next_transition",
+            side_effect=AssertionError("mismatched module type must not advance engine"),
+        ):
+            result = runtime._run_engine_transition_once_sync(
+                None,
+                session.session_id,
+                42,
+                None,
+                True,
+                "runtime-worker",
+                1,
+            )
+
+        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(result["reason"], "module type mismatch")
+        self.assertEqual(command_store.offsets, [("runtime-worker", session.session_id, 1)])
+        self.assertEqual(store.commits, [])
+
     def test_valid_module_continuation_passed_to_engine_transition(self) -> None:
         RuntimeService._ensure_gpt_import_path()
         import engine

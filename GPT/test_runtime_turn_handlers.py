@@ -9,6 +9,8 @@ def test_turn_frame_handler_registry_covers_native_turn_modules():
         "ScheduledStartActionsModule",
         "PendingMarkResolutionModule",
         "CharacterStartModule",
+        "TargetJudicatorModule",
+        "ImmediateMarkerTransferModule",
         "TrickWindowModule",
         "DiceRollModule",
     } <= set(TURN_FRAME_HANDLERS)
