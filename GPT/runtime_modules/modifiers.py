@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from .contracts import Modifier, ModifierRegistryState
+
+MUROE_SKILL_SUPPRESSION_KIND = "suppress_character_skill"
+MUROE_SKILL_SUPPRESSION_REASON = "muroe_blocked_by_eosa"
 
 
 @dataclass(slots=True)
@@ -41,3 +45,63 @@ class ModifierRegistry:
         self.state.modifiers = [
             modifier for modifier in self.state.modifiers if modifier.expires_on != expires_on and not modifier.consumed
         ]
+
+
+def seed_character_start_modifiers(state: Any, *, source_module_id: str = "CharacterModifierSeedModule") -> None:
+    registry = ModifierRegistry(state.runtime_modifier_registry)
+    eosa_players = [
+        player
+        for player in getattr(state, "players", [])
+        if getattr(player, "alive", True) and str(getattr(player, "current_character", "") or "") == "어사"
+    ]
+    if not eosa_players:
+        return
+    round_index = int(getattr(state, "rounds_completed", 0) or 0) + 1
+    for eosa in eosa_players:
+        eosa_player_id = int(getattr(eosa, "player_id", 0) or 0)
+        for target in getattr(state, "players", []):
+            target_player_id = int(getattr(target, "player_id", 0) or 0)
+            if target_player_id == eosa_player_id:
+                continue
+            if not getattr(target, "alive", True):
+                continue
+            if str(getattr(target, "attribute", "") or "") != "무뢰":
+                continue
+            registry.add(
+                Modifier(
+                    modifier_id=(
+                        f"modifier:round:{round_index}:eosa:{eosa_player_id}:"
+                        f"suppress_muroe_character_skill:{target_player_id}"
+                    ),
+                    source_module_id=source_module_id,
+                    target_module_type="CharacterStartModule",
+                    scope="round",
+                    owner_player_id=target_player_id,
+                    priority=0,
+                    payload={
+                        "kind": MUROE_SKILL_SUPPRESSION_KIND,
+                        "reason": MUROE_SKILL_SUPPRESSION_REASON,
+                        "source_player_id": eosa_player_id,
+                        "target_player_id": target_player_id,
+                    },
+                    propagation=[
+                        "TargetJudicatorModule",
+                        "DiceRollModule",
+                        "MovementResolveModule",
+                        "MapMoveModule",
+                        "ArrivalTileModule",
+                        "LapRewardModule",
+                        "FortuneResolveModule",
+                    ],
+                    expires_on="round_completed",
+                )
+            )
+
+
+def character_skill_suppression_modifier(state: Any, player_id: int) -> Modifier | None:
+    registry = ModifierRegistry(state.runtime_modifier_registry)
+    for modifier in registry.applicable("CharacterStartModule", owner_player_id=player_id):
+        if modifier.payload.get("kind") != MUROE_SKILL_SUPPRESSION_KIND:
+            continue
+        return registry.consume(modifier.modifier_id)
+    return None

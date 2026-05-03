@@ -88,6 +88,7 @@ from policy.environment_traits import (
     has_weather_id,
 )
 from runtime_modules.legacy_metadata import legacy_runtime_module_for_event
+from runtime_modules.modifiers import character_skill_suppression_modifier, seed_character_start_modifiers
 from runtime_modules.runner import ModuleRunner
 from policy_hooks import PolicyDecisionLogHook
 from rule_script_engine import RuleScriptEngine
@@ -398,10 +399,10 @@ class GameEngine:
             ],
         })
 
-    def run_next_transition(self, state: GameState) -> dict[str, Any]:
+    def run_next_transition(self, state: GameState, decision_resume: Any | None = None) -> dict[str, Any]:
         try:
             if getattr(state, "runtime_runner_kind", "legacy") == "module":
-                return ModuleRunner().advance_engine(self, state)
+                return ModuleRunner().advance_engine(self, state, decision_resume=decision_resume)
             if state.pending_actions:
                 return self._run_next_action_transition(state)
             if state.pending_turn_completion:
@@ -731,10 +732,15 @@ class GameEngine:
     def _is_muroe_skill_blocked(self, state: GameState, player: PlayerState) -> bool:
         if player.attribute != "무뢰":
             return False
+        if getattr(state, "runtime_runner_kind", "legacy") == "module":
+            return character_skill_suppression_modifier(state, int(player.player_id)) is not None
         return any(
             other.alive and other.player_id != player.player_id and is_eosa(other.current_character)
             for other in state.players
         )
+
+    def _seed_character_start_modifiers(self, state: GameState) -> None:
+        seed_character_start_modifiers(state)
 
     def _character_def(self, player: PlayerState):
         if not player.current_character:
@@ -787,6 +793,10 @@ class GameEngine:
         idempotency_key: str = "",
         parent_action_id: str = "",
     ) -> ActionEnvelope:
+        if idempotency_key:
+            for existing in [*state.scheduled_actions, *state.pending_actions]:
+                if existing.idempotency_key == idempotency_key:
+                    return existing
         action = ActionEnvelope(
             action_id=self._next_action_id(state, action_type),
             type=action_type,
@@ -1987,6 +1997,7 @@ class GameEngine:
         state.global_rent_half_this_turn = False
         state.global_rent_double_this_turn = False
         state.tile_rent_modifiers_this_turn = {}
+        state.runtime_modifier_registry.modifiers = []
         state.current_weather = None
         state.current_weather_effects = set()
         self._suppress_hidden_trick_selection = True
@@ -2019,6 +2030,8 @@ class GameEngine:
         if initial:
             self._deal_initial_tricks(state)
         self._run_draft(state)
+        if getattr(state, "runtime_runner_kind", "legacy") == "module":
+            self._seed_character_start_modifiers(state)
         self._suppress_hidden_trick_selection = False
         self._refresh_hidden_trick_slots(state)
         alive = [p for p in state.players if p.alive]
@@ -2965,14 +2978,29 @@ class GameEngine:
                 "decision": decision,
             })
             return
+        effect_type = str(payload.get("type", "unknown") or "unknown")
+        idempotency_key = self._mark_queue_idempotency_key(state, source_pid, target_p.player_id, effect_type)
+        if self._has_equivalent_queued_mark(state, target_p, source_pid, payload, idempotency_key):
+            self._log(
+                {
+                    "event": "mark_queue_duplicate_suppressed",
+                    "source_player": source_pid + 1,
+                    "target_player": target_p.player_id + 1,
+                    "target_character": target_character,
+                    "effect_type": effect_type,
+                    "idempotency_key": idempotency_key,
+                    "decision": decision,
+                }
+            )
+            return
         self._record_mark_attempt(source_pid, "success", state)
-        mark = {"source_pid": source_pid, **payload}
+        mark = {"source_pid": source_pid, **payload, "idempotency_key": idempotency_key}
         target_p.pending_marks.append(mark)
         self._schedule_action(
             state,
             "resolve_mark",
             source,
-            f"mark:{payload.get('type', 'unknown')}",
+            f"mark:{effect_type}",
             {
                 "mark": dict(mark),
                 "target_player_id": target_p.player_id,
@@ -2981,7 +3009,7 @@ class GameEngine:
             target_player_id=target_p.player_id,
             phase="turn_start",
             priority=10,
-            idempotency_key=f"mark:{source_pid}:{target_p.player_id}:{payload.get('type', 'unknown')}:{len(target_p.pending_marks)}",
+            idempotency_key=idempotency_key,
         )
         self._strategy_stats[source_pid]["marked_target_names"].append(target_character)
         self._emit_vis(
@@ -2997,6 +3025,50 @@ class GameEngine:
         )
         if decision is not None:
             self._log({"event": "mark_queued", "source_player": source_pid + 1, "target_player": target_p.player_id + 1, "target_character": target_character, "payload": payload, "decision": decision})
+
+    def _mark_queue_idempotency_key(self, state: GameState, source_pid: int, target_pid: int, effect_type: str) -> str:
+        return f"mark:{state.rounds_completed + 1}:{state.turn_index + 1}:{source_pid}:{target_pid}:{effect_type}"
+
+    def _has_equivalent_queued_mark(
+        self,
+        state: GameState,
+        target: PlayerState,
+        source_pid: int,
+        payload: dict,
+        idempotency_key: str,
+    ) -> bool:
+        for mark in target.pending_marks:
+            if self._mark_payload_matches(mark, source_pid, payload, idempotency_key):
+                return True
+        for action in [*state.scheduled_actions, *state.pending_actions]:
+            if action.type != "resolve_mark":
+                continue
+            action_target_id = action.target_player_id
+            if action_target_id is None:
+                action_target_id = action.payload.get("target_player_id")
+            try:
+                if int(action_target_id) != target.player_id:
+                    continue
+            except (TypeError, ValueError):
+                continue
+            if action.idempotency_key == idempotency_key:
+                return True
+            if self._mark_payload_matches(dict(action.payload.get("mark") or {}), source_pid, payload, idempotency_key):
+                return True
+        return False
+
+    def _mark_payload_matches(self, mark: dict, source_pid: int, payload: dict, idempotency_key: str) -> bool:
+        if str(mark.get("idempotency_key", "") or "") == idempotency_key:
+            return True
+        try:
+            if int(mark.get("source_pid", -1)) != source_pid:
+                return False
+        except (TypeError, ValueError):
+            return False
+        for key, value in payload.items():
+            if mark.get(key) != value:
+                return False
+        return True
 
     def _apply_failed_mark_fallback(self, state: GameState, source: PlayerState, payload: dict) -> None:
         mark_type = payload.get("type")
@@ -3805,6 +3877,12 @@ class GameEngine:
                 source_event="trick_phase",
             )
             if card is None:
+                state.runtime_last_trick_sequence_result = {
+                    "phase": phase,
+                    "selected_trick": None,
+                    "resolution": {"type": "SKIPPED"},
+                    "deferred_followups": False,
+                }
                 if debug is not None:
                     self._log({"event": "trick_use_skip", "player": player.player_id + 1, "phase": phase, "decision": debug})
                 return False
@@ -3821,6 +3899,13 @@ class GameEngine:
                 stats["tricks_used"] += 1
                 stats["regular_tricks_used"] += 1
                 self._log({"event": "trick_used", "player": player.player_id + 1, "phase": phase, "character": player.current_character, "card": {"deck_index": card.deck_index, "name": card.name}, "resolution": resolution, "decision": debug})
+                state.runtime_last_trick_sequence_result = {
+                    "phase": phase,
+                    "selected_trick": card.name,
+                    "selected_trick_deck_index": card.deck_index,
+                    "resolution": dict(resolution or {}),
+                    "deferred_followups": False,
+                }
                 self._emit_vis(
                     "trick_used",
                     Phase.TRICK_WINDOW,
@@ -3844,6 +3929,8 @@ class GameEngine:
                 self._discard_deferred_supply_thresholds()
                 raise
             if self._queue_deferred_supply_threshold_actions(state, player, turn_continuation=turn_continuation):
+                if state.runtime_last_trick_sequence_result is not None:
+                    state.runtime_last_trick_sequence_result["deferred_followups"] = True
                 return True
             try:
                 self._sync_trick_visibility(state, player)
@@ -3872,6 +3959,8 @@ class GameEngine:
                         continuation_payload,
                     )
                 )
+                if state.runtime_last_trick_sequence_result is not None:
+                    state.runtime_last_trick_sequence_result["deferred_followups"] = True
                 return True
             return False
 

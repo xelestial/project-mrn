@@ -3,20 +3,25 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from policy.environment_traits import WEATHER_FATTENED_HORSES_ID, has_weather_id
 from viewer.events import Phase
 from viewer.public_state import build_turn_end_snapshot
 
 from .contracts import FrameState, ModuleJournalEntry, ModuleRef, ModuleResult
 from .ids import round_frame_id
+from .modifiers import ModifierRegistry
+from .prompts import PromptApi
 from .round_modules import (
     assert_round_end_card_flip_ready,
     build_round_frame,
 )
 from .sequence_modules import (
     build_action_sequence_frame,
+    build_trick_sequence_frame,
     build_turn_completion_sequence_frame,
 )
 from .simultaneous import build_resupply_frame
+from .turn_modules import build_turn_frame
 
 
 class ModuleRunnerError(RuntimeError):
@@ -45,7 +50,7 @@ class ModuleRunner:
         module.status = "running"
         return ModuleResult(status="completed")
 
-    def advance_engine(self, engine: Any, state: Any) -> dict[str, Any]:
+    def advance_engine(self, engine: Any, state: Any, decision_resume: Any | None = None) -> dict[str, Any]:
         """Advance one gameplay transition for a module-runner session.
 
         This migration bridge keeps the existing rule helpers as the source of
@@ -57,13 +62,19 @@ class ModuleRunner:
         self._promote_pending_work_to_sequence_frames(engine, state)
         simultaneous_frame = self._active_simultaneous_frame(state)
         if simultaneous_frame is not None:
-            result = self._advance_simultaneous_frame(engine, state, simultaneous_frame)
+            result = self._advance_simultaneous_frame(engine, state, simultaneous_frame, decision_resume=decision_resume)
             self._promote_pending_work_to_sequence_frames(engine, state)
             self._sync_active_player_turn_after_legacy_work(state)
             return {**result, "runner_kind": "module"}
         sequence_frame = self._active_sequence_frame(state)
         if sequence_frame is not None:
             result = self._advance_sequence_frame(engine, state, sequence_frame)
+            self._promote_pending_work_to_sequence_frames(engine, state)
+            self._sync_active_player_turn_after_legacy_work(state)
+            return {**result, "runner_kind": "module"}
+        turn_frame = self._active_turn_frame(state)
+        if turn_frame is not None:
+            result = self._advance_turn_frame(engine, state, turn_frame)
             self._promote_pending_work_to_sequence_frames(engine, state)
             self._sync_active_player_turn_after_legacy_work(state)
             return {**result, "runner_kind": "module"}
@@ -83,13 +94,19 @@ class ModuleRunner:
         self._promote_pending_work_to_sequence_frames(engine, state)
         simultaneous_frame = self._active_simultaneous_frame(state)
         if simultaneous_frame is not None:
-            result = self._advance_simultaneous_frame(engine, state, simultaneous_frame)
+            result = self._advance_simultaneous_frame(engine, state, simultaneous_frame, decision_resume=decision_resume)
             self._promote_pending_work_to_sequence_frames(engine, state)
             self._sync_active_player_turn_after_legacy_work(state)
             return {**result, "runner_kind": "module"}
         sequence_frame = self._active_sequence_frame(state)
         if sequence_frame is not None:
             result = self._advance_sequence_frame(engine, state, sequence_frame)
+            self._promote_pending_work_to_sequence_frames(engine, state)
+            self._sync_active_player_turn_after_legacy_work(state)
+            return {**result, "runner_kind": "module"}
+        turn_frame = self._active_turn_frame(state)
+        if turn_frame is not None:
+            result = self._advance_turn_frame(engine, state, turn_frame)
             self._promote_pending_work_to_sequence_frames(engine, state)
             self._sync_active_player_turn_after_legacy_work(state)
             return {**result, "runner_kind": "module"}
@@ -174,29 +191,187 @@ class ModuleRunner:
         player_id = int(module.owner_player_id if module.owner_player_id is not None else 0)
         player = state.players[player_id]
         if player.alive:
-            player.turns_taken += 1
-            engine._take_turn(state, player)
-            if state.pending_actions or state.pending_turn_completion:
-                self._promote_pending_work_to_sequence_frames(engine, state, parent_frame=frame, parent_module=module)
+            existing = self._turn_frame_for_player_module(state, module)
+            if existing is None:
+                turn_frame = build_turn_frame(
+                    int(getattr(state, "rounds_completed", 0) or 0) + 1,
+                    player_id,
+                    parent_module_id=module.module_id,
+                    session_id=getattr(engine, "_vis_session_id", ""),
+                )
+                state.runtime_frame_stack.append(
+                    turn_frame
+                )
+                module.suspension_id = turn_frame.frame_id
+            module.status = "suspended"
+            module.cursor = "child_turn_running"
+            return {
+                "status": "committed",
+                "runner_kind": "module",
+                "module_type": module.module_type,
+                "player_id": player_id + 1,
+            }
+        else:
+            module.status = "skipped"
+            self._complete_module(state, frame, module, status="skipped")
+            state.turn_index += 1
+            return {"status": "committed", "runner_kind": "module", "player_id": player_id + 1, "skipped": True}
+
+    def _advance_turn_frame(self, engine: Any, state: Any, frame: FrameState) -> dict[str, Any]:
+        module = self._next_live_module(frame)
+        if module is None:
+            self._complete_turn_frame_and_parent(state, frame)
+            return {"status": "committed", "module_type": "TurnFrameComplete", "frame_id": frame.frame_id}
+        player_id = int(frame.owner_player_id if frame.owner_player_id is not None else 0)
+        player = state.players[player_id]
+        frame.status = "running"
+        frame.active_module_id = module.module_id
+        module.status = "running"
+        self._attach_applicable_modifiers(state, module)
+        if module.module_type == "TurnStartModule":
+            context = self._turn_context(frame)
+            if not context:
+                module.payload["finisher_before"] = int(getattr(player, "control_finisher_turns", 0) or 0)
+                module.payload["disruption_before"] = dict(engine._leader_disruption_snapshot(state, player))
+                player.turns_taken += 1
+            if player.skipped_turn:
+                player.skipped_turn = False
+                engine._log({"event": "turn_start", "player": player.player_id + 1, "character": player.current_character, "skipped": True})
+                engine._emit_vis("turn_start", Phase.TURN_START, player.player_id + 1, state, character=player.current_character, skipped=True)
+                engine._emit_vis("turn_end_snapshot", Phase.TURN_END, player.player_id + 1, state, snapshot=build_turn_end_snapshot(state))
+                self._complete_module(state, frame, module)
+                self._skip_remaining_modules(frame)
+                state.turn_index += 1
+                self._complete_turn_frame_and_parent(state, frame)
+                return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1, "skipped": True}
+            self._complete_module(state, frame, module)
+            return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
+        if module.module_type == "ScheduledStartActionsModule":
+            if engine._materialize_scheduled_actions(state, phase="turn_start", player_id=player_id):
                 module.status = "suspended"
+                module.cursor = "pending_start_actions"
+                module.suspension_id = frame.frame_id
+                frame.status = "suspended"
+                self._promote_pending_work_to_sequence_frames(engine, state, parent_frame=frame, parent_module=module)
                 return {
                     "status": "committed",
-                    "runner_kind": "module",
                     "module_type": module.module_type,
                     "player_id": player_id + 1,
                     "pending_actions": len(state.pending_actions),
                     "pending_modules": self._pending_sequence_module_count(state),
                 }
-            if engine._check_end(state):
-                self._complete_module(state, frame, module)
-                return {"status": "finished", "reason": "end_rule", "runner_kind": "module", "player_id": player_id + 1}
-        else:
-            module.status = "skipped"
-            self._complete_module(state, frame, module, status="skipped")
-            return {"status": "committed", "runner_kind": "module", "player_id": player_id + 1, "skipped": True}
+            self._complete_module(state, frame, module)
+            return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
+        if module.module_type == "PendingMarkResolutionModule":
+            engine._resolve_pending_marks(state, player)
+            self._complete_module(state, frame, module)
+            if not player.alive:
+                self._skip_remaining_modules(frame)
+                state.turn_index += 1
+                self._complete_turn_frame_and_parent(state, frame)
+            return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
+        if module.module_type == "CharacterStartModule":
+            if has_weather_id(state.current_weather_effects, WEATHER_FATTENED_HORSES_ID):
+                player.extra_dice_count_this_turn += 1
+            module.cursor = "await_character_prompt"
+            try:
+                engine._apply_character_start(state, player)
+            except Exception:
+                module.status = "suspended"
+                module.suspension_id = frame.frame_id
+                frame.status = "suspended"
+                raise
+            self._complete_module(state, frame, module)
+            if not player.alive:
+                self._skip_remaining_modules(frame)
+                state.turn_index += 1
+                self._complete_turn_frame_and_parent(state, frame)
+            return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
+        if module.module_type == "TrickWindowModule":
+            context = self._turn_context(frame)
+            child = self._child_frame_for_module(state, module)
+            if child is not None and child.status != "completed":
+                module.status = "suspended"
+                module.cursor = "child_trick_sequence"
+                module.suspension_id = child.frame_id
+                frame.status = "suspended"
+            else:
+                if not module.payload.get("window_opened"):
+                    engine._emit_vis(
+                        "turn_start",
+                        Phase.TURN_START,
+                        player.player_id + 1,
+                        state,
+                        character=player.current_character,
+                        position=player.position,
+                    )
+                    engine._emit_vis(
+                        "trick_window_open",
+                        Phase.TRICK_WINDOW,
+                        player.player_id + 1,
+                        state,
+                        hand_size=len(player.trick_hand),
+                        public_tricks=player.public_trick_names(),
+                        hidden_trick_count=player.hidden_trick_count(),
+                    )
+                    module.payload["window_opened"] = True
+                if child is None:
+                    child = build_trick_sequence_frame(
+                        int(getattr(state, "rounds_completed", 0) or 0) + 1,
+                        player_id,
+                        self._next_sequence_ordinal(state),
+                        parent_frame_id=frame.frame_id,
+                        parent_module_id=module.module_id,
+                        session_id=getattr(engine, "_vis_session_id", ""),
+                    )
+                    for child_module in child.module_queue:
+                        child_module.payload["turn_context"] = dict(context)
+                    state.runtime_frame_stack.append(child)
+                    module.status = "suspended"
+                    module.cursor = "child_trick_sequence"
+                    module.suspension_id = child.frame_id
+                    frame.status = "suspended"
+                else:
+                    self._complete_module(state, frame, module)
+            return {
+                "status": "committed",
+                "module_type": module.module_type,
+                "player_id": player_id + 1,
+                "pending_actions": len(state.pending_actions),
+                "pending_modules": self._pending_sequence_module_count(state),
+            }
+        if module.module_type == "DiceRollModule":
+            context = self._turn_context(frame)
+            module.cursor = "await_turn_prompt"
+            try:
+                engine._finish_turn_after_trick_phase(
+                    state,
+                    player,
+                    finisher_before=int(context.get("finisher_before", 0) or 0),
+                    disruption_before=dict(context.get("disruption_before") or {}),
+            )
+            except Exception:
+                module.status = "suspended"
+                module.suspension_id = frame.frame_id
+                frame.status = "suspended"
+                raise
+            if state.pending_actions or state.pending_turn_completion:
+                module.status = "suspended"
+                module.cursor = "pending_turn_resolution"
+                module.suspension_id = frame.frame_id
+                frame.status = "suspended"
+                self._promote_pending_work_to_sequence_frames(engine, state, parent_frame=frame, parent_module=module)
+                return {
+                    "status": "committed",
+                    "module_type": module.module_type,
+                    "player_id": player_id + 1,
+                    "pending_actions": len(state.pending_actions),
+                    "pending_modules": self._pending_sequence_module_count(state),
+                }
+            self._complete_module(state, frame, module)
+            return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
         self._complete_module(state, frame, module)
-        state.turn_index += 1
-        return {"status": "committed", "runner_kind": "module", "module_type": module.module_type, "player_id": player_id + 1}
+        return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
 
     def _advance_sequence_frame(self, engine: Any, state: Any, frame: FrameState) -> dict[str, Any]:
         module = self._next_live_module(frame)
@@ -206,6 +381,9 @@ class ModuleRunner:
             return {"status": "committed", "module_type": "SequenceFrameComplete", "frame_id": frame.frame_id}
         frame.active_module_id = module.module_id
         module.status = "running"
+        self._attach_applicable_modifiers(state, module)
+        if module.module_type.startswith("Trick"):
+            return self._advance_trick_sequence_module(engine, state, frame, module)
         if "action" in module.payload:
             return self._advance_action_adapter_module(engine, state, frame, module)
         if "pending_turn_completion" in module.payload:
@@ -213,7 +391,52 @@ class ModuleRunner:
         self._complete_module(state, frame, module)
         return {"status": "committed", "module_type": module.module_type, "frame_id": frame.frame_id}
 
-    def _advance_simultaneous_frame(self, engine: Any, state: Any, frame: FrameState) -> dict[str, Any]:
+    def _advance_trick_sequence_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> dict[str, Any]:
+        player_id = int(frame.owner_player_id if frame.owner_player_id is not None else 0)
+        player = state.players[player_id]
+        if module.module_type == "TrickChoiceModule":
+            module.cursor = "await_trick_prompt"
+            try:
+                deferred = engine._use_trick_phase(
+                    state,
+                    player,
+                    turn_continuation=dict(module.payload.get("turn_context") or {}),
+                )
+            except Exception:
+                module.status = "suspended"
+                module.suspension_id = frame.frame_id
+                frame.status = "suspended"
+                raise
+            module.payload["deferred_followups"] = bool(deferred)
+            self._copy_last_trick_result_to_resolve_module(state, frame, module, deferred=bool(deferred))
+            self._complete_module(state, frame, module)
+            self._complete_sequence_frame_if_drained(frame)
+            return {
+                "status": "committed",
+                "module_type": module.module_type,
+                "frame_id": frame.frame_id,
+                "player_id": player_id + 1,
+                "pending_actions": len(state.pending_actions),
+                "pending_modules": self._pending_sequence_module_count(state),
+            }
+        if module.module_type == "TrickResolveModule":
+            if self._trick_followup_requested(module):
+                self._insert_followup_trick_choice(frame, module)
+            self._complete_module(state, frame, module)
+            self._complete_sequence_frame_if_drained(frame)
+            return {"status": "committed", "module_type": module.module_type, "frame_id": frame.frame_id}
+        self._complete_module(state, frame, module)
+        self._complete_sequence_frame_if_drained(frame)
+        return {"status": "committed", "module_type": module.module_type, "frame_id": frame.frame_id}
+
+    def _advance_simultaneous_frame(
+        self,
+        engine: Any,
+        state: Any,
+        frame: FrameState,
+        *,
+        decision_resume: Any | None = None,
+    ) -> dict[str, Any]:
         module = self._next_live_module(frame)
         if module is None:
             frame.status = "completed"
@@ -222,32 +445,339 @@ class ModuleRunner:
         frame.active_module_id = module.module_id
         module.status = "running"
         if module.module_type == "ResupplyModule":
-            action_payload = dict(module.payload.get("action") or {})
-            result = (
-                engine._execute_action(state, self._action_from_payload(action_payload), queue_followups=True)
-                if action_payload
-                else {"type": "RESUPPLY_NOOP"}
+            return self._advance_resupply_module(
+                engine,
+                state,
+                frame,
+                module,
+                decision_resume=decision_resume,
             )
-            self._complete_module(state, frame, module)
-            return {
-                "status": "committed",
-                "module_type": module.module_type,
-                "frame_id": frame.frame_id,
-                "pending_actions": len(state.pending_actions),
-                "pending_modules": self._pending_sequence_module_count(state),
-                "result": result,
-            }
         self._complete_module(state, frame, module)
         if module.module_type == "CompleteSimultaneousResolutionModule":
             frame.status = "completed"
         return {"status": "committed", "module_type": module.module_type, "frame_id": frame.frame_id}
 
+    def _advance_resupply_module(
+        self,
+        engine: Any,
+        state: Any,
+        frame: FrameState,
+        module: ModuleRef,
+        *,
+        decision_resume: Any | None = None,
+    ) -> dict[str, Any]:
+        self._ensure_resupply_state(engine, state, module)
+        active_batch = getattr(state, "runtime_active_prompt_batch", None)
+        if decision_resume is not None:
+            if active_batch is None or getattr(active_batch, "module_id", "") != module.module_id:
+                raise ModuleRunnerError("resupply decision resume without active batch")
+            PromptApi().record_batch_response(
+                active_batch,
+                player_id=max(0, int(getattr(decision_resume, "player_id", 0) or 0) - 1),
+                request_id=str(getattr(decision_resume, "request_id", "") or ""),
+                resume_token=str(getattr(decision_resume, "resume_token", "") or ""),
+                choice_id=str(getattr(decision_resume, "choice_id", "") or ""),
+                response={"choice_payload": dict(getattr(decision_resume, "choice_payload", {}) or {})},
+            )
+            if active_batch.missing_player_ids:
+                return self._resupply_waiting_result(state, frame, module, active_batch)
+            self._commit_resupply_batch(engine, state, module, active_batch)
+            state.runtime_active_prompt_batch = None
+
+        active_batch = getattr(state, "runtime_active_prompt_batch", None)
+        if active_batch is not None and getattr(active_batch, "module_id", "") == module.module_id:
+            return self._resupply_waiting_result(state, frame, module, active_batch)
+
+        while True:
+            batch = self._build_next_resupply_batch(engine, state, frame, module)
+            if batch is None:
+                result = self._complete_resupply_module(engine, state, frame, module)
+                return result
+            if not batch.missing_player_ids:
+                self._commit_resupply_batch(engine, state, module, batch)
+                continue
+            state.runtime_active_prompt = None
+            state.runtime_active_prompt_batch = batch
+            return self._resupply_waiting_result(state, frame, module, batch)
+
+    def _ensure_resupply_state(self, engine: Any, state: Any, module: ModuleRef) -> dict[str, Any]:
+        existing = module.payload.get("resupply_state")
+        if isinstance(existing, dict) and existing.get("initialized"):
+            return existing
+        action_payload = dict(module.payload.get("action") or {})
+        action_inner = action_payload.get("payload") if isinstance(action_payload.get("payload"), dict) else {}
+        threshold = int((action_inner or {}).get("threshold", action_payload.get("threshold", 0)) or 0)
+        participants = [
+            int(player_id)
+            for player_id in module.payload.get("participants", [])
+            if isinstance(player_id, int) or str(player_id).lstrip("-").isdigit()
+        ]
+        if not participants:
+            participants = [int(getattr(player, "player_id")) for player in getattr(state, "players", []) if getattr(player, "alive", True)]
+        eligible_by_player: dict[str, list[int]] = {}
+        for player_id in participants:
+            player = state.players[player_id]
+            eligible_by_player[str(player_id)] = [
+                int(getattr(card, "deck_index"))
+                for card in getattr(player, "trick_hand", [])
+                if getattr(card, "is_burden", False) and isinstance(getattr(card, "deck_index", None), int)
+            ]
+        resupply_state = {
+            "initialized": True,
+            "threshold": threshold,
+            "participants": participants,
+            "eligible_burden_deck_indices_by_player": eligible_by_player,
+            "processed_burden_deck_indices_by_player": {},
+            "exchanged_by_player": {},
+            "batch_ordinal": 0,
+            "current_batch_targets_by_player": {},
+        }
+        module.payload["resupply_state"] = resupply_state
+        engine._log(
+            {
+                "event": "module_resupply_initialized",
+                "threshold": threshold,
+                "participants": [player_id + 1 for player_id in participants],
+                "eligible_burden_deck_indices_by_player": eligible_by_player,
+                "module_id": module.module_id,
+            }
+        )
+        return resupply_state
+
+    def _build_next_resupply_batch(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef):
+        resupply_state = self._ensure_resupply_state(engine, state, module)
+        participants = [int(player_id) for player_id in resupply_state.get("participants", [])]
+        targets: dict[int, Any] = {}
+        for player_id in participants:
+            player = state.players[player_id]
+            if not getattr(player, "alive", True):
+                continue
+            eligible = {
+                int(item)
+                for item in resupply_state.get("eligible_burden_deck_indices_by_player", {}).get(str(player_id), [])
+                if isinstance(item, int)
+            }
+            processed = {
+                int(item)
+                for item in resupply_state.get("processed_burden_deck_indices_by_player", {}).get(str(player_id), [])
+                if isinstance(item, int)
+            }
+            for card in list(getattr(player, "trick_hand", [])):
+                deck_index = getattr(card, "deck_index", None)
+                if (
+                    getattr(card, "is_burden", False)
+                    and isinstance(deck_index, int)
+                    and deck_index in eligible
+                    and deck_index not in processed
+                ):
+                    targets[player_id] = card
+                    break
+        if not targets:
+            resupply_state["current_batch_targets_by_player"] = {}
+            return None
+
+        ordinal = int(resupply_state.get("batch_ordinal", 0) or 0) + 1
+        resupply_state["batch_ordinal"] = ordinal
+        resupply_state["current_batch_targets_by_player"] = {
+            str(player_id): int(getattr(card, "deck_index"))
+            for player_id, card in targets.items()
+        }
+        module.cursor = f"await_resupply_batch:{ordinal}"
+        module.suspension_id = frame.frame_id
+        frame.status = "suspended"
+        module.status = "suspended"
+        batch_id = f"batch:{frame.frame_id}:{module.module_id}:{ordinal}"
+        legal_choices_by_player_id = {
+            player_id: self._burden_exchange_choices(card)
+            for player_id, card in targets.items()
+        }
+        public_context_by_player_id = {
+            player_id: self._burden_exchange_context(state, state.players[player_id], card, resupply_state)
+            for player_id, card in targets.items()
+        }
+        batch = PromptApi().create_batch(
+            batch_id=batch_id,
+            frame=frame,
+            module=module,
+            participant_player_ids=sorted(targets),
+            request_type="burden_exchange",
+            legal_choices_by_player_id=legal_choices_by_player_id,
+            public_context_by_player_id=public_context_by_player_id,
+            eligibility_snapshot={
+                "threshold": resupply_state.get("threshold"),
+                "targets_by_player": dict(resupply_state["current_batch_targets_by_player"]),
+                "eligible_burden_deck_indices_by_player": dict(
+                    resupply_state.get("eligible_burden_deck_indices_by_player", {})
+                ),
+            },
+        )
+        self._prefill_non_human_resupply_responses(engine, state, batch, targets)
+        return batch
+
+    @staticmethod
+    def _burden_exchange_choices(card: Any) -> list[dict[str, Any]]:
+        cost = int(getattr(card, "burden_cost", 0) or 0)
+        name = str(getattr(card, "name", "Burden") or "Burden")
+        return [
+            {"choice_id": "yes", "title": f"Pay {cost} to remove", "value": {"burden_cost": cost, "card_name": name}},
+            {"choice_id": "no", "title": "Keep burden", "value": {"burden_cost": cost, "card_name": name}},
+        ]
+
+    @staticmethod
+    def _burden_exchange_context(state: Any, player: Any, card: Any, resupply_state: dict[str, Any]) -> dict[str, Any]:
+        burden_cards = [
+            hand_card
+            for hand_card in list(getattr(player, "trick_hand", []) or [])
+            if bool(getattr(hand_card, "is_burden", False))
+        ]
+        return {
+            "card_name": getattr(card, "name", None),
+            "card_description": getattr(card, "description", None),
+            "card_deck_index": getattr(card, "deck_index", None),
+            "burden_cost": getattr(card, "burden_cost", None),
+            "player_cash": getattr(player, "cash", None),
+            "player_position": getattr(player, "position", None),
+            "player_hand_coins": getattr(player, "hand_coins", None),
+            "player_shards": getattr(player, "shards", None),
+            "burden_card_count": len(burden_cards),
+            "burden_cards": [
+                {
+                    "deck_index": getattr(hand_card, "deck_index", None),
+                    "name": getattr(hand_card, "name", None),
+                    "card_description": getattr(hand_card, "description", None),
+                    "burden_cost": getattr(hand_card, "burden_cost", None),
+                    "is_current_target": getattr(hand_card, "deck_index", None) == getattr(card, "deck_index", None),
+                }
+                for hand_card in burden_cards
+            ],
+            "decision_phase": "trick_supply",
+            "decision_reason": "supply_threshold",
+            "supply_threshold": resupply_state.get("threshold"),
+            "current_f_value": getattr(state, "f_value", None),
+        }
+
+    def _prefill_non_human_resupply_responses(self, engine: Any, state: Any, batch: Any, targets: dict[int, Any]) -> None:
+        human_seats = getattr(getattr(engine, "policy", None), "_human_seats", None)
+        if human_seats is None:
+            return
+        human_ids = {int(player_id) for player_id in human_seats}
+        api = PromptApi()
+        for player_id, card in targets.items():
+            if player_id in human_ids:
+                continue
+            prompt = batch.prompts_by_player_id[player_id]
+            choice_id = "yes" if getattr(state.players[player_id], "cash", 0) >= getattr(card, "burden_cost", 0) else "no"
+            api.record_batch_response(
+                batch,
+                player_id=player_id,
+                request_id=prompt.request_id,
+                resume_token=prompt.resume_token,
+                choice_id=choice_id,
+                response={"provider": "ai_fallback"},
+            )
+
+    def _commit_resupply_batch(self, engine: Any, state: Any, module: ModuleRef, batch: Any) -> None:
+        resupply_state = self._ensure_resupply_state(engine, state, module)
+        targets = {
+            int(player_id): int(deck_index)
+            for player_id, deck_index in dict(resupply_state.get("current_batch_targets_by_player") or {}).items()
+        }
+        processed_by_player = resupply_state.setdefault("processed_burden_deck_indices_by_player", {})
+        exchanged_by_player = resupply_state.setdefault("exchanged_by_player", {})
+        for player_id in sorted(targets):
+            player = state.players[player_id]
+            deck_index = targets[player_id]
+            processed = {
+                int(item)
+                for item in processed_by_player.get(str(player_id), [])
+                if isinstance(item, int)
+            }
+            processed.add(deck_index)
+            processed_by_player[str(player_id)] = sorted(processed)
+            response = dict(batch.responses_by_player_id.get(player_id, {}))
+            accepted = str(response.get("choice_id") or "") == "yes"
+            card = next(
+                (
+                    hand_card
+                    for hand_card in list(getattr(player, "trick_hand", []))
+                    if getattr(hand_card, "deck_index", None) == deck_index and getattr(hand_card, "is_burden", False)
+                ),
+                None,
+            )
+            if not accepted or card is None or getattr(player, "cash", 0) < getattr(card, "burden_cost", 0):
+                continue
+            player.cash -= int(getattr(card, "burden_cost", 0) or 0)
+            engine._discard_trick(state, player, card)
+            exchanged_by_player.setdefault(str(player_id), []).append(
+                {"name": getattr(card, "name", ""), "cost": int(getattr(card, "burden_cost", 0) or 0)}
+            )
+            engine._draw_tricks(state, player, 1)
+        resupply_state["current_batch_targets_by_player"] = {}
+
+    def _complete_resupply_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> dict[str, Any]:
+        resupply_state = self._ensure_resupply_state(engine, state, module)
+        event = {"event": "trick_supply", "threshold": resupply_state.get("threshold"), "players": []}
+        participants = [int(player_id) for player_id in resupply_state.get("participants", [])]
+        exchanged_by_player = dict(resupply_state.get("exchanged_by_player") or {})
+        for player_id in participants:
+            player = state.players[player_id]
+            if not getattr(player, "alive", True):
+                continue
+            before = len(getattr(player, "trick_hand", []))
+            engine._draw_tricks(state, player, max(0, 5 - len(getattr(player, "trick_hand", []))))
+            event["players"].append(
+                {
+                    "player": player.player_id + 1,
+                    "before": before,
+                    "after": len(player.trick_hand),
+                    "exchanged": list(exchanged_by_player.get(str(player_id), [])),
+                    "hand": [card.name for card in player.trick_hand],
+                    "public_hand": player.public_trick_names(),
+                    "hidden_trick_count": player.hidden_trick_count(),
+                }
+            )
+        engine._log(event)
+        state.runtime_active_prompt_batch = None
+        state.runtime_active_prompt = None
+        frame.status = "running"
+        self._complete_module(state, frame, module)
+        return {
+            "status": "committed",
+            "module_type": module.module_type,
+            "frame_id": frame.frame_id,
+            "pending_actions": len(state.pending_actions),
+            "pending_modules": self._pending_sequence_module_count(state),
+            "result": {"type": "SUPPLY_THRESHOLD", "threshold": resupply_state.get("threshold")},
+        }
+
+    @staticmethod
+    def _resupply_waiting_result(state: Any, frame: FrameState, module: ModuleRef, batch: Any) -> dict[str, Any]:
+        module.status = "suspended"
+        module.suspension_id = frame.frame_id
+        frame.status = "suspended"
+        frame.active_module_id = module.module_id
+        state.runtime_active_prompt = None
+        state.runtime_active_prompt_batch = batch
+        return {
+            "status": "waiting_input",
+            "reason": "prompt_batch_required",
+            "request_type": batch.request_type,
+            "batch_id": batch.batch_id,
+            "missing_player_ids": [player_id + 1 for player_id in batch.missing_player_ids],
+            "module_type": module.module_type,
+            "module_id": module.module_id,
+            "frame_id": frame.frame_id,
+            "module_cursor": module.cursor,
+        }
+
     def _advance_action_adapter_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> dict[str, Any]:
         action = self._action_from_payload(dict(module.payload.get("action") or {}))
+        module.cursor = "await_action_prompt"
         try:
             result = engine._execute_action(state, action, queue_followups=True)
         except Exception:
             module.status = "suspended"
+            module.suspension_id = frame.frame_id
             frame.status = "suspended"
             raise
         self._complete_module(state, frame, module)
@@ -283,6 +813,8 @@ class ModuleRunner:
             result = self._complete_pending_turn_transition(engine, state)
         except Exception:
             module.status = "suspended"
+            module.cursor = "await_turn_completion"
+            module.suspension_id = frame.frame_id
             frame.status = "suspended"
             state.pending_turn_completion = original_pending or state.pending_turn_completion
             raise
@@ -325,6 +857,23 @@ class ModuleRunner:
 
     def _sync_active_player_turn_after_legacy_work(self, state: Any) -> None:
         if state.pending_actions or state.pending_turn_completion or self._active_sequence_frame(state) is not None:
+            return
+        turn_frame = self._active_turn_frame(state)
+        if turn_frame is not None:
+            suspended = next(
+                (
+                    module
+                    for module in turn_frame.module_queue
+                    if module.status == "suspended"
+                ),
+                None,
+            )
+            if suspended is not None:
+                self._complete_module(state, turn_frame, suspended)
+            if self._next_live_module(turn_frame) is None:
+                self._complete_turn_frame_and_parent(state, turn_frame)
+            else:
+                turn_frame.status = "running"
             return
         frame = self._active_round_frame(state)
         if frame is None:
@@ -402,6 +951,74 @@ class ModuleRunner:
         return ActionEnvelope.from_payload(payload)
 
     @staticmethod
+    def _attach_applicable_modifiers(state: Any, module: ModuleRef) -> None:
+        registry_state = getattr(state, "runtime_modifier_registry", None)
+        if registry_state is None:
+            return
+        registry = ModifierRegistry(registry_state)
+        for modifier in registry.applicable(module.module_type, owner_player_id=module.owner_player_id):
+            if modifier.modifier_id not in module.modifiers:
+                module.modifiers.append(modifier.modifier_id)
+
+    @staticmethod
+    def _copy_last_trick_result_to_resolve_module(
+        state: Any,
+        frame: FrameState,
+        choice_module: ModuleRef,
+        *,
+        deferred: bool,
+    ) -> None:
+        trick_result = getattr(state, "runtime_last_trick_sequence_result", None)
+        if trick_result is not None:
+            try:
+                state.runtime_last_trick_sequence_result = None
+            except AttributeError:
+                pass
+        payload = dict(trick_result or {})
+        payload["deferred_followups"] = deferred
+        payload["turn_context"] = dict(choice_module.payload.get("turn_context") or {})
+        for module in frame.module_queue:
+            if module.module_type == "TrickResolveModule" and module.status == "queued":
+                module.payload.setdefault("trick_result", payload)
+                module.payload.setdefault("turn_context", payload["turn_context"])
+                module.payload["deferred_followups"] = deferred
+                return
+
+    @staticmethod
+    def _trick_followup_requested(module: ModuleRef) -> bool:
+        if bool(module.payload.get("followup_trick_prompt")):
+            return True
+        trick_result = module.payload.get("trick_result")
+        if not isinstance(trick_result, dict):
+            return False
+        resolution = trick_result.get("resolution")
+        if not isinstance(resolution, dict):
+            resolution = {}
+        return bool(
+            trick_result.get("followup_trick_prompt")
+            or trick_result.get("trick_followup")
+            or resolution.get("followup_trick_prompt")
+            or resolution.get("trick_followup")
+        )
+
+    @staticmethod
+    def _insert_followup_trick_choice(frame: FrameState, module: ModuleRef) -> None:
+        module_index = next(
+            (index for index, candidate in enumerate(frame.module_queue) if candidate is module),
+            len(frame.module_queue) - 1,
+        )
+        followup_index = sum(1 for candidate in frame.module_queue if candidate.module_type == "TrickChoiceModule")
+        followup = ModuleRef(
+            module_id=f"{module.module_id}:followup_choice:{followup_index}",
+            module_type="TrickChoiceModule",
+            phase="trickchoice",
+            owner_player_id=module.owner_player_id,
+            payload={"turn_context": dict(module.payload.get("turn_context") or {})},
+            idempotency_key=f"{module.idempotency_key}:followup_choice:{followup_index}",
+        )
+        frame.module_queue.insert(module_index + 1, followup)
+
+    @staticmethod
     def _complete_sequence_frame_if_drained(frame: FrameState) -> None:
         if all(module.status in {"completed", "skipped"} for module in frame.module_queue):
             frame.status = "completed"
@@ -411,6 +1028,13 @@ class ModuleRunner:
     def _active_sequence_frame(state: Any) -> FrameState | None:
         for frame in reversed(state.runtime_frame_stack):
             if frame.frame_type == "sequence" and frame.status in {"running", "suspended"}:
+                return frame
+        return None
+
+    @staticmethod
+    def _active_turn_frame(state: Any) -> FrameState | None:
+        for frame in reversed(state.runtime_frame_stack):
+            if frame.frame_type == "turn" and frame.status in {"running", "suspended"}:
                 return frame
         return None
 
@@ -490,6 +1114,8 @@ class ModuleRunner:
     @staticmethod
     def _complete_module(state: Any, frame: FrameState, module: ModuleRef, *, status: str = "completed") -> None:
         module.status = status  # type: ignore[assignment]
+        module.cursor = "skipped" if status == "skipped" else "completed"
+        module.suspension_id = ""
         frame.active_module_id = None
         if module.module_id not in frame.completed_module_ids:
             frame.completed_module_ids.append(module.module_id)
@@ -501,3 +1127,49 @@ class ModuleRunner:
                 idempotency_key=module.idempotency_key,
             )
         )
+
+    @staticmethod
+    def _turn_frame_for_player_module(state: Any, parent_module: ModuleRef) -> FrameState | None:
+        for frame in reversed(state.runtime_frame_stack):
+            if (
+                frame.frame_type == "turn"
+                and frame.created_by_module_id == parent_module.module_id
+                and frame.status != "completed"
+            ):
+                return frame
+        return None
+
+    @staticmethod
+    def _child_frame_for_module(state: Any, parent_module: ModuleRef) -> FrameState | None:
+        for frame in reversed(state.runtime_frame_stack):
+            if frame.created_by_module_id == parent_module.module_id:
+                return frame
+        return None
+
+    @staticmethod
+    def _turn_context(frame: FrameState) -> dict[str, Any]:
+        for module in frame.module_queue:
+            if module.module_type == "TurnStartModule":
+                return dict(module.payload)
+        return {}
+
+    @staticmethod
+    def _skip_remaining_modules(frame: FrameState) -> None:
+        for module in frame.module_queue:
+            if module.status in {"queued", "running", "suspended"}:
+                module.status = "skipped"
+        frame.active_module_id = None
+
+    def _complete_turn_frame_and_parent(self, state: Any, turn_frame: FrameState) -> None:
+        turn_frame.status = "completed"
+        turn_frame.active_module_id = None
+        parent_module_id = turn_frame.created_by_module_id
+        if not parent_module_id:
+            return
+        round_frame = self._active_round_frame(state)
+        if round_frame is None:
+            return
+        for module in round_frame.module_queue:
+            if module.module_id == parent_module_id and module.status in {"queued", "running", "suspended"}:
+                self._complete_module(state, round_frame, module)
+                return

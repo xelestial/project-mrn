@@ -7,11 +7,13 @@ import pytest
 
 from config import GameConfig
 from engine import GameEngine
+from runtime_modules.runner import ModuleRunner
 from runtime_modules.round_modules import (
     assert_round_end_card_flip_ready,
     build_player_turn_module,
     build_round_frame,
 )
+from runtime_modules.turn_modules import build_turn_frame
 
 
 def test_round_frame_order_weather_draft_scheduler_turns_flip_cleanup() -> None:
@@ -75,6 +77,75 @@ def test_module_runner_session_builds_explicit_round_frame_after_setup() -> None
     assert round_frame.frame_type == "round"
     assert round_frame.module_queue[0].module_type == "PlayerTurnModule"
     assert state.current_round_order
+
+
+def test_module_player_turn_spawns_turn_frame_without_legacy_take_turn(monkeypatch) -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config, HeuristicPolicy(), rng=random.Random(7), enable_logging=False)
+    engine._reset_run_trackers()
+    state = engine.create_initial_state(deal_initial_tricks=False)
+    state.runtime_runner_kind = "module"
+
+    setup_result = engine.run_next_transition(state)
+    assert setup_result["runner_kind"] == "module"
+    assert state.runtime_frame_stack
+
+    def forbidden_take_turn(*_args, **_kwargs) -> None:
+        raise AssertionError("module runner must not call legacy _take_turn")
+
+    monkeypatch.setattr(engine, "_take_turn", forbidden_take_turn)
+
+    result = engine.run_next_transition(state)
+
+    assert result["runner_kind"] == "module"
+    assert result["module_type"] == "PlayerTurnModule"
+    assert any(frame.frame_type == "turn" for frame in state.runtime_frame_stack)
+
+
+def test_suspended_child_sequence_returns_to_next_turn_module() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config, HeuristicPolicy(), rng=random.Random(7), enable_logging=False)
+    engine._reset_run_trackers()
+    state = engine.create_initial_state(deal_initial_tricks=False)
+    state.runtime_runner_kind = "module"
+
+    round_frame = build_round_frame(1, player_order=[0], completed_setup=True)
+    player_turn = next(module for module in round_frame.module_queue if module.module_type == "PlayerTurnModule")
+    player_turn.status = "suspended"
+    player_turn.cursor = "child_turn_running"
+
+    turn_frame = build_turn_frame(1, 0, parent_module_id=player_turn.module_id)
+    for module in turn_frame.module_queue:
+        if module.module_type in {
+            "TurnStartModule",
+            "ScheduledStartActionsModule",
+            "PendingMarkResolutionModule",
+            "CharacterStartModule",
+        }:
+            module.status = "completed"
+            module.cursor = "completed"
+        if module.module_type == "TrickWindowModule":
+            module.status = "suspended"
+            module.cursor = "pending_trick_sequence"
+            module.suspension_id = turn_frame.frame_id
+            turn_frame.active_module_id = module.module_id
+            break
+    turn_frame.status = "suspended"
+    state.runtime_frame_stack = [round_frame, turn_frame]
+
+    ModuleRunner()._sync_active_player_turn_after_legacy_work(state)
+
+    trick = next(module for module in turn_frame.module_queue if module.module_type == "TrickWindowModule")
+    dice = next(module for module in turn_frame.module_queue if module.module_type == "DiceRollModule")
+    character = next(module for module in turn_frame.module_queue if module.module_type == "CharacterStartModule")
+
+    assert trick.status == "completed"
+    assert trick.cursor == "completed"
+    assert dice.status == "queued"
+    assert character.status == "completed"
+    assert turn_frame.status == "running"
+    assert player_turn.status == "suspended"
+    assert player_turn.cursor == "child_turn_running"
 
 
 def test_module_runner_keeps_round_end_as_explicit_module() -> None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 
 MarkerDraftDirection = Literal["clockwise", "counterclockwise"]
@@ -332,6 +332,12 @@ class ActivePromptViewState(TypedDict):
     public_context: dict[str, object]
     behavior: ActivePromptBehaviorViewState
     surface: PromptSurfaceViewState
+    resume_token: NotRequired[str]
+    frame_id: NotRequired[str]
+    module_id: NotRequired[str]
+    module_type: NotRequired[str]
+    module_cursor: NotRequired[str]
+    batch_id: NotRequired[str]
 
 
 class PromptFeedbackViewState(TypedDict):
@@ -461,6 +467,13 @@ class RuntimeProjectionViewState(TypedDict, total=False):
     turn_stage: str
     active_sequence: str
     active_prompt_request_id: str
+    active_frame_id: str
+    active_frame_type: str
+    active_module_id: str
+    active_module_type: str
+    active_module_status: str
+    active_module_cursor: str
+    active_module_idempotency_key: str
     draft_active: bool
     trick_sequence_active: bool
     card_flip_legal: bool

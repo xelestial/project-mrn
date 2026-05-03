@@ -63,6 +63,7 @@ ROUND_ONLY_EVENTS = {
 EVENT_REQUIRED_MODULES = {
     "draft_pick": {"DraftModule"},
     "final_character_choice": {"DraftModule"},
+    "trick_used": {"TrickResolveModule"},
     "marker_flip": {"RoundEndCardFlipModule"},
     "active_flip": {"RoundEndCardFlipModule"},
 }
@@ -131,15 +132,19 @@ def _validate_event_against_active_turn(
         return
     if _latest_active_turn_start(history) is None:
         return
-    if runtime_module and str(runtime_module.get("module_type") or "") == "RoundEndCardFlipModule":
-        raise RuntimeSemanticViolation("RoundEndCardFlipModule cannot be emitted from active turn context")
+    if (
+        runtime_module
+        and str(runtime_module.get("module_type") or "") == "RoundEndCardFlipModule"
+        and str(runtime_module.get("frame_type") or "") == "round"
+    ):
+        return
     raise RuntimeSemanticViolation(f"{event_type} cannot be projected as active turn progress")
 
 
 def _validate_prompt_payload(payload: dict[str, Any]) -> None:
     if str(payload.get("runner_kind") or payload.get("runtime_runner_kind") or "") != "module" and not payload.get("resume_token"):
         return
-    for field in ("resume_token", "frame_id", "module_id", "module_type"):
+    for field in ("resume_token", "frame_id", "module_id", "module_type", "module_cursor"):
         if not str(payload.get(field) or "").strip():
             raise RuntimeSemanticViolation(f"module prompt missing {field}")
     module_type = str(payload.get("module_type") or "")

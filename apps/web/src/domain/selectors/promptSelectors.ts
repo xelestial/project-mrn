@@ -13,6 +13,7 @@ export type PromptContinuationViewModel = {
   frameId: string | null;
   moduleId: string | null;
   moduleType: string | null;
+  moduleCursor: string | null;
   batchId: string | null;
 };
 
@@ -508,6 +509,7 @@ function parsePromptContinuation(raw: Record<string, unknown>): PromptContinuati
     frameId: stringOrEmpty(raw["frame_id"]) || null,
     moduleId: stringOrEmpty(raw["module_id"]) || null,
     moduleType: stringOrEmpty(raw["module_type"]) || null,
+    moduleCursor: stringOrEmpty(raw["module_cursor"]) || null,
     batchId: stringOrEmpty(raw["batch_id"]) || null,
   };
 }

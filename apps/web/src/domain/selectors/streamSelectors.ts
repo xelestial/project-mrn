@@ -53,6 +53,13 @@ export type RuntimeProjectionViewModel = {
   turnStage: string;
   activeSequence: string;
   activePromptRequestId: string;
+  activeFrameId: string;
+  activeFrameType: string;
+  activeModuleId: string;
+  activeModuleType: string;
+  activeModuleStatus: string;
+  activeModuleCursor: string;
+  activeModuleIdempotencyKey: string;
   draftActive: boolean;
   trickSequenceActive: boolean;
   cardFlipLegal: boolean;
@@ -2675,6 +2682,13 @@ export function selectRuntimeProjection(messages: InboundMessage[]): RuntimeProj
       activeSequence: typeof runtime["active_sequence"] === "string" ? runtime["active_sequence"] : "",
       activePromptRequestId:
         typeof runtime["active_prompt_request_id"] === "string" ? runtime["active_prompt_request_id"] : "",
+      activeFrameId: asString(runtime["active_frame_id"]),
+      activeFrameType: asString(runtime["active_frame_type"]),
+      activeModuleId: asString(runtime["active_module_id"]),
+      activeModuleType: asString(runtime["active_module_type"]),
+      activeModuleStatus: asString(runtime["active_module_status"]),
+      activeModuleCursor: asString(runtime["active_module_cursor"]),
+      activeModuleIdempotencyKey: asString(runtime["active_module_idempotency_key"]),
       draftActive: runtime["draft_active"] === true,
       trickSequenceActive: runtime["trick_sequence_active"] === true,
       cardFlipLegal: runtime["card_flip_legal"] === true,
@@ -2707,6 +2721,13 @@ export function selectRuntimeProjection(messages: InboundMessage[]): RuntimeProj
       turnStage: moduleType.startsWith("Trick") ? "trick" : "",
       activeSequence,
       activePromptRequestId: "",
+      activeFrameId: asString(runtimeModule["frame_id"]),
+      activeFrameType: asString(runtimeModule["frame_type"]),
+      activeModuleId: asString(runtimeModule["module_id"]),
+      activeModuleType: moduleType,
+      activeModuleStatus: asString(runtimeModule["module_status"]),
+      activeModuleCursor: asString(runtimeModule["module_cursor"]),
+      activeModuleIdempotencyKey: asString(runtimeModule["idempotency_key"]),
       draftActive: moduleType === "DraftModule",
       trickSequenceActive: activeSequence === "trick" || moduleType.startsWith("Trick"),
       cardFlipLegal: moduleType === "RoundEndCardFlipModule",

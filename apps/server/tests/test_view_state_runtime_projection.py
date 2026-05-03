@@ -197,3 +197,59 @@ class RuntimeProjectionViewStateTests(unittest.TestCase):
         self.assertEqual(view_state["runner_kind"], "module")
         self.assertEqual(view_state["turn_stage"], "dice")
         self.assertFalse(view_state["draft_active"])
+        self.assertEqual(view_state["active_frame_id"], "turn:1:p2")
+        self.assertEqual(view_state["active_module_id"], "mod:turn:1:p2:dice")
+        self.assertEqual(view_state["active_module_type"], "DiceRollModule")
+        self.assertEqual(view_state["active_module_cursor"], "")
+
+    def test_projection_carries_checkpoint_cursor_and_full_frame_path(self) -> None:
+        view_state = build_runtime_view_state([
+            {
+                "type": "event",
+                "payload": {
+                    "event_type": "engine_transition",
+                    "engine_checkpoint": {
+                        "runtime_runner_kind": "module",
+                        "runtime_frame_stack": [
+                            {
+                                "frame_id": "round:2",
+                                "frame_type": "round",
+                                "status": "running",
+                                "active_module_id": "mod:round:2:turn:p1",
+                                "module_queue": [
+                                    {
+                                        "module_id": "mod:round:2:turn:p1",
+                                        "module_type": "PlayerTurnModule",
+                                        "status": "running",
+                                    }
+                                ],
+                            },
+                            {
+                                "frame_id": "turn:2:p1",
+                                "frame_type": "turn",
+                                "status": "running",
+                                "active_module_id": "mod:turn:2:p1:move",
+                                "module_queue": [
+                                    {
+                                        "module_id": "mod:turn:2:p1:move",
+                                        "module_type": "MapMoveModule",
+                                        "status": "suspended",
+                                        "cursor": "movement:await_choice",
+                                        "idempotency_key": "idem_move_1",
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                },
+            }
+        ])
+
+        self.assertEqual(view_state["latest_module_path"], ["round:2", "turn:2:p1", "mod:turn:2:p1:move"])
+        self.assertEqual(view_state["active_frame_id"], "turn:2:p1")
+        self.assertEqual(view_state["active_frame_type"], "turn")
+        self.assertEqual(view_state["active_module_id"], "mod:turn:2:p1:move")
+        self.assertEqual(view_state["active_module_type"], "MapMoveModule")
+        self.assertEqual(view_state["active_module_status"], "suspended")
+        self.assertEqual(view_state["active_module_cursor"], "movement:await_choice")
+        self.assertEqual(view_state["active_module_idempotency_key"], "idem_move_1")

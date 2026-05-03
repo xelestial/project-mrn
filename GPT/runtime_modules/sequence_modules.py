@@ -108,7 +108,7 @@ def build_roll_and_arrive_sequence_frame(
     parent_module_id: str,
     session_id: str = "",
 ) -> FrameState:
-    modules = ["TrickDeferredFollowupsModule"]
+    modules = ["FortuneResolveModule", "MapMoveModule", "ArrivalTileModule"]
     return FrameState(
         frame_id=sequence_frame_id("roll_and_arrive", round_index, player_id, ordinal),
         frame_type="sequence",

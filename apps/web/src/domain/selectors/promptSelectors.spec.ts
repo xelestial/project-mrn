@@ -39,6 +39,7 @@ describe("promptSelectors", () => {
           frame_id: "turn:1:p1",
           module_id: "mod:move",
           module_type: "MapMoveModule",
+          module_cursor: "movement:await_choice",
           legal_choices: [{ choice_id: "roll", title: "roll" }],
         },
       },
@@ -49,6 +50,7 @@ describe("promptSelectors", () => {
       frameId: "turn:1:p1",
       moduleId: "mod:move",
       moduleType: "MapMoveModule",
+      moduleCursor: "movement:await_choice",
       batchId: null,
     });
   });
@@ -751,6 +753,7 @@ describe("promptSelectors", () => {
         frameId: null,
         moduleId: null,
         moduleType: null,
+        moduleCursor: null,
         batchId: null,
       },
       behavior: {
@@ -834,6 +837,7 @@ describe("promptSelectors", () => {
           frameId: null,
           moduleId: null,
           moduleType: null,
+          moduleCursor: null,
           batchId: null,
         },
         behavior: {
@@ -891,6 +895,7 @@ describe("promptSelectors", () => {
           frameId: null,
           moduleId: null,
           moduleType: null,
+          moduleCursor: null,
           batchId: null,
         },
         behavior: {

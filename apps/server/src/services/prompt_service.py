@@ -123,10 +123,12 @@ class PromptService:
                 command_payload = {
                     "request_id": request_id,
                     "player_id": player_id,
+                    "request_type": str(pending.payload.get("request_type") or ""),
                     "choice_id": choice_id,
                     "decision": decision_payload,
                     "submitted_at_ms": now,
                 }
+                command_payload.update(_module_command_continuation_fields(pending.payload, decision_payload))
                 resolved_payload = {"resolved_at_ms": now, "reason": "accepted"}
                 atomic_accept = getattr(self._prompt_store, "accept_decision_with_command", None)
                 if callable(atomic_accept) and self._command_store is not None:
@@ -205,11 +207,13 @@ class PromptService:
         command_payload = {
             "request_id": request_id,
             "player_id": int(pending.player_id),
+            "request_type": str(pending.payload.get("request_type") or ""),
             "choice_id": fallback_choice_id,
             "decision": decision_payload,
             "submitted_at_ms": now,
             "source": "timeout_fallback",
         }
+        command_payload.update(_module_command_continuation_fields(pending.payload, decision_payload))
         with self._lock:
             self._set_decision(request_id, decision_payload)
             if self._command_store is not None:
@@ -432,7 +436,7 @@ def _is_module_prompt(prompt: dict) -> bool:
 
 
 def _require_module_continuation(prompt: dict) -> None:
-    required = ("resume_token", "frame_id", "module_id", "module_type")
+    required = ("resume_token", "frame_id", "module_id", "module_type", "module_cursor")
     missing = [field for field in required if not str(prompt.get(field) or "").strip()]
     if missing:
         raise ValueError(f"missing_module_continuation:{','.join(missing)}")
@@ -449,9 +453,21 @@ def _module_decision_mismatch(prompt: dict, decision: dict) -> str:
         ("frame_id", "module_mismatch"),
         ("module_id", "module_mismatch"),
         ("module_type", "module_mismatch"),
+        ("module_cursor", "module_cursor_mismatch"),
     ):
         expected = str(prompt.get(field) or "").strip()
         actual = str(decision.get(field) or "").strip()
         if expected and actual != expected:
             return reason
     return ""
+
+
+def _module_command_continuation_fields(prompt: dict, decision: dict) -> dict:
+    if not _is_module_prompt(prompt):
+        return {}
+    fields: dict[str, str] = {}
+    for field in ("resume_token", "frame_id", "module_id", "module_type", "module_cursor", "batch_id"):
+        value = str(decision.get(field) or prompt.get(field) or "").strip()
+        if value:
+            fields[field] = value
+    return fields

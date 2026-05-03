@@ -50,6 +50,13 @@ def build_runtime_view_state(messages: list[dict]) -> RuntimeProjectionViewState
         "turn_stage": turn_stage,
         "active_sequence": active_sequence,
         "active_prompt_request_id": prompt_request_id,
+        "active_frame_id": str(module.get("frame_id") or "") if module else "",
+        "active_frame_type": str(module.get("frame_type") or "") if module else "",
+        "active_module_id": str(module.get("module_id") or "") if module else "",
+        "active_module_type": module_type,
+        "active_module_status": str(module.get("module_status") or "") if module else "",
+        "active_module_cursor": str(module.get("module_cursor") or "") if module else "",
+        "active_module_idempotency_key": str(module.get("idempotency_key") or "") if module else "",
         "draft_active": module_type == "DraftModule" or _is_draft_prompt(messages, prompt_request_id),
         "trick_sequence_active": active_sequence == "trick" or module_type.startswith("Trick"),
         "card_flip_legal": module_type == "RoundEndCardFlipModule",
@@ -89,6 +96,8 @@ def _runtime_module_from_payload_fields(payload: dict[str, Any]) -> dict[str, An
         "frame_type": frame_type,
         "module_id": module_id,
         "module_type": module_type,
+        "module_status": str(payload.get("module_status") or ""),
+        "module_cursor": str(payload.get("module_cursor") or ""),
         "module_path": module_path,
         "idempotency_key": str(payload.get("idempotency_key") or ""),
     }
@@ -114,7 +123,8 @@ def _runtime_module_from_checkpoint(checkpoint: Any) -> dict[str, Any] | None:
     frame_stack = checkpoint.get("runtime_frame_stack") or runtime_state.get("frame_stack")
     if not isinstance(frame_stack, list):
         return None
-    for frame in reversed(frame_stack):
+    for frame_index in range(len(frame_stack) - 1, -1, -1):
+        frame = frame_stack[frame_index]
         if not isinstance(frame, dict) or frame.get("status") == "completed":
             continue
         module = _active_module_from_frame(frame)
@@ -122,6 +132,15 @@ def _runtime_module_from_checkpoint(checkpoint: Any) -> dict[str, Any] | None:
             continue
         frame_id = str(frame.get("frame_id") or "")
         frame_type = str(frame.get("frame_type") or "")
+        module_id = str(module.get("module_id") or "")
+        module_path = _string_list(module.get("module_path"))
+        if not module_path:
+            frame_path = [
+                str(candidate.get("frame_id") or "")
+                for candidate in frame_stack[: frame_index + 1]
+                if isinstance(candidate, dict) and str(candidate.get("frame_id") or "")
+            ]
+            module_path = [*frame_path, module_id] if module_id else frame_path
         return {
             "runner_kind": str(
                 checkpoint.get("runtime_runner_kind")
@@ -130,10 +149,11 @@ def _runtime_module_from_checkpoint(checkpoint: Any) -> dict[str, Any] | None:
             ),
             "frame_id": frame_id,
             "frame_type": frame_type,
-            "module_id": str(module.get("module_id") or ""),
+            "module_id": module_id,
             "module_type": str(module.get("module_type") or ""),
             "module_status": str(module.get("status") or "queued"),
-            "module_path": [item for item in [frame_id, str(module.get("module_id") or "")] if item],
+            "module_cursor": str(module.get("cursor") or module.get("module_cursor") or ""),
+            "module_path": module_path,
             "idempotency_key": str(module.get("idempotency_key") or ""),
             "round_index": checkpoint.get("rounds_completed") or runtime_state.get("round_index") or 0,
             "turn_index": checkpoint.get("turn_index") or runtime_state.get("turn_index") or 0,

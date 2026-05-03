@@ -143,6 +143,74 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             self.fake_redis.pipeline_executions,
         )
 
+    def test_game_state_store_commits_module_prompt_resume_snapshot_atomically(self) -> None:
+        game_state = RedisGameStateStore(self.connection)
+        command_store = RedisCommandStore(self.connection)
+        active_prompt = {
+            "request_id": "s1:r1:t2:p1:trick:4",
+            "prompt_instance_id": 4,
+            "resume_token": "resume_trick",
+            "frame_id": "seq:trick:1:p0",
+            "module_id": "mod:trick_sequence:1:p0:choice",
+            "module_type": "TrickChoiceModule",
+            "module_cursor": "await_trick_prompt",
+            "player_id": 0,
+            "request_type": "trick",
+            "legal_choices": [{"choice_id": "defer"}, {"choice_id": "use_trick"}],
+        }
+
+        game_state.commit_transition(
+            "s-module-resume",
+            current_state={
+                "schema_version": 3,
+                "runtime_runner_kind": "module",
+                "runtime_active_prompt": active_prompt,
+                "runtime_frame_stack": [
+                    {
+                        "frame_id": "seq:trick:1:p0",
+                        "frame_type": "sequence",
+                        "active_module_id": "mod:trick_sequence:1:p0:choice",
+                    }
+                ],
+            },
+            checkpoint={
+                "schema_version": 3,
+                "session_id": "s-module-resume",
+                "latest_event_type": "prompt_required",
+                "waiting_prompt_request_id": "s1:r1:t2:p1:trick:4",
+                "runtime_active_prompt": active_prompt,
+                "runner_kind": "module",
+                "frame_id": "seq:trick:1:p0",
+                "module_id": "mod:trick_sequence:1:p0:choice",
+                "module_type": "TrickChoiceModule",
+                "module_cursor": "await_trick_prompt",
+            },
+            view_state={"runtime": {"active_module_cursor": "await_trick_prompt"}},
+            command_consumer_name="runtime_wakeup",
+            command_seq=11,
+            runtime_event_payload={
+                "event_type": "prompt_required",
+                "request_id": "s1:r1:t2:p1:trick:4",
+                "module_id": "mod:trick_sequence:1:p0:choice",
+            },
+            runtime_event_server_time_ms=2345,
+        )
+
+        saved_state = game_state.load_current_state("s-module-resume")
+        saved_checkpoint = game_state.load_checkpoint("s-module-resume")
+        self.assertEqual(saved_state["runtime_active_prompt"]["resume_token"], "resume_trick")
+        self.assertEqual(saved_state["runtime_active_prompt"]["module_cursor"], "await_trick_prompt")
+        self.assertEqual(saved_checkpoint["runtime_active_prompt"]["resume_token"], "resume_trick")
+        self.assertEqual(saved_checkpoint["module_cursor"], "await_trick_prompt")
+        self.assertEqual(saved_checkpoint["latest_seq"], 1)
+        self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", "s-module-resume"), 11)
+        runtime_events = RedisStreamStore(self.connection).snapshot("s-module-resume")
+        self.assertEqual(runtime_events[-1]["payload"]["request_id"], "s1:r1:t2:p1:trick:4")
+        self.assertIn(
+            ["set", "set", "set", "set", "hset", "hset", "xadd"],
+            self.fake_redis.pipeline_executions,
+        )
+
     def test_game_state_store_saves_view_state_projection_variants(self) -> None:
         game_state = RedisGameStateStore(self.connection)
 

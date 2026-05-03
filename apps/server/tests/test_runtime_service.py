@@ -37,6 +37,8 @@ from apps.server.src.infra.game_debug_log import debug_game_log_run_dir
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
 from apps.server.src.services.prompt_service import PromptService
+from runtime_modules.prompts import PromptApi
+from runtime_modules.simultaneous import build_resupply_frame
 
 
 pytestmark = [
@@ -243,6 +245,65 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertNotIn("current_state", public["recovery_checkpoint"])
         self.assertTrue(public["recovery_checkpoint"]["current_state_available"])
         self.assertEqual(public["recovery_checkpoint"]["view_state"], {"players": {"items": []}})
+
+    def test_active_simultaneous_batch_publishes_module_prompts_for_missing_players(self) -> None:
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            frame = build_resupply_frame(
+                1,
+                3,
+                parent_frame_id="turn:1:p0",
+                parent_module_id="mod:turn:1:p0:arrival",
+                participants=[0, 1],
+            )
+            module = frame.module_queue[0]
+            module.cursor = "await_resupply_batch:1"
+            batch = PromptApi().create_batch(
+                batch_id="batch:simul:resupply:1",
+                frame=frame,
+                module=module,
+                participant_player_ids=[0, 1],
+                request_type="burden_exchange",
+                legal_choices_by_player_id={
+                    0: [{"choice_id": "yes"}, {"choice_id": "no"}],
+                    1: [{"choice_id": "yes"}, {"choice_id": "no"}],
+                },
+                public_context_by_player_id={
+                    0: {"round_index": 1, "turn_index": 3, "card_name": "무거운 짐"},
+                    1: {"round_index": 1, "turn_index": 3, "card_name": "가벼운 짐"},
+                },
+            )
+            state = type("State", (), {"runtime_active_prompt_batch": batch})()
+
+            self.runtime_service._publish_active_module_prompt_batch_sync(loop, "sess_batch_prompt", state)
+
+            pending_ids = set(self.prompt_service._pending.keys())  # type: ignore[attr-defined]
+            self.assertEqual(pending_ids, {batch.prompts_by_player_id[0].request_id, batch.prompts_by_player_id[1].request_id})
+            first_pending = self.prompt_service._pending[batch.prompts_by_player_id[0].request_id]  # type: ignore[attr-defined]
+            self.assertEqual(first_pending.payload["batch_id"], "batch:simul:resupply:1")
+            self.assertEqual(first_pending.payload["module_type"], "ResupplyModule")
+            self.assertEqual(first_pending.payload["module_cursor"], "await_resupply_batch:1")
+
+            published = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot("sess_batch_prompt"),
+                loop,
+            ).result(timeout=2.0)
+            prompt_messages = [msg for msg in published if msg.type == "prompt"]
+            decision_requested = [
+                msg
+                for msg in published
+                if msg.type == "event" and msg.payload.get("event_type") == "decision_requested"
+            ]
+            self.assertEqual(len(prompt_messages), 2)
+            self.assertEqual(len(decision_requested), 2)
+            self.assertEqual(prompt_messages[0].payload["runtime_module"]["frame_type"], "simultaneous")
+            self.assertEqual(prompt_messages[0].payload["batch_id"], "batch:simul:resupply:1")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
 
     def test_redis_backed_runtime_status_does_not_fall_back_to_stale_process_cache(self) -> None:
         store = _RuntimeStateStoreStub()
@@ -3472,7 +3533,26 @@ class RuntimeServiceTests(unittest.TestCase):
             loop.close()
 
     def test_turn_start_mark_prompt_replay_seed_matches_character_rule_cases(self) -> None:
-        def make_state(character: str, active_by_card: dict[int, str], request_type: str, instance_id: int):
+        def make_player(player_id: int, character: str, *, alive: bool = True):
+            return type(
+                "Player",
+                (),
+                {
+                    "player_id": player_id,
+                    "current_character": character,
+                    "shards": 3,
+                    "alive": alive,
+                },
+            )()
+
+        def make_state(
+            character: str,
+            active_by_card: dict[int, str],
+            request_type: str,
+            instance_id: int,
+            *,
+            extra_players=None,
+        ):
             player = type(
                 "Player",
                 (),
@@ -3480,8 +3560,10 @@ class RuntimeServiceTests(unittest.TestCase):
                     "player_id": 0,
                     "current_character": character,
                     "shards": 3,
+                    "alive": True,
                 },
             )()
+            players = [player, *(extra_players or [])]
             return type(
                 "CheckpointState",
                 (),
@@ -3489,7 +3571,7 @@ class RuntimeServiceTests(unittest.TestCase):
                     "prompt_sequence": instance_id,
                     "current_round_order": [0],
                     "turn_index": 0,
-                    "players": [player],
+                    "players": players,
                     "active_by_card": active_by_card,
                     "pending_prompt_request_id": (
                         f"sess_mark_rule_seed:r1:t1:p1:{request_type}:{instance_id}"
@@ -3521,24 +3603,52 @@ class RuntimeServiceTests(unittest.TestCase):
                     0,
                 )
 
-        suppressed_by_eosa_cases = [
+        draft_face_eosa_but_not_live_player_cases = [
             ("자객", {1: "어사", 2: "자객"}),
             ("산적", {1: "어사", 2: "산적"}),
         ]
-        for character, active_by_card in suppressed_by_eosa_cases:
-            with self.subTest(character=character, eosa=True):
+        for character, active_by_card in draft_face_eosa_but_not_live_player_cases:
+            with self.subTest(character=character, draft_face_eosa_only=True):
                 self.assertEqual(
                     self.runtime_service._prompt_sequence_seed_for_transition(
-                        make_state(character, active_by_card, "trick_to_use", 2)
+                        make_state(character, active_by_card, "trick_to_use", 5)
                     ),
-                    1,
+                    3,
                 )
                 self.assertEqual(
                     self.runtime_service._prompt_sequence_seed_for_transition(
-                        make_state(character, active_by_card, "movement", 3)
+                        make_state(character, active_by_card, "movement", 6)
                     ),
-                    1,
+                    3,
                 )
+
+        live_eosa = make_player(1, "어사")
+        suppressed_by_live_eosa_cases = [
+            ("자객", {1: "어사", 2: "자객"}),
+            ("산적", {1: "어사", 2: "산적"}),
+        ]
+        for character, active_by_card in suppressed_by_live_eosa_cases:
+            with self.subTest(character=character, live_eosa=True):
+                self.assertEqual(
+                    self.runtime_service._prompt_sequence_seed_for_transition(
+                        make_state(character, active_by_card, "trick_to_use", 5, extra_players=[live_eosa])
+                    ),
+                    4,
+                )
+                self.assertEqual(
+                    self.runtime_service._prompt_sequence_seed_for_transition(
+                        make_state(character, active_by_card, "movement", 6, extra_players=[live_eosa])
+                    ),
+                    4,
+                )
+
+        dead_eosa = make_player(1, "어사", alive=False)
+        self.assertEqual(
+            self.runtime_service._prompt_sequence_seed_for_transition(
+                make_state("산적", {1: "어사", 2: "산적"}, "trick_to_use", 5, extra_players=[dead_eosa])
+            ),
+            3,
+        )
 
     def test_turn_start_mark_replay_rewinds_before_pending_trick_and_movement_prompts(self) -> None:
         from apps.server.src.services.decision_gateway import PromptRequired
@@ -3990,7 +4100,18 @@ class RuntimeServiceTests(unittest.TestCase):
             legal_choices = list(pending_prompt.payload["legal_choices"])
             legal_choice_ids = [str(choice["choice_id"]) for choice in legal_choices]
             self.assertIn("6", legal_choice_ids)
-            selected_choice_id = "6"
+            applause_choice = next(
+                (
+                    choice
+                    for choice in legal_choices
+                    if str(choice["choice_id"]) == "6"
+                    and str(choice.get("title") or choice.get("label")) == "박수"
+                ),
+                None,
+            )
+            self.assertIsNotNone(applause_choice)
+            selected_choice_id = str(applause_choice["choice_id"])
+            selected_choice_title = str(applause_choice.get("title") or applause_choice.get("label"))
             self.prompt_service.submit_decision(
                 {
                     "request_id": pending_prompt.request_id,
@@ -4019,7 +4140,12 @@ class RuntimeServiceTests(unittest.TestCase):
                 final_prompt = next(iter(self.prompt_service._pending.values()))  # type: ignore[attr-defined]
             self.assertEqual(len(final_prompt.payload["legal_choices"]), 2)
             final_choice_ids = {str(choice["choice_id"]) for choice in final_prompt.payload["legal_choices"]}
+            final_choice_titles = {
+                str(choice.get("title") or choice.get("label"))
+                for choice in final_prompt.payload["legal_choices"]
+            }
             self.assertIn(selected_choice_id, final_choice_ids)
+            self.assertIn(selected_choice_title, final_choice_titles)
             events = asyncio.run_coroutine_threadsafe(
                 self.stream_service.snapshot(session.session_id),
                 loop,
@@ -4106,6 +4232,335 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertEqual(len(round_starts), 1)
             self.assertEqual(len(weather_reveals), 1)
             self.assertEqual(len(p1_draft_phase_1), 1)
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_module_runner_transition_does_not_seed_policy_from_prompt_replay(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={
+                "seed": 42,
+                "runtime": {
+                    "ai_decision_delay_ms": 0,
+                    "runner_kind": "module",
+                },
+            },
+        )
+        session.resolved_parameters.setdefault("runtime", {})["runner_kind"] = "module"
+        session.resolved_parameters.setdefault("runtime", {})["ai_decision_delay_ms"] = 0
+        self.session_service.start_session(session.session_id, session.host_token)
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            with patch.object(
+                self.runtime_service,
+                "_prompt_sequence_seed_for_transition",
+                side_effect=AssertionError("module runner must resume from checkpoint modules, not prompt replay seeds"),
+            ):
+                result = self.runtime_service._run_engine_transition_once_sync(
+                    loop,
+                    session.session_id,
+                    42,
+                    None,
+                    False,
+                    None,
+                    None,
+                )
+
+            self.assertEqual(result["runner_kind"], "module")
+            self.assertEqual(result["module_type"], "TurnSchedulerModule")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_runtime_service_module_transition_does_not_embed_card_rule_suppression(self) -> None:
+        source = Path("apps/server/src/services/runtime_service.py").read_text(encoding="utf-8")
+        transition_start = source.index("    def _run_engine_transition_once_sync")
+        transition_end = source.index("    def _latest_stream_seq_sync", transition_start)
+        transition_source = source[transition_start:transition_end]
+
+        self.assertNotIn("_has_live_eosa_player", transition_source)
+        self.assertNotIn("_TURN_START_MARK_CHARACTERS", transition_source)
+        self.assertNotIn("_MUROE_MARK_CHARACTERS", transition_source)
+
+    def test_stale_module_continuation_rejected_without_engine_advance(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        import engine
+        from runtime_modules.contracts import PromptContinuation
+        from state import GameState
+
+        class _CommandStoreStub:
+            def __init__(self) -> None:
+                self.commands: list[dict] = []
+                self.offsets: list[tuple[str, str, int]] = []
+
+            def list_commands(self, session_id: str) -> list[dict]:
+                return [copy.deepcopy(command) for command in self.commands if command["session_id"] == session_id]
+
+            def save_consumer_offset(self, consumer_name: str, session_id: str, seq: int) -> None:
+                self.offsets.append((consumer_name, session_id, int(seq)))
+
+        store = _MutableGameStateStoreStub()
+        command_store = _CommandStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            game_state_store=store,
+            command_store=command_store,
+        )
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42, "runtime": {"runner_kind": "module", "ai_decision_delay_ms": 0}},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.start_session(session.session_id, session.host_token)
+        config = runtime._config_factory.create(session.resolved_parameters)  # type: ignore[attr-defined]
+        state = GameState.create(config)
+        state.runtime_runner_kind = "module"
+        state.runtime_checkpoint_schema_version = 3
+        state.runtime_active_prompt = PromptContinuation(
+            request_id="req_1",
+            prompt_instance_id=1,
+            resume_token="token_1",
+            frame_id="turn:1:p0",
+            module_id="mod:turn:1:p0:movement",
+            module_type="MapMoveModule",
+            module_cursor="move:await_choice",
+            player_id=0,
+            request_type="movement",
+            legal_choices=[{"choice_id": "roll"}],
+        )
+        store.current_state = state.to_checkpoint_payload()
+        store.checkpoint = {
+            "schema_version": 3,
+            "session_id": session.session_id,
+            "runner_kind": "module",
+            "has_snapshot": True,
+        }
+        command_store.commands.append(
+            {
+                "seq": 1,
+                "type": "decision_submitted",
+                "session_id": session.session_id,
+                "payload": {
+                    "request_id": "req_1",
+                    "player_id": 1,
+                    "request_type": "movement",
+                    "choice_id": "roll",
+                    "resume_token": "token_1",
+                    "frame_id": "turn:1:p0",
+                    "module_id": "mod:turn:1:p0:movement",
+                    "module_type": "MapMoveModule",
+                    "module_cursor": "move:old",
+                    "decision": {},
+                },
+            }
+        )
+
+        with patch.object(
+            engine.GameEngine,
+            "run_next_transition",
+            side_effect=AssertionError("stale module command must not advance engine"),
+        ):
+            result = runtime._run_engine_transition_once_sync(
+                None,
+                session.session_id,
+                42,
+                None,
+                True,
+                "runtime-worker",
+                1,
+            )
+
+        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(result["reason"], "module cursor mismatch")
+        self.assertEqual(command_store.offsets, [("runtime-worker", session.session_id, 1)])
+        self.assertEqual(store.commits, [])
+
+    def test_valid_module_continuation_passed_to_engine_transition(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        import engine
+        from runtime_modules.contracts import PromptContinuation
+        from state import GameState
+
+        class _CommandStoreStub:
+            def __init__(self) -> None:
+                self.commands: list[dict] = []
+                self.offsets: list[tuple[str, str, int]] = []
+
+            def list_commands(self, session_id: str) -> list[dict]:
+                return [copy.deepcopy(command) for command in self.commands if command["session_id"] == session_id]
+
+            def save_consumer_offset(self, consumer_name: str, session_id: str, seq: int) -> None:
+                self.offsets.append((consumer_name, session_id, int(seq)))
+
+        store = _MutableGameStateStoreStub()
+        command_store = _CommandStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            game_state_store=store,
+            command_store=command_store,
+        )
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42, "runtime": {"runner_kind": "module", "ai_decision_delay_ms": 0}},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.start_session(session.session_id, session.host_token)
+        config = runtime._config_factory.create(session.resolved_parameters)  # type: ignore[attr-defined]
+        state = GameState.create(config)
+        state.runtime_runner_kind = "module"
+        state.runtime_checkpoint_schema_version = 3
+        state.runtime_active_prompt = PromptContinuation(
+            request_id="req_1",
+            prompt_instance_id=1,
+            resume_token="token_1",
+            frame_id="turn:1:p0",
+            module_id="mod:turn:1:p0:movement",
+            module_type="MapMoveModule",
+            module_cursor="move:await_choice",
+            player_id=0,
+            request_type="movement",
+            legal_choices=[{"choice_id": "roll"}],
+        )
+        store.current_state = state.to_checkpoint_payload()
+        store.checkpoint = {
+            "schema_version": 3,
+            "session_id": session.session_id,
+            "runner_kind": "module",
+            "has_snapshot": True,
+        }
+        command_store.commands.append(
+            {
+                "seq": 1,
+                "type": "decision_submitted",
+                "session_id": session.session_id,
+                "payload": {
+                    "request_id": "req_1",
+                    "player_id": 1,
+                    "request_type": "movement",
+                    "choice_id": "roll",
+                    "resume_token": "token_1",
+                    "frame_id": "turn:1:p0",
+                    "module_id": "mod:turn:1:p0:movement",
+                    "module_type": "MapMoveModule",
+                    "module_cursor": "move:await_choice",
+                    "decision": {},
+                },
+            }
+        )
+        seen: list[object] = []
+
+        def _fake_run_next_transition(self, state, decision_resume=None):  # noqa: ANN001
+            del self, state
+            seen.append(decision_resume)
+            return {"status": "committed", "runner_kind": "module", "module_type": "MapMoveModule"}
+
+        with patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition):
+            result = runtime._run_engine_transition_once_sync(
+                None,
+                session.session_id,
+                42,
+                None,
+                True,
+                "runtime-worker",
+                1,
+            )
+
+        self.assertEqual(result["status"], "committed")
+        self.assertEqual(command_store.offsets, [])
+        self.assertEqual(len(seen), 1)
+        self.assertIsNotNone(seen[0])
+        self.assertEqual(getattr(seen[0], "request_id"), "req_1")
+        self.assertEqual(getattr(seen[0], "request_type"), "movement")
+        self.assertEqual(getattr(seen[0], "module_cursor"), "move:await_choice")
+
+    def test_bridge_consumes_valid_decision_resume_without_creating_prompt(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        from engine import DecisionRequest
+        from apps.server.src.services.runtime_service import RuntimeDecisionResume, _ServerDecisionPolicyBridge
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerDecisionPolicyBridge(
+                session_id="sess_resume_bridge_test",
+                session_seats=[],
+                human_seats=[0],
+                ai_fallback=object(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+                blocking_human_prompts=False,
+            )
+            bridge.set_decision_resume(
+                RuntimeDecisionResume(
+                    request_id="req_purchase_1",
+                    player_id=1,
+                    request_type="purchase_tile",
+                    choice_id="yes",
+                    choice_payload={},
+                    resume_token="token_1",
+                    frame_id="turn:1:p0",
+                    module_id="mod:turn:1:p0:purchase",
+                    module_type="PurchaseTileModule",
+                    module_cursor="purchase:await_choice",
+                )
+            )
+            state = type(
+                "State",
+                (),
+                {"rounds_completed": 0, "turn_index": 0, "block_ids": [0, 0], "board": [], "tile_owner": []},
+            )()
+            player = type("Player", (), {"player_id": 0, "cash": 10, "position": 0, "shards": 0})()
+            request = DecisionRequest(
+                decision_name="choose_purchase_tile",
+                request_type="purchase_tile",
+                state=state,
+                player=player,
+                player_id=0,
+                round_index=1,
+                turn_index=1,
+                args=(9, "T2", 4),
+                kwargs={},
+                fallback_policy="required",
+            )
+
+            with patch.object(
+                bridge._gateway,
+                "resolve_human_prompt",
+                side_effect=AssertionError("verified module continuation must not create a new prompt"),
+            ):
+                result = bridge.request(request)
+
+            self.assertIs(result, True)
+            self.assertIsNone(bridge._decision_resume)
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)

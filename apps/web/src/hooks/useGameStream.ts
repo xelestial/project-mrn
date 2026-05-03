@@ -303,6 +303,7 @@ export function useGameStream({
       ...(continuation?.frameId ? { frame_id: continuation.frameId } : {}),
       ...(continuation?.moduleId ? { module_id: continuation.moduleId } : {}),
       ...(continuation?.moduleType ? { module_type: continuation.moduleType } : {}),
+      ...(continuation?.moduleCursor ? { module_cursor: continuation.moduleCursor } : {}),
       ...(continuation?.batchId ? { batch_id: continuation.batchId } : {}),
       client_seq: lastSeqRef.current,
     });

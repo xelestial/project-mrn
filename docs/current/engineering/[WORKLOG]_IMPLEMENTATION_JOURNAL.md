@@ -62,6 +62,41 @@ Updated: 2026-05-03
   - `.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_draft_context_exposes_phase_and_offered_candidates apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_final_character_context_keeps_trick_hand_for_bottom_tray apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_local_human_prompt_merges_gateway_public_context_for_draft GPT/test_human_policy_prompt_payloads.py::test_draft_prompt_contains_character_ability_payload -q`
   - `npm --prefix apps/web run e2e -- --project=chromium --grep "draft prompt keeps active strip hydrated before any flip events arrive"`
 
+## 2026-05-03 Trick Sequence Frame / Redis Continuation Fix
+
+- What changed:
+  - moved the active turn's trick window into an explicit child `TrickSequenceFrame`; `TrickWindowModule` now opens/suspends that child sequence instead of directly executing the legacy trick prompt path
+  - made `TrickChoiceModule` the prompt owner for trick selection and set module cursors before any prompt-capable legacy bridge call
+  - attached active module continuation metadata from `_LocalHumanDecisionClient` when a prompt is created inside the module runner, including `resume_token`, `frame_id`, `module_id`, `module_type`, and `module_cursor`
+  - added Redis persistence coverage proving a transition commits current state, checkpoint, latest sequence, command offset, runtime stream event, and the module prompt continuation in one pipeline batch
+- Why:
+  - live play could produce `산적 지목 -> 잔꾀 -> 다시 지목 -> 잔꾀` because a trick prompt was resumed from the parent turn context instead of a nested trick sequence cursor
+  - a consumed/accepted trick decision must return to the same child sequence, then back to the parent `TurnFrame`; it must not re-enter `PendingMarkResolutionModule`, `CharacterStartModule`, or `TargetJudicatorModule`
+  - Redis should preserve the exact suspended frame/module/cursor snapshot; backend recovery may validate and deliver that continuation, but it must not reconstruct gameplay flow with card-name branches
+- Validation:
+  - `PYTHONPATH=.:GPT uv run pytest -q GPT/test_runtime_sequence_modules.py::test_trick_window_spawns_child_sequence_instead_of_replaying_turn_modules`
+  - `PYTHONPATH=.:GPT uv run pytest -q apps/server/tests/test_prompt_module_continuation.py::test_local_human_prompt_created_inside_module_attaches_active_continuation`
+  - `PYTHONPATH=.:GPT uv run pytest -q apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_game_state_store_commits_module_prompt_resume_snapshot_atomically`
+
+## 2026-05-03 Nested Trick/Fortune Module Boundary Hardening
+
+- What changed:
+  - changed `TrickChoiceModule` so completing a trick choice no longer skips the rest of the trick sequence
+  - added a `TrickResolveModule` handoff payload for the selected trick result and deferred follow-up flag
+  - added same-sequence follow-up scheduling so a trick effect that asks for another trick choice inserts a new `TrickChoiceModule` inside the active `TrickSequenceFrame` instead of re-entering turn-start modules
+  - replaced the temporary `roll_and_arrive` placeholder with explicit `FortuneResolveModule -> MapMoveModule -> ArrivalTileModule` sequence boundaries
+  - attached applicable modifier ids to turn/sequence modules immediately before execution so character/trick/fortune effects can flow through module contracts instead of card-name special cases
+  - strengthened backend semantic validation so `trick_used` is only valid from `TrickResolveModule` sequence context
+- Why:
+  - the earlier child-frame patch stopped prompt ownership from living on the parent turn, but `TrickChoiceModule` still collapsed the sequence after selection
+  - effects such as 잔꾀 follow-ups and 운수 extra movement need to remain in their own nested module frames; if they bounce back to `CharacterStartModule` or `TargetJudicatorModule`, accepted prompts can appear to loop
+  - modifier propagation must be structural: modules should receive the modifiers targeted at them, and individual character abilities should not be reimplemented as scattered if/else guards
+- Validation:
+  - `PYTHONPATH=.:GPT uv run pytest -q GPT/test_runtime_sequence_modules.py`
+  - `PYTHONPATH=.:GPT uv run pytest -q GPT/test_runtime_module_contracts.py GPT/test_runtime_sequence_modules.py GPT/test_runtime_round_modules.py GPT/test_runtime_prompt_continuation.py`
+  - `PYTHONPATH=.:GPT uv run pytest -q apps/server/tests/test_runtime_semantic_guard.py`
+  - `PYTHONPATH=.:GPT uv run pytest -q GPT/test_runtime_sequence_modules.py GPT/test_runtime_module_contracts.py GPT/test_runtime_round_modules.py GPT/test_runtime_prompt_continuation.py apps/server/tests/test_runtime_semantic_guard.py apps/server/tests/test_prompt_module_continuation.py apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_game_state_store_commits_module_prompt_resume_snapshot_atomically`
+
 ## 2026-05-02 Turn-Start Mark / Trick Replay Loop Fix
 
 - What changed:

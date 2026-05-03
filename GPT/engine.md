@@ -100,3 +100,4 @@ Engine cost, dice-card, and special-tile calculations increasingly prefer inject
 - 어사/탐관오리는 같은 카드 양면이므로 탐관오리 패시브에는 별도 어사 차단 체크를 두지 않는다.
 
 - 2026-05-03 sync: current handoff documentation confirms `engine.py` remains the gameplay authority behind the modular runtime; draft, turn-start mark, trick, movement, arrival, and round-end flip behavior must be documented through the active runtime contracts instead of duplicated in frontend logic.
+- 2026-05-03 nested-sequence sync: `_use_trick_phase()` now records `runtime_last_trick_sequence_result` so `TrickChoiceModule` can hand selected-card resolution to `TrickResolveModule` inside the same child sequence. Follow-up trick prompts are scheduled as additional modules in that child sequence instead of restarting the outer turn, and fortune roll-and-arrive actions must flow through explicit sequence modules before turn completion.

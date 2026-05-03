@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import random
 
 import pytest
 
+from ai_policy import HeuristicPolicy
 from config import GameConfig
+from engine import GameEngine
 from runtime_modules.contracts import (
     FrameState,
     Modifier,
@@ -137,6 +140,28 @@ def test_modifier_single_use_consumed_once() -> None:
     assert registry.applicable("DiceRollModule", 1) == []
 
 
+def test_module_muroe_suppression_requires_seeded_modifier() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config, HeuristicPolicy(), rng=random.Random(7), enable_logging=False)
+    state = GameState.create(config)
+    state.runtime_runner_kind = "module"
+    actor = state.players[0]
+    eosa = state.players[1]
+    actor.current_character = "자객"
+    eosa.current_character = "어사"
+
+    assert engine._is_muroe_skill_blocked(state, actor) is False
+
+    engine._seed_character_start_modifiers(state)
+
+    assert engine._is_muroe_skill_blocked(state, actor) is True
+    modifier = state.runtime_modifier_registry.modifiers[0]
+    assert modifier.payload["kind"] == "suppress_character_skill"
+    assert modifier.payload["reason"] == "muroe_blocked_by_eosa"
+    assert modifier.owner_player_id == actor.player_id
+    assert modifier.target_module_type == "CharacterStartModule"
+
+
 def test_simultaneous_frame_rejects_turn_only_module() -> None:
     frame = FrameState(frame_id="simul:resupply:0:0", frame_type="simultaneous", owner_player_id=None, parent_frame_id=None)
 
@@ -204,9 +229,12 @@ def test_checkpoint_round_trips_runtime_state() -> None:
         frame_type="simultaneous",
         owner_player_id=None,
         parent_frame_id=None,
-        module_queue=[_module("SimultaneousPromptBatchModule", module_id="mod:batch")],
+        module_queue=[
+            _module("SimultaneousPromptBatchModule", module_id="mod:batch", idempotency_key="idem:batch")
+        ],
         active_module_id="mod:batch",
     )
+    frame.module_queue[0].cursor = "await_all_resupply_choices"
     batch = PromptApi().create_batch(
         batch_id="batch_1",
         frame=frame,
@@ -217,6 +245,15 @@ def test_checkpoint_round_trips_runtime_state() -> None:
     )
     state.runtime_runner_kind = "module"
     state.runtime_frame_stack = [frame]
+    state.runtime_active_prompt = PromptApi().create_continuation(
+        request_id="req_move_1",
+        prompt_instance_id=3,
+        frame=frame,
+        module=frame.module_queue[0],
+        player_id=0,
+        request_type="movement",
+        legal_choices=[{"choice_id": "roll"}],
+    )
     state.runtime_active_prompt_batch = batch
     state.runtime_modifier_registry.modifiers.append(
         Modifier(
@@ -234,6 +271,8 @@ def test_checkpoint_round_trips_runtime_state() -> None:
 
     assert restored.runtime_runner_kind == "module"
     assert restored.runtime_frame_stack[0].frame_type == "simultaneous"
+    assert restored.runtime_active_prompt is not None
+    assert restored.runtime_active_prompt.module_cursor == "await_all_resupply_choices"
     assert restored.runtime_active_prompt_batch is not None
     assert restored.runtime_active_prompt_batch.missing_player_ids == [0, 1]
     assert restored.runtime_modifier_registry.modifiers[0].modifier_id == "modif:test"

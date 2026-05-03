@@ -122,6 +122,41 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
             },
         )
 
+    def test_build_prompt_view_state_preserves_module_continuation_contract(self) -> None:
+        view_state = build_prompt_view_state(
+            [
+                {
+                    "type": "prompt",
+                    "seq": 1,
+                    "session_id": "s1",
+                    "server_time_ms": 1,
+                    "payload": {
+                        "request_id": "req_move_1",
+                        "request_type": "movement",
+                        "player_id": 1,
+                        "timeout_ms": 30000,
+                        "runner_kind": "module",
+                        "resume_token": "tok_move_1",
+                        "frame_id": "turn:1:p1",
+                        "module_id": "mod:move",
+                        "module_type": "MapMoveModule",
+                        "module_cursor": "movement:await_choice",
+                        "batch_id": "batch_move_1",
+                        "legal_choices": [{"choice_id": "roll", "title": "Roll"}],
+                        "public_context": {"round_index": 1},
+                    },
+                }
+            ]
+        )
+
+        active = view_state["active"]
+        self.assertEqual(active["resume_token"], "tok_move_1")
+        self.assertEqual(active["frame_id"], "turn:1:p1")
+        self.assertEqual(active["module_id"], "mod:move")
+        self.assertEqual(active["module_type"], "MapMoveModule")
+        self.assertEqual(active["module_cursor"], "movement:await_choice")
+        self.assertEqual(active["batch_id"], "batch_move_1")
+
     def test_build_prompt_view_state_keeps_accepted_feedback_after_prompt_closes(self) -> None:
         view_state = build_prompt_view_state(
             [

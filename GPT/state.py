@@ -268,6 +268,7 @@ class GameState:
     runtime_active_prompt_batch: SimultaneousPromptBatchContinuation | None = None
     runtime_scheduled_turn_injections: Dict[str, List[dict[str, Any]]] = field(default_factory=dict)
     runtime_modifier_registry: ModifierRegistryState = field(default_factory=ModifierRegistryState)
+    runtime_last_trick_sequence_result: dict[str, Any] | None = None
 
     @classmethod
     def create(cls, config: GameConfig) -> "GameState":
@@ -394,6 +395,9 @@ class GameState:
             else self.runtime_active_prompt_batch.to_payload(),
             "runtime_scheduled_turn_injections": dict(self.runtime_scheduled_turn_injections),
             "runtime_modifier_registry": self.runtime_modifier_registry.to_payload(),
+            "runtime_last_trick_sequence_result": None
+            if self.runtime_last_trick_sequence_result is None
+            else dict(self.runtime_last_trick_sequence_result),
             "tiles": [_tile_to_payload(tile) for tile in self.tiles],
             "players": [_player_to_payload(player) for player in self.players],
             "fortune_draw_pile": [_card_key(card) for card in self.fortune_draw_pile],
@@ -486,6 +490,10 @@ class GameState:
             ModifierRegistryState.from_payload(raw_modifier_registry)
             if isinstance(raw_modifier_registry, dict)
             else ModifierRegistryState()
+        )
+        raw_last_trick_result = payload.get("runtime_last_trick_sequence_result")
+        state.runtime_last_trick_sequence_result = (
+            dict(raw_last_trick_result) if isinstance(raw_last_trick_result, dict) else None
         )
 
         for raw_tile in payload.get("tiles", []):

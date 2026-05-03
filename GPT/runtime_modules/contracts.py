@@ -25,6 +25,8 @@ class ModuleRef:
     modifiers: list[str] = field(default_factory=list)
     idempotency_key: str = ""
     status: ModuleStatus = "queued"
+    cursor: str = "start"
+    suspension_id: str = ""
 
     def to_payload(self) -> dict[str, Any]:
         return asdict(self)
@@ -40,6 +42,8 @@ class ModuleRef:
             modifiers=[str(item) for item in payload.get("modifiers", [])],
             idempotency_key=str(payload.get("idempotency_key", "")),
             status=_module_status(payload.get("status", "queued")),
+            cursor=str(payload.get("cursor", "start") or "start"),
+            suspension_id=str(payload.get("suspension_id", "")),
         )
 
 
@@ -176,6 +180,7 @@ class PromptContinuation:
     legal_choices: list[dict[str, Any]] = field(default_factory=list)
     public_context: dict[str, Any] = field(default_factory=dict)
     expires_at_ms: int | None = None
+    module_cursor: str = "start"
 
     def to_payload(self) -> dict[str, Any]:
         return asdict(self)
@@ -196,6 +201,7 @@ class PromptContinuation:
             legal_choices=[dict(item) for item in payload.get("legal_choices", []) if isinstance(item, dict)],
             public_context=dict(payload.get("public_context") or {}),
             expires_at_ms=_optional_int(payload.get("expires_at_ms")),
+            module_cursor=str(payload.get("module_cursor", "start") or "start"),
         )
 
 

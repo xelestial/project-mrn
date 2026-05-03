@@ -59,3 +59,4 @@ Initial player cash and shards are now sourced from `config.rules.economy` and `
 - `PlayerState.team_id`: 팀전 확장을 위한 선택 필드. `None`이면 기본 자유대전으로 간주한다.
 
 - 2026-05-03 sync: current backend handoff keeps `GameState` as the engine-side runtime truth, while server `view_state` projections and Redis caches are derived read models for clients and recovery paths.
+- 2026-05-03 nested-sequence sync: `runtime_last_trick_sequence_result` is checkpointed as the transient bridge from `TrickChoiceModule` to `TrickResolveModule`. Redis recovery can therefore resume the selected trick's remaining child-sequence modules without asking the frontend to recreate or reinterpret the choice.

@@ -38,6 +38,7 @@ class PromptApi:
             legal_choices=list(legal_choices),
             public_context=dict(public_context or {}),
             expires_at_ms=expires_at_ms,
+            module_cursor=str(getattr(module, "cursor", "start") or "start"),
         )
 
     def create_batch(
@@ -104,6 +105,7 @@ class PromptApi:
             resume_token=resume_token,
             frame_id=batch.frame_id,
             module_id=batch.module_id,
+            module_cursor=continuation.module_cursor,
             player_id=player_id,
             choice_id=choice_id,
         )
@@ -127,6 +129,7 @@ def validate_resume(
     resume_token: str,
     frame_id: str,
     module_id: str,
+    module_cursor: str | None = None,
     player_id: int,
     choice_id: str,
 ) -> None:
@@ -140,6 +143,8 @@ def validate_resume(
         raise PromptContinuationError("frame id mismatch")
     if continuation.module_id != module_id:
         raise PromptContinuationError("module id mismatch")
+    if module_cursor is not None and continuation.module_cursor != str(module_cursor or "start"):
+        raise PromptContinuationError("module cursor mismatch")
     if continuation.player_id != player_id:
         raise PromptContinuationError("player mismatch")
     legal = {str(choice.get("choice_id") or "") for choice in continuation.legal_choices}

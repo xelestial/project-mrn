@@ -54,3 +54,4 @@ Bootstrap note: tests pin their own package directory on import so GPT and CLAUD
 - 2026-04-15 sync: marker flip batch regression now uses real card ids (`1`, `2`) instead of the removed zero-based card placeholder.
 
 - 2026-05-03 sync: beginner handoff points new developers to this suite for rule regressions before changing engine behavior, especially draft, mark, trick, dice/move, arrival, and round cleanup paths.
+- 2026-05-03 nested-module sync: legacy rule regressions remain here, while new child-sequence safety coverage for trick choice/resolve loops, fortune extra roll-and-arrive modules, and runtime modifier attachment lives in `test_runtime_sequence_modules.py`.

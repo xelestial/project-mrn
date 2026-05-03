@@ -243,6 +243,13 @@ describe("streamSelectors", () => {
               turn_stage: "dice",
               active_sequence: "",
               active_prompt_request_id: "",
+              active_frame_id: "turn:1:p0",
+              active_frame_type: "turn",
+              active_module_id: "mod:turn:1:p0:dice",
+              active_module_type: "DiceRollModule",
+              active_module_status: "suspended",
+              active_module_cursor: "dice:await_choice",
+              active_module_idempotency_key: "idem_dice_1",
               draft_active: false,
               trick_sequence_active: false,
               card_flip_legal: false,
@@ -268,6 +275,9 @@ describe("streamSelectors", () => {
     expect(selectRuntimeProjection(messages)).toMatchObject({
       runnerKind: "module",
       turnStage: "dice",
+      activeFrameId: "turn:1:p0",
+      activeModuleId: "mod:turn:1:p0:dice",
+      activeModuleCursor: "dice:await_choice",
       draftActive: false,
     });
   });

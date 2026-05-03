@@ -24,6 +24,7 @@ from apps.server.src.services.decision_gateway import (
     DecisionGateway,
     DecisionInvocation,
     PromptRequired,
+    build_decision_requested_payload,
     build_decision_invocation,
     build_decision_invocation_from_request,
     build_routed_decision_call,
@@ -72,6 +73,25 @@ def runtime_checkpoint_schema_version_for_runner(runner_kind: str) -> int:
     return 3 if str(runner_kind or "").strip().lower() == "module" else 1
 
 
+@dataclass(frozen=True, slots=True)
+class RuntimeDecisionResume:
+    request_id: str
+    player_id: int
+    request_type: str
+    choice_id: str
+    choice_payload: dict
+    resume_token: str
+    frame_id: str
+    module_id: str
+    module_type: str
+    module_cursor: str
+    batch_id: str = ""
+
+
+class RuntimeDecisionResumeMismatch(ValueError):
+    pass
+
+
 def _runtime_module_debug_fields(source: dict | None, state: object | None = None) -> dict[str, str]:
     source = dict(source or {})
     runtime_module = source.get("runtime_module")
@@ -82,6 +102,7 @@ def _runtime_module_debug_fields(source: dict | None, state: object | None = Non
         "module_type": source.get("module_type") or runtime_module.get("module_type") or active_fields.get("module_type"),
         "module_id": source.get("module_id") or runtime_module.get("module_id") or active_fields.get("module_id"),
         "frame_id": source.get("frame_id") or runtime_module.get("frame_id") or active_fields.get("frame_id"),
+        "module_cursor": source.get("module_cursor") or runtime_module.get("module_cursor") or active_fields.get("module_cursor"),
         "idempotency_key": source.get("idempotency_key")
         or runtime_module.get("idempotency_key")
         or active_fields.get("idempotency_key"),
@@ -105,6 +126,7 @@ def _active_runtime_module_debug_fields(state: object | None) -> dict[str, str]:
         for module in getattr(frame, "module_queue", []) or []:
             if getattr(module, "module_id", None) == active_module_id:
                 fields["module_type"] = getattr(module, "module_type", None)
+                fields["module_cursor"] = getattr(module, "cursor", None)
                 fields["idempotency_key"] = getattr(module, "idempotency_key", None)
                 break
         break
@@ -577,7 +599,7 @@ class RuntimeService:
             )
             transitions += 1
             status = str(last_step.get("status", ""))
-            if status in {"finished", "unavailable", "waiting_input"}:
+            if status in {"finished", "unavailable", "waiting_input", "rejected"}:
                 return {**last_step, "transitions": transitions}
             if self._prompt_service is not None and self._prompt_service.has_pending_for_session(session_id):
                 current = dict(self._status.get(session_id, {"status": "running"}))
@@ -802,13 +824,28 @@ class RuntimeService:
         character = str(getattr(player, "current_character", "") or "")
         if character not in RuntimeService._TURN_START_MARK_CHARACTERS:
             return False
-        active_by_card = getattr(state, "active_by_card", {}) or {}
-        active_card_1 = ""
-        if isinstance(active_by_card, dict):
-            active_card_1 = str(active_by_card.get(1) or active_by_card.get("1") or "")
-        if character in RuntimeService._MUROE_MARK_CHARACTERS and active_card_1 == "어사":
+        if character in RuntimeService._MUROE_MARK_CHARACTERS and RuntimeService._has_live_eosa_player(state, player):
             return False
         return True
+
+    @staticmethod
+    def _has_live_eosa_player(state, current_player) -> bool:
+        try:
+            current_player_id = int(getattr(current_player, "player_id", -1))
+        except (TypeError, ValueError):
+            current_player_id = -1
+        for index, player in enumerate(list(getattr(state, "players", []) or [])):
+            try:
+                player_id = int(getattr(player, "player_id", index))
+            except (TypeError, ValueError):
+                player_id = index
+            if player_id == current_player_id:
+                continue
+            if not bool(getattr(player, "alive", True)):
+                continue
+            if str(getattr(player, "current_character", "") or "") == "어사":
+                return True
+        return False
 
     @staticmethod
     def _current_turn_player_for_prompt_replay(state):
@@ -934,6 +971,79 @@ class RuntimeService:
             None,
         )
 
+    def _decision_resume_from_command(self, session_id: str, command_seq: int | None) -> RuntimeDecisionResume | None:
+        if command_seq is None or self._command_store is None:
+            return None
+        list_commands = getattr(self._command_store, "list_commands", None)
+        if not callable(list_commands):
+            return None
+        target_seq = int(command_seq)
+        for command in list_commands(session_id):
+            if int(command.get("seq", 0) or 0) != target_seq:
+                continue
+            if str(command.get("type") or "").strip() != "decision_submitted":
+                return None
+            payload = command.get("payload")
+            if not isinstance(payload, dict):
+                return None
+            decision = payload.get("decision")
+            decision = decision if isinstance(decision, dict) else {}
+
+            def _field(name: str) -> str:
+                return str(payload.get(name) or decision.get(name) or "").strip()
+
+            choice_payload = payload.get("choice_payload")
+            if not isinstance(choice_payload, dict):
+                choice_payload = decision.get("choice_payload")
+            return RuntimeDecisionResume(
+                request_id=_field("request_id"),
+                player_id=int(payload.get("player_id") or decision.get("player_id") or 0),
+                request_type=_field("request_type"),
+                choice_id=_field("choice_id"),
+                choice_payload=dict(choice_payload or {}),
+                resume_token=_field("resume_token"),
+                frame_id=_field("frame_id"),
+                module_id=_field("module_id"),
+                module_type=_field("module_type"),
+                module_cursor=_field("module_cursor"),
+                batch_id=_field("batch_id"),
+            )
+        return None
+
+    def _validate_decision_resume_against_checkpoint(self, state, resume: RuntimeDecisionResume) -> None:  # noqa: ANN001
+        if str(getattr(state, "runtime_runner_kind", "") or "").strip() != "module":
+            return
+        from runtime_modules.prompts import validate_resume
+
+        internal_player_id = max(0, int(resume.player_id) - 1)
+        continuation = getattr(state, "runtime_active_prompt", None)
+        batch = getattr(state, "runtime_active_prompt_batch", None)
+        if continuation is None and batch is not None:
+            if resume.batch_id and str(getattr(batch, "batch_id", "") or "") != resume.batch_id:
+                raise ValueError("batch id mismatch")
+            prompts = getattr(batch, "prompts_by_player_id", {}) or {}
+            continuation = prompts.get(internal_player_id)
+        validate_resume(
+            continuation,
+            request_id=resume.request_id,
+            resume_token=resume.resume_token,
+            frame_id=resume.frame_id,
+            module_id=resume.module_id,
+            module_cursor=resume.module_cursor,
+            player_id=internal_player_id,
+            choice_id=resume.choice_id,
+        )
+        expected_request_type = str(getattr(continuation, "request_type", "") or "").strip()
+        if expected_request_type and resume.request_type and expected_request_type != resume.request_type:
+            raise ValueError("request type mismatch")
+
+    def _save_rejected_command_offset(self, command_consumer_name: str | None, session_id: str, command_seq: int | None) -> None:
+        if not command_consumer_name or command_seq is None or self._command_store is None:
+            return
+        save_offset = getattr(self._command_store, "save_consumer_offset", None)
+        if callable(save_offset):
+            save_offset(command_consumer_name, session_id, int(command_seq))
+
     def _run_engine_transition_once_sync(
         self,
         loop: asyncio.AbstractEventLoop | None,
@@ -986,6 +1096,7 @@ class RuntimeService:
             )
         config = self._config_factory.create(resolved)
         state = self._hydrate_engine_state(session_id, config, GameState)
+        decision_resume = None
         if state is None:
             if require_checkpoint:
                 return {"status": "unavailable", "reason": "checkpoint_missing"}
@@ -993,6 +1104,28 @@ class RuntimeService:
             self._prepare_state_for_transition_replay(state)
         if state is not None:
             self._apply_runner_kind(state, runner_kind, checkpoint_schema_version)
+            decision_resume = self._decision_resume_from_command(session_id, command_seq)
+            if decision_resume is not None:
+                try:
+                    self._validate_decision_resume_against_checkpoint(state, decision_resume)
+                except ValueError as exc:
+                    self._save_rejected_command_offset(command_consumer_name, session_id, command_seq)
+                    return {
+                        "status": "rejected",
+                        "reason": str(exc),
+                        "request_id": decision_resume.request_id,
+                        "player_id": decision_resume.player_id,
+                        "choice_id": decision_resume.choice_id,
+                        "processed_command_seq": command_seq,
+                        "processed_command_consumer": command_consumer_name,
+                        "runner_kind": "module",
+                        "module_type": decision_resume.module_type,
+                        "module_id": decision_resume.module_id,
+                        "frame_id": decision_resume.frame_id,
+                        "module_cursor": decision_resume.module_cursor,
+                    }
+                if callable(getattr(policy, "set_decision_resume", None)):
+                    policy.set_decision_resume(decision_resume)
         human_player_ids = [
             int(seat.seat)
             for seat in session.seats
@@ -1027,9 +1160,19 @@ class RuntimeService:
                 state = engine.prepare_run()
             else:
                 state = engine.prepare_run(initial_state=state)
-            if callable(getattr(policy, "set_prompt_sequence", None)):
+            effective_runner_kind_for_transition = str(getattr(state, "runtime_runner_kind", runner_kind) or runner_kind)
+            if effective_runner_kind_for_transition != "module" and callable(getattr(policy, "set_prompt_sequence", None)):
                 policy.set_prompt_sequence(self._prompt_sequence_seed_for_transition(state))
-            step = engine.run_next_transition(state)
+            step = engine.run_next_transition(state, decision_resume=decision_resume)
+        except RuntimeDecisionResumeMismatch as exc:
+            self._save_rejected_command_offset(command_consumer_name, session_id, command_seq)
+            return {
+                "status": "rejected",
+                "reason": str(exc),
+                "processed_command_seq": command_seq,
+                "processed_command_consumer": command_consumer_name,
+                "runner_kind": "module",
+            }
         except PromptRequired as exc:
             state = state or getattr(engine, "_last_prepared_state", None)
             if state is None:
@@ -1076,6 +1219,10 @@ class RuntimeService:
             ]
             latest_event_type = "prompt_required" if step.get("status") == "waiting_input" else "engine_transition"
             updated_at_ms = self._now_ms()
+            runtime_active_prompt = payload.get("runtime_active_prompt")
+            runtime_active_prompt = runtime_active_prompt if isinstance(runtime_active_prompt, dict) else {}
+            runtime_active_prompt_batch = payload.get("runtime_active_prompt_batch")
+            runtime_active_prompt_batch = runtime_active_prompt_batch if isinstance(runtime_active_prompt_batch, dict) else {}
             module_debug_fields = _runtime_module_debug_fields(
                 {
                     **step,
@@ -1100,6 +1247,12 @@ class RuntimeService:
                     "waiting_prompt_player_id": payload.get("pending_prompt_player_id"),
                     "waiting_prompt_instance_id": payload.get("pending_prompt_instance_id"),
                     "prompt_sequence": payload.get("prompt_sequence"),
+                    "runtime_active_prompt": runtime_active_prompt,
+                    "runtime_active_prompt_batch": runtime_active_prompt_batch,
+                    "active_frame_id": module_debug_fields.get("frame_id", ""),
+                    "active_module_id": module_debug_fields.get("module_id", ""),
+                    "active_module_type": module_debug_fields.get("module_type", ""),
+                    "active_module_cursor": module_debug_fields.get("module_cursor", ""),
                     "pending_action_count": len(payload.get("pending_actions") or []),
                     "scheduled_action_count": len(payload.get("scheduled_actions") or []),
                     "pending_action_types": pending_action_types,
@@ -1147,6 +1300,8 @@ class RuntimeService:
                 scheduled_action_count=len(payload.get("scheduled_actions") or []),
                 **module_debug_fields,
             )
+        if step.get("status") == "waiting_input":
+            self._publish_active_module_prompt_batch_sync(loop, session_id, state)
         return step
 
     def _latest_stream_seq_sync(self, loop: asyncio.AbstractEventLoop | None, session_id: str) -> int:
@@ -1154,6 +1309,77 @@ class RuntimeService:
             return 0
         future = asyncio.run_coroutine_threadsafe(self._stream_service.latest_seq(session_id), loop)
         return int(future.result(timeout=5))
+
+    def _publish_active_module_prompt_batch_sync(
+        self,
+        loop: asyncio.AbstractEventLoop | None,
+        session_id: str,
+        state: object | None,
+    ) -> None:
+        if loop is None or self._stream_service is None or self._prompt_service is None or state is None:
+            return
+        batch = getattr(state, "runtime_active_prompt_batch", None)
+        if batch is None:
+            return
+        prompts = getattr(batch, "prompts_by_player_id", {}) or {}
+        for internal_player_id in list(getattr(batch, "missing_player_ids", []) or []):
+            continuation = prompts.get(int(internal_player_id))
+            if continuation is None:
+                continue
+            player_id = int(internal_player_id) + 1
+            public_context = dict(getattr(continuation, "public_context", {}) or {})
+            payload = {
+                "request_id": str(getattr(continuation, "request_id", "") or ""),
+                "request_type": str(getattr(continuation, "request_type", "") or ""),
+                "player_id": player_id,
+                "prompt_instance_id": int(getattr(continuation, "prompt_instance_id", 0) or 0),
+                "legal_choices": list(getattr(continuation, "legal_choices", []) or []),
+                "public_context": public_context,
+                "timeout_ms": 300000,
+                "fallback_policy": "required",
+                "runner_kind": "module",
+                "resume_token": str(getattr(continuation, "resume_token", "") or ""),
+                "frame_id": str(getattr(continuation, "frame_id", "") or ""),
+                "module_id": str(getattr(continuation, "module_id", "") or ""),
+                "module_type": str(getattr(continuation, "module_type", "") or ""),
+                "module_cursor": str(getattr(continuation, "module_cursor", "") or ""),
+                "batch_id": str(getattr(batch, "batch_id", "") or ""),
+                "runtime_module": {
+                    "runner_kind": "module",
+                    "frame_type": "simultaneous",
+                    "frame_id": str(getattr(continuation, "frame_id", "") or ""),
+                    "module_id": str(getattr(continuation, "module_id", "") or ""),
+                    "module_type": str(getattr(continuation, "module_type", "") or ""),
+                    "module_cursor": str(getattr(continuation, "module_cursor", "") or ""),
+                },
+            }
+            try:
+                self._prompt_service.create_prompt(session_id=session_id, prompt=payload)
+            except ValueError as exc:
+                if str(exc) in {"duplicate_pending_request_id", "duplicate_recent_request_id"}:
+                    continue
+                raise
+            future = asyncio.run_coroutine_threadsafe(
+                self._stream_service.publish(session_id, "prompt", {**payload, "provider": "human"}),
+                loop,
+            )
+            future.result(timeout=5)
+            requested = build_decision_requested_payload(
+                request_id=payload["request_id"],
+                player_id=player_id,
+                request_type=payload["request_type"],
+                fallback_policy="required",
+                provider="human",
+                round_index=public_context.get("round_index"),
+                turn_index=public_context.get("turn_index"),
+                public_context=public_context,
+            )
+            event_future = asyncio.run_coroutine_threadsafe(
+                self._stream_service.publish(session_id, "event", requested),
+                loop,
+            )
+            event_future.result(timeout=5)
+            self._touch_activity(session_id)
 
 
 def _module_belongs_to_root(module: ModuleType, root_dir: Path) -> bool:
@@ -1228,6 +1454,10 @@ class _ServerDecisionPolicyBridge:
             participant_clients=self._participant_clients,
         )
         self._inner = self._human_client.policy if self._human_client is not None else None
+        self._decision_resume: RuntimeDecisionResume | None = None
+
+    def set_decision_resume(self, resume: RuntimeDecisionResume | None) -> None:
+        self._decision_resume = resume
 
     def set_prompt_sequence(self, value: int) -> None:
         if self._human_client is not None:
@@ -1244,11 +1474,52 @@ class _ServerDecisionPolicyBridge:
         invocation = build_decision_invocation_from_request(request)
         fallback_policy = str(getattr(request, "fallback_policy", "required") or "required")
         call = build_routed_decision_call(invocation, fallback_policy=fallback_policy)
+        if self._decision_resume is not None:
+            return self._consume_decision_resume(call)
         client = self._router.client_for_call(call)
         client_policy = getattr(client, "policy", None)
         if callable(getattr(request, "fallback", None)) and (client_policy is None or not hasattr(client_policy, invocation.method_name)):
             return request.fallback()
         return client.resolve(call)
+
+    def _consume_decision_resume(self, call):
+        resume = self._decision_resume
+        if resume is None:
+            raise RuntimeDecisionResumeMismatch("missing decision resume")
+        request = call.request
+        expected_player_id = int(request.player_id if request.player_id is not None else -1) + 1
+        if expected_player_id != int(resume.player_id):
+            raise RuntimeDecisionResumeMismatch("decision resume player mismatch")
+        if str(request.request_type or "") != str(resume.request_type or ""):
+            raise RuntimeDecisionResumeMismatch("decision resume request type mismatch")
+        legal = {str(choice.get("choice_id") or "") for choice in call.legal_choices if isinstance(choice, dict)}
+        if legal and str(resume.choice_id) not in legal:
+            raise RuntimeDecisionResumeMismatch("decision resume choice is not legal")
+        parser = call.choice_parser
+        if parser is None:
+            parsed = resume.choice_id
+        else:
+            try:
+                parsed = parser(
+                    str(resume.choice_id),
+                    call.invocation.args,
+                    call.invocation.kwargs,
+                    call.invocation.state,
+                    call.invocation.player,
+                )
+            except Exception as exc:
+                raise RuntimeDecisionResumeMismatch("decision resume parse failed") from exc
+        self._decision_resume = None
+        self._gateway._publish_decision_resolved(
+            request_id=resume.request_id,
+            player_id=int(resume.player_id),
+            request_type=str(resume.request_type),
+            resolution="accepted",
+            choice_id=str(resume.choice_id),
+            provider="human",
+            public_context=dict(request.public_context),
+        )
+        return parsed
 
     def __getattr__(self, name: str):
         target = self._router.attribute_target(name)
@@ -1876,12 +2147,90 @@ class _LocalHumanDecisionClient:
             request = getattr(active_call, "request", None)
             if request is not None:
                 envelope.setdefault("request_type", getattr(request, "request_type", None))
-                envelope.setdefault("player_id", getattr(request, "player_id", None))
+                if "player_id" not in envelope:
+                    internal_player_id = getattr(request, "player_id", None)
+                    envelope["player_id"] = int(internal_player_id) + 1 if internal_player_id is not None else None
                 envelope.setdefault("fallback_policy", getattr(request, "fallback_policy", None))
                 prompt_context = dict(envelope.get("public_context") or {})
                 request_context = dict(getattr(request, "public_context", {}) or {})
                 envelope["public_context"] = {**prompt_context, **request_context}
+            self._attach_active_module_continuation(envelope, active_call)
         return self._gateway.resolve_human_prompt(envelope, parser, fallback_fn)
+
+    def _attach_active_module_continuation(self, envelope: dict, active_call) -> None:  # noqa: ANN001
+        invocation = getattr(active_call, "invocation", None)
+        state = getattr(invocation, "state", None)
+        if state is None or str(getattr(state, "runtime_runner_kind", "") or "").lower() != "module":
+            return
+        frame, module = self._active_frame_and_module(state)
+        if frame is None or module is None:
+            return
+        public_context = dict(envelope.get("public_context") or {})
+        if not str(envelope.get("request_id") or "").strip():
+            stable_request_id = getattr(self._gateway, "_stable_prompt_request_id", None)
+            if callable(stable_request_id):
+                envelope["request_id"] = str(stable_request_id(envelope, public_context))
+        request_id = str(envelope.get("request_id") or "").strip()
+        if not request_id:
+            return
+        request = getattr(active_call, "request", None)
+        request_type = str(envelope.get("request_type") or getattr(request, "request_type", "") or "")
+        internal_player_id = getattr(request, "player_id", None)
+        if internal_player_id is None:
+            internal_player_id = int(envelope.get("player_id", 1) or 1) - 1
+        legal_choices = envelope.get("legal_choices")
+        if not isinstance(legal_choices, list):
+            legal_choices = list(getattr(active_call, "legal_choices", []) or [])
+            envelope["legal_choices"] = legal_choices
+        RuntimeService._ensure_gpt_import_path()
+        from runtime_modules.prompts import PromptApi
+
+        continuation = PromptApi().create_continuation(
+            request_id=request_id,
+            prompt_instance_id=int(envelope.get("prompt_instance_id", 0) or 0),
+            frame=frame,
+            module=module,
+            player_id=int(internal_player_id),
+            request_type=request_type,
+            legal_choices=[dict(choice) for choice in legal_choices if isinstance(choice, dict)],
+            public_context=public_context,
+        )
+        state.runtime_active_prompt = continuation
+        state.runtime_active_prompt_batch = None
+        module_fields = {
+            "runner_kind": "module",
+            "frame_type": str(getattr(frame, "frame_type", "") or ""),
+            "frame_id": continuation.frame_id,
+            "module_id": continuation.module_id,
+            "module_type": continuation.module_type,
+            "module_cursor": continuation.module_cursor,
+            "idempotency_key": str(getattr(module, "idempotency_key", "") or ""),
+        }
+        envelope.update(
+            {
+                "runner_kind": "module",
+                "resume_token": continuation.resume_token,
+                "frame_id": continuation.frame_id,
+                "module_id": continuation.module_id,
+                "module_type": continuation.module_type,
+                "module_cursor": continuation.module_cursor,
+                "runtime_module": module_fields,
+            }
+        )
+
+    @staticmethod
+    def _active_frame_and_module(state) -> tuple[object | None, object | None]:  # noqa: ANN001
+        frames = getattr(state, "runtime_frame_stack", None)
+        if not isinstance(frames, list):
+            return None, None
+        for frame in reversed(frames):
+            active_module_id = getattr(frame, "active_module_id", None)
+            if not active_module_id:
+                continue
+            for module in getattr(frame, "module_queue", []) or []:
+                if getattr(module, "module_id", None) == active_module_id:
+                    return frame, module
+        return None, None
 
     def resolve(self, call):
         if self.policy is None:

@@ -741,7 +741,7 @@ def build_prompt_view_state(messages: list[dict[str, Any]]) -> PromptViewState |
         player_id = _number(active_prompt.get("player_id")) or 0
         timeout_ms = _number(active_prompt.get("timeout_ms")) or 30000
         public_context = _record(active_prompt.get("public_context")) or {}
-        payload["active"] = {
+        active: ActivePromptViewState = {
             "request_id": request_id,
             "request_type": request_type,
             "player_id": player_id,
@@ -751,6 +751,11 @@ def build_prompt_view_state(messages: list[dict[str, Any]]) -> PromptViewState |
             "behavior": _prompt_behavior(active_prompt, public_context),
             "surface": _prompt_surface(active_prompt, public_context),
         }
+        for field in ("resume_token", "frame_id", "module_id", "module_type", "module_cursor", "batch_id"):
+            value = _string(active_prompt.get(field))
+            if value:
+                active[field] = value
+        payload["active"] = active
     if last_feedback:
         payload["last_feedback"] = last_feedback
     return payload

@@ -826,6 +826,28 @@ class RuleFixTests(DraftRuleAssertionMixin, unittest.TestCase):
         self.assertEqual(engine._strategy_stats[actor.player_id].get("mark_successes", 0), 1)
         self.assertTrue(any(row.get("event") == "mark_target_coerced" for row in engine._action_log))
 
+    def test_mark_queue_is_idempotent_when_turn_start_replays(self):
+        engine = self.make_engine()
+        state = self.make_state(engine)
+        actor = state.players[0]
+        target = state.players[1]
+        actor.current_character = CARD_TO_NAMES[2][1]  # bandit
+        target.current_character = CARD_TO_NAMES[4][0]
+        state.current_round_order = [actor.player_id, target.player_id]
+        state.turn_index = 0
+
+        engine._queue_mark(state, actor.player_id, target.current_character, {"type": "bandit_tax"})
+        engine._queue_mark(state, actor.player_id, target.current_character, {"type": "bandit_tax"})
+
+        expected_key = f"mark:1:1:{actor.player_id}:{target.player_id}:bandit_tax"
+        self.assertEqual(len(target.pending_marks), 1)
+        self.assertEqual(target.pending_marks[0]["idempotency_key"], expected_key)
+        self.assertEqual(len(state.scheduled_actions), 1)
+        self.assertEqual(state.scheduled_actions[0].idempotency_key, expected_key)
+        self.assertEqual(engine._strategy_stats[actor.player_id]["mark_attempts"], 1)
+        self.assertEqual(engine._strategy_stats[actor.player_id]["marked_target_names"], [target.current_character])
+        self.assertTrue(any(row.get("event") == "mark_queue_duplicate_suppressed" for row in engine._action_log))
+
     def test_mark_target_invalid_choice_is_coerced_to_first_future_target(self):
         requested_target = CARD_TO_NAMES[1][1]
         policy = TargetPolicy(target_name=requested_target)
