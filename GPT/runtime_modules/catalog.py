@@ -42,7 +42,6 @@ MODULE_RULES: dict[str, ModuleRule] = {
     "ScoreTokenPlacementCommitModule": ModuleRule("ScoreTokenPlacementCommitModule", frozenset({"sequence"})),
     "LandingPostEffectsModule": ModuleRule("LandingPostEffectsModule", frozenset({"sequence"})),
     "TrickTileRentModifierModule": ModuleRule("TrickTileRentModifierModule", frozenset({"sequence"})),
-    "LegacyActionAdapterModule": ModuleRule("LegacyActionAdapterModule", frozenset({"sequence"})),
     "TrickChoiceModule": ModuleRule("TrickChoiceModule", frozenset({"sequence"})),
     "TrickSkipModule": ModuleRule("TrickSkipModule", frozenset({"sequence"})),
     "TrickResolveModule": ModuleRule("TrickResolveModule", frozenset({"sequence"})),

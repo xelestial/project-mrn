@@ -286,6 +286,14 @@ class ModuleRunner:
         handler = SEQUENCE_FRAME_HANDLERS.get(module.module_type)
         if handler is not None:
             return handler(context)
+        if module.module_type == "LegacyActionAdapterModule":
+            raise ModuleRunnerError("LegacyActionAdapterModule is no longer executable; catalogue the action module")
+        if "action" in module.payload:
+            action = module.payload.get("action")
+            action_type = action.get("type") if isinstance(action, dict) else None
+            raise ModuleRunnerError(
+                f"action payload requires a native sequence handler for {module.module_type}: {action_type}"
+            )
         for payload_key, payload_handler in SEQUENCE_PAYLOAD_HANDLERS.items():
             if payload_key in module.payload:
                 return payload_handler(context)
@@ -766,9 +774,6 @@ class ModuleRunner:
             "pending_actions": len(state.pending_actions),
             "pending_modules": self._pending_sequence_module_count(state),
         }
-
-    def _advance_action_adapter_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> dict[str, Any]:
-        return self._advance_action_module(engine, state, frame, module, module_boundary="legacy_adapter")
 
     def _advance_native_action_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> dict[str, Any]:
         return self._advance_action_module(engine, state, frame, module, module_boundary="native")

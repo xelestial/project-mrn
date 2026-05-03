@@ -27,7 +27,6 @@ ACTION_SEQUENCE_MODULE_TYPES = (
     "LandingPostEffectsModule",
     "TrickTileRentModifierModule",
     "FortuneResolveModule",
-    "LegacyActionAdapterModule",
 )
 
 TURN_COMPLETION_MODULE_TYPES = ("TurnEndSnapshotModule",)
@@ -61,12 +60,15 @@ FORTUNE_ACTION_TYPE_TO_MODULE_TYPE = {
 SIMULTANEOUS_ACTION_TYPES = frozenset({"resolve_supply_threshold"})
 
 
+class UnknownActionTypeError(ValueError):
+    """Raised when a pending action has not been assigned a runtime module."""
+
+
 def module_type_for_action(action_type: str) -> str:
-    return (
-        ACTION_TYPE_TO_MODULE_TYPE.get(action_type)
-        or FORTUNE_ACTION_TYPE_TO_MODULE_TYPE.get(action_type)
-        or "LegacyActionAdapterModule"
-    )
+    module_type = ACTION_TYPE_TO_MODULE_TYPE.get(action_type) or FORTUNE_ACTION_TYPE_TO_MODULE_TYPE.get(action_type)
+    if module_type is None:
+        raise UnknownActionTypeError(f"unmapped action type must be catalogued before runtime execution: {action_type}")
+    return module_type
 
 
 def _validate_action_sequence_action(action: dict) -> None:

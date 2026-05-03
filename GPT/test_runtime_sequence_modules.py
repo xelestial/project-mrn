@@ -7,11 +7,12 @@ import pytest
 from state import ActionEnvelope
 from runtime_modules.contracts import Modifier, ModifierRegistryState, ModuleJournalEntry, ModuleRef
 from runtime_modules.round_modules import build_round_frame
-from runtime_modules.runner import ModuleRunner
+from runtime_modules.runner import ModuleRunner, ModuleRunnerError
 from runtime_modules.sequence_modules import (
     ACTION_TYPE_TO_MODULE_TYPE,
     FORTUNE_ACTION_TYPE_TO_MODULE_TYPE,
     TRICK_SEQUENCE_MODULE_TYPES,
+    UnknownActionTypeError,
     build_action_sequence_frame,
     build_roll_and_arrive_sequence_frame,
     build_trick_sequence_frame,
@@ -108,8 +109,22 @@ def test_fortune_action_types_are_never_legacy_or_turn_modules() -> None:
     } == {"FortuneResolveModule"}
 
 
-def test_unknown_fortune_action_type_stays_legacy_until_catalogued() -> None:
-    assert module_type_for_action("resolve_fortune_unreviewed_effect") == "LegacyActionAdapterModule"
+def test_unknown_fortune_action_type_must_be_catalogued_before_sequence_build() -> None:
+    with pytest.raises(UnknownActionTypeError, match="resolve_fortune_unreviewed_effect"):
+        module_type_for_action("resolve_fortune_unreviewed_effect")
+
+
+def test_unknown_action_type_cannot_be_wrapped_in_legacy_action_sequence() -> None:
+    with pytest.raises(UnknownActionTypeError, match="resolve_unreviewed_legacy_effect"):
+        build_action_sequence_frame(
+            1,
+            0,
+            0,
+            [{"type": "resolve_unreviewed_legacy_effect", "actor_player_id": 0}],
+            parent_frame_id="turn:1:p0",
+            parent_module_id="mod:turn:1:p0:arrival",
+            session_id="s1",
+        )
 
 
 def test_fortune_followup_is_parented_under_current_sequence_module() -> None:
@@ -495,6 +510,43 @@ def test_supply_threshold_action_cannot_be_wrapped_in_legacy_action_sequence() -
             parent_module_id="mod:turn:1:p0:arrival",
             session_id="s1",
         )
+
+
+def test_legacy_action_adapter_checkpoint_cannot_be_resumed_silently() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+    frame = build_trick_sequence_frame(
+        1,
+        0,
+        0,
+        parent_frame_id="turn:1:p0",
+        parent_module_id="mod:turn:1:p0:trick",
+        session_id="test-session",
+    )
+    frame.frame_id = "seq:action:1:p0:legacy"
+    frame.module_queue = [
+        ModuleRef(
+            module_id="mod:seq:action:1:p0:legacy",
+            module_type="LegacyActionAdapterModule",
+            phase="legacy",
+            owner_player_id=0,
+            payload={"action": {"action_id": "legacy", "type": "apply_move", "actor_player_id": 0}},
+        )
+    ]
+    state = SimpleNamespace(
+        pending_actions=[],
+        pending_turn_completion={},
+        players=[SimpleNamespace(player_id=0, alive=True)],
+        runtime_frame_stack=[frame],
+        runtime_module_journal=[],
+        rounds_completed=0,
+        current_round_order=[0],
+        turn_index=0,
+    )
+
+    with pytest.raises(ModuleRunnerError, match="LegacyActionAdapterModule"):
+        ModuleRunner().advance_engine(FakeEngine(), state)
 
 
 def test_pending_supply_threshold_action_is_promoted_to_resupply_frame_before_sequence_actions() -> None:

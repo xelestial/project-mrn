@@ -285,6 +285,99 @@ def test_checkpoint_allows_matching_native_action_sequence_module() -> None:
     )
 
 
+def test_checkpoint_rejects_legacy_action_adapter_module() -> None:
+    with pytest.raises(RuntimeSemanticViolation, match="LegacyActionAdapterModule"):
+        validate_checkpoint_payload(
+            {
+                "runtime_runner_kind": "module",
+                "runtime_frame_stack": [
+                    {
+                        "frame_id": "seq:action:1:p0:legacy",
+                        "frame_type": "sequence",
+                        "status": "running",
+                        "active_module_id": "mod:legacy",
+                        "module_queue": [
+                            {
+                                "module_id": "mod:legacy",
+                                "module_type": "LegacyActionAdapterModule",
+                                "status": "running",
+                                "payload": {
+                                    "action": {
+                                        "action_id": "act:legacy",
+                                        "type": "apply_move",
+                                        "actor_player_id": 0,
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_checkpoint_rejects_unknown_action_payload_without_native_module_owner() -> None:
+    with pytest.raises(RuntimeSemanticViolation, match="unknown action type resolve_unreviewed_legacy_effect"):
+        validate_checkpoint_payload(
+            {
+                "runtime_runner_kind": "module",
+                "runtime_frame_stack": [
+                    {
+                        "frame_id": "seq:action:1:p0:unknown",
+                        "frame_type": "sequence",
+                        "status": "running",
+                        "active_module_id": "mod:unknown",
+                        "module_queue": [
+                            {
+                                "module_id": "mod:unknown",
+                                "module_type": "MapMoveModule",
+                                "status": "running",
+                                "payload": {
+                                    "action": {
+                                        "action_id": "act:unknown",
+                                        "type": "resolve_unreviewed_legacy_effect",
+                                        "actor_player_id": 0,
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_checkpoint_rejects_unknown_fortune_action_even_inside_fortune_module() -> None:
+    with pytest.raises(RuntimeSemanticViolation, match="unknown action type resolve_fortune_unreviewed_effect"):
+        validate_checkpoint_payload(
+            {
+                "runtime_runner_kind": "module",
+                "runtime_frame_stack": [
+                    {
+                        "frame_id": "seq:action:1:p0:fortune",
+                        "frame_type": "sequence",
+                        "status": "running",
+                        "active_module_id": "mod:fortune",
+                        "module_queue": [
+                            {
+                                "module_id": "mod:fortune",
+                                "module_type": "FortuneResolveModule",
+                                "status": "running",
+                                "payload": {
+                                    "action": {
+                                        "action_id": "act:fortune",
+                                        "type": "resolve_fortune_unreviewed_effect",
+                                        "actor_player_id": 0,
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
 def test_checkpoint_rejects_rent_action_outside_rent_payment_module() -> None:
     with pytest.raises(RuntimeSemanticViolation, match="resolve_rent_payment.*RentPaymentModule.*ArrivalTileModule"):
         validate_checkpoint_payload(

@@ -149,9 +149,11 @@ def test_round_action_control_matrix_covers_runtime_module_catalog_and_effects()
         assert f"`{action_type}`" in text
         assert f"`{module_type}`" in text
     assert "unknown `resolve_fortune_*` action" in text
+    assert "rejected with `UnknownActionTypeError` until catalogued" in text
     assert "`LegacyActionAdapterModule`" in text
     assert "Legacy Adapter Removal Classification" in text
-    assert "migration escape hatch" in text
+    assert "forbidden legacy checkpoint signal" in text
+    assert "old checkpoint carrying `LegacyActionAdapterModule` is rejected" in text
 
     for action_type in SIMULTANEOUS_ACTION_TYPES:
         assert f"`{action_type}`" in text

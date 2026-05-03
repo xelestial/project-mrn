@@ -25,7 +25,7 @@ This section is intentionally exhaustive and is checked by tests against `GPT/ru
 - RoundFrame modules: `RoundStartModule`, `WeatherModule`, `DraftModule`, `TurnSchedulerModule`, `PlayerTurnModule`, `RoundEndCardFlipModule`, `RoundCleanupAndNextRoundModule`.
 - TurnFrame modules: `TurnStartModule`, `ScheduledStartActionsModule`, `CharacterStartModule`, `ImmediateMarkerTransferModule`, `TargetJudicatorModule`, `TrickWindowModule`, `DiceRollModule`, `MovementResolveModule`, `LapRewardModule`, `PendingMarkResolutionModule`, `MapMoveModule`, `ArrivalTileModule`, `FortuneResolveModule`, `TurnEndSnapshotModule`.
 - SequenceFrame trick modules: `TrickChoiceModule`, `TrickSkipModule`, `TrickResolveModule`, `TrickDiscardModule`, `TrickDeferredFollowupsModule`, `TrickVisibilitySyncModule`.
-- SequenceFrame action modules: `PendingMarkResolutionModule`, `MapMoveModule`, `ArrivalTileModule`, `RentPaymentModule`, `PurchaseDecisionModule`, `PurchaseCommitModule`, `UnownedPostPurchaseModule`, `ScoreTokenPlacementPromptModule`, `ScoreTokenPlacementCommitModule`, `LandingPostEffectsModule`, `TrickTileRentModifierModule`, `FortuneResolveModule`, `LegacyActionAdapterModule`.
+- SequenceFrame action modules: `PendingMarkResolutionModule`, `MapMoveModule`, `ArrivalTileModule`, `RentPaymentModule`, `PurchaseDecisionModule`, `PurchaseCommitModule`, `UnownedPostPurchaseModule`, `ScoreTokenPlacementPromptModule`, `ScoreTokenPlacementCommitModule`, `LandingPostEffectsModule`, `TrickTileRentModifierModule`, `FortuneResolveModule`. `LegacyActionAdapterModule` remains documented only as a forbidden legacy checkpoint signal and is no longer part of the executable action module list.
 - SimultaneousResolutionFrame modules: `SimultaneousProcessingModule`, `SimultaneousPromptBatchModule`, `ResupplyModule`, `SimultaneousCommitModule`, `CompleteSimultaneousResolutionModule`.
 - Virtual effect modules: `CharacterModifierSeedModule`, `CharacterPassiveModifierSeedModule`, `ConcurrentResolutionSchedulerModule`. These are inventory-only module boundaries used to express modifier/scheduler ownership without allowing ad hoc backend branching.
 
@@ -53,21 +53,22 @@ Action sequence names must resolve to explicit module boundaries. Backend resume
 | `resolve_fortune_donation_angel` | `FortuneResolveModule` |
 | `resolve_fortune_forced_trade` | `FortuneResolveModule` |
 | `resolve_fortune_pious_marker` | `FortuneResolveModule` |
-| unknown `resolve_fortune_*` action | `LegacyActionAdapterModule` until catalogued |
-| unknown legacy action | `LegacyActionAdapterModule` |
+| unknown `resolve_fortune_*` action | rejected with `UnknownActionTypeError` until catalogued |
+| unknown legacy action | rejected with `UnknownActionTypeError` |
 
 ## Legacy Adapter Removal Classification
 
-`LegacyActionAdapterModule` is now a migration escape hatch, not a normal
-runtime path. A playtest log that contains this module means the action must be
-classified before the scenario is considered structurally migrated.
+`LegacyActionAdapterModule` is now a forbidden legacy checkpoint signal, not an
+executable runtime path. A playtest log or Redis checkpoint that contains this
+module means the action must be classified before the scenario is considered
+structurally migrated.
 
 | Classification | Required behavior |
 | --- | --- |
 | Native actionized path | All known turn follow-up actions listed above must resolve to their explicit module type and must not pass through `LegacyActionAdapterModule`. |
 | Native fortune path | All catalogued `resolve_fortune_*` actions listed above must resolve to `FortuneResolveModule`; any new fortune action must be added to `FORTUNE_ACTION_TYPE_TO_MODULE_TYPE` before use. |
 | Simultaneous path | `resolve_supply_threshold` must never be built as a `SequenceFrame` action and must be promoted into `SimultaneousResolutionFrame` / `ResupplyModule`. |
-| Unknown legacy path | Any other action that reaches `LegacyActionAdapterModule` is an unmigrated action. The fix is to add a module boundary, handler, prompt continuation contract when needed, and matrix row. |
+| Unknown legacy path | Any unmapped action now fails before action sequence construction with `UnknownActionTypeError`; any old checkpoint carrying `LegacyActionAdapterModule` is rejected by the runner/backend semantic guard. The fix is to add a module boundary, handler, prompt continuation contract when needed, and matrix row. |
 
 ## Simultaneous Action Inventory
 
@@ -113,6 +114,7 @@ Each effect is owned by a producer module and consumed only by declared runtime 
 - `RoundEndCardFlipModule` requires all `PlayerTurnModule` entries to be completed or skipped and also requires no active child `TurnFrame`, `SequenceFrame`, or `SimultaneousResolutionFrame`.
 - `resolve_supply_threshold` remains outside action sequences; retry/recovery must resume `ResupplyModule` with the stored eligible snapshot.
 - All catalogued `resolve_fortune_*` actions remain native `FortuneResolveModule` work and may chain `MapMoveModule`/`ArrivalTileModule` without creating a new turn.
+- Unknown action types must fail before runtime execution. Frontend/backend logs may mention the failed action type, but the engine must not create `LegacyActionAdapterModule` work for it.
 
 ## Latest Play Log Revalidation
 

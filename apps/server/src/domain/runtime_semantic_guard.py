@@ -43,7 +43,6 @@ MODULE_ALLOWED_FRAMES: dict[str, set[str]] = {
     "ScoreTokenPlacementCommitModule": {"sequence"},
     "LandingPostEffectsModule": {"sequence"},
     "TrickTileRentModifierModule": {"sequence"},
-    "LegacyActionAdapterModule": {"sequence"},
     "ResupplyModule": {"simultaneous"},
     "SimultaneousProcessingModule": {"simultaneous"},
     "SimultaneousPromptBatchModule": {"simultaneous"},
@@ -82,6 +81,12 @@ ACTION_TYPE_REQUIRED_MODULES: dict[str, str] = {
     "resolve_landing_post_effects": "LandingPostEffectsModule",
     "continue_after_trick_phase": "TrickDeferredFollowupsModule",
     "resolve_trick_tile_rent_modifier": "TrickTileRentModifierModule",
+    "resolve_fortune_takeover_backward": "FortuneResolveModule",
+    "resolve_fortune_subscription": "FortuneResolveModule",
+    "resolve_fortune_land_thief": "FortuneResolveModule",
+    "resolve_fortune_donation_angel": "FortuneResolveModule",
+    "resolve_fortune_forced_trade": "FortuneResolveModule",
+    "resolve_fortune_pious_marker": "FortuneResolveModule",
 }
 
 
@@ -122,6 +127,8 @@ def _validate_runtime_module(module: dict[str, Any]) -> None:
     frame_type = str(module.get("frame_type") or "").strip()
     if not module_type or not frame_type:
         return
+    if module_type == "LegacyActionAdapterModule":
+        raise RuntimeSemanticViolation("LegacyActionAdapterModule is no longer executable; catalogue the action module")
     allowed = MODULE_ALLOWED_FRAMES.get(module_type)
     if allowed and frame_type not in allowed:
         raise RuntimeSemanticViolation(f"{module_type} is not allowed in {frame_type} frame")
@@ -136,13 +143,10 @@ def _validate_action_payload_owner(module_type: str, module: dict[str, Any]) -> 
     action_type = str(action.get("type") or "").strip()
     if not action_type:
         return
-    if action_type.startswith("resolve_fortune_"):
-        expected_module_type = "FortuneResolveModule"
-    else:
-        expected_module_type = ACTION_TYPE_REQUIRED_MODULES.get(action_type)
-    if not expected_module_type or module_type == expected_module_type:
-        return
-    if module_type == "LegacyActionAdapterModule":
+    expected_module_type = ACTION_TYPE_REQUIRED_MODULES.get(action_type)
+    if not expected_module_type:
+        raise RuntimeSemanticViolation(f"unknown action type {action_type} must be catalogued before runtime execution")
+    if module_type == expected_module_type:
         return
     raise RuntimeSemanticViolation(
         f"action type {action_type} belongs to {expected_module_type}, got {module_type}"

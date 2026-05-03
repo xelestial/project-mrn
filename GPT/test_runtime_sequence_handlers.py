@@ -3,11 +3,15 @@ from __future__ import annotations
 
 def test_sequence_handler_registry_covers_trick_modules_and_payload_boundaries() -> None:
     from runtime_modules.handlers.sequence import SEQUENCE_FRAME_HANDLERS, SEQUENCE_PAYLOAD_HANDLERS
+    from runtime_modules.catalog import MODULE_RULES
     from runtime_modules.sequence_modules import ACTION_SEQUENCE_MODULE_TYPES, TRICK_SEQUENCE_MODULE_TYPES
 
     assert set(TRICK_SEQUENCE_MODULE_TYPES) <= set(SEQUENCE_FRAME_HANDLERS)
-    assert (set(ACTION_SEQUENCE_MODULE_TYPES) - {"LegacyActionAdapterModule"}) <= set(SEQUENCE_FRAME_HANDLERS)
-    assert "action" in SEQUENCE_PAYLOAD_HANDLERS
+    assert set(ACTION_SEQUENCE_MODULE_TYPES) <= set(SEQUENCE_FRAME_HANDLERS)
+    assert "LegacyActionAdapterModule" not in MODULE_RULES
+    assert "LegacyActionAdapterModule" not in ACTION_SEQUENCE_MODULE_TYPES
+    assert "LegacyActionAdapterModule" not in SEQUENCE_FRAME_HANDLERS
+    assert "action" not in SEQUENCE_PAYLOAD_HANDLERS
     assert "pending_turn_completion" in SEQUENCE_PAYLOAD_HANDLERS
 
 
