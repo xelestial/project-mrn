@@ -12,6 +12,7 @@ from runtime_modules.sequence_modules import (
     build_action_sequence_frame,
     build_roll_and_arrive_sequence_frame,
     build_trick_sequence_frame,
+    module_type_for_action,
 )
 from runtime_modules.turn_modules import build_turn_frame
 
@@ -86,6 +87,85 @@ def test_fortune_resolve_has_explicit_sequence_handler_not_payload_fallback() ->
     from runtime_modules.handlers.sequence import SEQUENCE_FRAME_HANDLERS
 
     assert "FortuneResolveModule" in SEQUENCE_FRAME_HANDLERS
+
+
+def test_fortune_action_types_are_never_legacy_or_turn_modules() -> None:
+    fortune_action_types = [
+        "resolve_fortune_bonus_roll",
+        "resolve_fortune_land_thief",
+        "resolve_fortune_purchase_discount",
+        "resolve_fortune_move_to_marker",
+    ]
+
+    assert {module_type_for_action(action_type) for action_type in fortune_action_types} == {"FortuneResolveModule"}
+
+
+def test_fortune_followup_is_parented_under_current_sequence_module() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+        def _execute_action(self, state, action, *, queue_followups: bool):
+            assert action.type == "resolve_fortune_bonus_roll"
+            assert queue_followups is True
+            state.pending_actions.append(
+                ActionEnvelope(
+                    action_id="fortune-followup-move",
+                    type="apply_move",
+                    actor_player_id=0,
+                    source="fortune",
+                    payload={"move_value": 2},
+                )
+            )
+            return {"type": "QUEUED_MOVE"}
+
+        def _log(self, _event):
+            return None
+
+    frame = build_action_sequence_frame(
+        1,
+        0,
+        0,
+        [
+            {
+                "action_id": "fortune-1",
+                "type": "resolve_fortune_bonus_roll",
+                "actor_player_id": 0,
+                "source": "fortune",
+                "payload": {},
+            },
+            {
+                "action_id": "purchase-after-fortune",
+                "type": "request_purchase_tile",
+                "actor_player_id": 0,
+                "source": "arrival",
+                "payload": {"tile_index": 4},
+            },
+        ],
+        parent_frame_id="turn:1:p0",
+        parent_module_id="mod:turn:1:p0:dice",
+        session_id="test-session",
+    )
+    state = SimpleNamespace(
+        pending_actions=[],
+        pending_turn_completion={},
+        players=[SimpleNamespace(player_id=0, alive=True)],
+        runtime_frame_stack=[frame],
+        runtime_module_journal=[],
+        rounds_completed=0,
+        current_round_order=[0],
+        turn_index=0,
+    )
+
+    result = ModuleRunner().advance_engine(FakeEngine(), state)
+
+    assert result["module_type"] == "FortuneResolveModule"
+    followup_frame = state.runtime_frame_stack[-1]
+    assert followup_frame is not frame
+    assert followup_frame.frame_type == "sequence"
+    assert followup_frame.parent_frame_id == frame.frame_id
+    assert followup_frame.created_by_module_id == frame.module_queue[0].module_id
+    assert followup_frame.module_queue[0].module_type == "MapMoveModule"
+    assert all(active.frame_type != "turn" for active in state.runtime_frame_stack)
 
 
 def test_fortune_followup_actions_stay_in_sequence_module_chain() -> None:
@@ -534,6 +614,97 @@ def test_trick_followup_runs_inside_child_sequence_before_turn_dice() -> None:
     assert trick_module.status == "suspended"
     assert dice_module.status == "queued"
     assert sequence_frame.status == "running"
+
+
+def test_bandit_mark_then_trick_followup_never_replays_target_or_trick_window() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+        def __init__(self) -> None:
+            self.trick_choice_calls = 0
+            self.finish_calls = 0
+
+        def _emit_vis(self, *_args, **_kwargs):
+            raise AssertionError("completed TrickWindowModule must not reopen visual prompt")
+
+        def _resolve_pending_marks(self, *_args, **_kwargs):
+            raise AssertionError("pending mark resolution must not replay after trick followup")
+
+        def _apply_character_start(self, *_args, **_kwargs):
+            raise AssertionError("character start must not replay after trick followup")
+
+        def _adjudicate_character_mark(self, *_args, **_kwargs):
+            raise AssertionError("target adjudicator must not replay after trick followup")
+
+        def _use_trick_phase(self, *_args, **_kwargs):
+            self.trick_choice_calls += 1
+            return False
+
+        def _finish_turn_after_trick_phase(self, *_args, **_kwargs):
+            self.finish_calls += 1
+
+    turn_frame = build_turn_frame(
+        1,
+        0,
+        parent_module_id="mod:round:1:playerturn:p0",
+        session_id="test-session",
+    )
+    trick_module = next(module for module in turn_frame.module_queue if module.module_type == "TrickWindowModule")
+    for module in turn_frame.module_queue:
+        if module.module_id == trick_module.module_id:
+            break
+        module.status = "completed"
+        turn_frame.completed_module_ids.append(module.module_id)
+    trick_module.status = "suspended"
+    trick_module.cursor = "child_trick_sequence"
+    trick_module.payload["window_opened"] = True
+    turn_frame.status = "suspended"
+
+    sequence_frame = build_trick_sequence_frame(
+        1,
+        0,
+        0,
+        parent_frame_id=turn_frame.frame_id,
+        parent_module_id=trick_module.module_id,
+        session_id="test-session",
+    )
+    for module in sequence_frame.module_queue[:2]:
+        module.status = "completed"
+        sequence_frame.completed_module_ids.append(module.module_id)
+    resolve_module = sequence_frame.module_queue[2]
+    resolve_module.payload["followup_trick_prompt"] = True
+    resolve_module.payload["turn_context"] = {"after": "bandit_mark"}
+    trick_module.suspension_id = sequence_frame.frame_id
+
+    state = SimpleNamespace(
+        current_weather_effects=[],
+        pending_actions=[],
+        pending_turn_completion={},
+        players=[SimpleNamespace(player_id=0, alive=True, trick_hand=[], current_character="산적")],
+        runtime_frame_stack=[turn_frame, sequence_frame],
+        runtime_module_journal=[],
+        runtime_modifier_registry=ModifierRegistryState(),
+        rounds_completed=0,
+        current_round_order=[0],
+        turn_index=0,
+    )
+    engine = FakeEngine()
+    runner = ModuleRunner()
+
+    module_types = [runner.advance_engine(engine, state)["module_type"] for _ in range(7)]
+
+    assert module_types == [
+        "TrickResolveModule",
+        "TrickChoiceModule",
+        "TrickDiscardModule",
+        "TrickDeferredFollowupsModule",
+        "TrickVisibilitySyncModule",
+        "DiceRollModule",
+        "MovementResolveModule",
+    ]
+    assert engine.trick_choice_calls == 1
+    assert engine.finish_calls == 1
+    assert len([frame for frame in state.runtime_frame_stack if frame.frame_type == "sequence"]) == 1
 
 
 def test_sequence_module_receives_applicable_modifiers_before_execution() -> None:

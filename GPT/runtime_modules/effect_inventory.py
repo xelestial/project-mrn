@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from .modifiers import MUROE_SKILL_SUPPRESSION_KIND
+from .modifiers import BUILDER_FREE_PURCHASE_KIND, MUROE_SKILL_SUPPRESSION_KIND, PABAL_DICE_MODIFIER_KIND
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +112,7 @@ EFFECT_INVENTORY: tuple[EffectInventoryEntry, ...] = (
         frame_kind="turn",
         prompt_contract="pabal_dice_mode",
         redis_resume_contracts=("PromptContinuation",),
+        modifier_kind=PABAL_DICE_MODIFIER_KIND,
         runtime_boundary_modules=("CharacterStartModule", "DiceRollModule"),
         notes="인물 시작에서 이번 턴 주사위 modifier를 심고 DiceRollModule이 추가/감소 및 중복 보정을 소비한다.",
     ),
@@ -196,6 +197,7 @@ EFFECT_INVENTORY: tuple[EffectInventoryEntry, ...] = (
         frame_kind="sequence",
         prompt_contract="purchase_tile",
         redis_resume_contracts=("PromptContinuation",),
+        modifier_kind=BUILDER_FREE_PURCHASE_KIND,
         runtime_boundary_modules=("CharacterStartModule", "PurchaseDecisionModule", "PurchaseCommitModule"),
         notes="턴 시작 무료 구매 modifier를 구매 결정/커밋 시퀀스에서만 소비한다.",
     ),

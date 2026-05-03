@@ -7,8 +7,17 @@ from policy.environment_traits import WEATHER_FATTENED_HORSES_ID, has_weather_id
 from viewer.events import Phase
 from viewer.public_state import build_turn_end_snapshot
 
+from policy.character_traits import is_builder, is_pabalggun
+
 from ..contracts import FrameState, ModuleRef
-from ..modifiers import MUROE_SKILL_SUPPRESSION_KIND, ModifierRegistry
+from ..modifiers import (
+    MUROE_SKILL_SUPPRESSION_KIND,
+    PABAL_DICE_MODIFIER_KIND,
+    ModifierRegistry,
+    consume_pabal_dice_modifier,
+    seed_builder_purchase_modifier,
+    seed_pabal_dice_modifier,
+)
 from ..sequence_modules import build_trick_sequence_frame
 
 
@@ -113,7 +122,8 @@ def handle_character_start(ctx: TurnFrameHandlerContext) -> dict[str, Any]:
         player.extra_dice_count_this_turn += 1
     module.cursor = "await_character_prompt"
     try:
-        engine._apply_character_start(state, player)
+        if not _seed_native_character_start_modifier(ctx):
+            engine._apply_character_start(state, player)
     except Exception:
         module.status = "suspended"
         module.suspension_id = frame.frame_id
@@ -125,6 +135,56 @@ def handle_character_start(ctx: TurnFrameHandlerContext) -> dict[str, Any]:
         state.turn_index += 1
         runner._complete_turn_frame_and_parent(state, frame)
     return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
+
+
+def _seed_native_character_start_modifier(ctx: TurnFrameHandlerContext) -> bool:
+    player = ctx.player
+    char = str(getattr(player, "current_character", "") or "")
+    if is_pabalggun(char):
+        dice_mode = "plus_one"
+        ability_tier = 1
+        if int(getattr(player, "shards", 0) or 0) >= 8:
+            ability_tier = 2
+            chooser = getattr(getattr(ctx.engine, "policy", None), "choose_pabal_dice_mode", None)
+            requested_mode = chooser(ctx.state, player) if callable(chooser) else None
+            if requested_mode in {"plus_one", "minus_one"}:
+                dice_mode = requested_mode
+        seed_pabal_dice_modifier(
+            ctx.state,
+            player_id=ctx.player_id,
+            dice_mode=dice_mode,
+            source_module_id=ctx.module.module_id,
+        )
+        ctx.module.payload["native_character_ability"] = {
+            "kind": PABAL_DICE_MODIFIER_KIND,
+            "dice_mode": dice_mode,
+            "ability_tier": ability_tier,
+        }
+        ctx.engine._log(
+            {
+                "event": "character_ability_modifier_seeded",
+                "player": player.player_id + 1,
+                "character": char,
+                "kind": PABAL_DICE_MODIFIER_KIND,
+                "dice_mode": dice_mode,
+                "ability_tier": ability_tier,
+                "shards": getattr(player, "shards", 0),
+            }
+        )
+        return True
+    if is_builder(char):
+        seed_builder_purchase_modifier(ctx.state, player_id=ctx.player_id, source_module_id=ctx.module.module_id)
+        ctx.module.payload["native_character_ability"] = {"kind": "builder_free_purchase"}
+        ctx.engine._log(
+            {
+                "event": "character_ability_modifier_seeded",
+                "player": player.player_id + 1,
+                "character": char,
+                "kind": "builder_free_purchase",
+            }
+        )
+        return True
+    return False
 
 
 def handle_target_judicator(ctx: TurnFrameHandlerContext) -> dict[str, Any]:
@@ -273,6 +333,7 @@ def handle_dice_roll(ctx: TurnFrameHandlerContext) -> dict[str, Any]:
     player = ctx.player
     context = runner._turn_context(frame)
     module.cursor = "await_turn_prompt"
+    _apply_dice_roll_modifiers(state, player_id, player)
     try:
         engine._finish_turn_after_trick_phase(
             state,
@@ -300,6 +361,17 @@ def handle_dice_roll(ctx: TurnFrameHandlerContext) -> dict[str, Any]:
         }
     runner._complete_module(state, frame, module)
     return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
+
+
+def _apply_dice_roll_modifiers(state: Any, player_id: int, player: Any) -> None:
+    modifier = consume_pabal_dice_modifier(state, player_id=player_id)
+    if modifier is None:
+        return
+    dice_delta = int(modifier.payload.get("dice_delta", 0) or 0)
+    if dice_delta >= 0:
+        player.extra_dice_count_this_turn += dice_delta
+    else:
+        player.trick_dice_delta_this_turn += dice_delta
 
 
 TURN_FRAME_HANDLERS: dict[str, TurnFrameHandler] = {

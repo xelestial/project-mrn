@@ -7,6 +7,8 @@ from .contracts import Modifier, ModifierRegistryState
 
 MUROE_SKILL_SUPPRESSION_KIND = "suppress_character_skill"
 MUROE_SKILL_SUPPRESSION_REASON = "muroe_blocked_by_eosa"
+PABAL_DICE_MODIFIER_KIND = "pabalggun_dice_delta"
+BUILDER_FREE_PURCHASE_KIND = "builder_free_purchase"
 
 
 @dataclass(slots=True)
@@ -102,6 +104,67 @@ def character_skill_suppression_modifier(state: Any, player_id: int) -> Modifier
     registry = ModifierRegistry(state.runtime_modifier_registry)
     for modifier in registry.applicable("CharacterStartModule", owner_player_id=player_id):
         if modifier.payload.get("kind") != MUROE_SKILL_SUPPRESSION_KIND:
+            continue
+        return registry.consume(modifier.modifier_id)
+    return None
+
+
+def seed_pabal_dice_modifier(
+    state: Any,
+    *,
+    player_id: int,
+    dice_mode: str,
+    source_module_id: str,
+) -> Modifier:
+    dice_delta = -1 if dice_mode == "minus_one" else 1
+    round_index = int(getattr(state, "rounds_completed", 0) or 0) + 1
+    modifier = Modifier(
+        modifier_id=f"modifier:round:{round_index}:pabalggun:{player_id}:dice_delta",
+        source_module_id=source_module_id,
+        target_module_type="DiceRollModule",
+        scope="single_use",
+        owner_player_id=player_id,
+        priority=10,
+        payload={
+            "kind": PABAL_DICE_MODIFIER_KIND,
+            "dice_mode": dice_mode,
+            "dice_delta": dice_delta,
+            "source_player_id": player_id,
+        },
+        propagation=[],
+        expires_on="turn_completed",
+    )
+    ModifierRegistry(state.runtime_modifier_registry).add(modifier)
+    return modifier
+
+
+def seed_builder_purchase_modifier(state: Any, *, player_id: int, source_module_id: str) -> Modifier:
+    round_index = int(getattr(state, "rounds_completed", 0) or 0) + 1
+    modifier = Modifier(
+        modifier_id=f"modifier:round:{round_index}:builder:{player_id}:free_purchase",
+        source_module_id=source_module_id,
+        target_module_type="PurchaseDecisionModule",
+        scope="turn",
+        owner_player_id=player_id,
+        priority=10,
+        payload={
+            "kind": BUILDER_FREE_PURCHASE_KIND,
+            "source_player_id": player_id,
+        },
+        propagation=["PurchaseCommitModule", "ArrivalTileModule"],
+        expires_on="turn_completed",
+    )
+    ModifierRegistry(state.runtime_modifier_registry).add(modifier)
+    return modifier
+
+
+def consume_pabal_dice_modifier(state: Any, *, player_id: int) -> Modifier | None:
+    registry_state = getattr(state, "runtime_modifier_registry", None)
+    if registry_state is None:
+        return None
+    registry = ModifierRegistry(registry_state)
+    for modifier in registry.applicable("DiceRollModule", owner_player_id=player_id):
+        if modifier.payload.get("kind") != PABAL_DICE_MODIFIER_KIND:
             continue
         return registry.consume(modifier.modifier_id)
     return None

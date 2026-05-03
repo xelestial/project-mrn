@@ -30,6 +30,23 @@ def test_eosa_declares_muroe_suppression_as_character_start_modifier():
     assert entry.modifier_kind == MUROE_SKILL_SUPPRESSION_KIND
 
 
+def test_native_character_modifiers_are_declared_in_effect_inventory():
+    from runtime_modules.effect_inventory import EFFECT_INVENTORY, effect_by_id
+    from runtime_modules.modifiers import BUILDER_FREE_PURCHASE_KIND, PABAL_DICE_MODIFIER_KIND
+
+    pabal = effect_by_id(EFFECT_INVENTORY, "character:pabalggun:dice_modifier")
+    assert pabal.producer_module == "CharacterStartModule"
+    assert pabal.consumer_modules == ("DiceRollModule",)
+    assert pabal.modifier_kind == PABAL_DICE_MODIFIER_KIND
+    assert pabal.frame_kind == "turn"
+
+    builder = effect_by_id(EFFECT_INVENTORY, "character:builder:free_purchase")
+    assert builder.producer_module == "CharacterStartModule"
+    assert builder.consumer_modules == ("PurchaseDecisionModule", "PurchaseCommitModule")
+    assert builder.modifier_kind == BUILDER_FREE_PURCHASE_KIND
+    assert builder.frame_kind == "sequence"
+
+
 def test_character_ability_inventory_covers_all_character_cards():
     from characters import CHARACTERS
     from runtime_modules.effect_inventory import EFFECT_INVENTORY

@@ -4619,6 +4619,207 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(getattr(seen[0], "request_type"), "movement")
         self.assertEqual(getattr(seen[0], "module_cursor"), "move:await_choice")
 
+    def test_module_resume_preserves_checkpoint_frame_stack_without_replay(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        import engine
+        from runtime_modules.contracts import FrameState, ModuleRef, PromptContinuation
+        from state import GameState
+
+        class _CommandStoreStub:
+            def __init__(self) -> None:
+                self.commands: list[dict] = []
+                self.offsets: list[tuple[str, str, int]] = []
+
+            def list_commands(self, session_id: str) -> list[dict]:
+                return [copy.deepcopy(command) for command in self.commands if command["session_id"] == session_id]
+
+            def save_consumer_offset(self, consumer_name: str, session_id: str, seq: int) -> None:
+                self.offsets.append((consumer_name, session_id, int(seq)))
+
+        store = _MutableGameStateStoreStub()
+        command_store = _CommandStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            game_state_store=store,
+            command_store=command_store,
+        )
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42, "runtime": {"runner_kind": "module", "ai_decision_delay_ms": 0}},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.start_session(session.session_id, session.host_token)
+        config = runtime._config_factory.create(session.resolved_parameters)  # type: ignore[attr-defined]
+        state = GameState.create(config)
+        state.runtime_runner_kind = "module"
+        state.runtime_checkpoint_schema_version = 3
+        state.runtime_frame_stack = [
+            FrameState(
+                frame_id="turn:1:p0",
+                frame_type="turn",
+                owner_player_id=0,
+                parent_frame_id=None,
+                status="suspended",
+                active_module_id="mod:turn:1:p0:trick_window",
+                completed_module_ids=[
+                    "mod:turn:1:p0:character_start",
+                    "mod:turn:1:p0:target_judicator",
+                ],
+                module_queue=[
+                    ModuleRef(
+                        module_id="mod:turn:1:p0:character_start",
+                        module_type="CharacterStartModule",
+                        phase="character",
+                        owner_player_id=0,
+                        status="completed",
+                        cursor="done",
+                    ),
+                    ModuleRef(
+                        module_id="mod:turn:1:p0:target_judicator",
+                        module_type="TargetJudicatorModule",
+                        phase="target",
+                        owner_player_id=0,
+                        status="completed",
+                        cursor="done",
+                    ),
+                    ModuleRef(
+                        module_id="mod:turn:1:p0:trick_window",
+                        module_type="TrickWindowModule",
+                        phase="trick",
+                        owner_player_id=0,
+                        status="suspended",
+                        cursor="child_sequence:seq:trick:1:p0",
+                    ),
+                ],
+            ),
+            FrameState(
+                frame_id="seq:trick:1:p0",
+                frame_type="sequence",
+                owner_player_id=0,
+                parent_frame_id="turn:1:p0",
+                status="suspended",
+                active_module_id="mod:trick_sequence:1:p0:choice",
+                created_by_module_id="mod:turn:1:p0:trick_window",
+                module_queue=[
+                    ModuleRef(
+                        module_id="mod:trick_sequence:1:p0:resolve",
+                        module_type="TrickResolveModule",
+                        phase="trick",
+                        owner_player_id=0,
+                        status="completed",
+                        cursor="done",
+                    ),
+                    ModuleRef(
+                        module_id="mod:trick_sequence:1:p0:choice",
+                        module_type="TrickChoiceModule",
+                        phase="trick",
+                        owner_player_id=0,
+                        status="suspended",
+                        cursor="await_trick_prompt",
+                        suspension_id="suspend:trick_choice:1",
+                    ),
+                ],
+                completed_module_ids=["mod:trick_sequence:1:p0:resolve"],
+            ),
+        ]
+        state.runtime_active_prompt = PromptContinuation(
+            request_id="req_trick_1",
+            prompt_instance_id=7,
+            resume_token="resume_trick_1",
+            frame_id="seq:trick:1:p0",
+            module_id="mod:trick_sequence:1:p0:choice",
+            module_type="TrickChoiceModule",
+            module_cursor="await_trick_prompt",
+            player_id=0,
+            request_type="trick_to_use",
+            legal_choices=[{"choice_id": "defer"}, {"choice_id": "use_trick"}],
+        )
+        store.current_state = state.to_checkpoint_payload()
+        store.checkpoint = {
+            "schema_version": 3,
+            "session_id": session.session_id,
+            "runner_kind": "module",
+            "has_snapshot": True,
+        }
+        command_store.commands.append(
+            {
+                "seq": 1,
+                "type": "decision_submitted",
+                "session_id": session.session_id,
+                "payload": {
+                    "request_id": "req_trick_1",
+                    "player_id": 1,
+                    "request_type": "trick_to_use",
+                    "choice_id": "use_trick",
+                    "resume_token": "resume_trick_1",
+                    "frame_id": "seq:trick:1:p0",
+                    "module_id": "mod:trick_sequence:1:p0:choice",
+                    "module_type": "TrickChoiceModule",
+                    "module_cursor": "await_trick_prompt",
+                    "decision": {"card_id": "quick_wit"},
+                },
+            }
+        )
+        seen: list[dict] = []
+
+        def _fake_run_next_transition(self, resumed_state, decision_resume=None):  # noqa: ANN001
+            del self
+            frames = resumed_state.runtime_frame_stack
+            seen.append(
+                {
+                    "decision_resume": decision_resume,
+                    "frame_ids": [frame.frame_id for frame in frames],
+                    "frame_statuses": [frame.status for frame in frames],
+                    "active_modules": [frame.active_module_id for frame in frames],
+                    "turn_window_cursor": frames[0].module_queue[2].cursor,
+                    "choice_cursor": frames[1].module_queue[1].cursor,
+                    "completed_turn_modules": list(frames[0].completed_module_ids),
+                    "active_prompt_token": resumed_state.runtime_active_prompt.resume_token,
+                }
+            )
+            return {"status": "committed", "runner_kind": "module", "module_type": "TrickChoiceModule"}
+
+        with patch.object(
+            runtime,
+            "_prompt_sequence_seed_for_transition",
+            side_effect=AssertionError("module resume must not rebuild state from legacy prompt seeds"),
+        ), patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition):
+            result = runtime._run_engine_transition_once_sync(
+                None,
+                session.session_id,
+                42,
+                None,
+                True,
+                "runtime-worker",
+                1,
+            )
+
+        self.assertEqual(result["status"], "committed")
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0]["frame_ids"], ["turn:1:p0", "seq:trick:1:p0"])
+        self.assertEqual(seen[0]["frame_statuses"], ["suspended", "suspended"])
+        self.assertEqual(
+            seen[0]["active_modules"],
+            ["mod:turn:1:p0:trick_window", "mod:trick_sequence:1:p0:choice"],
+        )
+        self.assertEqual(seen[0]["turn_window_cursor"], "child_sequence:seq:trick:1:p0")
+        self.assertEqual(seen[0]["choice_cursor"], "await_trick_prompt")
+        self.assertEqual(
+            seen[0]["completed_turn_modules"],
+            ["mod:turn:1:p0:character_start", "mod:turn:1:p0:target_judicator"],
+        )
+        self.assertEqual(seen[0]["active_prompt_token"], "resume_trick_1")
+        self.assertEqual(getattr(seen[0]["decision_resume"], "choice_id"), "use_trick")
+        self.assertEqual(store.commits[0]["checkpoint"]["active_module_type"], "TrickChoiceModule")
+        self.assertEqual(store.commits[0]["checkpoint"]["active_module_cursor"], "await_trick_prompt")
+
     def test_bridge_consumes_valid_decision_resume_without_creating_prompt(self) -> None:
         RuntimeService._ensure_gpt_import_path()
         from engine import DecisionRequest
