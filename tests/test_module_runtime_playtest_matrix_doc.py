@@ -29,6 +29,8 @@ REQUIRED_SCENARIOS = {
     "MRN-MOD-010": "라운드 종료 카드 플립",
     "MRN-MOD-011": "프론트 중복 결정 전송",
     "MRN-MOD-012": "prompt continuation mismatch",
+    "MRN-MOD-013": "남의 토지 도착 임대료",
+    "MRN-MOD-014": "재보급 eligible 스냅샷 재개",
 }
 
 REQUIRED_COVERAGE_TOKENS = {
@@ -124,7 +126,11 @@ def test_redis_runtime_deployment_contract_documents_required_process_roles() ->
 def test_round_action_control_matrix_covers_runtime_module_catalog_and_effects() -> None:
     from runtime_modules.catalog import MODULE_RULES
     from runtime_modules.effect_inventory import EFFECT_INVENTORY, VIRTUAL_EFFECT_MODULE_FRAME_KINDS
-    from runtime_modules.sequence_modules import ACTION_TYPE_TO_MODULE_TYPE, FORTUNE_ACTION_TYPE_TO_MODULE_TYPE
+    from runtime_modules.sequence_modules import (
+        ACTION_TYPE_TO_MODULE_TYPE,
+        FORTUNE_ACTION_TYPE_TO_MODULE_TYPE,
+        SIMULTANEOUS_ACTION_TYPES,
+    )
 
     text = ROUND_ACTION_CONTROL_MATRIX.read_text(encoding="utf-8")
 
@@ -143,6 +149,11 @@ def test_round_action_control_matrix_covers_runtime_module_catalog_and_effects()
         assert f"`{module_type}`" in text
     assert "unknown `resolve_fortune_*` action" in text
     assert "`LegacyActionAdapterModule`" in text
+
+    for action_type in SIMULTANEOUS_ACTION_TYPES:
+        assert f"`{action_type}`" in text
+    assert "`SimultaneousResolutionFrame`" in text
+    assert "`ResupplyModule`" in text
 
     for entry in EFFECT_INVENTORY:
         assert f"`{entry.effect_id}`" in text

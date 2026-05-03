@@ -56,6 +56,16 @@ Action sequence names must resolve to explicit module boundaries. Backend resume
 | unknown `resolve_fortune_*` action | `LegacyActionAdapterModule` until catalogued |
 | unknown legacy action | `LegacyActionAdapterModule` |
 
+## Simultaneous Action Inventory
+
+These actions are never valid inside a `SequenceFrame` action adapter. They
+must be promoted by `ModuleRunner` into a `SimultaneousResolutionFrame` before
+execution.
+
+| Action type | Runtime frame/module |
+| --- | --- |
+| `resolve_supply_threshold` | `SimultaneousResolutionFrame` / `ResupplyModule` |
+
 ## Effect Boundary Inventory
 
 Each effect is owned by a producer module and consumed only by declared runtime boundary modules. This is the structural replacement for one-off backend comparisons such as "if this character then block that target"; the character/trick/fortune effect must seed a modifier, prompt, or sequence module, and downstream modules consume that declared boundary.

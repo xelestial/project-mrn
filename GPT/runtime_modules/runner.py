@@ -418,10 +418,28 @@ class ModuleRunner:
         ]
         if not participants:
             participants = [int(getattr(player, "player_id")) for player in getattr(state, "players", []) if getattr(player, "alive", True)]
+        supplied_eligible_by_player = self._resupply_int_list_by_player(
+            self._first_mapping_from_payloads(
+                "eligible_burden_deck_indices_by_player",
+                action_inner,
+                action_payload,
+            )
+        )
+        supplied_processed_by_player = self._resupply_int_list_by_player(
+            self._first_mapping_from_payloads(
+                "processed_burden_deck_indices_by_player",
+                action_inner,
+                action_payload,
+            )
+        )
         eligible_by_player: dict[str, list[int]] = {}
         for player_id in participants:
+            player_key = str(player_id)
+            if player_key in supplied_eligible_by_player:
+                eligible_by_player[player_key] = supplied_eligible_by_player[player_key]
+                continue
             player = state.players[player_id]
-            eligible_by_player[str(player_id)] = [
+            eligible_by_player[player_key] = [
                 int(getattr(card, "deck_index"))
                 for card in getattr(player, "trick_hand", [])
                 if getattr(card, "is_burden", False) and isinstance(getattr(card, "deck_index", None), int)
@@ -431,7 +449,7 @@ class ModuleRunner:
             "threshold": threshold,
             "participants": participants,
             "eligible_burden_deck_indices_by_player": eligible_by_player,
-            "processed_burden_deck_indices_by_player": {},
+            "processed_burden_deck_indices_by_player": supplied_processed_by_player,
             "exchanged_by_player": {},
             "batch_ordinal": 0,
             "current_batch_targets_by_player": {},
@@ -447,6 +465,35 @@ class ModuleRunner:
             }
         )
         return resupply_state
+
+    @staticmethod
+    def _first_mapping_from_payloads(key: str, *payloads: Any) -> Any:
+        for payload in payloads:
+            if isinstance(payload, dict) and isinstance(payload.get(key), dict):
+                return payload[key]
+        return {}
+
+    @staticmethod
+    def _resupply_int_list_by_player(raw: Any) -> dict[str, list[int]]:
+        if not isinstance(raw, dict):
+            return {}
+        result: dict[str, list[int]] = {}
+        for player_id, values in raw.items():
+            if not isinstance(values, list):
+                continue
+            seen: set[int] = set()
+            converted: list[int] = []
+            for value in values:
+                try:
+                    deck_index = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if deck_index in seen:
+                    continue
+                seen.add(deck_index)
+                converted.append(deck_index)
+            result[str(player_id)] = converted
+        return result
 
     def _build_next_resupply_batch(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef):
         resupply_state = self._ensure_resupply_state(engine, state, module)

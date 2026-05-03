@@ -58,6 +58,8 @@ FORTUNE_ACTION_TYPE_TO_MODULE_TYPE = {
     "resolve_fortune_pious_marker": "FortuneResolveModule",
 }
 
+SIMULTANEOUS_ACTION_TYPES = frozenset({"resolve_supply_threshold"})
+
 
 def module_type_for_action(action_type: str) -> str:
     return (
@@ -65,6 +67,14 @@ def module_type_for_action(action_type: str) -> str:
         or FORTUNE_ACTION_TYPE_TO_MODULE_TYPE.get(action_type)
         or "LegacyActionAdapterModule"
     )
+
+
+def _validate_action_sequence_action(action: dict) -> None:
+    action_type = str(action.get("type", ""))
+    if action_type in SIMULTANEOUS_ACTION_TYPES:
+        raise ValueError(
+            f"{action_type} must be scheduled as a SimultaneousResolutionFrame before action sequence construction"
+        )
 
 
 def build_sequence_module(
@@ -145,6 +155,8 @@ def build_action_sequence_frame(
     parent_module_id: str,
     session_id: str = "",
 ) -> FrameState:
+    for action in actions:
+        _validate_action_sequence_action(action)
     return FrameState(
         frame_id=sequence_frame_id("action", round_index, player_id, ordinal),
         frame_type="sequence",

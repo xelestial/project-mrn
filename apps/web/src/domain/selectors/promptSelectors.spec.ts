@@ -625,6 +625,11 @@ describe("promptSelectors", () => {
       { trick_sequence_active: false, active_sequence: "" },
       { trick_sequence_active: true, active_sequence: "trick" },
     ],
+    [
+      "burden_exchange",
+      { active_frame_type: "turn", active_module_type: "ArrivalTileModule" },
+      { active_frame_type: "simultaneous", active_module_type: "ResupplyModule" },
+    ],
   ])("gates %s prompts by the runtime action-possible matrix", (requestType, blockedRuntime, allowedRuntime) => {
     const messagesFor = (runtime: Record<string, unknown>, includeProjectedPrompt: boolean): InboundMessage[] => [
       {

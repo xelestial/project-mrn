@@ -8,6 +8,25 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Supply Threshold Simultaneous Runtime Promotion
+
+- What changed:
+  - made `resolve_supply_threshold` invalid inside `ActionSequenceFrame` construction and documented it as a simultaneous-only action
+  - verified pending supply-threshold work is promoted into `SimultaneousResolutionFrame -> ResupplyModule` before regular sequence actions
+  - changed `ResupplyModule` initialization to honor `eligible_burden_deck_indices_by_player` and processed burden snapshots from the action payload instead of recomputing the chain from the current hand on resume
+  - expanded backend reconstruction coverage so stored `runtime_active_prompt_batch` preserves eligibility snapshots across service recreation
+  - added frontend action-possible matrix coverage for `burden_exchange` under `ResupplyModule`/`simultaneous`
+  - extended the playtest matrix with the eligible-snapshot regression scenario
+- Why:
+  - 재보급 is a simultaneous response boundary, not a turn-local sequential adapter
+  - replay/Redis continuation must resume the exact chain the engine already started; newly drawn burden cards must not enter an older threshold chain
+  - frontend stale prompt gating should follow the same active runtime owner as engine/backend state
+- Validation:
+  - `PYTHONPATH=.:GPT uv run pytest -q GPT/test_runtime_sequence_modules.py GPT/test_runtime_simultaneous_modules.py tests/test_module_runtime_playtest_matrix_doc.py apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_simultaneous_batch_continuation_survives_service_reconstruction`
+  - `npm --prefix apps/web run test -- src/domain/selectors/promptSelectors.spec.ts --run`
+  - `python3 tools/plan_policy_gate.py`
+  - `git diff --check`
+
 ## 2026-05-04 Runtime Compose Manifest, Fortune Boundary, And Prompt Matrix
 
 - What changed:

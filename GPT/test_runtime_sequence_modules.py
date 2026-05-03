@@ -394,19 +394,59 @@ def test_rent_payment_stays_in_native_rent_module_before_post_effects() -> None:
     assert engine.executed == ["resolve_rent_payment", "resolve_landing_post_effects"]
 
 
-def test_supply_threshold_action_is_not_built_as_action_sequence_module() -> None:
-    frame = build_action_sequence_frame(
-        1,
-        0,
-        0,
-        [{"type": "resolve_supply_threshold", "actor_player_id": 0}],
-        parent_frame_id="turn:1:p0",
-        parent_module_id="mod:turn:1:p0:arrival",
-        session_id="s1",
+def test_supply_threshold_action_cannot_be_wrapped_in_legacy_action_sequence() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="resolve_supply_threshold.*SimultaneousResolutionFrame"):
+        build_action_sequence_frame(
+            1,
+            0,
+            0,
+            [{"type": "resolve_supply_threshold", "actor_player_id": 0}],
+            parent_frame_id="turn:1:p0",
+            parent_module_id="mod:turn:1:p0:arrival",
+            session_id="s1",
+        )
+
+
+def test_pending_supply_threshold_action_is_promoted_to_resupply_frame_before_sequence_actions() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+    turn_frame = build_turn_frame(1, 0, parent_module_id="mod:round:1:playerturn", session_id="test-session")
+    state = SimpleNamespace(
+        pending_actions=[
+            ActionEnvelope(
+                action_id="supply-1",
+                type="resolve_supply_threshold",
+                actor_player_id=0,
+                source="supply_threshold",
+                payload={"threshold": 3, "participants": [0, 1]},
+            ),
+            ActionEnvelope(
+                action_id="move-after-supply",
+                type="apply_move",
+                actor_player_id=0,
+                source="fortune",
+                payload={"move_value": 2},
+            ),
+        ],
+        pending_turn_completion={},
+        players=[SimpleNamespace(player_id=0, alive=True), SimpleNamespace(player_id=1, alive=True)],
+        runtime_frame_stack=[turn_frame],
+        runtime_module_journal=[],
+        rounds_completed=0,
+        current_round_order=[0, 1],
+        turn_index=0,
     )
 
-    assert all(module.module_type != "ResupplyModule" for module in frame.module_queue)
-    assert frame.module_queue[0].module_type == "LegacyActionAdapterModule"
+    ModuleRunner()._promote_pending_work_to_sequence_frames(FakeEngine(), state)
+
+    assert state.pending_actions == []
+    assert [frame.frame_type for frame in state.runtime_frame_stack] == ["turn", "simultaneous", "sequence"]
+    assert state.runtime_frame_stack[1].module_queue[0].module_type == "ResupplyModule"
+    assert state.runtime_frame_stack[1].module_queue[0].payload["action"]["action_id"] == "supply-1"
+    assert state.runtime_frame_stack[2].module_queue[0].module_type == "MapMoveModule"
 
 
 def test_module_runner_promotes_pending_actions_before_execution() -> None:

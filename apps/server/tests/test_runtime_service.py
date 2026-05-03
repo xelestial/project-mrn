@@ -4687,6 +4687,12 @@ class RuntimeServiceTests(unittest.TestCase):
                 0: {"round_index": 2, "turn_index": 5, "card_name": "무거운 짐"},
                 1: {"round_index": 2, "turn_index": 5, "card_name": "박수"},
             },
+            eligibility_snapshot={
+                "threshold": 3,
+                "targets_by_player": {"0": 101, "1": 102},
+                "eligible_burden_deck_indices_by_player": {"0": [101], "1": [102]},
+                "processed_burden_deck_indices_by_player": {"0": [100]},
+            },
         )
         batch.responses_by_player_id[0] = {"choice_id": "yes"}
         batch.missing_player_ids = [1]
@@ -4738,6 +4744,7 @@ class RuntimeServiceTests(unittest.TestCase):
                     "batch_id": active_batch.batch_id,
                     "missing_player_ids": list(active_batch.missing_player_ids),
                     "responses_by_player_id": dict(active_batch.responses_by_player_id),
+                    "eligibility_snapshot": dict(active_batch.eligibility_snapshot),
                     "frame_type": resumed_state.runtime_frame_stack[0].frame_type,
                     "module_cursor": resumed_state.runtime_frame_stack[0].module_queue[0].cursor,
                     "resume_batch_id": decision_resume.batch_id,
@@ -4776,6 +4783,12 @@ class RuntimeServiceTests(unittest.TestCase):
                     "batch_id": "batch:simul:resupply:2:5",
                     "missing_player_ids": [1],
                     "responses_by_player_id": {0: {"choice_id": "yes"}},
+                    "eligibility_snapshot": {
+                        "threshold": 3,
+                        "targets_by_player": {"0": 101, "1": 102},
+                        "eligible_burden_deck_indices_by_player": {"0": [101], "1": [102]},
+                        "processed_burden_deck_indices_by_player": {"0": [100]},
+                    },
                     "frame_type": "simultaneous",
                     "module_cursor": "await_resupply_batch:5",
                     "resume_batch_id": "batch:simul:resupply:2:5",
@@ -4788,6 +4801,15 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(
             store.commits[0]["checkpoint"]["runtime_active_prompt_batch"]["batch_id"],
             "batch:simul:resupply:2:5",
+        )
+        self.assertEqual(
+            store.commits[0]["checkpoint"]["runtime_active_prompt_batch"]["eligibility_snapshot"],
+            {
+                "threshold": 3,
+                "targets_by_player": {"0": 101, "1": 102},
+                "eligible_burden_deck_indices_by_player": {"0": [101], "1": [102]},
+                "processed_burden_deck_indices_by_player": {"0": [100]},
+            },
         )
         self.assertEqual(store.commits[0]["checkpoint"]["active_module_type"], "ResupplyModule")
 

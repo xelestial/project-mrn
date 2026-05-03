@@ -242,3 +242,48 @@ def test_resupply_module_commits_only_after_all_batch_responses() -> None:
     assert 101 not in {card.deck_index for card in state.players[0].trick_hand}
     assert 102 not in {card.deck_index for card in state.players[1].trick_hand}
     assert frame.module_queue[0].status == "completed"
+
+
+def test_resupply_module_uses_action_eligibility_snapshot_when_resuming() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config, HeuristicPolicy(), rng=random.Random(7), enable_logging=False)
+    engine._reset_run_trackers()
+    state = engine.create_initial_state(deal_initial_tricks=False)
+    state.runtime_runner_kind = "module"
+    state.trick_draw_pile = [
+        TrickCard(deck_index=200 + index, name="무료 증정", description="drawn card")
+        for index in range(4)
+    ]
+    state.players[0].cash = 10
+    state.players[0].trick_hand = [
+        TrickCard(deck_index=103, name="가벼운 짐", description="new burden"),
+        TrickCard(deck_index=101, name="무거운 짐", description="original burden"),
+    ]
+    frame = build_resupply_frame(
+        1,
+        1,
+        parent_frame_id="turn:1:p0",
+        parent_module_id="mod:turn:1:p0:arrival",
+        participants=[0],
+    )
+    frame.module_queue[0].payload["action"] = {
+        "type": "resolve_supply_threshold",
+        "actor_player_id": 0,
+        "source": "supply_threshold",
+        "payload": {
+            "threshold": 3,
+            "participants": [0],
+            "eligible_burden_deck_indices_by_player": {"0": [101]},
+            "processed_burden_deck_indices_by_player": {},
+        },
+    }
+    state.runtime_frame_stack = [frame]
+
+    result = ModuleRunner().advance_engine(engine, state)
+
+    assert result["status"] == "waiting_input"
+    assert state.runtime_active_prompt_batch is not None
+    assert state.runtime_active_prompt_batch.eligibility_snapshot["targets_by_player"] == {"0": 101}
+    assert frame.module_queue[0].payload["resupply_state"][
+        "eligible_burden_deck_indices_by_player"
+    ] == {"0": [101]}
