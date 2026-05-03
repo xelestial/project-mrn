@@ -1,12 +1,36 @@
 # [WORKLOG] Implementation Journal
 
 Status: ACTIVE  
-Updated: 2026-05-03
+Updated: 2026-05-04
 
 ## Rules
 
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
+
+## 2026-05-04 Production-Like Restart Smoke And Runtime Boundary Matrix
+
+- What changed:
+  - committed the previous Redis restart recovery/readiness stabilization batch as `7f4b25b Harden Redis runtime recovery smoke`
+  - extended `tools/scripts/redis_restart_smoke.py` so operators can run the same smoke against production-like topologies with `--skip-up`, `--topology-name`, `--restart-command`, `--worker-health-command`, and `--expected-redis-hash-tag`
+  - added retrying worker readiness checks around restart so transient container/process startup timing does not mask the actual Redis recovery contract
+  - added `deploy/redis-runtime/process-contract.json` and `docs/current/engineering/[CONTRACT]_REDIS_RUNTIME_DEPLOYMENT.md` as the server/worker/process deployment contract
+  - expanded `docs/current/runtime/round-action-control-matrix.md` into a test-enforced inventory for all runtime modules, action adapter mappings, virtual effect modules, and declared character/trick/fortune/simultaneous effects
+- Why:
+  - local Compose restart coverage was useful but not enough; production-like deployment must prove the same shared Redis hash tag, restart ordering, and worker health gates
+  - deployment manifests should be generated from an explicit role contract instead of implicit README prose
+  - the modular runtime migration needs a hard guard that every new module/action/effect has an engine/backend/frontend boundary contract before it can silently enter gameplay
+- Validation:
+  - `PYTHONPATH=.:GPT uv run pytest -q tests/test_redis_restart_smoke_script.py`
+  - `python3 tools/scripts/redis_restart_smoke.py --help`
+  - `PYTHONPATH=.:GPT uv run pytest -q tests/test_module_runtime_playtest_matrix_doc.py`
+  - `PYTHONPATH=.:GPT uv run pytest -q GPT/test_runtime_module_contracts.py GPT/test_runtime_effect_inventory.py`
+  - `PYTHONPATH=.:GPT uv run pytest -q GPT/test_runtime_sequence_modules.py GPT/test_runtime_turn_handlers.py GPT/test_runtime_simultaneous_modules.py`
+  - `PYTHONPATH=.:GPT uv run pytest -q tests/test_redis_restart_smoke_script.py tests/test_module_runtime_playtest_matrix_doc.py GPT/test_runtime_module_contracts.py GPT/test_runtime_effect_inventory.py GPT/test_runtime_sequence_modules.py GPT/test_runtime_turn_handlers.py GPT/test_runtime_simultaneous_modules.py`
+  - `python3 tools/plan_policy_gate.py`
+  - `git diff --check`
+  - `python3 tools/scripts/redis_restart_smoke.py`
+  - restart smoke result: `ok=true`, topology `local-compose`, restart mode `compose`, session `sess_X91aaZGHyemwkbaV_D0284Dw`, prefix `mrn:{restart-smoke-1777821787}`, status `waiting_input -> waiting_input`, replay events `11 -> 12`, worker health checks `4`
 
 ## 2026-05-03 Redis Command Commit / Restart Smoke / Payoff Scene Hardening
 

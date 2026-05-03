@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import json
+import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "GPT"))
+
 MATRIX_DOC = ROOT / "docs/current/engineering/[MATRIX]_MODULE_RUNTIME_PLAYTEST_SCENARIOS.md"
+ROUND_ACTION_CONTROL_MATRIX = ROOT / "docs/current/runtime/round-action-control-matrix.md"
 TILE_TRAIT_PLAN_DOC = ROOT / "docs/current/engineering/[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md"
 REDIS_STATE_PLAN_DOC = ROOT / "docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md"
 SERVER_README = ROOT / "apps/server/README.md"
+DEPLOYMENT_CONTRACT_DOC = ROOT / "docs/current/engineering/[CONTRACT]_REDIS_RUNTIME_DEPLOYMENT.md"
+DEPLOYMENT_PROCESS_CONTRACT = ROOT / "deploy/redis-runtime/process-contract.json"
 
 REQUIRED_SCENARIOS = {
     "MRN-MOD-001": "첫 턴 실행",
@@ -89,3 +96,52 @@ def test_server_readme_documents_redis_cluster_hash_tag_contract() -> None:
     }
     for phrase in required:
         assert phrase in text
+
+
+def test_redis_runtime_deployment_contract_documents_required_process_roles() -> None:
+    doc = DEPLOYMENT_CONTRACT_DOC.read_text(encoding="utf-8")
+    manifest = json.loads(DEPLOYMENT_PROCESS_CONTRACT.read_text(encoding="utf-8"))
+
+    roles = {role["name"]: role for role in manifest["required_roles"]}
+    assert set(roles) == {"server", "prompt-timeout-worker", "command-wakeup-worker"}
+    assert roles["prompt-timeout-worker"]["readiness_command"].endswith("prompt_timeout_worker_app --health")
+    assert roles["command-wakeup-worker"]["readiness_command"].endswith("command_wakeup_worker_app --health")
+    assert "MRN_REDIS_KEY_PREFIX" in manifest["shared_environment"]
+    assert any(
+        flag.startswith("--expected-redis-hash-tag")
+        for flag in manifest["rollout_smoke"]["required_flags"]
+    )
+
+    for phrase in {
+        "GET /health",
+        "MRN_RESTART_RECOVERY_POLICY=keep",
+        "worker_health_checks",
+        "deploy/redis-runtime/process-contract.json",
+    }:
+        assert phrase in doc
+
+
+def test_round_action_control_matrix_covers_runtime_module_catalog_and_effects() -> None:
+    from runtime_modules.catalog import MODULE_RULES
+    from runtime_modules.effect_inventory import EFFECT_INVENTORY, VIRTUAL_EFFECT_MODULE_FRAME_KINDS
+    from runtime_modules.sequence_modules import ACTION_TYPE_TO_MODULE_TYPE
+
+    text = ROUND_ACTION_CONTROL_MATRIX.read_text(encoding="utf-8")
+
+    for module_type in MODULE_RULES:
+        assert f"`{module_type}`" in text
+
+    for virtual_module_type in VIRTUAL_EFFECT_MODULE_FRAME_KINDS:
+        assert f"`{virtual_module_type}`" in text
+
+    for action_type, module_type in ACTION_TYPE_TO_MODULE_TYPE.items():
+        assert f"`{action_type}`" in text
+        assert f"`{module_type}`" in text
+    assert "`resolve_fortune_*`" in text
+    assert "`LegacyActionAdapterModule`" in text
+
+    for entry in EFFECT_INVENTORY:
+        assert f"`{entry.effect_id}`" in text
+        assert f"`{entry.producer_module}`" in text
+        for module_type in entry.consumer_modules + entry.runtime_boundary_modules:
+            assert f"`{module_type}`" in text

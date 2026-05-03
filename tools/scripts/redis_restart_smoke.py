@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import time
 import urllib.error
@@ -25,6 +26,38 @@ FIXED_COMPOSE_CONTAINERS = {
 def _run(cmd: list[str], *, env: dict[str, str]) -> None:
     print("+ " + " ".join(cmd), flush=True)
     subprocess.run(cmd, cwd=ROOT_DIR, env=env, check=True)
+
+
+def _run_shell(command: str, *, env: dict[str, str], label: str) -> None:
+    print(f"+ {label}: {command}", flush=True)
+    subprocess.run(command, cwd=ROOT_DIR, env=env, shell=True, check=True)
+
+
+def _run_worker_health_checks(
+    commands: list[str],
+    *,
+    env: dict[str, str],
+    phase: str,
+    attempts: int = 30,
+    delay_seconds: float = 1.0,
+) -> int:
+    for command in commands:
+        last_error: subprocess.CalledProcessError | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                _run_shell(command, env=env, label=f"worker-health[{phase}]#{attempt}")
+                break
+            except subprocess.CalledProcessError as exc:
+                last_error = exc
+                if attempt == attempts:
+                    raise
+                time.sleep(delay_seconds)
+        if last_error is not None:
+            print(
+                f"worker-health[{phase}] recovered after retry: {command}",
+                flush=True,
+            )
+    return len(commands)
 
 
 def _existing_fixed_containers() -> list[dict[str, str]]:
@@ -115,12 +148,84 @@ def _poll_runtime(base_url: str, session_id: str, *, token: str, wanted: set[str
     raise RuntimeError(f"Runtime never reached {sorted(wanted)}; last={last_status}")
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Redis-backed backend restart smoke around a live waiting game.")
     parser.add_argument("--base-url", default=os.environ.get("MRN_SMOKE_BASE_URL", "http://127.0.0.1:9090"))
     parser.add_argument("--compose-project", default=os.environ.get("MRN_SMOKE_COMPOSE_PROJECT", "project-mrn"))
+    parser.add_argument("--topology-name", default=os.environ.get("MRN_SMOKE_TOPOLOGY_NAME", "local-compose"))
     parser.add_argument("--skip-up", action="store_true", help="Reuse an already running compose stack.")
     parser.add_argument("--keep-running", action="store_true", help="Leave compose services running after the smoke.")
+    parser.add_argument(
+        "--skip-restart",
+        action="store_true",
+        help="Verify a live topology without restarting roles.",
+    )
+    parser.add_argument(
+        "--restart-command",
+        action="append",
+        default=[],
+        help=(
+            "Operator-supplied shell command used to restart production-like roles. "
+            "May be passed multiple times; when omitted, local Compose restart is used."
+        ),
+    )
+    parser.add_argument(
+        "--worker-health-command",
+        action="append",
+        default=[],
+        help=(
+            "Operator-supplied shell command that must exit 0 when worker readiness is healthy. "
+            "May be passed multiple times and runs before and after restart."
+        ),
+    )
+    parser.add_argument(
+        "--compose-worker-health",
+        action="store_true",
+        help="Run local Compose worker --health checks even when --skip-up is used.",
+    )
+    parser.add_argument(
+        "--skip-worker-health",
+        action="store_true",
+        help="Do not run worker --health readiness checks.",
+    )
+    parser.add_argument(
+        "--expected-redis-hash-tag",
+        default=os.environ.get("MRN_SMOKE_EXPECTED_REDIS_HASH_TAG"),
+        help="Fail unless /health reports this Redis Cluster hash tag.",
+    )
+    return parser
+
+
+def _compose_worker_health_commands(compose: list[str], *, enabled: bool) -> list[str]:
+    if not enabled:
+        return []
+    quoted = " ".join(shlex.quote(part) for part in compose)
+    return [
+        f"{quoted} exec -T prompt-timeout-worker python -m apps.server.src.workers.prompt_timeout_worker_app --health",
+        f"{quoted} exec -T command-wakeup-worker python -m apps.server.src.workers.command_wakeup_worker_app --health",
+    ]
+
+
+def _verify_backend_health(
+    base_url: str,
+    *,
+    key_prefix: str,
+    expected_hash_tag: str | None,
+    label: str,
+) -> dict[str, Any]:
+    health = _require_ok(_wait_json("GET", f"{base_url}/health"), label)
+    redis = health.get("redis") if isinstance(health.get("redis"), dict) else {}
+    if key_prefix.find("{") >= 0 and redis.get("cluster_hash_tag_valid") is not True:
+        raise RuntimeError(f"Redis prefix is not cluster-hash-tag valid: {redis}")
+    if expected_hash_tag is not None and redis.get("cluster_hash_tag") != expected_hash_tag:
+        raise RuntimeError(
+            f"Redis hash tag mismatch: expected={expected_hash_tag!r}, actual={redis.get('cluster_hash_tag')!r}"
+        )
+    return health
+
+
+def main() -> int:
+    parser = build_parser()
     args = parser.parse_args()
 
     env = dict(os.environ)
@@ -130,6 +235,11 @@ def main() -> int:
 
     compose = ["docker", "compose", "-p", args.compose_project, "-f", str(ROOT_DIR / "docker-compose.yml")]
     services = ["redis", "server", "prompt-timeout-worker", "command-wakeup-worker"]
+    worker_health_commands: list[str] = []
+    if not args.skip_worker_health:
+        compose_health_enabled = (not args.skip_up) or args.compose_worker_health
+        worker_health_commands.extend(_compose_worker_health_commands(compose, enabled=compose_health_enabled))
+        worker_health_commands.extend(args.worker_health_command)
 
     try:
         if not args.skip_up:
@@ -157,10 +267,13 @@ def main() -> int:
                 )
             _run([*compose, "up", "-d", "--build", *services], env=env)
 
-        health = _require_ok(_wait_json("GET", f"{args.base_url}/health"), "health")
-        redis = health.get("redis") if isinstance(health.get("redis"), dict) else {}
-        if env["MRN_REDIS_KEY_PREFIX"].find("{") >= 0 and redis.get("cluster_hash_tag_valid") is not True:
-            raise RuntimeError(f"Redis prefix is not cluster-hash-tag valid: {redis}")
+        _verify_backend_health(
+            args.base_url,
+            key_prefix=env["MRN_REDIS_KEY_PREFIX"],
+            expected_hash_tag=args.expected_redis_hash_tag,
+            label="health",
+        )
+        worker_health_check_count = _run_worker_health_checks(worker_health_commands, env=env, phase="before-restart")
 
         created = _require_ok(
             _http_json(
@@ -202,8 +315,23 @@ def main() -> int:
         before_replay = _require_ok(_http_json("GET", _session_api_url(args.base_url, session_id, "replay", token=session_token)), "replay-before")
         before_count = len(before_replay.get("events") or [])
 
-        _run([*compose, "restart", "server", "prompt-timeout-worker", "command-wakeup-worker"], env=env)
-        _require_ok(_wait_json("GET", f"{args.base_url}/health"), "health-after-restart")
+        if not args.skip_restart:
+            if args.restart_command:
+                for command in args.restart_command:
+                    _run_shell(command, env=env, label="restart")
+                restart_mode = "custom-command"
+            else:
+                _run([*compose, "restart", "server", "prompt-timeout-worker", "command-wakeup-worker"], env=env)
+                restart_mode = "compose"
+        else:
+            restart_mode = "skipped"
+        _verify_backend_health(
+            args.base_url,
+            key_prefix=env["MRN_REDIS_KEY_PREFIX"],
+            expected_hash_tag=args.expected_redis_hash_tag,
+            label="health-after-restart",
+        )
+        worker_health_check_count += _run_worker_health_checks(worker_health_commands, env=env, phase="after-restart")
         after = _poll_runtime(args.base_url, session_id, token=session_token, wanted={"waiting_input"})
         if str(after.get("status")) in {"unavailable", "recovery_required", "aborted"}:
             raise RuntimeError(f"Runtime became unsafe after restart: {after}")
@@ -217,12 +345,15 @@ def main() -> int:
             json.dumps(
                 {
                     "ok": True,
+                    "topology": args.topology_name,
+                    "restart_mode": restart_mode,
                     "session_id": session_id,
                     "prefix": env["MRN_REDIS_KEY_PREFIX"],
                     "before_status": before.get("status"),
                     "after_status": after.get("status"),
                     "before_replay_events": before_count,
                     "after_replay_events": after_count,
+                    "worker_health_checks": worker_health_check_count,
                 },
                 ensure_ascii=False,
                 indent=2,

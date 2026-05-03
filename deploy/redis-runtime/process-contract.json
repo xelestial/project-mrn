@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "name": "project-mrn-redis-runtime",
+  "required_roles": [
+    {
+      "name": "server",
+      "kind": "api",
+      "command": "python -m uvicorn apps.server.src.app:app --host 0.0.0.0 --port 9090",
+      "readiness": "GET /health",
+      "restart_policy": "always",
+      "restart_recovery_policy": "keep only after target topology passes redis_restart_smoke.py; otherwise abort_in_progress"
+    },
+    {
+      "name": "prompt-timeout-worker",
+      "kind": "worker",
+      "command": "python -m apps.server.src.workers.prompt_timeout_worker_app",
+      "readiness_command": "python -m apps.server.src.workers.prompt_timeout_worker_app --health",
+      "restart_policy": "always",
+      "restart_recovery_policy": "keep"
+    },
+    {
+      "name": "command-wakeup-worker",
+      "kind": "worker",
+      "command": "python -m apps.server.src.workers.command_wakeup_worker_app",
+      "readiness_command": "python -m apps.server.src.workers.command_wakeup_worker_app --health",
+      "restart_policy": "always",
+      "restart_recovery_policy": "keep"
+    }
+  ],
+  "shared_environment": {
+    "MRN_REDIS_URL": "same private Redis endpoint for every role",
+    "MRN_REDIS_KEY_PREFIX": "single stable Redis Cluster hash-tagged prefix, for example mrn:{project-mrn-prod}",
+    "MRN_GAME_LOG_ARCHIVE_PATH": "shared durable archive path if game logs must survive replacement",
+    "MRN_LOG_LEVEL": "operator selected level"
+  },
+  "invariants": [
+    "server, prompt-timeout-worker, and command-wakeup-worker must run together for Redis-backed live sessions",
+    "all roles must report the same Redis hash tag before routing live sessions",
+    "worker readiness commands must exit 0 before the deployment is considered ready",
+    "accepted human decisions must wake the command worker and advance to waiting_input, finished, or unavailable",
+    "runtime stream replay must not shrink across process restart"
+  ],
+  "rollout_smoke": {
+    "script": "python3 tools/scripts/redis_restart_smoke.py",
+    "required_flags": [
+      "--skip-up",
+      "--topology-name <deployment-name>",
+      "--expected-redis-hash-tag <hash-tag>",
+      "--restart-command <platform restart command>",
+      "--worker-health-command <prompt timeout worker health command>",
+      "--worker-health-command <command wakeup worker health command>"
+    ]
+  }
+}

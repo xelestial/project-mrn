@@ -890,8 +890,8 @@ Performance:
 
 Recommended next implementation PR:
 
-1. Run `tools/scripts/redis_restart_smoke.py` against the target production-like topology, not only local Compose, and preserve the output as rollout evidence.
-2. Add platform-specific production deployment manifests for the timeout/command workers after the target hosting environment is chosen; the process contract and worker `--health` commands are ready.
+1. Run `tools/scripts/redis_restart_smoke.py` against the target production-like topology with `--skip-up`, `--restart-command`, `--worker-health-command`, and `--expected-redis-hash-tag`, then preserve the output as rollout evidence.
+2. Map `deploy/redis-runtime/process-contract.json` and `[CONTRACT]_REDIS_RUNTIME_DEPLOYMENT.md` onto the chosen hosting platform's native manifest format.
 3. Before multi-node Redis deployment, verify every process role uses the same hash-tagged `MRN_REDIS_KEY_PREFIX` and run restart/decision smoke tests against that exact prefix.
 
 This keeps the current incremental path honest: Redis now owns the live records, while resumable engine execution remains the next large refactor.
