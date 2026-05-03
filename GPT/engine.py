@@ -178,6 +178,7 @@ class GameEngine:
         self._vis_buffer: list[tuple[str, str, int | None, dict[str, Any]]] | None = None
         self._suppress_hidden_trick_selection: bool = False
         self._deferred_arrival_action_id: str = ""
+        self._deferred_rent_payment_action_id: str = ""
         self._deferred_supply_threshold_depth: int = 0
         self._deferred_supply_prev_f: float | None = None
         self.events = EventDispatcher()
@@ -1113,6 +1114,8 @@ class GameEngine:
             return self._request_score_token_placement_action(state, action)
         if action.type == "resolve_unowned_post_purchase":
             return self._resolve_unowned_post_purchase_action(state, action)
+        if action.type == "resolve_rent_payment":
+            return self._resolve_rent_payment_action(state, action)
         if action.type == "resolve_landing_post_effects":
             return self._resolve_landing_post_effects_action(state, action)
         if action.type == "resolve_fortune_subscription":
@@ -1600,6 +1603,39 @@ class GameEngine:
     def _should_defer_landing_post_effects(self) -> bool:
         return bool(self._deferred_arrival_action_id)
 
+    def _should_defer_rent_payment(self) -> bool:
+        return bool(self._deferred_arrival_action_id and not self._deferred_rent_payment_action_id)
+
+    def _queue_rent_payment(
+        self,
+        state: GameState,
+        player: PlayerState,
+        pos: int,
+        owner: int,
+        *,
+        source: str,
+    ) -> dict:
+        rent_action = self._action(
+            state,
+            "resolve_rent_payment",
+            player,
+            source,
+            {
+                "tile_index": pos,
+                "owner": owner,
+            },
+            parent_action_id=self._deferred_arrival_action_id,
+        )
+        state.pending_actions.insert(0, rent_action)
+        return {
+            "type": "QUEUED_RENT_PAYMENT",
+            "tile_kind": state.board[pos].name,
+            "owner": owner + 1,
+            "tile_index": pos,
+            "post_action_queued": True,
+            "queued_action_id": rent_action.action_id,
+        }
+
     def _queue_landing_post_effects(
         self,
         state: GameState,
@@ -1642,6 +1678,35 @@ class GameEngine:
         )
         self._record_pending_arrival_and_maybe_log_turn(state, action, result)
         return result
+
+    def _resolve_rent_payment_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        player = state.players[action.actor_player_id]
+        payload = action.payload
+        pos = int(payload["tile_index"])
+        owner_value = payload.get("owner", state.tile_owner[pos])
+        if owner_value is None:
+            return self._apply_weather_same_tile_bonus(
+                state,
+                player,
+                {"type": "RENT_NO_OWNER", "tile_kind": state.board[pos].name},
+            )
+        owner = int(owner_value)
+        previous_deferred_arrival_action_id = self._deferred_arrival_action_id
+        previous_deferred_rent_payment_action_id = self._deferred_rent_payment_action_id
+        self._deferred_arrival_action_id = action.action_id
+        self._deferred_rent_payment_action_id = action.action_id
+        try:
+            rent_result = self.events.emit_first_non_none("rent.payment.resolve", state, player, pos, owner)
+        finally:
+            self._deferred_arrival_action_id = previous_deferred_arrival_action_id
+            self._deferred_rent_payment_action_id = previous_deferred_rent_payment_action_id
+        if rent_result is not None:
+            return rent_result
+        return self._apply_weather_same_tile_bonus(
+            state,
+            player,
+            {"type": "RENT_FAILSAFE", "tile_kind": state.board[pos].name, "owner": owner + 1},
+        )
 
     def _resolve_landing_post_effects(
         self,

@@ -33,6 +33,7 @@ MODULE_RULES: dict[str, ModuleRule] = {
     "PendingMarkResolutionModule": ModuleRule("PendingMarkResolutionModule", frozenset({"turn", "sequence"})),
     "MapMoveModule": ModuleRule("MapMoveModule", frozenset({"turn", "sequence"})),
     "ArrivalTileModule": ModuleRule("ArrivalTileModule", frozenset({"turn", "sequence"})),
+    "RentPaymentModule": ModuleRule("RentPaymentModule", frozenset({"sequence"})),
     "FortuneResolveModule": ModuleRule("FortuneResolveModule", frozenset({"turn", "sequence"})),
     "PurchaseDecisionModule": ModuleRule("PurchaseDecisionModule", frozenset({"sequence"})),
     "PurchaseCommitModule": ModuleRule("PurchaseCommitModule", frozenset({"sequence"})),

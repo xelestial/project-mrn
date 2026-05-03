@@ -120,9 +120,9 @@ EFFECT_INVENTORY: tuple[EffectInventoryEntry, ...] = (
         effect_id="character:ajeon:arrival_rent_waiver",
         source_name="아전",
         producer_module="CharacterStartModule",
-        consumer_modules=("ArrivalTileModule", "LandingPostEffectsModule"),
+        consumer_modules=("ArrivalTileModule", "RentPaymentModule", "LandingPostEffectsModule"),
         frame_kind="sequence",
-        runtime_boundary_modules=("ArrivalTileModule", "LandingPostEffectsModule"),
+        runtime_boundary_modules=("ArrivalTileModule", "RentPaymentModule", "LandingPostEffectsModule"),
         notes="남의 말이 있는 토지 도착 시 통행료 면제와 같은 칸 참가자 징수를 도착 후 효과로 제한한다.",
     ),
     EffectInventoryEntry(
@@ -205,9 +205,9 @@ EFFECT_INVENTORY: tuple[EffectInventoryEntry, ...] = (
         effect_id="character:swindler:takeover",
         source_name="사기꾼",
         producer_module="ArrivalTileModule",
-        consumer_modules=("ArrivalTileModule", "LandingPostEffectsModule"),
+        consumer_modules=("ArrivalTileModule", "RentPaymentModule", "LandingPostEffectsModule"),
         frame_kind="sequence",
-        runtime_boundary_modules=("ArrivalTileModule", "LandingPostEffectsModule"),
+        runtime_boundary_modules=("ArrivalTileModule", "RentPaymentModule", "LandingPostEffectsModule"),
         notes="남의 토지 도착 시 통행료 배수 인수와 코인 이전을 도착 후 효과 시퀀스로 제한한다.",
     ),
     EffectInventoryEntry(

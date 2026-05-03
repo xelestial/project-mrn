@@ -913,6 +913,14 @@ class EngineEffectHandlers:
     def handle_rent_payment(self, state: GameState, player: PlayerState, pos: int, owner: int) -> dict:
         engine = self.engine
         self._ensure_stats(state)
+        if engine._should_defer_rent_payment():
+            return engine._queue_rent_payment(
+                state,
+                player,
+                pos,
+                owner,
+                source="landing_rent",
+            )
         stats = engine._strategy_stats[player.player_id]
         rent_context = build_rent_context(state, player, pos, owner)
         rent = rent_context.final_rent

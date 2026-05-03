@@ -65,6 +65,13 @@ def test_action_sequence_frame_maps_pending_actions_to_typed_modules() -> None:
             },
             {
                 "action_id": "a2",
+                "type": "resolve_rent_payment",
+                "actor_player_id": 0,
+                "source": "rent",
+                "payload": {"tile_index": 8, "owner": 1},
+            },
+            {
+                "action_id": "a3",
                 "type": "resolve_fortune_bonus_roll",
                 "actor_player_id": 0,
                 "source": "fortune",
@@ -78,6 +85,7 @@ def test_action_sequence_frame_maps_pending_actions_to_typed_modules() -> None:
     assert frame.frame_type == "sequence"
     assert [module.module_type for module in frame.module_queue] == [
         ACTION_TYPE_TO_MODULE_TYPE["request_purchase_tile"],
+        ACTION_TYPE_TO_MODULE_TYPE["resolve_rent_payment"],
         "FortuneResolveModule",
     ]
     assert frame.module_queue[0].payload["action"]["action_id"] == "a1"
@@ -316,6 +324,72 @@ def test_purchase_decision_and_commit_stay_in_native_purchase_modules() -> None:
     assert [decision["module_type"], commit["module_type"]] == ["PurchaseDecisionModule", "PurchaseCommitModule"]
     assert [decision["module_boundary"], commit["module_boundary"]] == ["native", "native"]
     assert engine.executed == ["request_purchase_tile", "resolve_purchase_tile"]
+
+
+def test_rent_payment_stays_in_native_rent_module_before_post_effects() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+        def __init__(self) -> None:
+            self.executed: list[str] = []
+
+        def _execute_action(self, state, action, *, queue_followups: bool):
+            self.executed.append(action.type)
+            assert queue_followups is True
+            if action.type == "resolve_rent_payment":
+                state.pending_actions.append(
+                    ActionEnvelope(
+                        action_id="rent-post-effects",
+                        type="resolve_landing_post_effects",
+                        actor_player_id=0,
+                        source="rent_post_landing",
+                        payload={"tile_index": 7, "base_event": {"type": "RENT"}},
+                    )
+                )
+                return {"type": "RENT"}
+            if action.type == "resolve_landing_post_effects":
+                return {"type": "RENT", "trick_same_tile_cash_gain": 2}
+            raise AssertionError(f"unexpected action {action.type}")
+
+        def _log(self, _event):
+            return None
+
+    frame = build_action_sequence_frame(
+        1,
+        0,
+        0,
+        [
+            {
+                "action_id": "rent-payment",
+                "type": "resolve_rent_payment",
+                "actor_player_id": 0,
+                "source": "landing_rent",
+                "payload": {"tile_index": 7, "owner": 1},
+            }
+        ],
+        parent_frame_id="turn:1:p0",
+        parent_module_id="mod:turn:1:p0:arrival",
+        session_id="test-session",
+    )
+    state = SimpleNamespace(
+        pending_actions=[],
+        pending_turn_completion={},
+        players=[SimpleNamespace(player_id=0, alive=True)],
+        runtime_frame_stack=[frame],
+        runtime_module_journal=[],
+        rounds_completed=0,
+        current_round_order=[0],
+        turn_index=0,
+    )
+    engine = FakeEngine()
+    runner = ModuleRunner()
+
+    rent = runner.advance_engine(engine, state)
+    post_effects = runner.advance_engine(engine, state)
+
+    assert [rent["module_type"], post_effects["module_type"]] == ["RentPaymentModule", "LandingPostEffectsModule"]
+    assert [rent["module_boundary"], post_effects["module_boundary"]] == ["native", "native"]
+    assert engine.executed == ["resolve_rent_payment", "resolve_landing_post_effects"]
 
 
 def test_supply_threshold_action_is_not_built_as_action_sequence_module() -> None:

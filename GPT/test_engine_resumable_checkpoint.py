@@ -962,7 +962,7 @@ def test_queued_own_tile_score_token_prompt_keeps_request_queued() -> None:
     assert state.tile_coins[tile_index] == 0
 
 
-def test_queued_arrival_on_rent_tile_splits_post_landing_effects() -> None:
+def test_queued_arrival_on_rent_tile_splits_rent_and_post_landing_effects() -> None:
     config = GameConfig(player_count=2)
     engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(21), enable_logging=True)
     state = GameState.create(config)
@@ -989,13 +989,20 @@ def test_queued_arrival_on_rent_tile_splits_post_landing_effects() -> None:
 
     assert first["action_type"] == "resolve_arrival"
     assert len(state.pending_actions) == 1
+    assert state.pending_actions[0].type == "resolve_rent_payment"
+    assert player.cash == 20
+
+    second = engine.run_next_transition(state)
+
+    assert second["action_type"] == "resolve_rent_payment"
+    assert len(state.pending_actions) == 1
     assert state.pending_actions[0].type == "resolve_landing_post_effects"
     assert player.cash == 20 - state.config.rules.economy.rent_cost_for(state, tile_index)
 
-    second = engine.run_next_transition(state)
+    third = engine.run_next_transition(state)
     last_action_log = next(row for row in reversed(engine._action_log) if row.get("event") == "action_transition")
 
-    assert second["action_type"] == "resolve_landing_post_effects"
+    assert third["action_type"] == "resolve_landing_post_effects"
     assert state.pending_actions == []
     assert last_action_log["result"]["type"] == "RENT"
     assert last_action_log["result"]["trick_same_tile_cash_gain"] == 2

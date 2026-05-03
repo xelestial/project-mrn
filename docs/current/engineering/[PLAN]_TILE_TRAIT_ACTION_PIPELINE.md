@@ -591,6 +591,7 @@ Already split:
 - own-tile score-token mutation: `resolve_score_token_placement`
 - trick tile-rent target selection: `resolve_trick_tile_rent_modifier`
 - queued movement and arrival: `apply_move -> resolve_arrival`
+- queued rent payment: `resolve_rent_payment`
 - mark effects with target-player timing: scheduled `resolve_mark`
 - decision-bearing fortune target effects: `resolve_fortune_*`
 
@@ -605,17 +606,15 @@ Intentionally inline for now:
 - weather round effects that immediately grant/pay resources
 - F/MALICIOUS/S tile atomic payouts or payments
 - same-tile bonus cash/shard effects after a landing result
-- direct rent payment inside `rent.payment.resolve`
 - trick-card immediate resource effects
 - force sale / takeover helpers that are already single atomic ownership transactions
 
 Watch list:
 
-- rent payment can become `resolve_rent_payment` if the UI needs a payment animation checkpoint separate from landing post-effects
 - force sale / takeover can become actionized if future cards add target-selection prompts or multi-step animations around ownership transfer
 - global all-player payments can get a `resolve_global_payment` action if recovery needs to resume after each payer
 
-Decision as of 2026-04-30: keep these three as watch-list items, not active migration work. They are still atomic, deterministic runtime mutations with no current human prompt boundary. Convert them only when a new prompt, per-target animation beat, partial-failure recovery requirement, or shared modifier context makes the extra checkpoint useful.
+Decision as of 2026-05-03: rent payment is now actionized as `resolve_rent_payment`, between `resolve_arrival` and `resolve_landing_post_effects`. Keep the remaining watch-list items as inactive migration work until a new prompt, per-target animation beat, partial-failure recovery requirement, or shared modifier context makes the extra checkpoint useful.
 
 ### Guardrail
 

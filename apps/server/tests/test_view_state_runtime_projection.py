@@ -253,3 +253,57 @@ class RuntimeProjectionViewStateTests(unittest.TestCase):
         self.assertEqual(view_state["active_module_status"], "suspended")
         self.assertEqual(view_state["active_module_cursor"], "movement:await_choice")
         self.assertEqual(view_state["active_module_idempotency_key"], "idem_move_1")
+
+    def test_projection_maps_rent_payment_module_to_rent_stage(self) -> None:
+        view_state = build_runtime_view_state([
+            {
+                "type": "event",
+                "payload": {
+                    "event_type": "engine_transition",
+                    "engine_checkpoint": {
+                        "runtime_runner_kind": "module",
+                        "runtime_frame_stack": [
+                            {
+                                "frame_id": "turn:3:p0",
+                                "frame_type": "turn",
+                                "owner_player_id": 0,
+                                "parent_frame_id": "round:3",
+                                "active_module_id": "mod:turn:3:p0:arrival",
+                                "module_queue": [
+                                    {
+                                        "module_id": "mod:turn:3:p0:arrival",
+                                        "module_type": "ArrivalTileModule",
+                                        "phase": "turn",
+                                        "owner_player_id": 0,
+                                        "status": "running",
+                                    }
+                                ],
+                                "status": "running",
+                            },
+                            {
+                                "frame_id": "seq:action:3:p0:rent",
+                                "frame_type": "sequence",
+                                "owner_player_id": 0,
+                                "parent_frame_id": "turn:3:p0",
+                                "active_module_id": "mod:turn:3:p0:rent",
+                                "module_queue": [
+                                    {
+                                        "module_id": "mod:turn:3:p0:rent",
+                                        "module_type": "RentPaymentModule",
+                                        "phase": "sequence",
+                                        "owner_player_id": 0,
+                                        "status": "running",
+                                    }
+                                ],
+                                "status": "running",
+                            }
+                        ],
+                    },
+                },
+            }
+        ])
+
+        self.assertEqual(view_state["turn_stage"], "rent")
+        self.assertEqual(view_state["active_frame_id"], "seq:action:3:p0:rent")
+        self.assertEqual(view_state["active_module_id"], "mod:turn:3:p0:rent")
+        self.assertEqual(view_state["active_module_type"], "RentPaymentModule")

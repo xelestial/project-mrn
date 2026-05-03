@@ -25,6 +25,7 @@ TURN_STAGE_BY_MODULE = {
     "DiceRollModule": "dice",
     "MapMoveModule": "movement",
     "ArrivalTileModule": "arrival",
+    "RentPaymentModule": "rent",
     "FortuneResolveModule": "fortune",
     "LapRewardModule": "lap_reward",
     "TurnEndSnapshotModule": "turn_end",

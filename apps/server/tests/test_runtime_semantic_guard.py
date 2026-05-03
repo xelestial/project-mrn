@@ -283,3 +283,64 @@ def test_checkpoint_allows_matching_native_action_sequence_module() -> None:
             ],
         }
     )
+
+
+def test_checkpoint_rejects_rent_action_outside_rent_payment_module() -> None:
+    with pytest.raises(RuntimeSemanticViolation, match="resolve_rent_payment.*RentPaymentModule.*ArrivalTileModule"):
+        validate_checkpoint_payload(
+            {
+                "runtime_runner_kind": "module",
+                "runtime_frame_stack": [
+                    {
+                        "frame_id": "seq:action:1:p0:arrival",
+                        "frame_type": "sequence",
+                        "status": "running",
+                        "active_module_id": "mod:arrival",
+                        "module_queue": [
+                            {
+                                "module_id": "mod:arrival",
+                                "module_type": "ArrivalTileModule",
+                                "status": "running",
+                                "payload": {
+                                    "action": {
+                                        "action_id": "act:rent",
+                                        "type": "resolve_rent_payment",
+                                        "actor_player_id": 0,
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_checkpoint_allows_matching_rent_payment_sequence_module() -> None:
+    validate_checkpoint_payload(
+        {
+            "runtime_runner_kind": "module",
+            "runtime_frame_stack": [
+                {
+                    "frame_id": "seq:action:1:p0:rent",
+                    "frame_type": "sequence",
+                    "status": "running",
+                    "active_module_id": "mod:rent",
+                    "module_queue": [
+                        {
+                            "module_id": "mod:rent",
+                            "module_type": "RentPaymentModule",
+                            "status": "running",
+                            "payload": {
+                                "action": {
+                                    "action_id": "act:rent",
+                                    "type": "resolve_rent_payment",
+                                    "actor_player_id": 0,
+                                }
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    )
