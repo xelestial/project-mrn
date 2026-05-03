@@ -68,6 +68,20 @@ EVENT_REQUIRED_MODULES = {
     "active_flip": {"RoundEndCardFlipModule"},
 }
 
+ACTION_TYPE_REQUIRED_MODULES: dict[str, str] = {
+    "resolve_mark": "PendingMarkResolutionModule",
+    "apply_move": "MapMoveModule",
+    "resolve_arrival": "ArrivalTileModule",
+    "request_purchase_tile": "PurchaseDecisionModule",
+    "resolve_purchase_tile": "PurchaseCommitModule",
+    "resolve_unowned_post_purchase": "UnownedPostPurchaseModule",
+    "request_score_token_placement": "ScoreTokenPlacementPromptModule",
+    "resolve_score_token_placement": "ScoreTokenPlacementCommitModule",
+    "resolve_landing_post_effects": "LandingPostEffectsModule",
+    "continue_after_trick_phase": "TrickDeferredFollowupsModule",
+    "resolve_trick_tile_rent_modifier": "TrickTileRentModifierModule",
+}
+
 
 def validate_stream_payload(*, history: list[dict], msg_type: str, payload: dict[str, Any]) -> None:
     runtime_module = _record(payload.get("runtime_module"))
@@ -109,6 +123,28 @@ def _validate_runtime_module(module: dict[str, Any]) -> None:
     allowed = MODULE_ALLOWED_FRAMES.get(module_type)
     if allowed and frame_type not in allowed:
         raise RuntimeSemanticViolation(f"{module_type} is not allowed in {frame_type} frame")
+    _validate_action_payload_owner(module_type, module)
+
+
+def _validate_action_payload_owner(module_type: str, module: dict[str, Any]) -> None:
+    payload = _record(module.get("payload")) or {}
+    action = _record(payload.get("action"))
+    if not action:
+        return
+    action_type = str(action.get("type") or "").strip()
+    if not action_type:
+        return
+    if action_type.startswith("resolve_fortune_"):
+        expected_module_type = "FortuneResolveModule"
+    else:
+        expected_module_type = ACTION_TYPE_REQUIRED_MODULES.get(action_type)
+    if not expected_module_type or module_type == expected_module_type:
+        return
+    if module_type == "LegacyActionAdapterModule":
+        return
+    raise RuntimeSemanticViolation(
+        f"action type {action_type} belongs to {expected_module_type}, got {module_type}"
+    )
 
 
 def _validate_event_payload(event_type: str, runtime_module: dict[str, Any] | None) -> None:

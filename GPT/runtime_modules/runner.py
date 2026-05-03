@@ -674,7 +674,15 @@ class ModuleRunner:
             "module_cursor": module.cursor,
         }
 
-    def _advance_action_adapter_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> dict[str, Any]:
+    def _advance_action_module(
+        self,
+        engine: Any,
+        state: Any,
+        frame: FrameState,
+        module: ModuleRef,
+        *,
+        module_boundary: str,
+    ) -> dict[str, Any]:
         action = self._action_from_payload(dict(module.payload.get("action") or {}))
         module.cursor = "await_action_prompt"
         try:
@@ -697,11 +705,13 @@ class ModuleRunner:
                 "pending_actions": len(state.pending_actions),
                 "module_id": module.module_id,
                 "frame_id": frame.frame_id,
+                "module_boundary": module_boundary,
             }
         )
         return {
             "status": "committed",
             "module_type": module.module_type,
+            "module_boundary": module_boundary,
             "action_id": action.action_id,
             "action_type": action.type,
             "player_id": action.actor_player_id + 1,
@@ -709,6 +719,12 @@ class ModuleRunner:
             "pending_actions": len(state.pending_actions),
             "pending_modules": self._pending_sequence_module_count(state),
         }
+
+    def _advance_action_adapter_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> dict[str, Any]:
+        return self._advance_action_module(engine, state, frame, module, module_boundary="legacy_adapter")
+
+    def _advance_native_action_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> dict[str, Any]:
+        return self._advance_action_module(engine, state, frame, module, module_boundary="native")
 
     def _advance_turn_completion_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> dict[str, Any]:
         original_pending = dict(state.pending_turn_completion or {})

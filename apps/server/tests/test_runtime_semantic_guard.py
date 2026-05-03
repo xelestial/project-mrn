@@ -222,3 +222,64 @@ def test_checkpoint_rejects_round_card_flip_with_suspended_player_turn() -> None
                 ],
             }
         )
+
+
+def test_checkpoint_rejects_action_payload_owned_by_wrong_sequence_module() -> None:
+    with pytest.raises(RuntimeSemanticViolation, match="resolve_purchase_tile.*PurchaseCommitModule.*MapMoveModule"):
+        validate_checkpoint_payload(
+            {
+                "runtime_runner_kind": "module",
+                "runtime_frame_stack": [
+                    {
+                        "frame_id": "seq:action:1:p0:move",
+                        "frame_type": "sequence",
+                        "status": "running",
+                        "active_module_id": "mod:move",
+                        "module_queue": [
+                            {
+                                "module_id": "mod:move",
+                                "module_type": "MapMoveModule",
+                                "status": "running",
+                                "payload": {
+                                    "action": {
+                                        "action_id": "act:purchase",
+                                        "type": "resolve_purchase_tile",
+                                        "actor_player_id": 0,
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_checkpoint_allows_matching_native_action_sequence_module() -> None:
+    validate_checkpoint_payload(
+        {
+            "runtime_runner_kind": "module",
+            "runtime_frame_stack": [
+                {
+                    "frame_id": "seq:action:1:p0:move",
+                    "frame_type": "sequence",
+                    "status": "running",
+                    "active_module_id": "mod:move",
+                    "module_queue": [
+                        {
+                            "module_id": "mod:move",
+                            "module_type": "MapMoveModule",
+                            "status": "running",
+                            "payload": {
+                                "action": {
+                                    "action_id": "act:move",
+                                    "type": "apply_move",
+                                    "actor_player_id": 0,
+                                }
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    )

@@ -10,7 +10,8 @@
     "test": "vitest run",
     "e2e": "playwright test",
     "e2e:parity": "playwright test e2e/parity.spec.ts --project=chromium --workers=1 --grep \"quick start human vs ai enters match and surfaces the first human prompt|finished engine transition shows a visible game-end state even with a stale backend turn projection|session payload initial active faces hydrate the active strip before stream events arrive|draft prompt keeps active strip hydrated before any flip events arrive|round start shows weather and active strip before any prompt appears|purchase and mark prompts render dedicated decision cards\"",
-    "e2e:human-runtime": "playwright test e2e/human_play_runtime.spec.ts --project=chromium --workers=1"
+    "e2e:human-runtime": "playwright test e2e/human_play_runtime.spec.ts --project=chromium --workers=1",
+    "e2e:module-runtime": "playwright test e2e/human_play_runtime.spec.ts --project=chromium --workers=1 --grep \"human quick start surfaces turn banner and first prompt through stable ids|runtime keeps fortune cash loss cause readable in overlay and event feed|matchmaker adjacent purchase prompt labels the ability and double-price context\""
   },
   "dependencies": {
     "react": "^19.1.0",

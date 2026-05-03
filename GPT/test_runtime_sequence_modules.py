@@ -247,8 +247,75 @@ def test_fortune_followup_actions_stay_in_sequence_module_chain() -> None:
         "MapMoveModule",
         "ArrivalTileModule",
     ]
+    assert [fortune["module_boundary"], move["module_boundary"], arrival["module_boundary"]] == ["native", "native", "native"]
     assert engine.executed == ["resolve_fortune_bonus_roll", "apply_move", "resolve_arrival"]
     assert all(frame.frame_type == "sequence" for frame in state.runtime_frame_stack)
+
+
+def test_purchase_decision_and_commit_stay_in_native_purchase_modules() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+        def __init__(self) -> None:
+            self.executed: list[str] = []
+
+        def _execute_action(self, state, action, *, queue_followups: bool):
+            self.executed.append(action.type)
+            assert queue_followups is True
+            if action.type == "request_purchase_tile":
+                state.pending_actions.append(
+                    ActionEnvelope(
+                        action_id="purchase-commit",
+                        type="resolve_purchase_tile",
+                        actor_player_id=0,
+                        source="purchase_prompt",
+                        payload={"tile_index": 7, "decision": "buy"},
+                    )
+                )
+                return {"type": "PURCHASE_PROMPTED"}
+            if action.type == "resolve_purchase_tile":
+                return {"type": "PURCHASE_COMMITTED"}
+            raise AssertionError(f"unexpected action {action.type}")
+
+        def _log(self, _event):
+            return None
+
+    frame = build_action_sequence_frame(
+        1,
+        0,
+        0,
+        [
+            {
+                "action_id": "purchase-decision",
+                "type": "request_purchase_tile",
+                "actor_player_id": 0,
+                "source": "arrival",
+                "payload": {"tile_index": 7},
+            }
+        ],
+        parent_frame_id="turn:1:p0",
+        parent_module_id="mod:turn:1:p0:arrival",
+        session_id="test-session",
+    )
+    state = SimpleNamespace(
+        pending_actions=[],
+        pending_turn_completion={},
+        players=[SimpleNamespace(player_id=0, alive=True)],
+        runtime_frame_stack=[frame],
+        runtime_module_journal=[],
+        rounds_completed=0,
+        current_round_order=[0],
+        turn_index=0,
+    )
+    engine = FakeEngine()
+    runner = ModuleRunner()
+
+    decision = runner.advance_engine(engine, state)
+    commit = runner.advance_engine(engine, state)
+
+    assert [decision["module_type"], commit["module_type"]] == ["PurchaseDecisionModule", "PurchaseCommitModule"]
+    assert [decision["module_boundary"], commit["module_boundary"]] == ["native", "native"]
+    assert engine.executed == ["request_purchase_tile", "resolve_purchase_tile"]
 
 
 def test_supply_threshold_action_is_not_built_as_action_sequence_module() -> None:

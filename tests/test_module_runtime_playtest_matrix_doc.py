@@ -23,11 +23,14 @@ REQUIRED_SCENARIOS = {
 
 REQUIRED_COVERAGE_TOKENS = {
     "GPT/test_runtime_sequence_modules.py",
+    "GPT/test_runtime_sequence_handlers.py",
     "GPT/test_runtime_turn_handlers.py",
     "GPT/test_tile_effects.py",
     "GPT/test_runtime_effect_inventory.py",
+    "apps/server/tests/test_runtime_semantic_guard.py",
     "apps/server/tests/test_prompt_module_continuation.py",
     "apps/web/src/hooks/useGameStream.spec.ts",
+    "npm run e2e:module-runtime",
 }
 
 
