@@ -1581,6 +1581,71 @@ describe("promptSelectors", () => {
     });
   });
 
+  it("matches shared selector prompt purchase tile surface fixture", () => {
+    const fixture = loadSharedPromptFixture("selector.prompt.purchase_tile_surface.json");
+    const messages = fixture.messages.map((message, index, items) =>
+      index === items.length - 1
+        ? {
+            ...message,
+            payload: {
+              ...message.payload,
+              view_state: {
+                prompt: {
+                  active: {
+                    ...(message.payload as Record<string, unknown>),
+                    choices: (message.payload as Record<string, unknown>).legal_choices,
+                    surface: fixture.expected.prompt.active.surface,
+                  },
+                },
+              },
+            },
+          }
+        : message
+    );
+
+    const model = selectActivePrompt(messages);
+    expect(model?.surface.purchaseTile).toEqual({
+      tileIndex: 8,
+      cost: 4,
+      yesChoiceId: "yes",
+      noChoiceId: "no",
+    });
+  });
+
+  it("matches shared selector prompt trick tile target surface fixture", () => {
+    const fixture = loadSharedPromptFixture("selector.prompt.trick_tile_target_surface.json");
+    const messages = fixture.messages.map((message, index, items) =>
+      index === items.length - 1
+        ? {
+            ...message,
+            payload: {
+              ...message.payload,
+              view_state: {
+                prompt: {
+                  active: {
+                    ...(message.payload as Record<string, unknown>),
+                    choices: (message.payload as Record<string, unknown>).legal_choices,
+                    surface: fixture.expected.prompt.active.surface,
+                  },
+                },
+              },
+            },
+          }
+        : message
+    );
+
+    const model = selectActivePrompt(messages);
+    expect(model?.surface.trickTileTarget).toEqual({
+      cardName: "긴장감 조성",
+      targetScope: "owned_land",
+      candidateTiles: [5, 12],
+      options: [
+        { choiceId: "tile_5", tileIndex: 5, title: "6번 칸", description: "Apply the trick to tile 6." },
+        { choiceId: "tile_12", tileIndex: 12, title: "13번 칸", description: "Apply the trick to tile 13." },
+      ],
+    });
+  });
+
   it("matches shared selector prompt runaway step surface fixture", () => {
     const fixture = loadSharedPromptFixture("selector.prompt.runaway_step_surface.json");
     const messages = fixture.messages.map((message, index, items) =>

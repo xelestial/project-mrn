@@ -547,6 +547,77 @@ class GameEngine:
             row.update(extra)
         self._ai_decision_log.append(row)
 
+    def _effect_character_contract(self, character_name: str | None) -> dict:
+        if not character_name:
+            return {}
+        character = CHARACTERS.get(character_name)
+        if character is None:
+            return {"effect_character_name": character_name}
+
+        payload = {
+            "effect_character_name": character_name,
+            "effect_card_no": character.card_no,
+        }
+        faces = CARD_TO_NAMES.get(character.card_no)
+        if faces and character_name in faces:
+            payload["effect_character_id"] = f"character.card.{character.card_no}.face.{faces.index(character_name) + 1}"
+        return payload
+
+    def _effect_character_name_for_event(
+        self,
+        event_type: str,
+        state: GameState,
+        acting_player_id: int | None,
+        payload: dict,
+    ) -> str | None:
+        explicit = payload.get("effect_character_name")
+        if isinstance(explicit, str) and explicit.strip():
+            return explicit.strip()
+
+        actor_name = payload.get("actor_name") or payload.get("character")
+        if event_type == "ability_suppressed" and isinstance(actor_name, str) and actor_name.strip():
+            return actor_name.strip()
+
+        if event_type == "tile_purchased":
+            purchase_source = str(payload.get("purchase_source") or payload.get("source") or "")
+            if purchase_source != "matchmaker_adjacent":
+                return None
+        elif event_type not in {
+            "mark_resolved",
+            "mark_queued",
+            "mark_target_none",
+            "mark_target_missing",
+            "mark_blocked",
+            "ability_suppressed",
+        }:
+            return None
+
+        source_player_id = payload.get("source_player_id") or payload.get("player_id") or acting_player_id
+        if isinstance(source_player_id, int):
+            player_index = source_player_id - 1
+            if 0 <= player_index < len(state.players):
+                character_name = state.players[player_index].current_character
+                if character_name:
+                    return character_name
+
+        if isinstance(actor_name, str) and actor_name.strip():
+            return actor_name.strip()
+        return None
+
+    def _with_effect_character_contract(
+        self,
+        event_type: str,
+        state: GameState,
+        acting_player_id: int | None,
+        payload: dict,
+    ) -> dict:
+        if {"effect_character_name", "effect_card_no", "effect_character_id"}.issubset(payload):
+            return payload
+        character_name = self._effect_character_name_for_event(event_type, state, acting_player_id, payload)
+        if character_name is None:
+            return payload
+        return {**payload, **self._effect_character_contract(character_name)}
+
     def _emit_vis(
         self,
         event_type: str,
@@ -557,6 +628,7 @@ class GameEngine:
     ) -> None:
         if self._vis_stream is None:
             return
+        payload = self._with_effect_character_contract(event_type, state, acting_player_id, dict(payload))
         if self._vis_buffer is not None:
             self._vis_buffer.append((event_type, public_phase, acting_player_id, dict(payload)))
             return

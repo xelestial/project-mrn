@@ -10,6 +10,14 @@ Long-term retention is a separate concern. In the first rollout, finished game l
 
 Visibility/projection planning lives in `[PLAN]_VISIBILITY_PROJECTION_REDIS.md`. Redis may store canonical private state, but backend output to frontend clients must be projected per authenticated viewer before delivery.
 
+## Authoritative Continuation Boundary
+
+Worker 재실행은 Redis checkpoint rehydration, not a parent turn replay. A backend or worker process may restart the runtime loop only by loading the persisted `game:{session_id}:state`, checkpoint cursor, active module frame stack, accepted command offset, and active continuation envelope from Redis.
+
+The Redis-owned continuation envelope must contain the active module identity and one of the explicit continuation contracts such as `PromptContinuation` or `SimultaneousPromptBatchContinuation`. A submitted decision is accepted only when it matches the backend-issued request id and continuation metadata. A frontend-created request id, stale request id, mismatched continuation, or already-consumed command must be acknowledged/rejected without invoking the engine transition and must not mutate canonical game state.
+
+Prompt boundaries are commit boundaries. Before a prompt is exposed to clients, the runtime commits the canonical game snapshot, frame cursor, prompt envelope, stream offset, and command offset to Redis. After wakeup, the worker continues from that module cursor. It never reconstructs the next action from frontend text, fallback labels, local process memory, or a completed parent turn.
+
 ## Benchmarked Patterns
 
 The design follows the public architecture patterns used by commercial realtime games and managed Redis providers:

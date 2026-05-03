@@ -201,10 +201,10 @@ Current caution:
 
 Frontend fallback inventory:
 
-- `App.tsx` event effect attribution now reads canonical `effect_type`, `purchase_source`, and actor fields only; it must not scan localized event detail text for gameplay identity.
-- `promptSelectors.ts` keeps compatibility reconstruction for legacy prompts without `view_state.prompt.active.surface`; remove those branches only after backend prompt surface fixtures cover every active runtime prompt type.
+- `App.tsx` event effect attribution reads backend canonical effect-owner fields first: `effect_character_id`, `effect_card_no`, and `effect_character_name`. Legacy `effect_type` / `purchase_source` / actor inference is compatibility-only and must not scan localized event detail text for gameplay identity.
+- `promptSelectors.ts` keeps compatibility reconstruction for legacy prompts without `view_state.prompt.active.surface`; shared backend/frontend fixtures now pin `draft_character`, `final_character`, `purchase_tile`, and `trick_tile_target` surfaces. Remove fallback branches only after backend fixtures cover every active runtime prompt type.
 - `PromptOverlay.tsx` keeps display-only compatibility parsing for movement cards, mark labels, and matchmaker purchase source; exact ids and `surface` payloads are authoritative when present.
-- `GameEventOverlay.tsx` keeps visual normalization for legacy effect-character aliases; the long-term target is a canonical event `effect_character_id` / `card_no` field from the backend.
+- `GameEventOverlay.tsx` keeps visual normalization for legacy effect-character aliases; current runtime events should prefer the canonical backend `effect_character_id` / `effect_card_no` / `effect_character_name` contract.
 - `streamSelectors.ts` may assemble localized event labels for rendering, but selector decisions should continue to prefer structured payload fields over label text.
 
 ## 4. Unit Tests And Validation Rules

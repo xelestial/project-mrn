@@ -1,0 +1,49 @@
+{
+  "messages": [
+    {
+      "type": "prompt",
+      "seq": 1,
+      "session_id": "s1",
+      "server_time_ms": 1,
+      "payload": {
+        "request_id": "req_purchase_1",
+        "request_type": "purchase_tile",
+        "player_id": 2,
+        "timeout_ms": 30000,
+        "legal_choices": [
+          {
+            "choice_id": "yes",
+            "title": "Buy tile",
+            "description": "Purchase the landed tile."
+          },
+          {
+            "choice_id": "no",
+            "title": "Skip",
+            "description": "End turn without buying.",
+            "priority": "secondary"
+          }
+        ],
+        "public_context": {
+          "tile_index": 8,
+          "tile_purchase_cost": 4
+        }
+      }
+    }
+  ],
+  "expected": {
+    "prompt": {
+      "active": {
+        "surface": {
+          "kind": "purchase_tile",
+          "blocks_public_events": true,
+          "purchase_tile": {
+            "tile_index": 8,
+            "cost": 4,
+            "yes_choice_id": "yes",
+            "no_choice_id": "no"
+          }
+        }
+      }
+    }
+  }
+}

@@ -33,6 +33,7 @@ import {
   groupDebugMessagesByTurn,
   selectDebugMessagesForTurn,
 } from "./domain/selectors/debugLogSelectors";
+import { effectCharacterFromPayload } from "./domain/events/effectCharacter";
 import { BoardPanel } from "./features/board/BoardPanel";
 import { GameEventOverlay } from "./features/board/GameEventOverlay";
 import privateCharacterSealUrl from "./assets/private-character-seal.svg";
@@ -581,40 +582,8 @@ function appNumberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function appStringOrNull(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-}
-
 function appRecordOrNull(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
-}
-
-function canonicalEffectCharacterFromActorName(actorName: string | null): string | undefined {
-  if (!actorName) {
-    return undefined;
-  }
-  const normalized = actorName.trim().toLowerCase();
-  if (normalized === "박수" || normalized === "baksu") return "박수";
-  if (normalized === "만신" || normalized === "manshin") return "만신";
-  if (normalized === "중매꾼" || normalized === "matchmaker") return "중매꾼";
-  return actorName;
-}
-
-function effectCharacterFromPayload(payload: Record<string, unknown> | null): string | undefined {
-  const resolution = appRecordOrNull(payload?.["resolution"]);
-  const effectType = appStringOrNull(payload?.["effect_type"]) ?? appStringOrNull(resolution?.["type"]);
-  if (effectType === "baksu_transfer") return "박수";
-  if (effectType === "manshin_remove_burdens") return "만신";
-
-  const purchaseSource = appStringOrNull(payload?.["purchase_source"]) ?? appStringOrNull(payload?.["source"]);
-  if (purchaseSource === "matchmaker_adjacent" || purchaseSource === "adjacent_extra") return "중매꾼";
-
-  const actorName =
-    appStringOrNull(payload?.["actor_name"]) ??
-    appStringOrNull(resolution?.["actor_name"]) ??
-    appStringOrNull(payload?.["character"]) ??
-    appStringOrNull(payload?.["card_name"]);
-  return canonicalEffectCharacterFromActorName(actorName);
 }
 
 function diceOverlayValues(payload: Record<string, unknown>): { values: number[]; total: number | null } {

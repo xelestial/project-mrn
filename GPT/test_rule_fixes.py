@@ -580,6 +580,28 @@ class RuleFixTests(DraftRuleAssertionMixin, unittest.TestCase):
         block_lands = first_three_land_block_positions(state)
         self.assertIn(owned, ({block_lands[0], block_lands[1]}, {block_lands[1], block_lands[2]}))
 
+    def test_matchmaker_adjacent_purchase_event_carries_effect_owner_contract(self):
+        stream = VisEventStream()
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True, event_stream=stream)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        player.current_character = "중매꾼"
+        player.cash = 20
+        player.position = first_three_land_block_positions(state)[1]
+
+        result = engine._resolve_landing(state, player)
+
+        self.assertEqual(result["type"], "PURCHASE")
+        adjacent = [
+            event.payload
+            for event in stream.by_type("tile_purchased")
+            if event.payload.get("purchase_source") == "matchmaker_adjacent"
+        ]
+        self.assertEqual(len(adjacent), 1)
+        self.assertEqual(adjacent[0]["effect_character_name"], "중매꾼")
+        self.assertEqual(adjacent[0]["effect_card_no"], 7)
+        self.assertEqual(adjacent[0]["effect_character_id"], "character.card.7.face.2")
+
     def test_matchmaker_can_trigger_on_rent_landing(self):
         engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=True)
         state = GameState.create(DEFAULT_CONFIG)
@@ -752,6 +774,10 @@ class RuleFixTests(DraftRuleAssertionMixin, unittest.TestCase):
 
         self.assertEqual(first["action_type"], "resolve_mark")
         self.assertEqual(event_types, ["mark_resolved"])
+        payload = stream.by_type("mark_resolved")[0].payload
+        self.assertEqual(payload["effect_character_name"], "만신")
+        self.assertEqual(payload["effect_card_no"], 6)
+        self.assertEqual(payload["effect_character_id"], "character.card.6.face.2")
         self.assertEqual(target.pending_marks, [])
         self.assertEqual(target.turns_taken, 0)
         self.assertEqual(state.turn_index, 1)
@@ -2573,6 +2599,9 @@ class TrickRuleAuditTests(unittest.TestCase):
         self.assertEqual(len(suppressed), 1)
         payload = suppressed[0].payload
         self.assertEqual(payload["actor_name"], "자객")
+        self.assertEqual(payload["effect_character_name"], "자객")
+        self.assertEqual(payload["effect_card_no"], 2)
+        self.assertEqual(payload["effect_character_id"], "character.card.2.face.1")
         self.assertEqual(payload["reason"], "muroe_blocked_by_eosa")
         self.assertIn("어사", payload["summary"])
         self.assertFalse(stream.by_type("mark_resolved"))

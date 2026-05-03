@@ -62,6 +62,38 @@ def test_module_runtime_playtest_matrix_links_automated_coverage() -> None:
         assert token in text
 
 
+def test_module_runtime_playtest_matrix_documents_round_combination_regression_pack() -> None:
+    text = MATRIX_DOC.read_text(encoding="utf-8")
+
+    for phrase in {
+        "## 6. 1-5 회귀 묶음",
+        "`MRN-MOD-003`/`MRN-MOD-004`/`MRN-MOD-015`",
+        "CharacterStartModule",
+        "TargetJudicatorModule",
+        "`FortuneResolveModule -> MapMoveModule -> ArrivalTileModule`",
+        "`RoundEndCardFlipModule`은 모든 `PlayerTurnModule`과 child frame이 종료된 뒤에만 실행",
+        "`SimultaneousResolutionFrame`만 소유",
+        "프론트 생성 request id나 stale continuation이 엔진을 진행시키지 않는지 확인한다",
+    }:
+        assert phrase in text
+
+
+def test_redis_state_plan_documents_authoritative_continuation_boundary() -> None:
+    text = REDIS_STATE_PLAN_DOC.read_text(encoding="utf-8")
+
+    for phrase in {
+        "Authoritative Continuation Boundary",
+        "Worker 재실행은 Redis checkpoint rehydration",
+        "not a parent turn replay",
+        "`PromptContinuation`",
+        "`SimultaneousPromptBatchContinuation`",
+        "frontend-created request id",
+        "mismatched continuation",
+        "must not mutate canonical game state",
+    }:
+        assert phrase in text
+
+
 def test_runtime_docs_do_not_keep_stale_rent_atomicity_language() -> None:
     combined = "\n".join(
         [

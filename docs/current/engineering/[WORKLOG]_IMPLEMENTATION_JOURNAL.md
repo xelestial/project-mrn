@@ -8,6 +8,22 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Canonical Effect Ownership And Prompt Surface Contract Pass
+
+- What changed:
+  - added backend canonical effect-owner payload fields (`effect_character_id`, `effect_card_no`, `effect_character_name`) for scheduled mark resolution, ability suppression visibility, and matchmaker adjacent purchase events
+  - moved frontend event effect attribution into `domain/events/effectCharacter.ts` so canonical backend fields win before legacy compatibility inference
+  - added shared backend/frontend prompt surface fixtures for `purchase_tile` and `trick_tile_target`
+  - pinned the 1-5 round-combination regression pack and Redis continuation boundary in docs/tests
+  - removed `docs/current/.DS_Store`
+- Why:
+  - effect attribution must not be reconstructed from localized display text or stale actor fields
+  - backend prompt surfaces and Redis continuation checkpoints should define exactly where a resumed module continues, not frontend request ids or parent-turn replay
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_rule_fixes.py::RuleFixTests::test_scheduled_mark_resolves_before_target_turn_start GPT/test_rule_fixes.py::RuleFixTests::test_matchmaker_adjacent_purchase_event_carries_effect_owner_contract GPT/test_rule_fixes.py::TrickRuleAuditTests::test_eosa_suppressed_muroe_skill_is_visible_event apps/server/tests/test_view_state_prompt_selector.py tests/test_module_runtime_playtest_matrix_doc.py tests/test_redis_runtime_deployment_manifest.py -q`
+  - `npm --prefix apps/web run test -- --run src/domain/events/effectCharacter.spec.ts src/domain/selectors/promptSelectors.spec.ts`
+  - `npm --prefix apps/web run build`
+
 ## 2026-05-04 Frontend Effect Fallback Cleanup And Runtime Regression Pass
 
 - What changed:

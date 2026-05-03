@@ -1,0 +1,68 @@
+{
+  "messages": [
+    {
+      "type": "prompt",
+      "seq": 1,
+      "session_id": "s1",
+      "server_time_ms": 1,
+      "payload": {
+        "request_id": "req_trick_tile_1",
+        "request_type": "trick_tile_target",
+        "player_id": 1,
+        "timeout_ms": 30000,
+        "legal_choices": [
+          {
+            "choice_id": "tile_5",
+            "title": "6번 칸",
+            "description": "Apply the trick to tile 6.",
+            "value": {
+              "tile_index": 5
+            }
+          },
+          {
+            "choice_id": "tile_12",
+            "title": "13번 칸",
+            "description": "Apply the trick to tile 13.",
+            "value": {
+              "tile_index": 12
+            }
+          }
+        ],
+        "public_context": {
+          "card_name": "긴장감 조성",
+          "target_scope": "owned_land",
+          "candidate_tiles": [5, 12]
+        }
+      }
+    }
+  ],
+  "expected": {
+    "prompt": {
+      "active": {
+        "surface": {
+          "kind": "trick_tile_target",
+          "blocks_public_events": true,
+          "trick_tile_target": {
+            "card_name": "긴장감 조성",
+            "target_scope": "owned_land",
+            "candidate_tiles": [5, 12],
+            "options": [
+              {
+                "choice_id": "tile_5",
+                "tile_index": 5,
+                "title": "6번 칸",
+                "description": "Apply the trick to tile 6."
+              },
+              {
+                "choice_id": "tile_12",
+                "tile_index": 12,
+                "title": "13번 칸",
+                "description": "Apply the trick to tile 13."
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

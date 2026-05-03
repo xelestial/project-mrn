@@ -560,6 +560,24 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
             fixture["expected"]["prompt"]["active"]["surface"],
         )
 
+    def test_build_prompt_view_state_matches_shared_purchase_tile_surface_fixture(self) -> None:
+        fixture = _load_selector_prompt_fixture("selector.prompt.purchase_tile_surface.json")
+        view_state = build_prompt_view_state(fixture["messages"])
+
+        self.assertEqual(
+            view_state["active"]["surface"],
+            fixture["expected"]["prompt"]["active"]["surface"],
+        )
+
+    def test_build_prompt_view_state_matches_shared_trick_tile_target_surface_fixture(self) -> None:
+        fixture = _load_selector_prompt_fixture("selector.prompt.trick_tile_target_surface.json")
+        view_state = build_prompt_view_state(fixture["messages"])
+
+        self.assertEqual(
+            view_state["active"]["surface"],
+            fixture["expected"]["prompt"]["active"]["surface"],
+        )
+
     def test_build_prompt_view_state_matches_shared_runaway_step_surface_fixture(self) -> None:
         fixture = _load_selector_prompt_fixture("selector.prompt.runaway_step_surface.json")
         view_state = build_prompt_view_state(fixture["messages"])
