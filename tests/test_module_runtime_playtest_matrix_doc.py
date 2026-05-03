@@ -150,6 +150,8 @@ def test_round_action_control_matrix_covers_runtime_module_catalog_and_effects()
         assert f"`{module_type}`" in text
     assert "unknown `resolve_fortune_*` action" in text
     assert "`LegacyActionAdapterModule`" in text
+    assert "Legacy Adapter Removal Classification" in text
+    assert "migration escape hatch" in text
 
     for action_type in SIMULTANEOUS_ACTION_TYPES:
         assert f"`{action_type}`" in text
@@ -161,3 +163,18 @@ def test_round_action_control_matrix_covers_runtime_module_catalog_and_effects()
         assert f"`{entry.producer_module}`" in text
         for module_type in entry.consumer_modules + entry.runtime_boundary_modules:
             assert f"`{module_type}`" in text
+
+
+def test_round_action_control_matrix_documents_latest_log_revalidation() -> None:
+    text = ROUND_ACTION_CONTROL_MATRIX.read_text(encoding="utf-8")
+
+    for phrase in {
+        "Latest Play Log Revalidation",
+        ".log/20260502-150332-272298-p1/",
+        ".log/20260502-150334-677119-p1/",
+        "173 times",
+        "1 `accepted`, 215 `stale/already_resolved`",
+        "0 `RoundEndCardFlipModule` runtime modules",
+        "0 `LegacyActionAdapterModule` runtime modules",
+    }:
+        assert phrase in text

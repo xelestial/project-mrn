@@ -56,6 +56,19 @@ Action sequence names must resolve to explicit module boundaries. Backend resume
 | unknown `resolve_fortune_*` action | `LegacyActionAdapterModule` until catalogued |
 | unknown legacy action | `LegacyActionAdapterModule` |
 
+## Legacy Adapter Removal Classification
+
+`LegacyActionAdapterModule` is now a migration escape hatch, not a normal
+runtime path. A playtest log that contains this module means the action must be
+classified before the scenario is considered structurally migrated.
+
+| Classification | Required behavior |
+| --- | --- |
+| Native actionized path | All known turn follow-up actions listed above must resolve to their explicit module type and must not pass through `LegacyActionAdapterModule`. |
+| Native fortune path | All catalogued `resolve_fortune_*` actions listed above must resolve to `FortuneResolveModule`; any new fortune action must be added to `FORTUNE_ACTION_TYPE_TO_MODULE_TYPE` before use. |
+| Simultaneous path | `resolve_supply_threshold` must never be built as a `SequenceFrame` action and must be promoted into `SimultaneousResolutionFrame` / `ResupplyModule`. |
+| Unknown legacy path | Any other action that reaches `LegacyActionAdapterModule` is an unmigrated action. The fix is to add a module boundary, handler, prompt continuation contract when needed, and matrix row. |
+
 ## Simultaneous Action Inventory
 
 These actions are never valid inside a `SequenceFrame` action adapter. They
@@ -100,3 +113,16 @@ Each effect is owned by a producer module and consumed only by declared runtime 
 - `RoundEndCardFlipModule` requires all `PlayerTurnModule` entries to be completed or skipped and also requires no active child `TurnFrame`, `SequenceFrame`, or `SimultaneousResolutionFrame`.
 - `resolve_supply_threshold` remains outside action sequences; retry/recovery must resume `ResupplyModule` with the stored eligible snapshot.
 - All catalogued `resolve_fortune_*` actions remain native `FortuneResolveModule` work and may chain `MapMoveModule`/`ArrivalTileModule` without creating a new turn.
+
+## Latest Play Log Revalidation
+
+The May 2 playtest logs under `.log/20260502-150332-272298-p1/` and
+`.log/20260502-150334-677119-p1/` were rechecked after the module runtime
+retry/idempotency work.
+
+| Finding | Evidence | Structural expectation |
+| --- | --- | --- |
+| Duplicate burden exchange request was an old frontend resend loop. | `frontend.jsonl` sent `sess_KyskL_9wzGLkZyyQyNlS3Dxu:r1:t3:p1:burden_exchange:3` 173 times with no `decision_suppressed_duplicate` events in that old run. | Current frontend request ledger suppresses same-stream duplicate `requestId`s before network send. |
+| Backend accepted the duplicated request only once. | `backend.jsonl` recorded 216 receives for the same request id: 1 `accepted`, 215 `stale/already_resolved`. | Redis prompt state remains the authoritative continuation gate; duplicate decisions must not enqueue duplicate engine commands. |
+| No active-turn card flip violation was present in the rechecked engine logs. | Both engine logs had 0 `marker_flip` events and 0 `RoundEndCardFlipModule` runtime modules. | Card flip remains a `RoundFrame` module and is invalid while any active child frame exists. |
+| No migrated action fell through to the legacy action adapter in the rechecked engine logs. | Both engine logs had 0 `LegacyActionAdapterModule` runtime modules. | Known turn, trick, fortune, and simultaneous actions must stay on native module boundaries. |
