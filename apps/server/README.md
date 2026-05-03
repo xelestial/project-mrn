@@ -28,6 +28,7 @@ Services:
 Production process contract:
 
 - Run exactly these long-lived process roles against the same `MRN_REDIS_URL` and `MRN_REDIS_KEY_PREFIX`: `server`, `prompt-timeout-worker`, and `command-wakeup-worker`.
+- For Redis Cluster or any Redis environment that enforces key slots, set one stable hash tag in the prefix for every role, for example `MRN_REDIS_KEY_PREFIX=mrn:{project-mrn-prod}`. The runtime Lua/transaction envelope can touch session state, command offsets, prompt records, stream indexes, and view projections together, so those keys must stay in the same Redis hash slot.
 - Start workers only after `/health` is healthy, and configure process-manager restarts for all three roles.
 - Configure the `server` restart recovery policy for the deployment's session ownership model. `MRN_RESTART_RECOVERY_POLICY=abort_in_progress` is still the conservative server default until restart recovery is smoke-tested in the target environment.
 - Run standalone workers with `MRN_RESTART_RECOVERY_POLICY=keep` because they are not session owners and must not abort in-progress sessions during startup.

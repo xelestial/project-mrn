@@ -450,7 +450,7 @@ Implemented:
 
 Still pending:
 
-- split rent payment itself into a queued action if animation/recovery needs a payment boundary
+- force sale/takeover and global all-player payments remain on the watch list until they need a prompt, animation, recovery, or shared modifier boundary
 
 ### 2026-04-30 Purchase Resolution Action Split
 
@@ -469,7 +469,7 @@ Validation:
 
 Next:
 
-- split rent payment itself into a queued action if animation/recovery needs a payment boundary
+- continue the remaining watch-list audit for force sale/takeover and global all-player payments; rent payment is already a queued runtime action
 
 ### 2026-04-30 Rent Context Seed
 
@@ -537,9 +537,9 @@ Validation:
 - `./.venv/bin/python -m pytest GPT/test_engine_resumable_checkpoint.py -k 'purchase or score_token or prompt_action'`
 - `./.venv/bin/python -m pytest GPT/test_rule_fixes.py GPT/test_tile_effects.py -k 'purchase_places or score_token or coin or rent or trade_pass'`
 
-Still pending:
+Follow-up:
 
-- rent payment still mutates inside `rent.payment.resolve`; split it only when a separate payment animation/recovery boundary is required
+- rent payment is now actionized as `resolve_rent_payment`; keep future work focused on economic effects that add a new interruption, presentation, recovery, or modifier boundary
 
 ### 2026-04-30 Own Tile Score Token Request Split
 

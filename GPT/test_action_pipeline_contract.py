@@ -14,7 +14,7 @@ GPT_ROOT = PROJECT_ROOT / "GPT"
 
 ENGINE_DECISION_CONTINUATION_CLASSIFICATION: dict[str, str] = {
     "choose_active_flip_card": "atomic_effect_boundary",
-    "choose_burden_exchange_on_supply": "atomic_effect_boundary",
+    "choose_burden_exchange_on_supply": "simultaneous_prompt_batch_boundary",
     "choose_coin_placement_tile": "queued_action_boundary",
     "choose_dice_card_value": "atomic_effect_boundary",
     "choose_doctrine_relief_target": "atomic_effect_boundary",
@@ -36,6 +36,7 @@ ENGINE_DECISION_CONTINUATION_CATEGORIES = {
     "round_setup_boundary",
     "queued_action_boundary",
     "atomic_effect_boundary",
+    "simultaneous_prompt_batch_boundary",
     "legacy_compat_boundary",
 }
 
@@ -147,3 +148,10 @@ def test_request_decisions_are_classified_for_redis_continuation() -> None:
     assert missing == []
     assert stale == []
     assert invalid_categories == {}
+
+
+def test_burden_exchange_supply_is_simultaneous_prompt_batch_boundary() -> None:
+    assert (
+        ENGINE_DECISION_CONTINUATION_CLASSIFICATION["choose_burden_exchange_on_supply"]
+        == "simultaneous_prompt_batch_boundary"
+    )

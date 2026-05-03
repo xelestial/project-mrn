@@ -5,6 +5,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MATRIX_DOC = ROOT / "docs/current/engineering/[MATRIX]_MODULE_RUNTIME_PLAYTEST_SCENARIOS.md"
+TILE_TRAIT_PLAN_DOC = ROOT / "docs/current/engineering/[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md"
+REDIS_STATE_PLAN_DOC = ROOT / "docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md"
+SERVER_README = ROOT / "apps/server/README.md"
 
 REQUIRED_SCENARIOS = {
     "MRN-MOD-001": "첫 턴 실행",
@@ -47,3 +50,42 @@ def test_module_runtime_playtest_matrix_links_automated_coverage() -> None:
 
     for token in REQUIRED_COVERAGE_TOKENS:
         assert token in text
+
+
+def test_runtime_docs_do_not_keep_stale_rent_atomicity_language() -> None:
+    combined = "\n".join(
+        [
+            TILE_TRAIT_PLAN_DOC.read_text(encoding="utf-8"),
+            REDIS_STATE_PLAN_DOC.read_text(encoding="utf-8"),
+        ]
+    )
+
+    forbidden = {
+        "split rent payment itself into a queued action if animation/recovery needs a payment boundary",
+        "split rent payment itself into an explicit action only if a later prompt/animation boundary needs it",
+        "rent payment, force sale/takeover, and global all-player payments stay atomic",
+        "rent payment still mutates inside `rent.payment.resolve`",
+    }
+    for phrase in forbidden:
+        assert phrase not in combined
+
+    required = {
+        "RentPaymentModule",
+        "`resolve_rent_payment`",
+        "rent payment is now actionized",
+    }
+    for phrase in required:
+        assert phrase in combined
+
+
+def test_server_readme_documents_redis_cluster_hash_tag_contract() -> None:
+    text = SERVER_README.read_text(encoding="utf-8")
+
+    required = {
+        "Redis Cluster",
+        "hash tag",
+        "MRN_REDIS_KEY_PREFIX=mrn:{project-mrn-prod}",
+        "same Redis hash slot",
+    }
+    for phrase in required:
+        assert phrase in text

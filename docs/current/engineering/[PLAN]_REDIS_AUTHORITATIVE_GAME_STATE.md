@@ -816,13 +816,13 @@ Next action-pipeline hardening:
 
 - completed compatibility-helper audit: surviving direct movement/fortune helpers are now limited by contract tests to test/plugin-only APIs or legacy engine fallback paths
 - expand the prompt-resumable pattern to any future human decisions that still appear during effect resolution
-- continue the tile-trait migration from `[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md`: audit remaining inline economic mutations and split rent payment itself into an explicit action only if a later prompt/animation boundary needs it
+- continue the tile-trait migration from `[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md`: rent payment is now actionized as `resolve_rent_payment` / `RentPaymentModule`; audit remaining inline economic mutations only where a new prompt, animation beat, recovery checkpoint, or shared modifier context makes the extra boundary useful
 - latest audit result: remaining inline economic mutations are intentionally kept atomic unless they introduce a prompt, distinct animation beat, recovery checkpoint, or shared modifier context. The contract tests now guard against reintroducing inline purchase/token placement prompts inside default landing effect handlers.
 - trick tile-rent target effects now follow the same rule: `재뿌리기` and `긴장감 조성` queue `resolve_trick_tile_rent_modifier`, so target selection prompts and rent modifier mutation are checkpointable.
 - engine decision inventory now classifies every production `GameEngine._request_decision()` call for Redis continuation review, including effect-handler prompts such as active character flips and lap rewards. New decision names fail the action-pipeline contract until their boundary type is explicitly recorded.
 - compatibility helper audit now has two contract guards: production modules outside `engine.py` may not call `_advance_player()`, `_apply_fortune_arrival()`, or `_apply_fortune_move_only()` directly, and engine-internal direct calls are limited to the legacy `_apply_fortune_card_impl()` non-queued fallback. `_advance_player()` has no production caller and remains for parity tests/compatibility hooks only.
 - production/local orchestration contract is now documented in `apps/server/README.md`: Redis-backed gameplay requires the FastAPI server, prompt-timeout worker, and command-wakeup worker as separately restarted long-lived roles on the same Redis URL/key prefix. Compose now healthchecks the server through `/health`, waits for it before starting workers, and gives the server a restart policy.
-- optional actionization watch-list status is explicit in `[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md`: rent payment, force sale/takeover, and global all-player payments stay atomic until they gain a prompt, per-target animation, partial recovery, or shared modifier boundary.
+- optional actionization watch-list status is explicit in `[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md`: rent payment is no longer on the watch list, while force sale/takeover and global all-player payments stay atomic until they gain a prompt, per-target animation, partial recovery, or shared modifier boundary.
 
 ## Testing Strategy
 
@@ -875,7 +875,7 @@ Performance:
 ## Implementation Risks
 
 - Refactoring `GameEngine.run()` into resumable transitions is large and riskier than replacing server stores.
-- Redis Cluster compatibility is easiest if session-scoped keys share a hash tag. The proposed names should be revised to include `{session_id}` hash tags before cluster deployment.
+- Redis Cluster compatibility requires every key touched by one Lua/transaction envelope to live in the same Redis hash slot. Production cluster deployments must use a single stable hash-tagged `MRN_REDIS_KEY_PREFIX`, such as `mrn:{project-mrn-prod}`, across server and worker roles. Do not shard by `{session_id}` until the scripts and shared command/index keys are redesigned for cross-slot isolation.
 - Large JSON snapshots are simple and safe for migration, but later may need field-level hashes for hot data.
 - Streams are excellent for ordered logs, but projection from full history on every event is expensive. Store latest view_state and incremental checkpoints.
 - Distributed locks require careful timeouts. Lease expiry must be longer than worst-case transition time, and transitions must remain idempotent.
@@ -889,6 +889,6 @@ Recommended next implementation PR:
 2. Move full decision acceptance plus engine state mutation to one Redis transaction/Lua commit boundary.
 3. Add real Redis restart smoke that kills/recreates backend service processes around a running game and verifies hydrated continuation.
 4. Add production deployment settings for the timeout/command workers after the target hosting environment is chosen.
-5. Define Redis Cluster hash-tag key names before multi-node Redis deployment.
+5. Before multi-node Redis deployment, verify every process role uses the same hash-tagged `MRN_REDIS_KEY_PREFIX` and run restart/decision smoke tests against that exact prefix.
 
 This keeps the current incremental path honest: Redis now owns the live records, while resumable engine execution remains the next large refactor.

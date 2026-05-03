@@ -8,6 +8,22 @@ Updated: 2026-05-03
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-03 Simultaneous Resupply And Redis Continuation Contract Hardening
+
+- What changed:
+  - updated continuation classification so `choose_burden_exchange_on_supply` is explicitly a `simultaneous_prompt_batch_boundary`, not an atomic single-prompt effect boundary
+  - added backend reconstruction coverage proving a stored `runtime_active_prompt_batch` survives service recreation and is passed back to the engine with its original `batch_id`, frame, module cursor, existing responses, and missing participant list
+  - added documentation regression coverage to prevent stale “rent payment still needs action split” language from reappearing after `resolve_rent_payment` / `RentPaymentModule`
+  - documented the production Redis Cluster hash-tag contract in `apps/server/README.md` and the beginner Redis handoff
+  - added Redis key coverage showing `MRN_REDIS_KEY_PREFIX=mrn:{project-mrn-prod}` is preserved in generated keys
+- Why:
+  - simultaneous resupply must resume from the engine-owned batch continuation, not backend inference or sequential prompt reconstruction
+  - stale docs were making completed rent actionization look like remaining migration work
+  - Redis Cluster deployments need a single shared hash slot for the current Lua/transaction envelope across server and worker roles
+- Validation:
+  - `PYTHONPATH=.:GPT uv run pytest -q tests/test_module_runtime_playtest_matrix_doc.py GPT/test_action_pipeline_contract.py apps/server/tests/test_redis_persistence.py::RedisPersistenceTests::test_cluster_hash_tag_prefix_is_preserved_inside_all_keys`
+  - `PYTHONPATH=.:GPT uv run pytest -q GPT/test_runtime_simultaneous_modules.py apps/server/tests/test_prompt_module_continuation.py apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_active_simultaneous_batch_publishes_module_prompts_for_missing_players apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_simultaneous_batch_continuation_survives_service_reconstruction`
+
 ## 2026-05-03 Beginner Developer Handoff
 
 - What changed:
@@ -567,7 +583,7 @@ Updated: 2026-05-03
   - classified already split paths, context-backed paths, intentionally inline atomic effects, and watch-list candidates
   - added a contract test preventing default landing handlers from reopening purchase or score-token placement prompts inline
 - Decision:
-  - do not split rent payment yet; `RentContext` already isolates calculation, and payment remains a single atomic effect until the UI needs a separate rent-payment animation checkpoint
+  - historical at the time: rent payment was left atomic because `RentContext` already isolated calculation. Superseded on 2026-05-03 by `resolve_rent_payment` / `RentPaymentModule`.
   - do not split weather/trick/F/S/MALICIOUS same-tile resource effects yet; they are deterministic atomic effects without a prompt boundary
 - Validation:
   - pending after documentation update

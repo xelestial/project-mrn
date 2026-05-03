@@ -4619,6 +4619,178 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(getattr(seen[0], "request_type"), "movement")
         self.assertEqual(getattr(seen[0], "module_cursor"), "move:await_choice")
 
+    def test_simultaneous_batch_continuation_survives_service_reconstruction(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        import engine
+        from state import GameState
+
+        class _CommandStoreStub:
+            def __init__(self) -> None:
+                self.commands: list[dict] = []
+                self.offsets: list[tuple[str, str, int]] = []
+
+            def list_commands(self, session_id: str) -> list[dict]:
+                return [copy.deepcopy(command) for command in self.commands if command["session_id"] == session_id]
+
+            def save_consumer_offset(self, consumer_name: str, session_id: str, seq: int) -> None:
+                self.offsets.append((consumer_name, session_id, int(seq)))
+
+        store = _MutableGameStateStoreStub()
+        command_store = _CommandStoreStub()
+        first_runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            game_state_store=store,
+            command_store=command_store,
+        )
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "human"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42, "runtime": {"runner_kind": "module", "ai_decision_delay_ms": 0}},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.join_session(session.session_id, 2, session.join_tokens[2], "P2")
+        self.session_service.start_session(session.session_id, session.host_token)
+        config = first_runtime._config_factory.create(session.resolved_parameters)  # type: ignore[attr-defined]
+        state = GameState.create(config)
+        state.runtime_runner_kind = "module"
+        state.runtime_checkpoint_schema_version = 3
+        frame = build_resupply_frame(
+            2,
+            5,
+            parent_frame_id="round:2",
+            parent_module_id="mod:round:2:resupply_scheduler",
+            participants=[0, 1],
+        )
+        frame.status = "suspended"
+        module = frame.module_queue[0]
+        frame.active_module_id = module.module_id
+        module.status = "suspended"
+        module.cursor = "await_resupply_batch:5"
+        state.runtime_frame_stack = [frame]
+        batch = PromptApi().create_batch(
+            batch_id="batch:simul:resupply:2:5",
+            frame=frame,
+            module=module,
+            participant_player_ids=[0, 1],
+            request_type="burden_exchange",
+            legal_choices_by_player_id={
+                0: [{"choice_id": "yes"}, {"choice_id": "no"}],
+                1: [{"choice_id": "yes"}, {"choice_id": "no"}],
+            },
+            public_context_by_player_id={
+                0: {"round_index": 2, "turn_index": 5, "card_name": "무거운 짐"},
+                1: {"round_index": 2, "turn_index": 5, "card_name": "박수"},
+            },
+        )
+        batch.responses_by_player_id[0] = {"choice_id": "yes"}
+        batch.missing_player_ids = [1]
+        state.runtime_active_prompt_batch = batch
+        store.current_state = state.to_checkpoint_payload()
+        store.checkpoint = {
+            "schema_version": 3,
+            "session_id": session.session_id,
+            "runner_kind": "module",
+            "has_snapshot": True,
+            "runtime_active_prompt_batch": batch.to_payload(),
+        }
+        prompt = batch.prompts_by_player_id[1]
+        command_store.commands.append(
+            {
+                "seq": 1,
+                "type": "decision_submitted",
+                "session_id": session.session_id,
+                "payload": {
+                    "request_id": prompt.request_id,
+                    "player_id": 2,
+                    "request_type": "burden_exchange",
+                    "choice_id": "no",
+                    "resume_token": prompt.resume_token,
+                    "frame_id": prompt.frame_id,
+                    "module_id": prompt.module_id,
+                    "module_type": prompt.module_type,
+                    "module_cursor": prompt.module_cursor,
+                    "batch_id": batch.batch_id,
+                    "decision": {},
+                },
+            }
+        )
+
+        restarted_runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=PromptService(),
+            game_state_store=store,
+            command_store=command_store,
+        )
+        seen: list[dict] = []
+
+        def _fake_run_next_transition(self, resumed_state, decision_resume=None):  # noqa: ANN001
+            del self
+            active_batch = resumed_state.runtime_active_prompt_batch
+            seen.append(
+                {
+                    "batch_id": active_batch.batch_id,
+                    "missing_player_ids": list(active_batch.missing_player_ids),
+                    "responses_by_player_id": dict(active_batch.responses_by_player_id),
+                    "frame_type": resumed_state.runtime_frame_stack[0].frame_type,
+                    "module_cursor": resumed_state.runtime_frame_stack[0].module_queue[0].cursor,
+                    "resume_batch_id": decision_resume.batch_id,
+                    "resume_request_id": decision_resume.request_id,
+                    "resume_player_id": decision_resume.player_id,
+                    "resume_choice_id": decision_resume.choice_id,
+                }
+            )
+            return {
+                "status": "waiting_input",
+                "reason": "simultaneous_batch_waiting",
+                "runner_kind": "module",
+                "frame_id": frame.frame_id,
+                "module_id": module.module_id,
+                "module_type": "ResupplyModule",
+                "module_cursor": "await_resupply_batch:5",
+            }
+
+        with patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition):
+            result = restarted_runtime._run_engine_transition_once_sync(
+                None,
+                session.session_id,
+                42,
+                None,
+                True,
+                "runtime-worker",
+                1,
+            )
+
+        self.assertEqual(result["status"], "waiting_input")
+        self.assertEqual(command_store.offsets, [])
+        self.assertEqual(
+            seen,
+            [
+                {
+                    "batch_id": "batch:simul:resupply:2:5",
+                    "missing_player_ids": [1],
+                    "responses_by_player_id": {0: {"choice_id": "yes"}},
+                    "frame_type": "simultaneous",
+                    "module_cursor": "await_resupply_batch:5",
+                    "resume_batch_id": "batch:simul:resupply:2:5",
+                    "resume_request_id": prompt.request_id,
+                    "resume_player_id": 2,
+                    "resume_choice_id": "no",
+                }
+            ],
+        )
+        self.assertEqual(
+            store.commits[0]["checkpoint"]["runtime_active_prompt_batch"]["batch_id"],
+            "batch:simul:resupply:2:5",
+        )
+        self.assertEqual(store.commits[0]["checkpoint"]["active_module_type"], "ResupplyModule")
+
     def test_module_resume_preserves_checkpoint_frame_stack_without_replay(self) -> None:
         RuntimeService._ensure_gpt_import_path()
         import engine
