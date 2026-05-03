@@ -30,6 +30,19 @@ def test_eosa_declares_muroe_suppression_as_character_start_modifier():
     assert entry.modifier_kind == MUROE_SKILL_SUPPRESSION_KIND
 
 
+def test_character_ability_inventory_covers_all_character_cards():
+    from characters import CHARACTERS
+    from runtime_modules.effect_inventory import EFFECT_INVENTORY
+
+    declared_sources = {
+        entry.source_name
+        for entry in EFFECT_INVENTORY
+        if entry.effect_id.startswith("character:")
+    }
+
+    assert set(CHARACTERS) <= declared_sources
+
+
 def test_trick_fortune_and_resupply_effects_have_explicit_frame_contracts():
     from runtime_modules.effect_inventory import EFFECT_INVENTORY, effect_by_id
 

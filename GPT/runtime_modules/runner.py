@@ -61,20 +61,38 @@ class ModuleRunner:
         self._promote_pending_work_to_sequence_frames(engine, state)
         simultaneous_frame = self._active_simultaneous_frame(state)
         if simultaneous_frame is not None:
+            simultaneous_module = self._next_live_module(simultaneous_frame)
             result = self._advance_simultaneous_frame(engine, state, simultaneous_frame, decision_resume=decision_resume)
-            self._promote_pending_work_to_sequence_frames(engine, state)
+            self._promote_pending_work_to_sequence_frames(
+                engine,
+                state,
+                parent_frame=simultaneous_frame,
+                parent_module=simultaneous_module,
+            )
             self._sync_active_player_turn_after_legacy_work(state)
             return {**result, "runner_kind": "module"}
         sequence_frame = self._active_sequence_frame(state)
         if sequence_frame is not None:
+            sequence_module = self._next_live_module(sequence_frame)
             result = self._advance_sequence_frame(engine, state, sequence_frame)
-            self._promote_pending_work_to_sequence_frames(engine, state)
+            self._promote_pending_work_to_sequence_frames(
+                engine,
+                state,
+                parent_frame=sequence_frame,
+                parent_module=sequence_module,
+            )
             self._sync_active_player_turn_after_legacy_work(state)
             return {**result, "runner_kind": "module"}
         turn_frame = self._active_turn_frame(state)
         if turn_frame is not None:
+            turn_module = self._next_live_module(turn_frame)
             result = self._advance_turn_frame(engine, state, turn_frame)
-            self._promote_pending_work_to_sequence_frames(engine, state)
+            self._promote_pending_work_to_sequence_frames(
+                engine,
+                state,
+                parent_frame=turn_frame,
+                parent_module=turn_module,
+            )
             self._sync_active_player_turn_after_legacy_work(state)
             return {**result, "runner_kind": "module"}
         if not state.runtime_frame_stack or not state.current_round_order:
@@ -93,20 +111,38 @@ class ModuleRunner:
         self._promote_pending_work_to_sequence_frames(engine, state)
         simultaneous_frame = self._active_simultaneous_frame(state)
         if simultaneous_frame is not None:
+            simultaneous_module = self._next_live_module(simultaneous_frame)
             result = self._advance_simultaneous_frame(engine, state, simultaneous_frame, decision_resume=decision_resume)
-            self._promote_pending_work_to_sequence_frames(engine, state)
+            self._promote_pending_work_to_sequence_frames(
+                engine,
+                state,
+                parent_frame=simultaneous_frame,
+                parent_module=simultaneous_module,
+            )
             self._sync_active_player_turn_after_legacy_work(state)
             return {**result, "runner_kind": "module"}
         sequence_frame = self._active_sequence_frame(state)
         if sequence_frame is not None:
+            sequence_module = self._next_live_module(sequence_frame)
             result = self._advance_sequence_frame(engine, state, sequence_frame)
-            self._promote_pending_work_to_sequence_frames(engine, state)
+            self._promote_pending_work_to_sequence_frames(
+                engine,
+                state,
+                parent_frame=sequence_frame,
+                parent_module=sequence_module,
+            )
             self._sync_active_player_turn_after_legacy_work(state)
             return {**result, "runner_kind": "module"}
         turn_frame = self._active_turn_frame(state)
         if turn_frame is not None:
+            turn_module = self._next_live_module(turn_frame)
             result = self._advance_turn_frame(engine, state, turn_frame)
-            self._promote_pending_work_to_sequence_frames(engine, state)
+            self._promote_pending_work_to_sequence_frames(
+                engine,
+                state,
+                parent_frame=turn_frame,
+                parent_module=turn_module,
+            )
             self._sync_active_player_turn_after_legacy_work(state)
             return {**result, "runner_kind": "module"}
 
@@ -759,7 +795,14 @@ class ModuleRunner:
         parent_frame: FrameState | None = None,
         parent_module: ModuleRef | None = None,
     ) -> None:
-        frame = parent_frame or self._active_round_frame(state) or self._active_frame(state.runtime_frame_stack)
+        frame = (
+            parent_frame
+            or self._active_simultaneous_frame(state)
+            or self._active_sequence_frame(state)
+            or self._active_turn_frame(state)
+            or self._active_round_frame(state)
+            or self._active_frame(state.runtime_frame_stack)
+        )
         if frame is None:
             return
         module = parent_module or self._next_live_module(frame)

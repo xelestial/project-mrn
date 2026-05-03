@@ -27,6 +27,10 @@ def handle_action_adapter(ctx: SequenceFrameHandlerContext) -> dict[str, Any]:
     return ctx.runner._advance_action_adapter_module(ctx.engine, ctx.state, ctx.frame, ctx.module)
 
 
+def handle_fortune_resolve(ctx: SequenceFrameHandlerContext) -> dict[str, Any]:
+    return handle_action_adapter(ctx)
+
+
 def handle_turn_completion(ctx: SequenceFrameHandlerContext) -> dict[str, Any]:
     return ctx.runner._advance_turn_completion_module(ctx.engine, ctx.state, ctx.frame, ctx.module)
 
@@ -40,9 +44,9 @@ def handle_default_sequence(ctx: SequenceFrameHandlerContext) -> dict[str, Any]:
 SEQUENCE_FRAME_HANDLERS: dict[str, SequenceFrameHandler] = {
     module_type: handle_trick_sequence for module_type in TRICK_SEQUENCE_MODULE_TYPES
 }
+SEQUENCE_FRAME_HANDLERS["FortuneResolveModule"] = handle_fortune_resolve
 
 SEQUENCE_PAYLOAD_HANDLERS: dict[str, SequenceFrameHandler] = {
     "action": handle_action_adapter,
     "pending_turn_completion": handle_turn_completion,
 }
-

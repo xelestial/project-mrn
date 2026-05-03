@@ -84,6 +84,131 @@ EFFECT_INVENTORY: tuple[EffectInventoryEntry, ...] = (
         notes="무뢰 계열 인물 시작 모듈에 능력 억제 modifier를 심어 비교문 분기 대신 효과 흐름으로 차단한다.",
     ),
     EffectInventoryEntry(
+        effect_id="character:tamgwanori:dice_tribute",
+        source_name="탐관오리",
+        producer_module="CharacterPassiveModifierSeedModule",
+        consumer_modules=("DiceRollModule",),
+        frame_kind="turn",
+        modifier_kind="tamgwanori_dice_tribute",
+        runtime_boundary_modules=("CharacterPassiveModifierSeedModule", "DiceRollModule"),
+        notes="다른 관원/상민의 주사위 처리에 공납/추가 주사위 modifier로 작용한다.",
+    ),
+    EffectInventoryEntry(
+        effect_id="character:runaway_slave:special_step",
+        source_name="탈출 노비",
+        producer_module="DiceRollModule",
+        consumer_modules=("DiceRollModule", "MapMoveModule", "ArrivalTileModule"),
+        frame_kind="turn",
+        prompt_contract="runaway_step_choice",
+        redis_resume_contracts=("PromptContinuation",),
+        runtime_boundary_modules=("DiceRollModule",),
+        notes="주사위 이동값 산정 중 특수칸 1칸 전 위치에서 선택 prompt를 열고 이후 이동/도착 모듈로 확정값을 넘긴다.",
+    ),
+    EffectInventoryEntry(
+        effect_id="character:pabalggun:dice_modifier",
+        source_name="파발꾼",
+        producer_module="CharacterStartModule",
+        consumer_modules=("DiceRollModule",),
+        frame_kind="turn",
+        prompt_contract="pabal_dice_mode",
+        redis_resume_contracts=("PromptContinuation",),
+        runtime_boundary_modules=("CharacterStartModule", "DiceRollModule"),
+        notes="인물 시작에서 이번 턴 주사위 modifier를 심고 DiceRollModule이 추가/감소 및 중복 보정을 소비한다.",
+    ),
+    EffectInventoryEntry(
+        effect_id="character:ajeon:arrival_rent_waiver",
+        source_name="아전",
+        producer_module="CharacterStartModule",
+        consumer_modules=("ArrivalTileModule", "LandingPostEffectsModule"),
+        frame_kind="sequence",
+        runtime_boundary_modules=("ArrivalTileModule", "LandingPostEffectsModule"),
+        notes="남의 말이 있는 토지 도착 시 통행료 면제와 같은 칸 참가자 징수를 도착 후 효과로 제한한다.",
+    ),
+    EffectInventoryEntry(
+        effect_id="character:doctrine_researcher:burden_relief",
+        source_name="교리 연구관",
+        producer_module="CharacterStartModule",
+        consumer_modules=("CharacterStartModule",),
+        frame_kind="turn",
+        prompt_contract="doctrine_relief",
+        redis_resume_contracts=("PromptContinuation",),
+        runtime_boundary_modules=("CharacterStartModule",),
+        notes="턴 시작 교리 짐 제거 prompt/해결은 CharacterStartModule 경계 안에서만 열린다.",
+    ),
+    EffectInventoryEntry(
+        effect_id="character:doctrine_researcher:marker_management",
+        source_name="교리 연구관",
+        producer_module="RoundEndCardFlipModule",
+        consumer_modules=("RoundEndCardFlipModule",),
+        frame_kind="round",
+        prompt_contract="active_flip",
+        redis_resume_contracts=("PromptContinuation",),
+        runtime_boundary_modules=("RoundEndCardFlipModule",),
+        notes="현재 구현상 라운드 종료 카드 뒤집기 경계에서 마커 관리와 활성면 전환을 처리한다.",
+    ),
+    EffectInventoryEntry(
+        effect_id="character:doctrine_supervisor:burden_relief",
+        source_name="교리 감독관",
+        producer_module="CharacterStartModule",
+        consumer_modules=("CharacterStartModule",),
+        frame_kind="turn",
+        prompt_contract="doctrine_relief",
+        redis_resume_contracts=("PromptContinuation",),
+        runtime_boundary_modules=("CharacterStartModule",),
+        notes="턴 시작 교리 짐 제거 prompt/해결은 CharacterStartModule 경계 안에서만 열린다.",
+    ),
+    EffectInventoryEntry(
+        effect_id="character:doctrine_supervisor:marker_management",
+        source_name="교리 감독관",
+        producer_module="RoundEndCardFlipModule",
+        consumer_modules=("RoundEndCardFlipModule",),
+        frame_kind="round",
+        prompt_contract="active_flip",
+        redis_resume_contracts=("PromptContinuation",),
+        runtime_boundary_modules=("RoundEndCardFlipModule",),
+        notes="현재 구현상 라운드 종료 카드 뒤집기 경계에서 마커 관리와 활성면 전환을 처리한다.",
+    ),
+    EffectInventoryEntry(
+        effect_id="character:gakju:arrival_lap_modifiers",
+        source_name="객주",
+        producer_module="CharacterStartModule",
+        consumer_modules=("ArrivalTileModule", "LapRewardModule"),
+        frame_kind="turn",
+        runtime_boundary_modules=("ArrivalTileModule",),
+        notes="종료칸/자가 토지/랩 보상 증폭을 이동 후 도착 및 랩 보상 경계에서 소비한다.",
+    ),
+    EffectInventoryEntry(
+        effect_id="character:matchmaker:adjacent_purchase",
+        source_name="중매꾼",
+        producer_module="ArrivalTileModule",
+        consumer_modules=("PurchaseDecisionModule", "PurchaseCommitModule"),
+        frame_kind="sequence",
+        prompt_contract="purchase_tile",
+        redis_resume_contracts=("PromptContinuation",),
+        runtime_boundary_modules=("ArrivalTileModule", "PurchaseDecisionModule", "PurchaseCommitModule"),
+        notes="도착 후 구매 시퀀스가 인접 추가 매입 후보와 비용 modifier를 소유한다.",
+    ),
+    EffectInventoryEntry(
+        effect_id="character:builder:free_purchase",
+        source_name="건설업자",
+        producer_module="CharacterStartModule",
+        consumer_modules=("PurchaseDecisionModule", "PurchaseCommitModule"),
+        frame_kind="sequence",
+        prompt_contract="purchase_tile",
+        redis_resume_contracts=("PromptContinuation",),
+        runtime_boundary_modules=("CharacterStartModule", "PurchaseDecisionModule", "PurchaseCommitModule"),
+        notes="턴 시작 무료 구매 modifier를 구매 결정/커밋 시퀀스에서만 소비한다.",
+    ),
+    EffectInventoryEntry(
+        effect_id="character:swindler:takeover",
+        source_name="사기꾼",
+        producer_module="ArrivalTileModule",
+        consumer_modules=("ArrivalTileModule", "LandingPostEffectsModule"),
+        frame_kind="sequence",
+        runtime_boundary_modules=("ArrivalTileModule", "LandingPostEffectsModule"),
+        notes="남의 토지 도착 시 통행료 배수 인수와 코인 이전을 도착 후 효과 시퀀스로 제한한다.",
+    ),
+    EffectInventoryEntry(
         effect_id="trick:sequence",
         source_name="잔꾀",
         producer_module="TrickWindowModule",
@@ -120,10 +245,11 @@ EFFECT_INVENTORY: tuple[EffectInventoryEntry, ...] = (
 
 VIRTUAL_EFFECT_MODULE_FRAME_KINDS: dict[str, frozenset[str]] = {
     "CharacterModifierSeedModule": frozenset({"turn"}),
+    "CharacterPassiveModifierSeedModule": frozenset({"turn"}),
     "ConcurrentResolutionSchedulerModule": frozenset({"simultaneous"}),
 }
 
-MODIFIER_EFFECT_MODULES = frozenset({"CharacterModifierSeedModule"})
+MODIFIER_EFFECT_MODULES = frozenset({"CharacterModifierSeedModule", "CharacterPassiveModifierSeedModule"})
 SCHEDULER_EFFECT_MODULES = frozenset({"ConcurrentResolutionSchedulerModule"})
 
 
@@ -160,6 +286,7 @@ def validate_effect_inventory(inventory: Iterable[EffectInventoryEntry]) -> list
 
 
 def runtime_handler_coverage_errors(inventory: Iterable[EffectInventoryEntry]) -> list[str]:
+    from .handlers.round import ROUND_FRAME_HANDLERS
     from .handlers.sequence import SEQUENCE_FRAME_HANDLERS
     from .handlers.simultaneous import SIMULTANEOUS_FRAME_HANDLERS
     from .handlers.turn import TURN_FRAME_HANDLERS
@@ -171,7 +298,8 @@ def runtime_handler_coverage_errors(inventory: Iterable[EffectInventoryEntry]) -
             if module_type in MODIFIER_EFFECT_MODULES or module_type in SCHEDULER_EFFECT_MODULES:
                 continue
             covered = (
-                module_type in TURN_FRAME_HANDLERS
+                module_type in ROUND_FRAME_HANDLERS
+                or module_type in TURN_FRAME_HANDLERS
                 or module_type in SEQUENCE_FRAME_HANDLERS
                 or module_type in SIMULTANEOUS_FRAME_HANDLERS
                 or module_type in ACTION_SEQUENCE_MODULE_TYPES

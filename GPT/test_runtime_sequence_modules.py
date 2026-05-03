@@ -82,6 +82,95 @@ def test_action_sequence_frame_maps_pending_actions_to_typed_modules() -> None:
     assert frame.module_queue[0].payload["action"]["action_id"] == "a1"
 
 
+def test_fortune_resolve_has_explicit_sequence_handler_not_payload_fallback() -> None:
+    from runtime_modules.handlers.sequence import SEQUENCE_FRAME_HANDLERS
+
+    assert "FortuneResolveModule" in SEQUENCE_FRAME_HANDLERS
+
+
+def test_fortune_followup_actions_stay_in_sequence_module_chain() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+        def __init__(self) -> None:
+            self.executed: list[str] = []
+            self.logs: list[dict] = []
+
+        def _execute_action(self, state, action, *, queue_followups: bool):
+            self.executed.append(action.type)
+            assert queue_followups is True
+            if action.type == "resolve_fortune_bonus_roll":
+                state.pending_actions.append(
+                    ActionEnvelope(
+                        action_id="move-from-fortune",
+                        type="apply_move",
+                        actor_player_id=0,
+                        source="fortune",
+                        payload={"move_value": 3, "schedule_arrival": True},
+                    )
+                )
+                return {"type": "QUEUED_FORTUNE_MOVE"}
+            if action.type == "apply_move":
+                state.pending_actions.append(
+                    ActionEnvelope(
+                        action_id="arrival-from-fortune",
+                        type="resolve_arrival",
+                        actor_player_id=0,
+                        source="fortune",
+                        payload={"tile_index": 3},
+                    )
+                )
+                return {"type": "MOVE_APPLIED"}
+            if action.type == "resolve_arrival":
+                return {"type": "ARRIVAL_RESOLVED"}
+            raise AssertionError(f"unexpected action {action.type}")
+
+        def _log(self, event):
+            self.logs.append(dict(event))
+
+    frame = build_action_sequence_frame(
+        1,
+        0,
+        0,
+        [
+            {
+                "action_id": "fortune-1",
+                "type": "resolve_fortune_bonus_roll",
+                "actor_player_id": 0,
+                "source": "fortune",
+                "payload": {},
+            }
+        ],
+        parent_frame_id="turn:1:p0",
+        parent_module_id="mod:turn:1:p0:arrival",
+        session_id="test-session",
+    )
+    state = SimpleNamespace(
+        pending_actions=[],
+        pending_turn_completion={},
+        players=[SimpleNamespace(player_id=0, alive=True)],
+        runtime_frame_stack=[frame],
+        runtime_module_journal=[],
+        rounds_completed=0,
+        current_round_order=[0],
+        turn_index=0,
+    )
+    engine = FakeEngine()
+    runner = ModuleRunner()
+
+    fortune = runner.advance_engine(engine, state)
+    move = runner.advance_engine(engine, state)
+    arrival = runner.advance_engine(engine, state)
+
+    assert [fortune["module_type"], move["module_type"], arrival["module_type"]] == [
+        "FortuneResolveModule",
+        "MapMoveModule",
+        "ArrivalTileModule",
+    ]
+    assert engine.executed == ["resolve_fortune_bonus_roll", "apply_move", "resolve_arrival"]
+    assert all(frame.frame_type == "sequence" for frame in state.runtime_frame_stack)
+
+
 def test_supply_threshold_action_is_not_built_as_action_sequence_module() -> None:
     frame = build_action_sequence_frame(
         1,
