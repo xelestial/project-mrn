@@ -48,7 +48,7 @@ MODULE_RULES: dict[str, ModuleRule] = {
     "TrickDiscardModule": ModuleRule("TrickDiscardModule", frozenset({"sequence"})),
     "TrickDeferredFollowupsModule": ModuleRule("TrickDeferredFollowupsModule", frozenset({"sequence"})),
     "TrickVisibilitySyncModule": ModuleRule("TrickVisibilitySyncModule", frozenset({"sequence"})),
-    "TurnEndSnapshotModule": ModuleRule("TurnEndSnapshotModule", frozenset({"turn", "sequence"})),
+    "TurnEndSnapshotModule": ModuleRule("TurnEndSnapshotModule", frozenset({"turn"})),
     "SimultaneousProcessingModule": ModuleRule("SimultaneousProcessingModule", frozenset({"simultaneous"})),
     "SimultaneousPromptBatchModule": ModuleRule("SimultaneousPromptBatchModule", frozenset({"simultaneous"})),
     "ResupplyModule": ModuleRule("ResupplyModule", frozenset({"simultaneous"})),

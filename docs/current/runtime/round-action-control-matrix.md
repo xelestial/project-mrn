@@ -14,7 +14,7 @@ Each round may contain these action groups. Every group must be controlled from 
 | Dice/move/arrival | `DiceRollModule`, `MapMoveModule`, `ArrivalTileModule` | event must match active actor round+turn | displayed in current turn only |
 | Fortune follow-up | `FortuneResolveModule` in turn/sequence | any inserted extra action must be queued through runtime module API | displayed in current turn/sequence only |
 | Concurrent resupply | `SimultaneousResolutionFrame` | all participant prompts share `batch_id`; commit only when all required responses exist or policy timeout default applies | simultaneous response surface; must not supersede unrelated single-player prompts |
-| Turn end | `TurnEndSnapshotModule` in active turn completion contract | turn completion cannot publish round-end card flip | closes current turn UI |
+| Turn end | `TurnEndSnapshotModule` in the active `TurnFrame` | backend/Redis must not promote `pending_turn_completion` into a sequence adapter; turn completion cannot publish round-end card flip | closes current turn UI |
 | Round-end card flip | `RoundEndCardFlipModule` in `RoundFrame` | allowed only after all `PlayerTurnModule`s completed/skipped | show as round-end stage, never as current turn progress |
 | Cleanup/next round | `RoundCleanupAndNextRoundModule` | starts next round only after card flip/cleanup complete | clear stale prompt/turn stage before next draft |
 
@@ -25,7 +25,7 @@ This section is intentionally exhaustive and is checked by tests against `GPT/ru
 - RoundFrame modules: `RoundStartModule`, `WeatherModule`, `DraftModule`, `TurnSchedulerModule`, `PlayerTurnModule`, `RoundEndCardFlipModule`, `RoundCleanupAndNextRoundModule`.
 - TurnFrame modules: `TurnStartModule`, `ScheduledStartActionsModule`, `CharacterStartModule`, `ImmediateMarkerTransferModule`, `TargetJudicatorModule`, `TrickWindowModule`, `DiceRollModule`, `MovementResolveModule`, `LapRewardModule`, `PendingMarkResolutionModule`, `MapMoveModule`, `ArrivalTileModule`, `FortuneResolveModule`, `TurnEndSnapshotModule`.
 - SequenceFrame trick modules: `TrickChoiceModule`, `TrickSkipModule`, `TrickResolveModule`, `TrickDiscardModule`, `TrickDeferredFollowupsModule`, `TrickVisibilitySyncModule`.
-- SequenceFrame action modules: `PendingMarkResolutionModule`, `MapMoveModule`, `ArrivalTileModule`, `RentPaymentModule`, `PurchaseDecisionModule`, `PurchaseCommitModule`, `UnownedPostPurchaseModule`, `ScoreTokenPlacementPromptModule`, `ScoreTokenPlacementCommitModule`, `LandingPostEffectsModule`, `TrickTileRentModifierModule`, `FortuneResolveModule`. `LegacyActionAdapterModule` remains documented only as a forbidden legacy checkpoint signal and is no longer part of the executable action module list.
+- SequenceFrame action modules: `PendingMarkResolutionModule`, `MapMoveModule`, `ArrivalTileModule`, `RentPaymentModule`, `PurchaseDecisionModule`, `PurchaseCommitModule`, `UnownedPostPurchaseModule`, `ScoreTokenPlacementPromptModule`, `ScoreTokenPlacementCommitModule`, `LandingPostEffectsModule`, `TrickTileRentModifierModule`, `FortuneResolveModule`. `LegacyActionAdapterModule` and sequence-owned `TurnEndSnapshotModule` remain documented only as forbidden legacy checkpoint signals and are no longer executable runtime paths.
 - SimultaneousResolutionFrame modules: `SimultaneousProcessingModule`, `SimultaneousPromptBatchModule`, `ResupplyModule`, `SimultaneousCommitModule`, `CompleteSimultaneousResolutionModule`.
 - Virtual effect modules: `CharacterModifierSeedModule`, `CharacterPassiveModifierSeedModule`, `ConcurrentResolutionSchedulerModule`. These are inventory-only module boundaries used to express modifier/scheduler ownership without allowing ad hoc backend branching.
 
@@ -69,6 +69,7 @@ structurally migrated.
 | Native fortune path | All catalogued `resolve_fortune_*` actions listed above must resolve to `FortuneResolveModule`; any new fortune action must be added to `FORTUNE_ACTION_TYPE_TO_MODULE_TYPE` before use. |
 | Simultaneous path | `resolve_supply_threshold` must never be built as a `SequenceFrame` action and must be promoted into `SimultaneousResolutionFrame` / `ResupplyModule`. |
 | Unknown legacy path | Any unmapped action now fails before action sequence construction with `UnknownActionTypeError`; any old checkpoint carrying `LegacyActionAdapterModule` is rejected by the runner/backend semantic guard. The fix is to add a module boundary, handler, prompt continuation contract when needed, and matrix row. |
+| Legacy turn-completion adapter | `pending_turn_completion` may still exist in legacy `GameState` serialization, but module-runner sessions must attach it to the active `TurnFrame`'s `TurnEndSnapshotModule` payload in the same transition. Any orphan checkpoint or `SequenceFrame` containing `TurnEndSnapshotModule` is rejected. |
 
 ## Simultaneous Action Inventory
 
@@ -113,8 +114,18 @@ Each effect is owned by a producer module and consumed only by declared runtime 
 - `TrickResolveModule` may insert a follow-up `TrickChoiceModule` only once. The inserted module id is stored as `followup_choice_module_id`; worker retry must reuse that module instead of appending another prompt.
 - `RoundEndCardFlipModule` requires all `PlayerTurnModule` entries to be completed or skipped and also requires no active child `TurnFrame`, `SequenceFrame`, or `SimultaneousResolutionFrame`.
 - `resolve_supply_threshold` remains outside action sequences; retry/recovery must resume `ResupplyModule` with the stored eligible snapshot.
+- `TurnEndSnapshotModule` is turn-owned only. A module-runner replay must not create a `SequenceFrame` from `pending_turn_completion`; the backend semantic guard rejects that old shape before publish/recovery can continue.
 - All catalogued `resolve_fortune_*` actions remain native `FortuneResolveModule` work and may chain `MapMoveModule`/`ArrivalTileModule` without creating a new turn.
 - Unknown action types must fail before runtime execution. Frontend/backend logs may mention the failed action type, but the engine must not create `LegacyActionAdapterModule` work for it.
+
+## Backend/Redis Boundary
+
+Backend and Redis do not own game-rule branching. They persist and validate the engine-issued frame/module checkpoint, active prompt, active prompt batch, idempotency keys, and stream ordering only.
+
+- Prompt resume decisions must match `runtime_active_prompt` or `runtime_active_prompt_batch` by `resume_token`, `frame_id`, `module_id`, `module_type`, `module_cursor`, and when present `batch_id`.
+- Character suppression, trick follow-up insertion, movement, arrival, fortune chaining, turn end, and simultaneous resupply are engine module responsibilities.
+- Redis may expose checkpoint visibility fields such as `has_pending_turn_completion` for legacy compatibility, but module-runner execution treats orphan `pending_turn_completion` as invalid unless it has already been consumed into `TurnEndSnapshotModule.payload.turn_completion`.
+- WebSocket payloads are accepted only when their runtime module placement matches the catalog. This prevents impossible engine states from being republished as frontend progress.
 
 ## Latest Play Log Revalidation
 

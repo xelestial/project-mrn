@@ -29,7 +29,7 @@ MODULE_ALLOWED_FRAMES: dict[str, set[str]] = {
     "RentPaymentModule": {"sequence"},
     "LapRewardModule": {"turn"},
     "FortuneResolveModule": {"turn", "sequence"},
-    "TurnEndSnapshotModule": {"turn", "sequence"},
+    "TurnEndSnapshotModule": {"turn"},
     "TrickChoiceModule": {"sequence"},
     "TrickSkipModule": {"sequence"},
     "TrickResolveModule": {"sequence"},

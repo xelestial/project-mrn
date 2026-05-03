@@ -12,7 +12,7 @@
 - Action continuation metadata is also checkpointed through `pending_actions`. Each entry is a serializable `ActionEnvelope`, not a Python callable, so later Redis recovery can resume queued movement/arrival steps without depending on process memory.
 - Scheduled continuation metadata is checkpointed through `scheduled_actions`. These are also `ActionEnvelope` records, but they include a target player and phase such as `turn_start`; the engine materializes matching scheduled actions into `pending_actions` when that player/phase becomes current.
 - `pending_action_log` carries the in-progress turn-log aggregate while movement and arrival are split across multiple queued actions.
-- `pending_turn_completion` carries the small deferred turn-finalization envelope while normal turn movement is split into queued `apply_move -> resolve_arrival` transitions. Redis recovery uses it to emit the turn-end snapshot and advance the turn cursor only after queued movement work is finished.
+- `pending_turn_completion` remains serialized for legacy compatibility, but module-runner sessions must consume it during the same transition into the active `TurnFrame`'s `TurnEndSnapshotModule.payload.turn_completion`. Redis recovery must not resume an orphan turn-completion envelope as a sequence adapter.
 - `pending_actions` may also carry phase-continuation envelopes such as `continue_after_trick_phase`. These are queued after trick-generated movement or landing actions so the same turn resumes at the correct phase instead of falling back to turn-start/trick selection after the action queue drains.
 
 ## 현재 구조

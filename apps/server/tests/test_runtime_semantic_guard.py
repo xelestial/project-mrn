@@ -285,6 +285,37 @@ def test_checkpoint_allows_matching_native_action_sequence_module() -> None:
     )
 
 
+def test_checkpoint_rejects_turn_end_snapshot_sequence_adapter() -> None:
+    with pytest.raises(RuntimeSemanticViolation, match="TurnEndSnapshotModule is not allowed in sequence frame"):
+        validate_checkpoint_payload(
+            {
+                "runtime_runner_kind": "module",
+                "runtime_frame_stack": [
+                    {
+                        "frame_id": "seq:turn_completion:1:p0:1",
+                        "frame_type": "sequence",
+                        "status": "running",
+                        "active_module_id": "mod:turn-end",
+                        "module_queue": [
+                            {
+                                "module_id": "mod:turn-end",
+                                "module_type": "TurnEndSnapshotModule",
+                                "status": "running",
+                                "payload": {
+                                    "pending_turn_completion": {
+                                        "player_id": 0,
+                                        "finisher_before": 0,
+                                        "disruption_before": {},
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
 def test_checkpoint_rejects_legacy_action_adapter_module() -> None:
     with pytest.raises(RuntimeSemanticViolation, match="LegacyActionAdapterModule"):
         validate_checkpoint_payload(

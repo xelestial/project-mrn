@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -621,7 +622,7 @@ def test_module_runner_promotes_pending_actions_before_execution() -> None:
                 payload={"move_value": 1},
             )
         ],
-        pending_turn_completion={"player_id": 0, "disruption_before": {}, "finisher_before": 0},
+        pending_turn_completion={},
         runtime_frame_stack=[round_frame],
         runtime_module_journal=[
             ModuleJournalEntry(
@@ -645,8 +646,119 @@ def test_module_runner_promotes_pending_actions_before_execution() -> None:
     assert result["pending_actions"] == 0
     assert state.pending_actions == []
     sequence_frames = [frame for frame in state.runtime_frame_stack if frame.frame_type == "sequence"]
-    assert [frame.status for frame in sequence_frames] == ["running", "completed"]
-    assert sequence_frames[0].module_queue[0].module_type == "TurnEndSnapshotModule"
+    assert [frame.status for frame in sequence_frames] == ["completed"]
+    assert sequence_frames[0].module_queue[0].module_type == "MapMoveModule"
+
+
+def test_turn_completion_is_owned_by_turn_end_snapshot_module_not_sequence_adapter() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+        def _finish_turn_after_trick_phase(self, state, player, *, finisher_before: int, disruption_before: dict):
+            state.pending_actions.append(
+                ActionEnvelope(
+                    action_id="move-after-dice",
+                    type="apply_move",
+                    actor_player_id=0,
+                    source="dice",
+                    payload={"move_value": 1},
+                )
+            )
+            state.pending_turn_completion = {
+                "player_id": player.player_id,
+                "finisher_before": finisher_before,
+                "disruption_before": dict(disruption_before),
+            }
+
+    player = SimpleNamespace(
+        player_id=0,
+        alive=True,
+        extra_dice_count_this_turn=0,
+        trick_dice_delta_this_turn=0,
+    )
+    turn_frame = build_turn_frame(
+        1,
+        0,
+        parent_module_id="mod:round:1:playerturn:p0",
+        session_id="test-session",
+    )
+    dice_module = next(module for module in turn_frame.module_queue if module.module_type == "DiceRollModule")
+    for module in turn_frame.module_queue:
+        if module.module_id == dice_module.module_id:
+            break
+        module.status = "completed"
+        turn_frame.completed_module_ids.append(module.module_id)
+    state = SimpleNamespace(
+        current_weather_effects=[],
+        pending_actions=[],
+        pending_turn_completion={},
+        players=[player],
+        runtime_frame_stack=[turn_frame],
+        runtime_module_journal=[],
+        runtime_modifier_registry=ModifierRegistryState(),
+        rounds_completed=0,
+        current_round_order=[0],
+        turn_index=0,
+    )
+
+    result = ModuleRunner().advance_engine(FakeEngine(), state)
+
+    assert result["module_type"] == "DiceRollModule"
+    assert state.pending_turn_completion == {}
+    turn_end_module = next(module for module in turn_frame.module_queue if module.module_type == "TurnEndSnapshotModule")
+    assert turn_end_module.payload["turn_completion"] == {
+        "player_id": 0,
+        "finisher_before": 0,
+        "disruption_before": {},
+    }
+    sequence_frames = [frame for frame in state.runtime_frame_stack if frame.frame_type == "sequence"]
+    assert [frame.module_queue[0].module_type for frame in sequence_frames] == ["MapMoveModule"]
+    assert all(
+        module.module_type != "TurnEndSnapshotModule"
+        for frame in sequence_frames
+        for module in frame.module_queue
+    )
+
+
+def test_module_runner_rejects_orphan_pending_turn_completion_checkpoint() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+        def _leader_disruption_snapshot(self, *_args, **_kwargs):
+            return {}
+
+        def _maybe_award_control_finisher_window(self, *_args, **_kwargs):
+            return False
+
+        def _emit_vis(self, *_args, **_kwargs):
+            return None
+
+        def _check_end(self, *_args, **_kwargs):
+            return False
+
+    round_frame = build_round_frame(1, player_order=[0], completed_setup=True)
+    state = SimpleNamespace(
+        pending_actions=[],
+        pending_turn_completion={"player_id": 0, "disruption_before": {}, "finisher_before": 0},
+        runtime_frame_stack=[round_frame],
+        runtime_module_journal=[],
+        players=[SimpleNamespace(player_id=0, alive=True, control_finisher_turns=0, control_finisher_reason="")],
+        rounds_completed=0,
+        current_round_order=[0],
+        turn_index=0,
+    )
+
+    with pytest.raises(ModuleRunnerError, match="pending_turn_completion.*TurnEndSnapshotModule"):
+        ModuleRunner().advance_engine(FakeEngine(), state)
+
+
+def test_module_runner_has_no_legacy_turn_body_adapter_after_cutover() -> None:
+    source = Path("GPT/runtime_modules/runner.py").read_text(encoding="utf-8")
+    player_turn_section = source[source.index("def _advance_player_turn_module"):]
+
+    assert "engine._take_turn" not in player_turn_section
+    assert "build_turn_completion_sequence_frame" not in player_turn_section
+    assert "pending_turn_completion" not in player_turn_section
 
 
 def test_trick_window_spawns_child_sequence_instead_of_replaying_turn_modules() -> None:

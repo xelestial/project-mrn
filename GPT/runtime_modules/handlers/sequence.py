@@ -31,10 +31,6 @@ def handle_fortune_resolve(ctx: SequenceFrameHandlerContext) -> dict[str, Any]:
     return handle_native_action(ctx)
 
 
-def handle_turn_completion(ctx: SequenceFrameHandlerContext) -> dict[str, Any]:
-    return ctx.runner._advance_turn_completion_module(ctx.engine, ctx.state, ctx.frame, ctx.module)
-
-
 def handle_default_sequence(ctx: SequenceFrameHandlerContext) -> dict[str, Any]:
     ctx.runner._complete_module(ctx.state, ctx.frame, ctx.module)
     ctx.runner._complete_sequence_frame_if_drained(ctx.frame)
@@ -47,6 +43,4 @@ SEQUENCE_FRAME_HANDLERS: dict[str, SequenceFrameHandler] = {
 SEQUENCE_FRAME_HANDLERS.update({module_type: handle_native_action for module_type in ACTION_SEQUENCE_MODULE_TYPES})
 SEQUENCE_FRAME_HANDLERS["FortuneResolveModule"] = handle_fortune_resolve
 
-SEQUENCE_PAYLOAD_HANDLERS: dict[str, SequenceFrameHandler] = {
-    "pending_turn_completion": handle_turn_completion,
-}
+SEQUENCE_PAYLOAD_HANDLERS: dict[str, SequenceFrameHandler] = {}

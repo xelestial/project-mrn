@@ -8,6 +8,31 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Turn Completion Ownership Cutover
+
+- What changed:
+  - removed the legacy sequence payload handler path that promoted `pending_turn_completion` into a `SequenceFrame`
+  - made `TurnEndSnapshotModule` turn-owned only in the engine catalog and backend semantic guard
+  - changed `DiceRollModule` completion so legacy turn-completion envelopes are consumed into the active `TurnFrame`'s existing `TurnEndSnapshotModule.payload.turn_completion`
+  - added `TurnEndSnapshotModule` turn-handler logic for turn-end snapshot emission, control-finisher bookkeeping, end checks, turn cursor advance, and parent `PlayerTurnModule` completion
+  - made module-runner sessions reject orphan `pending_turn_completion` checkpoints before promotion/execution
+  - updated the engine/backend/frontend source map, runtime control matrix, Redis state plan, and module notes to document the cutover
+- Why:
+  - turn end is a turn boundary, not nested follow-up work
+  - backend/Redis retry must resume the exact active module owner instead of synthesizing a hidden turn-completion adapter
+  - this structurally prevents the old shape that allowed turn-end/card-flip boundaries to appear as if they were sequence work
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_runtime_sequence_modules.py::test_turn_completion_is_owned_by_turn_end_snapshot_module_not_sequence_adapter GPT/test_runtime_sequence_modules.py::test_module_runner_rejects_orphan_pending_turn_completion_checkpoint GPT/test_runtime_sequence_modules.py::test_module_runner_has_no_legacy_turn_body_adapter_after_cutover GPT/test_runtime_sequence_handlers.py::test_sequence_handler_registry_covers_trick_modules_and_payload_boundaries -q`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_runtime_sequence_modules.py GPT/test_runtime_sequence_handlers.py GPT/test_runtime_turn_handlers.py GPT/test_runtime_turn_modules.py -q`
+  - `.venv/bin/python -m pytest GPT/test_runtime_module_contracts.py GPT/test_runtime_prompt_continuation.py GPT/test_runtime_round_modules.py GPT/test_runtime_sequence_modules.py GPT/test_runtime_simultaneous_modules.py GPT/test_rule_fixes.py -q`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_prompt_service.py apps/server/tests/test_redis_realtime_services.py apps/server/tests/test_command_wakeup_worker.py apps/server/tests/test_runtime_semantic_guard.py apps/server/tests/test_view_state_runtime_projection.py -q`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest tests/test_module_runtime_playtest_matrix_doc.py GPT/test_doc_integrity.py -q`
+  - `npm --prefix apps/web test -- --run src/domain/selectors/promptSelectors.spec.ts src/hooks/useGameStream.spec.ts src/infra/ws/StreamClient.spec.ts`
+  - `npm --prefix apps/web run e2e:parity`
+  - `npm --prefix apps/web run build`
+  - `python3 tools/plan_policy_gate.py`
+  - `git diff --check`
+
 ## 2026-05-04 Supply Threshold Simultaneous Runtime Promotion
 
 - What changed:

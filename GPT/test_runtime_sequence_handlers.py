@@ -12,7 +12,7 @@ def test_sequence_handler_registry_covers_trick_modules_and_payload_boundaries()
     assert "LegacyActionAdapterModule" not in ACTION_SEQUENCE_MODULE_TYPES
     assert "LegacyActionAdapterModule" not in SEQUENCE_FRAME_HANDLERS
     assert "action" not in SEQUENCE_PAYLOAD_HANDLERS
-    assert "pending_turn_completion" in SEQUENCE_PAYLOAD_HANDLERS
+    assert "pending_turn_completion" not in SEQUENCE_PAYLOAD_HANDLERS
 
 
 def test_native_action_sequence_handler_uses_native_module_boundary() -> None:

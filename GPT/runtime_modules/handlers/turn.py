@@ -346,7 +346,8 @@ def handle_dice_roll(ctx: TurnFrameHandlerContext) -> dict[str, Any]:
         module.suspension_id = frame.frame_id
         frame.status = "suspended"
         raise
-    if state.pending_actions or state.pending_turn_completion:
+    _attach_pending_turn_completion_to_turn_end_module(state, frame)
+    if state.pending_actions:
         module.status = "suspended"
         module.cursor = "pending_turn_resolution"
         module.suspension_id = frame.frame_id
@@ -361,6 +362,74 @@ def handle_dice_roll(ctx: TurnFrameHandlerContext) -> dict[str, Any]:
         }
     runner._complete_module(state, frame, module)
     return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
+
+
+def _attach_pending_turn_completion_to_turn_end_module(state: Any, frame: FrameState) -> dict[str, Any]:
+    pending = dict(getattr(state, "pending_turn_completion", {}) or {})
+    if not pending:
+        return {}
+    turn_end_module = _turn_end_module(frame)
+    if turn_end_module is None:
+        return {}
+    state.pending_turn_completion = {}
+    turn_end_module.payload["turn_completion"] = {
+        **dict(turn_end_module.payload.get("turn_completion") or {}),
+        **pending,
+    }
+    return pending
+
+
+def _turn_end_module(frame: FrameState) -> ModuleRef | None:
+    for module in frame.module_queue:
+        if module.module_type == "TurnEndSnapshotModule":
+            return module
+    return None
+
+
+def handle_turn_end_snapshot(ctx: TurnFrameHandlerContext) -> dict[str, Any]:
+    runner = ctx.runner
+    engine = ctx.engine
+    state = ctx.state
+    frame = ctx.frame
+    module = ctx.module
+    completion = dict(module.payload.get("turn_completion") or {})
+    if not completion:
+        context = runner._turn_context(frame)
+        completion = {
+            "player_id": ctx.player_id,
+            "finisher_before": int(context.get("finisher_before", 0) or 0),
+            "disruption_before": dict(context.get("disruption_before") or {}),
+        }
+        module.payload["turn_completion"] = completion
+    player_id = int(completion.get("player_id", ctx.player_id) or 0)
+    player = state.players[player_id]
+    disruption_before = dict(completion.get("disruption_before") or {})
+    disruption_after = engine._leader_disruption_snapshot(state, player)
+    finisher_before = int(completion.get("finisher_before", 0) or 0)
+    awarded = engine._maybe_award_control_finisher_window(state, player, disruption_before, disruption_after)
+    if finisher_before > 0 and not awarded:
+        player.control_finisher_turns = max(0, finisher_before - 1)
+        if player.control_finisher_turns == 0:
+            player.control_finisher_reason = ""
+    engine._emit_vis(
+        "turn_end_snapshot",
+        Phase.TURN_END,
+        player.player_id + 1,
+        state,
+        snapshot=build_turn_end_snapshot(state),
+    )
+    runner._complete_module(state, frame, module)
+    if engine._check_end(state):
+        runner._complete_turn_frame_and_parent(state, frame)
+        return {"status": "finished", "reason": "end_rule", "player_id": player_id + 1}
+    state.turn_index += 1
+    runner._complete_turn_frame_and_parent(state, frame)
+    return {
+        "status": "committed",
+        "module_type": module.module_type,
+        "player_id": player_id + 1,
+        "turn_index": state.turn_index,
+    }
 
 
 def _apply_dice_roll_modifiers(state: Any, player_id: int, player: Any) -> None:
@@ -383,4 +452,5 @@ TURN_FRAME_HANDLERS: dict[str, TurnFrameHandler] = {
     "ImmediateMarkerTransferModule": handle_immediate_marker_transfer,
     "TrickWindowModule": handle_trick_window,
     "DiceRollModule": handle_dice_roll,
+    "TurnEndSnapshotModule": handle_turn_end_snapshot,
 }

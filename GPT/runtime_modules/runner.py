@@ -3,24 +3,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from viewer.events import Phase
-from viewer.public_state import build_turn_end_snapshot
-
 from .contracts import FrameState, ModuleJournalEntry, ModuleRef, ModuleResult
 from .handlers.round import ROUND_FRAME_HANDLERS, RoundFrameHandlerContext
-from .handlers.sequence import SEQUENCE_FRAME_HANDLERS, SEQUENCE_PAYLOAD_HANDLERS, SequenceFrameHandlerContext
+from .handlers.sequence import SEQUENCE_FRAME_HANDLERS, SequenceFrameHandlerContext
 from .handlers.simultaneous import SIMULTANEOUS_FRAME_HANDLERS, SimultaneousFrameHandlerContext
 from .handlers.turn import TURN_FRAME_HANDLERS, TurnFrameHandlerContext
 from .ids import round_frame_id
 from .modifiers import ModifierRegistry
 from .prompts import PromptApi
 from .round_modules import build_round_frame
-from .sequence_modules import (
-    build_action_sequence_frame,
-    build_turn_completion_sequence_frame,
-)
+from .sequence_modules import build_action_sequence_frame
 from .simultaneous import build_resupply_frame
 from .turn_modules import build_turn_frame
+
+TURN_COMPLETION_FIELD = "pending_turn_completion"
 
 
 class ModuleRunnerError(RuntimeError):
@@ -58,6 +54,7 @@ class ModuleRunner:
         adapters with native module handlers without changing backend/frontend
         contracts.
         """
+        self._reject_orphan_turn_completion_checkpoint(state)
         self._promote_pending_work_to_sequence_frames(engine, state)
         simultaneous_frame = self._active_simultaneous_frame(state)
         if simultaneous_frame is not None:
@@ -108,6 +105,7 @@ class ModuleRunner:
             self._install_round_frame_from_state(engine, state, completed_setup=True)
             return {"status": "committed", "runner_kind": "module", "module_type": "TurnSchedulerModule"}
 
+        self._reject_orphan_turn_completion_checkpoint(state)
         self._promote_pending_work_to_sequence_frames(engine, state)
         simultaneous_frame = self._active_simultaneous_frame(state)
         if simultaneous_frame is not None:
@@ -210,6 +208,13 @@ class ModuleRunner:
                     )
                 )
 
+    @staticmethod
+    def _reject_orphan_turn_completion_checkpoint(state: Any) -> None:
+        if getattr(state, TURN_COMPLETION_FIELD, None):
+            raise ModuleRunnerError(
+                "pending_turn_completion must be owned by TurnEndSnapshotModule in the active TurnFrame"
+            )
+
     def _advance_player_turn_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> dict[str, Any]:
         player_id = int(module.owner_player_id if module.owner_player_id is not None else 0)
         player = state.players[player_id]
@@ -294,9 +299,6 @@ class ModuleRunner:
             raise ModuleRunnerError(
                 f"action payload requires a native sequence handler for {module.module_type}: {action_type}"
             )
-        for payload_key, payload_handler in SEQUENCE_PAYLOAD_HANDLERS.items():
-            if payload_key in module.payload:
-                return payload_handler(context)
         self._complete_module(state, frame, module)
         self._complete_sequence_frame_if_drained(frame)
         return {"status": "committed", "module_type": module.module_type, "frame_id": frame.frame_id}
@@ -778,57 +780,8 @@ class ModuleRunner:
     def _advance_native_action_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> dict[str, Any]:
         return self._advance_action_module(engine, state, frame, module, module_boundary="native")
 
-    def _advance_turn_completion_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> dict[str, Any]:
-        original_pending = dict(state.pending_turn_completion or {})
-        state.pending_turn_completion = dict(module.payload.get("pending_turn_completion") or {})
-        try:
-            result = self._complete_pending_turn_transition(engine, state)
-        except Exception:
-            module.status = "suspended"
-            module.cursor = "await_turn_completion"
-            module.suspension_id = frame.frame_id
-            frame.status = "suspended"
-            state.pending_turn_completion = original_pending or state.pending_turn_completion
-            raise
-        self._complete_module(state, frame, module)
-        self._complete_sequence_frame_if_drained(frame)
-        return {**result, "module_type": module.module_type, "frame_id": frame.frame_id}
-
-    @staticmethod
-    def _complete_pending_turn_transition(engine: Any, state: Any) -> dict[str, Any]:
-        """Complete a suspended turn without running legacy round-end advance.
-
-        The legacy helper intentionally rolls turn completion, card-flip, round
-        cleanup, and next-round setup into one transition. Module-runner
-        sessions keep those as explicit queued modules, so only the turn-end
-        snapshot and turn cursor advance belong here.
-        """
-        pending = dict(state.pending_turn_completion)
-        state.pending_turn_completion = {}
-        player_id = int(pending.get("player_id", 0) or 0)
-        player = state.players[player_id]
-        disruption_before = dict(pending.get("disruption_before") or {})
-        disruption_after = engine._leader_disruption_snapshot(state, player)
-        finisher_before = int(pending.get("finisher_before", 0) or 0)
-        awarded = engine._maybe_award_control_finisher_window(state, player, disruption_before, disruption_after)
-        if finisher_before > 0 and not awarded:
-            player.control_finisher_turns = max(0, finisher_before - 1)
-            if player.control_finisher_turns == 0:
-                player.control_finisher_reason = ""
-        engine._emit_vis(
-            "turn_end_snapshot",
-            Phase.TURN_END,
-            player.player_id + 1,
-            state,
-            snapshot=build_turn_end_snapshot(state),
-        )
-        if engine._check_end(state):
-            return {"status": "finished", "reason": "end_rule", "player_id": player_id + 1}
-        state.turn_index += 1
-        return {"status": "committed", "player_id": player_id + 1, "turn_index": state.turn_index}
-
     def _sync_active_player_turn_after_legacy_work(self, state: Any) -> None:
-        if state.pending_actions or state.pending_turn_completion or self._active_sequence_frame(state) is not None:
+        if state.pending_actions or self._active_sequence_frame(state) is not None:
             return
         turn_frame = self._active_turn_frame(state)
         if turn_frame is not None:
@@ -873,24 +826,11 @@ class ModuleRunner:
         )
         if frame is None:
             return
+        self._reject_orphan_turn_completion_checkpoint(state)
         module = parent_module or self._next_live_module(frame)
         parent_module_id = module.module_id if module is not None else frame.active_module_id or frame.frame_id
         session_id = getattr(engine, "_vis_session_id", "")
         round_index = int(getattr(state, "rounds_completed", 0) or 0) + 1
-        if state.pending_turn_completion:
-            pending = dict(state.pending_turn_completion)
-            state.pending_turn_completion = {}
-            state.runtime_frame_stack.append(
-                build_turn_completion_sequence_frame(
-                    round_index,
-                    self._optional_int(pending.get("player_id")),
-                    self._next_sequence_ordinal(state),
-                    pending,
-                    parent_frame_id=frame.frame_id,
-                    parent_module_id=parent_module_id,
-                    session_id=session_id,
-                )
-            )
         if state.pending_actions:
             supply_actions, actions = self._split_supply_threshold_actions(
                 [action.to_payload() for action in state.pending_actions]

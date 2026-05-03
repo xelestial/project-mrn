@@ -18,7 +18,8 @@
 - 인물 능력은 카드 이름 비교로 후처리하지 않고 `TargetJudicatorModule`, `ModifierRegistry`, `PurchaseDecisionModule`, `DiceRollModule`, `ArrivalTileModule` 같은 소유 모듈에서 처리된다.
 - prompt resume 시 continuation 필드 하나라도 현재 활성 prompt와 다르면 백엔드가 결정을 거부하고 엔진 상태는 움직이지 않는다.
 - 프론트 재연결/리플레이/더블클릭이 있어도 같은 `request_id` 결정은 한 스트림 키에서 한 번만 전송된다.
-- 라운드 종료 카드 플립은 모든 플레이어 턴과 턴 종료 시퀀스가 끝난 후 `RoundEndCardFlipModule`에서만 발생한다.
+- 라운드 종료 카드 플립은 모든 플레이어 턴과 turn-owned `TurnEndSnapshotModule`이 끝난 후 `RoundEndCardFlipModule`에서만 발생한다.
+- 턴 종료는 `SequenceFrame` 어댑터가 아니라 활성 `TurnFrame`의 `TurnEndSnapshotModule`이 소유한다.
 
 ## 3. 시나리오 매트릭스
 
@@ -33,7 +34,7 @@
 | MRN-MOD-007 | 파발꾼 주사위 modifier | 파발꾼이 +1/-1 주사위 모드를 선택 | `CharacterStartModule -> DiceRollModule` | `pabalggun_dice_delta` single-use modifier가 저장되고 소비 시 consumed 처리 | 주사위 prompt/결과 event는 modifier 반영 후 값을 표시 | 주사위 보정은 이동/도착이 아니라 DiceRollModule에서만 결정됨 | `GPT/test_runtime_turn_handlers.py`, `GPT/test_runtime_effect_inventory.py` |
 | MRN-MOD-008 | 어사 무뢰 억제 modifier | 어사가 활성이고 무뢰 인물이 턴을 시작 | `CharacterModifierSeedModule -> CharacterStartModule -> TargetJudicatorModule` | 억제 modifier가 대상 player id에 귀속되어 round scope로 저장 | 프론트는 억제된 인물의 불가능한 prompt를 받지 않음 | 산적/자객 이름을 if문으로 빼는 대신 억제 modifier 때문에 능력 모듈이 비활성화됨 | `GPT/test_runtime_effect_inventory.py`, `GPT/test_runtime_target_judicator_modules.py` |
 | MRN-MOD-009 | 재보급 동시 응답 | 종료 값이 설정 배수와 일치해 모든 대상이 짐 처리/재보급 | `ConcurrentResolutionSchedulerModule -> SimultaneousResolutionFrame -> ResupplyModule` | `resolve_supply_threshold`는 action sequence adapter가 아니라 동시응답 프레임으로 승격되고, `SimultaneousPromptBatchContinuation`이 player별 응답과 batch id를 저장 | 각 프론트는 자기 prompt에 같은 `batch_id`를 받고 응답 완료 후 대기 상태가 됨 | 순차 턴 모듈이 아니라 모든 대상 응답이 모일 때까지 동시응답 프레임이 소유 | `GPT/test_runtime_simultaneous_modules.py`, `GPT/test_runtime_sequence_modules.py`, `apps/server/tests/test_runtime_service.py`, `apps/web/src/domain/selectors/promptSelectors.spec.ts` |
-| MRN-MOD-010 | 라운드 종료 카드 플립 | 모든 턴과 턴 종료 스냅샷이 완료 | `RoundEndCardFlipModule` | active turn context가 없는 라운드 프레임 checkpoint에서만 marker/card flip event publish | 프론트는 라운드 종료 event로만 카드 플립 애니메이션/상태 갱신 | 턴 중간 marker flip event는 구조상 emit될 수 없음 | `GPT/test_runtime_round_modules.py`, `apps/server/tests/test_runtime_semantic_guard.py` |
+| MRN-MOD-010 | 라운드 종료 카드 플립 | 모든 턴과 턴 종료 스냅샷이 완료 | `TurnEndSnapshotModule -> RoundEndCardFlipModule` | `TurnEndSnapshotModule`은 turn frame에서만 유효하고, active turn context가 없는 라운드 프레임 checkpoint에서만 marker/card flip event publish | 프론트는 라운드 종료 event로만 카드 플립 애니메이션/상태 갱신 | 턴 중간 marker flip event와 sequence-owned turn-end adapter는 구조상 emit될 수 없음 | `GPT/test_runtime_round_modules.py`, `GPT/test_runtime_sequence_modules.py`, `apps/server/tests/test_runtime_semantic_guard.py` |
 | MRN-MOD-011 | 프론트 중복 결정 전송 | 더블클릭, replay recovery, 재연결 직후 동일 prompt 응답 | `PromptContinuation`이 가리키는 현재 module | backend idempotency와 request ledger가 같은 request 재처리를 막음 | `createDecisionRequestLedger`가 stream key별 중복 전송을 차단 | 같은 request id decision은 네트워크 레벨에서도 한 번만 나감 | `apps/web/src/hooks/useGameStream.spec.ts`, `apps/server/tests/test_stream_module_idempotency.py` |
 | MRN-MOD-012 | prompt continuation mismatch | 오래된 prompt 또는 다른 module의 decision이 도착 | 현재 활성 prompt module | `resume_token/frame_id/module_id/module_type/module_cursor/batch_id` mismatch면 reject | 프론트는 backend-issued continuation 외 값을 만들지 않음 | 백엔드는 추정 재개를 하지 않고 현재 모듈과 일치할 때만 처리 | `apps/server/tests/test_prompt_module_continuation.py`, `apps/web/src/hooks/useGameStream.spec.ts` |
 | MRN-MOD-013 | 남의 토지 도착 임대료 | 플레이어가 소유자가 다른 토지에 도착 | `ArrivalTileModule -> RentPaymentModule -> LandingPostEffectsModule` | `resolve_arrival`은 임대료 action만 큐잉하고, `resolve_rent_payment`가 현금/파산 mutation을 소유하며, 후처리는 별도 checkpoint로 이어짐 | 프론트는 도착, 임대료 지불, 같은 칸 보너스/인접 구매 후처리를 순차 module event로 받음 | 임대료 지불은 도착 모듈 재실행이나 후처리 재개 중 중복 차감되지 않음 | `GPT/test_engine_resumable_checkpoint.py`, `GPT/test_runtime_sequence_modules.py`, `apps/server/tests/test_runtime_semantic_guard.py`, `npm run e2e:module-runtime` |
@@ -59,6 +60,6 @@
 
 1. `MRN-MOD-003`/`MRN-MOD-004`/`MRN-MOD-015`: 산적 지목 후 잔꾀를 사용하고, 후속 잔꾀 선택이 필요한 카드에서 worker 재시도 또는 재연결이 있어도 `CharacterStartModule`과 `TargetJudicatorModule`이 다시 열리지 않는지 확인한다.
 2. `MRN-MOD-005`: 모든 `resolve_fortune_*` 결정형 운수 action이 `FortuneResolveModule -> MapMoveModule -> ArrivalTileModule`로 이어지고 새 `TurnFrame`이나 `LegacyActionAdapterModule`로 빠지지 않는지 확인한다.
-3. `MRN-MOD-010`: `RoundEndCardFlipModule`은 모든 `PlayerTurnModule`과 child frame이 종료된 뒤에만 실행되는지 확인한다.
+3. `MRN-MOD-010`: `TurnEndSnapshotModule`은 active `TurnFrame`에서 턴을 닫고, `RoundEndCardFlipModule`은 모든 `PlayerTurnModule`과 child frame이 종료된 뒤에만 실행되는지 확인한다.
 4. `MRN-MOD-014`: 재보급은 `SimultaneousResolutionFrame`만 소유하고, action sequence adapter 또는 턴 순차 모듈에 들어가지 않는지 확인한다.
 5. 공통: 위 시나리오의 prompt/decision stream은 backend-issued continuation을 그대로 왕복하고, 프론트 생성 request id나 stale continuation이 엔진을 진행시키지 않는지 확인한다.

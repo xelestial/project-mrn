@@ -29,9 +29,7 @@ ACTION_SEQUENCE_MODULE_TYPES = (
     "FortuneResolveModule",
 )
 
-TURN_COMPLETION_MODULE_TYPES = ("TurnEndSnapshotModule",)
-
-SEQUENCE_MODULE_TYPES = TRICK_SEQUENCE_MODULE_TYPES + ACTION_SEQUENCE_MODULE_TYPES + TURN_COMPLETION_MODULE_TYPES
+SEQUENCE_MODULE_TYPES = TRICK_SEQUENCE_MODULE_TYPES + ACTION_SEQUENCE_MODULE_TYPES
 
 ACTION_TYPE_TO_MODULE_TYPE = {
     "resolve_mark": "PendingMarkResolutionModule",
@@ -176,36 +174,6 @@ def build_action_sequence_frame(
                 payload={"action": dict(action), "action_type": str(action.get("type", "")), "source": str(action.get("source", ""))},
             )
             for index, action in enumerate(actions)
-        ],
-    )
-
-
-def build_turn_completion_sequence_frame(
-    round_index: int,
-    player_id: int | None,
-    ordinal: int,
-    pending_turn_completion: dict,
-    *,
-    parent_frame_id: str,
-    parent_module_id: str,
-    session_id: str = "",
-) -> FrameState:
-    return FrameState(
-        frame_id=sequence_frame_id("turn_completion", round_index, player_id, ordinal),
-        frame_type="sequence",
-        owner_player_id=player_id,
-        parent_frame_id=parent_frame_id,
-        created_by_module_id=parent_module_id,
-        module_queue=[
-            build_sequence_module(
-                "turn_completion",
-                round_index,
-                player_id,
-                ordinal,
-                "TurnEndSnapshotModule",
-                session_id=session_id,
-                payload={"pending_turn_completion": dict(pending_turn_completion)},
-            )
         ],
     )
 

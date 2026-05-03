@@ -140,7 +140,8 @@ Important note:
 - `GPT/engine.py`
   - `run()`
   - `_start_new_round(state, initial=False)`
-  - `_take_turn(state, player)`
+  - legacy `_take_turn(state, player)` compatibility path
+  - module-runner turns are owned by `ModuleRunner.advance_engine(...)` and `TurnFrame` modules
   - `_emit_vis(event_type, phase, player, state, **payload)`
   - `_apply_round_weather(state)` now acts as an event-bus wrapper, not a direct weather implementation
   - parameter rule: gameplay ids should be emitted as stable numbers or enums where possible
