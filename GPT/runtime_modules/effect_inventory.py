@@ -273,6 +273,12 @@ def validate_effect_inventory(inventory: Iterable[EffectInventoryEntry]) -> list
     for entry in inventory:
         if entry.frame_kind not in {"round", "turn", "sequence", "simultaneous"}:
             errors.append(f"{entry.effect_id}: unknown frame_kind {entry.frame_kind!r}")
+        if not entry.runtime_boundary_modules:
+            errors.append(f"{entry.effect_id}: runtime boundary modules must be declared")
+        if entry.prompt_contract is not None and not entry.redis_resume_contracts:
+            errors.append(f"{entry.effect_id}: prompt contract requires a Redis resume contract")
+        if "LegacyActionAdapterModule" in entry.runtime_boundary_modules:
+            errors.append(f"{entry.effect_id}: native effect inventory must not use LegacyActionAdapterModule")
         for role, module_type in _declared_modules(entry):
             frame_kinds = _declared_frame_kinds(module_type, MODULE_RULES)
             if frame_kinds is None:
@@ -292,7 +298,7 @@ def runtime_handler_coverage_errors(inventory: Iterable[EffectInventoryEntry]) -
     from .handlers.sequence import SEQUENCE_FRAME_HANDLERS
     from .handlers.simultaneous import SIMULTANEOUS_FRAME_HANDLERS
     from .handlers.turn import TURN_FRAME_HANDLERS
-    from .sequence_modules import ACTION_SEQUENCE_MODULE_TYPES, TURN_COMPLETION_MODULE_TYPES
+    from .sequence_modules import ACTION_SEQUENCE_MODULE_TYPES
 
     errors: list[str] = []
     for entry in inventory:
@@ -305,7 +311,6 @@ def runtime_handler_coverage_errors(inventory: Iterable[EffectInventoryEntry]) -
                 or module_type in SEQUENCE_FRAME_HANDLERS
                 or module_type in SIMULTANEOUS_FRAME_HANDLERS
                 or module_type in ACTION_SEQUENCE_MODULE_TYPES
-                or module_type in TURN_COMPLETION_MODULE_TYPES
             )
             if not covered:
                 errors.append(f"{entry.effect_id}: runtime boundary {module_type} has no handler or adapter")

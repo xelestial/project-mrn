@@ -8,6 +8,10 @@ readiness checks, rollout invariants, and smoke-test evidence.
 
 The machine-readable process contract lives at
 `deploy/redis-runtime/process-contract.json`.
+The platform-managed mapping template lives at
+`deploy/redis-runtime/platform-managed.manifest.template.json`; copy it into the
+target deployment system and replace the placeholder restart/exec commands with
+that platform's native commands before rollout smoke.
 
 ## 2. Required Roles
 
@@ -56,6 +60,15 @@ python3 tools/scripts/redis_restart_smoke.py \
   --worker-health-command '<platform exec command-wakeup-worker -- python -m apps.server.src.workers.command_wakeup_worker_app --health>'
 ```
 
+The placeholder values in `platform-managed.manifest.template.json` map the same
+contract to platform roles:
+
+- `server`: web process, `/health` readiness, restart command placeholder
+- `prompt-timeout-worker`: worker process, `--health` readiness command, worker
+  smoke health command placeholder
+- `command-wakeup-worker`: worker process, `--health` readiness command, worker
+  smoke health command placeholder
+
 Passing evidence must include:
 
 - `before_status=waiting_input`
@@ -73,6 +86,23 @@ Latest checked local production-like evidence:
 - status `waiting_input -> waiting_input`
 - replay events `11 -> 12`
 - worker health checks `4`
+
+Latest checked platform-managed input-path evidence:
+
+- checked `2026-05-04`
+- topology `local-runtime-platform-managed`
+- restart mode `custom-command`
+- prefix `mrn:{runtime-platform-smoke}`
+- session `sess_puHzrvjLOoEdawsov5ef0m-K`
+- status `waiting_input -> waiting_input`
+- replay events `11 -> 12`
+- worker health checks `4`
+
+This proves the repository's `--skip-up`/custom-command smoke contract and
+manifest mapping shape. A real external deployment still must replace the
+placeholder restart and worker exec commands in
+`platform-managed.manifest.template.json` with the target platform's native
+commands and capture fresh passing smoke evidence before live routing.
 
 ## 4. Failure Rules
 

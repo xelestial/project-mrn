@@ -12425,7 +12425,16 @@ body {
   .page.page-match .prompt-overlay-draft_card .prompt-body,
   .page.page-match .prompt-overlay-final_character .prompt-body,
   .page.page-match .prompt-overlay-final_character_choice .prompt-body {
+    align-content: stretch;
+    grid-template-rows: minmax(0, 1fr);
     overflow: hidden;
+  }
+
+  .page.page-match .prompt-overlay-draft_card .prompt-hand-stage,
+  .page.page-match .prompt-overlay-final_character .prompt-hand-stage,
+  .page.page-match .prompt-overlay-final_character_choice .prompt-hand-stage {
+    height: 100%;
+    min-height: 0;
   }
 
   .page.page-match .prompt-overlay-draft_card .prompt-character-card-grid,
@@ -12434,6 +12443,8 @@ body {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     grid-auto-rows: minmax(0, 1fr);
     gap: clamp(8px, 0.8vw, 12px);
+    height: 100%;
+    min-height: 0;
     overflow: hidden;
     padding-bottom: 0;
     scrollbar-width: none;

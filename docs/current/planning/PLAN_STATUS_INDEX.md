@@ -94,12 +94,13 @@ Those themes should reopen only if a concrete regression or rollout need appears
    worker offsets, Lua-backed command/lease primitives, command-triggered
    transition commit metadata, Redis hash-tag health reporting, local backend
    restart smoke, authenticated REST restart recovery, worker readiness
-   commands, production-like smoke flags, and the role/process deployment
-   contract are implemented. Remaining work is running restart smoke against
-   the target production topology, mapping
-   `deploy/redis-runtime/process-contract.json` onto the chosen platform's
-   native manifest, and continuing the larger engine-native module migration
-   beyond the guarded prompt continuation boundaries. See
+   commands, production-like smoke flags, the role/process deployment contract,
+   platform-managed manifest template, and custom-command restart-smoke input
+   path are implemented. Remaining work is replacing the platform manifest
+   placeholders with the chosen deployment platform's native restart/exec
+   commands, capturing smoke evidence from that actual external topology, and
+   continuing the larger engine-native module migration beyond the guarded
+   prompt continuation boundaries. See
    `docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`.
 2. Runtime contract stabilization. Keep end-to-end payload shape, round/action
    control, prompt lifecycle, and modular-runtime frame semantics synchronized

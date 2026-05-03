@@ -94,6 +94,56 @@ def test_effect_inventory_runtime_boundaries_have_handlers_or_adapters():
     assert runtime_handler_coverage_errors(EFFECT_INVENTORY) == []
 
 
+def test_effect_inventory_validation_rejects_prompt_without_resume_boundary():
+    from runtime_modules.effect_inventory import EffectInventoryEntry, validate_effect_inventory
+
+    errors = validate_effect_inventory(
+        (
+            EffectInventoryEntry(
+                effect_id="test:prompt_without_resume",
+                source_name="테스트",
+                producer_module="CharacterStartModule",
+                consumer_modules=("CharacterStartModule",),
+                frame_kind="turn",
+                prompt_contract="choose_test",
+                runtime_boundary_modules=("CharacterStartModule",),
+            ),
+        )
+    )
+
+    assert "test:prompt_without_resume: prompt contract requires a Redis resume contract" in errors
+
+
+def test_effect_inventory_validation_rejects_legacy_adapter_boundaries():
+    from runtime_modules.effect_inventory import EffectInventoryEntry, validate_effect_inventory
+
+    errors = validate_effect_inventory(
+        (
+            EffectInventoryEntry(
+                effect_id="test:legacy_adapter",
+                source_name="테스트",
+                producer_module="CharacterStartModule",
+                consumer_modules=("CharacterStartModule",),
+                frame_kind="turn",
+                runtime_boundary_modules=("LegacyActionAdapterModule",),
+            ),
+        )
+    )
+
+    assert "test:legacy_adapter: native effect inventory must not use LegacyActionAdapterModule" in errors
+
+
+def test_prompt_effect_inventory_entries_are_resumable_module_boundaries():
+    from runtime_modules.effect_inventory import EFFECT_INVENTORY
+
+    prompt_entries = [entry for entry in EFFECT_INVENTORY if entry.prompt_contract]
+    assert prompt_entries
+    for entry in prompt_entries:
+        assert entry.redis_resume_contracts
+        assert entry.runtime_boundary_modules
+        assert "LegacyActionAdapterModule" not in entry.runtime_boundary_modules
+
+
 def test_native_runtime_effects_do_not_depend_on_legacy_action_adapter_boundaries():
     from runtime_modules.effect_inventory import EFFECT_INVENTORY, effect_by_id
 

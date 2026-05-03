@@ -74,6 +74,20 @@ describe("coreActionScene", () => {
     expect(scenes.map((scene) => scene.isLatest)).toEqual([true]);
   });
 
+  it("does not let a rent-only fallback turn replace an earlier effect payoff scene", () => {
+    const scenes = buildPayoffSceneItems(
+      [
+        item({ seq: 20, eventCode: "rent_paid", turn: 5, label: "임대료 지불", detail: "P3 -> P1 / 6냥" }),
+        item({ seq: 14, eventCode: "fortune_resolved", turn: 4, label: "운수 처리", detail: "P2 / 현금 +2" }),
+        item({ seq: 13, eventCode: "fortune_drawn", turn: 4, label: "운수 공개", detail: "P2 / Lucky Wind" }),
+      ],
+      koLocale.theater
+    );
+
+    expect(scenes.map((scene) => scene.eventCode)).toEqual(["fortune_drawn", "fortune_resolved"]);
+    expect(scenes.map((scene) => scene.isLatest)).toEqual([false, true]);
+  });
+
   it("keeps compact detail chunks for scene cards", () => {
     expect(splitCoreActionDetail("P2 / 9번 칸 구매 / 비용 5", koLocale.theater.noDetail)).toEqual([
       "P2",

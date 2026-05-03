@@ -8,6 +8,49 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Platform Manifest Mapping And Native Effect Boundary Guard
+
+- What changed:
+  - added `deploy/redis-runtime/platform-managed.manifest.template.json` as the
+    platform-managed deployment mapping for the Redis runtime process contract
+  - added manifest contract tests proving the platform template covers the same
+    server, prompt-timeout-worker, and command-wakeup-worker roles as
+    `process-contract.json`
+  - ran the restart smoke in `--skip-up` custom-command mode against the
+    production-like local runtime topology to verify the platform-managed smoke
+    path without relying on Compose-managed startup
+  - strengthened native effect inventory validation so prompt effects must
+    declare Redis resume contracts, runtime boundaries must be explicit, and
+    native effects cannot name `LegacyActionAdapterModule` as their boundary
+  - fixed the effect handler coverage checker to use the actual turn-handler
+    registry for `TurnEndSnapshotModule` instead of importing a deleted
+    compatibility constant
+  - constrained the desktop draft/final-character prompt body so the four-card
+    row cannot create a hidden vertical overflow in the main match viewport
+  - changed theater payoff scene anchoring so a later rent-only fallback turn
+    does not replace the earlier richer 운수/effect payoff scene while the rent
+    event still remains visible in the board event feed
+- Why:
+  - the deployment contract should be copyable into a real platform manifest
+    while remaining testable inside the repo
+  - engine-native module migration should fail at inventory review time if a
+    new character, trick, fortune, or simultaneous effect tries to re-enter via
+    an implicit backend adapter
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_runtime_effect_inventory.py GPT/test_runtime_sequence_modules.py GPT/test_runtime_round_modules.py apps/server/tests/test_runtime_semantic_guard.py tests/test_redis_runtime_deployment_manifest.py tests/test_module_runtime_playtest_matrix_doc.py -q`
+  - `npm --prefix apps/web test -- --run src/domain/selectors/promptSelectors.spec.ts src/hooks/useGameStream.spec.ts src/infra/ws/StreamClient.spec.ts src/features/theater/coreActionScene.spec.ts`
+  - `npm --prefix apps/web run build`
+  - `npm --prefix apps/web run e2e:human-runtime`
+  - `python3 tools/plan_policy_gate.py`
+  - `git diff --check`
+  - `python3 -m json.tool deploy/redis-runtime/platform-managed.manifest.template.json >/dev/null`
+  - `MRN_REDIS_KEY_PREFIX='mrn:{runtime-compose-smoke}' docker compose -p project-mrn-runtime-smoke -f deploy/redis-runtime/docker-compose.runtime.yml config --quiet`
+  - `python3 tools/scripts/redis_restart_smoke.py --skip-up --compose-project project-mrn-runtime-platform-smoke --compose-file deploy/redis-runtime/docker-compose.runtime.yml --topology-name local-runtime-platform-managed --expected-redis-hash-tag runtime-platform-smoke --restart-command 'docker compose -p project-mrn-runtime-platform-smoke -f deploy/redis-runtime/docker-compose.runtime.yml restart server prompt-timeout-worker command-wakeup-worker' --worker-health-command 'docker compose -p project-mrn-runtime-platform-smoke -f deploy/redis-runtime/docker-compose.runtime.yml exec -T prompt-timeout-worker python -m apps.server.src.workers.prompt_timeout_worker_app --health' --worker-health-command 'docker compose -p project-mrn-runtime-platform-smoke -f deploy/redis-runtime/docker-compose.runtime.yml exec -T command-wakeup-worker python -m apps.server.src.workers.command_wakeup_worker_app --health'`
+  - restart smoke result: `ok=true`, topology `local-runtime-platform-managed`,
+    restart mode `custom-command`, session `sess_puHzrvjLOoEdawsov5ef0m-K`,
+    prefix `mrn:{runtime-platform-smoke}`, status `waiting_input -> waiting_input`,
+    replay events `11 -> 12`, worker health checks `4`
+
 ## 2026-05-04 Recommended 1-5 Follow-Up Execution
 
 - What changed:

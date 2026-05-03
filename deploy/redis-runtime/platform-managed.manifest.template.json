@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "name": "project-mrn-redis-runtime-platform-managed",
+  "source_contract": "deploy/redis-runtime/process-contract.json",
+  "target_topology": "platform-managed",
+  "shared_environment": {
+    "required": [
+      "MRN_REDIS_URL",
+      "MRN_REDIS_KEY_PREFIX"
+    ],
+    "optional": [
+      "MRN_GAME_LOG_ARCHIVE_PATH",
+      "MRN_LOG_LEVEL",
+      "MRN_DEBUG_GAME_LOGS",
+      "MRN_DEBUG_GAME_LOG_DIR",
+      "MRN_DEBUG_GAME_LOG_RUN_ID"
+    ],
+    "redis_hash_tag_example": "mrn:{project-mrn-prod}",
+    "redis_hash_tag_value": "project-mrn-prod"
+  },
+  "roles": [
+    {
+      "name": "server",
+      "platform_kind": "web",
+      "command": "python -m uvicorn apps.server.src.app:app --host 0.0.0.0 --port 9090",
+      "readiness": {
+        "type": "http",
+        "path": "/health"
+      },
+      "restart_policy": "always",
+      "restart_recovery_policy": "keep only after target topology passes redis_restart_smoke.py; otherwise abort_in_progress",
+      "restart_command": "<platform restart server role>"
+    },
+    {
+      "name": "prompt-timeout-worker",
+      "platform_kind": "worker",
+      "command": "python -m apps.server.src.workers.prompt_timeout_worker_app",
+      "readiness": {
+        "type": "command",
+        "command": "python -m apps.server.src.workers.prompt_timeout_worker_app --health"
+      },
+      "restart_policy": "always",
+      "restart_recovery_policy": "keep",
+      "restart_command": "<platform restart prompt-timeout-worker role>",
+      "smoke_health_command": "<platform exec prompt-timeout-worker -- python -m apps.server.src.workers.prompt_timeout_worker_app --health>"
+    },
+    {
+      "name": "command-wakeup-worker",
+      "platform_kind": "worker",
+      "command": "python -m apps.server.src.workers.command_wakeup_worker_app",
+      "readiness": {
+        "type": "command",
+        "command": "python -m apps.server.src.workers.command_wakeup_worker_app --health"
+      },
+      "restart_policy": "always",
+      "restart_recovery_policy": "keep",
+      "restart_command": "<platform restart command-wakeup-worker role>",
+      "smoke_health_command": "<platform exec command-wakeup-worker -- python -m apps.server.src.workers.command_wakeup_worker_app --health>"
+    }
+  ],
+  "rollout_smoke": {
+    "script": "python3 tools/scripts/redis_restart_smoke.py",
+    "required_mode": "--skip-up",
+    "topology_name": "<deployment-name>",
+    "expected_redis_hash_tag": "project-mrn-prod",
+    "restart_commands": [
+      "<platform restart server role>",
+      "<platform restart prompt-timeout-worker role>",
+      "<platform restart command-wakeup-worker role>"
+    ],
+    "worker_health_commands": [
+      "<platform exec prompt-timeout-worker -- python -m apps.server.src.workers.prompt_timeout_worker_app --health>",
+      "<platform exec command-wakeup-worker -- python -m apps.server.src.workers.command_wakeup_worker_app --health>"
+    ]
+  }
+}

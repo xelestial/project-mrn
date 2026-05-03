@@ -38,6 +38,12 @@ const PAYOFF_SCENE_EVENT_CODES = new Set([
   "fortune_resolved",
   "lap_reward_chosen",
 ]);
+const PAYOFF_SCENE_ANCHOR_EVENT_CODES = new Set([
+  "tile_purchased",
+  "fortune_drawn",
+  "fortune_resolved",
+  "lap_reward_chosen",
+]);
 
 function normalize(value: string): string {
   return value.toLowerCase();
@@ -115,7 +121,8 @@ export function buildPayoffSceneItems(itemsNewestFirst: CoreActionItem[], theate
     return [];
   }
 
-  const anchor = selected[0] ?? null;
+  const anchor =
+    selected.find((item) => PAYOFF_SCENE_ANCHOR_EVENT_CODES.has(item.eventCode)) ?? selected[0] ?? null;
   const isSameTurn = (item: CoreActionItem) => item.round === anchor?.round && item.turn === anchor?.turn;
   const anchorTurnItems =
     anchor === null
