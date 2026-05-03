@@ -88,6 +88,25 @@ def test_runtime_docs_do_not_keep_stale_rent_atomicity_language() -> None:
         assert phrase in combined
 
 
+def test_redis_state_plan_does_not_describe_module_fortune_as_inline_compat() -> None:
+    text = REDIS_STATE_PLAN_DOC.read_text(encoding="utf-8")
+
+    forbidden = {
+        "Direct fortune/forced-move callers still execute inline for compatibility",
+        "until their call sites are migrated to enqueue actions",
+    }
+    for phrase in forbidden:
+        assert phrase not in text
+
+    for phrase in {
+        "legacy/test/plugin-only surfaces guarded by contract tests",
+        "`FortuneResolveModule`",
+        "`MapMoveModule`",
+        "`ArrivalTileModule`",
+    }:
+        assert phrase in text
+
+
 def test_server_readme_documents_redis_cluster_hash_tag_contract() -> None:
     text = SERVER_README.read_text(encoding="utf-8")
 

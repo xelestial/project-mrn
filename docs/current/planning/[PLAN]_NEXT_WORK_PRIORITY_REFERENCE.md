@@ -1,7 +1,7 @@
 # [PLAN] Next Work Priority Reference
 
 Status: ACTIVE  
-Updated: 2026-05-03  
+Updated: 2026-05-04
 Owner: GPT
 
 ## Purpose
@@ -57,6 +57,9 @@ Current goal:
 - finish transition-level durability and restart confidence
 - keep per-player visibility and public/private event projection correct
 - prefer contract-level checks over ad hoc UI observation
+- preserve production-like Redis restart-smoke evidence when backend/runtime
+  boundary work changes process roles, recovery, prompt continuation, or stream
+  projection
 
 ### 3. Frontend Readability Follow-Up
 
@@ -71,6 +74,8 @@ Current goal:
 - make effect cause, prompt cause, and state delta legible during live play
 - avoid reopening archived UI/UX plans unless the canonical document explicitly
   references them as historical context
+- keep frontend prompt selectors aligned with backend `view_state` and runtime
+  module owners before changing component-level display logic
 
 ### 4. Real Playtests
 

@@ -815,7 +815,7 @@ Implemented seed:
 - Zone-chain landings now enqueue follow-up movement as `apply_move -> resolve_arrival` instead of nesting the extra move inside arrival resolution.
 - Decision-bearing fortune effects should produce actions instead of opening prompts during fortune draw resolution. Migrated cards now include subscription-style empty-block purchase, land thief, donation angel, forced trade, and pious marker tile gain.
 - Runtime recovery checkpoints expose `pending_action_count`, `scheduled_action_count`, `pending_action_types`, `scheduled_action_types`, `next_action_type`, `next_scheduled_action_type`, `has_pending_actions`, `has_scheduled_actions`, and legacy visibility for `has_pending_turn_completion`. In module-runner sessions, any orphan `pending_turn_completion` checkpoint is invalid unless it is consumed into the active `TurnFrame`'s `TurnEndSnapshotModule` during the same transition.
-- Direct fortune/forced-move callers still execute inline for compatibility until their call sites are migrated to enqueue actions.
+- Direct fortune/forced-move compatibility helpers are now legacy/test/plugin-only surfaces guarded by contract tests. Module-runner sessions must express fortune movement and forced movement through explicit queued modules such as `FortuneResolveModule`, `MapMoveModule`, and `ArrivalTileModule`.
 
 Next action-pipeline hardening:
 

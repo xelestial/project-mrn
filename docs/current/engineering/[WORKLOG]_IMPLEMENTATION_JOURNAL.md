@@ -8,6 +8,21 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Recommended 1-5 Follow-Up Execution
+
+- What changed:
+  - ran the production-like Redis runtime restart smoke against `deploy/redis-runtime/docker-compose.runtime.yml`
+  - audited remaining legacy/compat runtime paths and confirmed `LegacyActionAdapterModule` execution, orphan `pending_turn_completion`, and uncatalogued action payloads are rejected by runner/semantic-guard contract tests
+  - audited prompt-resume/effect boundaries and confirmed production `_request_decision()` sites are inventory-classified for Redis continuation
+  - audited frontend prompt selectors, confirming backend `view_state` precedence, phase-progress prompt closure, continuation fields, and active runtime owner handling are covered by selector/e2e tests
+  - refreshed the Redis deployment contract evidence and removed stale Redis-state-plan language that implied fortune/forced-move helpers still belonged to module-runner execution
+- Why:
+  - the remaining instability class should be handled as explicit module ownership and replay continuation, not by reintroducing backend inference or name-based guardrails
+  - handoff docs must match the current structural state before the next migration slice or browser playtest begins
+- Validation:
+  - `MRN_REDIS_KEY_PREFIX='mrn:{runtime-compose-smoke}' python3 tools/scripts/redis_restart_smoke.py --compose-project project-mrn-runtime-smoke --compose-file deploy/redis-runtime/docker-compose.runtime.yml --topology-name local-runtime-compose --expected-redis-hash-tag runtime-compose-smoke`
+  - restart smoke result: `ok=true`, topology `local-runtime-compose`, session `sess_Lg6Pa5oX8kLUxx_ZFsfXxArD`, prefix `mrn:{runtime-compose-smoke}`, status `waiting_input -> waiting_input`, replay events `11 -> 12`, worker health checks `4`
+
 ## 2026-05-04 Turn Completion Ownership Cutover
 
 - What changed:

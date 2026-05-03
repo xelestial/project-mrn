@@ -66,8 +66,10 @@ Passing evidence must include:
 
 Latest checked local production-like evidence:
 
+- checked `2026-05-04`
 - topology `local-runtime-compose`
 - prefix `mrn:{runtime-compose-smoke}`
+- session `sess_Lg6Pa5oX8kLUxx_ZFsfXxArD`
 - status `waiting_input -> waiting_input`
 - replay events `11 -> 12`
 - worker health checks `4`
