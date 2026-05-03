@@ -4283,6 +4283,27 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_module_runner_prompt_sequence_preparation_skips_legacy_prompt_state(self) -> None:
+        calls: list[int] = []
+        policy = type("Policy", (), {"set_prompt_sequence": lambda _self, value: calls.append(value)})()
+        state = type(
+            "State",
+            (),
+            {
+                "runtime_runner_kind": "module",
+                "runtime_frame_stack": [{"frame_type": "turn"}],
+                "pending_prompt_request_id": "legacy:trick_to_use:1",
+                "pending_prompt_type": "trick_to_use",
+                "pending_prompt_instance_id": 7,
+                "prompt_sequence": 99,
+            },
+        )()
+
+        prepared = self.runtime_service._prepare_prompt_sequence_for_transition(policy, state, "module")
+
+        self.assertFalse(prepared)
+        self.assertEqual(calls, [])
+
     def test_runtime_service_module_transition_does_not_embed_card_rule_suppression(self) -> None:
         source = Path("apps/server/src/services/runtime_service.py").read_text(encoding="utf-8")
         transition_start = source.index("    def _run_engine_transition_once_sync")

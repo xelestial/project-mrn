@@ -192,6 +192,30 @@ def test_resupply_module_commits_only_after_all_batch_responses() -> None:
     assert [card.deck_index for card in state.players[0].trick_hand] == [101]
     assert state.players[0].cash == 10
 
+    duplicate = ModuleRunner().advance_engine(
+        engine,
+        state,
+        decision_resume=SimpleNamespace(
+            request_id=prompt0.request_id,
+            player_id=1,
+            request_type=prompt0.request_type,
+            choice_id="yes",
+            choice_payload={},
+            resume_token=prompt0.resume_token,
+            frame_id=prompt0.frame_id,
+            module_id=prompt0.module_id,
+            module_type=prompt0.module_type,
+            module_cursor=prompt0.module_cursor,
+            batch_id=batch.batch_id,
+        ),
+    )
+
+    assert duplicate["status"] == "waiting_input"
+    assert state.runtime_active_prompt_batch is batch
+    assert state.runtime_active_prompt_batch.missing_player_ids == [1]
+    assert [card.deck_index for card in state.players[0].trick_hand] == [101]
+    assert state.players[0].cash == 10
+
     prompt1 = batch.prompts_by_player_id[1]
     result = ModuleRunner().advance_engine(
         engine,

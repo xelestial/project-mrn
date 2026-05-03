@@ -376,6 +376,77 @@ def test_trick_resolve_followup_schedules_next_choice_in_same_sequence() -> None
     assert followup.payload["turn_context"] == {"origin": "trick"}
 
 
+def test_trick_followup_runs_inside_child_sequence_before_turn_dice() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+        def __init__(self) -> None:
+            self.trick_choice_calls = 0
+
+        def _use_trick_phase(self, *_args, **_kwargs):
+            self.trick_choice_calls += 1
+            return False
+
+        def _finish_turn_after_trick_phase(self, *_args, **_kwargs):
+            raise AssertionError("turn dice must wait until the trick sequence frame is drained")
+
+    turn_frame = build_turn_frame(
+        1,
+        0,
+        parent_module_id="mod:round:1:playerturn:p0",
+        session_id="test-session",
+    )
+    trick_module = next(module for module in turn_frame.module_queue if module.module_type == "TrickWindowModule")
+    dice_module = next(module for module in turn_frame.module_queue if module.module_type == "DiceRollModule")
+    for module in turn_frame.module_queue:
+        if module.module_id == trick_module.module_id:
+            break
+        module.status = "completed"
+        turn_frame.completed_module_ids.append(module.module_id)
+    trick_module.status = "suspended"
+    trick_module.cursor = "child_trick_sequence"
+    turn_frame.status = "suspended"
+
+    sequence_frame = build_trick_sequence_frame(
+        1,
+        0,
+        0,
+        parent_frame_id=turn_frame.frame_id,
+        parent_module_id=trick_module.module_id,
+        session_id="test-session",
+    )
+    for module in sequence_frame.module_queue[:2]:
+        module.status = "completed"
+        sequence_frame.completed_module_ids.append(module.module_id)
+    resolve_module = sequence_frame.module_queue[2]
+    resolve_module.payload["followup_trick_prompt"] = True
+    resolve_module.payload["turn_context"] = {"origin": "first_trick"}
+    trick_module.suspension_id = sequence_frame.frame_id
+
+    state = SimpleNamespace(
+        pending_actions=[],
+        pending_turn_completion={},
+        players=[SimpleNamespace(player_id=0, alive=True, trick_hand=[], current_character="산적")],
+        runtime_frame_stack=[turn_frame, sequence_frame],
+        runtime_module_journal=[],
+        rounds_completed=0,
+        current_round_order=[0],
+        turn_index=0,
+    )
+    engine = FakeEngine()
+    runner = ModuleRunner()
+
+    resolved = runner.advance_engine(engine, state)
+    followup = runner.advance_engine(engine, state)
+
+    assert resolved["module_type"] == "TrickResolveModule"
+    assert followup["module_type"] == "TrickChoiceModule"
+    assert engine.trick_choice_calls == 1
+    assert trick_module.status == "suspended"
+    assert dice_module.status == "queued"
+    assert sequence_frame.status == "running"
+
+
 def test_sequence_module_receives_applicable_modifiers_before_execution() -> None:
     class FakeEngine:
         _vis_session_id = "test-session"

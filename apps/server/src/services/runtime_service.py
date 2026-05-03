@@ -771,6 +771,15 @@ class RuntimeService:
         base.setdefault("worker_id", self._worker_id)
         self._runtime_state_store.save_status(session_id, base)
 
+    def _prepare_prompt_sequence_for_transition(self, policy, state, runner_kind: str) -> bool:
+        effective_runner_kind = str(getattr(state, "runtime_runner_kind", runner_kind) or runner_kind)
+        if effective_runner_kind == "module":
+            return False
+        if not callable(getattr(policy, "set_prompt_sequence", None)):
+            return False
+        policy.set_prompt_sequence(self._prompt_sequence_seed_for_transition(state))
+        return True
+
     @staticmethod
     def _prompt_sequence_seed_for_transition(state) -> int:
         prompt_sequence = int(getattr(state, "prompt_sequence", 0) or 0)
@@ -1160,9 +1169,7 @@ class RuntimeService:
                 state = engine.prepare_run()
             else:
                 state = engine.prepare_run(initial_state=state)
-            effective_runner_kind_for_transition = str(getattr(state, "runtime_runner_kind", runner_kind) or runner_kind)
-            if effective_runner_kind_for_transition != "module" and callable(getattr(policy, "set_prompt_sequence", None)):
-                policy.set_prompt_sequence(self._prompt_sequence_seed_for_transition(state))
+            self._prepare_prompt_sequence_for_transition(policy, state, runner_kind)
             step = engine.run_next_transition(state, decision_resume=decision_resume)
         except RuntimeDecisionResumeMismatch as exc:
             self._save_rejected_command_offset(command_consumer_name, session_id, command_seq)

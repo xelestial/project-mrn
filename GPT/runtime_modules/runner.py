@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from policy.environment_traits import WEATHER_FATTENED_HORSES_ID, has_weather_id
 from viewer.events import Phase
 from viewer.public_state import build_turn_end_snapshot
 
 from .contracts import FrameState, ModuleJournalEntry, ModuleRef, ModuleResult
+from .handlers.turn import TURN_FRAME_HANDLERS, TurnFrameHandlerContext
 from .ids import round_frame_id
 from .modifiers import ModifierRegistry
 from .prompts import PromptApi
@@ -17,7 +17,6 @@ from .round_modules import (
 )
 from .sequence_modules import (
     build_action_sequence_frame,
-    build_trick_sequence_frame,
     build_turn_completion_sequence_frame,
 )
 from .simultaneous import build_resupply_frame
@@ -228,148 +227,19 @@ class ModuleRunner:
         frame.active_module_id = module.module_id
         module.status = "running"
         self._attach_applicable_modifiers(state, module)
-        if module.module_type == "TurnStartModule":
-            context = self._turn_context(frame)
-            if not context:
-                module.payload["finisher_before"] = int(getattr(player, "control_finisher_turns", 0) or 0)
-                module.payload["disruption_before"] = dict(engine._leader_disruption_snapshot(state, player))
-                player.turns_taken += 1
-            if player.skipped_turn:
-                player.skipped_turn = False
-                engine._log({"event": "turn_start", "player": player.player_id + 1, "character": player.current_character, "skipped": True})
-                engine._emit_vis("turn_start", Phase.TURN_START, player.player_id + 1, state, character=player.current_character, skipped=True)
-                engine._emit_vis("turn_end_snapshot", Phase.TURN_END, player.player_id + 1, state, snapshot=build_turn_end_snapshot(state))
-                self._complete_module(state, frame, module)
-                self._skip_remaining_modules(frame)
-                state.turn_index += 1
-                self._complete_turn_frame_and_parent(state, frame)
-                return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1, "skipped": True}
-            self._complete_module(state, frame, module)
-            return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
-        if module.module_type == "ScheduledStartActionsModule":
-            if engine._materialize_scheduled_actions(state, phase="turn_start", player_id=player_id):
-                module.status = "suspended"
-                module.cursor = "pending_start_actions"
-                module.suspension_id = frame.frame_id
-                frame.status = "suspended"
-                self._promote_pending_work_to_sequence_frames(engine, state, parent_frame=frame, parent_module=module)
-                return {
-                    "status": "committed",
-                    "module_type": module.module_type,
-                    "player_id": player_id + 1,
-                    "pending_actions": len(state.pending_actions),
-                    "pending_modules": self._pending_sequence_module_count(state),
-                }
-            self._complete_module(state, frame, module)
-            return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
-        if module.module_type == "PendingMarkResolutionModule":
-            engine._resolve_pending_marks(state, player)
-            self._complete_module(state, frame, module)
-            if not player.alive:
-                self._skip_remaining_modules(frame)
-                state.turn_index += 1
-                self._complete_turn_frame_and_parent(state, frame)
-            return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
-        if module.module_type == "CharacterStartModule":
-            if has_weather_id(state.current_weather_effects, WEATHER_FATTENED_HORSES_ID):
-                player.extra_dice_count_this_turn += 1
-            module.cursor = "await_character_prompt"
-            try:
-                engine._apply_character_start(state, player)
-            except Exception:
-                module.status = "suspended"
-                module.suspension_id = frame.frame_id
-                frame.status = "suspended"
-                raise
-            self._complete_module(state, frame, module)
-            if not player.alive:
-                self._skip_remaining_modules(frame)
-                state.turn_index += 1
-                self._complete_turn_frame_and_parent(state, frame)
-            return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
-        if module.module_type == "TrickWindowModule":
-            context = self._turn_context(frame)
-            child = self._child_frame_for_module(state, module)
-            if child is not None and child.status != "completed":
-                module.status = "suspended"
-                module.cursor = "child_trick_sequence"
-                module.suspension_id = child.frame_id
-                frame.status = "suspended"
-            else:
-                if not module.payload.get("window_opened"):
-                    engine._emit_vis(
-                        "turn_start",
-                        Phase.TURN_START,
-                        player.player_id + 1,
-                        state,
-                        character=player.current_character,
-                        position=player.position,
-                    )
-                    engine._emit_vis(
-                        "trick_window_open",
-                        Phase.TRICK_WINDOW,
-                        player.player_id + 1,
-                        state,
-                        hand_size=len(player.trick_hand),
-                        public_tricks=player.public_trick_names(),
-                        hidden_trick_count=player.hidden_trick_count(),
-                    )
-                    module.payload["window_opened"] = True
-                if child is None:
-                    child = build_trick_sequence_frame(
-                        int(getattr(state, "rounds_completed", 0) or 0) + 1,
-                        player_id,
-                        self._next_sequence_ordinal(state),
-                        parent_frame_id=frame.frame_id,
-                        parent_module_id=module.module_id,
-                        session_id=getattr(engine, "_vis_session_id", ""),
-                    )
-                    for child_module in child.module_queue:
-                        child_module.payload["turn_context"] = dict(context)
-                    state.runtime_frame_stack.append(child)
-                    module.status = "suspended"
-                    module.cursor = "child_trick_sequence"
-                    module.suspension_id = child.frame_id
-                    frame.status = "suspended"
-                else:
-                    self._complete_module(state, frame, module)
-            return {
-                "status": "committed",
-                "module_type": module.module_type,
-                "player_id": player_id + 1,
-                "pending_actions": len(state.pending_actions),
-                "pending_modules": self._pending_sequence_module_count(state),
-            }
-        if module.module_type == "DiceRollModule":
-            context = self._turn_context(frame)
-            module.cursor = "await_turn_prompt"
-            try:
-                engine._finish_turn_after_trick_phase(
-                    state,
-                    player,
-                    finisher_before=int(context.get("finisher_before", 0) or 0),
-                    disruption_before=dict(context.get("disruption_before") or {}),
+        handler = TURN_FRAME_HANDLERS.get(module.module_type)
+        if handler is not None:
+            return handler(
+                TurnFrameHandlerContext(
+                    runner=self,
+                    engine=engine,
+                    state=state,
+                    frame=frame,
+                    module=module,
+                    player_id=player_id,
+                    player=player,
+                )
             )
-            except Exception:
-                module.status = "suspended"
-                module.suspension_id = frame.frame_id
-                frame.status = "suspended"
-                raise
-            if state.pending_actions or state.pending_turn_completion:
-                module.status = "suspended"
-                module.cursor = "pending_turn_resolution"
-                module.suspension_id = frame.frame_id
-                frame.status = "suspended"
-                self._promote_pending_work_to_sequence_frames(engine, state, parent_frame=frame, parent_module=module)
-                return {
-                    "status": "committed",
-                    "module_type": module.module_type,
-                    "player_id": player_id + 1,
-                    "pending_actions": len(state.pending_actions),
-                    "pending_modules": self._pending_sequence_module_count(state),
-                }
-            self._complete_module(state, frame, module)
-            return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
         self._complete_module(state, frame, module)
         return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
 
