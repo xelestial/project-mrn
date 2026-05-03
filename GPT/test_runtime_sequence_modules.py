@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from state import ActionEnvelope
-from runtime_modules.contracts import Modifier, ModifierRegistryState, ModuleJournalEntry
+from runtime_modules.contracts import Modifier, ModifierRegistryState, ModuleJournalEntry, ModuleRef
 from runtime_modules.round_modules import build_round_frame
 from runtime_modules.runner import ModuleRunner
 from runtime_modules.sequence_modules import (
@@ -262,6 +264,94 @@ def test_fortune_followup_actions_stay_in_sequence_module_chain() -> None:
     assert all(frame.frame_type == "sequence" for frame in state.runtime_frame_stack)
 
 
+def test_all_fortune_decision_actions_can_chain_move_and_arrival_without_legacy_turn_restart() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+        def __init__(self) -> None:
+            self.executed: list[str] = []
+
+        def _execute_action(self, state, action, *, queue_followups: bool):
+            self.executed.append(action.type)
+            assert queue_followups is True
+            if action.type.startswith("resolve_fortune_"):
+                state.pending_actions.append(
+                    ActionEnvelope(
+                        action_id=f"move-after-{action.type}",
+                        type="apply_move",
+                        actor_player_id=0,
+                        source="fortune",
+                        payload={"move_value": 2},
+                    )
+                )
+                return {"type": "QUEUED_FORTUNE_MOVE"}
+            if action.type == "apply_move":
+                state.pending_actions.append(
+                    ActionEnvelope(
+                        action_id="arrival-after-fortune",
+                        type="resolve_arrival",
+                        actor_player_id=0,
+                        source="fortune",
+                        payload={"tile_index": 2},
+                    )
+                )
+                return {"type": "MOVE_APPLIED"}
+            if action.type == "resolve_arrival":
+                return {"type": "ARRIVAL_RESOLVED"}
+            raise AssertionError(f"unexpected action {action.type}")
+
+        def _log(self, _event):
+            return None
+
+    for fortune_action_type in FORTUNE_ACTION_TYPE_TO_MODULE_TYPE:
+        frame = build_action_sequence_frame(
+            1,
+            0,
+            0,
+            [
+                {
+                    "action_id": fortune_action_type,
+                    "type": fortune_action_type,
+                    "actor_player_id": 0,
+                    "source": "fortune",
+                    "payload": {},
+                }
+            ],
+            parent_frame_id="turn:1:p0",
+            parent_module_id="mod:turn:1:p0:fortune",
+            session_id="test-session",
+        )
+        state = SimpleNamespace(
+            pending_actions=[],
+            pending_turn_completion={},
+            players=[SimpleNamespace(player_id=0, alive=True)],
+            runtime_frame_stack=[frame],
+            runtime_module_journal=[],
+            rounds_completed=0,
+            current_round_order=[0],
+            turn_index=0,
+        )
+        engine = FakeEngine()
+        runner = ModuleRunner()
+
+        fortune = runner.advance_engine(engine, state)
+        move = runner.advance_engine(engine, state)
+        arrival = runner.advance_engine(engine, state)
+
+        assert [fortune["module_type"], move["module_type"], arrival["module_type"]] == [
+            "FortuneResolveModule",
+            "MapMoveModule",
+            "ArrivalTileModule",
+        ]
+        assert [fortune["module_boundary"], move["module_boundary"], arrival["module_boundary"]] == [
+            "native",
+            "native",
+            "native",
+        ]
+        assert engine.executed == [fortune_action_type, "apply_move", "resolve_arrival"]
+        assert all(active.frame_type == "sequence" for active in state.runtime_frame_stack)
+
+
 def test_purchase_decision_and_commit_stay_in_native_purchase_modules() -> None:
     class FakeEngine:
         _vis_session_id = "test-session"
@@ -395,8 +485,6 @@ def test_rent_payment_stays_in_native_rent_module_before_post_effects() -> None:
 
 
 def test_supply_threshold_action_cannot_be_wrapped_in_legacy_action_sequence() -> None:
-    import pytest
-
     with pytest.raises(ValueError, match="resolve_supply_threshold.*SimultaneousResolutionFrame"):
         build_action_sequence_frame(
             1,
@@ -726,6 +814,58 @@ def test_trick_resolve_followup_schedules_next_choice_in_same_sequence() -> None
     assert followup.module_type == "TrickChoiceModule"
     assert followup.status == "queued"
     assert followup.payload["turn_context"] == {"origin": "trick"}
+
+
+def test_trick_resolve_followup_insertion_is_idempotent_on_module_retry() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+    frame = build_trick_sequence_frame(
+        1,
+        0,
+        0,
+        parent_frame_id="turn:1:p0",
+        parent_module_id="mod:turn:1:p0:trickwindow",
+        session_id="test-session",
+    )
+    for module in frame.module_queue[:2]:
+        module.status = "completed"
+        frame.completed_module_ids.append(module.module_id)
+    resolve_module = frame.module_queue[2]
+    resolve_module.status = "running"
+    resolve_module.payload["followup_trick_prompt"] = True
+    resolve_module.payload["turn_context"] = {"origin": "retry_after_insert"}
+    already_inserted = ModuleRef(
+        module_id=f"{resolve_module.module_id}:followup_choice:1",
+        module_type="TrickChoiceModule",
+        phase="trickchoice",
+        owner_player_id=0,
+        payload={"turn_context": {"origin": "retry_after_insert"}},
+        idempotency_key=f"{resolve_module.idempotency_key}:followup_choice:1",
+    )
+    resolve_index = frame.module_queue.index(resolve_module)
+    frame.module_queue.insert(resolve_index + 1, already_inserted)
+    resolve_module.payload["followup_choice_module_id"] = already_inserted.module_id
+    state = SimpleNamespace(
+        pending_actions=[],
+        pending_turn_completion={},
+        players=[SimpleNamespace(player_id=0, alive=True)],
+        runtime_frame_stack=[frame],
+        runtime_module_journal=[],
+        rounds_completed=0,
+        current_round_order=[0],
+        turn_index=0,
+    )
+
+    result = ModuleRunner().advance_engine(FakeEngine(), state)
+
+    assert result["module_type"] == "TrickResolveModule"
+    followups = [
+        module
+        for module in frame.module_queue
+        if module.module_type == "TrickChoiceModule" and module.module_id.startswith(f"{resolve_module.module_id}:followup_choice")
+    ]
+    assert [module.module_id for module in followups] == [already_inserted.module_id]
 
 
 def test_trick_followup_runs_inside_child_sequence_before_turn_dice() -> None:

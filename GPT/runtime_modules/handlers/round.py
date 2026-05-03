@@ -29,7 +29,7 @@ def handle_player_turn(ctx: RoundFrameHandlerContext) -> dict[str, Any]:
 
 
 def handle_round_end_card_flip(ctx: RoundFrameHandlerContext) -> dict[str, Any]:
-    assert_round_end_card_flip_ready(ctx.frame)
+    assert_round_end_card_flip_ready(ctx.frame, frame_stack=ctx.state.runtime_frame_stack)
     ctx.engine._apply_round_end_marker_management(ctx.state)
     ctx.engine._resolve_marker_flip(ctx.state)
     ctx.runner._complete_module(ctx.state, ctx.frame, ctx.module)

@@ -38,6 +38,7 @@
 | MRN-MOD-012 | prompt continuation mismatch | 오래된 prompt 또는 다른 module의 decision이 도착 | 현재 활성 prompt module | `resume_token/frame_id/module_id/module_type/module_cursor/batch_id` mismatch면 reject | 프론트는 backend-issued continuation 외 값을 만들지 않음 | 백엔드는 추정 재개를 하지 않고 현재 모듈과 일치할 때만 처리 | `apps/server/tests/test_prompt_module_continuation.py`, `apps/web/src/hooks/useGameStream.spec.ts` |
 | MRN-MOD-013 | 남의 토지 도착 임대료 | 플레이어가 소유자가 다른 토지에 도착 | `ArrivalTileModule -> RentPaymentModule -> LandingPostEffectsModule` | `resolve_arrival`은 임대료 action만 큐잉하고, `resolve_rent_payment`가 현금/파산 mutation을 소유하며, 후처리는 별도 checkpoint로 이어짐 | 프론트는 도착, 임대료 지불, 같은 칸 보너스/인접 구매 후처리를 순차 module event로 받음 | 임대료 지불은 도착 모듈 재실행이나 후처리 재개 중 중복 차감되지 않음 | `GPT/test_engine_resumable_checkpoint.py`, `GPT/test_runtime_sequence_modules.py`, `apps/server/tests/test_runtime_semantic_guard.py`, `npm run e2e:module-runtime` |
 | MRN-MOD-014 | 재보급 eligible 스냅샷 재개 | 재보급 prompt가 일부 응답 후 Redis checkpoint에서 재개 | `SimultaneousResolutionFrame -> ResupplyModule` | action payload와 active batch는 `eligible_burden_deck_indices_by_player`와 processed 목록을 저장하고 재개 시 현재 손패로 재계산하지 않음 | 프론트는 `burden_exchange` prompt를 `ResupplyModule`/`simultaneous` projection에서만 활성으로 취급 | 새로 뽑힌 짐은 이미 시작된 재보급 threshold chain에 끼어들 수 없음 | `GPT/test_runtime_simultaneous_modules.py`, `apps/server/tests/test_runtime_service.py`, `apps/web/src/domain/selectors/promptSelectors.spec.ts` |
+| MRN-MOD-015 | 잔꾀 후속 재시도 idempotency | `TrickResolveModule`이 후속 잔꾀 선택을 삽입한 뒤 worker 재시도/복구로 같은 module을 다시 처리 | `TrickResolveModule -> TrickChoiceModule` in same `TrickSequenceFrame` | `followup_choice_module_id`가 module payload에 저장되고 재시도 시 기존 후속 선택만 재사용 | 프론트는 같은 후속 prompt surface만 유지하고 추가 잔꾀 prompt를 받지 않음 | 같은 resolve module에서 후속 선택이 두 번 삽입되지 않아 잔꾀-지목-잔꾀 루프가 구조적으로 차단됨 | `GPT/test_runtime_sequence_modules.py`, `apps/server/tests/test_prompt_module_continuation.py`, `apps/web/src/hooks/useGameStream.spec.ts` |
 
 ## 4. 자동화 운영
 
@@ -51,3 +52,13 @@
 ## 5. 수동 플레이테스트 기록 규칙
 
 수동 플레이테스트 로그는 각 시나리오 ID를 붙여 기록한다. 예를 들어 산적 지목 후 잔꾀 루프가 의심되면 `MRN-MOD-003`, 운수 추가 이동이 턴 재시작처럼 보이면 `MRN-MOD-005`, 카드 플립이 턴 중 발생하면 `MRN-MOD-010`, 재보급 중 새 짐 카드가 같은 threshold chain에 섞이면 `MRN-MOD-014`로 표시한다.
+
+## 6. 1-5 회귀 묶음
+
+이번 구조 회귀 묶음은 다음 순서로 확인한다.
+
+1. `MRN-MOD-003`/`MRN-MOD-004`/`MRN-MOD-015`: 산적 지목 후 잔꾀를 사용하고, 후속 잔꾀 선택이 필요한 카드에서 worker 재시도 또는 재연결이 있어도 `CharacterStartModule`과 `TargetJudicatorModule`이 다시 열리지 않는지 확인한다.
+2. `MRN-MOD-005`: 모든 `resolve_fortune_*` 결정형 운수 action이 `FortuneResolveModule -> MapMoveModule -> ArrivalTileModule`로 이어지고 새 `TurnFrame`이나 `LegacyActionAdapterModule`로 빠지지 않는지 확인한다.
+3. `MRN-MOD-010`: `RoundEndCardFlipModule`은 모든 `PlayerTurnModule`과 child frame이 종료된 뒤에만 실행되는지 확인한다.
+4. `MRN-MOD-014`: 재보급은 `SimultaneousResolutionFrame`만 소유하고, action sequence adapter 또는 턴 순차 모듈에 들어가지 않는지 확인한다.
+5. 공통: 위 시나리오의 prompt/decision stream은 backend-issued continuation을 그대로 왕복하고, 프론트 생성 request id나 stale continuation이 엔진을 진행시키지 않는지 확인한다.

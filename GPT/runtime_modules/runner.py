@@ -977,6 +977,24 @@ class ModuleRunner:
 
     @staticmethod
     def _insert_followup_trick_choice(frame: FrameState, module: ModuleRef) -> None:
+        existing_module_id = module.payload.get("followup_choice_module_id")
+        if isinstance(existing_module_id, str) and any(
+            candidate.module_id == existing_module_id for candidate in frame.module_queue
+        ):
+            return
+        followup_prefix = f"{module.module_id}:followup_choice:"
+        existing_followup = next(
+            (
+                candidate
+                for candidate in frame.module_queue
+                if candidate.module_type == "TrickChoiceModule"
+                and candidate.module_id.startswith(followup_prefix)
+            ),
+            None,
+        )
+        if existing_followup is not None:
+            module.payload["followup_choice_module_id"] = existing_followup.module_id
+            return
         module_index = next(
             (index for index, candidate in enumerate(frame.module_queue) if candidate is module),
             len(frame.module_queue) - 1,
@@ -991,6 +1009,7 @@ class ModuleRunner:
             idempotency_key=f"{module.idempotency_key}:followup_choice:{followup_index}",
         )
         frame.module_queue.insert(module_index + 1, followup)
+        module.payload["followup_choice_module_id"] = followup.module_id
 
     @staticmethod
     def _complete_sequence_frame_if_drained(frame: FrameState) -> None:

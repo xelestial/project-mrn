@@ -101,7 +101,11 @@ def build_round_frame(
     return frame
 
 
-def assert_round_end_card_flip_ready(frame: FrameState) -> None:
+def assert_round_end_card_flip_ready(
+    frame: FrameState,
+    *,
+    frame_stack: list[FrameState] | None = None,
+) -> None:
     pending_turns = [
         module.module_id
         for module in frame.module_queue
@@ -109,3 +113,12 @@ def assert_round_end_card_flip_ready(frame: FrameState) -> None:
     ]
     if pending_turns:
         raise RuntimeError("RoundEndCardFlipModule requires all PlayerTurnModule entries to be completed")
+    for active_frame in frame_stack or []:
+        if active_frame is frame:
+            continue
+        if active_frame.status in {"running", "suspended"} and active_frame.frame_type in {
+            "turn",
+            "sequence",
+            "simultaneous",
+        }:
+            raise RuntimeError("RoundEndCardFlipModule requires no active child frame")

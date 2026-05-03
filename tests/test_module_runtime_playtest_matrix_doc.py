@@ -31,6 +31,7 @@ REQUIRED_SCENARIOS = {
     "MRN-MOD-012": "prompt continuation mismatch",
     "MRN-MOD-013": "남의 토지 도착 임대료",
     "MRN-MOD-014": "재보급 eligible 스냅샷 재개",
+    "MRN-MOD-015": "잔꾀 후속 재시도 idempotency",
 }
 
 REQUIRED_COVERAGE_TOKENS = {

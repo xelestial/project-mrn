@@ -93,3 +93,10 @@ Each effect is owned by a producer module and consumed only by declared runtime 
 | `trick:sequence` | 잔꾀 | `TrickWindowModule` | `TrickChoiceModule`, `TrickResolveModule` |
 | `fortune:extra_arrival` | 운수 | `FortuneResolveModule` | `MapMoveModule`, `ArrivalTileModule` |
 | `simultaneous:resupply` | 재보급 | `ConcurrentResolutionSchedulerModule` | `ResupplyModule` |
+
+## Replay/Retry Invariants
+
+- `TrickResolveModule` may insert a follow-up `TrickChoiceModule` only once. The inserted module id is stored as `followup_choice_module_id`; worker retry must reuse that module instead of appending another prompt.
+- `RoundEndCardFlipModule` requires all `PlayerTurnModule` entries to be completed or skipped and also requires no active child `TurnFrame`, `SequenceFrame`, or `SimultaneousResolutionFrame`.
+- `resolve_supply_threshold` remains outside action sequences; retry/recovery must resume `ResupplyModule` with the stored eligible snapshot.
+- All catalogued `resolve_fortune_*` actions remain native `FortuneResolveModule` work and may chain `MapMoveModule`/`ArrivalTileModule` without creating a new turn.

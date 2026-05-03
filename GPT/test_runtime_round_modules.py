@@ -61,6 +61,16 @@ def test_round_end_card_flip_rejects_incomplete_player_turns() -> None:
     assert_round_end_card_flip_ready(frame)
 
 
+def test_round_end_card_flip_rejects_active_child_frames_even_if_turn_module_completed() -> None:
+    frame = build_round_frame(1, player_order=[0], completed_setup=True)
+    frame.module_queue[0].status = "completed"
+    turn_frame = build_turn_frame(1, 0, parent_module_id=frame.module_queue[0].module_id)
+    turn_frame.status = "suspended"
+
+    with pytest.raises(RuntimeError, match="active child frame"):
+        assert_round_end_card_flip_ready(frame, frame_stack=[frame, turn_frame])
+
+
 def test_module_runner_session_builds_explicit_round_frame_after_setup() -> None:
     config = GameConfig(player_count=2)
     engine = GameEngine(config, HeuristicPolicy(), rng=random.Random(7), enable_logging=False)
