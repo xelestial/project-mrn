@@ -8,6 +8,25 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Frontend Effect Fallback Cleanup And Runtime Regression Pass
+
+- What changed:
+  - verified and pushed the runtime semantic guard catalog / Redis restart smoke commit
+  - ran module-runtime e2e coverage for first prompt, fortune overlay, and matchmaker adjacent purchase behavior
+  - ran regression coverage for runtime sequence modules, effect inventory, round modules, simultaneous modules, target judicator modules, semantic guard, prompt continuation, and Redis-backed simultaneous batch continuation
+  - tightened frontend event effect attribution so it no longer scans localized detail text to infer 박수/만신/중매꾼 ownership
+  - documented remaining frontend compatibility fallback branches and their removal conditions
+- Why:
+  - detail-text scanning can misattribute an effect when a target name appears in the rendered sentence
+  - remaining fallback branches should stay explicit and bounded until backend prompt/event contracts cover every active runtime surface
+- Validation:
+  - `npm --prefix apps/web run e2e:module-runtime`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_runtime_sequence_modules.py GPT/test_runtime_sequence_handlers.py GPT/test_runtime_effect_inventory.py GPT/test_runtime_round_modules.py GPT/test_runtime_simultaneous_modules.py GPT/test_runtime_target_judicator_modules.py apps/server/tests/test_runtime_semantic_guard.py apps/server/tests/test_prompt_module_continuation.py apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_simultaneous_batch_continuation_survives_service_reconstruction -q`
+  - `npm --prefix apps/web test -- --run src/domain/selectors/promptSelectors.spec.ts src/hooks/useGameStream.spec.ts`
+  - `npm --prefix apps/web run test -- --run src/domain/selectors/streamSelectors.spec.ts src/domain/selectors/promptSelectors.spec.ts src/hooks/useGameStream.spec.ts`
+  - `npm --prefix apps/web run build`
+  - `git diff --check`
+
 ## 2026-05-04 Runtime Semantic Guard Catalog Derivation And Restart Smoke
 
 - What changed:

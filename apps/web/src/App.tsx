@@ -589,20 +589,32 @@ function appRecordOrNull(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
 
-function effectCharacterFromPayload(payload: Record<string, unknown> | null, detail: string): string | undefined {
+function canonicalEffectCharacterFromActorName(actorName: string | null): string | undefined {
+  if (!actorName) {
+    return undefined;
+  }
+  const normalized = actorName.trim().toLowerCase();
+  if (normalized === "박수" || normalized === "baksu") return "박수";
+  if (normalized === "만신" || normalized === "manshin") return "만신";
+  if (normalized === "중매꾼" || normalized === "matchmaker") return "중매꾼";
+  return actorName;
+}
+
+function effectCharacterFromPayload(payload: Record<string, unknown> | null): string | undefined {
   const resolution = appRecordOrNull(payload?.["resolution"]);
+  const effectType = appStringOrNull(payload?.["effect_type"]) ?? appStringOrNull(resolution?.["type"]);
+  if (effectType === "baksu_transfer") return "박수";
+  if (effectType === "manshin_remove_burdens") return "만신";
+
+  const purchaseSource = appStringOrNull(payload?.["purchase_source"]) ?? appStringOrNull(payload?.["source"]);
+  if (purchaseSource === "matchmaker_adjacent" || purchaseSource === "adjacent_extra") return "중매꾼";
+
   const actorName =
     appStringOrNull(payload?.["actor_name"]) ??
     appStringOrNull(resolution?.["actor_name"]) ??
     appStringOrNull(payload?.["character"]) ??
     appStringOrNull(payload?.["card_name"]);
-  const effectType = appStringOrNull(payload?.["effect_type"]) ?? appStringOrNull(resolution?.["type"]);
-  const purchaseSource = appStringOrNull(payload?.["purchase_source"]) ?? appStringOrNull(payload?.["source"]);
-  const text = `${actorName ?? ""} ${effectType ?? ""} ${purchaseSource ?? ""} ${detail}`;
-  if (/baksu|박수/i.test(text)) return "박수";
-  if (/manshin|만신/i.test(text)) return "만신";
-  if (/matchmaker|matchmaker_adjacent|중매꾼|인접 토지|추가 구매/i.test(text)) return "중매꾼";
-  return actorName ?? undefined;
+  return canonicalEffectCharacterFromActorName(actorName);
 }
 
 function diceOverlayValues(payload: Record<string, unknown>): { values: number[]; total: number | null } {
@@ -1555,7 +1567,7 @@ export function App() {
           label,
           detail,
           ...effect("purchase"),
-          effectCharacter: effectCharacterFromPayload(sourcePayload, detail),
+          effectCharacter: effectCharacterFromPayload(sourcePayload),
         });
       } else if (eventCode === "rent_paid") {
         const kind = rentOverlayKindForPlayer(detail, effectivePlayerId);
@@ -1584,7 +1596,7 @@ export function App() {
           label,
           detail,
           ...effect("mark_success"),
-          effectCharacter: effectCharacterFromPayload(sourcePayload, detail),
+          effectCharacter: effectCharacterFromPayload(sourcePayload),
         });
       } else if (eventCode === "ability_suppressed") {
         eventQueue.enqueue({
@@ -1592,7 +1604,7 @@ export function App() {
           label,
           detail,
           ...effect("economy"),
-          effectCharacter: effectCharacterFromPayload(sourcePayload, detail),
+          effectCharacter: effectCharacterFromPayload(sourcePayload),
         });
       } else if (eventCode === "bankruptcy") {
         eventQueue.enqueue({ kind: "bankruptcy", label, detail, ...effect("bankruptcy") });
