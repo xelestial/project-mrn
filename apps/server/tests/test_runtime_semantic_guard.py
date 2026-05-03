@@ -1,12 +1,24 @@
 from __future__ import annotations
 
+import inspect
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
+import apps.server.src.domain.runtime_semantic_guard as runtime_semantic_guard
 from apps.server.src.domain.runtime_semantic_guard import (
+    ACTION_TYPE_REQUIRED_MODULES,
+    MODULE_ALLOWED_FRAMES,
     RuntimeSemanticViolation,
     validate_checkpoint_payload,
     validate_stream_payload,
 )
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_rejects_draft_module_in_turn_frame_stream_payload() -> None:
@@ -26,6 +38,44 @@ def test_rejects_draft_module_in_turn_frame_stream_payload() -> None:
                 },
             },
         )
+
+
+def test_semantic_guard_derives_module_and_action_catalogs_from_engine_runtime_modules() -> None:
+    from runtime_modules.catalog import MODULE_RULES
+    from runtime_modules.sequence_modules import ACTION_TYPE_TO_MODULE_TYPE, FORTUNE_ACTION_TYPE_TO_MODULE_TYPE
+
+    assert MODULE_ALLOWED_FRAMES == {
+        module_type: set(rule.frame_types)
+        for module_type, rule in MODULE_RULES.items()
+    }
+    assert ACTION_TYPE_REQUIRED_MODULES == {
+        **ACTION_TYPE_TO_MODULE_TYPE,
+        **FORTUNE_ACTION_TYPE_TO_MODULE_TYPE,
+    }
+    source = inspect.getsource(runtime_semantic_guard)
+    assert "MODULE_ALLOWED_FRAMES: dict" not in source
+    assert "ACTION_TYPE_REQUIRED_MODULES: dict" not in source
+
+
+def test_semantic_guard_imports_engine_catalog_without_external_pythonpath() -> None:
+    env = {**os.environ, "PYTHONPATH": ""}
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import apps.server.src.domain.runtime_semantic_guard as g; "
+                "print(len(g.MODULE_ALLOWED_FRAMES), len(g.ACTION_TYPE_REQUIRED_MODULES))"
+            ),
+        ],
+        cwd=PROJECT_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stdout.strip()
 
 
 def test_rejects_marker_flip_in_active_turn_context() -> None:

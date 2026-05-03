@@ -1,53 +1,25 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Any
+
+GPT_DIR = Path(__file__).resolve().parents[4] / "GPT"
+GPT_DIR_TEXT = str(GPT_DIR)
+if GPT_DIR_TEXT not in sys.path:
+    sys.path.insert(0, GPT_DIR_TEXT)
+
+from runtime_modules.catalog import MODULE_RULES
+from runtime_modules.sequence_modules import ACTION_TYPE_TO_MODULE_TYPE, FORTUNE_ACTION_TYPE_TO_MODULE_TYPE
 
 
 class RuntimeSemanticViolation(ValueError):
     pass
 
 
-MODULE_ALLOWED_FRAMES: dict[str, set[str]] = {
-    "RoundStartModule": {"round"},
-    "WeatherModule": {"round"},
-    "DraftModule": {"round"},
-    "TurnSchedulerModule": {"round"},
-    "PlayerTurnModule": {"round"},
-    "RoundEndCardFlipModule": {"round"},
-    "RoundCleanupAndNextRoundModule": {"round"},
-    "TurnStartModule": {"turn"},
-    "ScheduledStartActionsModule": {"turn"},
-    "PendingMarkResolutionModule": {"turn", "sequence"},
-    "CharacterStartModule": {"turn"},
-    "ImmediateMarkerTransferModule": {"turn"},
-    "TargetJudicatorModule": {"turn"},
-    "TrickWindowModule": {"turn"},
-    "DiceRollModule": {"turn"},
-    "MovementResolveModule": {"turn"},
-    "MapMoveModule": {"turn", "sequence"},
-    "ArrivalTileModule": {"turn", "sequence"},
-    "RentPaymentModule": {"sequence"},
-    "LapRewardModule": {"turn"},
-    "FortuneResolveModule": {"turn", "sequence"},
-    "TurnEndSnapshotModule": {"turn"},
-    "TrickChoiceModule": {"sequence"},
-    "TrickSkipModule": {"sequence"},
-    "TrickResolveModule": {"sequence"},
-    "TrickDiscardModule": {"sequence"},
-    "TrickDeferredFollowupsModule": {"sequence"},
-    "TrickVisibilitySyncModule": {"sequence"},
-    "PurchaseDecisionModule": {"sequence"},
-    "PurchaseCommitModule": {"sequence"},
-    "UnownedPostPurchaseModule": {"sequence"},
-    "ScoreTokenPlacementPromptModule": {"sequence"},
-    "ScoreTokenPlacementCommitModule": {"sequence"},
-    "LandingPostEffectsModule": {"sequence"},
-    "TrickTileRentModifierModule": {"sequence"},
-    "ResupplyModule": {"simultaneous"},
-    "SimultaneousProcessingModule": {"simultaneous"},
-    "SimultaneousPromptBatchModule": {"simultaneous"},
-    "SimultaneousCommitModule": {"simultaneous"},
-    "CompleteSimultaneousResolutionModule": {"simultaneous"},
+MODULE_ALLOWED_FRAMES = {
+    module_type: set(rule.frame_types)
+    for module_type, rule in MODULE_RULES.items()
 }
 
 ROUND_ONLY_EVENTS = {
@@ -68,25 +40,9 @@ EVENT_REQUIRED_MODULES = {
     "active_flip": {"RoundEndCardFlipModule"},
 }
 
-ACTION_TYPE_REQUIRED_MODULES: dict[str, str] = {
-    "resolve_mark": "PendingMarkResolutionModule",
-    "apply_move": "MapMoveModule",
-    "resolve_arrival": "ArrivalTileModule",
-    "resolve_rent_payment": "RentPaymentModule",
-    "request_purchase_tile": "PurchaseDecisionModule",
-    "resolve_purchase_tile": "PurchaseCommitModule",
-    "resolve_unowned_post_purchase": "UnownedPostPurchaseModule",
-    "request_score_token_placement": "ScoreTokenPlacementPromptModule",
-    "resolve_score_token_placement": "ScoreTokenPlacementCommitModule",
-    "resolve_landing_post_effects": "LandingPostEffectsModule",
-    "continue_after_trick_phase": "TrickDeferredFollowupsModule",
-    "resolve_trick_tile_rent_modifier": "TrickTileRentModifierModule",
-    "resolve_fortune_takeover_backward": "FortuneResolveModule",
-    "resolve_fortune_subscription": "FortuneResolveModule",
-    "resolve_fortune_land_thief": "FortuneResolveModule",
-    "resolve_fortune_donation_angel": "FortuneResolveModule",
-    "resolve_fortune_forced_trade": "FortuneResolveModule",
-    "resolve_fortune_pious_marker": "FortuneResolveModule",
+ACTION_TYPE_REQUIRED_MODULES = {
+    **ACTION_TYPE_TO_MODULE_TYPE,
+    **FORTUNE_ACTION_TYPE_TO_MODULE_TYPE,
 }
 
 

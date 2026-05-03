@@ -8,6 +8,27 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Runtime Semantic Guard Catalog Derivation And Restart Smoke
+
+- What changed:
+  - changed backend runtime semantic guard module/action ownership tables to derive from the engine runtime module catalog instead of maintaining a parallel hardcoded backend list
+  - added guard tests proving the backend imports the engine catalog without external `PYTHONPATH` and that semantic guard action mappings match engine `sequence_modules`
+  - ran the production-like Redis runtime restart smoke against `deploy/redis-runtime/docker-compose.runtime.yml`
+- Why:
+  - backend stream validation should reject impossible module/frame/action combinations from the same source of truth the engine runner uses
+  - Redis restart evidence should prove the current module-continuation path survives process restart without backend inference or stale local memory
+- Validation:
+  - `.venv/bin/python -c "import apps.server.src.domain.runtime_semantic_guard as g; print(len(g.MODULE_ALLOWED_FRAMES), len(g.ACTION_TYPE_REQUIRED_MODULES))"`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_runtime_semantic_guard.py -q`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_runtime_sequence_modules.py GPT/test_runtime_target_judicator_modules.py GPT/test_runtime_turn_handlers.py apps/server/tests/test_runtime_semantic_guard.py GPT/test_action_pipeline_contract.py tests/test_module_runtime_playtest_matrix_doc.py -q`
+  - `.venv/bin/python -c "from apps.server.src.services.stream_service import StreamService; print(StreamService.__name__)"`
+  - `MRN_REDIS_KEY_PREFIX='mrn:{runtime-compose-smoke}' python3 tools/scripts/redis_restart_smoke.py --compose-project project-mrn-runtime-smoke --compose-file deploy/redis-runtime/docker-compose.runtime.yml --topology-name local-runtime-compose --expected-redis-hash-tag runtime-compose-smoke`
+  - restart smoke result: `ok=true`, topology `local-runtime-compose`,
+    restart mode `compose`, session `sess_Sy5g28DI0GQWaK65VmxdEXDH`,
+    prefix `mrn:{runtime-compose-smoke}`, status `waiting_input -> waiting_input`,
+    replay events `11 -> 12`, worker health checks `4`
+  - smoke cleanup check: no leftover Docker containers after script-managed `docker compose down`
+
 ## 2026-05-04 Platform Manifest Mapping And Native Effect Boundary Guard
 
 - What changed:
