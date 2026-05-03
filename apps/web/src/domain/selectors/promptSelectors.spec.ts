@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import type { InboundMessage } from "../../core/contracts/stream";
 import {
@@ -22,6 +22,57 @@ function loadSharedPromptFixture(filename: string) {
     };
   };
 }
+
+function sharedPromptFixtureDir() {
+  return resolve(process.cwd(), "../../packages/runtime-contracts/ws/examples");
+}
+
+function loadAllSharedPromptSurfaceFixtures() {
+  return readdirSync(sharedPromptFixtureDir())
+    .filter((filename) => filename.startsWith("selector.prompt.") && filename.endsWith("_surface.json"))
+    .sort()
+    .map((filename) => [filename, loadSharedPromptFixture(filename)] as const);
+}
+
+function withProjectedPromptSurface(fixture: ReturnType<typeof loadSharedPromptFixture>): InboundMessage[] {
+  return fixture.messages.map((message, index, items) =>
+    index === items.length - 1
+      ? {
+          ...message,
+          payload: {
+            ...message.payload,
+            view_state: {
+              prompt: {
+                active: {
+                  ...(message.payload as Record<string, unknown>),
+                  choices: (message.payload as Record<string, unknown>).legal_choices,
+                  surface: fixture.expected.prompt.active.surface,
+                },
+              },
+            },
+          },
+        }
+      : message
+  );
+}
+
+const surfaceModelKeyByBackendKey: Record<string, string> = {
+  active_flip: "activeFlip",
+  burden_exchange_batch: "burdenExchangeBatch",
+  character_pick: "characterPick",
+  coin_placement: "coinPlacement",
+  doctrine_relief: "doctrineRelief",
+  geo_bonus: "geoBonus",
+  hand_choice: "handChoice",
+  lap_reward: "lapReward",
+  mark_target: "markTarget",
+  movement: "movement",
+  pabal_dice_mode: "pabalDiceMode",
+  purchase_tile: "purchaseTile",
+  runaway_step: "runawayStep",
+  specific_trick_reward: "specificTrickReward",
+  trick_tile_target: "trickTileTarget",
+};
 
 describe("promptSelectors", () => {
   it("preserves module continuation fields on the active prompt", () => {
@@ -187,6 +238,106 @@ describe("promptSelectors", () => {
     expect(selectActivePrompt([messages[1]])?.surface.doctrineRelief).toBeNull();
     expect(selectActivePrompt([messages[2]])?.surface.specificTrickReward).toBeNull();
     expect(selectActivePrompt([messages[3]])?.surface.pabalDiceMode).toBeNull();
+  });
+
+  it("does not synthesize any backend-owned prompt surface without backend projection", () => {
+    const cases: Array<{
+      requestType: string;
+      surfaceKey: string;
+      legalChoices?: Array<Record<string, unknown>>;
+      publicContext?: Record<string, unknown>;
+    }> = [
+      {
+        requestType: "movement",
+        surfaceKey: "movement",
+        legalChoices: [{ choice_id: "roll", title: "Roll" }],
+      },
+      {
+        requestType: "lap_reward",
+        surfaceKey: "lapReward",
+        legalChoices: [{ choice_id: "cash_1", title: "Cash", value: { cash_units: 1, shard_units: 0, coin_units: 0, spent_points: 1 } }],
+        publicContext: { budget: 1, pools: { cash: 1, shards: 0, coins: 0 } },
+      },
+      {
+        requestType: "burden_exchange",
+        surfaceKey: "burdenExchangeBatch",
+        legalChoices: [{ choice_id: "yes", title: "Pay" }],
+        publicContext: { burden_card_count: 1, burden_cards: [{ deck_index: 91, name: "Burden" }] },
+      },
+      {
+        requestType: "mark_target",
+        surfaceKey: "markTarget",
+        legalChoices: [{ choice_id: "p2", title: "P2", value: { target_character: "산적", target_player_id: 2 } }],
+        publicContext: { actor_name: "자객" },
+      },
+      {
+        requestType: "trick_to_use",
+        surfaceKey: "handChoice",
+        legalChoices: [{ choice_id: "deck_12", title: "잔꾀", value: { deck_index: 12 } }],
+        publicContext: { full_hand: [{ deck_index: 12, name: "잔꾀", is_usable: true }] },
+      },
+      {
+        requestType: "hidden_trick_card",
+        surfaceKey: "handChoice",
+        legalChoices: [{ choice_id: "deck_13", title: "숨은 잔꾀", value: { deck_index: 13 } }],
+        publicContext: { full_hand: [{ deck_index: 13, name: "숨은 잔꾀", is_hidden: true }] },
+      },
+      {
+        requestType: "purchase_tile",
+        surfaceKey: "purchaseTile",
+        legalChoices: [{ choice_id: "yes", title: "Buy" }, { choice_id: "no", title: "Skip" }],
+        publicContext: { tile_index: 8, cost: 4 },
+      },
+      {
+        requestType: "trick_tile_target",
+        surfaceKey: "trickTileTarget",
+        legalChoices: [{ choice_id: "tile_3", title: "Tile 3", value: { tile_index: 3 } }],
+        publicContext: { card_name: "잔꾀", candidate_tiles: [3] },
+      },
+      {
+        requestType: "coin_placement",
+        surfaceKey: "coinPlacement",
+        legalChoices: [{ choice_id: "tile_4", title: "Tile 4", value: { tile_index: 4 } }],
+        publicContext: { owned_tile_count: 1 },
+      },
+      {
+        requestType: "geo_bonus",
+        surfaceKey: "geoBonus",
+        legalChoices: [{ choice_id: "cash", title: "Cash", value: { choice: "cash" } }],
+        publicContext: { actor_name: "지관" },
+      },
+      {
+        requestType: "runaway_step_choice",
+        surfaceKey: "runawayStep",
+        legalChoices: [{ choice_id: "yes", title: "Step" }, { choice_id: "no", title: "Stay" }],
+        publicContext: { one_short_pos: 4, bonus_target_pos: 5, bonus_target_kind: "special" },
+      },
+      {
+        requestType: "active_flip",
+        surfaceKey: "activeFlip",
+        legalChoices: [{ choice_id: "card_1", title: "Flip", value: { card_index: 1, current_name: "A", flipped_name: "B" } }],
+      },
+    ];
+
+    for (const item of cases) {
+      const model = selectActivePrompt([
+        {
+          type: "prompt",
+          seq: 100,
+          session_id: "s1",
+          payload: {
+            request_id: `req_${item.requestType}`,
+            request_type: item.requestType,
+            player_id: 1,
+            timeout_ms: 30000,
+            legal_choices: item.legalChoices ?? [],
+            public_context: item.publicContext ?? {},
+          },
+        },
+      ]);
+      const surface = model?.surface as Record<string, unknown> | undefined;
+      expect(surface?.[item.surfaceKey], item.requestType).toBeNull();
+    }
   });
 
   it("marks passive canonical choices as secondary", () => {
@@ -1398,6 +1549,19 @@ describe("promptSelectors", () => {
     ];
 
     expect(selectCurrentHandTrayCards(messages, "ko", 1)).toEqual([]);
+  });
+
+  it.each(loadAllSharedPromptSurfaceFixtures())("parses every shared selector prompt surface fixture: %s", (_filename, fixture) => {
+    const model = selectActivePrompt(withProjectedPromptSurface(fixture));
+    expect(model?.surface.kind).toBe(fixture.expected.prompt.active.surface.kind);
+    for (const backendKey of Object.keys(fixture.expected.prompt.active.surface)) {
+      if (backendKey === "kind" || backendKey === "blocks_public_events") {
+        continue;
+      }
+      const modelKey = surfaceModelKeyByBackendKey[backendKey];
+      expect(modelKey, backendKey).toBeTruthy();
+      expect((model?.surface as Record<string, unknown> | undefined)?.[modelKey], backendKey).not.toBeNull();
+    }
   });
 
   it("matches shared selector prompt lap reward surface fixture", () => {

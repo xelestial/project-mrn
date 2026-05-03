@@ -60,6 +60,22 @@ def test_character_ability_inventory_covers_all_character_cards():
     assert set(CHARACTERS) <= declared_sources
 
 
+def test_character_effect_inventory_owner_contracts_match_engine_payload():
+    from ai_policy import HeuristicPolicy
+    from config import DEFAULT_CONFIG
+    from engine import GameEngine
+    from runtime_modules.effect_inventory import EFFECT_INVENTORY, effect_owner_contract
+
+    engine = GameEngine(DEFAULT_CONFIG, HeuristicPolicy(), enable_logging=False)
+    character_entries = [entry for entry in EFFECT_INVENTORY if entry.effect_id.startswith("character:")]
+    assert character_entries
+
+    for entry in character_entries:
+        expected = effect_owner_contract(entry)
+        assert expected is not None
+        assert engine._effect_character_contract(entry.source_name) == expected
+
+
 def test_trick_fortune_and_resupply_effects_have_explicit_frame_contracts():
     from runtime_modules.effect_inventory import EFFECT_INVENTORY, effect_by_id
 

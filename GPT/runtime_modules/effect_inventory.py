@@ -290,6 +290,36 @@ def validate_effect_inventory(inventory: Iterable[EffectInventoryEntry]) -> list
                     f"{entry.effect_id}: {role} module {module_type} is not valid in "
                     f"{entry.frame_kind} frame; allowed: {allowed}"
                 )
+    errors.extend(effect_owner_contract_errors(inventory))
+    return errors
+
+
+def effect_owner_contract(entry: EffectInventoryEntry) -> dict | None:
+    if not entry.effect_id.startswith("character:"):
+        return None
+
+    from characters import CARD_TO_NAMES, CHARACTERS
+
+    character = CHARACTERS.get(entry.source_name)
+    if character is None:
+        return None
+    faces = CARD_TO_NAMES.get(character.card_no)
+    if not faces or entry.source_name not in faces:
+        return None
+    return {
+        "effect_character_name": entry.source_name,
+        "effect_card_no": character.card_no,
+        "effect_character_id": f"character.card.{character.card_no}.face.{faces.index(entry.source_name) + 1}",
+    }
+
+
+def effect_owner_contract_errors(inventory: Iterable[EffectInventoryEntry]) -> list[str]:
+    errors: list[str] = []
+    for entry in inventory:
+        if not entry.effect_id.startswith("character:"):
+            continue
+        if effect_owner_contract(entry) is None:
+            errors.append(f"{entry.effect_id}: source_name {entry.source_name!r} does not resolve to a canonical character owner")
     return errors
 
 

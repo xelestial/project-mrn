@@ -13,6 +13,7 @@ ROUND_ACTION_CONTROL_MATRIX = ROOT / "docs/current/runtime/round-action-control-
 TILE_TRAIT_PLAN_DOC = ROOT / "docs/current/engineering/[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md"
 REDIS_STATE_PLAN_DOC = ROOT / "docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md"
 SERVER_README = ROOT / "apps/server/README.md"
+WEB_PACKAGE_JSON = ROOT / "apps/web/package.json"
 DEPLOYMENT_CONTRACT_DOC = ROOT / "docs/current/engineering/[CONTRACT]_REDIS_RUNTIME_DEPLOYMENT.md"
 DEPLOYMENT_PROCESS_CONTRACT = ROOT / "deploy/redis-runtime/process-contract.json"
 ROUND_COMBINATION_REGRESSION_PACK = (
@@ -102,6 +103,18 @@ def test_round_combination_regression_pack_fixture_matches_matrix_doc() -> None:
 
     for invariant in pack["invariants"]:
         assert invariant in text
+
+
+def test_round_combination_regression_pack_e2e_titles_are_wired_to_module_runtime_script() -> None:
+    pack = json.loads(ROUND_COMBINATION_REGRESSION_PACK.read_text(encoding="utf-8"))
+    package = json.loads(WEB_PACKAGE_JSON.read_text(encoding="utf-8"))
+    script = package["scripts"]["e2e:module-runtime"]
+    spec = (ROOT / "apps/web/e2e/human_play_runtime.spec.ts").read_text(encoding="utf-8")
+
+    assert pack["e2e_grep_titles"]
+    for title in pack["e2e_grep_titles"]:
+        assert title in script
+        assert f'test("{title}"' in spec
 
 
 def test_redis_state_plan_documents_authoritative_continuation_boundary() -> None:

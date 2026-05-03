@@ -562,50 +562,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                 })
               : [],
           }
-        : requestType === "movement"
-          ? {
-              rollChoiceId:
-                Array.isArray(choicesRaw) && choicesRaw.some((item) => isRecord(item) && ["dice", "roll"].includes(stringOrEmpty(item["choice_id"])))
-                  ? stringOrEmpty(
-                      choicesRaw.find((item) => isRecord(item) && ["dice", "roll"].includes(stringOrEmpty(item["choice_id"])))?.["choice_id"]
-                    ) || null
-                  : null,
-              cardPool: Array.isArray(choicesRaw)
-                ? Array.from(
-                    new Set(
-                      choicesRaw.flatMap((item) => {
-                        const value = isRecord(item) && isRecord(item["value"]) ? item["value"] : null;
-                        return Array.isArray(value?.["card_values"])
-                          ? value["card_values"].map((entry) => numberOrNull(entry)).filter((entry): entry is number => entry !== null)
-                          : [];
-                      })
-                    )
-                  ).sort((a, b) => a - b)
-                : [],
-              canUseTwoCards:
-                Array.isArray(choicesRaw) &&
-                choicesRaw.some((item) => {
-                  const value = isRecord(item) && isRecord(item["value"]) ? item["value"] : null;
-                  return Array.isArray(value?.["card_values"]) && value["card_values"].length === 2;
-                }),
-              cardChoices: Array.isArray(choicesRaw)
-                ? choicesRaw.flatMap((item) => {
-                    if (!isRecord(item)) {
-                      return [];
-                    }
-                    const choiceId = stringOrEmpty(item["choice_id"]);
-                    const value = choiceValueRecord(item);
-                    const cards = Array.isArray(value?.["card_values"])
-                      ? value["card_values"].map((entry) => numberOrNull(entry)).filter((entry): entry is number => entry !== null)
-                      : [];
-                    if (!choiceId || cards.length === 0) {
-                      return [];
-                    }
-                    return [{ choiceId, cards, title: stringOrEmpty(item["title"] ?? item["label"]) || choiceId, description: choiceDescriptionText(item, value) }];
-                  })
-                : [],
-            }
-          : null,
+        : null,
     lapReward:
       lapReward &&
       typeof lapReward["budget"] === "number" &&
@@ -640,34 +597,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                 })
               : [],
           }
-        : requestType === "lap_reward"
-          ? {
-              budget: numberOrNull(publicContext["budget"]) ?? 0,
-              cashPool: numberOrNull((isRecord(publicContext["pools"]) ? publicContext["pools"]["cash"] : null)) ?? 0,
-              shardsPool: numberOrNull((isRecord(publicContext["pools"]) ? publicContext["pools"]["shards"] : null)) ?? 0,
-              coinsPool: numberOrNull((isRecord(publicContext["pools"]) ? publicContext["pools"]["coins"] : null)) ?? 0,
-              cashPointCost: numberOrNull(publicContext["cash_point_cost"]) ?? 1,
-              shardsPointCost: numberOrNull(publicContext["shards_point_cost"]) ?? 1,
-              coinsPointCost: numberOrNull(publicContext["coins_point_cost"]) ?? 1,
-              options: Array.isArray(choicesRaw)
-                ? choicesRaw.flatMap((item) => {
-                    if (!isRecord(item) || !isRecord(item["value"])) {
-                      return [];
-                    }
-                    const choiceId = stringOrEmpty(item["choice_id"]);
-                    const value = item["value"];
-                    const cashUnits = numberOrNull(value["cash_units"]);
-                    const shardUnits = numberOrNull(value["shard_units"]);
-                    const coinUnits = numberOrNull(value["coin_units"]);
-                    const spentPoints = numberOrNull(value["spent_points"]);
-                    if (!choiceId || cashUnits === null || shardUnits === null || coinUnits === null || spentPoints === null) {
-                      return [];
-                    }
-                    return [{ choiceId, cashUnits, shardUnits, coinUnits, spentPoints }];
-                  })
-                : [],
-            }
-          : null,
+        : null,
     burdenExchangeBatch:
       burdenExchange
         ? {
@@ -691,29 +621,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                 })
               : [],
           }
-        : requestType === "burden_exchange"
-          ? {
-              burdenCardCount: numberOrNull(publicContext["burden_card_count"]) ?? 0,
-              currentFValue: numberOrNull(publicContext["current_f_value"]),
-              supplyThreshold: numberOrNull(publicContext["supply_threshold"]),
-              cards: Array.isArray(publicContext["burden_cards"])
-                ? publicContext["burden_cards"].flatMap((item) => {
-                    if (!isRecord(item)) {
-                      return [];
-                    }
-                    return [
-                      {
-                        deckIndex: numberOrNull(item["deck_index"]),
-                        name: stringOrEmpty(item["name"]) || "Burden",
-                        description: stringOrEmpty(item["card_description"]),
-                        burdenCost: numberOrNull(item["burden_cost"]),
-                        isCurrentTarget: item["is_current_target"] === true,
-                      },
-                    ];
-                  })
-                : [],
-            }
-          : null,
+        : null,
     markTarget:
       markTarget
         ? {
@@ -738,37 +646,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                 })
               : [],
           }
-        : requestType === "mark_target"
-          ? {
-              actorName: stringOrEmpty(publicContext["actor_name"]),
-              noneChoiceId:
-                Array.isArray(choicesRaw) && choicesRaw.some((item) => isRecord(item) && stringOrEmpty(item["choice_id"]) === "none")
-                  ? "none"
-                  : null,
-              candidates: Array.isArray(choicesRaw)
-                ? choicesRaw.flatMap((item) => {
-                    if (!isRecord(item)) {
-                      return [];
-                    }
-                    const choiceId = stringOrEmpty(item["choice_id"]);
-                    if (!choiceId || choiceId === "none") {
-                      return [];
-                    }
-                    const value = choiceValueRecord(item);
-                    const targetCharacter = stringOrEmpty(value?.["target_character"]) || stringOrEmpty(item["title"] ?? item["label"]);
-                    if (!targetCharacter) {
-                      return [];
-                    }
-                    return [{
-                      choiceId,
-                      targetCharacter,
-                      targetCardNo: numberOrNull(value?.["target_card_no"]),
-                      targetPlayerId: numberOrNull(value?.["target_player_id"]),
-                    }];
-                  })
-                : [],
-            }
-          : null,
+        : null,
     characterPick:
       characterPick
         ? {
@@ -816,33 +694,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                 })
               : [],
           }
-        : requestType === "trick_to_use" || requestType === "hidden_trick_card"
-          ? {
-              mode: requestType === "hidden_trick_card" ? "hidden" : "use",
-              passChoiceId:
-                Array.isArray(choicesRaw) && choicesRaw.some((item) => isRecord(item) && stringOrEmpty(item["choice_id"]) === "none") ? "none" : null,
-              cards: Array.isArray(publicContext["full_hand"])
-                ? publicContext["full_hand"].flatMap((item) => {
-                    if (!isRecord(item)) {
-                      return [];
-                    }
-                    const deckIndex = numberOrNull(item["deck_index"]);
-                    const linkedChoice =
-                      deckIndex !== null && Array.isArray(choicesRaw)
-                        ? choicesRaw.find((choice) => isRecord(choice) && numberOrNull(choiceValueRecord(choice)?.["deck_index"]) === deckIndex)
-                        : null;
-                    return [{
-                      choiceId: isRecord(linkedChoice) ? stringOrEmpty(linkedChoice["choice_id"]) || null : null,
-                      deckIndex,
-                      name: stringOrEmpty(item["name"]) || "Trick",
-                      description: stringOrEmpty(item["card_description"]),
-                      isHidden: item["is_hidden"] === true,
-                      isUsable: item["is_usable"] === true && linkedChoice !== null,
-                    }];
-                  })
-                : [],
-            }
-          : null,
+        : null,
     purchaseTile:
       purchaseTile
         ? {
@@ -851,20 +703,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
             yesChoiceId: stringOrEmpty(purchaseTile["yes_choice_id"]) || null,
             noChoiceId: stringOrEmpty(purchaseTile["no_choice_id"]) || null,
           }
-        : requestType === "purchase_tile"
-          ? {
-              tileIndex: numberOrNull(publicContext["tile_index"]),
-              cost: numberOrNull(publicContext["cost"] ?? publicContext["tile_purchase_cost"]),
-              yesChoiceId:
-                Array.isArray(choicesRaw) && choicesRaw.some((item) => isRecord(item) && stringOrEmpty(item["choice_id"]) === "yes")
-                  ? "yes"
-                  : null,
-              noChoiceId:
-                Array.isArray(choicesRaw) && choicesRaw.some((item) => isRecord(item) && stringOrEmpty(item["choice_id"]) === "no")
-                  ? "no"
-                  : null,
-            }
-          : null,
+        : null,
     trickTileTarget:
       trickTileTarget
         ? {
@@ -887,29 +726,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                 })
               : [],
           }
-        : requestType === "trick_tile_target"
-          ? {
-              cardName: stringOrEmpty(publicContext["card_name"]),
-              targetScope: stringOrEmpty(publicContext["target_scope"]),
-              candidateTiles: Array.isArray(publicContext["candidate_tiles"])
-                ? publicContext["candidate_tiles"].map((item) => numberOrNull(item)).filter((item): item is number => item !== null)
-                : [],
-              options: Array.isArray(choicesRaw)
-                ? choicesRaw.flatMap((item) => {
-                    if (!isRecord(item)) {
-                      return [];
-                    }
-                    const choiceId = stringOrEmpty(item["choice_id"]);
-                    const value = choiceValueRecord(item);
-                    const tileIndex = numberOrNull(value?.["tile_index"]);
-                    if (!choiceId || tileIndex === null) {
-                      return [];
-                    }
-                    return [{ choiceId, tileIndex, title: stringOrEmpty(item["title"] ?? item["label"]) || choiceId, description: choiceDescriptionText(item, value) }];
-                  })
-                : [],
-            }
-          : null,
+        : null,
     coinPlacement:
       coinPlacement
         ? {
@@ -928,25 +745,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                 })
               : [],
           }
-        : requestType === "coin_placement"
-          ? {
-              ownedTileCount: numberOrNull(publicContext["owned_tile_count"]) ?? 0,
-              options: Array.isArray(choicesRaw)
-                ? choicesRaw.flatMap((item) => {
-                    if (!isRecord(item)) {
-                      return [];
-                    }
-                    const choiceId = stringOrEmpty(item["choice_id"]);
-                    const value = choiceValueRecord(item);
-                    const tileIndex = numberOrNull(value?.["tile_index"]);
-                    if (!choiceId || tileIndex === null) {
-                      return [];
-                    }
-                    return [{ choiceId, tileIndex, title: stringOrEmpty(item["title"] ?? item["label"]) || choiceId, description: choiceDescriptionText(item, value) }];
-                  })
-                : [],
-            }
-          : null,
+        : null,
     doctrineRelief:
       doctrineRelief
         ? {
@@ -993,29 +792,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                 })
               : [],
           }
-        : requestType === "geo_bonus"
-          ? {
-              actorName: stringOrEmpty(publicContext["actor_name"]),
-              options: Array.isArray(choicesRaw)
-                ? choicesRaw.flatMap((item) => {
-                    if (!isRecord(item)) {
-                      return [];
-                    }
-                    const choiceId = stringOrEmpty(item["choice_id"]);
-                    if (!choiceId) {
-                      return [];
-                    }
-                    const value = choiceValueRecord(item);
-                    return [{
-                      choiceId,
-                      rewardKind: stringOrEmpty(value?.["choice"]) || choiceId,
-                      title: stringOrEmpty(item["title"] ?? item["label"]) || choiceId,
-                      description: choiceDescriptionText(item, value),
-                    }];
-                  })
-                : [],
-            }
-          : null,
+        : null,
     specificTrickReward:
       specificTrickReward
         ? {
@@ -1070,17 +847,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
             bonusTargetPos: numberOrNull(runawayStep["bonus_target_pos"]),
             bonusTargetKind: stringOrEmpty(runawayStep["bonus_target_kind"]),
           }
-        : requestType === "runaway_step_choice"
-          ? {
-              bonusChoiceId:
-                Array.isArray(choicesRaw) && choicesRaw.some((item) => isRecord(item) && stringOrEmpty(item["choice_id"]) === "yes") ? "yes" : null,
-              stayChoiceId:
-                Array.isArray(choicesRaw) && choicesRaw.some((item) => isRecord(item) && stringOrEmpty(item["choice_id"]) === "no") ? "no" : null,
-              oneShortPos: numberOrNull(publicContext["one_short_pos"]),
-              bonusTargetPos: numberOrNull(publicContext["bonus_target_pos"]),
-              bonusTargetKind: stringOrEmpty(publicContext["bonus_target_kind"]),
-            }
-          : null,
+        : null,
     activeFlip:
       activeFlip
         ? {
@@ -1103,32 +870,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                 })
               : [],
           }
-        : requestType === "active_flip"
-          ? {
-              finishChoiceId:
-                Array.isArray(choicesRaw) && choicesRaw.some((item) => isRecord(item) && stringOrEmpty(item["choice_id"]) === "none")
-                  ? "none"
-                  : null,
-              options: Array.isArray(choicesRaw)
-                ? choicesRaw.flatMap((item) => {
-                    if (!isRecord(item)) {
-                      return [];
-                    }
-                    const choiceId = stringOrEmpty(item["choice_id"]);
-                    if (!choiceId || choiceId === "none") {
-                      return [];
-                    }
-                    const value = choiceValueRecord(item);
-                    return [{
-                      choiceId,
-                      cardIndex: numberOrNull(value?.["card_index"]),
-                      currentName: stringOrEmpty(value?.["current_name"]),
-                      flippedName: stringOrEmpty(value?.["flipped_name"]),
-                    }];
-                  })
-                : [],
-            }
-          : null,
+        : null,
   };
 }
 

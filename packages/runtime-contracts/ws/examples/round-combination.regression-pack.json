@@ -5,6 +5,11 @@
   "automation_commands": [
     "npm run e2e:module-runtime"
   ],
+  "e2e_grep_titles": [
+    "human quick start surfaces turn banner and first prompt through stable ids",
+    "runtime keeps fortune cash loss cause readable in overlay and event feed",
+    "matchmaker adjacent purchase prompt labels the ability and double-price context"
+  ],
   "scenarios": [
     {
       "scenario_id": "MRN-MOD-003",

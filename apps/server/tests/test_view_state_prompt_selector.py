@@ -19,6 +19,11 @@ def _load_selector_prompt_fixture(name: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _selector_prompt_surface_fixture_names() -> list[str]:
+    path = _project_root() / "packages" / "runtime-contracts" / "ws" / "examples"
+    return sorted(item.name for item in path.glob("selector.prompt.*_surface.json"))
+
+
 class ViewStatePromptSelectorTests(unittest.TestCase):
     def test_build_prompt_view_state_projects_active_prompt(self) -> None:
         view_state = build_prompt_view_state(
@@ -374,6 +379,16 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                 }
             },
         )
+
+    def test_build_prompt_view_state_matches_every_shared_surface_fixture(self) -> None:
+        for name in _selector_prompt_surface_fixture_names():
+            with self.subTest(name=name):
+                fixture = _load_selector_prompt_fixture(name)
+                view_state = build_prompt_view_state(fixture["messages"])
+                self.assertEqual(
+                    view_state["active"]["surface"],
+                    fixture["expected"]["prompt"]["active"]["surface"],
+                )
 
     def test_build_prompt_view_state_matches_shared_lap_reward_surface_fixture(self) -> None:
         fixture = _load_selector_prompt_fixture("selector.prompt.lap_reward_surface.json")
