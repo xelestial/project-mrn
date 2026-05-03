@@ -1,0 +1,48 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Callable
+
+from ..contracts import FrameState, ModuleRef
+from ..sequence_modules import TRICK_SEQUENCE_MODULE_TYPES
+
+
+@dataclass(slots=True)
+class SequenceFrameHandlerContext:
+    runner: Any
+    engine: Any
+    state: Any
+    frame: FrameState
+    module: ModuleRef
+
+
+SequenceFrameHandler = Callable[[SequenceFrameHandlerContext], dict[str, Any]]
+
+
+def handle_trick_sequence(ctx: SequenceFrameHandlerContext) -> dict[str, Any]:
+    return ctx.runner._advance_trick_sequence_module(ctx.engine, ctx.state, ctx.frame, ctx.module)
+
+
+def handle_action_adapter(ctx: SequenceFrameHandlerContext) -> dict[str, Any]:
+    return ctx.runner._advance_action_adapter_module(ctx.engine, ctx.state, ctx.frame, ctx.module)
+
+
+def handle_turn_completion(ctx: SequenceFrameHandlerContext) -> dict[str, Any]:
+    return ctx.runner._advance_turn_completion_module(ctx.engine, ctx.state, ctx.frame, ctx.module)
+
+
+def handle_default_sequence(ctx: SequenceFrameHandlerContext) -> dict[str, Any]:
+    ctx.runner._complete_module(ctx.state, ctx.frame, ctx.module)
+    ctx.runner._complete_sequence_frame_if_drained(ctx.frame)
+    return {"status": "committed", "module_type": ctx.module.module_type, "frame_id": ctx.frame.frame_id}
+
+
+SEQUENCE_FRAME_HANDLERS: dict[str, SequenceFrameHandler] = {
+    module_type: handle_trick_sequence for module_type in TRICK_SEQUENCE_MODULE_TYPES
+}
+
+SEQUENCE_PAYLOAD_HANDLERS: dict[str, SequenceFrameHandler] = {
+    "action": handle_action_adapter,
+    "pending_turn_completion": handle_turn_completion,
+}
+

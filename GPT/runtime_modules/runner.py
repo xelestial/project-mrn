@@ -7,6 +7,8 @@ from viewer.events import Phase
 from viewer.public_state import build_turn_end_snapshot
 
 from .contracts import FrameState, ModuleJournalEntry, ModuleRef, ModuleResult
+from .handlers.sequence import SEQUENCE_FRAME_HANDLERS, SEQUENCE_PAYLOAD_HANDLERS, SequenceFrameHandlerContext
+from .handlers.simultaneous import SIMULTANEOUS_FRAME_HANDLERS, SimultaneousFrameHandlerContext
 from .handlers.turn import TURN_FRAME_HANDLERS, TurnFrameHandlerContext
 from .ids import round_frame_id
 from .modifiers import ModifierRegistry
@@ -252,13 +254,21 @@ class ModuleRunner:
         frame.active_module_id = module.module_id
         module.status = "running"
         self._attach_applicable_modifiers(state, module)
-        if module.module_type.startswith("Trick"):
-            return self._advance_trick_sequence_module(engine, state, frame, module)
-        if "action" in module.payload:
-            return self._advance_action_adapter_module(engine, state, frame, module)
-        if "pending_turn_completion" in module.payload:
-            return self._advance_turn_completion_module(engine, state, frame, module)
+        context = SequenceFrameHandlerContext(
+            runner=self,
+            engine=engine,
+            state=state,
+            frame=frame,
+            module=module,
+        )
+        handler = SEQUENCE_FRAME_HANDLERS.get(module.module_type)
+        if handler is not None:
+            return handler(context)
+        for payload_key, payload_handler in SEQUENCE_PAYLOAD_HANDLERS.items():
+            if payload_key in module.payload:
+                return payload_handler(context)
         self._complete_module(state, frame, module)
+        self._complete_sequence_frame_if_drained(frame)
         return {"status": "committed", "module_type": module.module_type, "frame_id": frame.frame_id}
 
     def _advance_trick_sequence_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> dict[str, Any]:
@@ -314,17 +324,19 @@ class ModuleRunner:
             return {"status": "committed", "module_type": "SimultaneousFrameComplete", "frame_id": frame.frame_id}
         frame.active_module_id = module.module_id
         module.status = "running"
-        if module.module_type == "ResupplyModule":
-            return self._advance_resupply_module(
-                engine,
-                state,
-                frame,
-                module,
-                decision_resume=decision_resume,
+        handler = SIMULTANEOUS_FRAME_HANDLERS.get(module.module_type)
+        if handler is not None:
+            return handler(
+                SimultaneousFrameHandlerContext(
+                    runner=self,
+                    engine=engine,
+                    state=state,
+                    frame=frame,
+                    module=module,
+                    decision_resume=decision_resume,
+                )
             )
         self._complete_module(state, frame, module)
-        if module.module_type == "CompleteSimultaneousResolutionModule":
-            frame.status = "completed"
         return {"status": "committed", "module_type": module.module_type, "frame_id": frame.frame_id}
 
     def _advance_resupply_module(

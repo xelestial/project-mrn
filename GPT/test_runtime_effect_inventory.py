@@ -46,3 +46,15 @@ def test_trick_fortune_and_resupply_effects_have_explicit_frame_contracts():
     assert resupply.consumer_modules == ("ResupplyModule",)
     assert resupply.prompt_contract == "burden_exchange"
     assert "SimultaneousPromptBatchContinuation" in resupply.redis_resume_contracts
+
+
+def test_effect_inventory_resolves_to_known_module_boundaries():
+    from runtime_modules.effect_inventory import EFFECT_INVENTORY, validate_effect_inventory
+
+    assert validate_effect_inventory(EFFECT_INVENTORY) == []
+
+
+def test_effect_inventory_runtime_boundaries_have_handlers_or_adapters():
+    from runtime_modules.effect_inventory import EFFECT_INVENTORY, runtime_handler_coverage_errors
+
+    assert runtime_handler_coverage_errors(EFFECT_INVENTORY) == []
