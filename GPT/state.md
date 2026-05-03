@@ -57,3 +57,5 @@ Initial player cash and shards are now sourced from `config.rules.economy` and `
 - `PlayerState.team_id`: 팀전 모드 확장을 위한 선택 필드. 기본 자유대전에서는 `None`이며, 교리 연구관/감독관의 짐 제거 대상 범위를 결정할 때만 사용된다.
 
 - `PlayerState.team_id`: 팀전 확장을 위한 선택 필드. `None`이면 기본 자유대전으로 간주한다.
+
+- 2026-05-03 sync: current backend handoff keeps `GameState` as the engine-side runtime truth, while server `view_state` projections and Redis caches are derived read models for clients and recovery paths.

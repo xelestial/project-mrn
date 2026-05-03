@@ -40,7 +40,7 @@ Outbound (`client -> server`):
    - schema update
    - example update
    - API/interface spec update
-   - compatibility note in `PLAN/SHARED_VISUAL_RUNTIME_CONTRACT.md`
+   - compatibility note in `docs/current/runtime/end-to-end-contract.md`
 
 ## Ordered Sequence Fixtures
 

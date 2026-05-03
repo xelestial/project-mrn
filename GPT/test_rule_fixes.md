@@ -52,3 +52,5 @@ Rule tests cover purchase-time token placement max 1, takeover coin transfer, an
 Bootstrap note: tests pin their own package directory on import so GPT and CLAUDE suites can run together without cross-package module reuse.
 
 - 2026-04-15 sync: marker flip batch regression now uses real card ids (`1`, `2`) instead of the removed zero-based card placeholder.
+
+- 2026-05-03 sync: beginner handoff points new developers to this suite for rule regressions before changing engine behavior, especially draft, mark, trick, dice/move, arrival, and round cleanup paths.

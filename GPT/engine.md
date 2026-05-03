@@ -98,3 +98,5 @@ Engine cost, dice-card, and special-tile calculations increasingly prefer inject
 
 - 탐관오리 패시브 공납은 이동 대상의 조각이 아니라 탐관오리 자신의 조각(//2)을 기준으로 계산한다.
 - 어사/탐관오리는 같은 카드 양면이므로 탐관오리 패시브에는 별도 어사 차단 체크를 두지 않는다.
+
+- 2026-05-03 sync: current handoff documentation confirms `engine.py` remains the gameplay authority behind the modular runtime; draft, turn-start mark, trick, movement, arrival, and round-end flip behavior must be documented through the active runtime contracts instead of duplicated in frontend logic.

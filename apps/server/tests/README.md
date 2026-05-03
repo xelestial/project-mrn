@@ -52,4 +52,5 @@ Recommended CI policy:
 - `runtime-status: recovery_required` can still appear transiently during startup/reconnect boundaries.
   - Validate with server logs and websocket reconnection timing before treating as persistent failure.
 - Keep this file aligned with:
-  - `PLAN/[NOTE]_RUNTIME_UNSTABLE_POINTS_2026-03-31.md`
+  - `docs/current/runtime/end-to-end-contract.md`
+  - `docs/current/planning/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`

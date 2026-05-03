@@ -4,11 +4,12 @@ Current status: playable web/runtime project under UI/UX stabilization.
 
 ## Read First
 
-- [Game rules](/Users/sil/Workspace/project-mrn/docs/Game-Rules.md)
-- [Mandatory engineering rules](/Users/sil/Workspace/project-mrn/docs/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md)
-- [Current plan status](/Users/sil/Workspace/project-mrn/PLAN/PLAN_STATUS_INDEX.md)
-- [Current next-work board](/Users/sil/Workspace/project-mrn/PLAN/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md)
-- [UI/UX one-page priority](/Users/sil/Workspace/project-mrn/docs/frontend/[ACTIVE]_UI_UX_PRIORITY_ONE_PAGE.md)
+- [Game rules](/Users/sil/Workspace/project-mrn/docs/current/Game-Rules.md)
+- [Mandatory engineering rules](/Users/sil/Workspace/project-mrn/docs/current/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md)
+- [Current plan status](/Users/sil/Workspace/project-mrn/docs/current/planning/PLAN_STATUS_INDEX.md)
+- [Current next-work board](/Users/sil/Workspace/project-mrn/docs/current/planning/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md)
+- [Documentation index](/Users/sil/Workspace/project-mrn/docs/README.md)
+- [UI/UX canonical future work](/Users/sil/Workspace/project-mrn/docs/current/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md)
 
 ## Active Areas
 
@@ -28,15 +29,16 @@ This starts Redis (`project-mrn`), the FastAPI server, the standalone prompt tim
 
 ## Current Focus
 
-1. UI/UX readability and playability recovery
-2. human + AI playtest stabilization
-3. stronger external AI worker operational hookup
+1. runtime contract and modular-runtime stabilization
+2. Redis-authoritative state / visibility projection hardening
+3. UI/UX readability follow-up from the canonical frontend baseline
+4. human + AI playtest stabilization
 
 ## Current Supporting Docs
 
-- [docs/api/README.md](/Users/sil/Workspace/project-mrn/docs/api/README.md)
-- [docs/backend/README.md](/Users/sil/Workspace/project-mrn/docs/backend/README.md)
-- [docs/frontend/README.md](/Users/sil/Workspace/project-mrn/docs/frontend/README.md)
-- [docs/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md](/Users/sil/Workspace/project-mrn/docs/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md)
-- [docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md](/Users/sil/Workspace/project-mrn/docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md)
-- [docs/engineering/HUMAN_EXTERNAL_AI_PLAYTEST_CHECKLIST.md](/Users/sil/Workspace/project-mrn/docs/engineering/HUMAN_EXTERNAL_AI_PLAYTEST_CHECKLIST.md)
+- [docs/current/api/README.md](/Users/sil/Workspace/project-mrn/docs/current/api/README.md)
+- [docs/current/backend/README.md](/Users/sil/Workspace/project-mrn/docs/current/backend/README.md)
+- [docs/current/frontend/README.md](/Users/sil/Workspace/project-mrn/docs/current/frontend/README.md)
+- [docs/current/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md](/Users/sil/Workspace/project-mrn/docs/current/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md)
+- [docs/current/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md](/Users/sil/Workspace/project-mrn/docs/current/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md)
+- [docs/current/engineering/HUMAN_EXTERNAL_AI_PLAYTEST_CHECKLIST.md](/Users/sil/Workspace/project-mrn/docs/current/engineering/HUMAN_EXTERNAL_AI_PLAYTEST_CHECKLIST.md)

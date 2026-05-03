@@ -92,4 +92,4 @@ The bundled reference worker now sits behind an explicit adapter seam:
 - parameter shortcut: `worker_profile=priority_scored`
 - replacement workers/services can keep the same frozen HTTP contract while swapping the underlying adapter implementation
 
-See `docs/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md` for a full local session example.
+See `docs/current/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md` for a full local session example.
