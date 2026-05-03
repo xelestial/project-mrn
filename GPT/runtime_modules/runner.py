@@ -12,7 +12,7 @@ from .ids import round_frame_id
 from .modifiers import ModifierRegistry
 from .prompts import PromptApi
 from .round_modules import build_round_frame
-from .sequence_modules import build_action_sequence_frame
+from .sequence_modules import UnknownActionTypeError, build_action_sequence_frame, module_type_for_action
 from .simultaneous import build_resupply_frame
 from .turn_modules import build_turn_frame
 
@@ -740,6 +740,7 @@ class ModuleRunner:
         *,
         module_boundary: str,
     ) -> dict[str, Any]:
+        self._validate_action_module_contract(module)
         action = self._action_from_payload(dict(module.payload.get("action") or {}))
         module.cursor = "await_action_prompt"
         try:
@@ -749,6 +750,7 @@ class ModuleRunner:
             module.suspension_id = frame.frame_id
             frame.status = "suspended"
             raise
+        self._attach_pending_turn_completion_to_active_turn_end(state)
         self._complete_module(state, frame, module)
         self._complete_sequence_frame_if_drained(frame)
         engine._log(
@@ -779,6 +781,40 @@ class ModuleRunner:
 
     def _advance_native_action_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> dict[str, Any]:
         return self._advance_action_module(engine, state, frame, module, module_boundary="native")
+
+    @staticmethod
+    def _validate_action_module_contract(module: ModuleRef) -> None:
+        action = module.payload.get("action")
+        if not isinstance(action, dict):
+            raise ModuleRunnerError(f"{module.module_type} requires an action payload")
+        action_type = str(action.get("type") or "")
+        try:
+            expected_module_type = module_type_for_action(action_type)
+        except UnknownActionTypeError as exc:
+            raise ModuleRunnerError(str(exc)) from exc
+        if module.module_type != expected_module_type:
+            raise ModuleRunnerError(
+                f"action type {action_type} belongs to {expected_module_type}, got {module.module_type}"
+            )
+
+    def _attach_pending_turn_completion_to_active_turn_end(self, state: Any) -> None:
+        pending = dict(getattr(state, TURN_COMPLETION_FIELD, {}) or {})
+        if not pending:
+            return
+        turn_frame = self._active_turn_frame(state)
+        if turn_frame is None:
+            return
+        turn_end_module = next(
+            (module for module in turn_frame.module_queue if module.module_type == "TurnEndSnapshotModule"),
+            None,
+        )
+        if turn_end_module is None:
+            return
+        setattr(state, TURN_COMPLETION_FIELD, {})
+        turn_end_module.payload["turn_completion"] = {
+            **dict(turn_end_module.payload.get("turn_completion") or {}),
+            **pending,
+        }
 
     def _sync_active_player_turn_after_legacy_work(self, state: Any) -> None:
         if state.pending_actions or self._active_sequence_frame(state) is not None:

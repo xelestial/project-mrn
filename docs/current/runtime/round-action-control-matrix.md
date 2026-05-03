@@ -117,6 +117,7 @@ Each effect is owned by a producer module and consumed only by declared runtime 
 - `TurnEndSnapshotModule` is turn-owned only. A module-runner replay must not create a `SequenceFrame` from `pending_turn_completion`; the backend semantic guard rejects that old shape before publish/recovery can continue.
 - All catalogued `resolve_fortune_*` actions remain native `FortuneResolveModule` work and may chain `MapMoveModule`/`ArrivalTileModule` without creating a new turn.
 - Unknown action types must fail before runtime execution. Frontend/backend logs may mention the failed action type, but the engine must not create `LegacyActionAdapterModule` work for it.
+- Engine execution validates every action payload against its owning module before dispatch. A recovered checkpoint whose payload says `apply_move` but whose module says `ArrivalTileModule` fails inside the runner, not only at the backend WebSocket guard. Actionized `continue_after_trick_phase` is likewise executed as native `TrickDeferredFollowupsModule` work and transfers any pending turn completion into the active `TurnEndSnapshotModule` before follow-up actions are promoted.
 
 ## Backend/Redis Boundary
 

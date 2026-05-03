@@ -20,6 +20,8 @@ SequenceFrameHandler = Callable[[SequenceFrameHandlerContext], dict[str, Any]]
 
 
 def handle_trick_sequence(ctx: SequenceFrameHandlerContext) -> dict[str, Any]:
+    if isinstance(ctx.module.payload.get("action"), dict):
+        return ctx.runner._advance_native_action_module(ctx.engine, ctx.state, ctx.frame, ctx.module)
     return ctx.runner._advance_trick_sequence_module(ctx.engine, ctx.state, ctx.frame, ctx.module)
 
 

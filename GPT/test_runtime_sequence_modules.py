@@ -550,6 +550,118 @@ def test_legacy_action_adapter_checkpoint_cannot_be_resumed_silently() -> None:
         ModuleRunner().advance_engine(FakeEngine(), state)
 
 
+def test_module_runner_rejects_action_payload_module_mismatch_before_execution() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+        def _execute_action(self, *_args, **_kwargs):
+            raise AssertionError("mismatched action payload must not reach engine action execution")
+
+    frame = build_action_sequence_frame(
+        1,
+        0,
+        0,
+        [{"action_id": "move-1", "type": "apply_move", "actor_player_id": 0, "source": "test"}],
+        parent_frame_id="turn:1:p0",
+        parent_module_id="mod:turn:1:p0:dice",
+        session_id="test-session",
+    )
+    frame.module_queue[0].module_type = "ArrivalTileModule"
+    state = SimpleNamespace(
+        pending_actions=[],
+        pending_turn_completion={},
+        players=[SimpleNamespace(player_id=0, alive=True)],
+        runtime_frame_stack=[frame],
+        runtime_module_journal=[],
+        rounds_completed=0,
+        current_round_order=[0],
+        turn_index=0,
+    )
+
+    with pytest.raises(ModuleRunnerError, match="apply_move.*MapMoveModule.*ArrivalTileModule"):
+        ModuleRunner().advance_engine(FakeEngine(), state)
+
+
+def test_continue_after_trick_phase_action_executes_and_attaches_turn_completion() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+        def __init__(self) -> None:
+            self.executed: list[str] = []
+            self.logs: list[dict] = []
+
+        def _execute_action(self, state, action, *, queue_followups: bool):
+            self.executed.append(action.type)
+            assert queue_followups is True
+            if action.type == "continue_after_trick_phase":
+                state.pending_turn_completion = {
+                    "player_id": 0,
+                    "finisher_before": 2,
+                    "disruption_before": {"leader_id": 1},
+                }
+                state.pending_actions.append(
+                    ActionEnvelope(
+                        action_id="move-after-trick",
+                        type="apply_move",
+                        actor_player_id=0,
+                        source="continue_after_trick_phase",
+                        payload={"move_value": 4},
+                    )
+                )
+                return {"type": "CONTINUE_AFTER_TRICK_PHASE"}
+            raise AssertionError(f"unexpected action {action.type}")
+
+        def _log(self, event):
+            self.logs.append(dict(event))
+
+    turn_frame = build_turn_frame(1, 0, parent_module_id="mod:round:1:p0", session_id="test-session")
+    turn_frame.status = "suspended"
+    sequence_frame = build_action_sequence_frame(
+        1,
+        0,
+        0,
+        [
+            {
+                "action_id": "continue-after-trick",
+                "type": "continue_after_trick_phase",
+                "actor_player_id": 0,
+                "source": "trick",
+                "payload": {"hidden_trick_synced": True},
+            }
+        ],
+        parent_frame_id=turn_frame.frame_id,
+        parent_module_id="mod:turn:1:p0:trickwindow",
+        session_id="test-session",
+    )
+    assert sequence_frame.module_queue[0].module_type == "TrickDeferredFollowupsModule"
+    state = SimpleNamespace(
+        pending_actions=[],
+        pending_turn_completion={},
+        players=[SimpleNamespace(player_id=0, alive=True)],
+        runtime_frame_stack=[turn_frame, sequence_frame],
+        runtime_module_journal=[],
+        rounds_completed=0,
+        current_round_order=[0],
+        turn_index=0,
+    )
+
+    result = ModuleRunner().advance_engine(FakeEngine(), state)
+
+    assert result["module_type"] == "TrickDeferredFollowupsModule"
+    assert result["action_type"] == "continue_after_trick_phase"
+    assert result["module_boundary"] == "native"
+    assert state.pending_turn_completion == {}
+    turn_end_module = next(module for module in turn_frame.module_queue if module.module_type == "TurnEndSnapshotModule")
+    assert turn_end_module.payload["turn_completion"] == {
+        "player_id": 0,
+        "finisher_before": 2,
+        "disruption_before": {"leader_id": 1},
+    }
+    followup_sequence = state.runtime_frame_stack[-1]
+    assert followup_sequence is not sequence_frame
+    assert followup_sequence.module_queue[0].module_type == "MapMoveModule"
+
+
 def test_pending_supply_threshold_action_is_promoted_to_resupply_frame_before_sequence_actions() -> None:
     class FakeEngine:
         _vis_session_id = "test-session"
@@ -754,7 +866,9 @@ def test_module_runner_rejects_orphan_pending_turn_completion_checkpoint() -> No
 
 def test_module_runner_has_no_legacy_turn_body_adapter_after_cutover() -> None:
     source = Path("GPT/runtime_modules/runner.py").read_text(encoding="utf-8")
-    player_turn_section = source[source.index("def _advance_player_turn_module"):]
+    start = source.index("def _advance_player_turn_module")
+    end = source.index("def _advance_turn_frame", start)
+    player_turn_section = source[start:end]
 
     assert "engine._take_turn" not in player_turn_section
     assert "build_turn_completion_sequence_frame" not in player_turn_section
