@@ -124,7 +124,7 @@ def test_redis_runtime_deployment_contract_documents_required_process_roles() ->
 def test_round_action_control_matrix_covers_runtime_module_catalog_and_effects() -> None:
     from runtime_modules.catalog import MODULE_RULES
     from runtime_modules.effect_inventory import EFFECT_INVENTORY, VIRTUAL_EFFECT_MODULE_FRAME_KINDS
-    from runtime_modules.sequence_modules import ACTION_TYPE_TO_MODULE_TYPE
+    from runtime_modules.sequence_modules import ACTION_TYPE_TO_MODULE_TYPE, FORTUNE_ACTION_TYPE_TO_MODULE_TYPE
 
     text = ROUND_ACTION_CONTROL_MATRIX.read_text(encoding="utf-8")
 
@@ -137,7 +137,11 @@ def test_round_action_control_matrix_covers_runtime_module_catalog_and_effects()
     for action_type, module_type in ACTION_TYPE_TO_MODULE_TYPE.items():
         assert f"`{action_type}`" in text
         assert f"`{module_type}`" in text
-    assert "`resolve_fortune_*`" in text
+
+    for action_type, module_type in FORTUNE_ACTION_TYPE_TO_MODULE_TYPE.items():
+        assert f"`{action_type}`" in text
+        assert f"`{module_type}`" in text
+    assert "unknown `resolve_fortune_*` action" in text
     assert "`LegacyActionAdapterModule`" in text
 
     for entry in EFFECT_INVENTORY:

@@ -8,6 +8,28 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Runtime Compose Manifest, Fortune Boundary, And Prompt Matrix
+
+- What changed:
+  - added `deploy/redis-runtime/docker-compose.runtime.yml` and `deploy/redis-runtime/.env.example` as a production-like local topology for the Redis-authoritative runtime roles
+  - extended `tools/scripts/redis_restart_smoke.py` with repeatable `--compose-file` support so the same restart smoke can target the runtime manifest instead of only the root developer compose file
+  - changed fortune action module routing from a wildcard `resolve_fortune_*` rule to an explicit `FORTUNE_ACTION_TYPE_TO_MODULE_TYPE` inventory; unknown fortune actions now remain legacy until catalogued and documented
+  - expanded the round action control matrix and its regression test so explicit fortune actions are part of the engine/backend/frontend contract
+  - added frontend prompt action-possible matrix coverage for draft, final character, trick, hidden hand, hand choice, active flip, and superseded request-id prompts
+- Why:
+  - production readiness should be verified against the same role topology and Redis hash-tag contract that operators deploy
+  - wildcard fortune routing made new 운수 effects too easy to slip into native runtime without a documented module boundary
+  - stale frontend prompts are the browser-facing symptom of backend/runtime continuation drift; the selector now has matrix coverage for each special prompt family
+- Validation:
+  - `PYTHONPATH=.:GPT uv run pytest -q tests/test_redis_restart_smoke_script.py tests/test_redis_runtime_deployment_manifest.py`
+  - `PYTHONPATH=.:GPT uv run pytest -q GPT/test_runtime_sequence_modules.py tests/test_module_runtime_playtest_matrix_doc.py tests/test_redis_restart_smoke_script.py tests/test_redis_runtime_deployment_manifest.py`
+  - `npm --prefix apps/web run test -- src/domain/selectors/promptSelectors.spec.ts --run`
+  - `MRN_REDIS_KEY_PREFIX='mrn:{runtime-compose-smoke}' docker compose -p project-mrn-runtime-smoke -f deploy/redis-runtime/docker-compose.runtime.yml config --quiet`
+  - `MRN_REDIS_KEY_PREFIX='mrn:{runtime-compose-smoke}' python3 tools/scripts/redis_restart_smoke.py --compose-project project-mrn-runtime-smoke --compose-file deploy/redis-runtime/docker-compose.runtime.yml --topology-name local-runtime-compose --expected-redis-hash-tag runtime-compose-smoke`
+  - `python3 tools/plan_policy_gate.py`
+  - `git diff --check`
+  - restart smoke result: `ok=true`, topology `local-runtime-compose`, session `sess_THboINwsY0oZMonItGJh7Apm`, prefix `mrn:{runtime-compose-smoke}`, status `waiting_input -> waiting_input`, replay events `11 -> 12`, worker health checks `4`
+
 ## 2026-05-04 Production-Like Restart Smoke And Runtime Boundary Matrix
 
 - What changed:

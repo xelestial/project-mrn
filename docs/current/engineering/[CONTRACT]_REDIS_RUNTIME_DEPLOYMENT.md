@@ -24,6 +24,25 @@ that same tag in `/health` or worker `--health`.
 
 ## 3. Rollout Smoke
 
+The local production-like manifest is
+`deploy/redis-runtime/docker-compose.runtime.yml`; copy
+`deploy/redis-runtime/.env.example` to an environment-specific file and set a
+shared Redis hash-tagged prefix before starting it. This manifest intentionally
+uses the same required roles as `process-contract.json`: `server`,
+`prompt-timeout-worker`, and `command-wakeup-worker`, plus Redis with append-only
+persistence.
+
+For local production-like verification, run:
+
+```bash
+MRN_REDIS_KEY_PREFIX='mrn:{runtime-compose-smoke}' \
+python3 tools/scripts/redis_restart_smoke.py \
+  --compose-project project-mrn-runtime-smoke \
+  --compose-file deploy/redis-runtime/docker-compose.runtime.yml \
+  --topology-name local-runtime-compose \
+  --expected-redis-hash-tag runtime-compose-smoke
+```
+
 For a platform-managed environment, run:
 
 ```bash
@@ -44,6 +63,14 @@ Passing evidence must include:
 - replay event count after restart is greater than or equal to the count before restart
 - `worker_health_checks` is at least two
 - `/health.redis.cluster_hash_tag` equals the expected hash tag
+
+Latest checked local production-like evidence:
+
+- topology `local-runtime-compose`
+- prefix `mrn:{runtime-compose-smoke}`
+- status `waiting_input -> waiting_input`
+- replay events `11 -> 12`
+- worker health checks `4`
 
 ## 4. Failure Rules
 

@@ -49,11 +49,22 @@ ACTION_TYPE_TO_MODULE_TYPE = {
     "resolve_trick_tile_rent_modifier": "TrickTileRentModifierModule",
 }
 
+FORTUNE_ACTION_TYPE_TO_MODULE_TYPE = {
+    "resolve_fortune_takeover_backward": "FortuneResolveModule",
+    "resolve_fortune_subscription": "FortuneResolveModule",
+    "resolve_fortune_land_thief": "FortuneResolveModule",
+    "resolve_fortune_donation_angel": "FortuneResolveModule",
+    "resolve_fortune_forced_trade": "FortuneResolveModule",
+    "resolve_fortune_pious_marker": "FortuneResolveModule",
+}
+
 
 def module_type_for_action(action_type: str) -> str:
-    if action_type.startswith("resolve_fortune_"):
-        return "FortuneResolveModule"
-    return ACTION_TYPE_TO_MODULE_TYPE.get(action_type, "LegacyActionAdapterModule")
+    return (
+        ACTION_TYPE_TO_MODULE_TYPE.get(action_type)
+        or FORTUNE_ACTION_TYPE_TO_MODULE_TYPE.get(action_type)
+        or "LegacyActionAdapterModule"
+    )
 
 
 def build_sequence_module(

@@ -152,6 +152,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Redis-backed backend restart smoke around a live waiting game.")
     parser.add_argument("--base-url", default=os.environ.get("MRN_SMOKE_BASE_URL", "http://127.0.0.1:9090"))
     parser.add_argument("--compose-project", default=os.environ.get("MRN_SMOKE_COMPOSE_PROJECT", "project-mrn"))
+    parser.add_argument(
+        "--compose-file",
+        action="append",
+        default=None,
+        help=(
+            "Docker Compose file used for local smoke startup/restart. "
+            "May be passed multiple times; defaults to repository docker-compose.yml."
+        ),
+    )
     parser.add_argument("--topology-name", default=os.environ.get("MRN_SMOKE_TOPOLOGY_NAME", "local-compose"))
     parser.add_argument("--skip-up", action="store_true", help="Reuse an already running compose stack.")
     parser.add_argument("--keep-running", action="store_true", help="Leave compose services running after the smoke.")
@@ -196,6 +205,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_compose_file(path: str) -> str:
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = ROOT_DIR / candidate
+    return str(candidate)
+
+
+def _compose_command(project: str, compose_files: list[str] | None) -> list[str]:
+    command = ["docker", "compose", "-p", project]
+    for compose_file in compose_files or [str(ROOT_DIR / "docker-compose.yml")]:
+        command.extend(["-f", _resolve_compose_file(compose_file)])
+    return command
+
+
 def _compose_worker_health_commands(compose: list[str], *, enabled: bool) -> list[str]:
     if not enabled:
         return []
@@ -233,7 +256,7 @@ def main() -> int:
     env.setdefault("MRN_REDIS_KEY_PREFIX", f"mrn:{{restart-smoke-{int(time.time())}}}")
     env.setdefault("MRN_RESTART_RECOVERY_POLICY", "keep")
 
-    compose = ["docker", "compose", "-p", args.compose_project, "-f", str(ROOT_DIR / "docker-compose.yml")]
+    compose = _compose_command(args.compose_project, args.compose_file)
     services = ["redis", "server", "prompt-timeout-worker", "command-wakeup-worker"]
     worker_health_commands: list[str] = []
     if not args.skip_worker_health:

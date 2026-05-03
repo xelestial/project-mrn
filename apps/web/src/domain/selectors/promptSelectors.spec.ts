@@ -605,6 +605,105 @@ describe("promptSelectors", () => {
     expect(selectActivePrompt(messages)).toBeNull();
   });
 
+  it.each([
+    ["draft_card", { draft_active: false }, { draft_active: true }],
+    ["final_character", { draft_active: false }, { draft_active: true }],
+    ["final_character_choice", { draft_active: false }, { draft_active: true }],
+    ["active_flip", { card_flip_legal: false }, { card_flip_legal: true }],
+    [
+      "trick_to_use",
+      { trick_sequence_active: false, active_sequence: "" },
+      { trick_sequence_active: true, active_sequence: "trick" },
+    ],
+    [
+      "hidden_trick_card",
+      { trick_sequence_active: false, active_sequence: "" },
+      { trick_sequence_active: true, active_sequence: "trick" },
+    ],
+    [
+      "hand_choice",
+      { trick_sequence_active: false, active_sequence: "" },
+      { trick_sequence_active: true, active_sequence: "trick" },
+    ],
+  ])("gates %s prompts by the runtime action-possible matrix", (requestType, blockedRuntime, allowedRuntime) => {
+    const messagesFor = (runtime: Record<string, unknown>, includeProjectedPrompt: boolean): InboundMessage[] => [
+      {
+        type: "prompt",
+        seq: 80,
+        session_id: "s1",
+        payload: {
+          request_id: `req_${requestType}`,
+          request_type: requestType,
+          player_id: 1,
+          legal_choices: [{ choice_id: "choice_1", title: "선택" }],
+        },
+      },
+      {
+        type: "event",
+        seq: 81,
+        session_id: "s1",
+        payload: {
+          event_type: "runtime_projection",
+          view_state: {
+            prompt: includeProjectedPrompt
+              ? {
+                  active: {
+                    request_id: `req_${requestType}`,
+                    request_type: requestType,
+                    player_id: 1,
+                    choices: [{ choice_id: "choice_1", title: "선택" }],
+                  },
+                }
+              : {},
+            runtime: {
+              round_stage: "in_round",
+              active_prompt_request_id: "",
+              draft_active: false,
+              trick_sequence_active: false,
+              card_flip_legal: false,
+              ...runtime,
+            },
+          },
+        },
+      },
+    ];
+
+    expect(selectActivePrompt(messagesFor(blockedRuntime, false))).toBeNull();
+    expect(selectActivePrompt(messagesFor(allowedRuntime, true))?.requestId).toBe(`req_${requestType}`);
+  });
+
+  it("closes any prompt superseded by a newer active runtime request id", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "prompt",
+        seq: 90,
+        session_id: "s1",
+        payload: {
+          request_id: "req_old_purchase",
+          request_type: "movement",
+          player_id: 1,
+          legal_choices: [{ choice_id: "roll", title: "주사위" }],
+        },
+      },
+      {
+        type: "event",
+        seq: 91,
+        session_id: "s1",
+        payload: {
+          event_type: "runtime_projection",
+          view_state: {
+            runtime: {
+              round_stage: "in_round",
+              active_prompt_request_id: "req_new_purchase",
+            },
+          },
+        },
+      },
+    ];
+
+    expect(selectActivePrompt(messages)).toBeNull();
+  });
+
   it("uses a newer raw prompt when the latest backend view_state is stale", () => {
     const messages: InboundMessage[] = [
       {

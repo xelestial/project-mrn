@@ -8,6 +8,7 @@ from runtime_modules.round_modules import build_round_frame
 from runtime_modules.runner import ModuleRunner
 from runtime_modules.sequence_modules import (
     ACTION_TYPE_TO_MODULE_TYPE,
+    FORTUNE_ACTION_TYPE_TO_MODULE_TYPE,
     TRICK_SEQUENCE_MODULE_TYPES,
     build_action_sequence_frame,
     build_roll_and_arrive_sequence_frame,
@@ -72,7 +73,7 @@ def test_action_sequence_frame_maps_pending_actions_to_typed_modules() -> None:
             },
             {
                 "action_id": "a3",
-                "type": "resolve_fortune_bonus_roll",
+                "type": "resolve_fortune_land_thief",
                 "actor_player_id": 0,
                 "source": "fortune",
                 "payload": {},
@@ -98,14 +99,15 @@ def test_fortune_resolve_has_explicit_sequence_handler_not_payload_fallback() ->
 
 
 def test_fortune_action_types_are_never_legacy_or_turn_modules() -> None:
-    fortune_action_types = [
-        "resolve_fortune_bonus_roll",
-        "resolve_fortune_land_thief",
-        "resolve_fortune_purchase_discount",
-        "resolve_fortune_move_to_marker",
-    ]
+    assert set(FORTUNE_ACTION_TYPE_TO_MODULE_TYPE.values()) == {"FortuneResolveModule"}
+    assert {
+        module_type_for_action(action_type)
+        for action_type in FORTUNE_ACTION_TYPE_TO_MODULE_TYPE
+    } == {"FortuneResolveModule"}
 
-    assert {module_type_for_action(action_type) for action_type in fortune_action_types} == {"FortuneResolveModule"}
+
+def test_unknown_fortune_action_type_stays_legacy_until_catalogued() -> None:
+    assert module_type_for_action("resolve_fortune_unreviewed_effect") == "LegacyActionAdapterModule"
 
 
 def test_fortune_followup_is_parented_under_current_sequence_module() -> None:
@@ -113,7 +115,7 @@ def test_fortune_followup_is_parented_under_current_sequence_module() -> None:
         _vis_session_id = "test-session"
 
         def _execute_action(self, state, action, *, queue_followups: bool):
-            assert action.type == "resolve_fortune_bonus_roll"
+            assert action.type == "resolve_fortune_land_thief"
             assert queue_followups is True
             state.pending_actions.append(
                 ActionEnvelope(
@@ -136,7 +138,7 @@ def test_fortune_followup_is_parented_under_current_sequence_module() -> None:
         [
             {
                 "action_id": "fortune-1",
-                "type": "resolve_fortune_bonus_roll",
+                "type": "resolve_fortune_land_thief",
                 "actor_player_id": 0,
                 "source": "fortune",
                 "payload": {},
@@ -187,7 +189,7 @@ def test_fortune_followup_actions_stay_in_sequence_module_chain() -> None:
         def _execute_action(self, state, action, *, queue_followups: bool):
             self.executed.append(action.type)
             assert queue_followups is True
-            if action.type == "resolve_fortune_bonus_roll":
+            if action.type == "resolve_fortune_land_thief":
                 state.pending_actions.append(
                     ActionEnvelope(
                         action_id="move-from-fortune",
@@ -223,7 +225,7 @@ def test_fortune_followup_actions_stay_in_sequence_module_chain() -> None:
         [
             {
                 "action_id": "fortune-1",
-                "type": "resolve_fortune_bonus_roll",
+                "type": "resolve_fortune_land_thief",
                 "actor_player_id": 0,
                 "source": "fortune",
                 "payload": {},
@@ -256,7 +258,7 @@ def test_fortune_followup_actions_stay_in_sequence_module_chain() -> None:
         "ArrivalTileModule",
     ]
     assert [fortune["module_boundary"], move["module_boundary"], arrival["module_boundary"]] == ["native", "native", "native"]
-    assert engine.executed == ["resolve_fortune_bonus_roll", "apply_move", "resolve_arrival"]
+    assert engine.executed == ["resolve_fortune_land_thief", "apply_move", "resolve_arrival"]
     assert all(frame.frame_type == "sequence" for frame in state.runtime_frame_stack)
 
 

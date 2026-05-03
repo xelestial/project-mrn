@@ -47,7 +47,13 @@ Action sequence names must resolve to explicit module boundaries. Backend resume
 | `resolve_landing_post_effects` | `LandingPostEffectsModule` |
 | `continue_after_trick_phase` | `TrickDeferredFollowupsModule` |
 | `resolve_trick_tile_rent_modifier` | `TrickTileRentModifierModule` |
-| `resolve_fortune_*` | `FortuneResolveModule` |
+| `resolve_fortune_takeover_backward` | `FortuneResolveModule` |
+| `resolve_fortune_subscription` | `FortuneResolveModule` |
+| `resolve_fortune_land_thief` | `FortuneResolveModule` |
+| `resolve_fortune_donation_angel` | `FortuneResolveModule` |
+| `resolve_fortune_forced_trade` | `FortuneResolveModule` |
+| `resolve_fortune_pious_marker` | `FortuneResolveModule` |
+| unknown `resolve_fortune_*` action | `LegacyActionAdapterModule` until catalogued |
 | unknown legacy action | `LegacyActionAdapterModule` |
 
 ## Effect Boundary Inventory

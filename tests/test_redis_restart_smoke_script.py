@@ -25,6 +25,8 @@ def test_restart_smoke_parser_supports_production_like_topology_commands() -> No
             "--skip-up",
             "--topology-name",
             "staging-blue",
+            "--compose-file",
+            "deploy/redis-runtime/docker-compose.runtime.yml",
             "--restart-command",
             "platform restart server",
             "--restart-command",
@@ -38,6 +40,7 @@ def test_restart_smoke_parser_supports_production_like_topology_commands() -> No
 
     assert args.skip_up is True
     assert args.topology_name == "staging-blue"
+    assert args.compose_file == ["deploy/redis-runtime/docker-compose.runtime.yml"]
     assert args.restart_command == ["platform restart server", "platform restart workers"]
     assert args.worker_health_command == ["platform health prompt-timeout-worker"]
     assert args.expected_redis_hash_tag == "project-mrn-prod"
@@ -52,6 +55,20 @@ def test_restart_smoke_builds_compose_worker_health_commands() -> None:
     assert "'project mrn'" in commands[0]
     assert "prompt_timeout_worker_app --health" in commands[0]
     assert "command_wakeup_worker_app --health" in commands[1]
+
+
+def test_restart_smoke_builds_compose_command_with_custom_files() -> None:
+    script = _load_script()
+
+    command = script._compose_command(
+        "runtime smoke",
+        ["docker-compose.yml", "deploy/redis-runtime/docker-compose.runtime.yml"],
+    )
+
+    assert command[:4] == ["docker", "compose", "-p", "runtime smoke"]
+    assert command.count("-f") == 2
+    assert str(ROOT / "docker-compose.yml") in command
+    assert str(ROOT / "deploy/redis-runtime/docker-compose.runtime.yml") in command
 
 
 def test_restart_smoke_allows_disabling_compose_worker_health_commands() -> None:

@@ -1,0 +1,108 @@
+name: ${MRN_DEPLOYMENT_NAME:-project-mrn-runtime}
+
+x-runtime-image: &runtime-image
+  build:
+    context: ../..
+    dockerfile: apps/server/Dockerfile
+  image: ${MRN_SERVER_IMAGE:-project-mrn-server:runtime}
+
+x-runtime-environment: &runtime-environment
+  MRN_REDIS_URL: ${MRN_REDIS_URL:-redis://redis:6379/0}
+  MRN_REDIS_KEY_PREFIX: ${MRN_REDIS_KEY_PREFIX:?set MRN_REDIS_KEY_PREFIX with a shared Redis hash tag, e.g. mrn:{project-mrn-prod}}
+  MRN_GAME_LOG_ARCHIVE_PATH: ${MRN_GAME_LOG_ARCHIVE_PATH:-/app/data/game_logs}
+  MRN_LOG_LEVEL: ${MRN_LOG_LEVEL:-INFO}
+  MRN_DEBUG_GAME_LOGS: ${MRN_DEBUG_GAME_LOGS:-0}
+  MRN_DEBUG_GAME_LOG_DIR: ${MRN_DEBUG_GAME_LOG_DIR:-/app/.log}
+  MRN_DEBUG_GAME_LOG_RUN_ID: ${MRN_DEBUG_GAME_LOG_RUN_ID:-}
+
+services:
+  redis:
+    image: ${MRN_REDIS_IMAGE:-redis:7-alpine}
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  server:
+    <<: *runtime-image
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *runtime-environment
+      MRN_RESTART_RECOVERY_POLICY: ${MRN_RESTART_RECOVERY_POLICY:-keep}
+      MRN_ARCHIVE_HOT_RETENTION_SECONDS: ${MRN_ARCHIVE_HOT_RETENTION_SECONDS:-300}
+    ports:
+      - "${MRN_SERVER_PORT:-9090}:9090"
+    volumes:
+      - game-logs:/app/data/game_logs
+      - runtime-debug-logs:/app/.log
+    command: ["python", "-m", "uvicorn", "apps.server.src.app:app", "--host", "0.0.0.0", "--port", "9090"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json, urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:9090/health', timeout=5)); raise SystemExit(0 if data.get('ok') else 1)",
+        ]
+      interval: 10s
+      timeout: 6s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+  prompt-timeout-worker:
+    <<: *runtime-image
+    depends_on:
+      redis:
+        condition: service_healthy
+      server:
+        condition: service_healthy
+    environment:
+      <<: *runtime-environment
+      MRN_RESTART_RECOVERY_POLICY: keep
+      MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS: ${MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS:-250}
+    volumes:
+      - game-logs:/app/data/game_logs
+      - runtime-debug-logs:/app/.log
+    command: ["python", "-m", "apps.server.src.workers.prompt_timeout_worker_app"]
+    healthcheck:
+      test: ["CMD", "python", "-m", "apps.server.src.workers.prompt_timeout_worker_app", "--health"]
+      interval: 10s
+      timeout: 6s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+  command-wakeup-worker:
+    <<: *runtime-image
+    depends_on:
+      redis:
+        condition: service_healthy
+      server:
+        condition: service_healthy
+    environment:
+      <<: *runtime-environment
+      MRN_RESTART_RECOVERY_POLICY: keep
+    volumes:
+      - game-logs:/app/data/game_logs
+      - runtime-debug-logs:/app/.log
+    command: ["python", "-m", "apps.server.src.workers.command_wakeup_worker_app"]
+    healthcheck:
+      test: ["CMD", "python", "-m", "apps.server.src.workers.command_wakeup_worker_app", "--health"]
+      interval: 10s
+      timeout: 6s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  game-logs:
+  runtime-debug-logs:
