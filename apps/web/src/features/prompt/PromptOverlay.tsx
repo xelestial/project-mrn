@@ -163,6 +163,12 @@ function effectAttributionLabel(effectContext: PromptEffectContext, promptText: 
   if (attribution === "Supply threshold") {
     return promptText.effectAttribution.supplyThreshold;
   }
+  if (attribution === "Round end") {
+    return promptText.effectAttribution.roundEnd;
+  }
+  if (attribution === "Score placement") {
+    return promptText.effectAttribution.scorePlacement;
+  }
   if (attribution) {
     return attribution;
   }

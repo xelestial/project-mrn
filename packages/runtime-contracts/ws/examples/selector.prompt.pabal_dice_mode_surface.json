@@ -33,7 +33,20 @@
             }
           }
         ],
-        "public_context": {}
+        "public_context": {
+          "effect_context": {
+            "label": "파발꾼",
+            "detail": "파발꾼 효과로 이번 턴 주사위 방식을 고릅니다.",
+            "attribution": "Character effect",
+            "tone": "effect",
+            "source": "character",
+            "intent": "dice",
+            "enhanced": true,
+            "source_player_id": 1,
+            "source_family": "character",
+            "source_name": "파발꾼"
+          }
+        }
       }
     }
   ],
@@ -59,6 +72,18 @@
               }
             ]
           }
+        },
+        "effect_context": {
+          "label": "파발꾼",
+          "detail": "파발꾼 효과로 이번 턴 주사위 방식을 고릅니다.",
+          "attribution": "Character effect",
+          "tone": "effect",
+          "source": "character",
+          "intent": "dice",
+          "enhanced": true,
+          "source_player_id": 1,
+          "source_family": "character",
+          "source_name": "파발꾼"
         }
       }
     }

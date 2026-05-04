@@ -41,7 +41,24 @@
               "type": "object",
               "required": ["surface"],
               "properties": {
-                "surface": { "type": "object" }
+                "surface": { "type": "object" },
+                "effect_context": {
+                  "type": "object",
+                  "required": ["label", "detail", "attribution", "tone", "source", "intent", "enhanced"],
+                  "properties": {
+                    "label": { "type": "string", "minLength": 1 },
+                    "detail": { "type": "string", "minLength": 1 },
+                    "attribution": { "type": "string", "minLength": 1 },
+                    "tone": { "type": "string", "enum": ["move", "effect", "economy"] },
+                    "source": { "type": "string", "minLength": 1 },
+                    "intent": { "type": "string", "minLength": 1 },
+                    "enhanced": { "type": "boolean" },
+                    "source_player_id": { "type": ["integer", "null"] },
+                    "source_family": { "type": "string" },
+                    "source_name": { "type": "string" },
+                    "resource_delta": { "type": "object" }
+                  }
+                }
               }
             }
           }

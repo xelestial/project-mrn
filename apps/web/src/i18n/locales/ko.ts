@@ -755,6 +755,8 @@ export const koLocale = {
       movementResult: "이동 결과",
       characterEffect: "인물 효과",
       supplyThreshold: "재보급",
+      roundEnd: "라운드 종료",
+      scorePlacement: "승점 배치",
     },
     hiddenCardName: "히든 카드",
     hiddenCardDescription: (name: string) => `${name} 효과`,

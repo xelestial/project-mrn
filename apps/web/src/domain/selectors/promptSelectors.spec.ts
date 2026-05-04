@@ -9,6 +9,20 @@ import {
   selectPromptInteractionState,
 } from "./promptSelectors";
 
+type SharedPromptEffectContext = {
+  label: string;
+  detail: string;
+  attribution: string;
+  tone: string;
+  source: string;
+  intent: string;
+  enhanced: boolean;
+  source_player_id?: number | null;
+  source_family?: string | null;
+  source_name?: string | null;
+  resource_delta?: Record<string, unknown> | null;
+};
+
 function loadSharedPromptFixture(filename: string) {
   const path = resolve(process.cwd(), "../../packages/runtime-contracts/ws/examples", filename);
   return JSON.parse(readFileSync(path, "utf-8")) as {
@@ -17,6 +31,7 @@ function loadSharedPromptFixture(filename: string) {
       prompt: {
         active: {
           surface: Record<string, unknown>;
+          effect_context?: SharedPromptEffectContext;
         };
       };
     };
@@ -1653,6 +1668,21 @@ describe("promptSelectors", () => {
       const modelKey = surfaceModelKeyByBackendKey[backendKey];
       expect(modelKey, backendKey).toBeTruthy();
       expect((model?.surface as Record<string, unknown> | undefined)?.[modelKey], backendKey).not.toBeNull();
+    }
+    if (fixture.expected.prompt.active.effect_context) {
+      expect(model?.effectContext).toEqual({
+        label: fixture.expected.prompt.active.effect_context.label,
+        detail: fixture.expected.prompt.active.effect_context.detail,
+        attribution: fixture.expected.prompt.active.effect_context.attribution,
+        tone: fixture.expected.prompt.active.effect_context.tone,
+        source: fixture.expected.prompt.active.effect_context.source,
+        intent: fixture.expected.prompt.active.effect_context.intent,
+        enhanced: fixture.expected.prompt.active.effect_context.enhanced,
+        sourcePlayerId: fixture.expected.prompt.active.effect_context.source_player_id ?? null,
+        sourceFamily: fixture.expected.prompt.active.effect_context.source_family ?? null,
+        sourceName: fixture.expected.prompt.active.effect_context.source_name ?? null,
+        resourceDelta: fixture.expected.prompt.active.effect_context.resource_delta ?? null,
+      });
     }
   });
 

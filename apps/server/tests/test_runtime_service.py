@@ -1032,6 +1032,67 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(context["tile_rent_cost"], 3)
         self.assertEqual(context["tile_score_coins"], 1)
         self.assertEqual(context["candidate_tiles"], [0, 2])
+        self.assertEqual(
+            context["effect_context"],
+            {
+                "label": "중매꾼",
+                "detail": "중매꾼 효과로 인접 타일 구매 여부를 결정합니다.",
+                "attribution": "Character effect",
+                "tone": "economy",
+                "source": "character",
+                "intent": "buy",
+                "enhanced": True,
+                "source_family": "character",
+                "source_name": "중매꾼",
+            },
+        )
+
+    def test_effect_context_covers_remaining_effect_prompt_boundaries(self) -> None:
+        state = type("State", (), {"rounds_completed": 2, "turn_index": 1})()
+        player = type("Player", (), {"player_id": 1, "cash": 8, "position": 4, "shards": 2})()
+        reward_card = type("Card", (), {"deck_index": 17, "name": "월리권", "description": "잔꾀 보상"})()
+        relief_target = type("Target", (), {"player_id": 2})()
+
+        cases = [
+            (
+                "choose_pabal_dice_mode",
+                (state, player),
+                {},
+                {"label": "파발꾼", "source": "character", "intent": "dice", "source_name": "파발꾼"},
+            ),
+            (
+                "choose_runaway_slave_step",
+                (state, player, 17, 18, "운수"),
+                {},
+                {"label": "탈출 노비", "source": "character", "intent": "move", "source_name": "탈출 노비"},
+            ),
+            (
+                "choose_doctrine_relief_target",
+                (state, player, [relief_target]),
+                {},
+                {"label": "교리 감독관", "source": "character", "intent": "relief", "source_name": "교리 감독관"},
+            ),
+            (
+                "choose_specific_trick_reward",
+                (state, player, [reward_card]),
+                {},
+                {"label": "잔꾀 보상", "source": "trick", "intent": "gain", "source_name": "specific_trick_reward"},
+            ),
+            (
+                "choose_active_flip_card",
+                (state, player, [5, 7]),
+                {},
+                {"label": "카드 뒤집기", "source": "round_end", "intent": "flip", "source_name": "round_end_card_flip"},
+            ),
+        ]
+
+        for method_name, args, kwargs, expected in cases:
+            with self.subTest(method_name=method_name):
+                context = build_public_context(method_name, args, kwargs)
+                effect_context = context["effect_context"]
+                for key, value in expected.items():
+                    self.assertEqual(effect_context[key], value)
+                self.assertTrue(effect_context["enhanced"])
 
     def test_decision_client_router_prefers_human_policy_attributes_and_human_seats(self) -> None:
         from apps.server.src.services.runtime_service import _ServerDecisionClientRouter

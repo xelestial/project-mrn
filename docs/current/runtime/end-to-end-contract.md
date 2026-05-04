@@ -23,3 +23,28 @@ The engine is the source of legal game progression. Backend services, Redis pers
    Backend `view_state.player_cards` may show `selected_private` only to the
    choosing seat; spectators see the assignment only after `turn_start` changes
    it to `revealed`.
+8. Effect-caused prompts must carry backend-projected `public_context.effect_context`
+   into `view_state.prompt.active.effect_context`. The payload names the source
+   family/name, player when known, intent, tone, attribution, and UI detail so
+   clients never infer prompt causality from raw event history.
+9. Known prompt-resuming actions must resolve to native runtime modules. A
+   prompt boundary that would resume through `LegacyActionAdapterModule` is a
+   migration failure, not a tolerated compatibility path.
+
+## Prompt Effect Context Contract
+
+`effect_context` is optional for purely generic prompts, but required for every
+prompt opened by a character, trick, movement reward, score placement, resupply,
+or round-end effect. The current covered prompt families are:
+
+- Character/mark effects: `mark_target`, `geo_bonus`, `pabal_dice_mode`,
+  `runaway_step_choice`, `doctrine_relief`, and matchmaker `purchase_tile`.
+- Trick effects: `trick_tile_target`, `specific_trick_reward`,
+  `burden_exchange`.
+- Movement/economy effects: `lap_reward`, landing `purchase_tile`,
+  `coin_placement`.
+- Round boundary effects: `active_flip`.
+
+Frontend renderers consume this projection from `view_state.prompt.active` and
+may localize display text, but must not reconstruct the source or intent from
+older stream events.

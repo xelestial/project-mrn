@@ -334,6 +334,67 @@ def _prompt_effect_context(request_type: str, context: dict[str, Any], player: A
             source_family="movement",
             source_name="lap_reward",
         )
+    if request_type == "purchase_tile":
+        source = str(context.get("source") or "").strip()
+        if source in {"matchmaker_adjacent", "adjacent_extra"}:
+            return _effect_context_payload(
+                label="중매꾼",
+                detail="중매꾼 효과로 인접 타일 구매 여부를 결정합니다.",
+                attribution="Character effect",
+                tone="economy",
+                source="character",
+                intent="buy",
+                source_player_id=player_id,
+                source_family="character",
+                source_name="중매꾼",
+            )
+        return _effect_context_payload(
+            label="Tile purchase",
+            detail="The player reached a purchasable tile and must choose whether to buy it.",
+            attribution="Movement result",
+            tone="economy",
+            source="move",
+            intent="buy",
+            source_player_id=player_id,
+            source_family="movement",
+            source_name="arrival_purchase",
+        )
+    if request_type == "coin_placement":
+        return _effect_context_payload(
+            label="Score placement",
+            detail="Choose where to place the score token gained from this purchase.",
+            attribution="Score placement",
+            tone="economy",
+            source="score",
+            intent="place",
+            source_player_id=player_id,
+            source_family="score",
+            source_name="score_token_placement",
+        )
+    if request_type == "pabal_dice_mode":
+        return _effect_context_payload(
+            label="파발꾼",
+            detail="파발꾼 효과로 이번 턴 주사위 방식을 고릅니다.",
+            attribution="Character effect",
+            tone="effect",
+            source="character",
+            intent="dice",
+            source_player_id=player_id,
+            source_family="character",
+            source_name="파발꾼",
+        )
+    if request_type == "runaway_step_choice":
+        return _effect_context_payload(
+            label="탈출 노비",
+            detail="탈출 노비 효과로 추가 이동 여부를 결정합니다.",
+            attribution="Character effect",
+            tone="move",
+            source="character",
+            intent="move",
+            source_player_id=player_id,
+            source_family="character",
+            source_name="탈출 노비",
+        )
     if request_type == "geo_bonus":
         actor_name = str(context.get("actor_name") or "").strip()
         if not actor_name:
@@ -348,6 +409,42 @@ def _prompt_effect_context(request_type: str, context: dict[str, Any], player: A
             source_player_id=player_id,
             source_family="character",
             source_name=actor_name,
+        )
+    if request_type == "doctrine_relief":
+        return _effect_context_payload(
+            label="교리 감독관",
+            detail="교리 감독관 효과로 짐을 덜어줄 대상을 고릅니다.",
+            attribution="Character effect",
+            tone="economy",
+            source="character",
+            intent="relief",
+            source_player_id=player_id,
+            source_family="character",
+            source_name="교리 감독관",
+        )
+    if request_type == "specific_trick_reward":
+        return _effect_context_payload(
+            label="잔꾀 보상",
+            detail="잔꾀 효과 보상으로 받을 카드를 고릅니다.",
+            attribution="Trick effect",
+            tone="economy",
+            source="trick",
+            intent="gain",
+            source_player_id=player_id,
+            source_family="trick",
+            source_name="specific_trick_reward",
+        )
+    if request_type == "active_flip":
+        return _effect_context_payload(
+            label="카드 뒤집기",
+            detail="라운드 종료 카드 뒤집기를 확정합니다.",
+            attribution="Round end",
+            tone="effect",
+            source="round_end",
+            intent="flip",
+            source_player_id=player_id,
+            source_family="round",
+            source_name="round_end_card_flip",
         )
     if request_type == "burden_exchange":
         card_name = str(context.get("card_name") or "").strip() or "Burden"

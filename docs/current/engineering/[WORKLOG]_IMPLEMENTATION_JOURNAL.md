@@ -8,6 +8,30 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Prompt Effect Context Boundary Completion
+
+- What changed:
+  - committed the previous prompt effect-context projection baseline as `315ee168`
+  - expanded backend `public_context.effect_context` authoring to cover purchase,
+    score-token placement, pabal dice mode, runaway step, doctrine relief,
+    specific trick reward, and active card flip prompts
+  - added frontend attribution labels for round-end and score-placement prompt
+    contexts
+  - reinforced the shared prompt fixture contract with `effect_context` schema
+    validation and pabal dice-mode backend/frontend fixture assertions
+  - added a native prompt-resume action boundary regression proving known
+    prompt-resuming actions do not route through `LegacyActionAdapterModule`
+- Why:
+  - every effect-caused prompt should carry its own engine-authored cause,
+    source family, source name, and intent through backend view-state to the
+    frontend instead of depending on event-history inference
+  - prompt continuation safety should be proven at the native module boundary,
+    not only blocked by late backend guardrails
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_effect_context_covers_remaining_effect_prompt_boundaries apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_matchmaker_purchase_context_exposes_tile_metadata_and_adjacent_candidates GPT/test_runtime_sequence_modules.py::test_prompt_resuming_actions_are_owned_by_native_sequence_modules -q` -> `3 passed, 5 subtests passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_view_state_prompt_selector.py apps/server/tests/test_runtime_contract_examples.py::RuntimeContractExampleTests::test_selector_prompt_pabal_dice_mode_fixture_matches_shared_schema -q` -> `31 passed, 16 subtests passed`
+  - `npm --prefix apps/web run test -- src/domain/selectors/promptSelectors.spec.ts` -> `78 passed`
+
 ## 2026-05-04 Prompt Effect Context Projection
 
 - What changed:

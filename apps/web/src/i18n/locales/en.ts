@@ -750,6 +750,8 @@ export const enLocale = {
       movementResult: "Movement result",
       characterEffect: "Character effect",
       supplyThreshold: "Supply threshold",
+      roundEnd: "Round end",
+      scorePlacement: "Score placement",
     },
     hiddenCardName: "Hidden Card",
     hiddenCardDescription: (name: string) => `${name} effect`,

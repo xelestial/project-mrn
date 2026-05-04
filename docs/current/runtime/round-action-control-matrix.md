@@ -58,6 +58,12 @@ Action sequence names must resolve to explicit module boundaries. Backend resume
 | unknown `resolve_fortune_*` action | rejected with `UnknownActionTypeError` until catalogued |
 | unknown legacy action | rejected with `UnknownActionTypeError` |
 
+Prompt-resuming action coverage is tested as a native-module contract. `resolve_mark`,
+`resolve_lap_reward`, `request_purchase_tile`, `resolve_purchase_tile`,
+`request_score_token_placement`, `resolve_score_token_placement`, and
+`resolve_trick_tile_rent_modifier` must resolve to the explicit modules above
+and must never be assigned to `LegacyActionAdapterModule`.
+
 ## Legacy Adapter Removal Classification
 
 `LegacyActionAdapterModule` is now a forbidden legacy checkpoint signal, not an
@@ -127,6 +133,10 @@ Each effect is owned by a producer module and consumed only by declared runtime 
 Backend and Redis do not own game-rule branching. They persist and validate the engine-issued frame/module checkpoint, active prompt, active prompt batch, idempotency keys, and stream ordering only.
 
 - Prompt resume decisions must match `runtime_active_prompt` or `runtime_active_prompt_batch` by `resume_token`, `frame_id`, `module_id`, `module_type`, `module_cursor`, and when present `batch_id`.
+- Active prompt projections must carry `effect_context` when the prompt was
+  opened by a character, trick, movement/economy, simultaneous, or round-end
+  effect. Frontend selectors consume that field as the source-of-truth prompt
+  cause and only adapt it for presentation.
 - Character suppression, trick follow-up insertion, movement, arrival, fortune chaining, turn end, and simultaneous resupply are engine module responsibilities.
 - Redis may expose checkpoint visibility fields such as `has_pending_turn_completion` for legacy compatibility, but module-runner execution treats orphan `pending_turn_completion` as invalid unless it has already been consumed into `TurnEndSnapshotModule.payload.turn_completion`.
 - WebSocket payloads are accepted only when their runtime module placement matches the catalog. This prevents impossible engine states from being republished as frontend progress.

@@ -115,6 +115,22 @@ def test_lap_reward_action_is_owned_by_native_lap_reward_module() -> None:
     assert module_type_for_action("resolve_lap_reward") == "LapRewardModule"
 
 
+def test_prompt_resuming_actions_are_owned_by_native_sequence_modules() -> None:
+    prompt_action_boundaries = {
+        "resolve_mark": "PendingMarkResolutionModule",
+        "resolve_lap_reward": "LapRewardModule",
+        "request_purchase_tile": "PurchaseDecisionModule",
+        "resolve_purchase_tile": "PurchaseCommitModule",
+        "request_score_token_placement": "ScoreTokenPlacementPromptModule",
+        "resolve_score_token_placement": "ScoreTokenPlacementCommitModule",
+        "resolve_trick_tile_rent_modifier": "TrickTileRentModifierModule",
+    }
+
+    for action_type, module_type in prompt_action_boundaries.items():
+        assert module_type_for_action(action_type) == module_type
+        assert module_type != "LegacyActionAdapterModule"
+
+
 def test_unknown_fortune_action_type_must_be_catalogued_before_sequence_build() -> None:
     with pytest.raises(UnknownActionTypeError, match="resolve_fortune_unreviewed_effect"):
         module_type_for_action("resolve_fortune_unreviewed_effect")

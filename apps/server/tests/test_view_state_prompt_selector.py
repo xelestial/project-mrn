@@ -441,6 +441,9 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                     view_state["active"]["surface"],
                     fixture["expected"]["prompt"]["active"]["surface"],
                 )
+                expected_effect_context = fixture["expected"]["prompt"]["active"].get("effect_context")
+                if expected_effect_context is not None:
+                    self.assertEqual(view_state["active"]["effect_context"], expected_effect_context)
 
     def test_build_prompt_view_state_matches_shared_lap_reward_surface_fixture(self) -> None:
         fixture = _load_selector_prompt_fixture("selector.prompt.lap_reward_surface.json")
