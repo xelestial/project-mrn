@@ -600,7 +600,7 @@ def main() -> int:
                 )
             _run([*compose, "up", "-d", "--build", *services], env=env)
 
-        _verify_backend_health(
+        _before_health = _verify_backend_health(
             args.base_url,
             key_prefix=env["MRN_REDIS_KEY_PREFIX"],
             expected_hash_tag=args.expected_redis_hash_tag,
@@ -658,7 +658,7 @@ def main() -> int:
                 restart_mode = "compose"
         else:
             restart_mode = "skipped"
-        _verify_backend_health(
+        after_health = _verify_backend_health(
             args.base_url,
             key_prefix=env["MRN_REDIS_KEY_PREFIX"],
             expected_hash_tag=args.expected_redis_hash_tag,
@@ -695,6 +695,12 @@ def main() -> int:
             "after_replay_events": after_count,
             "worker_health_checks": worker_health_check_count,
         }
+        redis_health = after_health.get("redis") if isinstance(after_health.get("redis"), dict) else {}
+        if redis_health:
+            summary["redis"] = {
+                "cluster_hash_tag": redis_health.get("cluster_hash_tag"),
+                "cluster_hash_tag_valid": redis_health.get("cluster_hash_tag_valid"),
+            }
         if decision_summary is not None:
             summary["decision_smoke"] = decision_summary
         print(json.dumps(summary, ensure_ascii=False, indent=2))

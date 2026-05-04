@@ -48,7 +48,7 @@
 - native sequence handler 검증은 `GPT/test_runtime_sequence_handlers.py`가 담당한다.
 - 백엔드 continuation/checkpoint 검증은 `apps/server/tests/test_prompt_module_continuation.py`, `apps/server/tests/test_runtime_semantic_guard.py`, stream idempotency 테스트가 담당한다.
 - 프론트 decision payload 보존은 `apps/web/src/hooks/useGameStream.spec.ts`의 `buildDecisionMessage` 테스트가 담당한다.
-- 프론트 effect context의 자원 변화 표시 검증은 `apps/web/src/features/prompt/promptEffectContextDisplay.spec.ts`가 담당한다.
+- 프론트 effect context의 자원 변화 표시 검증은 `apps/web/src/features/prompt/promptEffectContextDisplay.spec.ts`가 담당한다. 같은 테스트가 source player/family/name 칩 표시도 감시한다.
 - 브라우저 모듈 런타임 회귀 시작점은 `npm run e2e:module-runtime`이다.
 
 ## 5. 수동 플레이테스트 기록 규칙
@@ -66,7 +66,7 @@
 3. `MRN-MOD-010`: `TurnEndSnapshotModule`은 active `TurnFrame`에서 턴을 닫고, `RoundEndCardFlipModule`은 모든 `PlayerTurnModule`과 child frame이 종료된 뒤에만 실행되는지 확인한다.
 4. `MRN-MOD-014`: 재보급은 `SimultaneousResolutionFrame`만 소유하고, action sequence adapter 또는 턴 순차 모듈에 들어가지 않는지 확인한다.
 5. 공통: 위 시나리오의 prompt/decision stream은 backend-issued continuation을 그대로 왕복하고, 프론트 생성 request id나 stale continuation이 엔진을 진행시키지 않는지 확인한다.
-6. 프론트 prompt surface: backend `effect_context.resource_delta`가 있으면 prompt overlay에 현금/승점/조각/짐/카드 증감을 표시하고, 0 또는 unknown delta는 표시하지 않는지 확인한다.
+6. 프론트 prompt surface: backend `effect_context.source_player_id`/`source_family`/`source_name`/`resource_delta`가 있으면 prompt overlay에 원인 플레이어, 원인 유형, 카드/날씨 이름, 현금/승점/조각/짐/카드 증감을 표시하고, 0 또는 unknown delta는 표시하지 않는지 확인한다.
 
 Wire 계약은 모든 단일 prompt에 `request_id`/`request_type`/`player_id`와 `frame_id`/`module_id`/`module_type`/`module_cursor`가 포함되어야 한다. 동시 응답 prompt는 추가로 `batch_id`/`missing_player_ids`/`resume_tokens_by_player_id`를 포함해야 하며, module runner 재개는 `round_setup_replay_base`, `pending_prompt_instance_id - 1`, `frontend-created request id`를 재실행 근거로 사용하지 않는다.
 

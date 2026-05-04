@@ -1,7 +1,7 @@
 # [ACTIVE] UI/UX Future Work Canonical
 
 Status: ACTIVE_CANONICAL  
-Updated: 2026-05-03  
+Updated: 2026-05-04
 Owner: Codex
 
 ## Purpose
@@ -55,7 +55,8 @@ What was completed in this pass:
 
 Open scheduled items:
 
-- 2026-05-01 playtest follow-up: effect cause visibility for `잔꾀`, `운수`, `날씨`, and AI-triggered follow-up prompts.
+- final 2H+2AI and 4-human playtest evidence for effect cause visibility across `잔꾀`, `운수`, `날씨`, character passives, and AI-triggered follow-up prompts.
+- active weather should remain visible as round context if the final playtest still shows weather/result attribution fading too quickly.
 
 ---
 
@@ -73,7 +74,7 @@ Open scheduled items:
 
 ### P0. Effect Cause Visibility During Live Play
 
-Status: TODO (2026-05-01)
+Status: BASELINE IMPLEMENTED (2026-05-04), FINAL PLAYTEST PENDING
 
 Goal:
 - make every rule-driven state mutation understandable at the moment it happens, especially when the next prompt appears immediately
@@ -89,6 +90,11 @@ Implement:
 - include source player, effect family, card/weather name, and resource delta in follow-up prompts created by that effect
 - ensure AI-triggered effects use the same visual treatment as human-triggered effects
 - keep current weather visible as active round context, not only as a transient stream event
+
+Implemented baseline:
+- backend-provided `effect_context.source_player_id`, `source_family`, `source_name`, and `resource_delta` now survive selector parsing, `App.tsx` prompt mapping, and `PromptOverlay` rendering.
+- prompt overlay renders source chips for source player, effect family, and card/weather name, plus resource delta chips when a non-zero known delta exists.
+- AI-triggered and human-triggered follow-up prompts use the same effect context route when the backend provides the same fields.
 
 Definition of done:
 - a player can explain why a cash, shard, hand-count, burden, movement, or purchase prompt changed without reading debug logs

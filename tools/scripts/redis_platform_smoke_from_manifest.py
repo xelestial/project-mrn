@@ -172,8 +172,9 @@ def build_evidence_document(
     smoke_stdout: str,
 ) -> dict[str, Any]:
     smoke_summary = _extract_smoke_summary(smoke_stdout)
+    evidence_checks = evaluate_passing_evidence(validation=validation, smoke_summary=smoke_summary)
     return {
-        "ok": smoke_summary.get("ok") is True,
+        "ok": all(evidence_checks.values()),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "manifest": {
             "path": manifest.get("_manifest_path"),
@@ -186,8 +187,51 @@ def build_evidence_document(
         },
         "rollout_scope": validation.get("rollout_scope"),
         "validation": validation,
+        "evidence_checks": evidence_checks,
         "smoke_command": command,
         "smoke_summary": smoke_summary,
+    }
+
+
+def evaluate_passing_evidence(
+    *,
+    validation: dict[str, Any],
+    smoke_summary: dict[str, Any],
+) -> dict[str, bool]:
+    decision_smoke = smoke_summary.get("decision_smoke")
+    if not isinstance(decision_smoke, dict):
+        decision_smoke = {}
+    before_replay_events = _int_or_none(smoke_summary.get("before_replay_events"))
+    after_replay_events = _int_or_none(smoke_summary.get("after_replay_events"))
+    decision_after_replay_events = _int_or_none(decision_smoke.get("after_replay_events"))
+    duplicate_status = str(decision_smoke.get("duplicate_status") or "").lower()
+    duplicate_reason = str(decision_smoke.get("duplicate_reason") or "").lower()
+
+    return {
+        "smoke_ok": smoke_summary.get("ok") is True,
+        "runtime_stays_waiting_input": (
+            smoke_summary.get("before_status") == "waiting_input"
+            and smoke_summary.get("after_status") == "waiting_input"
+        ),
+        "replay_does_not_shrink": (
+            before_replay_events is not None
+            and after_replay_events is not None
+            and after_replay_events >= before_replay_events
+        ),
+        "workers_checked": _int_or_none(smoke_summary.get("worker_health_checks")) == validation.get(
+            "worker_health_command_count",
+        )
+        * 2,
+        "redis_hash_tag_matches": _observed_redis_hash_tag(smoke_summary)
+        == validation.get("expected_redis_hash_tag"),
+        "decision_accepts_once": decision_smoke.get("accepted_status") == "accepted",
+        "duplicate_decision_is_rejected_or_stale": duplicate_status in {"stale", "rejected"}
+        or duplicate_reason == "already_resolved",
+        "decision_advances_replay": (
+            after_replay_events is not None
+            and decision_after_replay_events is not None
+            and decision_after_replay_events > after_replay_events
+        ),
     }
 
 
@@ -324,6 +368,38 @@ def _extract_smoke_summary(output: str) -> dict[str, Any]:
     if not summaries:
         raise ValueError("could not find final redis_restart_smoke.py JSON summary in smoke output")
     return summaries[-1]
+
+
+def _int_or_none(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value)
+    return None
+
+
+def _observed_redis_hash_tag(smoke_summary: dict[str, Any]) -> str | None:
+    redis = smoke_summary.get("redis")
+    if isinstance(redis, dict):
+        cluster_hash_tag = redis.get("cluster_hash_tag")
+        if isinstance(cluster_hash_tag, str) and cluster_hash_tag:
+            return cluster_hash_tag
+    health = smoke_summary.get("health")
+    if isinstance(health, dict):
+        health_redis = health.get("redis")
+        if isinstance(health_redis, dict):
+            cluster_hash_tag = health_redis.get("cluster_hash_tag")
+            if isinstance(cluster_hash_tag, str) and cluster_hash_tag:
+                return cluster_hash_tag
+    prefix = smoke_summary.get("prefix")
+    if isinstance(prefix, str):
+        start = prefix.find("{")
+        end = prefix.find("}", start + 1)
+        if start >= 0 and end > start + 1:
+            return prefix[start + 1 : end]
+    return None
 
 
 if __name__ == "__main__":

@@ -6573,6 +6573,7 @@ body {
   -webkit-line-clamp: 2;
 }
 
+.prompt-effect-context-source,
 .prompt-effect-context-delta {
   display: flex;
   flex-wrap: wrap;
@@ -6580,6 +6581,7 @@ body {
   min-width: 0;
 }
 
+.prompt-effect-context-source-chip,
 .prompt-effect-context-delta-chip {
   display: inline-flex;
   align-items: center;
@@ -6594,6 +6596,12 @@ body {
   font-weight: 800;
   line-height: 1.2;
   white-space: nowrap;
+}
+
+.prompt-effect-context-source-chip {
+  border-color: rgba(125, 211, 252, 0.28);
+  background: rgba(14, 165, 233, 0.12);
+  color: #dff3ff;
 }
 
 .prompt-effect-context-delta-chip-gain {

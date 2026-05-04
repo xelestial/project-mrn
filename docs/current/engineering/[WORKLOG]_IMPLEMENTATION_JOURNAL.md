@@ -288,15 +288,37 @@ Updated: 2026-05-04
   - added coverage for extracting the final smoke summary from mixed command output
   - refreshed deployment docs with the evidence-output flow
 - Why:
+  - platform rollout proof needs one attached artifact instead of scattered shell output
+  - this keeps local contract proof distinct from actual external topology proof
   - the actual external platform smoke should leave a structured artifact, not only terminal output
   - this makes future rollout evidence comparable across local profile, staging, and production-like platform manifests
 - Validation:
-  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest tests/test_redis_runtime_deployment_manifest.py -q` -> `10 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest tests/test_redis_runtime_deployment_manifest.py -q` -> `14 passed`
   - `python3 -m py_compile tools/scripts/redis_platform_smoke_from_manifest.py` -> `PASS`
   - `python3 tools/scripts/redis_platform_smoke_from_manifest.py --validate-only` -> `PASS`
   - `python3 tools/scripts/redis_platform_smoke_from_manifest.py --print-command` -> `PASS`
   - `python3 tools/scripts/redis_platform_smoke_from_manifest.py --run --preflight --evidence-output /tmp/mrn-platform-smoke-evidence.json` -> `PASS`
-  - evidence summary: `ok=true`, `session_id=sess_eJiWJunqrTrmwQ62DhzAYwsf`, duplicate decision `stale/already_resolved`, manifest path `deploy/redis-runtime/local-platform-managed.smoke.json`
+  - evidence summary: `ok=true`, duplicate decision `stale/already_resolved`, manifest path `deploy/redis-runtime/local-platform-managed.smoke.json`
+
+## 2026-05-04 Runtime Smoke Evidence, Parameter Manifest, And Effect Cause Visibility Closure
+
+- What changed:
+  - tightened platform smoke evidence so `ok=true` now requires structured checks for runtime waiting state, replay monotonicity, Redis hash tag, worker health, exactly one accepted decision, duplicate decision rejection/staleness, and replay advancement
+  - exposed Redis hash-tag health in `redis_restart_smoke.py` summaries so the manifest wrapper can prove the topology contract
+  - hardened parameter manifest documentation and browser fixture catalog coverage for seat/topology/economy/resources/dice variation
+  - preserved backend prompt `effect_context` source player, source family, source name, and resource delta through frontend mapping into `PromptOverlay`
+  - added source chips to the prompt effect context display so follow-up prompts can show why a resource/prompt state changed
+  - completed the legacy path sweep against native module runner regressions and the automated character/trick/fortune/arrival/LAP/simultaneous combination pack
+- Why:
+  - external topology evidence should fail closed when duplicate decisions are accepted, replay does not advance, workers are missing, or Redis hash-tag configuration is wrong
+  - parameter manifests must keep rule/balance dimensions visible to backend and browser tests instead of relying on hidden defaults
+  - live play showed effect results could be mechanically correct but hard to attribute once the next blocking prompt appeared
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest tests/test_redis_runtime_deployment_manifest.py -q` -> `14 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest tests/test_module_runtime_playtest_matrix_doc.py -q` -> `20 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_runtime_sequence_modules.py GPT/test_runtime_simultaneous_modules.py GPT/test_runtime_sequence_handlers.py GPT/test_runtime_effect_inventory.py GPT/test_runtime_prompt_continuation.py apps/server/tests/test_prompt_module_continuation.py apps/server/tests/test_runtime_semantic_guard.py apps/server/tests/test_stream_module_idempotency.py -q` -> `98 passed`
+  - `npm --prefix apps/web test -- --run src/features/prompt/promptEffectContextDisplay.spec.ts src/domain/selectors/promptSelectors.spec.ts src/hooks/useGameStream.spec.ts` -> `94 passed`
+  - `npm --prefix apps/web run build` -> `PASS`
 
 ## 2026-05-04 Manifest-Driven Platform Smoke Runner
 

@@ -98,18 +98,26 @@ Those themes should reopen only if a concrete regression or rollout need appears
    platform-managed manifest template, executable local platform-managed smoke
    profile, custom-command restart-smoke input path, manifest-driven platform
    smoke runner, structured smoke evidence artifact output, explicit
-   local-vs-external topology validation, and post-restart decision smoke/dedupe
-   proof are implemented. Remaining work is replacing the platform manifest
-   placeholders with the chosen deployment platform's native restart/exec
-   commands, running that filled manifest through the platform smoke runner with
-   `--require-external-topology`, capturing smoke evidence from the actual
-   external topology, and continuing the larger engine-native module migration
-   beyond the guarded prompt continuation boundaries. See
+   local-vs-external topology validation, post-restart decision smoke/dedupe
+   proof, and structured smoke evidence checks for waiting state, replay
+   monotonicity, Redis hash tag, worker health, single accepted decision,
+   duplicate rejection, and replay advancement are implemented. Remaining work
+   is replacing the platform manifest placeholders with the chosen deployment
+   platform's native restart/exec commands, running that filled manifest through
+   the platform smoke runner with `--require-external-topology`, and capturing
+   smoke evidence from the actual external topology. See
    `docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`.
-2. Runtime contract stabilization. Keep end-to-end payload shape, round/action
-   control, prompt lifecycle, and modular-runtime frame semantics synchronized
-   between `GPT/`, `apps/server/`, and `apps/web/`.
-3. UI/UX follow-up. Use only
+2. Runtime contract stabilization. The current baseline is guarded by the
+   module-runtime matrix, native module/semantic-guard/continuation/idempotency
+   tests, and frontend decision/prompt contract tests. Keep end-to-end payload
+   shape, round/action control, prompt lifecycle, and modular-runtime frame
+   semantics synchronized between `GPT/`, `apps/server/`, and `apps/web/` as
+   new rule changes land.
+3. UI/UX follow-up. Effect cause visibility now preserves backend
+   `effect_context` source player, source family, source name, and resource
+   delta through the prompt overlay. Remaining UI work is final 2H+2AI /
+   4-human playtest evidence and any active-weather context polish revealed by
+   that playtest. Use only
    `docs/current/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md` and
    `docs/current/frontend/[AUDIT]_MRN_FRONTEND_GAME_DESIGN_REVIEW_2026-04-30.md`
    as current frontend planning inputs.

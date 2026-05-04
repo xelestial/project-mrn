@@ -851,10 +851,15 @@ Implemented delivery points:
 - `POST /sessions/{id}/start` response (`data.initial_active_by_card`)
 - stream event `event_type=parameter_manifest` emitted on session start
 
+Parameter manifest hardening coverage:
+
+- backend session API regression covers `seat/topology/economy/resources/dice` variation through create/start responses.
+- browser E2E fixtures cover non-default topology, manifest-hash reconnect, and `parameter_matrix_economy_dice_2seat.json`.
+- `apps/web/e2e/README.md` and `apps/web/src/domain/manifest/browserFixtureCatalog.spec.ts` must stay in sync with every versioned manifest fixture.
+
 Remaining hardening:
 
-- broaden manifest contract coverage beyond current reconnect + baseline Playwright E2E fixtures
-- expand manifest variation matrix (seat/topology/economy/dice) in browser E2E
+- add new fixture variations only when a new manifest dimension is introduced or a balance/rule change changes an existing dimension.
 
 Client runtime rule:
 

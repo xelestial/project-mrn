@@ -17,6 +17,10 @@ REDIS_STATE_PLAN_DOC = ROOT / "docs/current/engineering/[PLAN]_REDIS_AUTHORITATI
 SERVER_README = ROOT / "apps/server/README.md"
 WEB_PACKAGE_JSON = ROOT / "apps/web/package.json"
 WEB_PROMPT_SELECTOR_SPEC = ROOT / "apps/web/src/domain/selectors/promptSelectors.spec.ts"
+WEB_E2E_README = ROOT / "apps/web/e2e/README.md"
+WEB_E2E_PARITY_SPEC = ROOT / "apps/web/e2e/parity.spec.ts"
+WEB_E2E_FIXTURES_DIR = ROOT / "apps/web/e2e/fixtures"
+ONLINE_GAME_API_SPEC = ROOT / "docs/current/api/online-game-api-spec.md"
 DEPLOYMENT_CONTRACT_DOC = ROOT / "docs/current/engineering/[CONTRACT]_REDIS_RUNTIME_DEPLOYMENT.md"
 DEPLOYMENT_PROCESS_CONTRACT = ROOT / "deploy/redis-runtime/process-contract.json"
 ROUND_COMBINATION_REGRESSION_PACK = (
@@ -216,6 +220,29 @@ def test_prompt_decision_contract_matrix_is_covered_by_frontend_prompt_selector_
     for row in pack["prompt_decision_contract_matrix"]:
         request_type = row["request_type"]
         assert f'requestType: "{request_type}"' in text or f'request_type: "{request_type}"' in text
+
+
+def test_browser_e2e_readme_lists_every_parameter_manifest_fixture() -> None:
+    readme = WEB_E2E_README.read_text(encoding="utf-8")
+    parity_spec = WEB_E2E_PARITY_SPEC.read_text(encoding="utf-8")
+    fixture_names = sorted(path.name for path in WEB_E2E_FIXTURES_DIR.glob("*.json"))
+
+    assert fixture_names
+    for fixture_name in fixture_names:
+        assert f"`fixtures/{fixture_name}`" in readme
+
+    assert "parameter matrix fixture rehydrates seat/economy/dice assumptions" in readme
+    assert "parameter matrix fixture rehydrates seat/economy/dice assumptions" in parity_spec
+
+
+def test_online_game_api_spec_records_parameter_manifest_hardening_coverage() -> None:
+    text = ONLINE_GAME_API_SPEC.read_text(encoding="utf-8")
+
+    assert "Parameter manifest hardening coverage" in text
+    assert "seat/topology/economy/resources/dice" in text
+    assert "parameter_matrix_economy_dice_2seat.json" in text
+    assert "broaden manifest contract coverage beyond current reconnect" not in text
+    assert "expand manifest variation matrix (seat/topology/economy/dice) in browser E2E" not in text
 
 
 def test_round_action_control_matrix_documents_trick_mark_loop_gates_and_simultaneous_response_term() -> None:

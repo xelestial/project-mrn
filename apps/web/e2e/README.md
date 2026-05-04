@@ -8,6 +8,7 @@ Current scenarios:
 
 1. `fixtures/non_default_topology_line_3seat.json`
 2. `fixtures/manifest_hash_reconnect.json`
+3. `fixtures/parameter_matrix_economy_dice_2seat.json`
 
 Automated usage:
 
@@ -22,6 +23,7 @@ Current automated checks:
 
 1. `parity.spec.ts :: non-default topology fixture renders line board and 3-seat lobby options`
 2. `parity.spec.ts :: manifest-hash reconnect fixture rehydrates projection after session switch`
+3. `parity.spec.ts :: parameter matrix fixture rehydrates seat/economy/dice assumptions`
 
 Notes:
 

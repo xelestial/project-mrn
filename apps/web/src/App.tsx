@@ -1095,6 +1095,10 @@ export function App() {
         source: visibleActionablePrompt.effectContext.source,
         intent: visibleActionablePrompt.effectContext.intent,
         enhanced: visibleActionablePrompt.effectContext.enhanced,
+        sourcePlayerId: visibleActionablePrompt.effectContext.sourcePlayerId,
+        sourceFamily: visibleActionablePrompt.effectContext.sourceFamily,
+        sourceName: visibleActionablePrompt.effectContext.sourceName,
+        resourceDelta: visibleActionablePrompt.effectContext.resourceDelta,
       };
     }
     if (!promptEffectContextItem) {
@@ -1114,6 +1118,10 @@ export function App() {
       source: effect.effectSource,
       intent: effect.effectIntent,
       enhanced: effect.effectEnhanced,
+      sourcePlayerId: null,
+      sourceFamily: effect.effectSource,
+      sourceName: promptEffectContextItem.label,
+      resourceDelta: null,
     };
   }, [locale, promptEffectContextItem, turnStage.weatherEffect, turnStage.weatherName, visibleActionablePrompt?.effectContext]);
   const playerStageFallbackLabel =

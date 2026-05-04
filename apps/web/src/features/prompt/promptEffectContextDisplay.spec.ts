@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPromptEffectResourceDeltaChips } from "./promptEffectContextDisplay";
+import { buildPromptEffectResourceDeltaChips, buildPromptEffectSourceChips } from "./promptEffectContextDisplay";
 
 describe("promptEffectContextDisplay", () => {
   it("builds localized resource delta chips for effect-caused prompts", () => {
@@ -46,5 +46,29 @@ describe("promptEffectContextDisplay", () => {
         "en"
       )
     ).toEqual([]);
+  });
+
+  it("builds localized source chips for effect-caused prompts", () => {
+    expect(
+      buildPromptEffectSourceChips(
+        {
+          label: "재보급",
+          detail: "재보급으로 보유 자원이 조정되었습니다.",
+          attribution: "Supply threshold",
+          tone: "economy",
+          source: "system",
+          intent: "resupply",
+          enhanced: true,
+          sourcePlayerId: 2,
+          sourceFamily: "weather",
+          sourceName: "아주 큰 화목 난로",
+        },
+        "ko"
+      )
+    ).toEqual([
+      { key: "source-player", label: "원인 P2" },
+      { key: "source-family", label: "날씨" },
+      { key: "source-name", label: "아주 큰 화목 난로" },
+    ]);
   });
 });
