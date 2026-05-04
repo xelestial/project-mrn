@@ -539,6 +539,15 @@ def _apply_dice_roll_modifiers(state: Any, player_id: int, player: Any) -> None:
         player.trick_dice_delta_this_turn += dice_delta
 
 
+def handle_lap_reward(ctx: TurnFrameHandlerContext) -> dict[str, Any]:
+    runner = ctx.runner
+    state = ctx.state
+    frame = ctx.frame
+    module = ctx.module
+    runner._complete_module(state, frame, module)
+    return {"status": "committed", "module_type": module.module_type, "player_id": ctx.player_id + 1}
+
+
 TURN_FRAME_HANDLERS: dict[str, TurnFrameHandler] = {
     "TurnStartModule": handle_turn_start,
     "ScheduledStartActionsModule": handle_scheduled_start_actions,
@@ -548,5 +557,6 @@ TURN_FRAME_HANDLERS: dict[str, TurnFrameHandler] = {
     "ImmediateMarkerTransferModule": handle_immediate_marker_transfer,
     "TrickWindowModule": handle_trick_window,
     "DiceRollModule": handle_dice_roll,
+    "LapRewardModule": handle_lap_reward,
     "TurnEndSnapshotModule": handle_turn_end_snapshot,
 }

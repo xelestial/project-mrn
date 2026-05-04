@@ -2337,8 +2337,107 @@ function toTileViewModel(raw: unknown, fallbackTileIndex: number | null = null):
   };
 }
 
+function snapshotFromBackendViewStatePayload(payload: Record<string, unknown>): SnapshotViewModel | null {
+  const viewState = isRecord(payload["view_state"]) ? payload["view_state"] : null;
+  if (!viewState) {
+    return null;
+  }
+
+  const playersState = isRecord(viewState["players"]) ? viewState["players"] : null;
+  const playerItems = Array.isArray(playersState?.["items"]) ? playersState["items"] : null;
+  if (!playerItems || playerItems.length === 0) {
+    return null;
+  }
+
+  const board = isRecord(viewState["board"]) ? viewState["board"] : null;
+  const tileItems = Array.isArray(board?.["tiles"]) ? board["tiles"] : [];
+  const playerCardsByPlayerId = new Map(
+    selectBackendPlayerCardItemsFromViewState(viewState).map((item) => [item.player_id, item])
+  );
+  const positionByPlayerId = new Map<number, number>();
+  for (const rawTile of tileItems) {
+    if (!isRecord(rawTile)) {
+      continue;
+    }
+    const tileIndex = numberOrNull(rawTile["tile_index"]);
+    if (tileIndex === null) {
+      continue;
+    }
+    for (const pawnPlayerId of integerArray(rawTile["pawn_player_ids"])) {
+      positionByPlayerId.set(pawnPlayerId, tileIndex);
+    }
+  }
+
+  const players = playerItems
+    .map((rawPlayer): PlayerViewModel | null => {
+      if (!isRecord(rawPlayer) || typeof rawPlayer["player_id"] !== "number") {
+        return null;
+      }
+      const playerId = rawPlayer["player_id"];
+      const playerCard = playerCardsByPlayerId.get(playerId);
+      const backendCharacter =
+        typeof rawPlayer["current_character_face"] === "string" && rawPlayer["current_character_face"].trim()
+          ? rawPlayer["current_character_face"].trim()
+          : "-";
+      return toPlayerViewModel({
+        ...rawPlayer,
+        character: playerCard?.character ?? backendCharacter,
+        position: numberOrNull(rawPlayer["position"]) ?? positionByPlayerId.get(playerId) ?? 0,
+        alive: typeof rawPlayer["alive"] === "boolean" ? rawPlayer["alive"] : true,
+        public_tricks: rawPlayer["public_tricks"],
+        hand_coins: numberOrNull(rawPlayer["hand_coins"]) ?? numberOrNull(rawPlayer["hand_score_coins"]) ?? 0,
+        placed_score_coins:
+          numberOrNull(rawPlayer["placed_score_coins"]) ?? numberOrNull(rawPlayer["placed_coins"]) ?? 0,
+        score: numberOrNull(rawPlayer["score"]) ?? numberOrNull(rawPlayer["total_score"]) ?? 0,
+      });
+    })
+    .filter((item): item is PlayerViewModel => item !== null);
+  if (players.length === 0) {
+    return null;
+  }
+
+  const tiles = tileItems
+    .map((tile, index) => toTileViewModel(tile, index))
+    .filter((item): item is TileViewModel => item !== null);
+  const markerOwnerPlayer =
+    playerItems.find((item) => isRecord(item) && item["is_marker_owner"] === true && typeof item["player_id"] === "number") ??
+    null;
+  const markerOwnerPlayerId =
+    numberOrNull(board?.["marker_owner_player_id"]) ??
+    numberOrNull(playersState?.["marker_owner_player_id"]) ??
+    (isRecord(markerOwnerPlayer) ? numberOrNull(markerOwnerPlayer["player_id"]) : null);
+  const turnStage = isRecord(viewState["turn_stage"]) ? viewState["turn_stage"] : null;
+  const scene = isRecord(viewState["scene"]) ? viewState["scene"] : null;
+  const situation = isRecord(scene?.["situation"]) ? scene["situation"] : null;
+
+  return {
+    round:
+      numberOrNull(turnStage?.["round_index"]) ??
+      numberOrNull(situation?.["round_index"]) ??
+      numberOrNull(payload["round_index"]) ??
+      0,
+    turn:
+      numberOrNull(turnStage?.["turn_index"]) ??
+      numberOrNull(situation?.["turn_index"]) ??
+      numberOrNull(payload["turn_index"]) ??
+      0,
+    markerOwnerPlayerId,
+    markerDraftDirection:
+      markerDraftDirectionFromRecord(board) ??
+      markerDraftDirectionFromRecord(playersState) ??
+      markerDraftDirectionFromRecord(payload),
+    fValue: numberOrNull(board?.["f_value"]) ?? 0,
+    currentRoundOrder: Array.from(new Set(integerArray(playersState?.["ordered_player_ids"]))).filter(
+      (value) => value >= 1
+    ),
+    activeByCard: {},
+    players,
+    tiles,
+  };
+}
+
 function snapshotFromMessage(message: InboundMessage): SnapshotViewModel | null {
-  if (message.type !== "event") {
+  if (message.type !== "event" && message.type !== "prompt" && message.type !== "decision_ack") {
     return null;
   }
   const round = typeof message.payload["round_index"] === "number" ? message.payload["round_index"] : 0;
@@ -2350,7 +2449,7 @@ function snapshotFromMessage(message: InboundMessage): SnapshotViewModel | null 
   const rootPlayers = message.payload["players"];
   const playersSource = Array.isArray(snapshotPlayers) ? snapshotPlayers : Array.isArray(rootPlayers) ? rootPlayers : null;
   if (!playersSource) {
-    return null;
+    return snapshotFromBackendViewStatePayload(message.payload);
   }
 
   const boardTiles = snapshotBoard?.["tiles"];

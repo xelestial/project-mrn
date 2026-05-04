@@ -101,7 +101,7 @@ EFFECT_INVENTORY: tuple[EffectInventoryEntry, ...] = (
         frame_kind="turn",
         prompt_contract="runaway_step_choice",
         redis_resume_contracts=("PromptContinuation",),
-        runtime_boundary_modules=("DiceRollModule",),
+        runtime_boundary_modules=("DiceRollModule", "MapMoveModule", "ArrivalTileModule"),
         notes="주사위 이동값 산정 중 특수칸 1칸 전 위치에서 선택 prompt를 열고 이후 이동/도착 모듈로 확정값을 넘긴다.",
     ),
     EffectInventoryEntry(
@@ -175,7 +175,7 @@ EFFECT_INVENTORY: tuple[EffectInventoryEntry, ...] = (
         producer_module="CharacterStartModule",
         consumer_modules=("ArrivalTileModule", "LapRewardModule"),
         frame_kind="turn",
-        runtime_boundary_modules=("ArrivalTileModule",),
+        runtime_boundary_modules=("ArrivalTileModule", "LapRewardModule"),
         notes="종료칸/자가 토지/랩 보상 증폭을 이동 후 도착 및 랩 보상 경계에서 소비한다.",
     ),
     EffectInventoryEntry(
@@ -279,6 +279,12 @@ def validate_effect_inventory(inventory: Iterable[EffectInventoryEntry]) -> list
             errors.append(f"{entry.effect_id}: prompt contract requires a Redis resume contract")
         if "LegacyActionAdapterModule" in entry.runtime_boundary_modules:
             errors.append(f"{entry.effect_id}: native effect inventory must not use LegacyActionAdapterModule")
+        runtime_boundaries = set(entry.runtime_boundary_modules)
+        for module_type in entry.consumer_modules:
+            if module_type not in runtime_boundaries:
+                errors.append(
+                    f"{entry.effect_id}: consumer module {module_type} must be declared as a runtime boundary"
+                )
         for role, module_type in _declared_modules(entry):
             frame_kinds = _declared_frame_kinds(module_type, MODULE_RULES)
             if frame_kinds is None:

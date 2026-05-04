@@ -98,6 +98,16 @@ def test_trick_fortune_and_resupply_effects_have_explicit_frame_contracts():
     assert "SimultaneousPromptBatchContinuation" in resupply.redis_resume_contracts
 
 
+def test_tile_and_movement_effect_boundaries_include_downstream_consumers():
+    from runtime_modules.effect_inventory import EFFECT_INVENTORY, effect_by_id
+
+    runaway = effect_by_id(EFFECT_INVENTORY, "character:runaway_slave:special_step")
+    assert {"DiceRollModule", "MapMoveModule", "ArrivalTileModule"} <= set(runaway.runtime_boundary_modules)
+
+    gakju = effect_by_id(EFFECT_INVENTORY, "character:gakju:arrival_lap_modifiers")
+    assert {"ArrivalTileModule", "LapRewardModule"} <= set(gakju.runtime_boundary_modules)
+
+
 def test_effect_inventory_resolves_to_known_module_boundaries():
     from runtime_modules.effect_inventory import EFFECT_INVENTORY, validate_effect_inventory
 
@@ -147,6 +157,25 @@ def test_effect_inventory_validation_rejects_legacy_adapter_boundaries():
     )
 
     assert "test:legacy_adapter: native effect inventory must not use LegacyActionAdapterModule" in errors
+
+
+def test_effect_inventory_validation_requires_consumers_to_be_runtime_boundaries():
+    from runtime_modules.effect_inventory import EffectInventoryEntry, validate_effect_inventory
+
+    errors = validate_effect_inventory(
+        (
+            EffectInventoryEntry(
+                effect_id="test:consumer_without_boundary",
+                source_name="테스트",
+                producer_module="ArrivalTileModule",
+                consumer_modules=("RentPaymentModule",),
+                frame_kind="sequence",
+                runtime_boundary_modules=("ArrivalTileModule",),
+            ),
+        )
+    )
+
+    assert "test:consumer_without_boundary: consumer module RentPaymentModule must be declared as a runtime boundary" in errors
 
 
 def test_prompt_effect_inventory_entries_are_resumable_module_boundaries():

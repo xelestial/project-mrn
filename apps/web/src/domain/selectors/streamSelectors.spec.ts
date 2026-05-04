@@ -317,6 +317,116 @@ describe("streamSelectors", () => {
     expect(snapshot?.tiles[0].scoreCoinCount).toBe(2);
   });
 
+  it("builds latest snapshot from backend view_state when raw snapshot is absent", () => {
+    const snapshot = selectLatestSnapshot([
+      {
+        type: "prompt",
+        seq: 10,
+        session_id: "s1",
+        payload: {
+          request_id: "req_purchase_1",
+          request_type: "purchase_tile",
+          player_id: 1,
+          view_state: {
+            turn_stage: {
+              round_index: 3,
+              turn_index: 2,
+            },
+            players: {
+              ordered_player_ids: [2, 1],
+              marker_owner_player_id: 2,
+              marker_draft_direction: "counterclockwise",
+              items: [
+                {
+                  player_id: 1,
+                  display_name: "Player 1",
+                  cash: 12,
+                  shards: 4,
+                  hand_coins: 2,
+                  placed_coins: 3,
+                  total_score: 5,
+                  hidden_trick_count: 1,
+                  owned_tile_count: 2,
+                  trick_count: 2,
+                  current_character_face: "박수",
+                  is_marker_owner: false,
+                  is_current_actor: true,
+                },
+                {
+                  player_id: 2,
+                  display_name: "Player 2",
+                  cash: 9,
+                  shards: 1,
+                  hand_coins: 0,
+                  placed_coins: 1,
+                  total_score: 1,
+                  hidden_trick_count: 0,
+                  owned_tile_count: 0,
+                  trick_count: 0,
+                  current_character_face: "산적",
+                  is_marker_owner: true,
+                  is_current_actor: false,
+                },
+              ],
+            },
+            player_cards: {
+              items: [
+                {
+                  player_id: 1,
+                  character: "박수",
+                  priority_slot: 3,
+                  reveal_state: "revealed",
+                  is_current_actor: true,
+                },
+              ],
+            },
+            board: {
+              marker_owner_player_id: 2,
+              marker_draft_direction: "counterclockwise",
+              f_value: 5,
+              tiles: [
+                {
+                  tile_index: 0,
+                  tile_kind: "START",
+                  zone_color: "",
+                  pawn_player_ids: [2],
+                },
+                {
+                  tile_index: 7,
+                  tile_kind: "T3",
+                  zone_color: "red",
+                  purchase_cost: 4,
+                  rent_cost: 2,
+                  score_coin_count: 1,
+                  owner_player_id: null,
+                  pawn_player_ids: [1],
+                },
+              ],
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(snapshot).toMatchObject({
+      round: 3,
+      turn: 2,
+      markerOwnerPlayerId: 2,
+      markerDraftDirection: "counterclockwise",
+      fValue: 5,
+      currentRoundOrder: [2, 1],
+    });
+    expect(snapshot?.players.find((player) => player.playerId === 1)).toMatchObject({
+      character: "박수",
+      position: 7,
+      cash: 12,
+      handCoins: 2,
+      placedCoins: 3,
+      totalScore: 5,
+    });
+    expect(snapshot?.tiles.find((tile) => tile.tileIndex === 7)?.pawnPlayerIds).toEqual([1]);
+  });
+
   it("orders player cards from the marker owner using marker draft direction", () => {
     const clockwiseMessages: InboundMessage[] = [
       {

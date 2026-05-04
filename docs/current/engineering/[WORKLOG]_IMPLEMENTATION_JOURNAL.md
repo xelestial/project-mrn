@@ -8,6 +8,34 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Module Boundary 1-4 Hardening
+
+- What changed:
+  - added effect-inventory validation that every declared consumer module must
+    also be a declared runtime boundary
+  - widened the runaway slave movement effect boundary to include dice, map
+    move, and arrival modules
+  - widened the 객주 arrival/lap modifier boundary to include both arrival and
+    lap reward modules, with an explicit `LapRewardModule` turn-frame handler
+    boundary
+  - added a Redis checkpoint resume regression for a suspended purchase
+    sequence nested under `ArrivalTileModule`
+  - updated frontend stream selectors so backend `view_state` on prompt/ack
+    messages can build the latest board/player snapshot even when no raw
+    snapshot event is present
+- Why:
+  - effect ownership should fail at contract validation time if a consumer can
+    run outside the persisted module boundary that owns the effect
+  - Redis resume must continue from the exact saved nested frame/module instead
+    of reconstructing state from legacy prompt seeds
+  - frontend board/player state should be backend-projection driven across
+    prompt recovery paths, not dependent on a later raw snapshot event
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_runtime_effect_inventory.py -q` -> `14 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_preserves_purchase_sequence_checkpoint_without_replay -q` -> `1 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_runtime_effect_inventory.py GPT/test_action_pipeline_contract.py apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_preserves_checkpoint_frame_stack_without_replay apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_preserves_purchase_sequence_checkpoint_without_replay apps/server/tests/test_view_state_runtime_projection.py -q` -> `30 passed`
+  - `npm --prefix apps/web test -- src/domain/selectors/streamSelectors.spec.ts` -> `90 passed`
+
 ## 2026-05-04 External Platform Manifest Scope Recheck
 
 - What changed:
