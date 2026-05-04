@@ -98,6 +98,70 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(resolve_runtime_runner_kind({}, settings), "module")
         self.assertEqual(runtime_checkpoint_schema_version_for_runner("module"), 3)
 
+    def test_has_unprocessed_runtime_commands_checks_consumer_offset(self) -> None:
+        command_store = _CommandStoreStub(
+            offset=1,
+            commands=[
+                {"seq": 1, "type": "decision_submitted"},
+                {"seq": 2, "type": "decision_resolved"},
+            ],
+        )
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=command_store,
+        )
+
+        self.assertTrue(runtime.has_unprocessed_runtime_commands("sess_pending"))
+
+        command_store.offset = 2
+
+        self.assertFalse(runtime.has_unprocessed_runtime_commands("sess_pending"))
+
+    def test_pending_resume_command_matches_checkpoint_even_when_offset_reached_command(self) -> None:
+        command_store = _CommandStoreStub(
+            offset=7,
+            commands=[
+                {
+                    "seq": 7,
+                    "type": "decision_submitted",
+                    "payload": {
+                        "request_id": "sess_1:r1:t1:p1:final_character:1",
+                        "choice_id": "mansin",
+                        "frame_id": "turn:1:p0",
+                        "module_id": "mod:turn:1:p0:draft",
+                        "module_type": "DraftModule",
+                        "module_cursor": "final_character:1",
+                    },
+                }
+            ],
+        )
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=command_store,
+        )
+        runtime.recovery_checkpoint = lambda _session_id: {  # type: ignore[method-assign]
+            "available": True,
+            "checkpoint": {
+                "waiting_prompt_request_id": "sess_1:r1:t1:p1:final_character:1",
+                "active_frame_id": "turn:1:p0",
+                "active_module_id": "mod:turn:1:p0:draft",
+                "active_module_type": "DraftModule",
+                "active_module_cursor": "final_character:1",
+            },
+            "current_state": {},
+            "view_state": {},
+        }
+
+        command = runtime.pending_resume_command("sess_1")
+
+        self.assertIsNotNone(command)
+        assert command is not None
+        self.assertEqual(command["seq"], 7)
+
     def test_runtime_runner_explicit_session_kind_wins(self) -> None:
         self.assertEqual(resolve_runtime_runner_kind({"runner_kind": "module"}, RuntimeSettings()), "module")
         self.assertEqual(resolve_runtime_runner_kind({"runner_kind": "legacy"}, RuntimeSettings()), "legacy")
@@ -6068,6 +6132,121 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_bridge_defers_decision_resume_until_matching_replayed_prompt(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        from engine import DecisionRequest
+        from apps.server.src.services.decision_gateway import PromptRequired
+        from apps.server.src.services.runtime_service import RuntimeDecisionResume, _ServerDecisionPolicyBridge
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            session_id = "sess_resume_bridge_replay_test"
+            bridge = _ServerDecisionPolicyBridge(
+                session_id=session_id,
+                session_seats=[],
+                human_seats=[0],
+                ai_fallback=object(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+                blocking_human_prompts=False,
+            )
+            state = type(
+                "State",
+                (),
+                {
+                    "rounds_completed": 0,
+                    "turn_index": 0,
+                    "block_ids": [0, 0],
+                    "board": [],
+                    "tile_owner": [],
+                    "active_by_card": {5: "교리 연구관", 7: "중매꾼"},
+                },
+            )()
+            player = type(
+                "Player",
+                (),
+                {
+                    "player_id": 0,
+                    "cash": 10,
+                    "position": 0,
+                    "shards": 0,
+                    "drafted_cards": [],
+                    "hidden_trick_deck_index": None,
+                    "trick_hand": [],
+                },
+            )()
+            draft_request = DecisionRequest(
+                decision_name="choose_draft_card",
+                request_type="draft_card",
+                state=state,
+                player=player,
+                player_id=0,
+                round_index=1,
+                turn_index=0,
+                args=([5, 7],),
+                kwargs={},
+                fallback_policy="required",
+            )
+            final_request = DecisionRequest(
+                decision_name="choose_final_character",
+                request_type="final_character",
+                state=state,
+                player=player,
+                player_id=0,
+                round_index=1,
+                turn_index=0,
+                args=([5, 7],),
+                kwargs={},
+                fallback_policy="required",
+            )
+
+            bridge.set_prompt_sequence(0)
+            with self.assertRaises(PromptRequired) as raised:
+                bridge.request(draft_request)
+            draft_prompt = raised.exception.prompt
+            self.assertEqual(draft_prompt["request_type"], "draft_card")
+            accepted = self.prompt_service.submit_decision(
+                {
+                    "type": "decision",
+                    "request_id": draft_prompt["request_id"],
+                    "player_id": 1,
+                    "choice_id": "5",
+                    "choice_payload": {},
+                    "provider": "human",
+                }
+            )
+            self.assertEqual(accepted["status"], "accepted")
+
+            bridge.set_decision_resume(
+                RuntimeDecisionResume(
+                    request_id=f"{session_id}:r1:t0:p1:final_character:2",
+                    player_id=1,
+                    request_type="final_character",
+                    choice_id="5",
+                    choice_payload={},
+                    resume_token="token_final",
+                    frame_id=None,
+                    module_id=None,
+                    module_type=None,
+                    module_cursor=None,
+                )
+            )
+
+            bridge.set_prompt_sequence(0)
+            self.assertEqual(bridge.request(draft_request), 5)
+            self.assertIsNotNone(bridge._decision_resume)
+            self.assertEqual(bridge.request(final_request), "교리 연구관")
+            self.assertIsNone(bridge._decision_resume)
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
     def test_pending_hidden_trick_replay_resumes_same_hidden_selection(self) -> None:
         from apps.server.src.services.decision_gateway import PromptRequired
         from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
@@ -6808,6 +6987,20 @@ class _RuntimeStateStoreStub:
 
     def delete_session_data(self, session_id: str) -> None:
         self.statuses.pop(session_id, None)
+
+
+class _CommandStoreStub:
+    def __init__(self, *, offset: int = 0, commands: list[dict] | None = None) -> None:
+        self.offset = int(offset)
+        self.commands = list(commands or [])
+
+    def load_consumer_offset(self, consumer_name: str, session_id: str) -> int:
+        del consumer_name, session_id
+        return self.offset
+
+    def list_commands(self, session_id: str) -> list[dict]:
+        del session_id
+        return list(self.commands)
 
 
 class _DebugEventStub:

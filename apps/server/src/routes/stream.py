@@ -127,16 +127,39 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
         if auth_ctx.get("role") == "seat" and runtime_state.get("status") == "recovery_required":
             session = session_service.get_session(session_id)
             runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
-            await runtime_service.start_runtime(
-                session_id=session_id,
-                seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
-                policy_mode=runtime_cfg.get("policy_mode"),
-            )
-            log_event(
-                "runtime_recovery_started",
-                session_id=session_id,
-                reason=runtime_state.get("reason"),
-            )
+            pending_command = runtime_service.pending_resume_command(session_id)
+            if pending_command is not None:
+                command_seq = int(pending_command.get("seq", 0) or 0)
+                await runtime_service.process_command_once(
+                    session_id=session_id,
+                    command_seq=command_seq,
+                    consumer_name="runtime_wakeup",
+                    seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
+                    policy_mode=runtime_cfg.get("policy_mode"),
+                )
+                log_event(
+                    "runtime_recovery_resumed_pending_command",
+                    session_id=session_id,
+                    reason=runtime_state.get("reason"),
+                    command_seq=command_seq,
+                )
+            elif runtime_service.has_unprocessed_runtime_commands(session_id):
+                log_event(
+                    "runtime_recovery_deferred_pending_commands",
+                    session_id=session_id,
+                    reason=runtime_state.get("reason"),
+                )
+            else:
+                await runtime_service.start_runtime(
+                    session_id=session_id,
+                    seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
+                    policy_mode=runtime_cfg.get("policy_mode"),
+                )
+                log_event(
+                    "runtime_recovery_started",
+                    session_id=session_id,
+                    reason=runtime_state.get("reason"),
+                )
     except Exception as exc:  # pragma: no cover - defensive runtime recovery path
         log_event("runtime_recovery_failed", session_id=session_id, error=str(exc))
 

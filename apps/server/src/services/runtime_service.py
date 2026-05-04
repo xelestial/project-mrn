@@ -279,6 +279,54 @@ class RuntimeService:
         self._persist_runtime_state(session_id)
         log_event("runtime_stop_requested", session_id=session_id, reason=reason)
 
+    def has_unprocessed_runtime_commands(self, session_id: str, consumer_name: str = "runtime_wakeup") -> bool:
+        if self._command_store is None:
+            return False
+        load_offset = getattr(self._command_store, "load_consumer_offset", None)
+        list_commands = getattr(self._command_store, "list_commands", None)
+        if not callable(load_offset) or not callable(list_commands):
+            return False
+        last_seq = int(load_offset(consumer_name, session_id))
+        for command in list_commands(session_id):
+            if int(command.get("seq", 0) or 0) > last_seq:
+                return True
+        return False
+
+    def pending_resume_command(self, session_id: str, consumer_name: str = "runtime_wakeup") -> dict | None:
+        del consumer_name
+        if self._command_store is None:
+            return None
+        list_commands = getattr(self._command_store, "list_commands", None)
+        if not callable(list_commands):
+            return None
+        recovery = self.recovery_checkpoint(session_id)
+        checkpoint = recovery.get("checkpoint") if isinstance(recovery, dict) else None
+        if not isinstance(checkpoint, dict):
+            return None
+        waiting_request_id = str(checkpoint.get("waiting_prompt_request_id") or "").strip()
+        if not waiting_request_id:
+            return None
+        commands = sorted(list_commands(session_id), key=lambda command: int(command.get("seq", 0) or 0))
+        resolved_request_ids = {
+            self._command_payload_field(command, "request_id")
+            for command in commands
+            if str(command.get("type") or "").strip() == "decision_resolved"
+        }
+        for command in commands:
+            if str(command.get("type") or "").strip() != "decision_submitted":
+                continue
+            if self._command_payload_field(command, "request_id") != waiting_request_id:
+                continue
+            if waiting_request_id in resolved_request_ids:
+                continue
+            if self._command_module_identity_mismatch(checkpoint, command):
+                continue
+            return dict(command)
+        return None
+
+    def has_pending_resume_command(self, session_id: str, consumer_name: str = "runtime_wakeup") -> bool:
+        return self.pending_resume_command(session_id, consumer_name=consumer_name) is not None
+
     def runtime_status(self, session_id: str) -> dict:
         self._refresh_status(session_id)
         task = self._runtime_tasks.get(session_id)
@@ -1032,6 +1080,34 @@ class RuntimeService:
                 return replay_payload
         return payload
 
+    @staticmethod
+    def _command_payload(command: dict) -> dict:
+        payload = command.get("payload")
+        return payload if isinstance(payload, dict) else {}
+
+    @staticmethod
+    def _command_payload_field(command: dict, name: str) -> str:
+        payload = RuntimeService._command_payload(command)
+        decision = payload.get("decision")
+        decision = decision if isinstance(decision, dict) else {}
+        return str(payload.get(name) or decision.get(name) or "").strip()
+
+    @staticmethod
+    def _command_module_identity_mismatch(checkpoint: dict, command: dict) -> bool:
+        payload = RuntimeService._command_payload(command)
+        field_pairs = (
+            ("frame_id", "active_frame_id"),
+            ("module_id", "active_module_id"),
+            ("module_type", "active_module_type"),
+            ("module_cursor", "active_module_cursor"),
+        )
+        for command_field, checkpoint_field in field_pairs:
+            command_value = str(payload.get(command_field) or "").strip()
+            checkpoint_value = str(checkpoint.get(checkpoint_field) or "").strip()
+            if command_value and checkpoint_value and command_value != checkpoint_value:
+                return True
+        return False
+
     def _acquire_runtime_lease(self, session_id: str) -> bool:
         if self._runtime_state_store is None:
             return True
@@ -1599,13 +1675,23 @@ class _ServerDecisionPolicyBridge:
         invocation = build_decision_invocation_from_request(request)
         fallback_policy = str(getattr(request, "fallback_policy", "required") or "required")
         call = build_routed_decision_call(invocation, fallback_policy=fallback_policy)
-        if self._decision_resume is not None:
+        if self._decision_resume is not None and self._decision_resume_matches_call(call, self._decision_resume):
             return self._consume_decision_resume(call)
         client = self._router.client_for_call(call)
         client_policy = getattr(client, "policy", None)
         if callable(getattr(request, "fallback", None)) and (client_policy is None or not hasattr(client_policy, invocation.method_name)):
             return request.fallback()
         return client.resolve(call)
+
+    @staticmethod
+    def _decision_resume_matches_call(call, resume: RuntimeDecisionResume) -> bool:
+        request = call.request
+        expected_player_id = int(request.player_id if request.player_id is not None else -1) + 1
+        if expected_player_id != int(resume.player_id):
+            return False
+        if str(request.request_type or "") != str(resume.request_type or ""):
+            return False
+        return True
 
     def _consume_decision_resume(self, call):
         resume = self._decision_resume
@@ -1634,6 +1720,7 @@ class _ServerDecisionPolicyBridge:
                 )
             except Exception as exc:
                 raise RuntimeDecisionResumeMismatch("decision resume parse failed") from exc
+        self._advance_prompt_sequence_after_decision_resume(resume)
         self._decision_resume = None
         self._gateway._publish_decision_resolved(
             request_id=resume.request_id,
@@ -1645,6 +1732,28 @@ class _ServerDecisionPolicyBridge:
             public_context=dict(request.public_context),
         )
         return parsed
+
+    def _advance_prompt_sequence_after_decision_resume(self, resume: RuntimeDecisionResume) -> None:
+        if self._human_client is None:
+            return
+        parsed_instance_id = self._prompt_instance_id_from_resume_request_id(resume)
+        next_instance_id = max(self._human_client.prompt_seq + 1, parsed_instance_id)
+        self._human_client.set_prompt_seq(next_instance_id)
+
+    @staticmethod
+    def _prompt_instance_id_from_resume_request_id(resume: RuntimeDecisionResume) -> int:
+        request_type = str(resume.request_type or "").strip()
+        request_id = str(resume.request_id or "").strip()
+        if not request_type or not request_id:
+            return 0
+        marker = f":{request_type}:"
+        if marker not in request_id:
+            return 0
+        raw_instance_id = request_id.rsplit(marker, 1)[-1]
+        try:
+            return max(0, int(raw_instance_id))
+        except ValueError:
+            return 0
 
     def __getattr__(self, name: str):
         target = self._router.attribute_target(name)

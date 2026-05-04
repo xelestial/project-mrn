@@ -38,6 +38,8 @@ class CommandStreamWakeupWorker:
                 status = self._runtime_service.runtime_status(current_session_id)
                 if status.get("status") in {"recovery_required", "idle", "running_elsewhere", "waiting_input"}:
                     if self._is_stale_waiting_command(status, command):
+                        if self._is_runtime_resume_command(command) and self._has_waiting_request_id_mismatch(status, command):
+                            break
                         self._save_offset(current_session_id, seq)
                         last_seq = seq
                         continue
@@ -53,9 +55,13 @@ class CommandStreamWakeupWorker:
                             "runtime_status": status.get("status"),
                         }
                     )
+                    break
                 elif status.get("status") == "running":
-                    self._save_offset(current_session_id, seq)
-                    last_seq = seq
+                    if self._is_runtime_observation_command(command):
+                        self._save_offset(current_session_id, seq)
+                        last_seq = seq
+                    else:
+                        break
         return wakeups
 
     async def run(
@@ -126,14 +132,28 @@ class CommandStreamWakeupWorker:
         self._last_processed_seq[session_id] = int(seq)
 
     @staticmethod
+    def _is_runtime_observation_command(command: dict) -> bool:
+        return str(command.get("type") or "").strip() == "decision_resolved"
+
+    @staticmethod
+    def _is_runtime_resume_command(command: dict) -> bool:
+        return str(command.get("type") or "").strip() == "decision_submitted"
+
+    @staticmethod
     def _is_stale_waiting_command(status: dict, command: dict) -> bool:
         if status.get("status") != "waiting_input":
             return False
+        if CommandStreamWakeupWorker._has_waiting_request_id_mismatch(status, command):
+            return True
+        return CommandStreamWakeupWorker._module_identity_mismatch(status, command)
+
+    @staticmethod
+    def _has_waiting_request_id_mismatch(status: dict, command: dict) -> bool:
         waiting_request_id = CommandStreamWakeupWorker._waiting_prompt_request_id(status)
         command_request_id = CommandStreamWakeupWorker._command_request_id(command)
         if waiting_request_id and command_request_id and command_request_id != waiting_request_id:
             return True
-        return CommandStreamWakeupWorker._module_identity_mismatch(status, command)
+        return False
 
     @staticmethod
     def _waiting_prompt_request_id(status: dict) -> str:

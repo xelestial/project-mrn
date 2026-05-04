@@ -260,6 +260,122 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(calls, [(session_id, 120, None)])
 
+    def test_authenticated_runtime_status_defers_recovery_when_commands_are_unprocessed(self) -> None:
+        from apps.server.src import state
+
+        created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
+        self.assertEqual(created.status_code, 200)
+        data = created.json()["data"]
+        session_id = data["session_id"]
+        joined = self.client.post(
+            f"/api/v1/sessions/{session_id}/join",
+            json={"seat": 1, "join_token": data["join_tokens"]["1"], "display_name": "P1"},
+        )
+        self.assertEqual(joined.status_code, 200)
+        session_token = joined.json()["data"]["session_token"]
+
+        original_start = state.runtime_service.start_runtime
+        original_has_commands = state.runtime_service.has_unprocessed_runtime_commands
+
+        async def _noop_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+            del session_id, seed, policy_mode
+
+        state.runtime_service.start_runtime = _noop_start_runtime  # type: ignore[assignment]
+        try:
+            started = self.client.post(
+                f"/api/v1/sessions/{session_id}/start",
+                json={"host_token": data["host_token"]},
+            )
+        finally:
+            state.runtime_service.start_runtime = original_start  # type: ignore[assignment]
+        self.assertEqual(started.status_code, 200)
+        self.assertEqual(state.runtime_service.runtime_status(session_id).get("status"), "recovery_required")
+
+        calls: list[tuple[str, int, str | None]] = []
+
+        async def _fake_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+            calls.append((session_id, seed, policy_mode))
+
+        state.runtime_service.start_runtime = _fake_start_runtime  # type: ignore[assignment]
+        state.runtime_service.has_unprocessed_runtime_commands = lambda _session_id: True  # type: ignore[method-assign]
+        try:
+            response = self.client.get(
+                f"/api/v1/sessions/{session_id}/runtime-status",
+                params={"token": session_token},
+            )
+        finally:
+            state.runtime_service.start_runtime = original_start  # type: ignore[assignment]
+            state.runtime_service.has_unprocessed_runtime_commands = original_has_commands  # type: ignore[method-assign]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(calls, [])
+
+    def test_authenticated_runtime_status_resumes_pending_command_before_plain_recovery(self) -> None:
+        from apps.server.src import state
+
+        created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
+        self.assertEqual(created.status_code, 200)
+        data = created.json()["data"]
+        session_id = data["session_id"]
+        joined = self.client.post(
+            f"/api/v1/sessions/{session_id}/join",
+            json={"seat": 1, "join_token": data["join_tokens"]["1"], "display_name": "P1"},
+        )
+        self.assertEqual(joined.status_code, 200)
+        session_token = joined.json()["data"]["session_token"]
+
+        original_start = state.runtime_service.start_runtime
+        original_pending = state.runtime_service.pending_resume_command
+        original_process = state.runtime_service.process_command_once
+
+        async def _noop_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+            del session_id, seed, policy_mode
+
+        state.runtime_service.start_runtime = _noop_start_runtime  # type: ignore[assignment]
+        try:
+            started = self.client.post(
+                f"/api/v1/sessions/{session_id}/start",
+                json={"host_token": data["host_token"]},
+            )
+        finally:
+            state.runtime_service.start_runtime = original_start  # type: ignore[assignment]
+        self.assertEqual(started.status_code, 200)
+        self.assertEqual(state.runtime_service.runtime_status(session_id).get("status"), "recovery_required")
+
+        start_calls: list[tuple[str, int, str | None]] = []
+        process_calls: list[tuple[str, int, str, int, str | None]] = []
+
+        async def _fake_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+            start_calls.append((session_id, seed, policy_mode))
+
+        async def _fake_process_command_once(
+            *,
+            session_id: str,
+            command_seq: int,
+            consumer_name: str,
+            seed: int,
+            policy_mode: str | None = None,
+        ) -> dict:
+            process_calls.append((session_id, command_seq, consumer_name, seed, policy_mode))
+            return {"status": "committed"}
+
+        state.runtime_service.start_runtime = _fake_start_runtime  # type: ignore[assignment]
+        state.runtime_service.pending_resume_command = lambda _session_id: {"seq": 7, "type": "decision_submitted"}  # type: ignore[method-assign]
+        state.runtime_service.process_command_once = _fake_process_command_once  # type: ignore[method-assign]
+        try:
+            response = self.client.get(
+                f"/api/v1/sessions/{session_id}/runtime-status",
+                params={"token": session_token},
+            )
+        finally:
+            state.runtime_service.start_runtime = original_start  # type: ignore[assignment]
+            state.runtime_service.pending_resume_command = original_pending  # type: ignore[method-assign]
+            state.runtime_service.process_command_once = original_process  # type: ignore[method-assign]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(start_calls, [])
+        self.assertEqual(process_calls, [(session_id, 7, "runtime_wakeup", 120, None)])
+
     def test_public_session_allows_spectator_replay_and_runtime_status(self) -> None:
         payload = _all_ai_payload()
         payload["config"]["visibility"] = "public"
@@ -579,6 +695,8 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(accepted.status_code, 200)
 
     def test_start_response_includes_parameter_manifest(self) -> None:
+        from apps.server.src import state
+
         payload = _all_ai_payload()
         payload["config"]["visibility"] = "public"
         created = self.client.post("/api/v1/sessions", json=payload)
@@ -587,10 +705,19 @@ class SessionsApiTests(unittest.TestCase):
         session_id = created_data["session_id"]
         host_token = created_data["host_token"]
 
-        started = self.client.post(
-            f"/api/v1/sessions/{session_id}/start",
-            json={"host_token": host_token},
-        )
+        original = state.runtime_service.start_runtime
+
+        async def _noop_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+            del session_id, seed, policy_mode
+
+        state.runtime_service.start_runtime = _noop_start_runtime  # type: ignore[assignment]
+        try:
+            started = self.client.post(
+                f"/api/v1/sessions/{session_id}/start",
+                json={"host_token": host_token},
+            )
+        finally:
+            state.runtime_service.start_runtime = original  # type: ignore[assignment]
         self.assertEqual(started.status_code, 200)
         started_data = started.json()["data"]
         self.assertIn("parameter_manifest", started_data)
@@ -607,6 +734,8 @@ class SessionsApiTests(unittest.TestCase):
         self.assertIn("parameter_manifest", event_types)
 
     def test_start_replay_session_start_includes_initial_active_faces(self) -> None:
+        from apps.server.src import state
+
         payload = _all_ai_payload()
         payload["config"]["visibility"] = "public"
         created = self.client.post("/api/v1/sessions", json=payload)
@@ -615,10 +744,19 @@ class SessionsApiTests(unittest.TestCase):
         session_id = created_data["session_id"]
         host_token = created_data["host_token"]
 
-        started = self.client.post(
-            f"/api/v1/sessions/{session_id}/start",
-            json={"host_token": host_token},
-        )
+        original = state.runtime_service.start_runtime
+
+        async def _noop_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+            del session_id, seed, policy_mode
+
+        state.runtime_service.start_runtime = _noop_start_runtime  # type: ignore[assignment]
+        try:
+            started = self.client.post(
+                f"/api/v1/sessions/{session_id}/start",
+                json={"host_token": host_token},
+            )
+        finally:
+            state.runtime_service.start_runtime = original  # type: ignore[assignment]
         self.assertEqual(started.status_code, 200)
 
         replay = self.client.get(f"/api/v1/sessions/{session_id}/replay")
@@ -640,6 +778,8 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(snapshot_tiles[0].get("pawn_player_ids"), [1, 2, 3, 4])
 
     def test_start_replay_parameter_manifest_also_carries_initial_active_faces(self) -> None:
+        from apps.server.src import state
+
         payload = _all_ai_payload()
         payload["config"]["visibility"] = "public"
         created = self.client.post("/api/v1/sessions", json=payload)
@@ -648,10 +788,19 @@ class SessionsApiTests(unittest.TestCase):
         session_id = created_data["session_id"]
         host_token = created_data["host_token"]
 
-        started = self.client.post(
-            f"/api/v1/sessions/{session_id}/start",
-            json={"host_token": host_token},
-        )
+        original = state.runtime_service.start_runtime
+
+        async def _noop_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+            del session_id, seed, policy_mode
+
+        state.runtime_service.start_runtime = _noop_start_runtime  # type: ignore[assignment]
+        try:
+            started = self.client.post(
+                f"/api/v1/sessions/{session_id}/start",
+                json={"host_token": host_token},
+            )
+        finally:
+            state.runtime_service.start_runtime = original  # type: ignore[assignment]
         self.assertEqual(started.status_code, 200)
 
         replay = self.client.get(f"/api/v1/sessions/{session_id}/replay")

@@ -158,6 +158,60 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         self.assertEqual(runtime.processed, [(session.session_id, 1, "runtime_wakeup", 21, None)])
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 0)
 
+    def test_wakeup_worker_keeps_resume_command_queued_while_runtime_is_running(self) -> None:
+        connection = RedisConnection(
+            RedisConnectionSettings(
+                url="redis://127.0.0.1:6379/10",
+                key_prefix="mrn-wakeup-running-decision",
+                socket_timeout_ms=250,
+            ),
+            client_factory=_FakeRedis,
+        )
+        command_store = RedisCommandStore(connection)
+        sessions = SessionService(restart_recovery_policy="keep")
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 62},
+        )
+        sessions.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = _RuntimeProcessStub(status="running")
+        worker = CommandStreamWakeupWorker(
+            command_store=command_store,
+            session_service=sessions,
+            runtime_service=runtime,
+            poll_interval_ms=50,
+        )
+        command_store.append_command(
+            session.session_id,
+            "decision_submitted",
+            {"request_id": "req_running_final", "choice_id": "sandok"},
+            request_id="req_running_final",
+        )
+        command_store.append_command(
+            session.session_id,
+            "decision_resolved",
+            {"request_id": "req_ai_later", "choice_id": "5", "provider": "ai"},
+            request_id="req_ai_later",
+        )
+
+        first = asyncio.run(worker.run_once(session_id=session.session_id))
+
+        self.assertEqual(first, [])
+        self.assertEqual(runtime.processed, [])
+        self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 0)
+
+        runtime.set_status("waiting_input")
+
+        second = asyncio.run(worker.run_once(session_id=session.session_id))
+
+        self.assertEqual(len(second), 1)
+        self.assertEqual(second[0]["command_seq"], 1)
+        self.assertEqual(runtime.processed, [(session.session_id, 1, "runtime_wakeup", 62, None)])
+
     def test_wakeup_worker_skips_waiting_input_commands_for_non_active_prompt(self) -> None:
         connection = RedisConnection(
             RedisConnectionSettings(
@@ -205,7 +259,7 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         self.assertEqual(runtime.processed, [(session.session_id, 2, "runtime_wakeup", 55, None)])
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 1)
 
-    def test_wakeup_worker_restart_skips_stale_waiting_commands_until_active_prompt(self) -> None:
+    def test_wakeup_worker_restart_preserves_stale_submitted_command_until_recovery_resolves_it(self) -> None:
         connection = RedisConnection(
             RedisConnectionSettings(
                 url="redis://127.0.0.1:6379/10",
@@ -266,10 +320,9 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
 
         wakeups = asyncio.run(restarted_worker.run_once(session_id=session.session_id))
 
-        self.assertEqual(len(wakeups), 1)
-        self.assertEqual(wakeups[0]["command_seq"], 3)
-        self.assertEqual(runtime.processed, [(session.session_id, 3, "runtime_wakeup", 58, None)])
-        self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 2)
+        self.assertEqual(wakeups, [])
+        self.assertEqual(runtime.processed, [])
+        self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 1)
 
     def test_wakeup_worker_skips_matching_request_with_stale_module_cursor(self) -> None:
         connection = RedisConnection(
@@ -420,6 +473,9 @@ class _RuntimeProcessStub:
                 },
             }
         return status
+
+    def set_status(self, status: str) -> None:
+        self._status = status
 
     async def process_command_once(
         self,

@@ -77,9 +77,35 @@ async def _recover_runtime_for_authenticated_seat(
     runtime_state = runtime.runtime_status(session_id)
     if runtime_state.get("status") != "recovery_required":
         return
+    session = service.get_session(session_id)
+    runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
+    pending_command = runtime.pending_resume_command(session_id)
+    if pending_command is not None:
+        command_seq = int(pending_command.get("seq", 0) or 0)
+        await runtime.process_command_once(
+            session_id=session_id,
+            command_seq=command_seq,
+            consumer_name="runtime_wakeup",
+            seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
+            policy_mode=runtime_cfg.get("policy_mode"),
+        )
+        log_event(
+            "runtime_recovery_resumed_pending_command",
+            session_id=session_id,
+            reason=runtime_state.get("reason"),
+            trigger="runtime_status",
+            command_seq=command_seq,
+        )
+        return
+    if runtime.has_unprocessed_runtime_commands(session_id):
+        log_event(
+            "runtime_recovery_deferred_pending_commands",
+            session_id=session_id,
+            reason=runtime_state.get("reason"),
+            trigger="runtime_status",
+        )
+        return
     try:
-        session = service.get_session(session_id)
-        runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
         await runtime.start_runtime(
             session_id=session_id,
             seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
