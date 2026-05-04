@@ -713,12 +713,10 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
       characterPick
         ? {
             phase: stringOrEmpty(characterPick["phase"]) || (requestType === "draft_card" ? "draft" : "final"),
-            draftPhase: numberOrNull(characterPick["draft_phase"]) ?? numberOrNull(publicContext["draft_phase"]),
-            draftPhaseLabel: stringOrEmpty(characterPick["draft_phase_label"]) || stringOrEmpty(publicContext["draft_phase_label"]) || null,
+            draftPhase: numberOrNull(characterPick["draft_phase"]),
+            draftPhaseLabel: stringOrEmpty(characterPick["draft_phase_label"]) || null,
             choiceCount:
               numberOrNull(characterPick["choice_count"]) ??
-              numberOrNull(publicContext["offered_count"]) ??
-              numberOrNull(publicContext["choice_count"]) ??
               (Array.isArray(characterPick["options"]) ? characterPick["options"].length : 0),
             options: Array.isArray(characterPick["options"])
               ? characterPick["options"].flatMap((item) => {

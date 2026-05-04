@@ -8,6 +8,7 @@ import unittest.mock
 from apps.server.src.domain.view_state.projector import project_view_state
 from apps.server.src.infra.redis_client import RedisConnection, RedisConnectionSettings
 from apps.server.src.services.prompt_service import PromptService
+from apps.server.src.services.command_wakeup_worker import CommandStreamWakeupWorker
 from apps.server.src.services.realtime_persistence import (
     RedisCommandStore,
     RedisGameStateStore,
@@ -871,6 +872,155 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(saved_checkpoint["latest_event_type"], "prompt_required")
         self.assertTrue(saved_checkpoint["has_pending_actions"])
         self.assertEqual(saved_checkpoint["pending_action_count"], 2)
+
+    def test_command_wakeup_restart_resumes_queued_purchase_prompt_from_redis(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        from config import CellKind
+        from state import ActionEnvelope, GameState
+
+        sessions = SessionService()
+        game_state = RedisGameStateStore(self.connection)
+        command_store = RedisCommandStore(self.connection)
+        prompt_store = RedisPromptStore(self.connection)
+        stream_store = RedisStreamStore(self.connection)
+        runtime_state_store = RedisRuntimeStateStore(self.connection)
+        first_prompt_service = PromptService(prompt_store=prompt_store, command_store=command_store)
+        first_stream_service = StreamService(
+            stream_backend=stream_store,
+            game_state_store=game_state,
+            command_store=command_store,
+        )
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        sessions.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        sessions.start_session(session.session_id, session.host_token)
+        first_runtime = RuntimeService(
+            session_service=sessions,
+            stream_service=first_stream_service,
+            prompt_service=first_prompt_service,
+            runtime_state_store=runtime_state_store,
+            game_state_store=game_state,
+            command_store=command_store,
+        )
+        config = first_runtime._config_factory.create(session.resolved_parameters)
+        state = GameState.create(config)
+        tile_index = state.first_tile_position(kinds=[CellKind.T2])
+        state.current_round_order = [0, 1]
+        state.turn_index = 0
+        state.players[0].position = tile_index
+        state.pending_actions = [
+            ActionEnvelope(
+                action_id="restart_purchase_prompt",
+                type="request_purchase_tile",
+                actor_player_id=0,
+                source="landing_purchase",
+                payload={
+                    "tile_index": tile_index,
+                    "purchase_source": "landing_purchase",
+                    "record_landing_result": True,
+                },
+            ),
+            ActionEnvelope(
+                action_id="restart_purchase_post",
+                type="resolve_unowned_post_purchase",
+                actor_player_id=0,
+                source="landing_post_purchase",
+                payload={"tile_index": tile_index},
+            ),
+        ]
+        game_state.save_current_state(session.session_id, state.to_checkpoint_payload())
+        game_state.save_checkpoint(
+            session.session_id,
+            {
+                "schema_version": 1,
+                "session_id": session.session_id,
+                "latest_seq": 1,
+                "latest_event_type": "engine_transition",
+                "round_index": 1,
+                "turn_index": 0,
+                "has_snapshot": True,
+                "pending_action_count": 2,
+                "has_pending_actions": True,
+                "updated_at_ms": 1000,
+            },
+        )
+
+        async def _first_prompt() -> dict:
+            return await asyncio.to_thread(
+                first_runtime._run_engine_transition_once_sync,
+                asyncio.get_running_loop(),
+                session.session_id,
+                42,
+                None,
+                True,
+                None,
+                None,
+            )
+
+        first_step = asyncio.run(_first_prompt())
+        pending_prompts = [item for item in prompt_store.list_pending() if item.get("session_id") == session.session_id]
+        self.assertEqual(first_step["status"], "waiting_input")
+        self.assertEqual(len(pending_prompts), 1)
+        request_id = str(pending_prompts[0]["request_id"])
+        saved_before_restart = game_state.load_current_state(session.session_id)
+        self.assertEqual(
+            [action["type"] for action in saved_before_restart["pending_actions"]],
+            ["request_purchase_tile", "resolve_unowned_post_purchase"],
+        )
+
+        accepted = first_prompt_service.submit_decision(
+            {
+                "request_id": request_id,
+                "player_id": int(pending_prompts[0]["player_id"]),
+                "choice_id": "yes",
+            }
+        )
+        self.assertEqual(accepted["status"], "accepted")
+        command = command_store.list_commands(session.session_id)[0]
+
+        restarted_prompt_service = PromptService(prompt_store=prompt_store, command_store=command_store)
+        restarted_stream_service = StreamService(
+            stream_backend=stream_store,
+            game_state_store=game_state,
+            command_store=command_store,
+        )
+        restarted_runtime = RuntimeService(
+            session_service=sessions,
+            stream_service=restarted_stream_service,
+            prompt_service=restarted_prompt_service,
+            runtime_state_store=runtime_state_store,
+            game_state_store=game_state,
+            command_store=command_store,
+        )
+        worker = CommandStreamWakeupWorker(
+            command_store=command_store,
+            session_service=sessions,
+            runtime_service=restarted_runtime,
+            consumer_name="runtime_wakeup",
+        )
+
+        wakeups = asyncio.run(worker.run_once(session_id=session.session_id))
+        saved_after_restart = game_state.load_current_state(session.session_id)
+        checkpoint_after_restart = game_state.load_checkpoint(session.session_id)
+        prompt_messages = [
+            message
+            for message in stream_store.snapshot(session.session_id)
+            if message["type"] == "prompt" and message["payload"].get("request_id") == request_id
+        ]
+
+        self.assertEqual(len(wakeups), 1)
+        self.assertEqual(wakeups[0]["command_seq"], int(command["seq"]))
+        self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), int(command["seq"]))
+        self.assertEqual(prompt_store.get_pending(request_id), None)
+        self.assertEqual(len(prompt_messages), 1)
+        self.assertEqual(saved_after_restart["tiles"][tile_index]["owner_id"], 0)
+        self.assertNotIn("request_purchase_tile", [action["type"] for action in saved_after_restart["pending_actions"]])
+        self.assertEqual(checkpoint_after_restart["processed_command_seq"], int(command["seq"]))
 
     def test_runtime_recovery_drains_post_purchase_action_from_checkpoint(self) -> None:
         RuntimeService._ensure_gpt_import_path()

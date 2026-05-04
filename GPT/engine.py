@@ -906,7 +906,7 @@ class GameEngine:
             return False
         matched.sort(key=lambda item: (item.priority, item.action_id))
         state.scheduled_actions = remaining
-        state.pending_actions.extend(matched)
+        state.enqueue_pending_actions(matched)
         return True
 
     def _resolve_arrival_action(self, state: GameState, action: ActionEnvelope, *, queue_followups: bool = False) -> dict:
@@ -956,16 +956,16 @@ class GameEngine:
                 },
             )
             if followup.payload["move_value"] > 0:
-                state.pending_actions.insert(0, followup)
+                state.enqueue_pending_action(followup, front=True)
                 result["followup"] = {"queued_action_id": followup.action_id, "action_type": followup.type}
         return result
 
     def _run_next_action_transition(self, state: GameState) -> dict[str, Any]:
-        action = state.pending_actions.pop(0)
+        action = state.dequeue_pending_action()
         try:
             result = self._execute_action(state, action, queue_followups=True)
         except Exception:
-            state.pending_actions.insert(0, action)
+            state.enqueue_pending_action(action, front=True)
             raise
         self._log(
             {
@@ -1194,7 +1194,7 @@ class GameEngine:
             else:
                 result["arrival"] = self._execute_action(state, arrival_action)
         if followup_actions:
-            state.pending_actions[0:0] = followup_actions
+            state.enqueue_pending_actions(followup_actions, front=True)
         self._record_pending_move_segment(state, action, result)
         return result
 
@@ -1367,7 +1367,7 @@ class GameEngine:
             emit_move_event=emit_move_event,
             move_event_type=move_event_type,
         )
-        state.pending_actions.append(action)
+        state.enqueue_pending_action(action)
         return action
 
     def _apply_forced_landing(self, state: GameState, player: PlayerState, source_pos: int) -> dict:
@@ -1473,7 +1473,7 @@ class GameEngine:
             },
             parent_action_id=action.action_id,
         )
-        state.pending_actions.insert(0, resolve_action)
+        state.enqueue_pending_action(resolve_action, front=True)
         return {
             "type": "QUEUED_PURCHASE_RESOLUTION",
             "tile_kind": cell.name,
@@ -1581,7 +1581,7 @@ class GameEngine:
             },
             parent_action_id=parent_action_id,
         )
-        state.pending_actions.insert(0, action)
+        state.enqueue_pending_action(action, front=True)
         return action
 
     def _queue_score_token_placement_request(
@@ -1608,7 +1608,7 @@ class GameEngine:
             },
             parent_action_id=parent_action_id,
         )
-        state.pending_actions.insert(0, action)
+        state.enqueue_pending_action(action, front=True)
         queued = dict(base_event)
         queued["placed"] = {
             "type": "QUEUED_SCORE_TOKEN_PLACEMENT_REQUEST",
@@ -1653,7 +1653,7 @@ class GameEngine:
             },
             parent_action_id=action.action_id,
         )
-        state.pending_actions.insert(0, placement_action)
+        state.enqueue_pending_action(placement_action, front=True)
         queued = dict(base_event)
         queued["placed"] = {
             "type": "QUEUED_SCORE_TOKEN_PLACEMENT",
@@ -1728,7 +1728,7 @@ class GameEngine:
                 "formula": formula,
             },
         )
-        state.pending_actions.append(action)
+        state.enqueue_pending_action(action)
         return action
 
     def _should_defer_landing_post_effects(self) -> bool:
@@ -1757,7 +1757,7 @@ class GameEngine:
             },
             parent_action_id=self._deferred_arrival_action_id,
         )
-        state.pending_actions.insert(0, rent_action)
+        state.enqueue_pending_action(rent_action, front=True)
         return {
             "type": "QUEUED_RENT_PAYMENT",
             "tile_kind": state.board[pos].name,
@@ -1789,7 +1789,7 @@ class GameEngine:
             },
             parent_action_id=self._deferred_arrival_action_id,
         )
-        state.pending_actions.insert(0, post_action)
+        state.enqueue_pending_action(post_action, front=True)
         queued = dict(event)
         queued["post_action_queued"] = True
         queued["queued_action_id"] = post_action.action_id
@@ -1918,8 +1918,7 @@ class GameEngine:
             post_payload,
             parent_action_id=purchase_action.action_id,
         )
-        state.pending_actions.insert(0, post_action)
-        state.pending_actions.insert(0, purchase_action)
+        state.enqueue_pending_actions([purchase_action, post_action], front=True)
         return {
             "type": "QUEUED_PURCHASE",
             "tile_kind": cell.name,
@@ -2701,7 +2700,7 @@ class GameEngine:
                         "card_name": source.current_character,
                     },
                 )
-                state.pending_actions.insert(0, move_action)
+                state.enqueue_pending_action(move_action, front=True)
                 result = {
                     "type": "hunter_pull",
                     "queued_action_id": move_action.action_id,
@@ -3805,6 +3804,33 @@ class GameEngine:
     def _burden_cards(self, player: PlayerState) -> list[TrickCard]:
         return [c for c in player.trick_hand if c.is_burden]
 
+    def _resolve_supply_burden_exchange(
+        self,
+        state: GameState,
+        player: PlayerState,
+        card: TrickCard,
+    ) -> dict[str, Any] | None:
+        if not getattr(card, "is_burden", False):
+            return None
+        cost = int(getattr(card, "burden_cost", 0) or 0)
+        if getattr(player, "cash", 0) < cost:
+            return None
+        held = next(
+            (
+                hand_card
+                for hand_card in list(getattr(player, "trick_hand", []))
+                if getattr(hand_card, "deck_index", None) == getattr(card, "deck_index", None)
+                and getattr(hand_card, "is_burden", False)
+            ),
+            None,
+        )
+        if held is None:
+            return None
+        player.cash -= cost
+        self._discard_trick(state, player, held)
+        self._draw_tricks(state, player, 1)
+        return {"name": getattr(held, "name", ""), "cost": cost}
+
     def _resolve_baksu_transfer(self, state: GameState, source: PlayerState, target: PlayerState) -> dict:
         burdens = list(self._burden_cards(source))
         if not burdens:
@@ -4027,7 +4053,7 @@ class GameEngine:
                     dict(turn_continuation),
                 )
             )
-        state.pending_actions[0:0] = queued
+        state.enqueue_pending_actions(queued, front=True)
         return True
 
     def _resolve_supply_threshold_action(self, state: GameState, action: ActionEnvelope) -> dict:
@@ -4091,11 +4117,10 @@ class GameEngine:
                     result={"card_name": card.name, "accepted": bool(accepted and p.cash >= card.burden_cost)},
                     source_event="trick_supply",
                 )
-                if accepted and p.cash >= card.burden_cost:
-                    p.cash -= card.burden_cost
-                    self._discard_trick(state, p, card)
-                    exchanged.append({"name": card.name, "cost": card.burden_cost})
-                    self._draw_tricks(state, p, 1)
+                if accepted:
+                    exchanged_card = self._resolve_supply_burden_exchange(state, p, card)
+                    if exchanged_card is not None:
+                        exchanged.append(exchanged_card)
             before = len(p.trick_hand)
             self._draw_tricks(state, p, max(0, 5 - len(p.trick_hand)))
             event["players"].append({"player": p.player_id + 1, "before": before, "after": len(p.trick_hand), "exchanged": exchanged, "hand": [c.name for c in p.trick_hand], "public_hand": p.public_trick_names(), "hidden_trick_count": p.hidden_trick_count()})
@@ -4294,8 +4319,7 @@ class GameEngine:
                 self._sync_trick_visibility(state, player)
             except Exception:
                 if turn_continuation is not None:
-                    state.pending_actions.insert(
-                        0,
+                    state.enqueue_pending_action(
                         self._action(
                             state,
                             "continue_after_trick_phase",
@@ -4303,12 +4327,13 @@ class GameEngine:
                             "hidden_trick_selection",
                             dict(turn_continuation),
                         ),
+                        front=True,
                     )
                 raise
             if turn_continuation is not None and len(state.pending_actions) > pending_actions_before:
                 continuation_payload = dict(turn_continuation)
                 continuation_payload["hidden_trick_synced"] = True
-                state.pending_actions.append(
+                state.enqueue_pending_action(
                     self._action(
                         state,
                         "continue_after_trick_phase",
@@ -4352,7 +4377,7 @@ class GameEngine:
                 "modifier_kind": modifier_kind,
             },
         )
-        state.pending_actions.append(action)
+        state.enqueue_pending_action(action)
         return {
             "type": "QUEUED_TRICK_TILE_RENT_MODIFIER",
             "card_name": card_name,
@@ -4901,7 +4926,7 @@ class GameEngine:
                 "steps": steps,
             },
         )
-        state.pending_actions.extend([move_action, takeover_action])
+        state.enqueue_pending_actions([move_action, takeover_action])
         return {
             "type": "QUEUED_TAKEOVER_BACKWARD",
             "card_name": card_name,
@@ -4920,7 +4945,7 @@ class GameEngine:
             "fortune_subscription",
             {"card_name": card_name},
         )
-        state.pending_actions.append(action)
+        state.enqueue_pending_action(action)
         return {"type": "QUEUED_FORTUNE_SUBSCRIPTION", "queued_action_id": action.action_id}
 
     def _resolve_fortune_subscription_action(self, state: GameState, action: ActionEnvelope) -> dict:
@@ -4952,7 +4977,7 @@ class GameEngine:
             action_type.removeprefix("resolve_"),
             {"card_name": card_name},
         )
-        state.pending_actions.append(action)
+        state.enqueue_pending_action(action)
         return {"type": result_type, "queued_action_id": action.action_id}
 
     def _emit_fortune_action_result(self, state: GameState, player: PlayerState, card_name: str, result: dict) -> None:

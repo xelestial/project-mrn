@@ -640,6 +640,8 @@ class RuntimeService:
     ) -> dict:
         transitions = 0
         last_step: dict = {"status": "unavailable", "reason": "not_started"}
+        checkpoint_command_consumer_name = first_command_consumer_name if first_command_seq is not None else None
+        checkpoint_command_seq = int(first_command_seq) if first_command_seq is not None else None
         while max_transitions is None or transitions < max(1, int(max_transitions)):
             command_consumer_name = first_command_consumer_name if transitions == 0 else None
             command_seq = first_command_seq if transitions == 0 else None
@@ -651,6 +653,8 @@ class RuntimeService:
                 False,
                 command_consumer_name,
                 command_seq,
+                checkpoint_command_consumer_name=checkpoint_command_consumer_name,
+                checkpoint_command_seq=checkpoint_command_seq,
             )
             transitions += 1
             status = str(last_step.get("status", ""))
@@ -1151,6 +1155,9 @@ class RuntimeService:
         require_checkpoint: bool,
         command_consumer_name: str | None,
         command_seq: int | None,
+        *,
+        checkpoint_command_consumer_name: str | None = None,
+        checkpoint_command_seq: int | None = None,
     ) -> dict:
         self._ensure_gpt_import_path()
         from engine import GameEngine
@@ -1330,11 +1337,13 @@ class RuntimeService:
                 state,
             )
             continuation_debug_fields = _runtime_continuation_debug_fields(payload, decision_resume)
+            processed_command_consumer = command_consumer_name or checkpoint_command_consumer_name
+            processed_command_seq = command_seq if command_seq is not None else checkpoint_command_seq
             command_commit_envelope = {
                 "version": 1,
                 "atomic_commit": "redis_transition_state_checkpoint_event_offset",
-                "consumer": str(command_consumer_name or ""),
-                "seq": command_seq,
+                "consumer": str(processed_command_consumer or ""),
+                "seq": processed_command_seq,
                 "state": True,
                 "checkpoint": True,
                 "view_state": False,
@@ -1373,8 +1382,8 @@ class RuntimeService:
                     "has_pending_actions": bool(payload.get("pending_actions")),
                     "has_scheduled_actions": bool(payload.get("scheduled_actions")),
                     "has_pending_turn_completion": bool(payload.get("pending_turn_completion")),
-                    "processed_command_seq": command_seq,
-                    "processed_command_consumer": command_consumer_name,
+                    "processed_command_seq": processed_command_seq,
+                    "processed_command_consumer": processed_command_consumer,
                     "command_commit_envelope": command_commit_envelope,
                     **continuation_debug_fields,
                     "updated_at_ms": updated_at_ms,
@@ -1388,8 +1397,8 @@ class RuntimeService:
                     "request_id": step.get("request_id"),
                     "request_type": step.get("request_type"),
                     "player_id": step.get("player_id"),
-                    "processed_command_seq": command_seq,
-                    "processed_command_consumer": command_consumer_name,
+                    "processed_command_seq": processed_command_seq,
+                    "processed_command_consumer": processed_command_consumer,
                     "command_commit_envelope": command_commit_envelope,
                     "pending_action_count": len(payload.get("pending_actions") or []),
                     "scheduled_action_count": len(payload.get("scheduled_actions") or []),
@@ -1409,8 +1418,8 @@ class RuntimeService:
                 request_id=step.get("request_id"),
                 request_type=step.get("request_type"),
                 player_id=step.get("player_id"),
-                processed_command_seq=command_seq,
-                processed_command_consumer=command_consumer_name,
+                processed_command_seq=processed_command_seq,
+                processed_command_consumer=processed_command_consumer,
                 pending_action_count=len(payload.get("pending_actions") or []),
                 scheduled_action_count=len(payload.get("scheduled_actions") or []),
                 **module_debug_fields,

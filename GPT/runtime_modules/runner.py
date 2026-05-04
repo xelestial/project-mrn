@@ -37,6 +37,13 @@ class ModuleRunner:
 
     handler_registry: ModuleHandlerRegistry = field(default_factory=build_default_handler_registry)
 
+    def _clear_pending_actions(self, state: Any) -> None:
+        clear = getattr(state, "clear_pending_actions", None)
+        if callable(clear):
+            clear()
+        else:
+            setattr(state, "pending_actions", [])
+
     def advance_one(self, frame_stack: list[FrameState]) -> ModuleResult | None:
         frame = self._active_frame(frame_stack)
         if frame is None:
@@ -752,14 +759,11 @@ class ModuleRunner:
                 ),
                 None,
             )
-            if not accepted or card is None or getattr(player, "cash", 0) < getattr(card, "burden_cost", 0):
+            if not accepted or card is None:
                 continue
-            player.cash -= int(getattr(card, "burden_cost", 0) or 0)
-            engine._discard_trick(state, player, card)
-            exchanged_by_player.setdefault(str(player_id), []).append(
-                {"name": getattr(card, "name", ""), "cost": int(getattr(card, "burden_cost", 0) or 0)}
-            )
-            engine._draw_tricks(state, player, 1)
+            exchanged_card = engine._resolve_supply_burden_exchange(state, player, card)
+            if exchanged_card is not None:
+                exchanged_by_player.setdefault(str(player_id), []).append(exchanged_card)
         resupply_state["current_batch_targets_by_player"] = {}
 
     def _complete_resupply_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> dict[str, Any]:
@@ -976,7 +980,7 @@ class ModuleRunner:
             supply_actions, actions = self._split_supply_threshold_actions(
                 [action.to_payload() for action in state.pending_actions]
             )
-            state.pending_actions = []
+            self._clear_pending_actions(state)
             for action in supply_actions:
                 ordinal = self._next_simultaneous_ordinal(state)
                 resupply_frame = build_resupply_frame(

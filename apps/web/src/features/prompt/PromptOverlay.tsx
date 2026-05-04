@@ -296,14 +296,6 @@ function numberFromContext(context: Record<string, unknown>, ...keys: string[]):
   return null;
 }
 
-function numberFromNestedContext(context: Record<string, unknown>, parentKey: string, childKey: string): number | null {
-  const parent = context[parentKey];
-  if (!isRecord(parent)) {
-    return null;
-  }
-  return asNumber(parent[childKey]);
-}
-
 function stringFromContext(context: Record<string, unknown>, ...keys: string[]): string {
   for (const key of keys) {
     const parsed = asString(context[key]);
@@ -1210,14 +1202,14 @@ export function PromptOverlay({
   const currentPlacedCoins = numberFromContext(prompt.publicContext, "player_placed_coins");
   const currentTotalScore = numberFromContext(prompt.publicContext, "player_total_score");
   const currentOwnedTileCount = numberFromContext(prompt.publicContext, "player_owned_tile_count");
-  const rewardBudget = prompt.surface.lapReward?.budget ?? numberFromContext(prompt.publicContext, "budget");
   const rewardSurface = prompt.surface.lapReward;
-  const rewardCashPool = rewardSurface?.cashPool ?? (numberFromNestedContext(prompt.publicContext, "pools", "cash") ?? 0);
-  const rewardShardPool = rewardSurface?.shardsPool ?? (numberFromNestedContext(prompt.publicContext, "pools", "shards") ?? 0);
-  const rewardCoinPool = rewardSurface?.coinsPool ?? (numberFromNestedContext(prompt.publicContext, "pools", "coins") ?? 0);
-  const rewardCashCost = rewardSurface?.cashPointCost ?? (numberFromContext(prompt.publicContext, "cash_point_cost") ?? 1);
-  const rewardShardCost = rewardSurface?.shardsPointCost ?? (numberFromContext(prompt.publicContext, "shards_point_cost") ?? 1);
-  const rewardCoinCost = rewardSurface?.coinsPointCost ?? (numberFromContext(prompt.publicContext, "coins_point_cost") ?? 1);
+  const rewardBudget = rewardSurface?.budget ?? null;
+  const rewardCashPool = rewardSurface?.cashPool ?? 0;
+  const rewardShardPool = rewardSurface?.shardsPool ?? 0;
+  const rewardCoinPool = rewardSurface?.coinsPool ?? 0;
+  const rewardCashCost = rewardSurface?.cashPointCost ?? 1;
+  const rewardShardCost = rewardSurface?.shardsPointCost ?? 1;
+  const rewardCoinCost = rewardSurface?.coinsPointCost ?? 1;
   const lapRewardSpentPoints =
     lapRewardSelection.cashUnits * rewardCashCost +
     lapRewardSelection.shardUnits * rewardShardCost +
@@ -1269,28 +1261,22 @@ export function PromptOverlay({
   const currentFValue = burdenSurface?.currentFValue ?? numberFromContext(prompt.publicContext, "current_f_value");
   const supplyThreshold = burdenSurface?.supplyThreshold ?? numberFromContext(prompt.publicContext, "supply_threshold");
   const burdenTrigger = promptText.context.burdenExchangeTrigger(supplyThreshold, currentFValue);
-  const markCandidateCount = prompt.choices.filter((choice) => choice.choiceId !== "none").length;
-  const doctrineCandidateCount = prompt.surface.doctrineRelief?.candidateCount ?? numberFromContext(prompt.publicContext, "candidate_count") ?? markCandidateCount;
-  const trickTargetCandidateCount = prompt.surface.trickTileTarget?.candidateTiles.length ?? numberFromContext(prompt.publicContext, "candidate_count");
+  const doctrineCandidateCount = prompt.surface.doctrineRelief?.candidateCount ?? doctrineReliefChoices.length;
+  const trickTargetCandidateCount = prompt.surface.trickTileTarget?.candidateTiles.length ?? trickTileTargetChoices.length;
   const trickTargetScope = stringFromContext(prompt.publicContext, "target_scope");
   const trickTargetCardName = stringFromContext(prompt.publicContext, "card_name");
   const movementPosition = numberFromContext(prompt.publicContext, "player_position");
   const runawayOneShortPos = numberFromContext(prompt.publicContext, "one_short_pos");
   const runawayBonusTargetPos = numberFromContext(prompt.publicContext, "bonus_target_pos");
   const runawayBonusTargetKind = stringFromContext(prompt.publicContext, "bonus_target_kind");
-  const ownedTileIndices = Array.isArray(prompt.publicContext["owned_tile_indices"])
-    ? prompt.publicContext["owned_tile_indices"].map((item) => asNumber(item)).filter((item): item is number => item !== null)
-    : [];
-  const ownedTileCount = prompt.surface.coinPlacement?.ownedTileCount ?? ownedTileIndices.length;
+  const ownedTileCount = prompt.surface.coinPlacement?.ownedTileCount ?? coinPlacementChoices.length;
   const rewardPools = rewardSurface
     ? {
         cash: rewardSurface.cashPool,
         shards: rewardSurface.shardsPool,
         coins: rewardSurface.coinsPool,
       }
-    : isRecord(prompt.publicContext["pools"])
-      ? prompt.publicContext["pools"]
-      : null;
+    : null;
   const rewardPoolSummary = rewardPools
     ? [
         typeof rewardPools["cash"] === "number" ? `${promptText.choice.cashReward(rewardPools["cash"] as number)}=2P` : null,
@@ -1300,8 +1286,8 @@ export function PromptOverlay({
         .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
         .join(" / ")
     : "";
-  const draftPhase = prompt.surface.characterPick?.draftPhase ?? numberFromContext(prompt.publicContext, "draft_phase");
-  const offeredCount = prompt.surface.characterPick?.choiceCount ?? numberFromContext(prompt.publicContext, "offered_count");
+  const draftPhase = prompt.surface.characterPick?.draftPhase ?? null;
+  const offeredCount = prompt.surface.characterPick?.choiceCount ?? characterPickChoices.length;
   const offeredNames = Array.isArray(prompt.publicContext["offered_names"])
     ? prompt.publicContext["offered_names"].map((value) => asString(value)).filter((value) => value.length > 0)
     : [];

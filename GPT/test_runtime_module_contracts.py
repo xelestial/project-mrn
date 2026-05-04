@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ast
 import json
 import random
+from pathlib import Path
 
 import pytest
 
@@ -23,6 +25,85 @@ from runtime_modules.prompts import PromptApi, PromptContinuationError, validate
 from runtime_modules.queue import FrameQueueApi, QueueValidationError
 from runtime_modules.runner import ModuleRunner, ModuleRunnerError
 from state import GameState
+
+
+def _is_pending_actions_attr(node: ast.AST) -> bool:
+    return isinstance(node, ast.Attribute) and node.attr == "pending_actions"
+
+
+def _target_writes_pending_actions(node: ast.AST) -> bool:
+    if _is_pending_actions_attr(node):
+        return True
+    if isinstance(node, ast.Subscript):
+        return _is_pending_actions_attr(node.value)
+    return False
+
+
+def test_production_pending_actions_are_mutated_only_by_game_state_queue_api() -> None:
+    root = Path(__file__).resolve().parent
+    production_paths = [
+        root / "engine.py",
+        root / "effect_handlers.py",
+        *sorted((root / "runtime_modules").rglob("*.py")),
+    ]
+    mutators = {"append", "extend", "insert", "pop", "clear", "remove"}
+    violations: list[str] = []
+
+    for path in production_paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr in mutators and _is_pending_actions_attr(node.func.value):
+                    violations.append(f"{path.relative_to(root)}:{node.lineno} direct pending_actions.{node.func.attr}()")
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if _target_writes_pending_actions(target):
+                        violations.append(f"{path.relative_to(root)}:{node.lineno} direct pending_actions assignment")
+            elif isinstance(node, ast.AnnAssign | ast.AugAssign):
+                if _target_writes_pending_actions(node.target):
+                    violations.append(f"{path.relative_to(root)}:{node.lineno} direct pending_actions assignment")
+
+    assert violations == []
+
+
+def test_production_runtime_modules_do_not_mutate_economy_or_tile_ownership_inline() -> None:
+    root = Path(__file__).resolve().parent
+    production_paths = sorted((root / "runtime_modules").rglob("*.py"))
+    player_resource_attrs = {
+        "cash",
+        "shards",
+        "hand_coins",
+        "placed_coins",
+        "score",
+        "total_score",
+    }
+    tile_owner_attrs = {"tile_owner", "tile_owners"}
+    violations: list[str] = []
+
+    def target_name(target: ast.AST) -> str | None:
+        if isinstance(target, ast.Attribute):
+            if target.attr in player_resource_attrs:
+                return target.attr
+            if target.attr in tile_owner_attrs:
+                return target.attr
+        if isinstance(target, ast.Subscript):
+            return target_name(target.value)
+        return None
+
+    for path in production_paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    name = target_name(target)
+                    if name is not None:
+                        violations.append(f"{path.relative_to(root)}:{node.lineno} direct {name} assignment")
+            elif isinstance(node, ast.AnnAssign | ast.AugAssign):
+                name = target_name(node.target)
+                if name is not None:
+                    violations.append(f"{path.relative_to(root)}:{node.lineno} direct {name} assignment")
+
+    assert violations == []
 
 
 def _module(module_type: str, module_id: str = "mod:test", idempotency_key: str = "idem:test") -> ModuleRef:

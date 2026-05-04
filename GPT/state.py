@@ -349,6 +349,27 @@ class GameState:
             return []
         return [idx for idx in self.block_tile_positions(block_id, land_only=True) if idx != pos]
 
+    def enqueue_pending_action(self, action: ActionEnvelope, *, front: bool = False) -> None:
+        if front:
+            self.pending_actions.insert(0, action)
+        else:
+            self.pending_actions.append(action)
+
+    def enqueue_pending_actions(self, actions: Iterable[ActionEnvelope], *, front: bool = False) -> None:
+        queued = list(actions)
+        if not queued:
+            return
+        if front:
+            self.pending_actions[0:0] = queued
+        else:
+            self.pending_actions.extend(queued)
+
+    def dequeue_pending_action(self) -> ActionEnvelope:
+        return self.pending_actions.pop(0)
+
+    def clear_pending_actions(self) -> None:
+        self.pending_actions = []
+
     def to_checkpoint_payload(self) -> dict:
         return {
             "schema_version": 1,

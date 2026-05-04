@@ -489,6 +489,48 @@ describe("promptSelectors", () => {
     }
   });
 
+  it("does not hydrate backend-owned surface fields from public_context", () => {
+    const model = selectActivePrompt([
+      {
+        type: "view_state",
+        seq: 100,
+        session_id: "s1",
+        payload: {
+          version: 1,
+          revision: 1,
+          view_state: {
+            prompt: {
+              active: {
+                request_id: "req_draft_projection",
+                request_type: "draft_card",
+                player_id: 1,
+                timeout_ms: 30000,
+                choices: [{ choice_id: "c1", title: "A", value: { character_name: "A" } }],
+                public_context: {
+                  draft_phase: 2,
+                  draft_phase_label: "reverse",
+                  offered_count: 9,
+                  choice_count: 10,
+                },
+                surface: {
+                  kind: "draft_card",
+                  character_pick: {
+                    phase: "draft",
+                    options: [{ choice_id: "c1", name: "A", description: "desc" }],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(model?.surface.characterPick?.draftPhase).toBeNull();
+    expect(model?.surface.characterPick?.draftPhaseLabel).toBeNull();
+    expect(model?.surface.characterPick?.choiceCount).toBe(1);
+  });
+
   it("marks passive canonical choices as secondary", () => {
     const promptMessage: InboundMessage = {
       type: "prompt",
