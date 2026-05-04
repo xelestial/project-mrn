@@ -28,9 +28,17 @@ def validate_manifest(
     manifest: dict[str, Any],
     *,
     contract_path: str | Path = DEFAULT_CONTRACT,
+    require_external_topology: bool = False,
 ) -> dict[str, Any]:
     contract = json.loads(_resolve_repo_path(contract_path).read_text())
     errors: list[str] = []
+    target_topology = manifest.get("target_topology")
+    target_topology_kind = _target_topology_kind(target_topology)
+    external_topology_ready = target_topology_kind == "external_platform"
+    rollout_scope = "external_platform_evidence" if external_topology_ready else "local_contract_proof"
+
+    if require_external_topology and not external_topology_ready:
+        errors.append("external platform manifest is required; local smoke manifests only prove the contract locally")
 
     contract_roles = contract.get("required_roles", [])
     contract_role_names = [role.get("name") for role in contract_roles]
@@ -87,7 +95,7 @@ def validate_manifest(
     if smoke.get("expected_redis_hash_tag") != expected_hash_tag:
         errors.append("rollout_smoke.expected_redis_hash_tag must match shared environment")
     if not _filled_command_list(smoke.get("restart_commands")):
-        errors.append("rollout_smoke.restart_commands must contain concrete restart command(s)")
+        errors.append("rollout_smoke.restart_commands must be filled platform commands")
     if len(smoke.get("worker_health_commands") or []) != 2 or not _filled_command_list(smoke.get("worker_health_commands")):
         errors.append("rollout_smoke.worker_health_commands must contain two concrete worker health commands")
     if smoke.get("decision_smoke") != "--decision-smoke":
@@ -105,12 +113,15 @@ def validate_manifest(
     return {
         "ok": True,
         "name": manifest.get("name"),
-        "target_topology": manifest.get("target_topology"),
+        "target_topology": target_topology,
+        "target_topology_kind": target_topology_kind,
+        "external_topology_ready": external_topology_ready,
+        "rollout_scope": rollout_scope,
         "roles": manifest_role_names,
         "topology_name": smoke.get("topology_name"),
         "expected_redis_hash_tag": expected_hash_tag,
-        "preflight_up_command": preflight_up,
-        "preflight_down_command": preflight_down,
+        "preflight_up_command": preflight_up or "",
+        "preflight_down_command": preflight_down or "",
         "restart_command_count": len(smoke.get("restart_commands") or []),
         "worker_health_command_count": len(smoke.get("worker_health_commands") or []),
     }
@@ -120,8 +131,13 @@ def build_smoke_command(
     manifest: dict[str, Any],
     *,
     contract_path: str | Path = DEFAULT_CONTRACT,
+    require_external_topology: bool = False,
 ) -> list[str]:
-    validate_manifest(manifest, contract_path=contract_path)
+    validate_manifest(
+        manifest,
+        contract_path=contract_path,
+        require_external_topology=require_external_topology,
+    )
     smoke = manifest["rollout_smoke"]
     command = [
         *shlex.split(smoke["script"]),
@@ -163,9 +179,12 @@ def build_evidence_document(
             "path": manifest.get("_manifest_path"),
             "name": manifest.get("name"),
             "target_topology": manifest.get("target_topology"),
+            "target_topology_kind": validation.get("target_topology_kind"),
+            "external_topology_ready": validation.get("external_topology_ready"),
             "source_contract": manifest.get("source_contract"),
             "source_template": manifest.get("source_template"),
         },
+        "rollout_scope": validation.get("rollout_scope"),
         "validation": validation,
         "smoke_command": command,
         "smoke_summary": smoke_summary,
@@ -184,14 +203,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--preflight", action="store_true", help="Run manifest preflight up/down around --run.")
     parser.add_argument("--keep-running", action="store_true", help="Do not run preflight down after --run.")
     parser.add_argument(
+        "--require-external-topology",
+        action="store_true",
+        help="Reject local smoke manifests and require a filled external platform topology manifest.",
+    )
+    parser.add_argument(
         "--evidence-output",
         help="Write manifest validation, smoke command, and final smoke JSON summary to this file after --run.",
     )
     args = parser.parse_args(argv)
 
     manifest = load_manifest(args.manifest)
-    validation = validate_manifest(manifest, contract_path=args.contract)
-    command = build_smoke_command(manifest, contract_path=args.contract)
+    validation = validate_manifest(
+        manifest,
+        contract_path=args.contract,
+        require_external_topology=args.require_external_topology,
+    )
+    command = build_smoke_command(
+        manifest,
+        contract_path=args.contract,
+        require_external_topology=args.require_external_topology,
+    )
 
     if args.validate_only or not (args.print_command or args.run):
         print(json.dumps(validation, ensure_ascii=False, indent=2, sort_keys=True))
@@ -235,13 +267,22 @@ def _resolve_repo_path(path: str | Path) -> Path:
 def _is_filled_command(value: object) -> bool:
     if not isinstance(value, str) or not value.strip():
         return False
-    return not any(token in value for token in ("<platform", "<deployment", "<hash"))
+    return "<" not in value and ">" not in value
 
 
 def _filled_command_list(value: object) -> bool:
     if not isinstance(value, list) or not value:
         return False
     return all(_is_filled_command(item) for item in value)
+
+
+def _target_topology_kind(value: object) -> str:
+    topology = str(value or "").strip().lower()
+    if not topology:
+        return "unknown"
+    if topology.startswith("local-") or topology.endswith("-local") or "local-" in topology:
+        return "local_smoke"
+    return "external_platform"
 
 
 def _run_shell(command: str, *, env: dict[str, str]) -> None:

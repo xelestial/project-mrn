@@ -16,4 +16,6 @@ Operational scripts for local runs, export, and migration helpers.
   `--validate-only` before rollout, `--print-command` for deployment logs, and
   `--run --preflight` for the repository-local executable profile. Add
   `--evidence-output <path>` to store the manifest summary, generated command,
-  and final smoke JSON as a rollout artifact.
+  and final smoke JSON as a rollout artifact. Use
+  `--require-external-topology` for real staging/production evidence; it rejects
+  local smoke profiles and requires a filled external platform manifest.

@@ -14,6 +14,8 @@ from .types import (
     DerivedPlayerItemViewState,
     MarkTargetCandidateViewState,
     MarkTargetViewState,
+    PlayerCardAssignmentItemViewState,
+    PlayerCardsViewState,
     PlayerOrderingViewState,
 )
 
@@ -273,6 +275,16 @@ def _latest_actor_character(messages: list[dict[str, Any]]) -> str | None:
     return None
 
 
+def _latest_turn_start_actor_player_id(messages: list[dict[str, Any]]) -> int | None:
+    for message in reversed(messages):
+        payload = _record(message.get("payload")) or {}
+        if _event_type(payload) != "turn_start":
+            continue
+        actor = payload.get("acting_player_id", payload.get("player_id"))
+        return actor if isinstance(actor, int) else None
+    return None
+
+
 def _latest_round_order(messages: list[dict[str, Any]]) -> list[int] | None:
     for message in reversed(messages):
         if message.get("type") != "event":
@@ -357,6 +369,49 @@ def build_player_view_state(messages: list[dict[str, Any]]) -> PlayerOrderingVie
         "marker_draft_direction": marker_draft_direction if marker_draft_direction in {"clockwise", "counterclockwise"} else None,
         "items": ordered_items,
     }
+
+
+def build_player_cards_view_state(messages: list[dict[str, Any]]) -> PlayerCardsViewState | None:
+    assignments: dict[int, PlayerCardAssignmentItemViewState] = {}
+    for message in messages:
+        if message.get("type") != "event":
+            continue
+        payload = _record(message.get("payload")) or {}
+        event_type = _event_type(payload)
+        if event_type == "round_start":
+            assignments.clear()
+            continue
+        if event_type not in {"final_character_choice", "turn_start"}:
+            continue
+        player_id = _number(payload.get("acting_player_id", payload.get("player_id")))
+        character = _string(payload.get("character", payload.get("actor_name")))
+        if player_id is None or not character:
+            continue
+        assignments[player_id] = {
+            "player_id": player_id,
+            "priority_slot": _priority_slot_for_character(character),
+            "character": character,
+            "reveal_state": "revealed" if event_type == "turn_start" else "selected_private",
+            "is_current_actor": False,
+        }
+    if not assignments:
+        return None
+
+    turn_actor_player_id = _latest_turn_start_actor_player_id(messages)
+    for item in assignments.values():
+        item["is_current_actor"] = item["player_id"] == turn_actor_player_id
+
+    players_view = build_player_view_state(messages)
+    ordered_player_ids = players_view.get("ordered_player_ids", []) if players_view else []
+    ordered_items: list[PlayerCardAssignmentItemViewState] = [
+        assignments[player_id] for player_id in ordered_player_ids if player_id in assignments
+    ]
+    ordered_items.extend(
+        assignments[player_id]
+        for player_id in sorted(assignments)
+        if player_id not in set(ordered_player_ids)
+    )
+    return {"items": ordered_items}
 
 
 def build_active_slots_view_state(messages: list[dict[str, Any]]) -> ActiveSlotsViewState | None:

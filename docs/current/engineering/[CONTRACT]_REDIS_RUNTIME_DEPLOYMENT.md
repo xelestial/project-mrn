@@ -101,6 +101,13 @@ logs. `--evidence-output` writes a JSON rollout artifact containing the manifest
 identity, validation summary, generated smoke command, and final
 `redis_restart_smoke.py` summary.
 
+Use `--require-external-topology` for actual staging/production rollout checks.
+That mode rejects the repository-local `local-platform-managed.smoke.json`
+profile and requires a filled external platform manifest. Validation and
+evidence artifacts expose `target_topology_kind`, `external_topology_ready`, and
+`rollout_scope` so local contract proof cannot be mistaken for external
+deployment evidence.
+
 Passing evidence must include:
 
 - `before_status=waiting_input`
@@ -146,6 +153,8 @@ Latest checked platform-managed input-path evidence:
 - topology `local-runtime-platform-managed-decision`
 - restart mode `custom-command`
 - profile `deploy/redis-runtime/local-platform-managed.smoke.json`
+- target topology kind `local_smoke`
+- rollout scope `local_contract_proof`
 - runner
   `tools/scripts/redis_platform_smoke_from_manifest.py --run --preflight --evidence-output /tmp/mrn-platform-smoke-evidence.json`
 - prefix `mrn:{runtime-platform-decision-smoke}`
@@ -163,10 +172,11 @@ Latest checked platform-managed input-path evidence:
 
 This proves the repository's `--skip-up`/custom-command smoke contract,
 manifest mapping shape, post-restart decision wakeup, and duplicate decision
-dedupe. A real external deployment still must replace the placeholder restart
-and worker exec commands in
+dedupe. It is intentionally not external deployment evidence. A real external
+deployment still must replace the placeholder restart and worker exec commands in
 `platform-managed.manifest.template.json` with the target platform's native
-commands and capture fresh passing smoke evidence before live routing.
+commands, run the wrapper with `--require-external-topology`, and capture fresh
+passing smoke evidence before live routing.
 
 ## 4. Failure Rules
 

@@ -8,6 +8,36 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 1-4 External Topology Gate And Player Card Projection Contract
+
+- What changed:
+  - classified platform smoke manifests as `local_smoke` or `external_platform`
+    in `tools/scripts/redis_platform_smoke_from_manifest.py`
+  - added `--require-external-topology` so real rollout evidence cannot be
+    accidentally satisfied by the repository-local smoke profile
+  - hardened platform command validation so any `<...>` placeholder is rejected
+    before smoke command generation
+  - added backend `view_state.player_cards` as the canonical final-character
+    assignment projection
+  - kept `final_character_choice` private to the choosing seat until
+    `turn_start` publicly reveals the card
+  - added runtime contract regressions for private final-character projection
+    and spectator-safe reveal timing
+- Why:
+  - the selected external hosting platform is still not represented by a filled
+    manifest in-repo, so the code now distinguishes local contract proof from
+    actual external topology evidence instead of relying on prose
+  - final character choice should be a backend-owned projection with visibility
+    semantics, not a frontend reconstruction from raw stream events
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest tests/test_redis_runtime_deployment_manifest.py apps/server/tests/test_view_state_player_selector.py apps/server/tests/test_runtime_end_to_end_contract.py -q` -> `31 passed`
+  - `python3 tools/scripts/redis_platform_smoke_from_manifest.py --validate-only` -> `target_topology_kind=local_smoke`, `external_topology_ready=false`, `rollout_scope=local_contract_proof`
+  - `python3 tools/scripts/redis_platform_smoke_from_manifest.py --validate-only --require-external-topology` -> expected rejection for the local smoke profile
+  - `python3 -m py_compile tools/scripts/redis_platform_smoke_from_manifest.py` -> `PASS`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_runtime_contract_examples.py -q` -> `15 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_stream_service.py -q` -> `18 passed`
+  - `git diff --check` -> `PASS`
+
 ## 2026-05-04 Platform Smoke Evidence Artifact
 
 - What changed:

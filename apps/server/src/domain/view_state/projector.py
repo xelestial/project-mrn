@@ -4,7 +4,12 @@ from apps.server.src.domain.visibility import ViewerContext, project_stream_mess
 
 from .board_selector import build_board_view_state
 from .hand_selector import build_hand_tray_view_state
-from .player_selector import build_active_slots_view_state, build_mark_target_view_state, build_player_view_state
+from .player_selector import (
+    build_active_slots_view_state,
+    build_mark_target_view_state,
+    build_player_cards_view_state,
+    build_player_view_state,
+)
 from .prompt_selector import build_prompt_view_state
 from .reveal_selector import build_reveals_view_state
 from .runtime_selector import build_runtime_view_state
@@ -20,6 +25,9 @@ def project_view_state(messages: list[dict], viewer: ViewerContext | None = None
     players = build_player_view_state(messages)
     if players:
         payload["players"] = players
+    player_cards = build_player_cards_view_state(messages)
+    if player_cards:
+        payload["player_cards"] = player_cards
     active_slots = build_active_slots_view_state(messages)
     if active_slots:
         payload["active_slots"] = active_slots

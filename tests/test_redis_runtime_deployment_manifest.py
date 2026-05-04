@@ -193,6 +193,9 @@ def test_platform_smoke_script_validates_contract_mapping_and_preflight() -> Non
     validation = module.validate_manifest(manifest, contract_path=PROCESS_CONTRACT)
 
     assert validation["ok"] is True
+    assert validation["target_topology_kind"] == "local_smoke"
+    assert validation["external_topology_ready"] is False
+    assert validation["rollout_scope"] == "local_contract_proof"
     assert validation["roles"] == ["server", "prompt-timeout-worker", "command-wakeup-worker"]
     assert validation["topology_name"] == "local-runtime-platform-managed-decision"
     assert validation["expected_redis_hash_tag"] == "runtime-platform-decision-smoke"
@@ -200,6 +203,63 @@ def test_platform_smoke_script_validates_contract_mapping_and_preflight() -> Non
         "up -d --build redis server prompt-timeout-worker command-wakeup-worker"
     )
     assert validation["preflight_down_command"].endswith(" down")
+
+
+def test_platform_smoke_script_can_require_external_topology_manifest() -> None:
+    module = _load_platform_smoke_script()
+    manifest = module.load_manifest(LOCAL_PLATFORM_SMOKE)
+
+    try:
+        module.validate_manifest(manifest, contract_path=PROCESS_CONTRACT, require_external_topology=True)
+    except ValueError as exc:
+        assert "external platform manifest" in str(exc)
+    else:
+        raise AssertionError("local smoke manifest must not satisfy external topology validation")
+
+
+def test_platform_smoke_script_classifies_filled_external_manifest() -> None:
+    module = _load_platform_smoke_script()
+    manifest = module.load_manifest(LOCAL_PLATFORM_SMOKE)
+    manifest["name"] = "project-mrn-render-staging"
+    manifest["target_topology"] = "render-staging"
+    manifest.pop("preflight", None)
+    manifest["shared_environment"]["MRN_REDIS_KEY_PREFIX"] = "mrn:{project-mrn-staging}"
+    manifest["shared_environment"]["expected_redis_hash_tag"] = "project-mrn-staging"
+    manifest["rollout_smoke"]["topology_name"] = "render-staging"
+    manifest["rollout_smoke"]["expected_redis_hash_tag"] = "project-mrn-staging"
+    manifest["rollout_smoke"]["restart_commands"] = ["platformctl restart server workers"]
+    manifest["rollout_smoke"]["worker_health_commands"] = [
+        "platformctl exec prompt-timeout-worker -- python -m apps.server.src.workers.prompt_timeout_worker_app --health",
+        "platformctl exec command-wakeup-worker -- python -m apps.server.src.workers.command_wakeup_worker_app --health",
+    ]
+    for role in manifest["roles"]:
+        role["restart_command"] = f"platformctl restart {role['name']}"
+        if role["name"] != "server":
+            role["smoke_health_command"] = (
+                f"platformctl exec {role['name']} -- {role['readiness']['command']}"
+            )
+
+    validation = module.validate_manifest(manifest, contract_path=PROCESS_CONTRACT, require_external_topology=True)
+
+    assert validation["ok"] is True
+    assert validation["target_topology_kind"] == "external_platform"
+    assert validation["external_topology_ready"] is True
+    assert validation["rollout_scope"] == "external_platform_evidence"
+    assert validation["preflight_up_command"] == ""
+    assert validation["preflight_down_command"] == ""
+
+
+def test_platform_smoke_script_rejects_generic_placeholder_commands() -> None:
+    module = _load_platform_smoke_script()
+    manifest = module.load_manifest(LOCAL_PLATFORM_SMOKE)
+    manifest["rollout_smoke"]["restart_commands"] = ["<render restart server workers>"]
+
+    try:
+        module.validate_manifest(manifest, contract_path=PROCESS_CONTRACT)
+    except ValueError as exc:
+        assert "rollout_smoke.restart_commands must be filled platform commands" in str(exc)
+    else:
+        raise AssertionError("generic placeholder command must be rejected")
 
 
 def test_platform_smoke_script_builds_evidence_from_mixed_smoke_output() -> None:
@@ -241,6 +301,9 @@ Container cleanup line
 
     assert evidence["ok"] is True
     assert evidence["manifest"]["path"] == "deploy/redis-runtime/local-platform-managed.smoke.json"
+    assert evidence["manifest"]["target_topology_kind"] == "local_smoke"
+    assert evidence["manifest"]["external_topology_ready"] is False
+    assert evidence["rollout_scope"] == "local_contract_proof"
     assert evidence["validation"]["roles"] == ["server", "prompt-timeout-worker", "command-wakeup-worker"]
     assert evidence["smoke_command"][0:3] == ["python3", "tools/scripts/redis_restart_smoke.py", "--skip-up"]
     assert evidence["smoke_summary"]["session_id"] == "sess_evidence"

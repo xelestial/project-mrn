@@ -19,3 +19,7 @@ The engine is the source of legal game progression. Backend services, Redis pers
 4. Module prompt decisions must echo `resume_token`, `frame_id`, `module_id`, and `module_type`.
 5. WebSocket replay may fill gaps only with projections compatible with the latest known runtime frame path.
 6. Redis stores committed state atomically but does not replace backend semantic validation.
+7. `final_character_choice` is draft-frame private data until the matching `turn_start`.
+   Backend `view_state.player_cards` may show `selected_private` only to the
+   choosing seat; spectators see the assignment only after `turn_start` changes
+   it to `revealed`.

@@ -31,6 +31,21 @@ class PlayerOrderingViewState(TypedDict):
     items: list[DerivedPlayerItemViewState]
 
 
+PlayerCardRevealState = Literal["selected_private", "revealed"]
+
+
+class PlayerCardAssignmentItemViewState(TypedDict):
+    player_id: int
+    priority_slot: int | None
+    character: str
+    reveal_state: PlayerCardRevealState
+    is_current_actor: bool
+
+
+class PlayerCardsViewState(TypedDict):
+    items: list[PlayerCardAssignmentItemViewState]
+
+
 class ActiveSlotItemViewState(TypedDict):
     slot: int
     player_id: int | None
@@ -481,6 +496,7 @@ class RuntimeProjectionViewState(TypedDict, total=False):
 
 class ViewStatePayload(TypedDict, total=False):
     players: PlayerOrderingViewState
+    player_cards: PlayerCardsViewState
     active_slots: ActiveSlotsViewState
     mark_target: MarkTargetViewState
     reveals: RevealsViewState

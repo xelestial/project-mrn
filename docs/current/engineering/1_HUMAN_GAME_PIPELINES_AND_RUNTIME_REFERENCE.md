@@ -175,6 +175,7 @@ Important note:
 
 - `apps/server/src/domain/view_state/player_selector.py`
   - `build_player_view_state(messages)`
+  - `build_player_cards_view_state(messages)`
   - `build_active_slots_view_state(messages)`
   - `build_mark_target_view_state(messages)`
 
@@ -187,6 +188,9 @@ Selector rule:
 
 - selectors should consume stable payload ids and explicit context
 - selectors should not infer gameplay truth from localized labels if a canonical field exists
+- final character assignments are backend-projected through
+  `view_state.player_cards`; `selected_private` is visible only to the choosing
+  seat until `turn_start` publicly reveals the card as `revealed`
 
 ### Frontend selectors
 

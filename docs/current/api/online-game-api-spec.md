@@ -339,6 +339,7 @@ Additive view-model channel:
 - current first migrated slice is `payload.view_state.players`
 - current additive slices are:
   - `view_state.players`
+  - `view_state.player_cards`
   - `view_state.active_slots`
   - `view_state.mark_target`
   - `view_state.reveals`
@@ -356,6 +357,14 @@ Additive view-model channel:
   - `priority_slot`
   - `is_current_actor`
   - `is_marker_owner`
+- `view_state.player_cards.items` contains canonical final-character
+  assignments:
+  - `player_id`
+  - `priority_slot`
+  - `character`
+  - `reveal_state`: `selected_private` for the choosing seat before
+    `turn_start`, `revealed` after public turn start
+  - `is_current_actor`
 - `view_state.active_slots.items` contains canonical slot projections for the active-character strip
 - `view_state.mark_target.candidates` contains canonical mark-target candidates derived from the same slot projection
 - `view_state.reveals.items` contains canonical current-turn public reveal items in backend-owned order

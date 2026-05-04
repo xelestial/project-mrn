@@ -4,6 +4,7 @@ import asyncio
 import unittest
 
 from apps.server.src.domain.visibility import ViewerContext
+from apps.server.src.domain.view_state import project_view_state
 from apps.server.src.domain.view_state.player_selector import (
     build_active_slots_view_state,
     build_mark_target_view_state,
@@ -611,6 +612,74 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
 
         revealed_view = build_player_view_state(messages)
         self.assertEqual(revealed_view["items"][0]["current_character_face"], "객주")
+
+    def test_project_view_state_projects_private_final_character_as_player_card_assignment(self) -> None:
+        messages = [
+            {
+                "type": "event",
+                "seq": 1,
+                "session_id": "s1",
+                "server_time_ms": 1,
+                "payload": {
+                    "event_type": "turn_end_snapshot",
+                    "snapshot": {
+                        "players": [
+                            {"player_id": 1, "display_name": "P1"},
+                            {"player_id": 2, "display_name": "P2"},
+                        ],
+                        "board": {"marker_owner_player_id": 1},
+                    },
+                },
+            },
+            {
+                "type": "event",
+                "seq": 2,
+                "session_id": "s1",
+                "server_time_ms": 2,
+                "payload": {
+                    "event_type": "final_character_choice",
+                    "player_id": 1,
+                    "acting_player_id": 1,
+                    "character": "박수",
+                },
+            },
+        ]
+
+        seat_view = project_view_state(messages, viewer=ViewerContext(role="seat", player_id=1))
+        spectator_view = project_view_state(messages, viewer=ViewerContext(role="spectator"))
+
+        self.assertEqual(
+            seat_view["player_cards"]["items"],
+            [
+                {
+                    "player_id": 1,
+                    "priority_slot": 6,
+                    "character": "박수",
+                    "reveal_state": "selected_private",
+                    "is_current_actor": False,
+                }
+            ],
+        )
+        self.assertNotIn("player_cards", spectator_view)
+        self.assertEqual(seat_view["players"]["items"][0]["current_character_face"], "-")
+
+        messages.append(
+            {
+                "type": "event",
+                "seq": 3,
+                "session_id": "s1",
+                "server_time_ms": 3,
+                "payload": {
+                    "event_type": "turn_start",
+                    "acting_player_id": 1,
+                    "character": "박수",
+                },
+            }
+        )
+
+        revealed_view = project_view_state(messages, viewer=ViewerContext(role="spectator"))
+        self.assertEqual(revealed_view["player_cards"]["items"][0]["reveal_state"], "revealed")
+        self.assertEqual(revealed_view["players"]["items"][0]["current_character_face"], "박수")
 
     def test_player_view_state_overlays_latest_prompt_resource_and_hand_context(self) -> None:
         messages = [

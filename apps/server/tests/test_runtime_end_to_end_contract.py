@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 
+from apps.server.src.domain.visibility import ViewerContext
 from apps.server.src.domain.view_state import project_view_state
 from apps.server.src.services.stream_service import StreamService
 
@@ -80,6 +81,84 @@ def test_next_round_draft_does_not_pollute_previous_turn_stage() -> None:
     assert view_state["turn_stage"]["turn_index"] == 4
     assert view_state["turn_stage"]["current_beat_event_code"] == "turn_end_snapshot"
     assert "prompt_active" not in view_state["turn_stage"]["progress_codes"]
+
+
+def test_final_character_choice_projection_stays_private_until_turn_start() -> None:
+    messages = [
+        {
+            "type": "event",
+            "seq": 1,
+            "session_id": "s1",
+            "server_time_ms": 1,
+            "payload": {
+                "event_type": "turn_end_snapshot",
+                "snapshot": {
+                    "players": [
+                        {"player_id": 1, "display_name": "P1"},
+                        {"player_id": 2, "display_name": "P2"},
+                    ],
+                    "board": {"marker_owner_player_id": 1},
+                },
+            },
+        },
+        {
+            "type": "event",
+            "seq": 2,
+            "session_id": "s1",
+            "server_time_ms": 2,
+            "payload": {
+                "event_type": "final_character_choice",
+                "player_id": 1,
+                "acting_player_id": 1,
+                "character": "박수",
+                "runtime_module": {
+                    "runner_kind": "module",
+                    "frame_id": "round:1",
+                    "frame_type": "round",
+                    "module_id": "mod:round:1:draft",
+                    "module_type": "DraftModule",
+                    "module_path": ["round:1", "mod:round:1:draft"],
+                },
+            },
+        },
+    ]
+
+    seat_view = project_view_state(messages, viewer=ViewerContext(role="seat", player_id=1))
+    spectator_view = project_view_state(messages, viewer=ViewerContext(role="spectator"))
+
+    assert seat_view["player_cards"]["items"][0]["character"] == "박수"
+    assert seat_view["player_cards"]["items"][0]["reveal_state"] == "selected_private"
+    assert "player_cards" not in spectator_view
+    assert spectator_view["players"]["items"][0]["current_character_face"] == "-"
+
+    messages.append(
+        {
+            "type": "event",
+            "seq": 3,
+            "session_id": "s1",
+            "server_time_ms": 3,
+            "payload": {
+                "event_type": "turn_start",
+                "round_index": 1,
+                "turn_index": 1,
+                "acting_player_id": 1,
+                "character": "박수",
+                "runtime_module": {
+                    "runner_kind": "module",
+                    "frame_id": "turn:1:p1",
+                    "frame_type": "turn",
+                    "module_id": "mod:turn:1:p1:start",
+                    "module_type": "TurnStartModule",
+                    "module_path": ["round:1", "turn:1:p1", "mod:turn:1:p1:start"],
+                },
+            },
+        }
+    )
+
+    revealed_view = project_view_state(messages, viewer=ViewerContext(role="spectator"))
+    assert revealed_view["player_cards"]["items"][0]["character"] == "박수"
+    assert revealed_view["player_cards"]["items"][0]["reveal_state"] == "revealed"
+    assert revealed_view["players"]["items"][0]["current_character_face"] == "박수"
 
 
 def test_stream_service_rejects_round_end_flip_from_turn_context() -> None:
