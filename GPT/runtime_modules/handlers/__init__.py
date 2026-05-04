@@ -26,4 +26,8 @@ class ModuleHandlerRegistry:
 
 
 def build_default_handler_registry() -> ModuleHandlerRegistry:
-    return ModuleHandlerRegistry()
+    from .player_turn import handle_player_turn
+
+    registry = ModuleHandlerRegistry()
+    registry.register("PlayerTurnModule", handle_player_turn)
+    return registry

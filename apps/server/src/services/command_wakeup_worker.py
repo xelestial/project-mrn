@@ -131,7 +131,9 @@ class CommandStreamWakeupWorker:
             return False
         waiting_request_id = CommandStreamWakeupWorker._waiting_prompt_request_id(status)
         command_request_id = CommandStreamWakeupWorker._command_request_id(command)
-        return bool(waiting_request_id and command_request_id and command_request_id != waiting_request_id)
+        if waiting_request_id and command_request_id and command_request_id != waiting_request_id:
+            return True
+        return CommandStreamWakeupWorker._module_identity_mismatch(status, command)
 
     @staticmethod
     def _waiting_prompt_request_id(status: dict) -> str:
@@ -149,3 +151,27 @@ class CommandStreamWakeupWorker:
         if not isinstance(payload, dict):
             return ""
         return str(payload.get("request_id") or "").strip()
+
+    @staticmethod
+    def _module_identity_mismatch(status: dict, command: dict) -> bool:
+        payload = command.get("payload")
+        if not isinstance(payload, dict):
+            return False
+        recovery = status.get("recovery_checkpoint")
+        if not isinstance(recovery, dict):
+            return False
+        checkpoint = recovery.get("checkpoint")
+        if not isinstance(checkpoint, dict):
+            return False
+        field_pairs = (
+            ("frame_id", "active_frame_id"),
+            ("module_id", "active_module_id"),
+            ("module_type", "active_module_type"),
+            ("module_cursor", "active_module_cursor"),
+        )
+        for command_field, checkpoint_field in field_pairs:
+            command_value = str(payload.get(command_field) or "").strip()
+            checkpoint_value = str(checkpoint.get(checkpoint_field) or "").strip()
+            if command_value and checkpoint_value and command_value != checkpoint_value:
+                return True
+        return False

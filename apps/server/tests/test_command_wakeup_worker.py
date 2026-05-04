@@ -271,6 +271,60 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         self.assertEqual(runtime.processed, [(session.session_id, 3, "runtime_wakeup", 58, None)])
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 2)
 
+    def test_wakeup_worker_skips_matching_request_with_stale_module_cursor(self) -> None:
+        connection = RedisConnection(
+            RedisConnectionSettings(
+                url="redis://127.0.0.1:6379/10",
+                key_prefix="mrn-wakeup-stale-module",
+                socket_timeout_ms=250,
+            ),
+            client_factory=_FakeRedis,
+        )
+        command_store = RedisCommandStore(connection)
+        sessions = SessionService(restart_recovery_policy="keep")
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 61},
+        )
+        sessions.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = _RuntimeProcessStub(
+            status="waiting_input",
+            waiting_request_id="req_active",
+            active_frame_id="turn:1:p0",
+            active_module_id="mod:turn:1:p0:movement",
+            active_module_type="MapMoveModule",
+            active_module_cursor="move:await_choice",
+        )
+        worker = CommandStreamWakeupWorker(
+            command_store=command_store,
+            session_service=sessions,
+            runtime_service=runtime,
+            poll_interval_ms=50,
+        )
+        command_store.append_command(
+            session.session_id,
+            "decision_submitted",
+            {
+                "request_id": "req_active",
+                "choice_id": "roll",
+                "frame_id": "turn:1:p0",
+                "module_id": "mod:turn:1:p0:movement",
+                "module_type": "MapMoveModule",
+                "module_cursor": "move:old",
+            },
+            request_id="req_active",
+        )
+
+        wakeups = asyncio.run(worker.run_once(session_id=session.session_id))
+
+        self.assertEqual(wakeups, [])
+        self.assertEqual(runtime.processed, [])
+        self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 1)
+
     def test_wakeup_worker_refreshes_redis_sessions_created_after_start(self) -> None:
         connection = RedisConnection(
             RedisConnectionSettings(
@@ -334,9 +388,22 @@ class _RuntimeStub:
 
 
 class _RuntimeProcessStub:
-    def __init__(self, *, status: str, waiting_request_id: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        status: str,
+        waiting_request_id: str | None = None,
+        active_frame_id: str = "",
+        active_module_id: str = "",
+        active_module_type: str = "",
+        active_module_cursor: str = "",
+    ) -> None:
         self._status = status
         self._waiting_request_id = waiting_request_id
+        self._active_frame_id = active_frame_id
+        self._active_module_id = active_module_id
+        self._active_module_type = active_module_type
+        self._active_module_cursor = active_module_cursor
         self.processed: list[tuple[str, int, str, int, str | None]] = []
 
     def runtime_status(self, session_id: str) -> dict:
@@ -344,7 +411,13 @@ class _RuntimeProcessStub:
         if self._waiting_request_id:
             status["recovery_checkpoint"] = {
                 "available": True,
-                "checkpoint": {"waiting_prompt_request_id": self._waiting_request_id},
+                "checkpoint": {
+                    "waiting_prompt_request_id": self._waiting_request_id,
+                    "active_frame_id": self._active_frame_id,
+                    "active_module_id": self._active_module_id,
+                    "active_module_type": self._active_module_type,
+                    "active_module_cursor": self._active_module_cursor,
+                },
             }
         return status
 

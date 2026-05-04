@@ -24,10 +24,6 @@ def handle_round_step(ctx: RoundFrameHandlerContext) -> dict[str, Any]:
     return {"status": "committed", "module_type": ctx.module.module_type}
 
 
-def handle_player_turn(ctx: RoundFrameHandlerContext) -> dict[str, Any]:
-    return ctx.runner._advance_player_turn_module(ctx.engine, ctx.state, ctx.frame, ctx.module)
-
-
 def handle_round_end_card_flip(ctx: RoundFrameHandlerContext) -> dict[str, Any]:
     assert_round_end_card_flip_ready(ctx.frame, frame_stack=ctx.state.runtime_frame_stack)
     ctx.engine._apply_round_end_marker_management(ctx.state)
@@ -46,11 +42,10 @@ def handle_round_cleanup_and_next_round(ctx: RoundFrameHandlerContext) -> dict[s
 
 
 ROUND_FRAME_HANDLERS: dict[str, RoundFrameHandler] = {
-    module_type: handle_round_step for module_type in ROUND_MODULE_TYPES
+    module_type: handle_round_step for module_type in ROUND_MODULE_TYPES if module_type != "PlayerTurnModule"
 }
 ROUND_FRAME_HANDLERS.update(
     {
-        "PlayerTurnModule": handle_player_turn,
         "RoundEndCardFlipModule": handle_round_end_card_flip,
         "RoundCleanupAndNextRoundModule": handle_round_cleanup_and_next_round,
     }

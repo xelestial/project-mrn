@@ -310,12 +310,14 @@ class ModuleRunner:
         if result.queue_ops:
             FrameQueueApi(state.runtime_frame_stack).apply(result.queue_ops)
         event_types = [event.event_type for event in result.events]
+        if module.status in {"completed", "skipped"} and module.module_id in frame.completed_module_ids:
+            return
         if result.status == "completed":
             self._complete_module(state, frame, module, event_types=event_types)
             return
         if result.status == "suspended":
             module.status = "suspended"
-            module.suspension_id = frame.frame_id
+            module.suspension_id = module.suspension_id or frame.frame_id
             frame.status = "suspended"
             if result.prompt is not None:
                 state.runtime_active_prompt = result.prompt

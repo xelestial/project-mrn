@@ -8,6 +8,27 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Native Turn Handler Bridge Removal And Exact Wakeup Identity
+
+- What changed:
+  - moved `CharacterStartModule` start effects for doctrine relief and no-op characters into the native turn handler path so module-runner character starts no longer call the legacy `_apply_character_start()` bridge
+  - registered `PlayerTurnModule` in `ModuleHandlerRegistry` and removed it from the round handler table; the existing turn-frame spawn helper is now reached through registry dispatch
+  - made suspended-module result application preserve child-frame suspension ids while avoiding duplicate completion journal work
+  - tightened command wakeup filtering so a matching `request_id` still refuses stale commands when `frame_id`, `module_id`, `module_type`, or `module_cursor` no longer match the checkpoint active module
+  - updated the structural module runtime migration plan checklist to reflect the final integration state
+- Why:
+  - character ability execution, turn spawning, and prompt resume must be owned by the current module/frame instead of re-entering legacy turn code or waking runtime from stale Redis commands
+  - a duplicated or delayed frontend decision should be impossible to route into the wrong module even when it carries an old backend-issued request id
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_runtime_turn_handlers.py::test_character_start_resolves_doctrine_relief_without_legacy_mutation GPT/test_runtime_turn_handlers.py::test_character_start_logs_doctrine_skip_without_legacy_mutation GPT/test_runtime_turn_handlers.py::test_character_start_noop_character_completes_without_legacy_mutation GPT/test_runtime_module_contracts.py::test_player_turn_module_registered_as_native_handler -q` -> `4 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_runtime_module_contracts.py GPT/test_runtime_round_modules.py GPT/test_runtime_sequence_modules.py GPT/test_runtime_turn_handlers.py GPT/test_runtime_target_judicator_modules.py GPT/test_runtime_simultaneous_modules.py -q` -> `71 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_command_wakeup_worker.py::CommandStreamWakeupWorkerTests::test_wakeup_worker_skips_matching_request_with_stale_module_cursor -q` -> `1 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_command_wakeup_worker.py apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_stale_module_continuation_rejected_without_engine_advance apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_rejects_module_type_mismatch_without_engine_advance GPT/test_runtime_simultaneous_modules.py apps/server/tests/test_prompt_module_continuation.py -q` -> `30 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_runtime_module_contracts.py GPT/test_runtime_round_modules.py GPT/test_runtime_sequence_modules.py GPT/test_runtime_turn_handlers.py GPT/test_runtime_target_judicator_modules.py GPT/test_runtime_simultaneous_modules.py apps/server/tests/test_command_wakeup_worker.py apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_stale_module_continuation_rejected_without_engine_advance apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_rejects_module_type_mismatch_without_engine_advance apps/server/tests/test_prompt_module_continuation.py -q` -> `95 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_prompt_service.py apps/server/tests/test_redis_realtime_services.py apps/server/tests/test_command_wakeup_worker.py apps/server/tests/test_runtime_semantic_guard.py apps/server/tests/test_view_state_runtime_projection.py -q` -> `188 passed, 9 subtests passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m compileall GPT/runtime_modules apps/server/src/services/command_wakeup_worker.py`
+  - `git diff --check`
+
 ## 2026-05-04 ModuleContext Dispatch And Character Suppression Ownership
 
 - What changed:

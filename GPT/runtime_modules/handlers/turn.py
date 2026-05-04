@@ -7,7 +7,7 @@ from policy.environment_traits import WEATHER_FATTENED_HORSES_ID, has_weather_id
 from viewer.events import Phase
 from viewer.public_state import build_turn_end_snapshot
 
-from policy.character_traits import is_builder, is_pabalggun
+from policy.character_traits import is_builder, is_doctrine_character, is_pabalggun
 
 from ..contracts import FrameState, ModuleRef
 from ..modifiers import (
@@ -133,8 +133,7 @@ def handle_character_start(ctx: TurnFrameHandlerContext) -> dict[str, Any]:
         }
     module.cursor = "await_character_prompt"
     try:
-        if not _seed_native_character_start_modifier(ctx):
-            engine._apply_character_start(state, player)
+        _apply_native_character_start(ctx)
     except Exception:
         module.status = "suspended"
         module.suspension_id = frame.frame_id
@@ -182,6 +181,53 @@ def _consume_character_start_suppression(ctx: TurnFrameHandlerContext) -> bool:
             "reason": reason,
             "source": "CharacterStartModule",
             "modifier_id": modifier.modifier_id,
+        }
+    )
+    return True
+
+
+def _apply_native_character_start(ctx: TurnFrameHandlerContext) -> None:
+    if _character_mark_intent_is_owned_by_target_judicator(ctx):
+        ctx.module.payload["native_character_ability"] = {"kind": "mark_intent_deferred_to_target_judicator"}
+        return
+    if _seed_native_character_start_modifier(ctx):
+        return
+    if _apply_native_doctrine_relief(ctx):
+        return
+    ctx.module.payload["native_character_ability"] = {"kind": "none"}
+
+
+def _character_mark_intent_is_owned_by_target_judicator(ctx: TurnFrameHandlerContext) -> bool:
+    intent = getattr(ctx.engine, "_character_mark_intent", None)
+    if not callable(intent):
+        return False
+    return intent(ctx.state, ctx.player) is not None
+
+
+def _apply_native_doctrine_relief(ctx: TurnFrameHandlerContext) -> bool:
+    player = ctx.player
+    char = str(getattr(player, "current_character", "") or "")
+    if not is_doctrine_character(char):
+        return False
+    shards = int(getattr(player, "shards", 0) or 0)
+    applied = shards >= 8
+    ctx.module.payload["native_character_ability"] = {
+        "kind": "doctrine_burden_relief",
+        "applied": applied,
+        "required_shards": 8,
+        "shards": shards,
+    }
+    if applied:
+        ctx.engine._resolve_doctrine_burden_relief(ctx.state, player)
+        return True
+    ctx.engine._log(
+        {
+            "event": "doctrine_burden_relief_skipped",
+            "player": player.player_id + 1,
+            "character": char,
+            "reason": "insufficient_shards",
+            "required_shards": 8,
+            "shards": shards,
         }
     )
     return True

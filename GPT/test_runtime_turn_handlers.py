@@ -195,3 +195,145 @@ def test_character_start_seeds_builder_purchase_modifier_without_legacy_mutation
     assert modifier.payload["kind"] == BUILDER_FREE_PURCHASE_KIND
     assert modifier.target_module_type == "PurchaseDecisionModule"
     assert "PurchaseCommitModule" in modifier.propagation
+
+
+def test_character_start_resolves_doctrine_relief_without_legacy_mutation():
+    class Engine:
+        _vis_session_id = "test-session"
+
+        def __init__(self):
+            self.relief_calls = []
+            self.logs = []
+
+        def _apply_character_start(self, _state, _player):
+            raise AssertionError("CharacterStartModule must not bridge to legacy character start")
+
+        def _resolve_doctrine_burden_relief(self, _state, player):
+            self.relief_calls.append(player.player_id)
+
+        def _log(self, event):
+            self.logs.append(dict(event))
+
+    state = SimpleNamespace(
+        current_weather_effects=[],
+        runtime_modifier_registry=ModifierRegistryState(),
+        runtime_module_journal=[],
+        rounds_completed=0,
+    )
+    player = SimpleNamespace(
+        player_id=0,
+        alive=True,
+        current_character="교리 연구관",
+        shards=8,
+        extra_dice_count_this_turn=0,
+    )
+    frame = build_turn_frame(1, 0, parent_module_id="round:1:p0")
+    module = next(item for item in frame.module_queue if item.module_type == "CharacterStartModule")
+    engine = Engine()
+
+    handle_character_start(
+        TurnFrameHandlerContext(
+            runner=ModuleRunner(),
+            engine=engine,
+            state=state,
+            frame=frame,
+            module=module,
+            player_id=0,
+            player=player,
+        )
+    )
+
+    assert engine.relief_calls == [0]
+    assert module.payload["native_character_ability"]["kind"] == "doctrine_burden_relief"
+
+
+def test_character_start_logs_doctrine_skip_without_legacy_mutation():
+    class Engine:
+        _vis_session_id = "test-session"
+
+        def __init__(self):
+            self.logs = []
+
+        def _apply_character_start(self, _state, _player):
+            raise AssertionError("CharacterStartModule must not bridge to legacy character start")
+
+        def _resolve_doctrine_burden_relief(self, _state, _player):
+            raise AssertionError("insufficient shards must not resolve doctrine relief")
+
+        def _log(self, event):
+            self.logs.append(dict(event))
+
+    state = SimpleNamespace(
+        current_weather_effects=[],
+        runtime_modifier_registry=ModifierRegistryState(),
+        runtime_module_journal=[],
+        rounds_completed=0,
+    )
+    player = SimpleNamespace(
+        player_id=0,
+        alive=True,
+        current_character="교리 감독관",
+        shards=7,
+        extra_dice_count_this_turn=0,
+    )
+    frame = build_turn_frame(1, 0, parent_module_id="round:1:p0")
+    module = next(item for item in frame.module_queue if item.module_type == "CharacterStartModule")
+    engine = Engine()
+
+    handle_character_start(
+        TurnFrameHandlerContext(
+            runner=ModuleRunner(),
+            engine=engine,
+            state=state,
+            frame=frame,
+            module=module,
+            player_id=0,
+            player=player,
+        )
+    )
+
+    assert engine.logs[-1]["event"] == "doctrine_burden_relief_skipped"
+    assert engine.logs[-1]["reason"] == "insufficient_shards"
+    assert module.payload["native_character_ability"]["kind"] == "doctrine_burden_relief"
+    assert module.payload["native_character_ability"]["applied"] is False
+
+
+def test_character_start_noop_character_completes_without_legacy_mutation():
+    class Engine:
+        _vis_session_id = "test-session"
+
+        def _apply_character_start(self, _state, _player):
+            raise AssertionError("CharacterStartModule must not bridge to legacy character start")
+
+        def _log(self, _event):
+            raise AssertionError("noop character should not log ability")
+
+    state = SimpleNamespace(
+        current_weather_effects=[],
+        runtime_modifier_registry=ModifierRegistryState(),
+        runtime_module_journal=[],
+        rounds_completed=0,
+    )
+    player = SimpleNamespace(
+        player_id=0,
+        alive=True,
+        current_character="아전",
+        shards=0,
+        extra_dice_count_this_turn=0,
+    )
+    frame = build_turn_frame(1, 0, parent_module_id="round:1:p0")
+    module = next(item for item in frame.module_queue if item.module_type == "CharacterStartModule")
+
+    handle_character_start(
+        TurnFrameHandlerContext(
+            runner=ModuleRunner(),
+            engine=Engine(),
+            state=state,
+            frame=frame,
+            module=module,
+            player_id=0,
+            player=player,
+        )
+    )
+
+    assert module.status == "completed"

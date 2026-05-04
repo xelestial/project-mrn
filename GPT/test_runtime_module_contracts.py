@@ -17,7 +17,7 @@ from runtime_modules.contracts import (
     PromptContinuation,
 )
 from runtime_modules.context import ModuleContext
-from runtime_modules.handlers import ModuleHandlerRegistry
+from runtime_modules.handlers import ModuleHandlerRegistry, build_default_handler_registry
 from runtime_modules.modifiers import ModifierRegistry
 from runtime_modules.prompts import PromptApi, PromptContinuationError, validate_resume
 from runtime_modules.queue import FrameQueueApi, QueueValidationError
@@ -178,6 +178,15 @@ def test_round_frame_uses_module_handler_registry_for_uncatalogued_module() -> N
     assert result["module_type"] == "ContractRoundModule"
     assert result["events"] == ["contract.round"]
     assert frame.module_queue[0].status == "completed"
+
+
+def test_player_turn_module_registered_as_native_handler() -> None:
+    from runtime_modules.handlers.round import ROUND_FRAME_HANDLERS
+
+    registry = build_default_handler_registry()
+
+    assert registry.has("PlayerTurnModule")
+    assert "PlayerTurnModule" not in ROUND_FRAME_HANDLERS
 
 
 def test_duplicate_module_id_rejects_different_idempotency_key() -> None:

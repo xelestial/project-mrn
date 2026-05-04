@@ -296,7 +296,7 @@ Run: `.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::Runt
 
 Expected before implementation: fails because module path still calls the seed helper.
 
-- [ ] **Step 3: Add a failing regression for 어사 suppressing hostile mark through modifier**
+- [x] **Step 3: Add a failing regression for 어사 suppressing hostile mark through modifier**
 
 ```python
 def test_eosa_suppresses_bandit_mark_by_modifier_not_backend_seed():
@@ -322,7 +322,7 @@ Run: `.venv/bin/python -m pytest GPT/test_rule_fixes.py::test_eosa_suppresses_ba
 
 Expected before implementation: fails because the native modifier path does not exist.
 
-- [ ] **Step 4: Add a failing regression for 잔꾀 returning to the same turn frame**
+- [x] **Step 4: Add a failing regression for 잔꾀 returning to the same turn frame**
 
 ```python
 def test_trick_sequence_returns_to_parent_turn_without_restarting_character():
@@ -344,7 +344,9 @@ Run: `.venv/bin/python -m pytest GPT/test_rule_fixes.py::test_trick_sequence_ret
 
 Expected before implementation: fails because trick sequence still depends on legacy pending action promotion.
 
-- [ ] **Step 5: Commit the failing tests**
+- [x] **Step 5: Commit the failing tests**
+
+Implementation note: the regression coverage has been absorbed into the focused module-runtime suites rather than kept as a standalone failing-test commit. Current coverage locks hostile mark suppression through native `CharacterStartModule` modifier consumption, trick follow-ups remaining inside the active `TrickSequenceFrame`, and exact continuation rejection before engine advance.
 
 ```bash
 git add GPT/test_runtime_module_contracts.py GPT/test_runtime_prompt_continuation.py GPT/test_rule_fixes.py apps/server/tests/test_runtime_service.py
@@ -485,7 +487,9 @@ Run: `.venv/bin/python -m pytest GPT/test_runtime_prompt_continuation.py::test_c
 
 Expected after implementation: pass.
 
-- [ ] **Step 6: Commit cursor contracts**
+- [x] **Step 6: Commit cursor contracts**
+
+Implementation note: module cursor continuation fields are now persisted through prompt payloads, checkpoint summaries, backend prompt acceptance, frontend echo, and Redis wakeup filtering. This plan's commit-sized slices are being landed in the final integration commit.
 
 ```bash
 git add GPT/runtime_modules/contracts.py GPT/runtime_modules/prompts.py GPT/state.py GPT/test_runtime_prompt_continuation.py
@@ -641,7 +645,7 @@ Expected after implementation: pass.
 
 Implementation note: the current slice adds `ModuleContext`, `ModuleHandlerRegistry`, and a shared `_dispatch_module()` path in `ModuleRunner`. Round, turn, sequence, and simultaneous frames keep their existing native handler tables first, then fall back to the registry for module-owned handlers. `_apply_module_result()` is now the single place that applies handler queue ops through `FrameQueueApi`, persists emitted event types into the module journal, and transitions modules to completed/suspended/failed. Regression coverage includes direct dispatch, loud missing-handler failure, and `advance_engine()` round-frame registry dispatch.
 
-- [ ] **Step 6: Commit handler dispatch**
+- [x] **Step 6: Commit handler dispatch**
 
 ```bash
 git add GPT/runtime_modules/context.py GPT/runtime_modules/handlers/__init__.py GPT/runtime_modules/runner.py GPT/test_runtime_module_contracts.py
@@ -657,7 +661,7 @@ git commit -m "feat: add native module handler dispatch"
 - Modify: `GPT/runtime_modules/turn_modules.py`
 - Modify: `GPT/test_runtime_round_modules.py`
 
-- [ ] **Step 1: Add native `PlayerTurnModule` handler**
+- [x] **Step 1: Add native `PlayerTurnModule` handler**
 
 ```python
 def handle_player_turn(context: ModuleContext) -> ModuleResult:
@@ -747,9 +751,11 @@ Run: `.venv/bin/python -m pytest GPT/test_runtime_round_modules.py::test_player_
 
 Expected after implementation: pass.
 
-Implementation note: the current slice lands this as a `ModuleRunner` bridge rather than the final handler registry. It verifies that `PlayerTurnModule` no longer calls legacy `_take_turn()`, spawns a `TurnFrame`, and returns from suspended child sequence work to the next queued turn module.
+Implementation note: `PlayerTurnModule` is now registered through `ModuleHandlerRegistry` and dispatched as a native handler. The existing turn-frame spawn/resume helper remains inside `ModuleRunner` as a narrow helper, but round-frame dispatch no longer owns `PlayerTurnModule` through the round handler table and no longer calls legacy `_take_turn()`.
 
-- [ ] **Step 5: Commit native turn frame spawn**
+- [x] **Step 5: Commit native turn frame spawn**
+
+Implementation note: native turn-frame spawn and registry dispatch are being landed together in the final integration commit for this migration batch.
 
 ```bash
 git add GPT/runtime_modules/runner.py GPT/runtime_modules/handlers/round.py GPT/runtime_modules/turn_modules.py GPT/test_runtime_round_modules.py
@@ -888,7 +894,9 @@ Expected after implementation: pass.
 
 Implementation note: the current slice adds `seed_character_start_modifiers()` and `character_skill_suppression_modifier()` in `GPT/runtime_modules/modifiers.py`, seeds the modifier after draft finalization for module runner sessions, and changes module-runner 어사/무뢰 suppression to require the seeded modifier. `CharacterStartModule` now consumes the single-use suppress modifier before legacy character-start logic can run, emits `ability_suppressed`, journals the module completion, and structurally prevents the suppressed mark prompt from being created. Hostile mark targeting remains owned by the turn handler path (`CharacterStartModule`/`TargetJudicatorModule`) rather than backend Redis compensation.
 
-- [ ] **Step 7: Commit modifier character flow**
+- [x] **Step 7: Commit modifier character flow**
+
+Implementation note: hostile mark suppression, doctrine burden relief, parbal dice modifiers, builder purchase modifiers, and no-op character starts are now covered by native turn-handler tests that assert the legacy `_apply_character_start()` bridge is not called from module-runner `CharacterStartModule`.
 
 ```bash
 git add GPT/runtime_modules/modifiers.py GPT/runtime_modules/handlers/characters.py GPT/runtime_modules/handlers/turn.py GPT/test_rule_fixes.py apps/server/src/services/runtime_service.py apps/server/tests/test_runtime_service.py
@@ -1138,7 +1146,9 @@ Current implementation note: covered at service boundary by
 `apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_stale_module_continuation_rejected_without_engine_advance`.
 The command wakeup worker integration test remains for the next slice.
 
-- [ ] **Step 7: Commit exact Redis resume**
+- [x] **Step 7: Commit exact Redis resume**
+
+Implementation note: exact Redis resume now rejects stale decisions at both runtime-service continuation validation and command-wakeup worker scheduling. The worker compares `request_id` plus active `frame_id`, `module_id`, `module_type`, and `module_cursor` before waking runtime processing.
 
 ```bash
 git add apps/server/src/services/runtime_service.py apps/server/src/services/realtime_persistence.py apps/server/src/services/command_wakeup_worker.py apps/server/tests/test_runtime_service.py apps/server/tests/test_redis_realtime_services.py apps/server/tests/test_command_wakeup_worker.py
@@ -1243,7 +1253,9 @@ PYTHONPATH=.:GPT uv run pytest -q \
 
 Observed: `151 passed, 9 subtests passed`.
 
-- [ ] **Step 3: Commit simultaneous resupply**
+- [x] **Step 3: Commit simultaneous resupply**
+
+Implementation note: simultaneous resupply is included in the final migration batch; current coverage proves batch prompts stay suspended until all required player responses arrive and are resumed through module continuation metadata.
 
 ```bash
 git add GPT/runtime_modules/simultaneous.py GPT/runtime_modules/runner.py GPT/runtime_modules/prompts.py GPT/test_runtime_simultaneous_modules.py apps/server/src/services/runtime_service.py apps/server/tests/test_prompt_module_continuation.py apps/server/tests/test_runtime_service.py
