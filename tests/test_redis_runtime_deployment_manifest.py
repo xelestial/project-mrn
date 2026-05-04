@@ -72,6 +72,7 @@ def test_platform_managed_manifest_carries_rollout_smoke_contract() -> None:
     assert smoke["expected_redis_hash_tag"] == manifest["shared_environment"]["redis_hash_tag_value"]
     assert len(smoke["restart_commands"]) == 3
     assert len(smoke["worker_health_commands"]) == 2
+    assert smoke["decision_smoke"] == "--decision-smoke"
 
     required_flags = set(contract["rollout_smoke"]["required_flags"])
     assert "--skip-up" in required_flags
@@ -80,6 +81,11 @@ def test_platform_managed_manifest_carries_rollout_smoke_contract() -> None:
     assert "--restart-command <platform restart command>" in required_flags
     assert "--worker-health-command <prompt timeout worker health command>" in required_flags
     assert "--worker-health-command <command wakeup worker health command>" in required_flags
+    assert "--decision-smoke" in required_flags
+
+    evidence = set(contract["rollout_smoke"]["passing_evidence"])
+    assert "decision_smoke.accepted_status=accepted" in evidence
+    assert "decision_smoke.duplicate_status is stale or rejected" in evidence
 
 
 def test_platform_managed_manifest_requires_shared_redis_environment() -> None:

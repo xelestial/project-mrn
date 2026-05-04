@@ -8,6 +8,22 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Redis Runtime Restart Decision Smoke
+
+- What changed:
+  - extended `tools/scripts/redis_restart_smoke.py` with `--decision-smoke`
+  - added a small stdlib WebSocket client to submit the current human prompt's legal decision through the same `/stream` path used by the frontend
+  - made the smoke resubmit the same decision and require the second response to be `stale` or `rejected`
+  - updated the Redis runtime process contract and platform-managed manifest template so rollout evidence includes restart recovery, worker health, accepted decision wakeup, and duplicate-decision dedupe
+- Why:
+  - restart smoke alone proved Redis kept the prompt and replay, but not that the post-restart input path actually woke the command worker and advanced from the same continuation
+  - the reported instability class needs a deployable proof that stale/double frontend sends cannot mutate canonical state twice after backend/worker replacement
+- Validation:
+  - `python3 -m py_compile tools/scripts/redis_restart_smoke.py` -> `PASS`
+  - `MRN_REDIS_KEY_PREFIX='mrn:{runtime-decision-smoke}' python3 tools/scripts/redis_restart_smoke.py --compose-project project-mrn-runtime-decision-smoke --compose-file deploy/redis-runtime/docker-compose.runtime.yml --topology-name local-runtime-compose-decision --expected-redis-hash-tag runtime-decision-smoke --decision-smoke` -> `PASS`
+  - smoke summary: `session_id=sess_Y8h_pqW5y78vTjqlDjHjF8Ge`, restart status `waiting_input -> waiting_input`, restart replay events `11 -> 12`, worker health checks `4`
+  - decision summary: request `sess_Y8h_pqW5y78vTjqlDjHjF8Ge:r1:t1:p1:draft_card:1`, choice `8`, first ack `accepted`, duplicate ack `stale/already_resolved`, next waiting request `sess_Y8h_pqW5y78vTjqlDjHjF8Ge:r1:t1:p1:final_character:1`, replay events `26`
+
 ## 2026-05-04 Redis Runtime Restart Smoke Evidence
 
 - What changed:

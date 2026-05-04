@@ -35,6 +35,7 @@ def test_restart_smoke_parser_supports_production_like_topology_commands() -> No
             "platform health prompt-timeout-worker",
             "--expected-redis-hash-tag",
             "project-mrn-prod",
+            "--decision-smoke",
         ]
     )
 
@@ -44,6 +45,7 @@ def test_restart_smoke_parser_supports_production_like_topology_commands() -> No
     assert args.restart_command == ["platform restart server", "platform restart workers"]
     assert args.worker_health_command == ["platform health prompt-timeout-worker"]
     assert args.expected_redis_hash_tag == "project-mrn-prod"
+    assert args.decision_smoke is True
 
 
 def test_restart_smoke_builds_compose_worker_health_commands() -> None:
@@ -101,3 +103,39 @@ def test_worker_health_checks_retry_transient_startup_failure(monkeypatch) -> No
         == 1
     )
     assert calls == 2
+
+
+def test_decision_smoke_payload_preserves_prompt_continuation_contract() -> None:
+    script = _load_script()
+
+    decision = script._decision_from_prompt(
+        {
+            "request_id": "sess:r1:t1:p1:draft_card:1",
+            "player_id": 1,
+            "resume_token": "resume-1",
+            "frame_id": "frame-1",
+            "module_id": "module-1",
+            "module_type": "DraftModule",
+            "module_cursor": 3,
+            "batch_id": "batch-1",
+            "prompt_fingerprint": "fp-1",
+            "prompt_fingerprint_version": 1,
+        },
+        choice_id="8",
+    )
+
+    assert decision == {
+        "type": "decision",
+        "request_id": "sess:r1:t1:p1:draft_card:1",
+        "player_id": 1,
+        "choice_id": "8",
+        "choice_payload": {},
+        "resume_token": "resume-1",
+        "frame_id": "frame-1",
+        "module_id": "module-1",
+        "module_type": "DraftModule",
+        "module_cursor": 3,
+        "batch_id": "batch-1",
+        "prompt_fingerprint": "fp-1",
+        "prompt_fingerprint_version": 1,
+    }

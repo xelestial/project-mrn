@@ -44,7 +44,8 @@ python3 tools/scripts/redis_restart_smoke.py \
   --compose-project project-mrn-runtime-smoke \
   --compose-file deploy/redis-runtime/docker-compose.runtime.yml \
   --topology-name local-runtime-compose \
-  --expected-redis-hash-tag runtime-compose-smoke
+  --expected-redis-hash-tag runtime-compose-smoke \
+  --decision-smoke
 ```
 
 For a platform-managed environment, run:
@@ -57,7 +58,8 @@ python3 tools/scripts/redis_restart_smoke.py \
   --expected-redis-hash-tag project-mrn-prod \
   --restart-command '<platform restart command for server and both workers>' \
   --worker-health-command '<platform exec prompt-timeout-worker -- python -m apps.server.src.workers.prompt_timeout_worker_app --health>' \
-  --worker-health-command '<platform exec command-wakeup-worker -- python -m apps.server.src.workers.command_wakeup_worker_app --health>'
+  --worker-health-command '<platform exec command-wakeup-worker -- python -m apps.server.src.workers.command_wakeup_worker_app --health>' \
+  --decision-smoke
 ```
 
 The placeholder values in `platform-managed.manifest.template.json` map the same
@@ -76,6 +78,11 @@ Passing evidence must include:
 - replay event count after restart is greater than or equal to the count before restart
 - `worker_health_checks` is at least two
 - `/health.redis.cluster_hash_tag` equals the expected hash tag
+- `decision_smoke.accepted_status=accepted`
+- duplicate submission for the same `request_id` returns `stale` or `rejected`
+- the runtime advances from the submitted request id to the next waiting input,
+  `finished`, `unavailable`, or `aborted`
+- replay event count after decision smoke is greater than the restart replay count
 
 Latest checked local production-like evidence:
 
@@ -86,6 +93,22 @@ Latest checked local production-like evidence:
 - status `waiting_input -> waiting_input`
 - replay events `11 -> 12`
 - worker health checks `4`
+
+Latest checked local restart+decision evidence:
+
+- checked `2026-05-04`
+- topology `local-runtime-compose-decision`
+- prefix `mrn:{runtime-decision-smoke}`
+- session `sess_Y8h_pqW5y78vTjqlDjHjF8Ge`
+- restart status `waiting_input -> waiting_input`
+- restart replay events `11 -> 12`
+- worker health checks `4`
+- decision request `sess_Y8h_pqW5y78vTjqlDjHjF8Ge:r1:t1:p1:draft_card:1`
+- accepted decision status `accepted`
+- duplicate decision status `stale`, reason `already_resolved`
+- decision advanced to
+  `sess_Y8h_pqW5y78vTjqlDjHjF8Ge:r1:t1:p1:final_character:1`
+- post-decision replay events `26`
 
 Latest checked platform-managed input-path evidence:
 
@@ -115,3 +138,5 @@ commands and capture fresh passing smoke evidence before live routing.
   topology and investigate Redis/runtime recovery before rollout.
 - If accepted decisions do not advance after restart, treat
   `command-wakeup-worker` as down or offset-stale until proven otherwise.
+- If duplicate decision smoke accepts the second submission, stop rollout and
+  investigate Redis prompt/command dedupe before testing frontend behavior.

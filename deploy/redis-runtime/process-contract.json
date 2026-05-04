@@ -38,6 +38,7 @@
     "all roles must report the same Redis hash tag before routing live sessions",
     "worker readiness commands must exit 0 before the deployment is considered ready",
     "accepted human decisions must wake the command worker and advance to waiting_input, finished, or unavailable",
+    "duplicate human decisions for an already consumed request id must be acknowledged as stale or rejected without appending a second command",
     "runtime stream replay must not shrink across process restart"
   ],
   "rollout_smoke": {
@@ -48,7 +49,19 @@
       "--expected-redis-hash-tag <hash-tag>",
       "--restart-command <platform restart command>",
       "--worker-health-command <prompt timeout worker health command>",
-      "--worker-health-command <command wakeup worker health command>"
+      "--worker-health-command <command wakeup worker health command>",
+      "--decision-smoke"
+    ],
+    "passing_evidence": [
+      "before_status=waiting_input",
+      "after_status=waiting_input",
+      "after_replay_events >= before_replay_events",
+      "worker_health_checks >= 2",
+      "health.redis.cluster_hash_tag == expected hash tag",
+      "decision_smoke.accepted_status=accepted",
+      "decision_smoke.duplicate_status is stale or rejected",
+      "decision_smoke.after_waiting_request_id differs from decision_smoke.request_id or decision_smoke.after_status is finished/unavailable/aborted",
+      "decision_smoke.after_replay_events > after_replay_events"
     ]
   }
 }

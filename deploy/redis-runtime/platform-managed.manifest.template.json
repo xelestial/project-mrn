@@ -68,9 +68,19 @@
       "<platform restart prompt-timeout-worker role>",
       "<platform restart command-wakeup-worker role>"
     ],
+    "decision_smoke": "--decision-smoke",
     "worker_health_commands": [
       "<platform exec prompt-timeout-worker -- python -m apps.server.src.workers.prompt_timeout_worker_app --health>",
       "<platform exec command-wakeup-worker -- python -m apps.server.src.workers.command_wakeup_worker_app --health>"
+    ],
+    "passing_evidence": [
+      "before_status=waiting_input",
+      "after_status=waiting_input",
+      "after_replay_events >= before_replay_events",
+      "worker_health_checks >= 2",
+      "decision_smoke.accepted_status=accepted",
+      "decision_smoke.duplicate_status is stale or rejected",
+      "decision_smoke.after_replay_events > after_replay_events"
     ]
   }
 }
