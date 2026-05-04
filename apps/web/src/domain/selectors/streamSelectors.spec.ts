@@ -545,6 +545,162 @@ describe("streamSelectors", () => {
     ]);
   });
 
+  it("prefers backend player_cards for local private final character before turn start", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "final_character_choice",
+          player_id: 1,
+          character: "박수",
+          view_state: {
+            players: {
+              ordered_player_ids: [1, 2],
+              marker_owner_player_id: 1,
+              marker_draft_direction: "clockwise",
+              items: [
+                {
+                  player_id: 1,
+                  display_name: "Player 1",
+                  cash: 20,
+                  shards: 4,
+                  owned_tile_count: 0,
+                  trick_count: 0,
+                  hand_coins: 0,
+                  placed_coins: 0,
+                  total_score: 0,
+                  priority_slot: null,
+                  current_character_face: "-",
+                  is_marker_owner: true,
+                  is_current_actor: false,
+                },
+              ],
+            },
+            active_slots: {
+              items: [
+                { slot: 1, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+                { slot: 2, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+                { slot: 3, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+                { slot: 4, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+                { slot: 5, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+                { slot: 6, player_id: null, label: null, character: null, inactive_character: "만신", is_current_actor: false },
+                { slot: 7, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+                { slot: 8, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+              ],
+            },
+            player_cards: {
+              items: [
+                {
+                  player_id: 1,
+                  character: "박수",
+                  priority_slot: 6,
+                  reveal_state: "selected_private",
+                  is_current_actor: false,
+                },
+              ],
+            },
+          },
+        },
+      },
+    ];
+
+    expect(selectDerivedPlayers(messages, 1)[0]).toMatchObject({
+      playerId: 1,
+      character: "박수",
+      currentCharacterFace: "박수",
+      prioritySlot: 6,
+      isCurrentActor: false,
+    });
+    expect(selectActiveCharacterSlots(messages, 1)[5]).toMatchObject({
+      slot: 6,
+      playerId: 1,
+      label: "P1",
+      character: "박수",
+      inactiveCharacter: "만신",
+      isLocalPlayer: true,
+    });
+  });
+
+  it("uses revealed backend player_cards for spectator turn-start actor slots", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          acting_player_id: 1,
+          character: "박수",
+          view_state: {
+            players: {
+              ordered_player_ids: [1, 2],
+              marker_owner_player_id: 1,
+              marker_draft_direction: "clockwise",
+              items: [
+                {
+                  player_id: 1,
+                  display_name: "Player 1",
+                  cash: 20,
+                  shards: 4,
+                  owned_tile_count: 0,
+                  trick_count: 0,
+                  hand_coins: 0,
+                  placed_coins: 0,
+                  total_score: 0,
+                  priority_slot: null,
+                  current_character_face: "-",
+                  is_marker_owner: true,
+                  is_current_actor: false,
+                },
+              ],
+            },
+            active_slots: {
+              items: [
+                { slot: 1, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+                { slot: 2, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+                { slot: 3, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+                { slot: 4, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+                { slot: 5, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+                { slot: 6, player_id: null, label: null, character: null, inactive_character: "만신", is_current_actor: false },
+                { slot: 7, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+                { slot: 8, player_id: null, label: null, character: null, inactive_character: null, is_current_actor: false },
+              ],
+            },
+            player_cards: {
+              items: [
+                {
+                  player_id: 1,
+                  character: "박수",
+                  priority_slot: 6,
+                  reveal_state: "revealed",
+                  is_current_actor: true,
+                },
+              ],
+            },
+          },
+        },
+      },
+    ];
+
+    expect(selectDerivedPlayers(messages, null)[0]).toMatchObject({
+      playerId: 1,
+      character: "박수",
+      currentCharacterFace: "박수",
+      prioritySlot: 6,
+      isCurrentActor: true,
+    });
+    expect(selectActiveCharacterSlots(messages, null)[5]).toMatchObject({
+      slot: 6,
+      playerId: 1,
+      label: "P1",
+      character: "박수",
+      inactiveCharacter: "만신",
+      isCurrentActor: true,
+    });
+  });
+
   it("prefers backend-projected reveal ordering and interrupt flags when present", () => {
     const messages: InboundMessage[] = [
       {

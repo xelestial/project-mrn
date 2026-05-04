@@ -8,6 +8,76 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 External Platform Manifest Scope Recheck
+
+- What changed:
+  - re-ran the manifest wrapper validation against the in-repo local
+    platform-managed smoke manifest
+  - confirmed the current manifest is still classified as
+    `target_topology_kind=local_smoke`
+  - confirmed `--require-external-topology` rejects the local smoke manifest
+- Why:
+  - the executable manifest remains valid as local contract proof, but it must
+    not be mistaken for external platform rollout evidence until a real external
+    topology manifest is filled
+- Validation:
+  - `python3 tools/scripts/redis_platform_smoke_from_manifest.py --validate-only` -> `ok=true`, `rollout_scope=local_contract_proof`, `external_topology_ready=false`
+  - `python3 tools/scripts/redis_platform_smoke_from_manifest.py --validate-only --require-external-topology` -> expected rejection: `external platform manifest is required; local smoke manifests only prove the contract locally`
+
+## 2026-05-04 Engine Sequence Action Ownership Boundary
+
+- What changed:
+  - added a runner-level sequence action ownership check before sequence handler dispatch
+  - preserved `LegacyActionAdapterModule` rejection as an explicit pre-dispatch
+    error
+  - added a regression proving `TrickChoiceModule` cannot own or execute a
+    native `apply_move` action payload
+- Why:
+  - trick, fortune, movement, mark, and deferred follow-up work must resume from
+    the exact module frame that owns the next step
+  - a trick sequence module with an arbitrary native action payload should fail
+    as a module ownership violation before opening a prompt or executing an
+    action
+  - legitimate deferred trick follow-up actions remain allowed only when the
+    action type maps to that exact module type
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_runtime_sequence_modules.py::test_trick_choice_module_cannot_own_native_action_payload GPT/test_runtime_sequence_modules.py::test_continue_after_trick_phase_action_executes_and_attaches_turn_completion GPT/test_runtime_sequence_modules.py::test_legacy_action_adapter_checkpoint_cannot_be_resumed_silently -q` -> `3 passed`
+
+## 2026-05-04 Frontend Player Card Projection Consumption
+
+- What changed:
+  - updated stream selectors to consume backend-owned `view_state.player_cards`
+    for player rows and active character slots
+  - overlaid player card projection by `player_id` and active-slot projection by
+    `priority_slot`
+  - added frontend regressions for private local final-character visibility and
+    spectator-visible turn-start reveal
+- Why:
+  - final-character choice visibility now belongs to the backend projection
+    contract
+  - the frontend should not reconstruct hidden/revealed card state from raw
+    stream history when the backend already provides viewer-scoped
+    `player_cards`
+- Validation:
+  - `npm --prefix apps/web test -- src/domain/selectors/streamSelectors.spec.ts -t "player_cards"` -> `2 passed`
+  - `npm --prefix apps/web test -- src/domain/selectors/streamSelectors.spec.ts` -> `89 passed`
+
+## 2026-05-04 Stream API Timeout Fallback Contract Test Alignment
+
+- What changed:
+  - aligned `StreamApiTests.test_prompt_timeout_emits_fallback_execution_and_runtime_tracks_history`
+    with the existing runtime fallback contract by adding the fallback choice to
+    `legal_choices`
+- Why:
+  - `RuntimeService.execute_prompt_fallback` intentionally rejects timeout
+    fallback execution when a prompt has no legal choice list
+  - the stream API regression was an older synthetic prompt fixture that carried
+    only `fallback_choice_id`, which contradicted the current decision contract
+    and failed before the timeout worker could publish its expected events
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_stream_api.py::StreamApiTests::test_prompt_timeout_emits_fallback_execution_and_runtime_tracks_history -q` -> `1 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_execute_prompt_fallback_records_recent_history apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_execute_prompt_fallback_uses_first_legal_choice_when_no_explicit_default apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_execute_prompt_fallback_ignores_illegal_explicit_default apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_execute_prompt_fallback_rejects_prompt_without_legal_choices apps/server/tests/test_prompt_service.py -q` -> `16 passed`
+
 ## 2026-05-04 1-4 External Topology Gate And Player Card Projection Contract
 
 - What changed:

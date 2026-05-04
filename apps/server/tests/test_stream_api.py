@@ -484,6 +484,7 @@ class StreamApiTests(unittest.TestCase):
                 "timeout_ms": 1,
                 "fallback_policy": "timeout_fallback",
                 "fallback_choice_id": "choice_timeout_default",
+                "legal_choices": [{"choice_id": "choice_timeout_default", "label": "Default"}],
             },
         )
 

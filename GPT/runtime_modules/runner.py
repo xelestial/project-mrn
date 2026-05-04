@@ -352,6 +352,9 @@ class ModuleRunner:
         frame.active_module_id = module.module_id
         module.status = "running"
         self._attach_applicable_modifiers(state, module)
+        if module.module_type == "LegacyActionAdapterModule":
+            raise ModuleRunnerError("LegacyActionAdapterModule is no longer executable; catalogue the action module")
+        self._validate_sequence_action_payload_ownership(module)
         context = SequenceFrameHandlerContext(
             runner=self,
             engine=engine,
@@ -370,8 +373,6 @@ class ModuleRunner:
                 module_type=module.module_type,
                 frame_id=frame.frame_id,
             )
-        if module.module_type == "LegacyActionAdapterModule":
-            raise ModuleRunnerError("LegacyActionAdapterModule is no longer executable; catalogue the action module")
         if "action" in module.payload:
             action = module.payload.get("action")
             action_type = action.get("type") if isinstance(action, dict) else None
@@ -867,6 +868,24 @@ class ModuleRunner:
 
     def _advance_native_action_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> dict[str, Any]:
         return self._advance_action_module(engine, state, frame, module, module_boundary="native")
+
+    @staticmethod
+    def _validate_sequence_action_payload_ownership(module: ModuleRef) -> None:
+        if "action" not in module.payload:
+            return
+        action = module.payload.get("action")
+        if not isinstance(action, dict):
+            raise ModuleRunnerError(f"{module.module_type} action payload must be an object")
+        action_type = str(action.get("type") or "")
+        try:
+            expected_module_type = module_type_for_action(action_type)
+        except UnknownActionTypeError as exc:
+            raise ModuleRunnerError(str(exc)) from exc
+        if module.module_type != expected_module_type:
+            raise ModuleRunnerError(
+                "sequence module ownership violation: "
+                f"action type {action_type} belongs to {expected_module_type}, got {module.module_type}"
+            )
 
     @staticmethod
     def _validate_action_module_contract(module: ModuleRef) -> None:

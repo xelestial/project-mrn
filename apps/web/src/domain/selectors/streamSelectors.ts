@@ -237,6 +237,14 @@ type BackendActiveSlotItem = {
   is_current_actor: boolean;
 };
 
+type BackendPlayerCardItem = {
+  player_id: number;
+  character: string;
+  priority_slot: number | null;
+  reveal_state: "selected_private" | "revealed";
+  is_current_actor: boolean;
+};
+
 type BackendMarkTargetCandidate = {
   slot: number;
   player_id: number | null;
@@ -2765,6 +2773,33 @@ function isBackendProjectionCurrent(messages: InboundMessage[], index: number): 
   return latestStatefulIndex === null || index >= latestStatefulIndex;
 }
 
+function selectBackendPlayerCardItemsFromViewState(viewState: Record<string, unknown>): BackendPlayerCardItem[] {
+  const playerCards = isRecord(viewState["player_cards"]) ? viewState["player_cards"] : null;
+  const items = Array.isArray(playerCards?.["items"]) ? playerCards["items"] : null;
+  if (!items) {
+    return [];
+  }
+  return items
+    .map((item): BackendPlayerCardItem | null => {
+      if (!isRecord(item) || typeof item["player_id"] !== "number") {
+        return null;
+      }
+      const character = typeof item["character"] === "string" ? item["character"].trim() : "";
+      const revealState = item["reveal_state"];
+      if (!character || (revealState !== "selected_private" && revealState !== "revealed")) {
+        return null;
+      }
+      return {
+        player_id: item["player_id"],
+        character,
+        priority_slot: typeof item["priority_slot"] === "number" ? item["priority_slot"] : null,
+        reveal_state: revealState,
+        is_current_actor: item["is_current_actor"] === true,
+      };
+    })
+    .filter((item): item is BackendPlayerCardItem => item !== null);
+}
+
 function selectBackendDerivedPlayers(
   messages: InboundMessage[],
   currentLocalPlayerId: number | null
@@ -2780,39 +2815,42 @@ function selectBackendDerivedPlayers(
   if (!items || items.length === 0) {
     return null;
   }
+  const playerCardsByPlayerId = new Map(
+    selectBackendPlayerCardItemsFromViewState(entry.viewState).map((item) => [item.player_id, item])
+  );
   const mapped = items.map((item): DerivedPlayerViewModel | null => {
-      if (!isRecord(item) || typeof item["player_id"] !== "number") {
-        return null;
-      }
-      const playerId = item["player_id"];
-      return {
-        playerId,
-        displayName: typeof item["display_name"] === "string" ? item["display_name"] : `Player ${playerId}`,
-        character:
-          typeof item["current_character_face"] === "string" && item["current_character_face"].trim()
-            ? item["current_character_face"]
-            : "-",
-        alive: true,
-        position: 0,
-        cash: typeof item["cash"] === "number" ? item["cash"] : 0,
-        shards: typeof item["shards"] === "number" ? item["shards"] : 0,
-        handCoins: typeof item["hand_coins"] === "number" ? item["hand_coins"] : 0,
-        placedCoins: typeof item["placed_coins"] === "number" ? item["placed_coins"] : 0,
-        totalScore: typeof item["total_score"] === "number" ? item["total_score"] : 0,
-        hiddenTrickCount: typeof item["hidden_trick_count"] === "number" ? item["hidden_trick_count"] : 0,
-        ownedTileCount: typeof item["owned_tile_count"] === "number" ? item["owned_tile_count"] : 0,
-        publicTricks: stringArray(item["public_tricks"]),
-        trickCount: typeof item["trick_count"] === "number" ? item["trick_count"] : 0,
-        prioritySlot: typeof item["priority_slot"] === "number" ? item["priority_slot"] : null,
-        currentCharacterFace:
-          typeof item["current_character_face"] === "string" && item["current_character_face"].trim()
-            ? item["current_character_face"]
-            : "-",
-        isMarkerOwner: item["is_marker_owner"] === true,
-        isCurrentActor: !gameEnded && item["is_current_actor"] === true,
-        isLocalPlayer: currentLocalPlayerId === playerId,
-      };
-    })
+    if (!isRecord(item) || typeof item["player_id"] !== "number") {
+      return null;
+    }
+    const playerId = item["player_id"];
+    const playerCard = playerCardsByPlayerId.get(playerId);
+    const backendCharacter =
+      typeof item["current_character_face"] === "string" && item["current_character_face"].trim()
+        ? item["current_character_face"].trim()
+        : "-";
+    const currentCharacterFace = playerCard?.character ?? backendCharacter;
+    return {
+      playerId,
+      displayName: typeof item["display_name"] === "string" ? item["display_name"] : `Player ${playerId}`,
+      character: currentCharacterFace,
+      alive: true,
+      position: 0,
+      cash: typeof item["cash"] === "number" ? item["cash"] : 0,
+      shards: typeof item["shards"] === "number" ? item["shards"] : 0,
+      handCoins: typeof item["hand_coins"] === "number" ? item["hand_coins"] : 0,
+      placedCoins: typeof item["placed_coins"] === "number" ? item["placed_coins"] : 0,
+      totalScore: typeof item["total_score"] === "number" ? item["total_score"] : 0,
+      hiddenTrickCount: typeof item["hidden_trick_count"] === "number" ? item["hidden_trick_count"] : 0,
+      ownedTileCount: typeof item["owned_tile_count"] === "number" ? item["owned_tile_count"] : 0,
+      publicTricks: stringArray(item["public_tricks"]),
+      trickCount: typeof item["trick_count"] === "number" ? item["trick_count"] : 0,
+      prioritySlot: playerCard?.priority_slot ?? (typeof item["priority_slot"] === "number" ? item["priority_slot"] : null),
+      currentCharacterFace,
+      isMarkerOwner: item["is_marker_owner"] === true,
+      isCurrentActor: !gameEnded && (item["is_current_actor"] === true || playerCard?.is_current_actor === true),
+      isLocalPlayer: currentLocalPlayerId === playerId,
+    };
+  });
   return mapped.filter((item): item is DerivedPlayerViewModel => item !== null);
 }
 
@@ -2831,26 +2869,54 @@ function selectBackendActiveCharacterSlots(
   if (!items || items.length === 0) {
     return null;
   }
+  const playerCardsBySlot = new Map(
+    selectBackendPlayerCardItemsFromViewState(entry.viewState)
+      .filter((item) => item.priority_slot !== null)
+      .map((item) => [item.priority_slot as number, item])
+  );
+  const seenSlots = new Set<number>();
   const mapped = items
     .map((item) => {
       if (!isRecord(item) || typeof item["slot"] !== "number") {
         return null;
       }
-      const playerId = typeof item["player_id"] === "number" ? item["player_id"] : null;
+      const slot = item["slot"];
+      seenSlots.add(slot);
+      const playerCard = playerCardsBySlot.get(slot);
+      const playerId = typeof item["player_id"] === "number" ? item["player_id"] : playerCard?.player_id ?? null;
+      const character =
+        typeof item["character"] === "string" && item["character"].trim()
+          ? item["character"].trim()
+          : playerCard?.character ?? null;
       return {
-        slot: item["slot"],
+        slot,
         playerId,
-        label: typeof item["label"] === "string" ? item["label"] : null,
-        character: typeof item["character"] === "string" && item["character"].trim() ? item["character"] : null,
+        label: typeof item["label"] === "string" ? item["label"] : playerId !== null ? `P${playerId}` : null,
+        character,
         inactiveCharacter:
           typeof item["inactive_character"] === "string" && item["inactive_character"].trim()
             ? item["inactive_character"]
             : null,
-        isCurrentActor: !gameEnded && item["is_current_actor"] === true,
+        isCurrentActor: !gameEnded && (item["is_current_actor"] === true || playerCard?.is_current_actor === true),
         isLocalPlayer: playerId !== null && currentLocalPlayerId === playerId,
       };
     })
     .filter((item): item is ActiveCharacterSlotViewModel => item !== null);
+  for (const [slot, playerCard] of playerCardsBySlot) {
+    if (seenSlots.has(slot)) {
+      continue;
+    }
+    mapped.push({
+      slot,
+      playerId: playerCard.player_id,
+      label: `P${playerCard.player_id}`,
+      character: playerCard.character,
+      inactiveCharacter: null,
+      isCurrentActor: !gameEnded && playerCard.is_current_actor,
+      isLocalPlayer: currentLocalPlayerId === playerCard.player_id,
+    });
+  }
+  mapped.sort((left, right) => left.slot - right.slot);
   return mapped.some((item) => item.character) ? mapped : null;
 }
 

@@ -583,6 +583,45 @@ def test_module_runner_rejects_action_payload_module_mismatch_before_execution()
         ModuleRunner().advance_engine(FakeEngine(), state)
 
 
+def test_trick_choice_module_cannot_own_native_action_payload() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+        def _use_trick_phase(self, *_args, **_kwargs):
+            raise AssertionError("trick prompt must not open when module owns a native action payload")
+
+        def _execute_action(self, *_args, **_kwargs):
+            raise AssertionError("native action must not execute from a trick choice module")
+
+    frame = build_trick_sequence_frame(
+        1,
+        0,
+        0,
+        parent_frame_id="turn:1:p0",
+        parent_module_id="mod:turn:1:p0:trick",
+        session_id="test-session",
+    )
+    frame.module_queue[0].payload["action"] = {
+        "action_id": "move-from-trick-choice",
+        "type": "apply_move",
+        "actor_player_id": 0,
+        "source": "test",
+    }
+    state = SimpleNamespace(
+        pending_actions=[],
+        pending_turn_completion={},
+        players=[SimpleNamespace(player_id=0, alive=True, trick_hand=[])],
+        runtime_frame_stack=[frame],
+        runtime_module_journal=[],
+        rounds_completed=0,
+        current_round_order=[0],
+        turn_index=0,
+    )
+
+    with pytest.raises(ModuleRunnerError, match="sequence module ownership.*apply_move.*MapMoveModule.*TrickChoiceModule"):
+        ModuleRunner().advance_engine(FakeEngine(), state)
+
+
 def test_continue_after_trick_phase_action_executes_and_attaches_turn_completion() -> None:
     class FakeEngine:
         _vis_session_id = "test-session"
