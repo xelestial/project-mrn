@@ -8,6 +8,24 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Manifest-Driven Platform Smoke Runner
+
+- What changed:
+  - added `tools/scripts/redis_platform_smoke_from_manifest.py` to validate a Redis runtime platform manifest, generate the concrete `redis_restart_smoke.py` command, and optionally run manifest preflight plus restart/decision smoke
+  - added manifest-runner coverage to `tests/test_redis_runtime_deployment_manifest.py`
+  - documented the wrapper in `tools/scripts/README.md` and the Redis deployment contract
+- Why:
+  - the repo still has no selected external hosting platform manifest, so the next safest step is making the platform-managed contract executable from a filled manifest instead of hand-copying restart/exec command lines
+  - this keeps local and future external smoke runs on one contract path: roles, hash tag, restart commands, worker health checks, post-restart decision acceptance, and duplicate-decision dedupe
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest tests/test_redis_runtime_deployment_manifest.py -q` -> `9 passed`
+  - `python3 tools/scripts/redis_platform_smoke_from_manifest.py --validate-only` -> `ok=true`, roles `server`, `prompt-timeout-worker`, `command-wakeup-worker`, topology `local-runtime-platform-managed-decision`, hash tag `runtime-platform-decision-smoke`
+  - `python3 tools/scripts/redis_platform_smoke_from_manifest.py --print-command` -> printed the expected `redis_restart_smoke.py --skip-up ... --decision-smoke` command with one combined restart command and two worker health commands
+  - `python3 tools/scripts/redis_platform_smoke_from_manifest.py --run --preflight` -> `PASS`
+  - smoke summary: `session_id=sess_4-hrRVNYgxOa79bRESsZwtIp`, restart status `waiting_input -> waiting_input`, restart replay events `11 -> 12`, worker health checks `4`
+  - decision summary: request `sess_4-hrRVNYgxOa79bRESsZwtIp:r1:t1:p1:draft_card:1`, choice `8`, first ack `accepted`, duplicate ack `stale/already_resolved`, next waiting request `sess_4-hrRVNYgxOa79bRESsZwtIp:r1:t1:p1:final_character:1`, replay events `26`
+  - preflight cleanup removed the platform-decision smoke server, workers, Redis container, and network
+
 ## 2026-05-04 Local Platform-Managed Decision Smoke And 1-5 Regression Pass
 
 - What changed:

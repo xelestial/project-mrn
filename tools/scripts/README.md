@@ -10,3 +10,8 @@ Operational scripts for local runs, export, and migration helpers.
   topologies, run with `--skip-up`, `--restart-command`,
   `--worker-health-command`, and `--expected-redis-hash-tag` so the same smoke
   checks exercise the target platform's actual process manager.
+- `redis_platform_smoke_from_manifest.py`: validates a platform-managed Redis
+  runtime manifest, builds the matching `redis_restart_smoke.py` command, and
+  can run the manifest's preflight plus restart/decision smoke. Use
+  `--validate-only` before rollout, `--print-command` for deployment logs, and
+  `--run --preflight` for the repository-local executable profile.

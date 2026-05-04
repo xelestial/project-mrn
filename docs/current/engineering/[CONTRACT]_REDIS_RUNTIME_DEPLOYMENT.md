@@ -16,6 +16,8 @@ The executable local platform-managed smoke mapping lives at
 `deploy/redis-runtime/local-platform-managed.smoke.json`; it pins the same
 contract to concrete Docker Compose restart/exec commands so the `--skip-up`
 input path can be tested before an external platform is selected.
+`tools/scripts/redis_platform_smoke_from_manifest.py` validates that manifest
+shape and generates the exact `redis_restart_smoke.py` invocation from it.
 
 ## 2. Required Roles
 
@@ -81,6 +83,21 @@ local Redis runtime stack as preflight, then runs `redis_restart_smoke.py` in
 `--skip-up` mode using explicit restart and worker health commands, including
 `--decision-smoke`.
 
+The manifest-driven wrapper is the preferred way to prove the input path:
+
+```bash
+python3 tools/scripts/redis_platform_smoke_from_manifest.py \
+  --manifest deploy/redis-runtime/local-platform-managed.smoke.json \
+  --run \
+  --preflight
+```
+
+For a real hosting platform, create a filled manifest from
+`platform-managed.manifest.template.json`, then run the same wrapper with that
+manifest. `--validate-only` prints the role/hash/preflight summary, and
+`--print-command` prints the raw `redis_restart_smoke.py` command for deployment
+logs.
+
 Passing evidence must include:
 
 - `before_status=waiting_input`
@@ -126,16 +143,17 @@ Latest checked platform-managed input-path evidence:
 - topology `local-runtime-platform-managed-decision`
 - restart mode `custom-command`
 - profile `deploy/redis-runtime/local-platform-managed.smoke.json`
+- runner `tools/scripts/redis_platform_smoke_from_manifest.py --run --preflight`
 - prefix `mrn:{runtime-platform-decision-smoke}`
-- session `sess_2KtlLh6lzf6vW2bVsxMLu5BT`
+- session `sess_4-hrRVNYgxOa79bRESsZwtIp`
 - restart status `waiting_input -> waiting_input`
 - replay events `11 -> 12`
 - worker health checks `4`
-- decision request `sess_2KtlLh6lzf6vW2bVsxMLu5BT:r1:t1:p1:draft_card:1`
+- decision request `sess_4-hrRVNYgxOa79bRESsZwtIp:r1:t1:p1:draft_card:1`
 - accepted decision status `accepted`
 - duplicate decision status `stale`, reason `already_resolved`
 - decision advanced to
-  `sess_2KtlLh6lzf6vW2bVsxMLu5BT:r1:t1:p1:final_character:1`
+  `sess_4-hrRVNYgxOa79bRESsZwtIp:r1:t1:p1:final_character:1`
 - post-decision replay events `26`
 
 This proves the repository's `--skip-up`/custom-command smoke contract,

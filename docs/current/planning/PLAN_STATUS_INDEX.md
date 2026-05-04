@@ -96,12 +96,13 @@ Those themes should reopen only if a concrete regression or rollout need appears
    restart smoke, authenticated REST restart recovery, worker readiness
    commands, production-like smoke flags, the role/process deployment contract,
    platform-managed manifest template, executable local platform-managed smoke
-   profile, custom-command restart-smoke input path, and post-restart decision
-   smoke/dedupe proof are implemented. Remaining work is replacing the platform
-   manifest placeholders with the chosen deployment platform's native
-   restart/exec commands, capturing smoke evidence from that actual external
-   topology, and continuing the larger engine-native module migration beyond
-   the guarded prompt continuation boundaries. See
+   profile, custom-command restart-smoke input path, manifest-driven platform
+   smoke runner, and post-restart decision smoke/dedupe proof are implemented.
+   Remaining work is replacing the platform manifest placeholders with the
+   chosen deployment platform's native restart/exec commands, running that
+   filled manifest through the platform smoke runner, capturing smoke evidence
+   from the actual external topology, and continuing the larger engine-native
+   module migration beyond the guarded prompt continuation boundaries. See
    `docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`.
 2. Runtime contract stabilization. Keep end-to-end payload shape, round/action
    control, prompt lifecycle, and modular-runtime frame semantics synchronized

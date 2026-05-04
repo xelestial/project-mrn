@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 from pathlib import Path
 
 
@@ -10,6 +11,16 @@ ENV_EXAMPLE = ROOT / "deploy/redis-runtime/.env.example"
 PROCESS_CONTRACT = ROOT / "deploy/redis-runtime/process-contract.json"
 PLATFORM_MANIFEST = ROOT / "deploy/redis-runtime/platform-managed.manifest.template.json"
 LOCAL_PLATFORM_SMOKE = ROOT / "deploy/redis-runtime/local-platform-managed.smoke.json"
+PLATFORM_SMOKE_SCRIPT = ROOT / "tools/scripts/redis_platform_smoke_from_manifest.py"
+
+
+def _load_platform_smoke_script():
+    spec = importlib.util.spec_from_file_location("redis_platform_smoke_from_manifest", PLATFORM_SMOKE_SCRIPT)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _walk_strings(value: object) -> list[str]:
@@ -156,3 +167,36 @@ def test_local_platform_smoke_manifest_is_executable_mapping() -> None:
 
     evidence = set(smoke["passing_evidence"])
     assert set(contract["rollout_smoke"]["passing_evidence"]) <= evidence
+
+
+def test_platform_smoke_script_builds_restart_smoke_command_from_manifest() -> None:
+    module = _load_platform_smoke_script()
+    manifest = module.load_manifest(LOCAL_PLATFORM_SMOKE)
+
+    command = module.build_smoke_command(manifest)
+
+    assert command[:3] == ["python3", "tools/scripts/redis_restart_smoke.py", "--skip-up"]
+    assert "--topology-name" in command
+    assert command[command.index("--topology-name") + 1] == "local-runtime-platform-managed-decision"
+    assert "--expected-redis-hash-tag" in command
+    assert command[command.index("--expected-redis-hash-tag") + 1] == "runtime-platform-decision-smoke"
+    assert command.count("--restart-command") == 1
+    assert "restart server prompt-timeout-worker command-wakeup-worker" in command[command.index("--restart-command") + 1]
+    assert command.count("--worker-health-command") == 2
+    assert command[-1] == "--decision-smoke"
+
+
+def test_platform_smoke_script_validates_contract_mapping_and_preflight() -> None:
+    module = _load_platform_smoke_script()
+    manifest = module.load_manifest(LOCAL_PLATFORM_SMOKE)
+
+    validation = module.validate_manifest(manifest, contract_path=PROCESS_CONTRACT)
+
+    assert validation["ok"] is True
+    assert validation["roles"] == ["server", "prompt-timeout-worker", "command-wakeup-worker"]
+    assert validation["topology_name"] == "local-runtime-platform-managed-decision"
+    assert validation["expected_redis_hash_tag"] == "runtime-platform-decision-smoke"
+    assert validation["preflight_up_command"].endswith(
+        "up -d --build redis server prompt-timeout-worker command-wakeup-worker"
+    )
+    assert validation["preflight_down_command"].endswith(" down")
