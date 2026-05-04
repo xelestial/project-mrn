@@ -76,6 +76,225 @@ def _player_trick_hand_context(player: Any, *, usable_cards: list[Any] | None = 
     }
 
 
+def _compact_nested_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    for key, value in payload.items():
+        if value is None:
+            continue
+        if isinstance(value, dict):
+            compact[key] = _compact_nested_payload(value)
+        else:
+            compact[key] = value
+    return compact
+
+
+def _effect_context_payload(
+    *,
+    label: str,
+    detail: str,
+    attribution: str,
+    tone: str,
+    source: str,
+    intent: str,
+    source_player_id: int | None,
+    source_family: str,
+    source_name: str,
+    resource_delta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return _compact_nested_payload(
+        {
+            "label": label,
+            "detail": detail,
+            "attribution": attribution,
+            "tone": tone,
+            "source": source,
+            "intent": intent,
+            "enhanced": True,
+            "source_player_id": source_player_id,
+            "source_family": source_family,
+            "source_name": source_name,
+            "resource_delta": resource_delta,
+        }
+    )
+
+
+def _prompt_player_id(player: Any) -> int | None:
+    player_id = getattr(player, "player_id", None)
+    return int(player_id) + 1 if isinstance(player_id, int) else None
+
+
+def _prompt_effect_context(request_type: str, context: dict[str, Any], player: Any) -> dict[str, Any] | None:
+    if isinstance(context.get("effect_context"), dict):
+        return context["effect_context"]
+    prompt_player_id = _prompt_player_id(player)
+    if request_type == "mark_target":
+        actor_name = str(context.get("actor_name") or "").strip()
+        if not actor_name:
+            return None
+        return _effect_context_payload(
+            label=actor_name,
+            detail=f"{actor_name}의 지목 효과로 다음 대상을 고릅니다.",
+            attribution="Character mark",
+            tone="effect",
+            source="character",
+            intent="mark",
+            source_player_id=prompt_player_id,
+            source_family="character",
+            source_name=actor_name,
+        )
+    if request_type == "trick_tile_target":
+        card_name = str(context.get("card_name") or "").strip()
+        if not card_name:
+            return None
+        return _effect_context_payload(
+            label=card_name,
+            detail=f"{card_name} 효과로 대상 타일을 고릅니다.",
+            attribution="Trick effect",
+            tone="effect",
+            source="trick",
+            intent="target",
+            source_player_id=prompt_player_id,
+            source_family="trick",
+            source_name=card_name,
+        )
+    if request_type == "lap_reward":
+        return _effect_context_payload(
+            label="LAP reward",
+            detail="The player crossed the start tile and must choose the lap reward allocation.",
+            attribution="Movement result",
+            tone="economy",
+            source="move",
+            intent="gain",
+            source_player_id=prompt_player_id,
+            source_family="movement",
+            source_name="lap_reward",
+        )
+    if request_type == "purchase_tile":
+        source = str(context.get("source") or "").strip()
+        if source in {"matchmaker_adjacent", "adjacent_extra"}:
+            return _effect_context_payload(
+                label="중매꾼",
+                detail="중매꾼 효과로 인접 타일 구매 여부를 결정합니다.",
+                attribution="Character effect",
+                tone="economy",
+                source="character",
+                intent="buy",
+                source_player_id=prompt_player_id,
+                source_family="character",
+                source_name="중매꾼",
+            )
+        return _effect_context_payload(
+            label="Tile purchase",
+            detail="The player reached a purchasable tile and must choose whether to buy it.",
+            attribution="Movement result",
+            tone="economy",
+            source="move",
+            intent="buy",
+            source_player_id=prompt_player_id,
+            source_family="movement",
+            source_name="arrival_purchase",
+        )
+    if request_type == "pabal_dice_mode":
+        return _effect_context_payload(
+            label="파발꾼",
+            detail="파발꾼 효과로 이번 턴 주사위 방식을 고릅니다.",
+            attribution="Character effect",
+            tone="effect",
+            source="character",
+            intent="dice",
+            source_player_id=prompt_player_id,
+            source_family="character",
+            source_name="파발꾼",
+        )
+    if request_type == "runaway_step_choice":
+        return _effect_context_payload(
+            label="탈출 노비",
+            detail="탈출 노비 효과로 추가 이동 여부를 결정합니다.",
+            attribution="Character effect",
+            tone="move",
+            source="character",
+            intent="move",
+            source_player_id=prompt_player_id,
+            source_family="character",
+            source_name="탈출 노비",
+        )
+    if request_type == "geo_bonus":
+        actor_name = str(context.get("actor_name") or "").strip()
+        if not actor_name:
+            return None
+        return _effect_context_payload(
+            label=actor_name,
+            detail=f"{actor_name} 효과 보상을 고릅니다.",
+            attribution="Character effect",
+            tone="economy",
+            source="character",
+            intent="gain",
+            source_player_id=prompt_player_id,
+            source_family="character",
+            source_name=actor_name,
+        )
+    if request_type == "doctrine_relief":
+        return _effect_context_payload(
+            label="교리 감독관",
+            detail="교리 감독관 효과로 짐을 덜어줄 대상을 고릅니다.",
+            attribution="Character effect",
+            tone="economy",
+            source="character",
+            intent="relief",
+            source_player_id=prompt_player_id,
+            source_family="character",
+            source_name="교리 감독관",
+        )
+    if request_type == "specific_trick_reward":
+        return _effect_context_payload(
+            label="잔꾀 보상",
+            detail="잔꾀 효과 보상으로 받을 카드를 고릅니다.",
+            attribution="Trick effect",
+            tone="economy",
+            source="trick",
+            intent="gain",
+            source_player_id=prompt_player_id,
+            source_family="trick",
+            source_name="specific_trick_reward",
+        )
+    if request_type == "active_flip":
+        return _effect_context_payload(
+            label="카드 뒤집기",
+            detail="라운드 종료 카드 뒤집기를 확정합니다.",
+            attribution="Round end",
+            tone="effect",
+            source="round_end",
+            intent="flip",
+            source_player_id=prompt_player_id,
+            source_family="round",
+            source_name="round_end_card_flip",
+        )
+    if request_type == "burden_exchange":
+        card_name = str(context.get("card_name") or "").strip() or "Burden"
+        burden_cost = context.get("burden_cost")
+        resource_delta = {"cash": -int(burden_cost)} if isinstance(burden_cost, int) and burden_cost > 0 else None
+        return _effect_context_payload(
+            label=card_name,
+            detail="Supply threshold reached; choose the burden card to resolve.",
+            attribution="Supply threshold",
+            tone="economy",
+            source="trick",
+            intent="cost",
+            source_player_id=prompt_player_id,
+            source_family="trick",
+            source_name=card_name,
+            resource_delta=resource_delta,
+        )
+    return None
+
+
+def _with_effect_context(request_type: str, public_context: dict[str, Any], player: Any) -> dict[str, Any]:
+    effect_context = _prompt_effect_context(request_type, public_context, player)
+    if effect_context:
+        return {**public_context, "effect_context": effect_context}
+    return public_context
+
+
 def _legal_adjacent_purchase_targets(state: Any, anchor_pos: int) -> list[int]:
     try:
         block_ids = list(getattr(state, "block_ids", []) or [])
@@ -298,12 +517,12 @@ class HumanHttpPolicy:
                 }
                 for opt in options
             ],
-            public_context={
+            public_context=_with_effect_context("runaway_step_choice", {
                 "player_position": player.position,
                 "one_short_pos": one_short_pos,
                 "bonus_target_pos": bonus_target_pos,
                 "bonus_target_kind": kind_name,
-            },
+            }, player),
             can_pass=False,
             timeout_ms=int(TIMEOUT_S * 1000),
         )
@@ -407,7 +626,7 @@ class HumanHttpPolicy:
             request_type="lap_reward",
             player_id=player.player_id + 1,
             legal_choices=legal_choices,
-            public_context={
+            public_context=_with_effect_context("lap_reward", {
                 "budget": budget,
                 "pools": {"cash": cash_pool, "shards": shards_pool, "coins": coins_pool},
                 "cash_point_cost": int(rules.cash_point_cost),
@@ -419,7 +638,7 @@ class HumanHttpPolicy:
                 "player_placed_coins": getattr(player, "score_coins_placed", 0),
                 "player_total_score": int(getattr(player, "hand_coins", 0) or 0) + int(getattr(player, "score_coins_placed", 0) or 0),
                 "player_owned_tile_count": getattr(player, "tiles_owned", 0),
-            },
+            }, player),
             can_pass=False,
             timeout_ms=int(TIMEOUT_S * 1000),
         )
@@ -686,6 +905,7 @@ class HumanHttpPolicy:
             candidate_tiles = _legal_adjacent_purchase_targets(state, player.position)
             if candidate_tiles:
                 public_context["candidate_tiles"] = candidate_tiles
+        public_context = _with_effect_context("purchase_tile", public_context, player)
         prompt = build_prompt_envelope(
             request_type="purchase_tile",
             player_id=player.player_id + 1,
@@ -821,7 +1041,7 @@ class HumanHttpPolicy:
                 }
                 for opt in options
             ],
-            public_context={
+            public_context=_with_effect_context("mark_target", {
                 "actor_name": str(actor_name),
                 "player_cash": player.cash,
                 "player_position": player.position,
@@ -834,7 +1054,7 @@ class HumanHttpPolicy:
                     for opt in options
                     if opt["id"] != "none"
                 ],
-            },
+            }, player),
             can_pass=True,
             timeout_ms=int(TIMEOUT_S * 1000),
         )
@@ -940,14 +1160,14 @@ class HumanHttpPolicy:
                 }
                 for tile_index in candidate_indices
             ],
-            public_context={
+            public_context=_with_effect_context("trick_tile_target", {
                 "card_name": str(card_name or ""),
                 "candidate_count": len(candidate_indices),
                 "candidate_tiles": list(candidate_indices),
                 "target_scope": str(target_scope or "any"),
                 "player_cash": player.cash,
                 "player_position": player.position,
-            },
+            }, player),
             timeout_ms=int(TIMEOUT_S * 1000),
         )
 
@@ -987,13 +1207,13 @@ class HumanHttpPolicy:
                 }
                 for opt in options
             ],
-            public_context={
+            public_context=_with_effect_context("geo_bonus", {
                 "actor_name": str(char),
                 "player_cash": player.cash,
                 "player_position": player.position,
                 "player_shards": player.shards,
                 "player_hand_coins": getattr(player, "hand_coins", 0),
-            },
+            }, player),
             timeout_ms=int(TIMEOUT_S * 1000),
         )
 
@@ -1041,11 +1261,11 @@ class HumanHttpPolicy:
                 }
                 for opt in options
             ],
-            public_context={
+            public_context=_with_effect_context("pabal_dice_mode", {
                 "player_cash": player.cash,
                 "player_position": player.position,
                 "player_shards": getattr(player, "shards", 0),
-            },
+            }, player),
             can_pass=False,
             timeout_ms=int(TIMEOUT_S * 1000),
         )
@@ -1091,12 +1311,12 @@ class HumanHttpPolicy:
                 }
                 for opt in options
             ],
-            public_context={
+            public_context=_with_effect_context("doctrine_relief", {
                 "player_cash": player.cash,
                 "player_position": player.position,
                 "candidate_count": len(options),
                 "candidate_labels": [opt["label"] for opt in options],
-            },
+            }, player),
             timeout_ms=int(TIMEOUT_S * 1000),
         )
 
@@ -1172,7 +1392,7 @@ class HumanHttpPolicy:
                 }
                 for opt in options
             ],
-            public_context={
+            public_context=_with_effect_context("active_flip", {
                 "player_cash": player.cash,
                 "player_position": player.position,
                 "flip_count": len(selectable_cards),
@@ -1187,7 +1407,7 @@ class HumanHttpPolicy:
                 "flip_trigger": "marker_owner_changed",
                 "marker_owner_player_id": None if marker_owner_id is None else int(marker_owner_id) + 1,
                 "pending_marker_flip_owner_id": None if pending_owner_id is None else int(pending_owner_id) + 1,
-            },
+            }, player),
             can_pass=True,
             timeout_ms=int(TIMEOUT_S * 1000),
         )
@@ -1247,7 +1467,7 @@ class HumanHttpPolicy:
                 }
                 for opt in options
             ],
-            public_context={
+            public_context=_with_effect_context("specific_trick_reward", {
                 "player_cash": player.cash,
                 "player_position": player.position,
                 "player_shards": getattr(player, "shards", None),
@@ -1261,7 +1481,7 @@ class HumanHttpPolicy:
                     }
                     for card in choices
                 ],
-            },
+            }, player),
             timeout_ms=int(TIMEOUT_S * 1000),
         )
 
@@ -1288,7 +1508,7 @@ class HumanHttpPolicy:
                 {"choice_id": "yes", "label": f"{getattr(card, 'burden_cost', 0)}냥 지불 후 제거", "value": True},
                 {"choice_id": "no", "label": "유지", "value": False},
             ],
-            public_context={
+            public_context=_with_effect_context("burden_exchange", {
                 "player_cash": player.cash,
                 "player_position": player.position,
                 "card_name": getattr(card, "name", "Burden"),
@@ -1313,7 +1533,7 @@ class HumanHttpPolicy:
                 "current_f_value": getattr(state, "f_value", 0),
                 "player_shards": getattr(player, "shards", 0),
                 "player_hand_coins": getattr(player, "hand_coins", 0),
-            },
+            }, player),
             can_pass=True,
             timeout_ms=int(TIMEOUT_S * 1000),
         )

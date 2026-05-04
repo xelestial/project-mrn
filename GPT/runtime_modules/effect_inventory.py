@@ -222,6 +222,17 @@ EFFECT_INVENTORY: tuple[EffectInventoryEntry, ...] = (
         notes="턴 프레임의 자식 시퀀스에서만 선택/해결/후속 선택이 반복된다.",
     ),
     EffectInventoryEntry(
+        effect_id="trick:specific_reward",
+        source_name="잔꾀 보상",
+        producer_module="TrickResolveModule",
+        consumer_modules=("TrickResolveModule",),
+        frame_kind="sequence",
+        prompt_contract="specific_trick_reward",
+        redis_resume_contracts=("PromptContinuation",),
+        runtime_boundary_modules=("TrickResolveModule",),
+        notes="잔꾀 효과가 보상 선택 prompt를 열어도 같은 잔꾀 해결 시퀀스 경계에서만 이어진다.",
+    ),
+    EffectInventoryEntry(
         effect_id="fortune:extra_arrival",
         source_name="운수",
         producer_module="FortuneResolveModule",

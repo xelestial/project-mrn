@@ -62,6 +62,7 @@ function withProjectedPromptSurface(fixture: ReturnType<typeof loadSharedPromptF
                   ...(message.payload as Record<string, unknown>),
                   choices: (message.payload as Record<string, unknown>).legal_choices,
                   surface: fixture.expected.prompt.active.surface,
+                  effect_context: fixture.expected.prompt.active.effect_context,
                 },
               },
             },
@@ -177,6 +178,50 @@ describe("promptSelectors", () => {
       sourceName: "자객",
       resourceDelta: { cash: -3 },
     });
+  });
+
+  it("does not synthesize backend-owned effect context from active public_context", () => {
+    const prompt = selectActivePrompt([
+      {
+        type: "prompt",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          request_id: "req_mark_unprojected",
+          request_type: "mark_target",
+          player_id: 2,
+          timeout_ms: 30000,
+          legal_choices: [{ choice_id: "none", title: "None" }],
+          view_state: {
+            prompt: {
+              active: {
+                request_id: "req_mark_unprojected",
+                request_type: "mark_target",
+                player_id: 2,
+                timeout_ms: 30000,
+                choices: [{ choice_id: "none", title: "None" }],
+                public_context: {
+                  actor_name: "자객",
+                  effect_context: {
+                    label: "원본 public context",
+                    detail: "프론트가 backend view_state 안에서 직접 해석하면 안 되는 값",
+                    attribution: "raw",
+                    tone: "effect",
+                    source: "character",
+                    intent: "mark",
+                    enhanced: true,
+                  },
+                },
+                behavior: { normalized_request_type: "mark_target" },
+                surface: { kind: "mark_target", blocks_public_events: true },
+              },
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(prompt?.effectContext).toBeNull();
   });
 
   it("does not expose module prompts as actionable without a complete continuation", () => {

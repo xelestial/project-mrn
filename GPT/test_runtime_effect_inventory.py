@@ -85,6 +85,13 @@ def test_trick_fortune_and_resupply_effects_have_explicit_frame_contracts():
     assert {"TrickChoiceModule", "TrickResolveModule"} <= set(trick.consumer_modules)
     assert "PromptContinuation" in trick.redis_resume_contracts
 
+    trick_reward = effect_by_id(EFFECT_INVENTORY, "trick:specific_reward")
+    assert trick_reward.frame_kind == "sequence"
+    assert trick_reward.producer_module == "TrickResolveModule"
+    assert trick_reward.consumer_modules == ("TrickResolveModule",)
+    assert trick_reward.prompt_contract == "specific_trick_reward"
+    assert "PromptContinuation" in trick_reward.redis_resume_contracts
+
     fortune = effect_by_id(EFFECT_INVENTORY, "fortune:extra_arrival")
     assert fortune.frame_kind == "sequence"
     assert fortune.producer_module == "FortuneResolveModule"
@@ -183,6 +190,18 @@ def test_prompt_effect_inventory_entries_are_resumable_module_boundaries():
 
     prompt_entries = [entry for entry in EFFECT_INVENTORY if entry.prompt_contract]
     assert prompt_entries
+    prompt_contracts = {entry.prompt_contract for entry in prompt_entries}
+    assert {
+        "active_flip",
+        "burden_exchange",
+        "doctrine_relief",
+        "mark_target",
+        "pabal_dice_mode",
+        "purchase_tile",
+        "runaway_step_choice",
+        "specific_trick_reward",
+        "trick_choice",
+    } <= prompt_contracts
     for entry in prompt_entries:
         assert entry.redis_resume_contracts
         assert entry.runtime_boundary_modules

@@ -5742,20 +5742,36 @@ class RuntimeServiceTests(unittest.TestCase):
                 "choice_id": "p2",
             },
             {
+                "name": "character_start_pabal",
+                "frame_type": "turn",
+                "module_type": "CharacterStartModule",
+                "request_type": "pabal_dice_mode",
+                "cursor": "character_start:await_pabal_dice_mode",
+                "choice_id": "plus_one",
+            },
+            {
                 "name": "movement_choice",
                 "frame_type": "turn",
-                "module_type": "MovementDecisionModule",
+                "module_type": "DiceRollModule",
                 "request_type": "movement",
-                "cursor": "movement:await_choice",
+                "cursor": "dice:await_movement_choice",
                 "choice_id": "roll",
             },
             {
                 "name": "specific_trick_reward",
                 "frame_type": "sequence",
-                "module_type": "SpecificTrickRewardModule",
+                "module_type": "TrickResolveModule",
                 "request_type": "specific_trick_reward",
-                "cursor": "trick_reward:await_choice",
+                "cursor": "trick_resolve:await_specific_reward",
                 "choice_id": "102",
+            },
+            {
+                "name": "round_active_flip",
+                "frame_type": "round",
+                "module_type": "RoundEndCardFlipModule",
+                "request_type": "active_flip",
+                "cursor": "round_end_card_flip:await_choice",
+                "choice_id": "7",
             },
         ]
 
@@ -5819,6 +5835,38 @@ class RuntimeServiceTests(unittest.TestCase):
                         )
                     ]
                     prompt_frame_id = frame_id
+                elif case["frame_type"] == "round":
+                    round_frame_id = f"round:{index}"
+                    state.runtime_frame_stack = [
+                        FrameState(
+                            frame_id=round_frame_id,
+                            frame_type="round",
+                            owner_player_id=None,
+                            parent_frame_id=None,
+                            status="suspended",
+                            active_module_id=module_id,
+                            module_queue=[
+                                ModuleRef(
+                                    module_id=module_id,
+                                    module_type=str(case["module_type"]),
+                                    phase=str(case["name"]),
+                                    owner_player_id=0,
+                                    status="suspended",
+                                    cursor=str(case["cursor"]),
+                                    suspension_id=f"suspend:{case['name']}:1",
+                                ),
+                                ModuleRef(
+                                    module_id=f"mod:{case['name']}:{index}:after",
+                                    module_type="RoundCleanupAndNextRoundModule",
+                                    phase="round_cleanup",
+                                    owner_player_id=None,
+                                    status="queued",
+                                    cursor="start",
+                                ),
+                            ],
+                        )
+                    ]
+                    prompt_frame_id = round_frame_id
                 else:
                     sequence_frame_id = f"seq:{case['name']}:{index}:p0"
                     state.runtime_frame_stack = [
@@ -5914,7 +5962,7 @@ class RuntimeServiceTests(unittest.TestCase):
                     del self
                     frames = resumed_state.runtime_frame_stack
                     active_frame = frames[-1]
-                    active_module_index = 0 if active_frame.frame_type == "sequence" else 1
+                    active_module_index = 1 if active_frame.frame_type == "turn" else 0
                     seen.append(
                         {
                             "frame_ids": [frame.frame_id for frame in frames],

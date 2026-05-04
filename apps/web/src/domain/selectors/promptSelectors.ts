@@ -972,7 +972,7 @@ function selectBackendActivePrompt(messages: InboundMessage[]): PromptViewModel 
     choices: parseChoices(active["choices"]),
     publicContext: { ...publicContext },
     continuation: parsePromptContinuation(active),
-    effectContext: parsePromptEffectContext(active["effect_context"] ?? publicContext["effect_context"]),
+    effectContext: parsePromptEffectContext(active["effect_context"]),
     behavior: parsePromptBehavior(active["behavior"], requestType, publicContext),
     surface: parsePromptSurface(
       active["surface"],

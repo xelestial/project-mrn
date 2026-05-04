@@ -22,6 +22,15 @@ class _DummyAi:
     def choose_trick_tile_target(self, state, player, card_name, candidate_tiles, target_scope="any"):
         return candidate_tiles[0] if candidate_tiles else None
 
+    def choose_mark_target(self, state, player, actor_name):
+        return None
+
+    def choose_specific_trick_reward(self, state, player, choices):
+        return choices[0] if choices else None
+
+    def choose_burden_exchange_on_supply(self, state, player, card):
+        return False
+
 
 def _wait_pending(policy: HumanHttpPolicy, timeout_s: float = 1.0):
     deadline = time.time() + timeout_s
@@ -63,9 +72,20 @@ def _fake_player(player_id: int = 0):
         player_id=player_id,
         cash=20,
         position=0,
+        shards=0,
+        alive=True,
+        current_character="산적",
         trick_hand=[],
         hidden_trick_deck_index=None,
     )
+
+
+def _assert_effect_context(public_context: dict, expected: dict) -> None:
+    effect_context = public_context.get("effect_context")
+    assert isinstance(effect_context, dict)
+    for key, value in expected.items():
+        assert effect_context.get(key) == value
+    assert effect_context.get("enhanced") is True
 
 
 def test_draft_prompt_contains_character_ability_payload():
@@ -163,6 +183,16 @@ def test_lap_reward_prompt_contains_budget_bundles_and_status_context():
     assert pending["public_context"]["budget"] == 10
     assert pending["public_context"]["pools"] == {"cash": 4, "shards": 2, "coins": 3}
     assert pending["public_context"]["player_total_score"] == 5
+    _assert_effect_context(
+        pending["public_context"],
+        {
+            "label": "LAP reward",
+            "source": "move",
+            "intent": "gain",
+            "source_family": "movement",
+            "source_name": "lap_reward",
+        },
+    )
     mixed_choices = [choice for choice in pending["legal_choices"] if (choice.get("value") or {}).get("cash_units", 0) > 0 and (choice.get("value") or {}).get("coin_units", 0) > 0]
     assert mixed_choices
 
@@ -189,8 +219,124 @@ def test_trick_tile_target_prompt_contains_candidate_tiles():
     assert pending["public_context"]["candidate_count"] == 3
     assert pending["public_context"]["candidate_tiles"] == [4, 9, 12]
     assert pending["public_context"]["target_scope"] == "other_owned_highest"
+    _assert_effect_context(
+        pending["public_context"],
+        {
+            "label": "재뿌리기",
+            "source": "trick",
+            "intent": "target",
+            "source_family": "trick",
+            "source_name": "재뿌리기",
+        },
+    )
 
     assert policy.submit_response({"choice_id": "9"})
     thread.join(timeout=1.0)
     assert not thread.is_alive()
     assert result_holder["result"] == 9
+
+
+def test_mark_target_prompt_contains_effect_context():
+    policy = HumanHttpPolicy(human_seat=0, ai_fallback=_DummyAi())
+    state = _fake_state()
+    player = _fake_player(0)
+    player.current_character = "산적"
+    other = _fake_player(1)
+    other.current_character = "박수"
+    state.players = [player, other]
+    result_holder = {}
+
+    thread = threading.Thread(
+        target=lambda: result_holder.setdefault("result", policy.choose_mark_target(state, player, "산적")),
+        daemon=True,
+    )
+    thread.start()
+    pending = _wait_pending(policy)
+
+    assert pending["request_type"] == "mark_target"
+    _assert_effect_context(
+        pending["public_context"],
+        {
+            "label": "산적",
+            "source": "character",
+            "intent": "mark",
+            "source_family": "character",
+            "source_name": "산적",
+        },
+    )
+
+    assert policy.submit_response({"choice_id": "none"})
+    thread.join(timeout=1.0)
+    assert not thread.is_alive()
+    assert result_holder["result"] is None
+
+
+def test_specific_trick_reward_prompt_contains_effect_context():
+    policy = HumanHttpPolicy(human_seat=0, ai_fallback=_DummyAi())
+    state = _fake_state()
+    player = _fake_player(0)
+    choices = [
+        SimpleNamespace(deck_index=31, name="월척회", description="설명A"),
+        SimpleNamespace(deck_index=32, name="재뿌리기", description="설명B"),
+    ]
+    result_holder = {}
+
+    thread = threading.Thread(
+        target=lambda: result_holder.setdefault("result", policy.choose_specific_trick_reward(state, player, choices)),
+        daemon=True,
+    )
+    thread.start()
+    pending = _wait_pending(policy)
+
+    assert pending["request_type"] == "specific_trick_reward"
+    _assert_effect_context(
+        pending["public_context"],
+        {
+            "label": "잔꾀 보상",
+            "source": "trick",
+            "intent": "gain",
+            "source_family": "trick",
+            "source_name": "specific_trick_reward",
+        },
+    )
+
+    assert policy.submit_response({"choice_id": "32"})
+    thread.join(timeout=1.0)
+    assert not thread.is_alive()
+    assert getattr(result_holder["result"], "deck_index", None) == 32
+
+
+def test_burden_exchange_prompt_contains_effect_context_and_resource_delta():
+    policy = HumanHttpPolicy(human_seat=0, ai_fallback=_DummyAi())
+    state = _fake_state()
+    state.f_value = 6
+    state.next_supply_f_threshold = 9
+    player = _fake_player(0)
+    card = SimpleNamespace(deck_index=41, name="가벼운 짐", description="설명", burden_cost=3, is_burden=True)
+    player.trick_hand = [card]
+    result_holder = {}
+
+    thread = threading.Thread(
+        target=lambda: result_holder.setdefault("result", policy.choose_burden_exchange_on_supply(state, player, card)),
+        daemon=True,
+    )
+    thread.start()
+    pending = _wait_pending(policy)
+
+    assert pending["request_type"] == "burden_exchange"
+    _assert_effect_context(
+        pending["public_context"],
+        {
+            "label": "가벼운 짐",
+            "source": "trick",
+            "intent": "cost",
+            "source_family": "trick",
+            "source_name": "가벼운 짐",
+            "resource_delta": {"cash": -3},
+        },
+    )
+
+    assert policy.submit_response({"choice_id": "no"})
+    thread.join(timeout=1.0)
+    assert not thread.is_alive()
+    assert result_holder["result"] is False
