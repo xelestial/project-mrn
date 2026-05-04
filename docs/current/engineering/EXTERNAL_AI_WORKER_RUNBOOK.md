@@ -20,7 +20,7 @@ For a production-shaped session payload example, see:
 Optional flags:
 
 - `--worker-id local-bot-1`
-- `--policy-mode heuristic_v3_gpt`
+- `--policy-mode heuristic_v3_engine`
 - `--worker-profile priority_scored`
 - `--worker-adapter reference_heuristic_v1`
 - `--log-level debug`
@@ -37,7 +37,7 @@ Worker presets:
 curl http://127.0.0.1:8011/health
 ```
 
-For a stronger-worker compatibility smoke check, run:
+For a stronger-worker capability smoke check, run:
 
 ```bash
 .venv311/bin/python tools/check_external_ai_endpoint.py \
@@ -84,7 +84,7 @@ Expected shape:
   "worker_id": "external-ai-worker",
   "ready": true,
   "worker_profile": "reference_heuristic",
-  "policy_mode": "heuristic_v3_gpt",
+  "policy_mode": "heuristic_v3_engine",
   "policy_class": "HeuristicPolicy",
   "worker_adapter": "reference_heuristic_v1",
   "decision_style": "contract_heuristic",
@@ -102,7 +102,7 @@ To run the stronger scored reference adapter locally:
   --worker-adapter priority_score_v1
 ```
 
-If you want session config to fill compatibility requirements automatically, set:
+If you want session config to fill worker requirements automatically, set:
 
 ```json
 {
@@ -168,7 +168,7 @@ Use `participant_client: "external_ai"` on an AI seat and provide an HTTP endpoi
         "required_request_types": ["movement", "purchase_tile"],
         "required_worker_adapter": "priority_score_v1",
         "required_policy_class": "PriorityScoredPolicy",
-        "required_policy_mode": "heuristic_v3_gpt",
+        "required_policy_mode": "heuristic_v3_engine",
         "required_decision_style": "priority_scored_contract",
         "headers": {}
       }
@@ -195,7 +195,7 @@ Important rules:
 - the worker should advertise the capabilities required by the seat config
 - when provided, `supported_request_types` should accurately describe which canonical request types the worker can actually resolve
 - when configured, `required_request_types` must be a subset of the worker's advertised `supported_request_types`
-- when configured, `worker_profile` may prefill stronger-worker compatibility requirements
+- when configured, `worker_profile` may prefill stronger-worker requirements
 - when configured, `required_worker_adapter` must match the worker's advertised `worker_adapter`
 - when configured, `required_policy_mode` must match the worker's advertised `policy_mode`
 - when configured, `required_policy_class` must match the worker's advertised `policy_class`

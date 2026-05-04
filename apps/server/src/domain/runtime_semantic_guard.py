@@ -4,10 +4,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-GPT_DIR = Path(__file__).resolve().parents[4] / "GPT"
-GPT_DIR_TEXT = str(GPT_DIR)
-if GPT_DIR_TEXT not in sys.path:
-    sys.path.insert(0, GPT_DIR_TEXT)
+ENGINE_DIR = Path(__file__).resolve().parents[4] / "engine"
+ENGINE_DIR_TEXT = str(ENGINE_DIR)
+if ENGINE_DIR_TEXT not in sys.path:
+    sys.path.insert(0, ENGINE_DIR_TEXT)
 
 from runtime_modules.catalog import MODULE_RULES
 from runtime_modules.sequence_modules import (
@@ -88,8 +88,6 @@ def _validate_runtime_module(module: dict[str, Any]) -> None:
     frame_type = str(module.get("frame_type") or "").strip()
     if not module_type or not frame_type:
         return
-    if module_type == "LegacyActionAdapterModule":
-        raise RuntimeSemanticViolation("LegacyActionAdapterModule is no longer executable; catalogue the action module")
     allowed = MODULE_ALLOWED_FRAMES.get(module_type)
     if allowed and frame_type not in allowed:
         raise RuntimeSemanticViolation(f"{module_type} is not allowed in {frame_type} frame")
@@ -190,8 +188,6 @@ def _checkpoint_proves_round_end_card_flip(
 
 
 def _validate_prompt_payload(payload: dict[str, Any]) -> None:
-    if str(payload.get("runner_kind") or payload.get("runtime_runner_kind") or "") != "module" and not payload.get("resume_token"):
-        return
     for field in ("resume_token", "frame_id", "module_id", "module_type", "module_cursor"):
         if not str(payload.get(field) or "").strip():
             raise RuntimeSemanticViolation(f"module prompt missing {field}")

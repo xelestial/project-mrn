@@ -39,9 +39,9 @@ class EngineConfigFactory:
     @staticmethod
     def _load_default_config():
         root = Path(__file__).resolve().parents[4]
-        gpt_dir = root / "GPT"
-        if str(gpt_dir) not in sys.path:
-            sys.path.insert(0, str(gpt_dir))
+        engine_dir = root / "engine"
+        if str(engine_dir) not in sys.path:
+            sys.path.insert(0, str(engine_dir))
         from config import DEFAULT_CONFIG
 
         return copy.deepcopy(DEFAULT_CONFIG)

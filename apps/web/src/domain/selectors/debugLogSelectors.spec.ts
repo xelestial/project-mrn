@@ -26,19 +26,34 @@ describe("debugLogSelectors", () => {
     expect(groups.map((group) => group.messages.map((message) => message.seq))).toEqual([[1, 2], [3], [4]]);
   });
 
-  it("uses prompt public_context and view_state metadata when top-level fields are absent", () => {
+  it("uses prompt public_context metadata when top-level fields are absent", () => {
     const groups = groupDebugMessagesByTurn(
       [
         event(1, { event_type: "turn_start", round_index: 4, turn_index: 8 }),
         event(2, { request_type: "choose_purchase_tile", public_context: { round_index: 4, turn_index: 8 } }),
-        event(3, { event_type: "replay_projection", view_state: { turn_stage: { round_index: 4, turn_index: 8 } } }),
       ],
       "en"
     );
 
     expect(groups).toHaveLength(1);
     expect(groups[0]?.label).toBe("Round 4 / Turn 8");
-    expect(groups[0]?.messages.map((message) => message.seq)).toEqual([1, 2, 3]);
+    expect(groups[0]?.messages.map((message) => message.seq)).toEqual([1, 2]);
+  });
+
+  it("hides synthetic restored view-state messages from user-facing debug groups", () => {
+    const messages = [
+      event(1, { event_type: "turn_start", round_index: 4, turn_index: 8 }),
+      event(2, { event_type: "view_state_restored", view_state: { turn_stage: { round_index: 4, turn_index: 8 } } }),
+      event(3, { event_type: "dice_roll", round_index: 4, turn_index: 8 }),
+    ];
+    const groups = groupDebugMessagesByTurn(messages, "en");
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.messages.map((message) => message.seq)).toEqual([1, 3]);
+    expect(selectDebugMessagesForTurn(messages, groups, DEBUG_TURN_SELECTION_ALL).map((message) => message.seq)).toEqual([
+      1,
+      3,
+    ]);
   });
 
   it("filters messages by a previous round and turn selection without dropping the full log", () => {

@@ -1,4 +1,4 @@
-import type { InboundMessage } from "../../core/contracts/stream";
+import { VIEW_STATE_RESTORED_EVENT, type InboundMessage } from "../../core/contracts/stream";
 
 export const DEBUG_TURN_SELECTION_LATEST = "__latest";
 export const DEBUG_TURN_SELECTION_ALL = "__all";
@@ -24,6 +24,15 @@ function numberOrNull(value: unknown): number | null {
 
 function debugPayloadRecord(message: InboundMessage): Record<string, unknown> | null {
   return isRecord(message.payload) ? message.payload : null;
+}
+
+function isSyntheticViewStateRestoreMessage(message: InboundMessage): boolean {
+  const payload = debugPayloadRecord(message);
+  return message.type === "event" && payload?.["event_type"] === VIEW_STATE_RESTORED_EVENT;
+}
+
+export function selectUserVisibleDebugMessages(messages: InboundMessage[]): InboundMessage[] {
+  return messages.filter((message) => !isSyntheticViewStateRestoreMessage(message));
 }
 
 function nestedRecord(root: Record<string, unknown> | null, key: string): Record<string, unknown> | null {
@@ -77,7 +86,7 @@ export function groupDebugMessagesByTurn(messages: InboundMessage[], locale: str
   const fallbackLabel = locale === "ko" ? "턴 정보 없음" : "No turn metadata";
   const groups: DebugTurnGroup[] = [];
   let current: DebugTurnGroup | null = null;
-  const sortedMessages = [...messages].sort((left, right) => {
+  const sortedMessages = selectUserVisibleDebugMessages(messages).sort((left, right) => {
     const seqDiff = left.seq - right.seq;
     if (seqDiff !== 0) {
       return seqDiff;
@@ -113,12 +122,13 @@ export function selectDebugMessagesForTurn(
   groups: DebugTurnGroup[],
   selectionKey: string
 ): InboundMessage[] {
+  const visibleMessages = selectUserVisibleDebugMessages(messages);
   if (selectionKey === DEBUG_TURN_SELECTION_ALL) {
-    return messages;
+    return visibleMessages;
   }
   const selectedGroup =
     selectionKey === DEBUG_TURN_SELECTION_LATEST
       ? groups[groups.length - 1]
       : groups.find((group) => group.key === selectionKey) ?? groups[groups.length - 1];
-  return selectedGroup ? selectedGroup.messages : messages;
+  return selectedGroup ? selectedGroup.messages : visibleMessages;
 }

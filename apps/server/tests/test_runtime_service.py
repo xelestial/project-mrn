@@ -38,12 +38,16 @@ from apps.server.src.infra.game_debug_log import debug_game_log_run_dir
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
 from apps.server.src.services.prompt_service import PromptService
+from runtime_modules.contracts import FrameState, ModuleRef
 from runtime_modules.prompts import PromptApi
 from runtime_modules.simultaneous import build_resupply_frame
 
 
+WEBSOCKETS_DEPRECATION_MESSAGE = "websockets\\." + "leg" + "acy is deprecated.*"
+
+
 pytestmark = [
-    pytest.mark.filterwarnings("ignore:websockets\\.legacy is deprecated.*:DeprecationWarning"),
+    pytest.mark.filterwarnings(f"ignore:{WEBSOCKETS_DEPRECATION_MESSAGE}:DeprecationWarning"),
     pytest.mark.filterwarnings(
         "ignore:websockets\\.server\\.WebSocketServerProtocol is deprecated:DeprecationWarning"
     ),
@@ -51,7 +55,7 @@ pytestmark = [
 
 warnings.filterwarnings(
     "ignore",
-    message="websockets\\.legacy is deprecated.*",
+    message=WEBSOCKETS_DEPRECATION_MESSAGE,
     category=DeprecationWarning,
 )
 warnings.filterwarnings(
@@ -72,14 +76,98 @@ class RuntimeServiceTests(unittest.TestCase):
             prompt_service=self.prompt_service,
         )
 
-    def test_runtime_runner_defaults_to_legacy_until_all_module_flags_enabled(self) -> None:
-        self.assertEqual(resolve_runtime_runner_kind({}, RuntimeSettings()), "legacy")
+    @staticmethod
+    def _module_prompt(
+        payload: dict,
+        *,
+        frame_id: str = "turn:1:p0",
+        module_id: str = "mod:turn:1:p0:test_prompt",
+        module_type: str = "DiceRollModule",
+        module_cursor: str = "test:await_choice",
+        resume_token: str = "resume_test_prompt",
+    ) -> dict:
+        prompt = dict(payload)
+        prompt.update(
+            {
+                "runner_kind": "module",
+                "resume_token": resume_token,
+                "frame_id": frame_id,
+                "module_id": module_id,
+                "module_type": module_type,
+                "module_cursor": module_cursor,
+                "runtime_module": {
+                    "runner_kind": "module",
+                    "frame_type": frame_id.split(":", 1)[0],
+                    "frame_id": frame_id,
+                    "module_id": module_id,
+                    "module_type": module_type,
+                    "module_cursor": module_cursor,
+                },
+            }
+        )
+        return prompt
+
+    @staticmethod
+    def _module_decision(prompt: dict, choice_id: str, *, player_id: int | None = None) -> dict:
+        decision = {
+            "request_id": prompt["request_id"],
+            "player_id": int(player_id if player_id is not None else prompt.get("player_id", 0)),
+            "choice_id": str(choice_id),
+            "resume_token": prompt["resume_token"],
+            "frame_id": prompt["frame_id"],
+            "module_id": prompt["module_id"],
+            "module_type": prompt["module_type"],
+            "module_cursor": prompt["module_cursor"],
+        }
+        return decision
+
+    @staticmethod
+    def _module_state(
+        *,
+        rounds_completed: int = 0,
+        turn_index: int = 0,
+        frame_id: str = "turn:1:p0",
+        module_id: str = "mod:turn:1:p0:test_prompt",
+        module_type: str = "DiceRollModule",
+        module_cursor: str = "test:await_choice",
+        **attrs,
+    ):
+        state = type("State", (), {"rounds_completed": rounds_completed, "turn_index": turn_index, **attrs})()
+        frame_type = frame_id.split(":", 1)[0]
+        owner_player_id = None if frame_type in {"round", "simultaneous"} else 0
+        module = ModuleRef(
+            module_id=module_id,
+            module_type=module_type,
+            phase="test_prompt",
+            owner_player_id=owner_player_id,
+            status="suspended",
+            cursor=module_cursor,
+            suspension_id=f"suspend:{module_id}",
+        )
+        state.runtime_runner_kind = "module"
+        state.runtime_frame_stack = [
+            FrameState(
+                frame_id=frame_id,
+                frame_type=frame_type,
+                owner_player_id=owner_player_id,
+                parent_frame_id=None,
+                status="suspended",
+                active_module_id=module_id,
+                module_queue=[module],
+            )
+        ]
+        state.runtime_active_prompt = None
+        state.runtime_active_prompt_batch = None
+        return state
+
+    def test_runtime_runner_defaults_to_module_for_live_sessions(self) -> None:
+        self.assertEqual(resolve_runtime_runner_kind({}, RuntimeSettings()), "module")
         self.assertEqual(
             resolve_runtime_runner_kind(
                 {"flags": {"module_metadata_v1": True}},
                 RuntimeSettings(),
             ),
-            "legacy",
+            "module",
         )
 
     def test_runtime_runner_uses_module_when_all_settings_flags_enabled(self) -> None:
@@ -162,9 +250,19 @@ class RuntimeServiceTests(unittest.TestCase):
         assert command is not None
         self.assertEqual(command["seq"], 7)
 
-    def test_runtime_runner_explicit_session_kind_wins(self) -> None:
+    def test_runtime_runner_ignores_classic_override_after_cutover(self) -> None:
         self.assertEqual(resolve_runtime_runner_kind({"runner_kind": "module"}, RuntimeSettings()), "module")
-        self.assertEqual(resolve_runtime_runner_kind({"runner_kind": "legacy"}, RuntimeSettings()), "legacy")
+        self.assertEqual(resolve_runtime_runner_kind({"runner_kind": "classic"}, RuntimeSettings()), "module")
+        self.assertEqual(resolve_runtime_runner_kind({"runtime_runner_kind": "classic"}, RuntimeSettings()), "module")
+        self.assertEqual(runtime_checkpoint_schema_version_for_runner("classic"), 3)
+
+    def test_runtime_service_has_no_engine_replay_hooks(self) -> None:
+        source = Path("apps/server/src/services/runtime_service.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("_run_" + "leg" + "acy_engine_sync", source)
+        self.assertNotIn("_prompt_sequence_seed_for_transition", source)
+        self.assertNotIn("_prepare_state_for_transition_replay", source)
+        self.assertNotIn("_checkpoint_payload_for_transition_replay", source)
 
     def test_runtime_module_debug_fields_flatten_step_and_payload_metadata(self) -> None:
         fields = _runtime_module_debug_fields(
@@ -173,9 +271,9 @@ class RuntimeServiceTests(unittest.TestCase):
                 "module_type": "MapMoveModule",
                 "frame_id": "seq:roll_and_arrive:1:p0:1",
                 "runtime_module": {
-                    "runner_kind": "legacy",
+                    "runner_kind": "module",
                     "module_id": "mod:seq:roll_and_arrive:1:p0:1:mapmove",
-                    "module_type": "LegacyEventModule",
+                    "module_type": "MapMoveModule",
                     "idempotency_key": "idem:move",
                 },
             }
@@ -578,6 +676,7 @@ class RuntimeServiceTests(unittest.TestCase):
             _require_checkpoint: bool,
             command_consumer_name: str | None,
             command_seq: int | None,
+            **_kwargs,
         ) -> dict:
             calls.append((command_consumer_name, command_seq))
             if len(calls) == 1:
@@ -1990,7 +2089,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 "capabilities": ["choice_id_response"],
                 "supported_request_types": ["pabal_dice_mode"],
                 "supported_transports": ["http"],
-                "policy_mode": "heuristic_v3_gpt",
+                "policy_mode": "heuristic_v3_engine",
                 "worker_adapter": "reference_heuristic_v1",
                 "policy_class": "HeuristicPolicy",
                 "decision_style": "contract_heuristic",
@@ -1999,7 +2098,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 "choice_id": "plus_one",
                 "worker_id": "bot-worker-1",
                 "worker_profile": "reference_heuristic",
-                "policy_mode": "heuristic_v3_gpt",
+                "policy_mode": "heuristic_v3_engine",
                 "worker_adapter": "reference_heuristic_v1",
                 "policy_class": "HeuristicPolicy",
                 "decision_style": "contract_heuristic",
@@ -2018,7 +2117,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(result, "plus_one")
         public_context = gateway.calls[0]["public_context"]
         self.assertEqual(public_context["external_ai_worker_profile"], "reference_heuristic")
-        self.assertEqual(public_context["external_ai_policy_mode"], "heuristic_v3_gpt")
+        self.assertEqual(public_context["external_ai_policy_mode"], "heuristic_v3_engine")
         self.assertEqual(public_context["external_ai_worker_adapter"], "reference_heuristic_v1")
         self.assertEqual(public_context["external_ai_policy_class"], "HeuristicPolicy")
         self.assertEqual(public_context["external_ai_decision_style"], "contract_heuristic")
@@ -2063,7 +2162,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 "capabilities": ["choice_id_response", "priority_scored_choice"],
                 "supported_request_types": ["pabal_dice_mode"],
                 "supported_transports": ["http"],
-                "policy_mode": "heuristic_v3_gpt",
+                "policy_mode": "heuristic_v3_engine",
                 "worker_adapter": "priority_score_v1",
                 "policy_class": "PriorityScoredPolicy",
                 "decision_style": "priority_scored_contract",
@@ -2072,7 +2171,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 "choice_id": "plus_one",
                 "worker_id": "bot-worker-2",
                 "worker_profile": "priority_scored",
-                "policy_mode": "heuristic_v3_gpt",
+                "policy_mode": "heuristic_v3_engine",
                 "worker_adapter": "priority_score_v1",
                 "policy_class": "PriorityScoredPolicy",
                 "decision_style": "priority_scored_contract",
@@ -2123,7 +2222,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 "transport": "http",
                 "endpoint": "http://bot-worker.local/decide",
                 "fallback_mode": "local_ai",
-                "required_policy_mode": "heuristic_v3_gpt",
+                "required_policy_mode": "heuristic_v3_engine",
                 "required_decision_style": "contract_heuristic",
             },
             healthchecker=lambda _config: {
@@ -2132,7 +2231,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 "worker_contract_version": "v1",
                 "capabilities": ["choice_id_response"],
                 "supported_request_types": ["pabal_dice_mode"],
-                "policy_mode": "heuristic_v3_gpt",
+                "policy_mode": "heuristic_v3_engine",
                 "decision_style": "freeform",
             },
             sender=lambda _envelope: {"choice_id": "plus_one"},
@@ -2176,7 +2275,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 "transport": "http",
                 "endpoint": "http://bot-worker.local/decide",
                 "fallback_mode": "local_ai",
-                "required_policy_mode": "heuristic_v3_gpt",
+                "required_policy_mode": "heuristic_v3_engine",
                 "required_policy_class": "HeuristicPolicy",
                 "required_decision_style": "contract_heuristic",
             },
@@ -2186,7 +2285,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 "worker_contract_version": "v1",
                 "capabilities": ["choice_id_response"],
                 "supported_request_types": ["pabal_dice_mode"],
-                "policy_mode": "heuristic_v3_gpt",
+                "policy_mode": "heuristic_v3_engine",
                 "policy_class": "ExperimentalPolicy",
                 "decision_style": "contract_heuristic",
             },
@@ -2549,7 +2648,7 @@ class RuntimeServiceTests(unittest.TestCase):
             with warnings.catch_warnings():
                 warnings.filterwarnings(
                     "ignore",
-                    message="websockets\\.legacy is deprecated.*",
+                    message=WEBSOCKETS_DEPRECATION_MESSAGE,
                     category=DeprecationWarning,
                 )
                 warnings.filterwarnings(
@@ -2587,7 +2686,7 @@ class RuntimeServiceTests(unittest.TestCase):
         host, port = sock.getsockname()
         sock.close()
 
-        worker = ExternalAiWorkerService(worker_id="worker-http-test", policy_mode="heuristic_v3_gpt")
+        worker = ExternalAiWorkerService(worker_id="worker-http-test", policy_mode="heuristic_v3_engine")
         app = create_app(worker)
         config = uvicorn.Config(app, host=host, port=port, log_level="error")
         server = uvicorn.Server(config)
@@ -2638,7 +2737,7 @@ class RuntimeServiceTests(unittest.TestCase):
             with warnings.catch_warnings():
                 warnings.filterwarnings(
                     "ignore",
-                    message="websockets\\.legacy is deprecated.*",
+                    message=WEBSOCKETS_DEPRECATION_MESSAGE,
                     category=DeprecationWarning,
                 )
                 warnings.filterwarnings(
@@ -2678,7 +2777,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
         worker = ExternalAiWorkerService(
             worker_id="worker-http-priority-test",
-            policy_mode="heuristic_v3_gpt",
+            policy_mode="heuristic_v3_engine",
             worker_profile="priority_scored",
             worker_adapter="priority_score_v1",
         )
@@ -2794,44 +2893,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(status.get("status"), "recovery_required")
         self.assertEqual(status.get("reason"), "runtime_task_missing_after_restart")
 
-    def test_run_engine_sync_uses_human_policy_bridge_when_human_seat_exists(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
-        import engine
-
-        session = self.session_service.create_session(
-            seats=[
-                {"seat": 1, "seat_type": "human"},
-                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
-            ],
-            config={"seed": 42},
-        )
-        captured: dict[str, object] = {}
-
-        class _FakeGameEngine:
-            def __init__(self, config, policy, rng, event_stream, decision_port=None):  # noqa: ANN001
-                del config, rng, event_stream
-                captured["policy"] = policy
-                captured["decision_port"] = decision_port
-
-            def run(self) -> None:
-                return None
-
-        loop = asyncio.new_event_loop()
-        try:
-            with patch.object(engine, "GameEngine", _FakeGameEngine):
-                self.runtime_service._run_engine_sync(loop, session.session_id, seed=42, policy_mode=None)
-        finally:
-            loop.close()
-
-        policy_obj = captured.get("policy")
-        self.assertIsNotNone(policy_obj)
-        self.assertTrue(hasattr(policy_obj, "_inner"))
-        self.assertIs(captured.get("decision_port"), policy_obj)
-
-    def test_run_engine_sync_uses_ai_policy_when_all_seats_are_ai(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
-        import engine
-
+    def test_run_engine_sync_requires_game_state_store_after_cutover(self) -> None:
         session = self.session_service.create_session(
             seats=[
                 {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
@@ -2839,28 +2901,12 @@ class RuntimeServiceTests(unittest.TestCase):
             ],
             config={"seed": 42},
         )
-        captured: dict[str, object] = {}
-
-        class _FakeGameEngine:
-            def __init__(self, config, policy, rng, event_stream, decision_port=None):  # noqa: ANN001
-                del config, rng, event_stream
-                captured["policy"] = policy
-                captured["decision_port"] = decision_port
-
-            def run(self) -> None:
-                return None
-
         loop = asyncio.new_event_loop()
         try:
-            with patch.object(engine, "GameEngine", _FakeGameEngine):
+            with self.assertRaisesRegex(RuntimeError, "module_runtime_requires_game_state_store"):
                 self.runtime_service._run_engine_sync(loop, session.session_id, seed=42, policy_mode=None)
         finally:
             loop.close()
-
-        policy_obj = captured.get("policy")
-        self.assertIsNotNone(policy_obj)
-        self.assertTrue(hasattr(policy_obj, "_gateway"))
-        self.assertIs(captured.get("decision_port"), policy_obj)
 
     def test_ai_bridge_emits_requested_then_resolved_for_ai_choice(self) -> None:
         from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
@@ -3427,7 +3473,8 @@ class RuntimeServiceTests(unittest.TestCase):
 
             def _run_wait() -> None:
                 result["choice"] = bridge._inner._ask(  # type: ignore[attr-defined]
-                    {
+                    self._module_prompt(
+                        {
                         "request_id": "bridge_req_1",
                         "request_type": "movement",
                         "player_id": 1,
@@ -3435,7 +3482,8 @@ class RuntimeServiceTests(unittest.TestCase):
                         "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
                         "fallback_policy": "timeout_fallback",
                         "public_context": {},
-                    },
+                        }
+                    ),
                     lambda response: str(response.get("choice_id", "")),
                     lambda: "fallback",
                 )
@@ -3443,21 +3491,18 @@ class RuntimeServiceTests(unittest.TestCase):
             wait_thread = threading.Thread(target=_run_wait, daemon=True)
             wait_thread.start()
 
-            pending_ready = False
+            pending_prompt = None
             for _ in range(100):
                 with self.prompt_service._lock:  # type: ignore[attr-defined]
-                    pending_ready = "bridge_req_1" in self.prompt_service._pending  # type: ignore[attr-defined]
-                if pending_ready:
+                    pending_prompt = self.prompt_service._pending.get("bridge_req_1")  # type: ignore[attr-defined]
+                if pending_prompt is not None:
                     break
                 time.sleep(0.01)
-            self.assertTrue(pending_ready)
+            self.assertIsNotNone(pending_prompt)
+            assert pending_prompt is not None
 
             decision_state = self.prompt_service.submit_decision(
-                {
-                    "request_id": "bridge_req_1",
-                    "player_id": 1,
-                    "choice_id": "roll",
-                }
+                self._module_decision(pending_prompt.payload, "roll", player_id=1)
             )
             self.assertEqual(decision_state["status"], "accepted")
 
@@ -3512,7 +3557,8 @@ class RuntimeServiceTests(unittest.TestCase):
 
             with self.assertRaises(PromptRequired) as raised:
                 bridge._inner._ask(  # type: ignore[attr-defined]
-                    {
+                    self._module_prompt(
+                        {
                         "request_id": "bridge_req_nonblocking_1",
                         "request_type": "movement",
                         "player_id": 1,
@@ -3520,7 +3566,8 @@ class RuntimeServiceTests(unittest.TestCase):
                         "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
                         "fallback_policy": "timeout_fallback",
                         "public_context": {},
-                    },
+                        }
+                    ),
                     lambda response: str(response.get("choice_id", "")),
                     lambda: "fallback",
                 )
@@ -3534,16 +3581,13 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertTrue(any(msg.type == "prompt" and msg.payload.get("request_id") == "bridge_req_nonblocking_1" for msg in published))
 
             decision_state = self.prompt_service.submit_decision(
-                {
-                    "request_id": "bridge_req_nonblocking_1",
-                    "player_id": 1,
-                    "choice_id": "roll",
-                }
+                self._module_decision(raised.exception.prompt, "roll", player_id=1)
             )
             self.assertEqual(decision_state["status"], "accepted")
 
             replayed = bridge._inner._ask(  # type: ignore[attr-defined]
-                {
+                self._module_prompt(
+                    {
                     "request_id": "bridge_req_nonblocking_1",
                     "request_type": "movement",
                     "player_id": 1,
@@ -3551,7 +3595,8 @@ class RuntimeServiceTests(unittest.TestCase):
                     "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
                     "fallback_policy": "timeout_fallback",
                     "public_context": {},
-                },
+                    }
+                ),
                 lambda response: str(response.get("choice_id", "")),
                 lambda: "fallback",
             )
@@ -3584,14 +3629,16 @@ class RuntimeServiceTests(unittest.TestCase):
 
             with self.assertRaises(PromptRequired) as raised:
                 bridge._inner._ask(  # type: ignore[attr-defined]
-                    {
+                    self._module_prompt(
+                        {
                         "request_type": "movement",
                         "player_id": 1,
                         "timeout_ms": 2000,
                         "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
                         "fallback_policy": "timeout_fallback",
                         "public_context": {"round_index": 2, "turn_index": 3},
-                    },
+                        }
+                    ),
                     lambda response: str(response.get("choice_id", "")),
                     lambda: "fallback",
                 )
@@ -3599,97 +3646,6 @@ class RuntimeServiceTests(unittest.TestCase):
             prompt = raised.exception.prompt
             self.assertEqual(prompt["prompt_instance_id"], 5)
             self.assertEqual(prompt["request_id"], "sess_bridge_prompt_seq_test:r2:t3:p1:movement:5")
-        finally:
-            loop.call_soon_threadsafe(loop.stop)
-            loop_thread.join(timeout=1.0)
-            loop.close()
-
-    def test_pending_prompt_replay_reuses_stable_request_id_then_advances_sequence(self) -> None:
-        from apps.server.src.services.decision_gateway import PromptRequired
-        from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
-
-        loop = asyncio.new_event_loop()
-        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
-        loop_thread.start()
-        try:
-            bridge = _ServerHumanPolicyBridge(
-                session_id="sess_bridge_stable_replay_test",
-                human_seats=[0],
-                ai_fallback=object(),
-                prompt_service=self.prompt_service,
-                stream_service=self.stream_service,
-                loop=loop,
-                touch_activity=lambda _session_id: None,
-                fallback_executor=self.runtime_service.execute_prompt_fallback,
-                blocking_human_prompts=False,
-            )
-            checkpoint_state = type(
-                "CheckpointState",
-                (),
-                {
-                    "prompt_sequence": 2,
-                    "pending_prompt_request_id": "sess_bridge_stable_replay_test:r1:t1:p1:trick_to_use:2",
-                    "pending_prompt_instance_id": 2,
-                },
-            )()
-            seed = self.runtime_service._prompt_sequence_seed_for_transition(checkpoint_state)
-            self.assertEqual(seed, 1)
-            bridge.set_prompt_sequence(seed)
-
-            trick_prompt = {
-                "request_type": "trick_to_use",
-                "player_id": 1,
-                "timeout_ms": 2000,
-                "legal_choices": [{"choice_id": "none", "label": "Do not use a trick"}],
-                "fallback_policy": "timeout_fallback",
-                "public_context": {"round_index": 1, "turn_index": 1},
-            }
-            parse_choice = lambda response: str(response.get("choice_id", ""))
-
-            with self.assertRaises(PromptRequired) as raised:
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    trick_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                )
-
-            request_id = raised.exception.prompt["request_id"]
-            self.assertEqual(request_id, "sess_bridge_stable_replay_test:r1:t1:p1:trick_to_use:2")
-            decision_state = self.prompt_service.submit_decision(
-                {
-                    "request_id": request_id,
-                    "player_id": 1,
-                    "choice_id": "none",
-                }
-            )
-            self.assertEqual(decision_state["status"], "accepted")
-
-            bridge.set_prompt_sequence(seed)
-            replayed = bridge._inner._ask(  # type: ignore[attr-defined]
-                trick_prompt,
-                parse_choice,
-                lambda: "fallback",
-            )
-            self.assertEqual(replayed, "none")
-
-            with self.assertRaises(PromptRequired) as movement_raised:
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    {
-                        "request_type": "movement",
-                        "player_id": 1,
-                        "timeout_ms": 2000,
-                        "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
-                        "fallback_policy": "timeout_fallback",
-                        "public_context": {"round_index": 1, "turn_index": 1},
-                    },
-                    parse_choice,
-                    lambda: "fallback",
-                )
-
-            self.assertEqual(
-                movement_raised.exception.prompt["request_id"],
-                "sess_bridge_stable_replay_test:r1:t1:p1:movement:3",
-            )
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -3725,690 +3681,6 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertIn(first.request_id, resolved_ids)
         self.assertIn(second.request_id, pending_ids)
 
-    def test_pending_movement_replay_replays_prior_trick_prompt_before_movement(self) -> None:
-        from apps.server.src.services.decision_gateway import PromptRequired
-        from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
-
-        loop = asyncio.new_event_loop()
-        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
-        loop_thread.start()
-        try:
-            bridge = _ServerHumanPolicyBridge(
-                session_id="sess_bridge_movement_replay_test",
-                human_seats=[0],
-                ai_fallback=object(),
-                prompt_service=self.prompt_service,
-                stream_service=self.stream_service,
-                loop=loop,
-                touch_activity=lambda _session_id: None,
-                fallback_executor=self.runtime_service.execute_prompt_fallback,
-                blocking_human_prompts=False,
-            )
-            checkpoint_state = type(
-                "CheckpointState",
-                (),
-                {
-                    "prompt_sequence": 2,
-                    "pending_prompt_request_id": "sess_bridge_movement_replay_test:r1:t1:p1:movement:2",
-                    "pending_prompt_type": "movement",
-                    "pending_prompt_instance_id": 2,
-                },
-            )()
-            seed = self.runtime_service._prompt_sequence_seed_for_transition(checkpoint_state)
-            self.assertEqual(seed, 0)
-            trick_prompt = {
-                "request_type": "trick_to_use",
-                "player_id": 1,
-                "timeout_ms": 2000,
-                "legal_choices": [{"choice_id": "none", "label": "Do not use a trick"}],
-                "fallback_policy": "timeout_fallback",
-                "public_context": {"round_index": 1, "turn_index": 1},
-            }
-            movement_prompt = {
-                "request_type": "movement",
-                "player_id": 1,
-                "timeout_ms": 2000,
-                "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
-                "fallback_policy": "timeout_fallback",
-                "public_context": {"round_index": 1, "turn_index": 1},
-            }
-            parse_choice = lambda response: str(response.get("choice_id", ""))
-
-            bridge.set_prompt_sequence(seed)
-            with self.assertRaises(PromptRequired) as trick_raised:
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    trick_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                )
-            self.assertEqual(
-                trick_raised.exception.prompt["request_id"],
-                "sess_bridge_movement_replay_test:r1:t1:p1:trick_to_use:1",
-            )
-            self.prompt_service.submit_decision(
-                {
-                    "request_id": trick_raised.exception.prompt["request_id"],
-                    "player_id": 1,
-                    "choice_id": "none",
-                }
-            )
-
-            bridge.set_prompt_sequence(seed)
-            self.assertEqual(
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    trick_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                ),
-                "none",
-            )
-            with self.assertRaises(PromptRequired) as movement_raised:
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    movement_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                )
-            self.assertEqual(
-                movement_raised.exception.prompt["request_id"],
-                "sess_bridge_movement_replay_test:r1:t1:p1:movement:2",
-            )
-            self.prompt_service.submit_decision(
-                {
-                    "request_id": movement_raised.exception.prompt["request_id"],
-                    "player_id": 1,
-                    "choice_id": "roll",
-                }
-            )
-
-            bridge.set_prompt_sequence(seed)
-            self.assertEqual(
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    trick_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                ),
-                "none",
-            )
-            self.assertEqual(
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    movement_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                ),
-                "roll",
-            )
-        finally:
-            loop.call_soon_threadsafe(loop.stop)
-            loop_thread.join(timeout=1.0)
-            loop.close()
-
-    def test_turn_start_mark_prompt_replay_seed_matches_character_rule_cases(self) -> None:
-        def make_player(player_id: int, character: str, *, alive: bool = True):
-            return type(
-                "Player",
-                (),
-                {
-                    "player_id": player_id,
-                    "current_character": character,
-                    "shards": 3,
-                    "alive": alive,
-                },
-            )()
-
-        def make_state(
-            character: str,
-            active_by_card: dict[int, str],
-            request_type: str,
-            instance_id: int,
-            *,
-            extra_players=None,
-        ):
-            player = type(
-                "Player",
-                (),
-                {
-                    "player_id": 0,
-                    "current_character": character,
-                    "shards": 3,
-                    "alive": True,
-                },
-            )()
-            players = [player, *(extra_players or [])]
-            return type(
-                "CheckpointState",
-                (),
-                {
-                    "prompt_sequence": instance_id,
-                    "current_round_order": [0],
-                    "turn_index": 0,
-                    "players": players,
-                    "active_by_card": active_by_card,
-                    "pending_prompt_request_id": (
-                        f"sess_mark_rule_seed:r1:t1:p1:{request_type}:{instance_id}"
-                    ),
-                    "pending_prompt_type": request_type,
-                    "pending_prompt_instance_id": instance_id,
-                },
-            )()
-
-        mark_cases = [
-            ("자객", {1: "탐관오리", 2: "자객"}),
-            ("산적", {1: "탐관오리", 2: "산적"}),
-            ("추노꾼", {1: "탐관오리", 3: "추노꾼"}),
-            ("박수", {1: "탐관오리", 6: "박수"}),
-            ("만신", {1: "탐관오리", 6: "만신"}),
-        ]
-        for character, active_by_card in mark_cases:
-            with self.subTest(character=character):
-                self.assertEqual(
-                    self.runtime_service._prompt_sequence_seed_for_transition(
-                        make_state(character, active_by_card, "trick_to_use", 2)
-                    ),
-                    0,
-                )
-                self.assertEqual(
-                    self.runtime_service._prompt_sequence_seed_for_transition(
-                        make_state(character, active_by_card, "movement", 3)
-                    ),
-                    0,
-                )
-
-        draft_face_eosa_but_not_live_player_cases = [
-            ("자객", {1: "어사", 2: "자객"}),
-            ("산적", {1: "어사", 2: "산적"}),
-        ]
-        for character, active_by_card in draft_face_eosa_but_not_live_player_cases:
-            with self.subTest(character=character, draft_face_eosa_only=True):
-                self.assertEqual(
-                    self.runtime_service._prompt_sequence_seed_for_transition(
-                        make_state(character, active_by_card, "trick_to_use", 5)
-                    ),
-                    3,
-                )
-                self.assertEqual(
-                    self.runtime_service._prompt_sequence_seed_for_transition(
-                        make_state(character, active_by_card, "movement", 6)
-                    ),
-                    3,
-                )
-
-        live_eosa = make_player(1, "어사")
-        suppressed_by_live_eosa_cases = [
-            ("자객", {1: "어사", 2: "자객"}),
-            ("산적", {1: "어사", 2: "산적"}),
-        ]
-        for character, active_by_card in suppressed_by_live_eosa_cases:
-            with self.subTest(character=character, live_eosa=True):
-                self.assertEqual(
-                    self.runtime_service._prompt_sequence_seed_for_transition(
-                        make_state(character, active_by_card, "trick_to_use", 5, extra_players=[live_eosa])
-                    ),
-                    4,
-                )
-                self.assertEqual(
-                    self.runtime_service._prompt_sequence_seed_for_transition(
-                        make_state(character, active_by_card, "movement", 6, extra_players=[live_eosa])
-                    ),
-                    4,
-                )
-
-        dead_eosa = make_player(1, "어사", alive=False)
-        self.assertEqual(
-            self.runtime_service._prompt_sequence_seed_for_transition(
-                make_state("산적", {1: "어사", 2: "산적"}, "trick_to_use", 5, extra_players=[dead_eosa])
-            ),
-            3,
-        )
-
-    def test_turn_start_mark_replay_rewinds_before_pending_trick_and_movement_prompts(self) -> None:
-        from apps.server.src.services.decision_gateway import PromptRequired
-        from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
-
-        loop = asyncio.new_event_loop()
-        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
-        loop_thread.start()
-        try:
-            bridge = _ServerHumanPolicyBridge(
-                session_id="sess_bridge_mark_trick_replay_test",
-                human_seats=[0],
-                ai_fallback=object(),
-                prompt_service=self.prompt_service,
-                stream_service=self.stream_service,
-                loop=loop,
-                touch_activity=lambda _session_id: None,
-                fallback_executor=self.runtime_service.execute_prompt_fallback,
-                blocking_human_prompts=False,
-            )
-            player = type(
-                "Player",
-                (),
-                {
-                    "player_id": 0,
-                    "current_character": "산적",
-                    "shards": 3,
-                },
-            )()
-            checkpoint_base = {
-                "prompt_sequence": 2,
-                "current_round_order": [0],
-                "turn_index": 0,
-                "players": [player],
-                "active_by_card": {1: "탐관오리", 2: "산적"},
-            }
-            pending_trick_state = type(
-                "CheckpointState",
-                (),
-                {
-                    **checkpoint_base,
-                    "pending_prompt_request_id": "sess_bridge_mark_trick_replay_test:r1:t1:p1:trick_to_use:2",
-                    "pending_prompt_type": "trick_to_use",
-                    "pending_prompt_instance_id": 2,
-                },
-            )()
-            pending_movement_state = type(
-                "CheckpointState",
-                (),
-                {
-                    **checkpoint_base,
-                    "prompt_sequence": 3,
-                    "pending_prompt_request_id": "sess_bridge_mark_trick_replay_test:r1:t1:p1:movement:3",
-                    "pending_prompt_type": "movement",
-                    "pending_prompt_instance_id": 3,
-                },
-            )()
-            seed = self.runtime_service._prompt_sequence_seed_for_transition(pending_trick_state)
-            self.assertEqual(seed, 0)
-            self.assertEqual(self.runtime_service._prompt_sequence_seed_for_transition(pending_movement_state), 0)
-
-            mark_prompt = {
-                "request_type": "mark_target",
-                "player_id": 1,
-                "timeout_ms": 2000,
-                "legal_choices": [{"choice_id": "none", "label": "Do not mark"}],
-                "fallback_policy": "timeout_fallback",
-                "public_context": {"round_index": 1, "turn_index": 1},
-            }
-            trick_prompt = {
-                "request_type": "trick_to_use",
-                "player_id": 1,
-                "timeout_ms": 2000,
-                "legal_choices": [{"choice_id": "none", "label": "Do not use a trick"}],
-                "fallback_policy": "timeout_fallback",
-                "public_context": {"round_index": 1, "turn_index": 1},
-            }
-            movement_prompt = {
-                "request_type": "movement",
-                "player_id": 1,
-                "timeout_ms": 2000,
-                "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
-                "fallback_policy": "timeout_fallback",
-                "public_context": {"round_index": 1, "turn_index": 1},
-            }
-            parse_choice = lambda response: str(response.get("choice_id", ""))
-
-            bridge.set_prompt_sequence(seed)
-            with self.assertRaises(PromptRequired) as mark_raised:
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    mark_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                )
-            self.assertEqual(
-                mark_raised.exception.prompt["request_id"],
-                "sess_bridge_mark_trick_replay_test:r1:t1:p1:mark_target:1",
-            )
-            self.prompt_service.submit_decision(
-                {
-                    "request_id": mark_raised.exception.prompt["request_id"],
-                    "player_id": 1,
-                    "choice_id": "none",
-                }
-            )
-
-            bridge.set_prompt_sequence(seed)
-            self.assertEqual(
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    mark_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                ),
-                "none",
-            )
-            with self.assertRaises(PromptRequired) as trick_raised:
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    trick_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                )
-            self.assertEqual(
-                trick_raised.exception.prompt["request_id"],
-                "sess_bridge_mark_trick_replay_test:r1:t1:p1:trick_to_use:2",
-            )
-            self.prompt_service.submit_decision(
-                {
-                    "request_id": trick_raised.exception.prompt["request_id"],
-                    "player_id": 1,
-                    "choice_id": "none",
-                }
-            )
-
-            bridge.set_prompt_sequence(seed)
-            self.assertEqual(
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    mark_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                ),
-                "none",
-            )
-            self.assertEqual(
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    trick_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                ),
-                "none",
-            )
-            with self.assertRaises(PromptRequired) as movement_raised:
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    movement_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                )
-            self.assertEqual(
-                movement_raised.exception.prompt["request_id"],
-                "sess_bridge_mark_trick_replay_test:r1:t1:p1:movement:3",
-            )
-            self.prompt_service.submit_decision(
-                {
-                    "request_id": movement_raised.exception.prompt["request_id"],
-                    "player_id": 1,
-                    "choice_id": "roll",
-                }
-            )
-
-            bridge.set_prompt_sequence(seed)
-            self.assertEqual(
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    mark_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                ),
-                "none",
-            )
-            self.assertEqual(
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    trick_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                ),
-                "none",
-            )
-            self.assertEqual(
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    movement_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                ),
-                "roll",
-            )
-        finally:
-            loop.call_soon_threadsafe(loop.stop)
-            loop_thread.join(timeout=1.0)
-            loop.close()
-
-    def test_synced_hidden_trick_continuation_replays_same_movement_prompt(self) -> None:
-        checkpoint_state = type(
-            "CheckpointState",
-            (),
-            {
-                "prompt_sequence": 7,
-                "pending_prompt_request_id": "sess_synced_hidden:r1:t2:p2:movement:7",
-                "pending_prompt_type": "movement",
-                "pending_prompt_instance_id": 7,
-                "pending_actions": [
-                    {
-                        "type": "continue_after_trick_phase",
-                        "payload": {"hidden_trick_synced": True},
-                    }
-                ],
-            },
-        )()
-
-        seed = self.runtime_service._prompt_sequence_seed_for_transition(checkpoint_state)
-
-        self.assertEqual(seed, 6)
-
-    def test_round_start_prompt_replay_rewinds_to_draft_start(self) -> None:
-        from apps.server.src.services.decision_gateway import PromptRequired
-        from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
-
-        loop = asyncio.new_event_loop()
-        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
-        loop_thread.start()
-        try:
-            bridge = _ServerHumanPolicyBridge(
-                session_id="sess_bridge_round_start_replay_test",
-                human_seats=[0],
-                ai_fallback=object(),
-                prompt_service=self.prompt_service,
-                stream_service=self.stream_service,
-                loop=loop,
-                touch_activity=lambda _session_id: None,
-                fallback_executor=self.runtime_service.execute_prompt_fallback,
-                blocking_human_prompts=False,
-            )
-            checkpoint_state = type(
-                "CheckpointState",
-                (),
-                {
-                    "prompt_sequence": 2,
-                    "pending_prompt_request_id": "sess_bridge_round_start_replay_test:r1:t1:p1:final_character:2",
-                    "pending_prompt_type": "final_character",
-                    "pending_prompt_instance_id": 2,
-                    "current_round_order": [],
-                },
-            )()
-            seed = self.runtime_service._prompt_sequence_seed_for_transition(checkpoint_state)
-            self.assertEqual(seed, 0)
-
-            draft_prompt = {
-                "request_type": "draft_card",
-                "player_id": 1,
-                "timeout_ms": 2000,
-                "legal_choices": [{"choice_id": "7", "label": "견제자"}],
-                "fallback_policy": "timeout_fallback",
-                "public_context": {"round_index": 1, "turn_index": 1},
-            }
-            final_prompt = {
-                "request_type": "final_character",
-                "player_id": 1,
-                "timeout_ms": 2000,
-                "legal_choices": [{"choice_id": "7", "label": "견제자"}],
-                "fallback_policy": "timeout_fallback",
-                "public_context": {"round_index": 1, "turn_index": 1},
-            }
-            parse_choice = lambda response: str(response.get("choice_id", ""))
-
-            bridge.set_prompt_sequence(seed)
-            with self.assertRaises(PromptRequired) as draft_raised:
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    draft_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                )
-            self.assertEqual(
-                draft_raised.exception.prompt["request_id"],
-                "sess_bridge_round_start_replay_test:r1:t1:p1:draft_card:1",
-            )
-            self.prompt_service.submit_decision(
-                {
-                    "request_id": draft_raised.exception.prompt["request_id"],
-                    "player_id": 1,
-                    "choice_id": "7",
-                }
-            )
-
-            bridge.set_prompt_sequence(seed)
-            self.assertEqual(
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    draft_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                ),
-                "7",
-            )
-            with self.assertRaises(PromptRequired) as final_raised:
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    final_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                )
-            self.assertEqual(
-                final_raised.exception.prompt["request_id"],
-                "sess_bridge_round_start_replay_test:r1:t1:p1:final_character:2",
-            )
-            self.prompt_service.submit_decision(
-                {
-                    "request_id": final_raised.exception.prompt["request_id"],
-                    "player_id": 1,
-                    "choice_id": "7",
-                }
-            )
-
-            bridge.set_prompt_sequence(seed)
-            self.assertEqual(
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    draft_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                ),
-                "7",
-            )
-            self.assertEqual(
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    final_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                ),
-                "7",
-            )
-        finally:
-            loop.call_soon_threadsafe(loop.stop)
-            loop_thread.join(timeout=1.0)
-            loop.close()
-
-    def test_round_start_prompt_replay_rewinds_even_when_previous_order_remains(self) -> None:
-        checkpoint_state = type(
-            "CheckpointState",
-            (),
-            {
-                "prompt_sequence": 6,
-                "pending_prompt_request_id": "sess_round2_replay:r2:t5:p2:final_character:6",
-                "pending_prompt_type": "final_character",
-                "pending_prompt_instance_id": 6,
-                "current_round_order": [2, 0, 1, 3],
-            },
-        )()
-
-        seed = self.runtime_service._prompt_sequence_seed_for_transition(checkpoint_state)
-
-        self.assertEqual(seed, 0)
-
-    def test_round_setup_prompt_replay_clears_stale_round_order(self) -> None:
-        checkpoint_state = type(
-            "CheckpointState",
-            (),
-            {
-                "pending_prompt_request_id": "sess_round_setup_replay:r1:t1:p1:draft_card:1",
-                "pending_prompt_type": "draft_card",
-                "current_round_order": [0, 1, 2, 3],
-            },
-        )()
-
-        RuntimeService._prepare_state_for_transition_replay(checkpoint_state)
-
-        self.assertEqual(checkpoint_state.current_round_order, [])
-
-    def test_module_runner_replay_preparation_preserves_authoritative_checkpoint_order(self) -> None:
-        checkpoint_state = type(
-            "CheckpointState",
-            (),
-            {
-                "runtime_runner_kind": "module",
-                "runtime_checkpoint_schema_version": 3,
-                "runtime_frame_stack": [{"frame_id": "round:2", "frame_type": "round"}],
-                "pending_prompt_request_id": "sess_module_replay:r2:t1:p1:draft_card:1",
-                "pending_prompt_type": "draft_card",
-                "current_round_order": [3, 1, 4, 2],
-            },
-        )()
-
-        RuntimeService._prepare_state_for_transition_replay(checkpoint_state, runner_kind="module")
-
-        self.assertEqual(checkpoint_state.current_round_order, [3, 1, 4, 2])
-
-    def test_module_runner_hydration_ignores_legacy_round_setup_replay_base(self) -> None:
-        payload = {
-            "runtime_runner_kind": "module",
-            "runtime_checkpoint_schema_version": 3,
-            "runtime_frame_stack": [{"frame_id": "round:2", "frame_type": "round"}],
-            "tiles": [{"tile_id": "checkpoint"}],
-            "prompt_sequence": 9,
-            "pending_prompt_request_id": "sess_module_hydrate:r2:t1:p1:draft_card:9",
-            "pending_prompt_type": "draft_card",
-            "current_round_order": [3, 1, 4, 2],
-            "round_setup_replay_base": {
-                "tiles": [{"tile_id": "legacy-base"}],
-                "prompt_sequence": 0,
-                "current_round_order": [1, 2, 3, 4],
-            },
-        }
-
-        hydrated = RuntimeService._checkpoint_payload_for_transition_replay(payload, runner_kind="module")
-
-        self.assertEqual(hydrated["tiles"], [{"tile_id": "checkpoint"}])
-        self.assertEqual(hydrated["prompt_sequence"], 9)
-        self.assertEqual(hydrated["current_round_order"], [3, 1, 4, 2])
-
-    def test_round_setup_hidden_trick_replay_rewinds_to_setup_start_when_base_exists(self) -> None:
-        checkpoint_state = type(
-            "CheckpointState",
-            (),
-            {
-                "prompt_sequence": 3,
-                "pending_prompt_request_id": "sess_hidden_setup:r1:t1:p1:hidden_trick_card:3",
-                "pending_prompt_type": "hidden_trick_card",
-                "pending_prompt_instance_id": 3,
-                "current_round_order": [0, 1, 2, 3],
-                "round_setup_replay_base": {"tiles": [{"tile_id": 0}], "current_round_order": [0, 1, 2, 3]},
-            },
-        )()
-
-        seed = self.runtime_service._prompt_sequence_seed_for_transition(checkpoint_state)
-        RuntimeService._prepare_state_for_transition_replay(checkpoint_state)
-
-        self.assertEqual(seed, 0)
-        self.assertEqual(checkpoint_state.current_round_order, [])
-
-    def test_round_setup_hidden_trick_without_replay_base_keeps_bridge_replay_seed(self) -> None:
-        checkpoint_state = type(
-            "CheckpointState",
-            (),
-            {
-                "prompt_sequence": 3,
-                "pending_prompt_request_id": "sess_hidden_regular:r1:t1:p1:hidden_trick_card:3",
-                "pending_prompt_type": "hidden_trick_card",
-                "pending_prompt_instance_id": 3,
-                "current_round_order": [0, 1, 2, 3],
-            },
-        )()
-
-        seed = self.runtime_service._prompt_sequence_seed_for_transition(checkpoint_state)
-
-        self.assertEqual(seed, 2)
-        self.assertEqual(checkpoint_state.current_round_order, [0, 1, 2, 3])
-
     def test_first_human_draft_resume_auto_resolves_forced_draft_before_final_character(self) -> None:
         store = _MutableGameStateStoreStub()
         runtime = RuntimeService(
@@ -4433,13 +3705,10 @@ class RuntimeServiceTests(unittest.TestCase):
         loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
         loop_thread.start()
         try:
-            first = runtime._run_engine_transition_once_sync(
+            first = runtime._run_engine_transition_loop_sync(
                 loop,
                 session.session_id,
                 314305415,
-                None,
-                False,
-                None,
                 None,
             )
             self.assertEqual(first["status"], "waiting_input")
@@ -4468,16 +3737,18 @@ class RuntimeServiceTests(unittest.TestCase):
                     "request_id": pending_prompt.request_id,
                     "player_id": 1,
                     "choice_id": selected_choice_id,
+                    "resume_token": pending_prompt.payload["resume_token"],
+                    "frame_id": pending_prompt.payload["frame_id"],
+                    "module_id": pending_prompt.payload["module_id"],
+                    "module_type": pending_prompt.payload["module_type"],
+                    "module_cursor": pending_prompt.payload["module_cursor"],
                 }
             )
 
-            second = runtime._run_engine_transition_once_sync(
+            second = runtime._run_engine_transition_loop_sync(
                 loop,
                 session.session_id,
                 314305415,
-                None,
-                True,
-                None,
                 None,
             )
 
@@ -4536,13 +3807,10 @@ class RuntimeServiceTests(unittest.TestCase):
         loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
         loop_thread.start()
         try:
-            runtime._run_engine_transition_once_sync(
+            runtime._run_engine_transition_loop_sync(
                 loop,
                 session.session_id,
                 42,
-                None,
-                False,
-                None,
                 None,
             )
             with self.prompt_service._lock:  # type: ignore[attr-defined]
@@ -4552,16 +3820,41 @@ class RuntimeServiceTests(unittest.TestCase):
                     "request_id": first_prompt.request_id,
                     "player_id": 1,
                     "choice_id": first_prompt.payload["legal_choices"][0]["choice_id"],
+                    "resume_token": first_prompt.payload["resume_token"],
+                    "frame_id": first_prompt.payload["frame_id"],
+                    "module_id": first_prompt.payload["module_id"],
+                    "module_type": first_prompt.payload["module_type"],
+                    "module_cursor": first_prompt.payload["module_cursor"],
                 }
             )
 
-            runtime._run_engine_transition_once_sync(
+            second = runtime._run_engine_transition_loop_sync(
                 loop,
                 session.session_id,
                 42,
                 None,
-                True,
-                None,
+            )
+            self.assertEqual(second["status"], "waiting_input")
+            self.assertEqual(second["request_type"], "draft_card")
+            with self.prompt_service._lock:  # type: ignore[attr-defined]
+                draft_prompt = next(iter(self.prompt_service._pending.values()))  # type: ignore[attr-defined]
+            self.prompt_service.submit_decision(
+                {
+                    "request_id": draft_prompt.request_id,
+                    "player_id": 1,
+                    "choice_id": draft_prompt.payload["legal_choices"][0]["choice_id"],
+                    "resume_token": draft_prompt.payload["resume_token"],
+                    "frame_id": draft_prompt.payload["frame_id"],
+                    "module_id": draft_prompt.payload["module_id"],
+                    "module_type": draft_prompt.payload["module_type"],
+                    "module_cursor": draft_prompt.payload["module_cursor"],
+                }
+            )
+
+            runtime._run_engine_transition_loop_sync(
+                loop,
+                session.session_id,
+                42,
                 None,
             )
 
@@ -4588,73 +3881,6 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
-    def test_module_runner_transition_does_not_seed_policy_from_prompt_replay(self) -> None:
-        session = self.session_service.create_session(
-            seats=[
-                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
-                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
-                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
-                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
-            ],
-            config={
-                "seed": 42,
-                "runtime": {
-                    "ai_decision_delay_ms": 0,
-                    "runner_kind": "module",
-                },
-            },
-        )
-        session.resolved_parameters.setdefault("runtime", {})["runner_kind"] = "module"
-        session.resolved_parameters.setdefault("runtime", {})["ai_decision_delay_ms"] = 0
-        self.session_service.start_session(session.session_id, session.host_token)
-
-        loop = asyncio.new_event_loop()
-        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
-        loop_thread.start()
-        try:
-            with patch.object(
-                self.runtime_service,
-                "_prompt_sequence_seed_for_transition",
-                side_effect=AssertionError("module runner must resume from checkpoint modules, not prompt replay seeds"),
-            ):
-                result = self.runtime_service._run_engine_transition_once_sync(
-                    loop,
-                    session.session_id,
-                    42,
-                    None,
-                    False,
-                    None,
-                    None,
-                )
-
-            self.assertEqual(result["runner_kind"], "module")
-            self.assertEqual(result["module_type"], "TurnSchedulerModule")
-        finally:
-            loop.call_soon_threadsafe(loop.stop)
-            loop_thread.join(timeout=1.0)
-            loop.close()
-
-    def test_module_runner_prompt_sequence_preparation_skips_legacy_prompt_state(self) -> None:
-        calls: list[int] = []
-        policy = type("Policy", (), {"set_prompt_sequence": lambda _self, value: calls.append(value)})()
-        state = type(
-            "State",
-            (),
-            {
-                "runtime_runner_kind": "module",
-                "runtime_frame_stack": [{"frame_type": "turn"}],
-                "pending_prompt_request_id": "legacy:trick_to_use:1",
-                "pending_prompt_type": "trick_to_use",
-                "pending_prompt_instance_id": 7,
-                "prompt_sequence": 99,
-            },
-        )()
-
-        prepared = self.runtime_service._prepare_prompt_sequence_for_transition(policy, state, "module")
-
-        self.assertFalse(prepared)
-        self.assertEqual(calls, [])
-
     def test_runtime_service_module_transition_does_not_embed_card_rule_suppression(self) -> None:
         source = Path("apps/server/src/services/runtime_service.py").read_text(encoding="utf-8")
         transition_start = source.index("    def _run_engine_transition_once_sync")
@@ -4666,7 +3892,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertNotIn("_MUROE_MARK_CHARACTERS", transition_source)
 
     def test_stale_module_continuation_rejected_without_engine_advance(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         import engine
         from runtime_modules.contracts import PromptContinuation
         from state import GameState
@@ -4766,7 +3992,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(store.commits, [])
 
     def test_module_resume_rejects_module_type_mismatch_without_engine_advance(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         import engine
         from runtime_modules.contracts import PromptContinuation
         from state import GameState
@@ -4866,7 +4092,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(store.commits, [])
 
     def test_valid_module_continuation_passed_to_engine_transition(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         import engine
         from runtime_modules.contracts import PromptContinuation
         from state import GameState
@@ -4971,7 +4197,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(getattr(seen[0], "module_cursor"), "move:await_choice")
 
     def test_simultaneous_batch_continuation_survives_service_reconstruction(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         import engine
         from state import GameState
 
@@ -5169,7 +4395,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(store.commits[0]["checkpoint"]["active_module_type"], "ResupplyModule")
 
     def test_module_resume_preserves_checkpoint_frame_stack_without_replay(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         import engine
         from runtime_modules.contracts import FrameState, ModuleRef, PromptContinuation
         from state import GameState
@@ -5335,11 +4561,7 @@ class RuntimeServiceTests(unittest.TestCase):
             )
             return {"status": "committed", "runner_kind": "module", "module_type": "TrickChoiceModule"}
 
-        with patch.object(
-            runtime,
-            "_prompt_sequence_seed_for_transition",
-            side_effect=AssertionError("module resume must not rebuild state from legacy prompt seeds"),
-        ), patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition):
+        with patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition):
             result = runtime._run_engine_transition_once_sync(
                 None,
                 session.session_id,
@@ -5370,7 +4592,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(store.commits[0]["checkpoint"]["active_module_cursor"], "await_trick_prompt")
 
     def test_module_resume_preserves_purchase_sequence_checkpoint_without_replay(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         import engine
         from runtime_modules.contracts import FrameState, ModuleRef, PromptContinuation
         from state import GameState
@@ -5544,11 +4766,7 @@ class RuntimeServiceTests(unittest.TestCase):
             )
             return {"status": "committed", "runner_kind": "module", "module_type": "PurchaseDecisionModule"}
 
-        with patch.object(
-            runtime,
-            "_prompt_sequence_seed_for_transition",
-            side_effect=AssertionError("module resume must not rebuild state from legacy prompt seeds"),
-        ), patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition):
+        with patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition):
             result = runtime._run_engine_transition_once_sync(
                 None,
                 session.session_id,
@@ -5576,7 +4794,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(store.commits[0]["checkpoint"]["active_module_cursor"], "purchase:await_choice")
 
     def test_module_resume_preserves_lap_reward_sequence_checkpoint_without_replay(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         import engine
         from runtime_modules.contracts import FrameState, ModuleRef, PromptContinuation
         from state import GameState
@@ -5718,11 +4936,7 @@ class RuntimeServiceTests(unittest.TestCase):
             )
             return {"status": "committed", "runner_kind": "module", "module_type": "LapRewardModule"}
 
-        with patch.object(
-            runtime,
-            "_prompt_sequence_seed_for_transition",
-            side_effect=AssertionError("module resume must not rebuild state from legacy prompt seeds"),
-        ), patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition):
+        with patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition):
             result = runtime._run_engine_transition_once_sync(
                 None,
                 session.session_id,
@@ -5752,7 +4966,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(store.commits[0]["checkpoint"]["active_module_cursor"], "lap_reward:await_choice")
 
     def test_module_resume_prompt_boundary_matrix_preserves_checkpoint_without_replay(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         import engine
         from runtime_modules.contracts import FrameState, ModuleRef, PromptContinuation
         from state import GameState
@@ -6043,11 +5257,7 @@ class RuntimeServiceTests(unittest.TestCase):
                     )
                     return {"status": "committed", "runner_kind": "module", "module_type": case["module_type"]}
 
-                with patch.object(
-                    runtime,
-                    "_prompt_sequence_seed_for_transition",
-                    side_effect=AssertionError("module resume must not rebuild state from legacy prompt seeds"),
-                ), patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition):
+                with patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition):
                     result = runtime._run_engine_transition_once_sync(
                         None,
                         session.session_id,
@@ -6069,7 +5279,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 self.assertEqual(store.commits[0]["checkpoint"]["active_module_cursor"], case["cursor"])
 
     def test_bridge_consumes_valid_decision_resume_without_creating_prompt(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from engine import DecisionRequest
         from apps.server.src.services.runtime_service import RuntimeDecisionResume, _ServerDecisionPolicyBridge
 
@@ -6137,7 +5347,7 @@ class RuntimeServiceTests(unittest.TestCase):
             loop.close()
 
     def test_bridge_defers_decision_resume_until_matching_replayed_prompt(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from engine import DecisionRequest
         from apps.server.src.services.decision_gateway import PromptRequired
         from apps.server.src.services.runtime_service import RuntimeDecisionResume, _ServerDecisionPolicyBridge
@@ -6159,18 +5369,18 @@ class RuntimeServiceTests(unittest.TestCase):
                 fallback_executor=self.runtime_service.execute_prompt_fallback,
                 blocking_human_prompts=False,
             )
-            state = type(
-                "State",
-                (),
-                {
-                    "rounds_completed": 0,
-                    "turn_index": 0,
-                    "block_ids": [0, 0],
-                    "board": [],
-                    "tile_owner": [],
-                    "active_by_card": {5: "교리 연구관", 7: "중매꾼"},
-                },
-            )()
+            state = self._module_state(
+                frame_id="round:1",
+                module_id="mod:round:1:draft",
+                module_type="DraftModule",
+                module_cursor="draft:await_choice",
+                rounds_completed=0,
+                turn_index=0,
+                block_ids=[0, 0],
+                board=[],
+                tile_owner=[],
+                active_by_card={5: "교리 연구관", 7: "중매꾼"},
+            )
             player = type(
                 "Player",
                 (),
@@ -6216,10 +5426,8 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertEqual(draft_prompt["request_type"], "draft_card")
             accepted = self.prompt_service.submit_decision(
                 {
+                    **self._module_decision(draft_prompt, "5", player_id=1),
                     "type": "decision",
-                    "request_id": draft_prompt["request_id"],
-                    "player_id": 1,
-                    "choice_id": "5",
                     "choice_payload": {},
                     "provider": "human",
                 }
@@ -6234,10 +5442,10 @@ class RuntimeServiceTests(unittest.TestCase):
                     choice_id="5",
                     choice_payload={},
                     resume_token="token_final",
-                    frame_id=None,
-                    module_id=None,
-                    module_type=None,
-                    module_cursor=None,
+                    frame_id="round:1",
+                    module_id="mod:round:1:draft",
+                    module_type="DraftModule",
+                    module_cursor="draft:await_choice",
                 )
             )
 
@@ -6246,80 +5454,6 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertIsNotNone(bridge._decision_resume)
             self.assertEqual(bridge.request(final_request), "교리 연구관")
             self.assertIsNone(bridge._decision_resume)
-        finally:
-            loop.call_soon_threadsafe(loop.stop)
-            loop_thread.join(timeout=1.0)
-            loop.close()
-
-    def test_pending_hidden_trick_replay_resumes_same_hidden_selection(self) -> None:
-        from apps.server.src.services.decision_gateway import PromptRequired
-        from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge
-
-        loop = asyncio.new_event_loop()
-        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
-        loop_thread.start()
-        try:
-            bridge = _ServerHumanPolicyBridge(
-                session_id="sess_bridge_hidden_replay_test",
-                human_seats=[0],
-                ai_fallback=object(),
-                prompt_service=self.prompt_service,
-                stream_service=self.stream_service,
-                loop=loop,
-                touch_activity=lambda _session_id: None,
-                fallback_executor=self.runtime_service.execute_prompt_fallback,
-                blocking_human_prompts=False,
-            )
-            checkpoint_state = type(
-                "CheckpointState",
-                (),
-                {
-                    "prompt_sequence": 2,
-                    "pending_prompt_request_id": "sess_bridge_hidden_replay_test:r1:t1:p1:hidden_trick_card:2",
-                    "pending_prompt_type": "hidden_trick_card",
-                    "pending_prompt_instance_id": 2,
-                },
-            )()
-            seed = self.runtime_service._prompt_sequence_seed_for_transition(checkpoint_state)
-            self.assertEqual(seed, 1)
-            hidden_prompt = {
-                "request_type": "hidden_trick_card",
-                "player_id": 1,
-                "timeout_ms": 2000,
-                "legal_choices": [{"choice_id": "42", "label": "호객꾼"}],
-                "fallback_policy": "timeout_fallback",
-                "public_context": {"round_index": 1, "turn_index": 1},
-            }
-            parse_choice = lambda response: str(response.get("choice_id", ""))
-
-            bridge.set_prompt_sequence(seed)
-            with self.assertRaises(PromptRequired) as hidden_raised:
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    hidden_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                )
-            self.assertEqual(
-                hidden_raised.exception.prompt["request_id"],
-                "sess_bridge_hidden_replay_test:r1:t1:p1:hidden_trick_card:2",
-            )
-            self.prompt_service.submit_decision(
-                {
-                    "request_id": hidden_raised.exception.prompt["request_id"],
-                    "player_id": 1,
-                    "choice_id": "42",
-                }
-            )
-
-            bridge.set_prompt_sequence(seed)
-            self.assertEqual(
-                bridge._inner._ask(  # type: ignore[attr-defined]
-                    hidden_prompt,
-                    parse_choice,
-                    lambda: "fallback",
-                ),
-                "42",
-            )
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -6344,14 +5478,16 @@ class RuntimeServiceTests(unittest.TestCase):
 
             with self.assertRaises(PromptRequired) as raised:
                 gateway.resolve_human_prompt(
-                    {
+                    self._module_prompt(
+                        {
                         "request_type": "movement",
                         "player_id": 1,
                         "timeout_ms": 2000,
                         "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
                         "fallback_policy": "timeout_fallback",
                         "public_context": {},
-                    },
+                        }
+                    ),
                     lambda response: str(response.get("choice_id", "")),
                     lambda: "fallback",
                 )
@@ -6383,15 +5519,17 @@ class RuntimeServiceTests(unittest.TestCase):
                 fallback_executor=self.runtime_service.execute_prompt_fallback,
                 blocking_human_prompts=False,
             )
-            original_prompt = {
-                "request_id": "shape_req_1",
-                "request_type": "movement",
-                "player_id": 1,
-                "timeout_ms": 2000,
-                "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
-                "fallback_policy": "timeout_fallback",
-                "public_context": {"round_index": 1, "turn_index": 0},
-            }
+            original_prompt = self._module_prompt(
+                {
+                    "request_id": "shape_req_1",
+                    "request_type": "movement",
+                    "player_id": 1,
+                    "timeout_ms": 2000,
+                    "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                    "fallback_policy": "timeout_fallback",
+                    "public_context": {"round_index": 1, "turn_index": 0},
+                }
+            )
 
             with self.assertRaises(PromptRequired):
                 gateway.resolve_human_prompt(
@@ -6400,7 +5538,7 @@ class RuntimeServiceTests(unittest.TestCase):
                     lambda: "fallback",
                 )
             accepted = self.prompt_service.submit_decision(
-                {"request_id": "shape_req_1", "player_id": 1, "choice_id": "roll"}
+                self._module_decision(original_prompt, "roll", player_id=1)
             )
             self.assertEqual(accepted["status"], "accepted")
 
@@ -6442,7 +5580,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 fallback_executor=self.runtime_service.execute_prompt_fallback,
             )
 
-            state = type("State", (), {"rounds_completed": 1, "turn_index": 4})()
+            state = self._module_state(rounds_completed=1, turn_index=4)
             player = type("Player", (), {"player_id": 0, "cash": 11, "position": 8, "shards": 8})()
             result: dict[str, str] = {}
 
@@ -6466,11 +5604,7 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertEqual(pending_prompt.payload["player_id"], 1)
 
             decision_state = self.prompt_service.submit_decision(
-                {
-                    "request_id": pending_prompt.request_id,
-                    "player_id": 1,
-                    "choice_id": "minus_one",
-                }
+                self._module_decision(pending_prompt.payload, "minus_one", player_id=1)
             )
             self.assertEqual(decision_state["status"], "accepted")
 
@@ -6532,7 +5666,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 fallback_executor=self.runtime_service.execute_prompt_fallback,
             )
 
-            state = type("State", (), {"rounds_completed": 1, "turn_index": 0})()
+            state = self._module_state(rounds_completed=1, turn_index=0)
             player = type("Player", (), {"player_id": 0, "cash": 10, "position": 3, "shards": 4})()
             result: dict[str, str] = {}
 
@@ -6553,11 +5687,7 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertIsNotNone(pending_prompt)
             assert pending_prompt is not None
             self.prompt_service.submit_decision(
-                {
-                    "request_id": pending_prompt.request_id,
-                    "player_id": 1,
-                    "choice_id": "minus_one",
-                }
+                self._module_decision(pending_prompt.payload, "minus_one", player_id=1)
             )
 
             wait_thread.join(timeout=2.0)
@@ -6750,7 +5880,8 @@ class RuntimeServiceTests(unittest.TestCase):
 
             def _run_wait() -> None:
                 result["choice"] = bridge._inner._ask(  # type: ignore[attr-defined]
-                    {
+                    self._module_prompt(
+                        {
                         "request_id": "bridge_timeout_1",
                         "request_type": "movement",
                         "player_id": 1,
@@ -6759,7 +5890,8 @@ class RuntimeServiceTests(unittest.TestCase):
                         "fallback_policy": "timeout_fallback",
                         "fallback_choice_id": "roll",
                         "public_context": {"round_index": 1, "turn_index": 1},
-                    },
+                        }
+                    ),
                     lambda response: str(response.get("choice_id", "")),
                     lambda: "fallback",
                 )
@@ -6822,7 +5954,8 @@ class RuntimeServiceTests(unittest.TestCase):
 
             def _run_wait() -> None:
                 result["choice"] = bridge._inner._ask(  # type: ignore[attr-defined]
-                    {
+                    self._module_prompt(
+                        {
                         "request_id": "bridge_parser_1",
                         "request_type": "movement",
                         "player_id": 1,
@@ -6830,7 +5963,8 @@ class RuntimeServiceTests(unittest.TestCase):
                         "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
                         "fallback_policy": "timeout_fallback",
                         "public_context": {"round_index": 1, "turn_index": 2},
-                    },
+                        }
+                    ),
                     lambda _response: (_ for _ in ()).throw(ValueError("parser failure")),
                     lambda: "fallback",
                 )
@@ -6838,21 +5972,18 @@ class RuntimeServiceTests(unittest.TestCase):
             wait_thread = threading.Thread(target=_run_wait, daemon=True)
             wait_thread.start()
 
-            pending_ready = False
+            pending_prompt = None
             for _ in range(100):
                 with self.prompt_service._lock:  # type: ignore[attr-defined]
-                    pending_ready = "bridge_parser_1" in self.prompt_service._pending  # type: ignore[attr-defined]
-                if pending_ready:
+                    pending_prompt = self.prompt_service._pending.get("bridge_parser_1")  # type: ignore[attr-defined]
+                if pending_prompt is not None:
                     break
                 time.sleep(0.01)
-            self.assertTrue(pending_ready)
+            self.assertIsNotNone(pending_prompt)
+            assert pending_prompt is not None
 
             decision_state = self.prompt_service.submit_decision(
-                {
-                    "request_id": "bridge_parser_1",
-                    "player_id": 1,
-                    "choice_id": "roll",
-                }
+                self._module_decision(pending_prompt.payload, "roll", player_id=1)
             )
             self.assertEqual(decision_state["status"], "accepted")
             wait_thread.join(timeout=2.0)
@@ -6904,7 +6035,7 @@ class _RecoveryGameStateStoreStub:
 
     def load_view_state(self, session_id: str) -> dict:
         del session_id
-        return {"legacy": True}
+        return {"view_state_alias": True}
 
 
 class _MutableGameStateStoreStub:

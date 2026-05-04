@@ -56,12 +56,12 @@ class JsonFileSessionStore:
             return room_state
         rooms = payload.get("rooms")
         next_room_no = payload.get("next_room_no")
-        legacy: dict[str, Any] = {}
+        migrated: dict[str, Any] = {}
         if isinstance(rooms, list):
-            legacy["rooms"] = rooms
+            migrated["rooms"] = rooms
         if isinstance(next_room_no, int):
-            legacy["next_room_no"] = next_room_no
-        return legacy
+            migrated["next_room_no"] = next_room_no
+        return migrated
 
     def save_room_state(self, state: dict[str, Any]) -> None:
         payload = self._read_json()

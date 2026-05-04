@@ -32,6 +32,7 @@ import {
   DEBUG_TURN_SELECTION_LATEST,
   groupDebugMessagesByTurn,
   selectDebugMessagesForTurn,
+  selectUserVisibleDebugMessages,
 } from "./domain/selectors/debugLogSelectors";
 import { effectCharacterFromPayload } from "./domain/events/effectCharacter";
 import { BoardPanel } from "./features/board/BoardPanel";
@@ -1682,7 +1683,8 @@ export function App() {
       setShowRawMessages(false);
       return;
     }
-    const debugTurnGroups = groupDebugMessagesByTurn(debugMessages, locale);
+    const visibleDebugMessages = selectUserVisibleDebugMessages(debugMessages);
+    const debugTurnGroups = groupDebugMessagesByTurn(visibleDebugMessages, locale);
     const explicitDebugGroup =
       debugTurnSelectionKey === DEBUG_TURN_SELECTION_LATEST || debugTurnSelectionKey === DEBUG_TURN_SELECTION_ALL
         ? undefined
@@ -1691,7 +1693,11 @@ export function App() {
       debugTurnSelectionKey === DEBUG_TURN_SELECTION_LATEST
         ? debugTurnGroups[debugTurnGroups.length - 1]
         : explicitDebugGroup ?? debugTurnGroups[debugTurnGroups.length - 1];
-    const selectedDebugMessages = selectDebugMessagesForTurn(debugMessages, debugTurnGroups, debugTurnSelectionKey);
+    const selectedDebugMessages = selectDebugMessagesForTurn(
+      visibleDebugMessages,
+      debugTurnGroups,
+      debugTurnSelectionKey
+    );
     const selectedDebugGroupKey =
       debugTurnSelectionKey === DEBUG_TURN_SELECTION_ALL
         ? DEBUG_TURN_SELECTION_ALL
@@ -1715,7 +1721,7 @@ export function App() {
     const messagesLabel = locale === "ko" ? "메시지" : "messages";
     const turnOptionsMarkup = [
       `<option value="${DEBUG_TURN_SELECTION_LATEST}" ${selectedDebugGroupKey === DEBUG_TURN_SELECTION_LATEST ? "selected" : ""}>${escapeDebugHtml(latestLabel)}</option>`,
-      `<option value="${DEBUG_TURN_SELECTION_ALL}" ${selectedDebugGroupKey === DEBUG_TURN_SELECTION_ALL ? "selected" : ""}>${escapeDebugHtml(allLabel)} (${debugMessages.length})</option>`,
+      `<option value="${DEBUG_TURN_SELECTION_ALL}" ${selectedDebugGroupKey === DEBUG_TURN_SELECTION_ALL ? "selected" : ""}>${escapeDebugHtml(allLabel)} (${visibleDebugMessages.length})</option>`,
       ...debugTurnGroups
         .slice()
         .reverse()
@@ -1804,7 +1810,7 @@ export function App() {
           <main>
             <aside>
               <h1>Debug Log</h1>
-              <div class="meta">session=${escapeDebugHtml(sessionId || "-")} / runtime=${escapeDebugHtml(runtime.status)} / seq=${stream.lastSeq} / accumulated=${debugMessages.length}</div>
+              <div class="meta">session=${escapeDebugHtml(sessionId || "-")} / runtime=${escapeDebugHtml(runtime.status)} / seq=${stream.lastSeq} / accumulated=${visibleDebugMessages.length}</div>
               <label class="debug-filter">
                 <span>${escapeDebugHtml(turnSelectLabel)}</span>
                 <select id="debug-turn-select">${turnOptionsMarkup}</select>
@@ -2124,7 +2130,7 @@ export function App() {
         seats: Array.from({ length: seatTypes.length }, (_, idx) => ({
           seat: idx + 1,
           seat_type: "ai" as const,
-          ai_profile: idx % 2 === 0 ? "gpt" : "claude",
+          ai_profile: "balanced",
         })),
         config: {
           seed,

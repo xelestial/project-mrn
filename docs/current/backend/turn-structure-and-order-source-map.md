@@ -6,13 +6,13 @@ Scope: module-runner gameplay order from engine through backend/Redis/WebSocket/
 
 ## Purpose
 
-This document fixes the canonical turn order used by the migrated module runtime. The legacy `_take_turn` loop still exists for compatibility tests and non-module paths, but the production module-runner contract is the structured frame stack below.
+This document fixes the canonical turn order used by the migrated module runtime. The production module-runner contract is the structured frame stack below; direct non-module helpers are not allowed to own production gameplay order.
 
 ## 1. Top-Level Runtime
 
 Canonical execution is `ModuleRunner.advance_engine(engine, state, decision_resume=None)`.
 
-1. Reject orphan legacy turn-completion checkpoints. `pending_turn_completion` is valid only while being consumed inside the current transition and must be attached to `TurnEndSnapshotModule` before the checkpoint is persisted.
+1. Reject orphan turn-completion checkpoints. `pending_turn_completion` is valid only while being consumed inside the current transition and must be attached to `TurnEndSnapshotModule` before the checkpoint is persisted.
 2. Promote queued native follow-up work:
    - `resolve_supply_threshold` becomes a `SimultaneousResolutionFrame` / `ResupplyModule`.
    - Other catalogued action envelopes become an `ActionSequenceFrame` with explicit native modules.
@@ -50,7 +50,7 @@ Card/marker flip is round-owned. It is invalid in an active turn or child sequen
 5. `TargetJudicatorModule`: validates mark targets and inserts `ImmediateMarkerTransferModule` when the card's rules require immediate transfer.
 6. `ImmediateMarkerTransferModule`: executes immediate marker transfer inserted by the target adjudicator.
 7. `TrickWindowModule`: opens the trick window once and creates a child `TrickSequenceFrame`.
-8. `DiceRollModule`: consumes dice modifiers, calls the engine movement resolver, and captures legacy `pending_turn_completion` into the existing turn-owned `TurnEndSnapshotModule`.
+8. `DiceRollModule`: consumes dice modifiers, calls the engine movement resolver, and captures `pending_turn_completion` into the existing turn-owned `TurnEndSnapshotModule`.
 9. `MovementResolveModule`, `MapMoveModule`, `ArrivalTileModule`, `LapRewardModule`, `FortuneResolveModule`: native turn boundary slots. `LapRewardModule` owns lap-reward prompt/mutation after movement detects lap traversal and before arrival/post-arrival work continues; recovery resumes from `lap_reward:await_choice`. Follow-up actions may be executed as child `SequenceFrame`s when queued.
 10. `TurnEndSnapshotModule`: emits `turn_end_snapshot`, applies control-finisher bookkeeping, checks game end, advances `turn_index`, and completes the child `TurnFrame` plus parent `PlayerTurnModule`.
 
@@ -62,7 +62,7 @@ The important ownership rule: turn completion is not a sequence. A sequence-owne
 
 - Trick sequence: `TrickChoiceModule`, `TrickSkipModule`, `TrickResolveModule`, `TrickDiscardModule`, `TrickDeferredFollowupsModule`, `TrickVisibilitySyncModule`.
 - Native action sequence: `PendingMarkResolutionModule`, `MapMoveModule`, `ArrivalTileModule`, `RentPaymentModule`, `PurchaseDecisionModule`, `PurchaseCommitModule`, `UnownedPostPurchaseModule`, `ScoreTokenPlacementPromptModule`, `ScoreTokenPlacementCommitModule`, `LandingPostEffectsModule`, `TrickTileRentModifierModule`, `FortuneResolveModule`.
-- Forbidden legacy shapes: `LegacyActionAdapterModule`, action payloads without native module handlers, and `TurnEndSnapshotModule` in a sequence frame.
+- Forbidden shapes: action payloads without native module handlers and `TurnEndSnapshotModule` in a sequence frame.
 
 Examples:
 

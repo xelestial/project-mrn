@@ -227,7 +227,7 @@ describe("streamSelectors", () => {
     expect(model.progressTrail).not.toContain("드래프트");
   });
 
-  it("prefers backend runtime projection over later raw runtime module replay", () => {
+  it("prefers backend runtime projection over later raw runtime module metadata", () => {
     const messages: InboundMessage[] = [
       {
         type: "event",
@@ -264,9 +264,9 @@ describe("streamSelectors", () => {
         payload: {
           event_type: "draft_pick",
           runtime_module: {
-            runner_kind: "legacy",
+            runner_kind: "module",
             module_type: "DraftModule",
-            module_path: ["round:1", "legacy:round:1:draft"],
+            module_path: ["round:1", "mod:round:1:draft"],
           },
         },
       },
@@ -291,9 +291,9 @@ describe("streamSelectors", () => {
         payload: {
           event_type: "trick_used",
           runtime_module: {
-            runner_kind: "legacy",
+            runner_kind: "module",
             module_type: "TrickResolveModule",
-            module_path: ["round:1", "turn:1:p0", "seq:trick:1:p0:legacy", "legacy:seq:trick:1:p0:trick_resolve"],
+            module_path: ["round:1", "turn:1:p0", "seq:trick:1:p0:1", "mod:seq:trick:1:p0:trick_resolve"],
           },
         },
       },
@@ -2967,7 +2967,7 @@ describe("streamSelectors", () => {
             external_ai_worker_id: "prod-bot-1",
             external_ai_resolution_status: "resolved_by_worker",
             external_ai_ready_state: "ready",
-            external_ai_policy_mode: "heuristic_v3_gpt",
+            external_ai_policy_mode: "heuristic_v3_engine",
             external_ai_worker_adapter: "reference_heuristic_v1",
             external_ai_policy_class: "HeuristicPolicy",
             external_ai_decision_style: "contract_heuristic",
@@ -2988,7 +2988,7 @@ describe("streamSelectors", () => {
             external_ai_worker_id: "prod-bot-1",
             external_ai_resolution_status: "resolved_by_worker",
             external_ai_ready_state: "ready",
-            external_ai_policy_mode: "heuristic_v3_gpt",
+            external_ai_policy_mode: "heuristic_v3_engine",
             external_ai_worker_adapter: "reference_heuristic_v1",
             external_ai_policy_class: "HeuristicPolicy",
             external_ai_decision_style: "contract_heuristic",
@@ -2999,7 +2999,7 @@ describe("streamSelectors", () => {
 
     expect(timeline[0].detail).toContain("외부 worker 처리 완료");
     expect(timeline[0].detail).toContain("상태 준비됨");
-    expect(timeline[0].detail).toContain("모드 heuristic_v3_gpt");
+    expect(timeline[0].detail).toContain("모드 heuristic_v3_engine");
     expect(timeline[0].detail).toContain("어댑터 reference_heuristic_v1");
     expect(timeline[0].detail).toContain("클래스 HeuristicPolicy");
     expect(timeline[1].detail).toContain("10번 칸");
@@ -4449,7 +4449,7 @@ describe("streamSelectors", () => {
             external_ai_attempt_count: 3,
             external_ai_attempt_limit: 4,
             external_ai_ready_state: "not_ready",
-            external_ai_policy_mode: "heuristic_v3_gpt",
+            external_ai_policy_mode: "heuristic_v3_engine",
             external_ai_worker_adapter: "reference_heuristic_v1",
             external_ai_policy_class: "HeuristicPolicy",
             external_ai_decision_style: "contract_heuristic",
@@ -4468,7 +4468,7 @@ describe("streamSelectors", () => {
     expect(stage.externalAiAttemptCount).toBe(3);
     expect(stage.externalAiAttemptLimit).toBe(4);
     expect(stage.externalAiReadyState).toBe("not_ready");
-    expect(stage.externalAiPolicyMode).toBe("heuristic_v3_gpt");
+    expect(stage.externalAiPolicyMode).toBe("heuristic_v3_engine");
     expect(stage.externalAiWorkerAdapter).toBe("reference_heuristic_v1");
     expect(stage.externalAiPolicyClass).toBe("HeuristicPolicy");
     expect(stage.externalAiDecisionStyle).toBe("contract_heuristic");
@@ -4508,7 +4508,7 @@ describe("streamSelectors", () => {
             external_ai_attempt_count: 1,
             external_ai_attempt_limit: 2,
             external_ai_ready_state: "ready",
-            external_ai_policy_mode: "heuristic_v3_gpt",
+            external_ai_policy_mode: "heuristic_v3_engine",
             external_ai_worker_adapter: "priority_score_v1",
             external_ai_policy_class: "PriorityScoredPolicy",
             external_ai_decision_style: "priority_scored_contract",
@@ -4522,7 +4522,7 @@ describe("streamSelectors", () => {
     expect(stage.externalAiAttemptCount).toBe(1);
     expect(stage.externalAiAttemptLimit).toBe(2);
     expect(stage.externalAiReadyState).toBe("ready");
-    expect(stage.externalAiPolicyMode).toBe("heuristic_v3_gpt");
+    expect(stage.externalAiPolicyMode).toBe("heuristic_v3_engine");
     expect(stage.externalAiWorkerAdapter).toBe("priority_score_v1");
     expect(stage.externalAiPolicyClass).toBe("PriorityScoredPolicy");
     expect(stage.externalAiDecisionStyle).toBe("priority_scored_contract");
@@ -5229,7 +5229,7 @@ describe("streamSelectors", () => {
               external_ai_attempt_count: 3,
               external_ai_attempt_limit: 4,
               external_ai_ready_state: "not_ready",
-              external_ai_policy_mode: "heuristic_v3_gpt",
+              external_ai_policy_mode: "heuristic_v3_engine",
               external_ai_worker_adapter: "priority_score_v1",
               external_ai_policy_class: "PriorityScoredPolicy",
               external_ai_decision_style: "priority_scored_contract",

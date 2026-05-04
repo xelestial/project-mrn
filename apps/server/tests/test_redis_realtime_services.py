@@ -592,7 +592,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertTrue(status["recovery_checkpoint"]["available"])
 
     def test_runtime_recovery_transition_persists_hydrated_checkpoint(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from state import GameState
 
         sessions = SessionService()
@@ -645,7 +645,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertTrue(saved_checkpoint["has_snapshot"])
 
     def test_runtime_recovery_drains_pending_action_from_checkpoint(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from state import ActionEnvelope, GameState
 
         sessions = SessionService()
@@ -714,7 +714,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(saved_checkpoint["pending_action_count"], 0)
 
     def test_runtime_recovery_queues_purchase_actions_after_unowned_arrival_checkpoint(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from config import CellKind
         from state import ActionEnvelope, GameState
 
@@ -780,7 +780,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(saved_checkpoint["next_action_type"], "request_purchase_tile")
 
     def test_runtime_recovery_keeps_purchase_action_queued_when_prompt_waits(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from config import CellKind
         from state import ActionEnvelope, GameState
 
@@ -874,7 +874,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(saved_checkpoint["pending_action_count"], 2)
 
     def test_command_wakeup_restart_resumes_queued_purchase_prompt_from_redis(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from config import CellKind
         from state import ActionEnvelope, GameState
 
@@ -1023,7 +1023,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(checkpoint_after_restart["processed_command_seq"], int(command["seq"]))
 
     def test_runtime_recovery_drains_post_purchase_action_from_checkpoint(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from config import CellKind
         from state import ActionEnvelope, GameState
 
@@ -1098,7 +1098,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(saved_checkpoint["next_action_type"], "")
 
     def test_runtime_recovery_drains_score_token_placement_before_post_purchase(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from config import CellKind
         from state import ActionEnvelope, GameState
 
@@ -1187,7 +1187,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(saved_checkpoint["next_action_type"], "resolve_unowned_post_purchase")
 
     def test_runtime_recovery_keeps_score_token_request_queued_when_prompt_waits(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from config import CellKind
         from state import ActionEnvelope, GameState
 
@@ -1285,7 +1285,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(saved_checkpoint["next_action_type"], "request_score_token_placement")
 
     def test_runtime_recovery_drains_trick_tile_rent_modifier_from_checkpoint(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from config import CellKind
         from state import ActionEnvelope, GameState
 
@@ -1357,7 +1357,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(saved_checkpoint["pending_action_count"], 0)
 
     def test_runtime_recovery_keeps_trick_tile_rent_modifier_queued_when_prompt_waits(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from config import CellKind
         from state import ActionEnvelope, GameState
 
@@ -1450,7 +1450,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(saved_checkpoint["next_action_type"], "resolve_trick_tile_rent_modifier")
 
     def test_runtime_recovery_drains_rent_post_landing_action_from_checkpoint(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from config import CellKind
         from state import ActionEnvelope, GameState
 
@@ -1528,7 +1528,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(saved_checkpoint["pending_action_count"], 0)
 
     def test_runtime_recovery_materializes_scheduled_turn_start_action_from_checkpoint(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from state import ActionEnvelope, GameState
 
         sessions = SessionService()
@@ -1599,7 +1599,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(saved_checkpoint["next_scheduled_action_type"], "")
 
     def test_runtime_process_command_once_commits_state_and_command_offset(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from state import GameState
 
         sessions = SessionService()
@@ -1752,7 +1752,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), int(command["seq"]))
 
     def test_runtime_recovery_transition_persists_pending_prompt_metadata(self) -> None:
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from state import GameState
         from apps.server.src.services.decision_gateway import PromptRequired
 

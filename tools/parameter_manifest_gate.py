@@ -57,7 +57,7 @@ def _check_snapshot(path: Path, payload: dict) -> int:
         return 0
     print("FAIL: parameter manifest snapshot is stale.")
     print(f"snapshot: {path}")
-    print(f"old manifest_hash: {current.get('manifest_hash')}")
+    print(f"previous manifest_hash: {current.get('manifest_hash')}")
     print(f"new manifest_hash: {payload.get('manifest_hash')}")
     old_fp = current.get("source_fingerprints", {})
     new_fp = payload.get("source_fingerprints", {})

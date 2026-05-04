@@ -1,6 +1,0 @@
-{
-  "name": "heuristic_v3_claude_exp",
-  "profile_key": "v3_claude",
-  "survival_strategy_key": "survival/v3_claude_v1",
-  "character_values_key": "default"
-}

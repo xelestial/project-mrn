@@ -2,7 +2,7 @@
 
 Status: ACTIVE  
 Updated: 2026-05-04
-Owner: GPT
+Owner: Engine runtime
 
 ## Purpose
 
@@ -14,7 +14,7 @@ What documents still matter right now?
 
 The broad architecture migration era is closed enough. Current work should start
 from the runtime contracts, current gameplay rules, and the short priority board
-instead of reopening old umbrella plans.
+instead of reopening broad umbrella plans.
 
 Current repo-side work has four active tracks:
 
@@ -23,12 +23,13 @@ Current repo-side work has four active tracks:
 3. UI/UX readability follow-up from the current canonical frontend baseline
 4. Real human/local-AI/external-AI playtest stabilization
 
-The 2026-05-02 modular runtime migration plans are implemented and archived.
+The 2026-05-02 modular runtime migration plans are implemented and no longer
+kept as active execution context.
 The current source of truth for that surface is now:
 
 - `docs/current/runtime/end-to-end-contract.md`
 - `docs/current/runtime/round-action-control-matrix.md`
-- `GPT/runtime_modules/`
+- `engine/runtime_modules/`
 - `apps/server/src/services/runtime_service.py`
 
 ## Canonical Current Documents
@@ -58,21 +59,6 @@ Read and maintain these:
   `docs/current/engineering/[EVIDENCE]_RUNTIME_CONTRACT_EXTERNAL_CHECKS_2026-05-04.md`
 - Final local manual playtest evidence:
   `docs/current/engineering/[EVIDENCE]_FINAL_MANUAL_PLAYTEST_2026-05-04.md`
-
-## Archived Documents
-
-Docs under `docs/archive/` are historical. They can explain why the current
-shape exists, but they are not execution sources unless a current document
-explicitly says to consult them.
-
-Archived categories:
-
-- superseded frontend plans, proposals, and reports
-- implemented modular-runtime migration plans
-- older sync/patch handoff notes
-- duplicate backend-selector plan copy
-- invalid trick-card source snapshot
-- Redis UI playtest findings superseded by the lessons document
 
 ## Closed Enough
 
@@ -117,7 +103,7 @@ Those themes should reopen only if a concrete regression or rollout need appears
    module-runtime matrix, native module/semantic-guard/continuation/idempotency
    tests, and frontend decision/prompt contract tests. Keep end-to-end payload
    shape, round/action control, prompt lifecycle, and modular-runtime frame
-   semantics synchronized between `GPT/`, `apps/server/`, and `apps/web/` as
+   semantics synchronized between `engine/`, `apps/server/`, and `apps/web/` as
    new rule changes land.
 3. UI/UX follow-up. Effect cause visibility now preserves backend
    `effect_context` source player, source family, source name, and resource
@@ -137,7 +123,7 @@ Those themes should reopen only if a concrete regression or rollout need appears
 
 ## Rule For New Work
 
-Do not reopen old architecture or migration documents by default.
+Do not reopen broad architecture or migration documents by default.
 
 If a new task appears:
 
@@ -145,4 +131,4 @@ If a new task appears:
 2. start from this index and the next-work board
 3. start from the runtime/frontend/API contracts for the touched surface
 4. start from playtest evidence when behavior is uncertain
-5. record new decisions in the worklog instead of reviving old umbrella plans
+5. record new decisions in the worklog instead of reviving broad umbrella plans

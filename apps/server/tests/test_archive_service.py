@@ -196,7 +196,7 @@ class _GameStateStoreStub:
 
     def load_view_state(self, session_id: str) -> dict:
         del session_id
-        return {"legacy": True}
+        return {"view_state_alias": True}
 
     def delete_session_data(self, session_id: str) -> None:
         del session_id

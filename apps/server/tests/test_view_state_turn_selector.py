@@ -218,7 +218,7 @@ class ViewStateTurnSelectorTests(unittest.TestCase):
                             "external_ai_attempt_count": 3,
                             "external_ai_attempt_limit": 4,
                             "external_ai_ready_state": "not_ready",
-                            "external_ai_policy_mode": "heuristic_v3_gpt",
+                            "external_ai_policy_mode": "heuristic_v3_engine",
                             "external_ai_worker_adapter": "priority_score_v1",
                             "external_ai_policy_class": "PriorityScoredPolicy",
                             "external_ai_decision_style": "priority_scored_contract",
@@ -239,7 +239,7 @@ class ViewStateTurnSelectorTests(unittest.TestCase):
         self.assertEqual(view_state["external_ai_attempt_count"], 3)
         self.assertEqual(view_state["external_ai_attempt_limit"], 4)
         self.assertEqual(view_state["external_ai_ready_state"], "not_ready")
-        self.assertEqual(view_state["external_ai_policy_mode"], "heuristic_v3_gpt")
+        self.assertEqual(view_state["external_ai_policy_mode"], "heuristic_v3_engine")
         self.assertEqual(view_state["external_ai_worker_adapter"], "priority_score_v1")
         self.assertEqual(view_state["external_ai_policy_class"], "PriorityScoredPolicy")
         self.assertEqual(view_state["external_ai_decision_style"], "priority_scored_contract")

@@ -35,12 +35,12 @@ class RuntimeProjectionViewStateTests(unittest.TestCase):
                 "payload": {
                     "event_type": "draft_pick",
                     "runtime_module": {
-                        "runner_kind": "legacy",
+                        "runner_kind": "module",
                         "frame_id": "round:1",
                         "frame_type": "round",
-                        "module_id": "legacy:round:1:draft",
+                        "module_id": "mod:round:1:draft",
                         "module_type": "DraftModule",
-                        "module_path": ["round:1", "legacy:round:1:draft"],
+                        "module_path": ["round:1", "mod:round:1:draft"],
                     },
                 },
             }
@@ -51,12 +51,12 @@ class RuntimeProjectionViewStateTests(unittest.TestCase):
                 "payload": {
                     "event_type": "turn_start",
                     "runtime_module": {
-                        "runner_kind": "legacy",
+                        "runner_kind": "module",
                         "frame_id": "turn:1:p0",
                         "frame_type": "turn",
-                        "module_id": "legacy:turn:1:p0:turn_start",
+                        "module_id": "mod:turn:1:p0:turn_start",
                         "module_type": "TurnStartModule",
-                        "module_path": ["round:1", "turn:1:p0", "legacy:turn:1:p0:turn_start"],
+                        "module_path": ["round:1", "turn:1:p0", "mod:turn:1:p0:turn_start"],
                     },
                 },
             }
@@ -80,12 +80,12 @@ class RuntimeProjectionViewStateTests(unittest.TestCase):
                 "payload": {
                     "event_type": "turn_start",
                     "runtime_module": {
-                        "runner_kind": "legacy",
+                        "runner_kind": "module",
                         "frame_id": "turn:1:p0",
                         "frame_type": "turn",
-                        "module_id": "legacy:turn:1:p0:turn_start",
+                        "module_id": "mod:turn:1:p0:turn_start",
                         "module_type": "TurnStartModule",
-                        "module_path": ["round:1", "turn:1:p0", "legacy:turn:1:p0:turn_start"],
+                        "module_path": ["round:1", "turn:1:p0", "mod:turn:1:p0:turn_start"],
                     },
                 },
             },
@@ -101,16 +101,16 @@ class RuntimeProjectionViewStateTests(unittest.TestCase):
                 "payload": {
                     "event_type": "trick_used",
                     "runtime_module": {
-                        "runner_kind": "legacy",
-                        "frame_id": "seq:trick:1:p0:legacy",
+                        "runner_kind": "module",
+                        "frame_id": "seq:trick:1:p0",
                         "frame_type": "sequence",
-                        "module_id": "legacy:seq:trick:1:p0:trick_resolve",
+                        "module_id": "mod:seq:trick:1:p0:trick_resolve",
                         "module_type": "TrickResolveModule",
                         "module_path": [
                             "round:1",
                             "turn:1:p0",
-                            "seq:trick:1:p0:legacy",
-                            "legacy:seq:trick:1:p0:trick_resolve",
+                            "seq:trick:1:p0",
+                            "mod:seq:trick:1:p0:trick_resolve",
                         ],
                     },
                 },
@@ -128,7 +128,7 @@ class RuntimeProjectionViewStateTests(unittest.TestCase):
                     "runtime_module": {
                         "frame_type": "turn",
                         "module_type": "ImmediateMarkerTransferModule",
-                        "module_path": ["round:1", "turn:1:p0", "legacy:turn:1:p0:marker_transfer"],
+                        "module_path": ["round:1", "turn:1:p0", "mod:turn:1:p0:marker_transfer"],
                     },
                 },
             }
@@ -140,7 +140,7 @@ class RuntimeProjectionViewStateTests(unittest.TestCase):
                     "runtime_module": {
                         "frame_type": "round",
                         "module_type": "RoundEndCardFlipModule",
-                        "module_path": ["round:1", "legacy:round:1:card_flip"],
+                        "module_path": ["round:1", "mod:round:1:card_flip"],
                     },
                 },
             }
@@ -156,11 +156,11 @@ class RuntimeProjectionViewStateTests(unittest.TestCase):
                 "payload": {
                     "event_type": "draft_pick",
                     "runtime_module": {
-                        "runner_kind": "legacy",
+                        "runner_kind": "module",
                         "frame_id": "round:1",
                         "frame_type": "round",
                         "module_type": "DraftModule",
-                        "module_path": ["round:1", "legacy:round:1:draft"],
+                        "module_path": ["round:1", "mod:round:1:draft"],
                     },
                 },
             },

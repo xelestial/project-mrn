@@ -16,6 +16,7 @@ from apps.server.src.config.runtime_settings import RuntimeSettings
 from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
+from apps.server.tests.prompt_payloads import module_prompt
 
 
 def _reset_state() -> None:
@@ -529,7 +530,7 @@ class SessionsApiTests(unittest.TestCase):
             await state.stream_service.publish(
                 session_id,
                 "prompt",
-                {
+                module_prompt({
                     "request_id": "req_trick",
                     "request_type": "trick_to_use",
                     "player_id": 1,
@@ -537,7 +538,7 @@ class SessionsApiTests(unittest.TestCase):
                     "public_context": {
                         "full_hand": [{"deck_index": 11, "name": "재뿌리기", "is_usable": True}],
                     },
-                },
+                }),
             )
 
         asyncio.run(_seed_private_prompt())
@@ -626,7 +627,7 @@ class SessionsApiTests(unittest.TestCase):
             await state.stream_service.publish(
                 session_id,
                 "prompt",
-                {
+                module_prompt({
                     "request_id": "req_runtime_trick",
                     "request_type": "trick_to_use",
                     "player_id": 1,
@@ -634,7 +635,7 @@ class SessionsApiTests(unittest.TestCase):
                     "public_context": {
                         "full_hand": [{"deck_index": 11, "name": "재뿌리기", "is_usable": True}],
                     },
-                },
+                }),
             )
 
         asyncio.run(_seed_private_prompt())

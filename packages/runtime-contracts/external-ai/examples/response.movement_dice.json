@@ -9,7 +9,7 @@
     }
   },
   "worker_id": "bot-worker-1",
-  "policy_mode": "heuristic_v3_gpt",
+  "policy_mode": "heuristic_v3_engine",
   "policy_class": "HeuristicPolicy",
   "worker_contract_version": "v1",
   "capabilities": ["choice_id_response", "healthcheck"],

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from GPT.runtime_modules.contracts import FrameState, ModuleRef
+from runtime_modules.contracts import FrameState, ModuleRef
 from apps.server.src.services.decision_gateway import METHOD_SPECS
 from apps.server.src.services.prompt_service import PromptService
 from apps.server.src.services.runtime_service import _LocalHumanDecisionClient

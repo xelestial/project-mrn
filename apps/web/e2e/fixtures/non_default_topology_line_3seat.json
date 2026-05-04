@@ -10,8 +10,8 @@
   "sessionCreatePayload": {
     "seats": [
       { "seat": 1, "seat_type": "human" },
-      { "seat": 2, "seat_type": "ai", "ai_profile": "gpt" },
-      { "seat": 3, "seat_type": "ai", "ai_profile": "claude" }
+      { "seat": 2, "seat_type": "ai", "ai_profile": "balanced" },
+      { "seat": 3, "seat_type": "ai", "ai_profile": "balanced" }
     ],
     "config": {
       "seed": 99,

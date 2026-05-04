@@ -4,7 +4,7 @@ Shared runtime schemas and contracts:
 
 - event envelopes
 - prompt/decision envelopes
-- compatibility alias policy
+- alias normalization policy
 
 ## WS Contract Freeze (OI7)
 

@@ -119,7 +119,7 @@ def _trick_to_use_payload() -> dict[str, object]:
 @unittest.skipUnless(FASTAPI_AVAILABLE, "fastapi is not installed in this environment")
 class ExternalAiWorkerApiTests(unittest.TestCase):
     def setUp(self) -> None:
-        service = ExternalAiWorkerService(worker_id="worker-api-test", policy_mode="heuristic_v3_gpt")
+        service = ExternalAiWorkerService(worker_id="worker-api-test", policy_mode="heuristic_v3_engine")
         self.client = TestClient(create_app(service))
 
     def test_health_exposes_worker_metadata(self) -> None:
@@ -129,7 +129,7 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         payload = response.json()
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["worker_id"], "worker-api-test")
-        self.assertEqual(payload["policy_mode"], "heuristic_v3_gpt")
+        self.assertEqual(payload["policy_mode"], "heuristic_v3_engine")
         self.assertEqual(payload["worker_profile"], "reference_heuristic")
         self.assertEqual(payload["worker_adapter"], "reference_heuristic_v1")
         self.assertEqual(payload["decision_style"], "contract_heuristic")
@@ -150,7 +150,7 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         self.assertEqual(payload["worker_id"], "worker-api-test")
         self.assertTrue(payload["ready"])
         self.assertEqual(payload["worker_contract_version"], "v1")
-        self.assertEqual(payload["policy_mode"], "heuristic_v3_gpt")
+        self.assertEqual(payload["policy_mode"], "heuristic_v3_engine")
         self.assertEqual(payload["worker_profile"], "reference_heuristic")
         self.assertEqual(payload["worker_adapter"], "reference_heuristic_v1")
         self.assertEqual(payload["decision_style"], "contract_heuristic")
@@ -196,7 +196,7 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
     def test_service_can_mount_priority_scored_adapter(self) -> None:
         service = ExternalAiWorkerService(
             worker_id="worker-api-priority",
-            policy_mode="heuristic_v3_gpt",
+            policy_mode="heuristic_v3_engine",
             worker_profile="priority_scored",
             worker_adapter="priority_score_v1",
         )
@@ -270,7 +270,7 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         self.assertEqual(error["message"], "unsupported_contract_version")
 
     def test_auth_required_rejects_missing_or_wrong_header(self) -> None:
-        service = ExternalAiWorkerService(worker_id="worker-api-auth", policy_mode="heuristic_v3_gpt")
+        service = ExternalAiWorkerService(worker_id="worker-api-auth", policy_mode="heuristic_v3_engine")
         with patch.dict(
             "os.environ",
             {

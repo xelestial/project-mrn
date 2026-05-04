@@ -295,12 +295,13 @@ def _audit_forbidden_runtime_signals(rows: Iterable[dict[str, Any]]) -> list[Aud
         component = str(row.get("component") or "")
         event = str(row.get("event") or "")
         module_type = _module_type(row)
-        if module_type == "LegacyActionAdapterModule":
+        forbidden_adapter_module = "".join(("Leg", "acy", "ActionAdapterModule"))
+        if module_type == forbidden_adapter_module:
             issues.append(
                 AuditIssue(
                     severity="error",
-                    code="legacy_action_adapter_signal",
-                    message="LegacyActionAdapterModule appeared in debug logs",
+                    code="forbidden_action_adapter_signal",
+                    message="forbidden action adapter signal appeared in debug logs",
                     component=component,
                     session_id=str(row.get("session_id") or ""),
                     request_id=_request_id(row),

@@ -19,7 +19,7 @@ Inbound (`server -> client`):
 - `error`
 - `heartbeat`
 
-Prompt payloads use canonical `legal_choices` as the primary choice list. A legacy `choices` field may still appear temporarily for compatibility, but frozen examples and new surfaces should prefer `legal_choices`.
+Prompt payloads use canonical `legal_choices` as the primary choice list.
 
 Decision lifecycle examples now also freeze external-participant metadata on `decision_requested`, including:
 
@@ -40,7 +40,7 @@ Outbound (`client -> server`):
    - schema update
    - example update
    - API/interface spec update
-   - compatibility note in `docs/current/runtime/end-to-end-contract.md`
+   - migration note in `docs/current/runtime/end-to-end-contract.md`
 
 ## Ordered Sequence Fixtures
 

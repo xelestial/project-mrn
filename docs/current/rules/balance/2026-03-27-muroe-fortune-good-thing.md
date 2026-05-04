@@ -1,7 +1,7 @@
 # Balance Change Record
 
 - Date: `2026-03-27`
-- Scope: `GPT`
+- Scope: `engine`
 - Rule area: `Fortune card / 무뢰 interaction`
 
 ## Changed Rule

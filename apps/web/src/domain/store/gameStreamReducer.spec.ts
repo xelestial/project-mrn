@@ -42,7 +42,7 @@ describe("gameStreamReducer", () => {
     expect(state.debugMessages.map((message) => message.seq)).toEqual([1, 5]);
   });
 
-  it("keeps an older-seq replay projection visible after the live stream advances", () => {
+  it("keeps an older-seq restored view-state message visible after the live stream advances", () => {
     let state = initialGameStreamState;
     state = gameStreamReducer(state, {
       type: "message",
@@ -60,7 +60,7 @@ describe("gameStreamReducer", () => {
         seq: 80,
         session_id: "s1",
         payload: {
-          event_type: "replay_projection",
+          event_type: "view_state_restored",
           view_state: {
             prompt: {
               active: {
@@ -78,7 +78,7 @@ describe("gameStreamReducer", () => {
     expect(state.messages.map((message) => message.payload)).toEqual([
       { event_type: "prompt_required", view_state: { prompt: { active: null } } },
       {
-        event_type: "replay_projection",
+        event_type: "view_state_restored",
         view_state: {
           prompt: {
             active: {
@@ -92,7 +92,7 @@ describe("gameStreamReducer", () => {
     ]);
   });
 
-  it("keeps incompatible older replay runtime projections in debug without making them visible", () => {
+  it("keeps incompatible older restored runtime view state in debug without making it visible", () => {
     let state = initialGameStreamState;
     state = gameStreamReducer(state, {
       type: "message",
@@ -120,7 +120,7 @@ describe("gameStreamReducer", () => {
         seq: 80,
         session_id: "s1",
         payload: {
-          event_type: "replay_projection",
+          event_type: "view_state_restored",
           view_state: {
             runtime: {
               runner_kind: "module",

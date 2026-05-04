@@ -303,6 +303,26 @@ describe("promptSelectors", () => {
     expect(model?.choices[0].secondary).toBe(false);
   });
 
+  it("ignores noncanonical prompt choice mirrors", () => {
+    const promptMessage: InboundMessage = {
+      type: "prompt",
+      seq: 7,
+      session_id: "s1",
+      payload: {
+        request_id: "req_choices_mirror",
+        request_type: "trick_to_use",
+        player_id: 1,
+        timeout_ms: 300000,
+        choices: [{ choice_id: "deck_12", title: "건강 검진" }],
+      },
+    };
+
+    const model = selectActivePrompt([promptMessage]);
+
+    expect(model?.requestId).toBe("req_choices_mirror");
+    expect(model?.choices).toEqual([]);
+  });
+
   it("uses value.description when explicit description is omitted", () => {
     const promptMessage: InboundMessage = {
       type: "prompt",

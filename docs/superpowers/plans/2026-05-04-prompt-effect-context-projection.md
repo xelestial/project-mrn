@@ -54,9 +54,9 @@ Optional fields:
 
 ## 6. Verification Log
 
-1. `.venv/bin/python -m pytest GPT/test_human_policy_prompt_payloads.py -q`
+1. `.venv/bin/python -m pytest engine/test_human_policy_prompt_payloads.py -q`
    Result: 7 passed.
-2. `.venv/bin/python -m pytest GPT/test_runtime_effect_inventory.py -q`
+2. `.venv/bin/python -m pytest engine/test_runtime_effect_inventory.py -q`
    Result: 14 passed.
 3. `.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -k "lap_reward_context or trick_tile_target_context or matchmaker_purchase_context or effect_context_covers_remaining or module_resume_prompt_boundary_matrix or module_resume_preserves_purchase_sequence or module_resume_preserves_lap_reward_sequence" -q`
    Result: 7 passed, 111 deselected, 14 subtests passed.

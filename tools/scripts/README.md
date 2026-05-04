@@ -23,7 +23,7 @@ Operational scripts for local runs, export, and migration helpers.
   run under `.log`, across `frontend.jsonl`, `backend.jsonl`, and
   `engine.jsonl`. It flags duplicate frontend decision sends, duplicate backend
   accepts, draft choices missing from the final character prompt, forbidden
-  `LegacyActionAdapterModule` signals, and card flips that do not come from
+  module checkpoint shapes, and card flips that do not come from
   `RoundEndCardFlipModule`. After browser playtests, run
   `PYTHONPATH=. .venv/bin/python tools/scripts/game_debug_log_audit.py .log`
   before closing the result.

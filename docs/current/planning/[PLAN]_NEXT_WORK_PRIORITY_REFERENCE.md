@@ -2,7 +2,7 @@
 
 Status: ACTIVE  
 Updated: 2026-05-04
-Owner: GPT
+Owner: Engine runtime
 
 ## Purpose
 
@@ -37,7 +37,7 @@ Use:
 
 Current goal:
 
-- keep `GPT/`, `apps/server/`, and `apps/web/` synchronized on prompt,
+- keep `engine/`, `apps/server/`, and `apps/web/` synchronized on prompt,
   action, event, and round semantics
 - preserve modular-runtime frame behavior while avoiding stale migration-plan
   assumptions
@@ -72,8 +72,8 @@ Current goal:
 
 - continue from the implemented board-first baseline
 - make effect cause, prompt cause, and state delta legible during live play
-- avoid reopening archived UI/UX plans unless the canonical document explicitly
-  references them as historical context
+- avoid reopening removed UI/UX plans unless the canonical document explicitly
+  reintroduces them as current work
 - keep frontend prompt selectors aligned with backend `view_state` and runtime
   module owners before changing component-level display logic
 
@@ -87,8 +87,8 @@ Use:
 Current goal:
 
 - run human + local AI + external AI sessions
-- collect concrete evidence instead of reopening broad old plans
-- verify external worker endpoint compatibility before session attachment
+- collect concrete evidence instead of reopening broad plans
+- verify external worker endpoint capability before session attachment
 
 ## Closed Enough
 
@@ -98,8 +98,8 @@ Do not reopen these as broad plan tracks unless new evidence appears:
 - decision-contract unification
 - string/resource migration
 - parameter-driven decoupling
-- superseded frontend priority/proposal/report docs in `docs/archive/frontend/`
-- implemented modular-runtime migration plans in `docs/archive/superpowers/plans/`
+- superseded frontend priority/proposal/report docs
+- implemented modular-runtime migration plans
 
 ## Daily Rule
 

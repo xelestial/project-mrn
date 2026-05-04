@@ -8,6 +8,7 @@ from pathlib import Path
 from apps.server.src.domain.visibility import ViewerContext
 from apps.server.src.domain.view_state.prompt_selector import build_prompt_feedback_view_state, build_prompt_view_state
 from apps.server.src.services.stream_service import StreamService
+from apps.server.tests.prompt_payloads import module_prompt
 
 
 def _project_root() -> Path:
@@ -329,14 +330,14 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
             prompt = await stream.publish(
                 "sess_1",
                 "prompt",
-                {
+                module_prompt({
                     "request_id": "req_turn7_move",
                     "request_type": "movement",
                     "player_id": 1,
                     "timeout_ms": 30000,
                     "legal_choices": [{"choice_id": "roll", "title": "Roll dice", "description": "Normal move."}],
                     "public_context": {"round_index": 2, "turn_index": 7},
-                },
+                }, module_type="MapMoveModule", frame_id="turn:test:p0"),
             )
             snapshot = await stream.snapshot("sess_1")
             projected = await stream.project_message_for_viewer(

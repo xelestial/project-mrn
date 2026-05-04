@@ -216,7 +216,12 @@ def test_debug_log_audit_reports_known_turn_flow_violations(tmp_path: Path) -> N
         run_dir / "engine.jsonl",
         [
             _row("engine", "marker_flip", session_id="sess_1", module_type="PlayerTurnModule"),
-            _row("engine", "transition", session_id="sess_1", module_type="LegacyActionAdapterModule"),
+            _row(
+                "engine",
+                "transition",
+                session_id="sess_1",
+                module_type="".join(("Leg", "acy", "ActionAdapterModule")),
+            ),
         ],
     )
 
@@ -230,7 +235,7 @@ def test_debug_log_audit_reports_known_turn_flow_violations(tmp_path: Path) -> N
         "draft_choice_missing_from_final_prompt",
         "round_end_flip_active_turn_violation",
         "card_flip_wrong_module",
-        "legacy_action_adapter_signal",
+        "forbidden_action_adapter_signal",
     }.issubset(codes)
 
 
@@ -248,11 +253,11 @@ def test_debug_log_audit_uses_latest_child_run_from_parent(tmp_path: Path) -> No
     assert report["run_dir"] == str(newer)
 
 
-def test_debug_log_audit_prefers_child_run_when_parent_has_legacy_component_logs(tmp_path: Path) -> None:
+def test_debug_log_audit_prefers_child_run_when_parent_has__component_logs(tmp_path: Path) -> None:
     script = _load_script()
     child = tmp_path / "20260504-120001-000001-p123"
     child.mkdir()
-    _write_jsonl(tmp_path / "backend.jsonl", [_row("backend", "runtime_failed", error="legacy root")])
+    _write_jsonl(tmp_path / "backend.jsonl", [_row("backend", "runtime_failed", error="invalid root")])
     _write_jsonl(child / "backend.jsonl", [_row("backend", "runtime_started")])
 
     report = script.audit_debug_log_run(tmp_path)

@@ -42,10 +42,10 @@ def build_runtime_view_state(messages: list[dict]) -> RuntimeProjectionViewState
     module_path = _string_list(module.get("module_path")) if module else []
     active_sequence = _active_sequence(module, module_path)
     round_stage = ROUND_STAGE_BY_MODULE.get(module_type, "in_round" if module else "")
-    turn_stage = TURN_STAGE_BY_MODULE.get(module_type, "" if round_stage in {"round_setup", "draft", "turn_scheduler"} else "legacy")
+    turn_stage = TURN_STAGE_BY_MODULE.get(module_type, "" if round_stage in {"round_setup", "draft", "turn_scheduler"} else "in_turn")
 
     return {
-        "runner_kind": str(module.get("runner_kind") or "legacy") if module else "legacy",
+        "runner_kind": str(module.get("runner_kind") or "module") if module else "module",
         "latest_module_path": module_path,
         "round_stage": round_stage,
         "turn_stage": turn_stage,

@@ -7,6 +7,7 @@ import pytest
 
 from apps.server.src.domain.visibility import ViewerContext
 from apps.server.src.services.stream_service import StreamService
+from apps.server.tests.prompt_payloads import module_prompt
 
 
 class FakeProjectionStore:
@@ -78,7 +79,7 @@ class StreamServiceTests(unittest.TestCase):
 
         async def _run() -> None:
             await service.publish("s1", "event", {"n": 1})
-            await service.publish("s1", "prompt", {"request_id": "r1"})
+            await service.publish("s1", "prompt", module_prompt({"request_id": "r1"}))
             snapshot = await service.snapshot("s1")
             self.assertEqual(len(snapshot), 2)
             self.assertEqual(snapshot[0].seq, 1)
@@ -90,8 +91,8 @@ class StreamServiceTests(unittest.TestCase):
         service = StreamService()
 
         async def _run() -> None:
-            first_prompt = await service.publish("s1", "prompt", {"request_id": "r1", "request_type": "movement"})
-            second_prompt = await service.publish("s1", "prompt", {"request_id": "r1", "request_type": "movement"})
+            first_prompt = await service.publish("s1", "prompt", module_prompt({"request_id": "r1", "request_type": "movement"}))
+            second_prompt = await service.publish("s1", "prompt", module_prompt({"request_id": "r1", "request_type": "movement"}))
             first_requested = await service.publish(
                 "s1",
                 "event",
@@ -204,7 +205,7 @@ class StreamServiceTests(unittest.TestCase):
             prompt = await service.publish(
                 "s1",
                 "prompt",
-                {
+                module_prompt({
                     "request_id": "req_trick",
                     "request_type": "trick_to_use",
                     "player_id": 1,
@@ -213,7 +214,7 @@ class StreamServiceTests(unittest.TestCase):
                         "full_hand": [{"deck_index": 11, "name": "재뿌리기"}],
                         "hidden_trick_deck_index": 11,
                     },
-                },
+                }),
             )
 
             view_state = prompt.payload.get("view_state")
@@ -232,7 +233,7 @@ class StreamServiceTests(unittest.TestCase):
             prompt = await service.publish(
                 "s1",
                 "prompt",
-                {
+                module_prompt({
                     "request_id": "req_trick",
                     "request_type": "trick_to_use",
                     "player_id": 1,
@@ -253,7 +254,7 @@ class StreamServiceTests(unittest.TestCase):
                             }
                         ],
                     },
-                },
+                }),
             )
 
             target = await service.project_message_for_viewer(prompt.to_dict(), ViewerContext(role="seat", session_id="s1", player_id=1))
@@ -302,7 +303,7 @@ class StreamServiceTests(unittest.TestCase):
             prompt = await service.publish(
                 "s1",
                 "prompt",
-                {
+                module_prompt({
                     "request_id": "req_trick",
                     "request_type": "trick_to_use",
                     "player_id": 1,
@@ -310,7 +311,7 @@ class StreamServiceTests(unittest.TestCase):
                     "public_context": {
                         "full_hand": [{"deck_index": 11, "name": "재뿌리기", "is_usable": True}],
                     },
-                },
+                }),
             )
 
             target = await service.project_message_for_viewer(prompt.to_dict(), ViewerContext(role="seat", session_id="s1", player_id=1))
@@ -357,7 +358,7 @@ class StreamServiceTests(unittest.TestCase):
             await service.publish(
                 "s1",
                 "prompt",
-                {
+                module_prompt({
                     "request_id": "req_trick",
                     "request_type": "trick_to_use",
                     "player_id": 1,
@@ -365,7 +366,7 @@ class StreamServiceTests(unittest.TestCase):
                     "public_context": {
                         "full_hand": [{"deck_index": 11, "name": "재뿌리기", "is_usable": True}],
                     },
-                },
+                }),
             )
             viewer = ViewerContext(role="seat", session_id="s1", player_id=1)
             store.view_states[("s1", "player:1")] = {"prompt": {"last_feedback": {"request_id": "old"}}}

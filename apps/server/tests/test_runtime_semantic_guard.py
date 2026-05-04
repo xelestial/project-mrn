@@ -493,25 +493,25 @@ def test_checkpoint_rejects_turn_end_snapshot_sequence_adapter() -> None:
         )
 
 
-def test_checkpoint_rejects_legacy_action_adapter_module() -> None:
-    with pytest.raises(RuntimeSemanticViolation, match="LegacyActionAdapterModule"):
+def test_checkpoint_rejects_uncatalogued_action_module_owner() -> None:
+    with pytest.raises(RuntimeSemanticViolation, match="action type apply_move belongs to MapMoveModule"):
         validate_checkpoint_payload(
             {
                 "runtime_runner_kind": "module",
                 "runtime_frame_stack": [
                     {
-                        "frame_id": "seq:action:1:p0:legacy",
+                        "frame_id": "seq:action:1:p0:uncatalogued",
                         "frame_type": "sequence",
                         "status": "running",
-                        "active_module_id": "mod:legacy",
+                        "active_module_id": "mod:uncatalogued",
                         "module_queue": [
                             {
-                                "module_id": "mod:legacy",
-                                "module_type": "LegacyActionAdapterModule",
+                                "module_id": "mod:uncatalogued",
+                                "module_type": "UncataloguedActionModule",
                                 "status": "running",
                                 "payload": {
                                     "action": {
-                                        "action_id": "act:legacy",
+                                        "action_id": "act:uncatalogued",
                                         "type": "apply_move",
                                         "actor_player_id": 0,
                                     }

@@ -45,7 +45,7 @@ class ExternalAiDecisionResponse(BaseModel):
 @lru_cache(maxsize=1)
 def _service() -> ExternalAiWorkerService:
     worker_id = os.getenv("MRN_EXTERNAL_AI_WORKER_ID", "external-ai-worker")
-    policy_mode = os.getenv("MRN_EXTERNAL_AI_POLICY_MODE", "heuristic_v3_gpt")
+    policy_mode = os.getenv("MRN_EXTERNAL_AI_POLICY_MODE", "heuristic_v3_engine")
     worker_profile = os.getenv("MRN_EXTERNAL_AI_WORKER_PROFILE", "").strip() or None
     worker_adapter = os.getenv("MRN_EXTERNAL_AI_WORKER_ADAPTER", "reference_heuristic_v1")
     return ExternalAiWorkerService(

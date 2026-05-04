@@ -19,7 +19,7 @@
     "missing_player_ids",
     "resume_tokens_by_player_id"
   ],
-  "forbidden_legacy_replay_sources": [
+  "forbidden_replay_sources": [
     "round_setup_replay_base",
     "pending_prompt_instance_id - 1",
     "frontend-created request id"
@@ -232,8 +232,8 @@
       "scenario_id": "MRN-MOD-004",
       "checkpoint_contract": "PromptContinuation + TrickSequenceFrame",
       "required_tests": [
-        "GPT/test_runtime_sequence_modules.py::test_trick_followup_runs_inside_child_sequence_before_turn_dice",
-        "GPT/test_runtime_prompt_continuation.py::test_resume_rejects_same_module_with_stale_cursor"
+        "engine/test_runtime_sequence_modules.py::test_trick_followup_runs_inside_child_sequence_before_turn_dice",
+        "engine/test_runtime_prompt_continuation.py::test_resume_rejects_same_module_with_stale_cursor"
       ]
     },
     {
@@ -256,8 +256,8 @@
       "scenario_id": "MRN-MOD-015",
       "checkpoint_contract": "PromptContinuation + TrickSequenceFrame",
       "required_tests": [
-        "GPT/test_runtime_sequence_modules.py::test_trick_resolve_followup_insertion_is_idempotent_on_module_retry",
-        "GPT/test_runtime_sequence_modules.py::test_bandit_mark_then_trick_followup_never_replays_target_or_trick_window"
+        "engine/test_runtime_sequence_modules.py::test_trick_resolve_followup_insertion_is_idempotent_on_module_retry",
+        "engine/test_runtime_sequence_modules.py::test_bandit_mark_then_trick_followup_never_replays_target_or_trick_window"
       ]
     }
   ],
@@ -276,7 +276,7 @@
         "TrickSequenceFrame"
       ],
       "automation": [
-        "GPT/test_runtime_sequence_modules.py",
+        "engine/test_runtime_sequence_modules.py",
         "apps/server/tests/test_prompt_module_continuation.py",
         "apps/web/src/hooks/useGameStream.spec.ts"
       ]
@@ -290,8 +290,8 @@
         "TrickDeferredFollowupsModule"
       ],
       "automation": [
-        "GPT/test_runtime_sequence_modules.py",
-        "GPT/test_runtime_prompt_continuation.py"
+        "engine/test_runtime_sequence_modules.py",
+        "engine/test_runtime_prompt_continuation.py"
       ]
     },
     {
@@ -303,9 +303,9 @@
         "ArrivalTileModule"
       ],
       "automation": [
-        "GPT/test_runtime_sequence_modules.py",
-        "GPT/test_runtime_sequence_handlers.py",
-        "GPT/test_runtime_effect_inventory.py",
+        "engine/test_runtime_sequence_modules.py",
+        "engine/test_runtime_sequence_handlers.py",
+        "engine/test_runtime_effect_inventory.py",
         "apps/server/tests/test_runtime_semantic_guard.py",
         "npm run e2e:module-runtime"
       ]
@@ -319,8 +319,8 @@
         "PlayerTurnModule"
       ],
       "automation": [
-        "GPT/test_runtime_round_modules.py",
-        "GPT/test_runtime_sequence_modules.py",
+        "engine/test_runtime_round_modules.py",
+        "engine/test_runtime_sequence_modules.py",
         "apps/server/tests/test_runtime_semantic_guard.py"
       ]
     },
@@ -336,7 +336,7 @@
         "CompleteSimultaneousResolutionModule"
       ],
       "automation": [
-        "GPT/test_runtime_simultaneous_modules.py",
+        "engine/test_runtime_simultaneous_modules.py",
         "apps/server/tests/test_runtime_service.py",
         "apps/web/src/domain/selectors/promptSelectors.spec.ts"
       ]
@@ -350,7 +350,7 @@
         "TrickSequenceFrame"
       ],
       "automation": [
-        "GPT/test_runtime_sequence_modules.py",
+        "engine/test_runtime_sequence_modules.py",
         "apps/server/tests/test_prompt_module_continuation.py",
         "apps/web/src/hooks/useGameStream.spec.ts"
       ]

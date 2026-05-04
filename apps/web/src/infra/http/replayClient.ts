@@ -1,4 +1,4 @@
-import type { InboundMessage } from "../../core/contracts/stream";
+import { VIEW_STATE_RESTORED_EVENT, type InboundMessage } from "../../core/contracts/stream";
 
 type ReplayResponseBody = {
   ok?: boolean;
@@ -88,7 +88,7 @@ export async function fetchReplayMessages(args: {
     seq: projectionSeq,
     session_id: sessionId,
     payload: {
-      event_type: "replay_projection",
+      event_type: VIEW_STATE_RESTORED_EVENT,
       view_state: viewState,
     },
   });

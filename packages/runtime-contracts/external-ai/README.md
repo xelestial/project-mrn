@@ -55,7 +55,7 @@ The request envelope also carries:
   - `auth_scheme`
   - `auth_token`
 
-The server can preflight worker health and capability compatibility before decision POSTs when seat config enables the default healthcheck path.
+The server can preflight worker health and capability capability before decision POSTs when seat config enables the default healthcheck path.
 Injected/custom senders and healthcheckers are still validated against the same worker identity and capability expectations.
 
 Frozen examples now cover:
@@ -81,7 +81,7 @@ Operational seat defaults can now also require:
 - `required_policy_class`
 - `required_decision_style`
 
-When workers advertise `supported_transports`, the runtime also treats that as a compatibility guard for the active seat transport.
+When workers advertise `supported_transports`, the runtime also treats that as a capability guard for the active seat transport.
 
 When workers advertise `worker_adapter`, `policy_mode`, `policy_class`, and `decision_style`, the runtime now also surfaces those fields into canonical decision `public_context` so stage/spectator UIs can preserve stronger-worker provenance through success and fallback paths.
 

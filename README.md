@@ -13,9 +13,13 @@ Current status: playable web/runtime project under UI/UX stabilization.
 
 ## Active Areas
 
-- Engine core: `GPT/`
-- Server/runtime: `apps/server/`
-- Web client: `apps/web/`
+- Game engine and deterministic rules: `engine/`
+- Backend API, Redis state, workers, and realtime streams: `apps/server/`
+- Web client and browser E2E fixtures: `apps/web/`
+- Shared runtime contracts: `packages/runtime-contracts/`
+- Engine policy package metadata: `packages/policy-engine/`
+- Current documentation: `docs/current/`
+- Maintenance and smoke-test tooling: `tools/`
 
 ## Redis Local Stack
 

@@ -9,7 +9,7 @@ COPY apps/server/requirements.txt /app/apps/server/requirements.txt
 RUN pip install --no-cache-dir -r /app/apps/server/requirements.txt
 
 COPY apps/server /app/apps/server
-COPY GPT /app/GPT
+COPY engine /app/engine
 COPY packages/ui-domain /app/packages/ui-domain
 COPY packages/runtime-contracts /app/packages/runtime-contracts
 

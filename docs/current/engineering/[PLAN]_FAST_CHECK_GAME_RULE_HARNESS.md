@@ -56,7 +56,7 @@ Initial rule coverage is intentionally low-risk and tied to current pure domain 
 
 3. Add contract-backed arbitraries.
    - Generate scenarios from runtime-contract fixture schemas.
-   - Mix fixture examples with generated edge cases to keep compatibility with backend projections.
+   - Mix fixture examples with generated edge cases to keep parity with backend projections.
 
 4. Run in CI with two tiers.
    - PR tier: fixed seeds and moderate `numRuns` for deterministic speed.

@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "GPT"))
+sys.path.insert(0, str(ROOT / "engine"))
 
 MATRIX_DOC = ROOT / "docs/current/engineering/[MATRIX]_MODULE_RUNTIME_PLAYTEST_SCENARIOS.md"
 ROUND_ACTION_CONTROL_MATRIX = ROOT / "docs/current/runtime/round-action-control-matrix.md"
@@ -46,11 +46,11 @@ REQUIRED_SCENARIOS = {
 }
 
 REQUIRED_COVERAGE_TOKENS = {
-    "GPT/test_runtime_sequence_modules.py",
-    "GPT/test_runtime_sequence_handlers.py",
-    "GPT/test_runtime_turn_handlers.py",
-    "GPT/test_tile_effects.py",
-    "GPT/test_runtime_effect_inventory.py",
+    "engine/test_runtime_sequence_modules.py",
+    "engine/test_runtime_sequence_handlers.py",
+    "engine/test_runtime_turn_handlers.py",
+    "engine/test_tile_effects.py",
+    "engine/test_runtime_effect_inventory.py",
     "apps/server/tests/test_runtime_semantic_guard.py",
     "apps/server/tests/test_prompt_module_continuation.py",
     "apps/server/tests/test_command_wakeup_worker.py",
@@ -112,7 +112,7 @@ def test_round_combination_regression_pack_fixture_matches_matrix_doc() -> None:
         "missing_player_ids",
         "resume_tokens_by_player_id",
     }
-    assert set(pack["forbidden_legacy_replay_sources"]) == {
+    assert set(pack["forbidden_replay_sources"]) == {
         "round_setup_replay_base",
         "pending_prompt_instance_id - 1",
         "frontend-created request id",
@@ -135,7 +135,7 @@ def test_round_combination_regression_pack_fixture_matches_matrix_doc() -> None:
         assert field in text
     for field in pack["simultaneous_wire_fields"]:
         assert field in text
-    for source in pack["forbidden_legacy_replay_sources"]:
+    for source in pack["forbidden_replay_sources"]:
         assert source in text
 
 
@@ -284,7 +284,7 @@ def test_redis_state_plan_documents_authoritative_continuation_boundary() -> Non
         "frontend-created request id",
         "mismatched continuation",
         "must not mutate canonical game state",
-        "ignores legacy prompt replay aids",
+        "ignores prompt replay aids",
         "raw resume tokens",
     }:
         assert phrase in text
@@ -316,7 +316,7 @@ def test_runtime_docs_do_not_keep_stale_rent_atomicity_language() -> None:
         assert phrase in combined
 
 
-def test_redis_state_plan_does_not_describe_module_fortune_as_inline_compat() -> None:
+def test_redis_state_plan_keeps_module_fortune_as_owned_sequence() -> None:
     text = REDIS_STATE_PLAN_DOC.read_text(encoding="utf-8")
 
     forbidden = {
@@ -327,7 +327,7 @@ def test_redis_state_plan_does_not_describe_module_fortune_as_inline_compat() ->
         assert phrase not in text
 
     for phrase in {
-        "legacy/test/plugin-only surfaces guarded by contract tests",
+        "test/plugin-only surfaces guarded by contract tests",
         "`FortuneResolveModule`",
         "`MapMoveModule`",
         "`ArrivalTileModule`",
@@ -397,10 +397,9 @@ def test_round_action_control_matrix_covers_runtime_module_catalog_and_effects()
         assert f"`{module_type}`" in text
     assert "unknown `resolve_fortune_*` action" in text
     assert "rejected with `UnknownActionTypeError` until catalogued" in text
-    assert "`LegacyActionAdapterModule`" in text
-    assert "Legacy Adapter Removal Classification" in text
-    assert "forbidden legacy checkpoint signal" in text
-    assert "old checkpoint carrying `LegacyActionAdapterModule` is rejected" in text
+    assert "Action Classification" in text
+    assert "UnknownActionTypeError" in text
+    assert "uncatalogued action" in text
 
     for action_type in SIMULTANEOUS_ACTION_TYPES:
         assert f"`{action_type}`" in text
@@ -460,6 +459,5 @@ def test_round_action_control_matrix_documents_latest_log_revalidation() -> None
         "173 times",
         "1 `accepted`, 215 `stale/already_resolved`",
         "0 `RoundEndCardFlipModule` runtime modules",
-        "0 `LegacyActionAdapterModule` runtime modules",
     }:
         assert phrase in text

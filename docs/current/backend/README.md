@@ -27,7 +27,7 @@ Runtime safety rules:
 
 - gameplay rule code should compare canonical ids, not localized Korean names
 - the repository policy gate for this is `tools/gameplay_literal_gate.py`
-- allowed runtime exceptions are limited to compatibility alias resolution and explicit log-label strings documented in `docs/current/1_READ_FIRST_GAME_STABILIZATION_AND_RUNTIME_GUIDE.md`
+- allowed runtime exceptions are limited to alias normalization and explicit log-label strings documented in `docs/current/1_READ_FIRST_GAME_STABILIZATION_AND_RUNTIME_GUIDE.md`
 - session REST bootstrap should expose both `parameter_manifest` and `initial_active_by_card`
 - backend selector changes should be validated alongside:
   - `apps/server/tests/test_sessions_api.py`

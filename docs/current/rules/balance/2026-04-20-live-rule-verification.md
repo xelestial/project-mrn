@@ -23,8 +23,8 @@
 - 근거:
   - `sess_a2ca82b24e58` replay `seq 9 weather_reveal`
   - `sess_a2ca82b24e58` replay `seq 10 prompt draft_card`
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:1381)
-  - [GPT/test_doctrine_marker_round_end.py](/Users/sil/Workspace/project-mrn/GPT/test_doctrine_marker_round_end.py:85)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:1381)
+  - [engine/test_doctrine_marker_round_end.py](/Users/sil/Workspace/project-mrn/engine/test_doctrine_marker_round_end.py:85)
 
 ### 드래프트에서 최종 인물 선택으로 진행
 
@@ -52,8 +52,8 @@
 - 근거:
   - 브라우저 `sess_a2ca82b24e58`
   - replay `seq 67 prompt mark_target`
-  - [GPT/test_human_play.py](/Users/sil/Workspace/project-mrn/GPT/test_human_play.py:453)
-  - `GPT/test_human_play.py -k 'mark_target_uses_public_active_faces'`
+  - [engine/test_human_play.py](/Users/sil/Workspace/project-mrn/engine/test_human_play.py:453)
+  - `engine/test_human_play.py -k 'mark_target_uses_public_active_faces'`
 
 ### 지목 단계에서 잔꾀 사용 단계로 진행
 
@@ -72,7 +72,7 @@
 - 근거:
   - 브라우저 `sess_a2ca82b24e58`
   - replay `seq 79 prompt movement`
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:1468)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:1468)
 
 ### 이동에서 구매 단계로 진행
 
@@ -99,7 +99,7 @@
 - 행동: 착지 해결
 - 후: 운수 2장을 연속 처리하는 `FORTUNE_CHAIN`이 생성되고 현금이 4 증가함
 - 근거:
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:193)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:193)
 
 #### 돼지 꿈
 
@@ -107,7 +107,7 @@
 - 행동: `돼지 꿈` 처리, 정책이 `5`, `2`를 회복 대상으로 선택
 - 후: 회복 결과 카드 목록이 `[5, 2]`로 남고, 사용 완료 카드는 `{4}`만 유지됨
 - 근거:
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:228)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:228)
 
 #### 수상한 음료
 
@@ -115,7 +115,7 @@
 - 행동: `수상한 음료` 처리
 - 후: 주사위 1개만 굴린 `ROLL_ARRIVAL`, `dice=[6]`, `move=6`
 - 근거:
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:244)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:244)
 
 #### 남 좋은 일
 
@@ -123,7 +123,7 @@
 - 행동: `남 좋은 일` 처리
 - 후: 무뢰는 제외되고 비무뢰 2명만 `+4냥`
 - 근거:
-  - [GPT/test_event_effects.py](/Users/sil/Workspace/project-mrn/GPT/test_event_effects.py:186)
+  - [engine/test_event_effects.py](/Users/sil/Workspace/project-mrn/engine/test_event_effects.py:186)
 
 ### 날씨 효과
 
@@ -133,7 +133,7 @@
 - 행동: 정책이 `4`를 회복 카드로 선택
 - 후: `4`만 손으로 돌아오고 `2`는 사용 완료 상태 유지
 - 근거:
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:212)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:212)
 
 #### 잔꾀 부리기
 
@@ -141,7 +141,7 @@
 - 행동: 기존 카드 `11`을 버리고 새로 뽑기
 - 후: 손패가 `[12, 99]`로 변경
 - 근거:
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:260)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:260)
 
 #### 사냥의 계절
 
@@ -149,7 +149,7 @@
 - 행동: 산적이 지목 성공
 - 후: 보너스 현금 `+4`
 - 근거:
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:1242)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:1242)
 
 #### 추운 겨울날
 
@@ -157,7 +157,7 @@
 - 행동: 랩 보상 처리
 - 후: 보상은 `blocked_by_weather`, 현금은 `8`
 - 근거:
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:1257)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:1257)
 
 #### 사랑과 우정
 
@@ -165,7 +165,7 @@
 - 행동: 착지 해결
 - 후: `weather_same_tile_cash_gain = 8`
 - 근거:
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:1284)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:1284)
 
 #### 대규모 민란
 
@@ -173,7 +173,7 @@
 - 행동: 착지 후 구매 처리
 - 후: 은행에 임대료를 먼저 내고 이어서 구매 비용까지 지불함
 - 근거:
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:1299)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:1299)
 
 ### 인물 효과
 
@@ -183,7 +183,7 @@
 - 행동: 사기꾼으로 착지 해결
 - 후: 타일 소유권과 승점 코인 `3`이 함께 넘어감
 - 근거:
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:325)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:325)
 
 #### 박수
 
@@ -191,7 +191,7 @@
 - 행동: 대상 턴에서 지목 해소
 - 후: 대상은 짐을 받고, 박수는 새 잔꾀 1장을 받음
 - 근거:
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:445)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:445)
 
 #### 추노꾼
 
@@ -199,7 +199,7 @@
 - 행동: `hunter_pull` 처리
 - 후: 위치는 강제로 이동하지만 `total_steps`는 그대로 유지되고 랩 크레딧은 증가하지 않음
 - 근거:
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:460)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:460)
 
 #### 만신
 
@@ -207,7 +207,7 @@
 - 행동: `manshin_remove_burdens` 처리
 - 후: 대상의 짐이 모두 사라지고, 제거 비용만큼 만신에게 현금이 이동
 - 근거:
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:1225)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:1225)
 
 #### 교리 연구관 / 교리 감독관
 
@@ -215,9 +215,9 @@
 - 행동: 턴 시작 능력 및 라운드 종료 징표 관리 실행
 - 후: 짐 1장 제거 또는 징표/드래프트 방향이 해당 인물 규칙대로 갱신됨
 - 근거:
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:1709)
-  - [GPT/test_doctrine_marker_round_end.py](/Users/sil/Workspace/project-mrn/GPT/test_doctrine_marker_round_end.py:39)
-  - [GPT/test_doctrine_marker_round_end.py](/Users/sil/Workspace/project-mrn/GPT/test_doctrine_marker_round_end.py:54)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:1709)
+  - [engine/test_doctrine_marker_round_end.py](/Users/sil/Workspace/project-mrn/engine/test_doctrine_marker_round_end.py:39)
+  - [engine/test_doctrine_marker_round_end.py](/Users/sil/Workspace/project-mrn/engine/test_doctrine_marker_round_end.py:54)
 
 ### 잔꾀 효과
 
@@ -227,7 +227,7 @@
 - 행동: `강제 매각` 적용
 - 후: 타일 코인은 `0`이 되고, 원소유자 손코인이 `+2`
 - 근거:
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:423)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:423)
 
 #### 턴당 1장 제한
 
@@ -235,7 +235,7 @@
 - 행동: 잔꾀 단계 실행
 - 후: 손패는 1장만 줄고, `trick_used` 로그도 1회만 남음
 - 근거:
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:1468)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:1468)
 
 ## 닫힌 문제 기록
 
@@ -250,8 +250,8 @@
 - 근거:
   - `sess_a2ca82b24e58` replay `seq 70 decision_resolved choice_id="none"`
   - `sess_a2ca82b24e58` replay `seq 71 mark_queued target_character="객주"`
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:693)
-  - [GPT/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/GPT/test_rule_fixes.py:713)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:693)
+  - [engine/test_rule_fixes.py](/Users/sil/Workspace/project-mrn/engine/test_rule_fixes.py:713)
 
 ### 2026-04-25 처리 완료: `No mark` 선택지 노출 제거
 
@@ -323,15 +323,15 @@
   - 후: 인벤토리 완전 커버는 자동 테스트와 카탈로그/엔진 audit 범위로 닫는다. 실브라우저에서는 대표 경로, 자동 검증에서는 전체 계약 회귀를 담당한다.
 - 빠른 시작/프롬프트/E2E 패리티:
   - 전: 로비의 빠른 시작 진입점이 방 기반 UI 전환 후 화면에 노출되지 않았고, E2E fixture가 구형 `choices` payload와 구 UI test id를 기대했다.
-  - 후: `사람 1 + AI 3 빠른 시작` 버튼을 다시 연결하고, prompt selector가 `legal_choices`와 legacy `choices`를 모두 수용한다. 패리티 E2E는 현재 쿼터뷰/핸드 카드 test id 기준으로 갱신했다.
+  - 후: `사람 1 + AI 3 빠른 시작` 버튼을 다시 연결하고, prompt selector가 `legal_choices`와 `choices` mirror를 모두 수용한다. 패리티 E2E는 현재 쿼터뷰/핸드 카드 test id 기준으로 갱신했다.
   - 검증: `cd apps/web && npm run e2e:parity`
   - 결과: `5 passed`
 
 ## 자동 검증
 
 - 명령:
-  - `.venv/bin/python -m pytest GPT/test_rule_fixes.py GPT/test_event_effects.py GPT/test_doctrine_marker_round_end.py -q`
-  - `.venv/bin/python -m pytest GPT/test_human_play.py -q -k 'active_flip_prompt or hidden_trick_requires_selection or mark_target_uses_public_active_faces'`
+  - `.venv/bin/python -m pytest engine/test_rule_fixes.py engine/test_event_effects.py engine/test_doctrine_marker_round_end.py -q`
+  - `.venv/bin/python -m pytest engine/test_human_play.py -q -k 'active_flip_prompt or hidden_trick_requires_selection or mark_target_uses_public_active_faces'`
   - `cd apps/web && npm test`
   - `cd apps/web && npm run e2e:parity`
   - `cd apps/web && npm run build`
@@ -351,18 +351,18 @@
   - 행동: 사람 프롬프트 payload 생성
   - 후: 공개 면 기준 후보가 prompt에 반영됨
   - 근거:
-    - [GPT/test_human_play.py](/Users/sil/Workspace/project-mrn/GPT/test_human_play.py:453)
+    - [engine/test_human_play.py](/Users/sil/Workspace/project-mrn/engine/test_human_play.py:453)
 
 - `hidden_trick_card`
   - 전: 히든 슬롯 선택 단계 진입
   - 행동: 사람 프롬프트 payload 생성
-  - 후: 히든 잔꾀는 반드시 실제 카드 선택을 요구하고, 레거시 skip 계약을 노출하지 않음
+  - 후: 히든 잔꾀는 반드시 실제 카드 선택을 요구하고, skip 계약을 노출하지 않음
   - 근거:
-    - [GPT/test_human_play.py](/Users/sil/Workspace/project-mrn/GPT/test_human_play.py:994)
+    - [engine/test_human_play.py](/Users/sil/Workspace/project-mrn/engine/test_human_play.py:994)
 
 - `active_flip`
   - 전: 징표 소유자가 flip 단계에 진입
   - 행동: 사람 프롬프트 payload 생성
   - 후: flip 선택 프롬프트가 계약대로 생성됨
   - 근거:
-    - [GPT/test_human_play.py](/Users/sil/Workspace/project-mrn/GPT/test_human_play.py:815)
+    - [engine/test_human_play.py](/Users/sil/Workspace/project-mrn/engine/test_human_play.py:815)

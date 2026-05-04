@@ -44,6 +44,30 @@ def _ok(data: dict) -> dict:
     return {"ok": True, "data": data, "error": None}
 
 
+def _debug_module_prompt(session_id: str, payload: dict) -> dict:
+    request_id = str(payload.get("request_id") or "debug")
+    frame_id = f"seq:debug:{session_id}"
+    module_id = f"mod:debug:{request_id}"
+    module_cursor = "debug:await_prompt"
+    return {
+        **payload,
+        "runner_kind": "module",
+        "resume_token": f"debug:{session_id}:{request_id}",
+        "frame_id": frame_id,
+        "module_id": module_id,
+        "module_type": "TrickChoiceModule",
+        "module_cursor": module_cursor,
+        "runtime_module": {
+            "runner_kind": "module",
+            "frame_type": "sequence",
+            "frame_id": frame_id,
+            "module_id": module_id,
+            "module_type": "TrickChoiceModule",
+            "module_cursor": module_cursor,
+        },
+    }
+
+
 @router.post("/{session_id}/prompts/debug", dependencies=[Depends(require_admin)])
 async def create_debug_prompt(
     session_id: str,
@@ -68,7 +92,7 @@ async def create_debug_prompt(
             "error": build_error_payload(code="SESSION_NOT_FOUND", message="Session not found.", retryable=False),
         }
 
-    prompt_payload = payload.model_dump()
+    prompt_payload = _debug_module_prompt(session_id, payload.model_dump())
     try:
         pending = prompts.create_prompt(session_id=session_id, prompt=prompt_payload)
     except ValueError as exc:

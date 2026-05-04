@@ -27,9 +27,9 @@ The engine is the source of legal game progression. Backend services, Redis pers
    into `view_state.prompt.active.effect_context`. The payload names the source
    family/name, player when known, intent, tone, attribution, and UI detail so
    clients never infer prompt causality from raw event history.
-9. Known prompt-resuming actions must resolve to native runtime modules. A
-   prompt boundary that would resume through `LegacyActionAdapterModule` is a
-   migration failure, not a tolerated compatibility path.
+9. Known prompt-resuming actions must resolve to native runtime modules. An
+   uncatalogued prompt boundary is rejected until it has an owner module,
+   handler, and continuation contract.
 
 ## Prompt Effect Context Contract
 

@@ -469,7 +469,7 @@ def _module_decision_mismatch(prompt: dict, decision: dict) -> str:
     ):
         expected = str(prompt.get(field) or "").strip()
         actual = str(decision.get(field) or "").strip()
-        if expected and actual != expected:
+        if expected and actual and actual != expected:
             return reason
     return ""
 

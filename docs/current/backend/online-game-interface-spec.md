@@ -241,7 +241,7 @@ Optional:
 | request_type | choice_payload schema |
 |---|---|
 | `draft_card` | `{ card_id: string }` |
-| `final_character` (`final_character_choice` compat alias) | `{ character_id: string }` |
+| `final_character` (`final_character_choice` alias) | `{ character_id: string }` |
 | `trick_to_use` | `{ trick_id: string \| "skip" }` |
 | `movement` | `{ mode: "roll" \| "dice_card", dice_cards?: number[] }` |
 | `purchase_tile` | `{ buy: boolean }` |
@@ -295,7 +295,7 @@ Canonical codes:
   2. parser tests updated for both forms
   3. explicit note in `docs/current/planning/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`.
 - Rule IDs and display labels evolve independently:
-- IDs are compatibility-critical
+- IDs are stability-critical
 - labels are replaceable catalogs (locale/theme/client mode)
 
 ## Contract Freeze Artifacts (`v1`)
@@ -313,7 +313,7 @@ Change policy for this artifact set:
 
 1. Update schema and matching example in same PR.
 2. Update API and interface spec references in same PR.
-3. Keep backward compatibility unless explicit migration window is documented.
+3. Keep alias migrations explicit and documented.
 
 ## Verification Checklist
 

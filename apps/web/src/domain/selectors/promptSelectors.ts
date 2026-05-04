@@ -1028,7 +1028,7 @@ export function selectActivePrompt(messages: InboundMessage[]): PromptViewModel 
     }
     const choicesRaw = Array.isArray(promptMessage.payload["legal_choices"])
       ? promptMessage.payload["legal_choices"]
-      : promptMessage.payload["choices"];
+      : [];
     if (declaresModuleContinuation(promptMessage.payload) && !hasCompleteModuleContinuation(promptMessage.payload)) {
       continue;
     }

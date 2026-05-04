@@ -12,6 +12,7 @@ from apps.server.src.domain.view_state.player_selector import (
     build_player_view_state,
 )
 from apps.server.src.services.stream_service import StreamService
+from apps.server.tests.prompt_payloads import module_prompt
 
 
 class ViewStatePlayerSelectorTests(unittest.TestCase):
@@ -300,7 +301,7 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
             prompt = await stream.publish(
                 "sess_1",
                 "prompt",
-                {
+                module_prompt({
                     "request_id": "req_mark_live",
                     "request_type": "mark_target",
                     "player_id": 1,
@@ -313,7 +314,7 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
                     "public_context": {
                         "actor_name": "산적",
                     },
-                },
+                }, module_type="TargetJudicatorModule", frame_id="turn:test:p0"),
             )
             projected = await stream.project_message_for_viewer(
                 prompt.to_dict(),
@@ -366,7 +367,7 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
             prompt = await stream.publish(
                 "sess_1",
                 "prompt",
-                {
+                module_prompt({
                     "request_id": "req_hidden_live",
                     "request_type": "hidden_trick_card",
                     "player_id": 1,
@@ -384,7 +385,7 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
                             8: "사기꾼",
                         },
                     },
-                },
+                }),
             )
             projected = await stream.project_message_for_viewer(
                 prompt.to_dict(),
@@ -444,7 +445,7 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
             await stream.publish(
                 "sess_1",
                 "prompt",
-                {
+                module_prompt({
                     "request_id": "req_draft_live",
                     "request_type": "draft_card",
                     "player_id": 1,
@@ -452,7 +453,7 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
                     "public_context": {
                         "actor_name": "만신",
                     },
-                },
+                }, module_type="DraftModule", frame_id="round:test"),
             )
             snapshot = await stream.snapshot("sess_1")
             return snapshot[-1].to_dict()["payload"]["view_state"]
@@ -504,14 +505,14 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
             await stream.publish(
                 "sess_1",
                 "prompt",
-                {
+                module_prompt({
                     "request_id": "req_draft_live",
                     "request_type": "draft_card",
                     "player_id": 3,
                     "public_context": {
                         "actor_name": "만신",
                     },
-                },
+                }, module_type="DraftModule", frame_id="round:test"),
             )
             snapshot = await stream.snapshot("sess_1")
             return snapshot[-1].to_dict()["payload"]["view_state"]

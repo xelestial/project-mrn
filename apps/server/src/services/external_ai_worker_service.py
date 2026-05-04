@@ -2,37 +2,16 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 
-def _module_belongs_to_root(module: ModuleType, root_dir: Path) -> bool:
-    module_file = getattr(module, "__file__", None)
-    if isinstance(module_file, str):
-        try:
-            return Path(module_file).resolve().is_relative_to(root_dir)
-        except OSError:
-            return False
-    module_path = getattr(module, "__path__", None)
-    if module_path is None:
-        return False
-    try:
-        return any(Path(entry).resolve().is_relative_to(root_dir) for entry in module_path)
-    except OSError:
-        return False
-
-
-def _ensure_gpt_import_path() -> None:
+def _ensure_engine_import_path() -> None:
     root = Path(__file__).resolve().parents[4]
-    gpt_dir = root / "GPT"
-    claude_dir = root / "CLAUDE"
-    gpt_text = str(gpt_dir)
-    if gpt_text in sys.path:
-        sys.path.remove(gpt_text)
-    sys.path.insert(0, gpt_text)
-    for name, module in list(sys.modules.items()):
-        if isinstance(module, ModuleType) and _module_belongs_to_root(module, claude_dir):
-            sys.modules.pop(name, None)
+    engine_dir = root / "engine"
+    engine_text = str(engine_dir)
+    if engine_text in sys.path:
+        sys.path.remove(engine_text)
+    sys.path.insert(0, engine_text)
 
 
 def _as_int(value: Any) -> int | None:
@@ -164,7 +143,7 @@ class ReferenceHeuristicDecisionAdapter:
     ]
 
     def build_runtime_policy(self, policy_mode: str):
-        _ensure_gpt_import_path()
+        _ensure_engine_import_path()
         from policy.factory import PolicyFactory
 
         return PolicyFactory.create_runtime_policy(policy_mode=policy_mode, lap_policy_mode=policy_mode)
@@ -429,13 +408,13 @@ class ExternalAiWorkerService:
         self,
         *,
         worker_id: str = "external-ai-worker",
-        policy_mode: str = "heuristic_v3_gpt",
+        policy_mode: str = "heuristic_v3_engine",
         worker_profile: str | None = None,
         worker_adapter: str | None = ReferenceHeuristicDecisionAdapter.adapter_id,
         adapter=None,
     ) -> None:
         self._worker_id = str(worker_id).strip() or "external-ai-worker"
-        self._policy_mode = str(policy_mode).strip() or "heuristic_v3_gpt"
+        self._policy_mode = str(policy_mode).strip() or "heuristic_v3_engine"
         normalized_profile = _normalize_worker_profile(worker_profile)
         if normalized_profile is not None and normalized_profile not in WORKER_PROFILE_TO_ADAPTER_ID:
             raise ValueError("unsupported_worker_profile")

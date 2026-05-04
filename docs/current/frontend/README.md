@@ -12,7 +12,7 @@ Read in this order:
 Notes:
 
 - frontend rendering should increasingly depend on backend selector output
-- old frontend UI/UX plan, proposal, and report docs are closed or reference-only unless the canonical document explicitly points back to them
+- frontend UI/UX plan, proposal, and report docs are closed or reference-only unless the canonical document explicitly points back to them
 - session bootstrap should prefer session payload + selector metadata over localized text inference
 - browser runtime regressions are checked by the GitHub Actions workflow `frontend-browser-runtime-tests`
 

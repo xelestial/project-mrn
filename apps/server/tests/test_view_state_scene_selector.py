@@ -8,6 +8,7 @@ from pathlib import Path
 from apps.server.src.domain.visibility import ViewerContext
 from apps.server.src.domain.view_state.scene_selector import build_scene_view_state
 from apps.server.src.services.stream_service import StreamService
+from apps.server.tests.prompt_payloads import module_prompt
 
 
 def _project_root() -> Path:
@@ -94,7 +95,7 @@ class ViewStateSceneSelectorTests(unittest.TestCase):
             prompt = await stream.publish(
                 "sess_scene_weather",
                 "prompt",
-                {
+                module_prompt({
                     "request_id": "req_hidden_live",
                     "request_type": "hidden_trick_card",
                     "player_id": 1,
@@ -105,7 +106,7 @@ class ViewStateSceneSelectorTests(unittest.TestCase):
                         "weather_name": "긴급 피난",
                         "weather_effect": "모든 짐 제거 비용이 2배가 됩니다.",
                     },
-                },
+                }),
             )
             projected = await stream.project_message_for_viewer(
                 prompt.to_dict(),

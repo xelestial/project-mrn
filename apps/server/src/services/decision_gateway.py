@@ -6,7 +6,6 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from types import ModuleType
 from typing import Any, Callable, Literal
 
 from apps.server.src.services.prompt_fingerprint import ensure_prompt_fingerprint, prompt_fingerprint_mismatch
@@ -19,33 +18,13 @@ LegalChoiceBuilder = Callable[[tuple[Any, ...], dict[str, Any], Any, Any], list[
 ChoiceParser = Callable[[str, tuple[Any, ...], dict[str, Any], Any, Any], Any]
 
 
-def _ensure_gpt_import_path() -> None:
+def _ensure_engine_import_path() -> None:
     root = Path(__file__).resolve().parents[4]
-    gpt_dir = root / "GPT"
-    claude_dir = root / "CLAUDE"
-    gpt_text = str(gpt_dir)
-    if gpt_text in sys.path:
-        sys.path.remove(gpt_text)
-    sys.path.insert(0, gpt_text)
-    for name, module in list(sys.modules.items()):
-        if isinstance(module, ModuleType) and _module_belongs_to_root(module, claude_dir):
-            sys.modules.pop(name, None)
-
-
-def _module_belongs_to_root(module: ModuleType, root_dir: Path) -> bool:
-    module_file = getattr(module, "__file__", None)
-    if isinstance(module_file, str):
-        try:
-            return Path(module_file).resolve().is_relative_to(root_dir)
-        except OSError:
-            return False
-    module_path = getattr(module, "__path__", None)
-    if module_path is None:
-        return False
-    try:
-        return any(Path(entry).resolve().is_relative_to(root_dir) for entry in module_path)
-    except OSError:
-        return False
+    engine_dir = root / "engine"
+    engine_text = str(engine_dir)
+    if engine_text in sys.path:
+        sys.path.remove(engine_text)
+    sys.path.insert(0, engine_text)
 
 
 @dataclass(frozen=True)
@@ -219,7 +198,7 @@ def _active_character_for_card_index(state: Any, card_index: int) -> tuple[str, 
 
 def _character_faces_for_card_index(state: Any, card_index: int) -> tuple[str, str, str]:
     try:
-        _ensure_gpt_import_path()
+        _ensure_engine_import_path()
         from characters import CARD_TO_NAMES, CHARACTERS
 
         active_name = str((getattr(state, "active_by_card", {}) or {}).get(int(card_index)) or "")
@@ -667,13 +646,9 @@ def _build_mark_target_context(
         "target_rule": "future_turn_unrevealed_only",
     }
     try:
-        _ensure_gpt_import_path()
-        from viewer.human_policy import _is_mark_skill_blocked_by_uhsa, _legal_mark_target_public_choices
+        _ensure_engine_import_path()
+        from viewer.human_policy import _legal_mark_target_public_choices
 
-        if _is_mark_skill_blocked_by_uhsa(state, player, actor_name):
-            context["blocked_by_eosa"] = True
-            context["target_count"] = 0
-            return context
         legal_targets = _legal_mark_target_public_choices(state, player)
     except Exception:
         legal_targets = []
@@ -1239,11 +1214,9 @@ def _parse_yes_no_choice(choice_id: str, args: tuple[Any, ...], kwargs: dict[str
 def _build_mark_target_choices(args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> list[dict[str, Any]]:
     actor_name = _arg_or_kw(args, kwargs, 2, "actor_name")
     try:
-        _ensure_gpt_import_path()
-        from viewer.human_policy import _is_mark_skill_blocked_by_uhsa, _legal_mark_target_public_choices
+        _ensure_engine_import_path()
+        from viewer.human_policy import _legal_mark_target_public_choices
 
-        if _is_mark_skill_blocked_by_uhsa(state, player, actor_name):
-            return [_choice_payload("none", title="No mark")]
         legal_targets = _legal_mark_target_public_choices(state, player)
     except Exception:
         legal_targets = []

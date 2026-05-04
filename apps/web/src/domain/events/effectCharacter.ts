@@ -42,17 +42,5 @@ export function effectCharacterFromPayload(payload: Record<string, unknown> | nu
     return byId;
   }
 
-  const effectType = stringOrNull(payload?.["effect_type"]) ?? stringOrNull(resolution?.["type"]);
-  if (effectType === "baksu_transfer") return "박수";
-  if (effectType === "manshin_remove_burdens") return "만신";
-
-  const purchaseSource = stringOrNull(payload?.["purchase_source"]) ?? stringOrNull(payload?.["source"]);
-  if (purchaseSource === "matchmaker_adjacent" || purchaseSource === "adjacent_extra") return "중매꾼";
-
-  const actorName =
-    stringOrNull(payload?.["actor_name"]) ??
-    stringOrNull(resolution?.["actor_name"]) ??
-    stringOrNull(payload?.["character"]) ??
-    stringOrNull(payload?.["card_name"]);
-  return canonicalEffectCharacterFromActorName(actorName);
+  return undefined;
 }

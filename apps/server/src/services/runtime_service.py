@@ -10,12 +10,11 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from types import ModuleType
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
 from apps.server.src.core.error_payload import build_error_payload
-from apps.server.src.config.runtime_settings import RuntimeSettings, load_runtime_settings
+from apps.server.src.config.runtime_settings import RuntimeSettings
 from apps.server.src.domain.runtime_semantic_guard import validate_checkpoint_payload
 from apps.server.src.domain.session_models import ParticipantClientType, SeatConfig, SeatType, SessionStatus
 from apps.server.src.infra.game_debug_log import write_game_debug_log
@@ -32,45 +31,14 @@ from apps.server.src.services.decision_gateway import (
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
 
 
-_MODULE_RUNNER_FLAGS: tuple[tuple[str, str], ...] = (
-    ("module_metadata_v1", "runtime_module_metadata_v1"),
-    ("checkpoint_v3", "runtime_checkpoint_v3"),
-    ("prompt_continuation_v1", "runtime_prompt_continuation_v1"),
-    ("simultaneous_resolution_v1", "runtime_simultaneous_resolution_v1"),
-    ("module_runner_round_v1", "runtime_module_runner_round_v1"),
-    ("module_runner_turn_v1", "runtime_module_runner_turn_v1"),
-    ("module_runner_sequence_v1", "runtime_module_runner_sequence_v1"),
-    ("stream_idempotency_v1", "runtime_stream_idempotency_v1"),
-    ("frontend_projection_v1", "runtime_frontend_projection_v1"),
-)
-
-
-def runtime_module_flags_enabled(runtime: dict | None, settings: RuntimeSettings | None = None) -> bool:
-    runtime = dict(runtime or {})
-    settings = settings or load_runtime_settings()
-    flags = runtime.get("flags")
-    flags = flags if isinstance(flags, dict) else {}
-    for runtime_key, settings_attr in _MODULE_RUNNER_FLAGS:
-        if _runtime_bool(runtime.get(runtime_key)) or _runtime_bool(flags.get(runtime_key)):
-            continue
-        if bool(getattr(settings, settings_attr, False)):
-            continue
-        return False
-    return True
-
-
 def resolve_runtime_runner_kind(runtime: dict | None, settings: RuntimeSettings | None = None) -> str:
-    runtime = dict(runtime or {})
-    explicit = str(runtime.get("runner_kind") or runtime.get("runtime_runner_kind") or "").strip().lower()
-    if explicit == "module":
-        return "module"
-    if explicit == "legacy":
-        return "legacy"
-    return "module" if runtime_module_flags_enabled(runtime, settings) else "legacy"
+    del runtime, settings
+    return "module"
 
 
 def runtime_checkpoint_schema_version_for_runner(runner_kind: str) -> int:
-    return 3 if str(runner_kind or "").strip().lower() == "module" else 1
+    del runner_kind
+    return 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,21 +152,8 @@ def _active_runtime_module_debug_fields(state: object | None) -> dict[str, str]:
     return {key: str(value) for key, value in fields.items() if value not in (None, "")}
 
 
-def _runtime_bool(value) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
-    return False
-
-
 class RuntimeService:
     """Background runtime orchestration for mixed-seat (human + AI) sessions."""
-
-    _TURN_START_MARK_CHARACTERS = frozenset({"자객", "산적", "추노꾼", "박수", "만신"})
-    _MUROE_MARK_CHARACTERS = frozenset({"자객", "산적"})
 
     def __init__(
         self,
@@ -573,107 +528,10 @@ class RuntimeService:
         session_id: str,
         seed: int,
         policy_mode: str | None,
-    ) -> dict | None:
-        if self._game_state_store is not None:
-            return self._run_engine_transition_loop_sync(loop, session_id, seed, policy_mode)
-        self._run_legacy_engine_sync(loop, session_id, seed, policy_mode)
-        return None
-
-    def _run_legacy_engine_sync(
-        self,
-        loop: asyncio.AbstractEventLoop,
-        session_id: str,
-        seed: int,
-        policy_mode: str | None,
-    ) -> None:
-        self._ensure_gpt_import_path()
-        from engine import GameEngine
-        from policy.factory import PolicyFactory
-        from state import GameState
-
-        session = self._session_service.get_session(session_id)
-        resolved = dict(session.resolved_parameters or {})
-        runtime = dict(resolved.get("runtime", {}))
-        runner_kind = resolve_runtime_runner_kind(runtime)
-        checkpoint_schema_version = runtime_checkpoint_schema_version_for_runner(runner_kind)
-        selected_policy_mode = policy_mode or runtime.get("policy_mode") or "heuristic_v3_gpt"
-        ai_policy = PolicyFactory.create_runtime_policy(
-            policy_mode=selected_policy_mode,
-            lap_policy_mode=selected_policy_mode,
-        )
-        human_seats = [
-            max(0, int(seat.seat) - 1)
-            for seat in session.seats
-            if seat.seat_type == SeatType.HUMAN
-        ]
-        human_player_ids = [
-            int(seat.seat)
-            for seat in session.seats
-            if seat.seat_type == SeatType.HUMAN
-        ]
-        policy = ai_policy
-        if self._stream_service is not None:
-            ai_decision_delay_ms = int(
-                runtime.get(
-                    "ai_decision_delay_ms",
-                    0 if os.environ.get("PYTEST_CURRENT_TEST") else 1000,
-                )
-                or 0
-            )
-            policy = _ServerDecisionPolicyBridge(
-                session_id=session_id,
-                session_seats=session.seats,
-                human_seats=human_seats,
-                ai_fallback=ai_policy,
-                prompt_service=self._prompt_service,
-                stream_service=self._stream_service,
-                loop=loop,
-                touch_activity=self._touch_activity,
-                fallback_executor=self.execute_prompt_fallback,
-                client_factory=self._decision_client_factory,
-                ai_decision_delay_ms=ai_decision_delay_ms,
-                blocking_human_prompts=True,
-            )
-        spectator_event_delay_ms = int(
-            runtime.get(
-                "spectator_event_delay_ms",
-                0 if os.environ.get("PYTEST_CURRENT_TEST") else 350,
-            )
-            or 0
-        )
-        vis_stream = _FanoutVisEventStream(
-            loop,
-            self._stream_service,
-            session_id,
-            self._touch_activity,
-            human_player_ids=human_player_ids,
-            spectator_event_delay_ms=spectator_event_delay_ms,
-        )
-        engine_config = self._config_factory.create(resolved)
-        engine = GameEngine(
-            config=engine_config,
-            policy=policy,
-            decision_port=policy if hasattr(policy, "request") else None,
-            rng=random.Random(seed),
-            event_stream=vis_stream,
-        )
-        initial_state = self._hydrate_engine_state(session_id, engine_config, GameState)
-        if initial_state is not None:
-            self._apply_runner_kind(initial_state, runner_kind, checkpoint_schema_version)
-        current_status = dict(self._status.get(session_id, {"status": "running"}))
-        current_status["runner_kind"] = runner_kind
-        current_status["checkpoint_schema_version"] = checkpoint_schema_version
-        self._status[session_id] = current_status
-        self._persist_runtime_state(session_id)
-        if initial_state is None:
-            if runner_kind == "module":
-                initial_state = engine.create_initial_state()
-                self._apply_runner_kind(initial_state, runner_kind, checkpoint_schema_version)
-                engine.run(initial_state=initial_state)
-            else:
-                engine.run()
-        else:
-            engine.run(initial_state=initial_state)
+    ) -> dict:
+        if self._game_state_store is None:
+            raise RuntimeError("module_runtime_requires_game_state_store")
+        return self._run_engine_transition_loop_sync(loop, session_id, seed, policy_mode)
 
     def _run_engine_transition_loop_sync(
         self,
@@ -799,36 +657,28 @@ class RuntimeService:
         try:
             session = self._session_service.get_session(session_id)
         except Exception:
-            return "legacy"
+            return "module"
         resolved = dict(getattr(session, "resolved_parameters", {}) or {})
         return resolve_runtime_runner_kind(dict(resolved.get("runtime", {}) or {}))
 
     @staticmethod
     def _apply_runner_kind(state, runner_kind: str, checkpoint_schema_version: int) -> None:
-        existing_kind = str(getattr(state, "runtime_runner_kind", "") or "").strip().lower()
-        if existing_kind == "module":
-            state.runtime_runner_kind = "module"
-            state.runtime_checkpoint_schema_version = max(
-                3,
-                int(getattr(state, "runtime_checkpoint_schema_version", 1) or 1),
-                int(checkpoint_schema_version or 1),
-            )
-            return
-        state.runtime_runner_kind = runner_kind
-        state.runtime_checkpoint_schema_version = int(checkpoint_schema_version or 1)
+        del runner_kind
+        state.runtime_runner_kind = "module"
+        state.runtime_checkpoint_schema_version = max(
+            3,
+            int(getattr(state, "runtime_checkpoint_schema_version", 3) or 3),
+            int(checkpoint_schema_version or 3),
+        )
 
     @staticmethod
-    def _ensure_gpt_import_path() -> None:
+    def _ensure_engine_import_path() -> None:
         root = Path(__file__).resolve().parents[4]
-        gpt_dir = root / "GPT"
-        claude_dir = root / "CLAUDE"
-        gpt_text = str(gpt_dir)
-        if gpt_text in sys.path:
-            sys.path.remove(gpt_text)
-        sys.path.insert(0, gpt_text)
-        for name, module in list(sys.modules.items()):
-            if isinstance(module, ModuleType) and _module_belongs_to_root(module, claude_dir):
-                sys.modules.pop(name, None)
+        engine_dir = root / "engine"
+        engine_text = str(engine_dir)
+        if engine_text in sys.path:
+            sys.path.remove(engine_text)
+        sys.path.insert(0, engine_text)
 
     def _initialize_recovery_state(self) -> None:
         try:
@@ -878,208 +728,6 @@ class RuntimeService:
         base.setdefault("worker_id", self._worker_id)
         self._runtime_state_store.save_status(session_id, base)
 
-    def _prepare_prompt_sequence_for_transition(self, policy, state, runner_kind: str) -> bool:
-        effective_runner_kind = str(getattr(state, "runtime_runner_kind", runner_kind) or runner_kind)
-        if effective_runner_kind == "module":
-            return False
-        if not callable(getattr(policy, "set_prompt_sequence", None)):
-            return False
-        policy.set_prompt_sequence(self._prompt_sequence_seed_for_transition(state))
-        return True
-
-    @staticmethod
-    def _prompt_sequence_seed_for_transition(state) -> int:
-        prompt_sequence = int(getattr(state, "prompt_sequence", 0) or 0)
-        pending_request_id = str(getattr(state, "pending_prompt_request_id", "") or "")
-        pending_prompt_type = str(getattr(state, "pending_prompt_type", "") or "")
-        pending_instance_id = int(getattr(state, "pending_prompt_instance_id", 0) or 0)
-        if pending_request_id and pending_instance_id > 0:
-            if RuntimeService._is_round_setup_prompt(state):
-                # Round setup prompts happen before the next priority order is
-                # committed. Replay from setup start so resolved draft/final/
-                # hidden-card decisions are consumed deterministically.
-                return 0
-            if pending_prompt_type == "movement" or ":movement:" in pending_request_id:
-                pending_actions = getattr(state, "pending_actions", None) or []
-                first_action = pending_actions[0] if pending_actions else None
-                action_type = (
-                    first_action.get("type")
-                    if isinstance(first_action, dict)
-                    else getattr(first_action, "type", "")
-                )
-                action_payload = (
-                    first_action.get("payload")
-                    if isinstance(first_action, dict)
-                    else getattr(first_action, "payload", {})
-                )
-                if (
-                    action_type == "continue_after_trick_phase"
-                    and isinstance(action_payload, dict)
-                    and action_payload.get("hidden_trick_synced")
-                ):
-                    return max(0, pending_instance_id - 1)
-                turn_start_prompt_count = RuntimeService._turn_start_prompt_count_before_trick(state)
-                return max(0, pending_instance_id - 2 - turn_start_prompt_count)
-            if pending_prompt_type == "trick_to_use" or ":trick_to_use:" in pending_request_id:
-                turn_start_prompt_count = RuntimeService._turn_start_prompt_count_before_trick(state)
-                return max(0, pending_instance_id - 1 - turn_start_prompt_count)
-            return max(0, pending_instance_id - 1)
-        return prompt_sequence
-
-    @staticmethod
-    def _turn_start_prompt_count_before_trick(state) -> int:
-        if RuntimeService._turn_start_has_mark_prompt_before_trick(state):
-            return 1
-        return 0
-
-    @staticmethod
-    def _turn_start_has_mark_prompt_before_trick(state) -> bool:
-        player = RuntimeService._current_turn_player_for_prompt_replay(state)
-        if player is None:
-            return False
-        character = str(getattr(player, "current_character", "") or "")
-        if character not in RuntimeService._TURN_START_MARK_CHARACTERS:
-            return False
-        if character in RuntimeService._MUROE_MARK_CHARACTERS and RuntimeService._has_live_eosa_player(state, player):
-            return False
-        return True
-
-    @staticmethod
-    def _has_live_eosa_player(state, current_player) -> bool:
-        try:
-            current_player_id = int(getattr(current_player, "player_id", -1))
-        except (TypeError, ValueError):
-            current_player_id = -1
-        for index, player in enumerate(list(getattr(state, "players", []) or [])):
-            try:
-                player_id = int(getattr(player, "player_id", index))
-            except (TypeError, ValueError):
-                player_id = index
-            if player_id == current_player_id:
-                continue
-            if not bool(getattr(player, "alive", True)):
-                continue
-            if str(getattr(player, "current_character", "") or "") == "어사":
-                return True
-        return False
-
-    @staticmethod
-    def _current_turn_player_for_prompt_replay(state):
-        players = list(getattr(state, "players", []) or [])
-        if not players:
-            return None
-        try:
-            turn_index = int(getattr(state, "turn_index", 0) or 0)
-        except (TypeError, ValueError):
-            turn_index = 0
-        order = list(getattr(state, "current_round_order", []) or [])
-        current_pid = turn_index % len(players)
-        if order:
-            try:
-                current_pid = int(order[turn_index % len(order)])
-            except (TypeError, ValueError):
-                current_pid = turn_index % len(players)
-        by_player_id: dict[int, object] = {}
-        for index, player in enumerate(players):
-            try:
-                player_id = int(getattr(player, "player_id", index))
-            except (TypeError, ValueError):
-                player_id = index
-            by_player_id[player_id] = player
-        if current_pid in by_player_id:
-            return by_player_id[current_pid]
-        if 0 <= current_pid < len(players):
-            return players[current_pid]
-        one_based_pid = current_pid - 1
-        if one_based_pid in by_player_id:
-            return by_player_id[one_based_pid]
-        return None
-
-    @staticmethod
-    def _has_round_setup_replay_base_from_state(state) -> bool:
-        replay_base = getattr(state, "round_setup_replay_base", None)
-        return isinstance(replay_base, dict) and bool(replay_base.get("tiles"))
-
-    @staticmethod
-    def _has_round_setup_replay_base_from_payload(payload: dict) -> bool:
-        replay_base = payload.get("round_setup_replay_base")
-        return isinstance(replay_base, dict) and bool(replay_base.get("tiles"))
-
-    @staticmethod
-    def _is_round_setup_prompt(state) -> bool:
-        pending_request_id = str(getattr(state, "pending_prompt_request_id", "") or "")
-        pending_prompt_type = str(getattr(state, "pending_prompt_type", "") or "")
-        if (
-            pending_prompt_type in {"draft_card", "final_character"}
-            or ":draft_card:" in pending_request_id
-            or ":final_character:" in pending_request_id
-        ):
-            return True
-        if pending_prompt_type == "hidden_trick_card" or ":hidden_trick_card:" in pending_request_id:
-            return RuntimeService._has_round_setup_replay_base_from_state(state)
-        return False
-
-    @staticmethod
-    def _is_round_setup_prompt_payload(payload: dict) -> bool:
-        pending_request_id = str(payload.get("pending_prompt_request_id") or "")
-        pending_prompt_type = str(payload.get("pending_prompt_type") or "")
-        if (
-            pending_prompt_type in {"draft_card", "final_character"}
-            or ":draft_card:" in pending_request_id
-            or ":final_character:" in pending_request_id
-        ):
-            return True
-        if pending_prompt_type == "hidden_trick_card" or ":hidden_trick_card:" in pending_request_id:
-            return RuntimeService._has_round_setup_replay_base_from_payload(payload)
-        return False
-
-    @staticmethod
-    def _uses_module_runner_checkpoint(source, runner_kind: str | None = None) -> bool:
-        explicit_runner_kind = str(runner_kind or "").strip().lower()
-        if explicit_runner_kind == "module":
-            return True
-        if isinstance(source, dict):
-            checkpoint_runner_kind = str(source.get("runtime_runner_kind") or "").strip().lower()
-            schema_version = source.get("runtime_checkpoint_schema_version")
-            frame_stack = source.get("runtime_frame_stack")
-        else:
-            checkpoint_runner_kind = str(getattr(source, "runtime_runner_kind", "") or "").strip().lower()
-            schema_version = getattr(source, "runtime_checkpoint_schema_version", None)
-            frame_stack = getattr(source, "runtime_frame_stack", None)
-        if checkpoint_runner_kind == "module":
-            return True
-        try:
-            if int(schema_version or 0) >= 3:
-                return True
-        except Exception:
-            pass
-        return isinstance(frame_stack, list) and bool(frame_stack)
-
-    @staticmethod
-    def _prepare_state_for_transition_replay(state, runner_kind: str | None = None) -> None:
-        if RuntimeService._uses_module_runner_checkpoint(state, runner_kind):
-            return
-        if RuntimeService._is_round_setup_prompt(state):
-            # Round setup prompts are replayed from setup start so previously
-            # accepted decisions can be consumed deterministically.
-            # Checkpoints may still carry the previous round order; leaving it
-            # in place makes run_next_transition skip draft and start a turn
-            # with an empty character.
-            state.current_round_order = []
-
-    @staticmethod
-    def _checkpoint_payload_for_transition_replay(payload: dict, runner_kind: str | None = None) -> dict:
-        if RuntimeService._uses_module_runner_checkpoint(payload, runner_kind):
-            return payload
-        if RuntimeService._is_round_setup_prompt_payload(payload):
-            replay_base = payload.get("round_setup_replay_base")
-            if isinstance(replay_base, dict) and replay_base.get("tiles"):
-                replay_payload = dict(replay_base)
-                replay_payload["current_round_order"] = []
-                replay_payload["prompt_sequence"] = 0
-                return replay_payload
-        return payload
-
     @staticmethod
     def _command_payload(command: dict) -> dict:
         payload = command.get("payload")
@@ -1123,6 +771,7 @@ class RuntimeService:
         return bool(self._runtime_state_store.release_lease(session_id, self._worker_id))
 
     def _hydrate_engine_state(self, session_id: str, config, game_state_cls, runner_kind: str | None = None):
+        del runner_kind
         if self._game_state_store is None:
             return None
         recovery = self.recovery_checkpoint(session_id)
@@ -1131,8 +780,7 @@ class RuntimeService:
         current_state = recovery.get("current_state")
         if not isinstance(current_state, dict) or "tiles" not in current_state:
             return None
-        payload = self._checkpoint_payload_for_transition_replay(current_state, runner_kind)
-        return game_state_cls.from_checkpoint_payload(config, payload)
+        return game_state_cls.from_checkpoint_payload(config, current_state)
 
     def _run_engine_transition_once_for_recovery(self, session_id: str, seed: int = 42, policy_mode: str | None = None) -> dict:
         return self._run_engine_transition_once_sync(
@@ -1185,8 +833,6 @@ class RuntimeService:
         return None
 
     def _validate_decision_resume_against_checkpoint(self, state, resume: RuntimeDecisionResume) -> None:  # noqa: ANN001
-        if str(getattr(state, "runtime_runner_kind", "") or "").strip() != "module":
-            return
         from runtime_modules.prompts import validate_resume
 
         internal_player_id = max(0, int(resume.player_id) - 1)
@@ -1234,7 +880,7 @@ class RuntimeService:
         checkpoint_command_consumer_name: str | None = None,
         checkpoint_command_seq: int | None = None,
     ) -> dict:
-        self._ensure_gpt_import_path()
+        self._ensure_engine_import_path()
         from engine import GameEngine
         from policy.factory import PolicyFactory
         from state import GameState
@@ -1244,7 +890,7 @@ class RuntimeService:
         runtime = dict(resolved.get("runtime", {}))
         runner_kind = resolve_runtime_runner_kind(runtime)
         checkpoint_schema_version = runtime_checkpoint_schema_version_for_runner(runner_kind)
-        selected_policy_mode = policy_mode or runtime.get("policy_mode") or "heuristic_v3_gpt"
+        selected_policy_mode = policy_mode or runtime.get("policy_mode") or "heuristic_v3_engine"
         ai_policy = PolicyFactory.create_runtime_policy(policy_mode=selected_policy_mode, lap_policy_mode=selected_policy_mode)
         policy = ai_policy
         human_seats = [
@@ -1280,8 +926,6 @@ class RuntimeService:
         if state is None:
             if require_checkpoint:
                 return {"status": "unavailable", "reason": "checkpoint_missing"}
-        else:
-            self._prepare_state_for_transition_replay(state, runner_kind)
         if state is not None:
             self._apply_runner_kind(state, runner_kind, checkpoint_schema_version)
             decision_resume = self._decision_resume_from_command(session_id, command_seq)
@@ -1332,15 +976,12 @@ class RuntimeService:
         )
         engine._vis_session_id_override = session_id
         try:
-            if state is None and runner_kind == "module":
+            if state is None:
                 state = engine.create_initial_state()
                 self._apply_runner_kind(state, runner_kind, checkpoint_schema_version)
                 state = engine.prepare_run(initial_state=state)
-            elif state is None:
-                state = engine.prepare_run()
             else:
                 state = engine.prepare_run(initial_state=state)
-            self._prepare_prompt_sequence_for_transition(policy, state, runner_kind)
             if decision_resume is None:
                 step = engine.run_next_transition(state)
             else:
@@ -1587,22 +1228,6 @@ class RuntimeService:
             )
             event_future.result(timeout=5)
             self._touch_activity(session_id)
-
-
-def _module_belongs_to_root(module: ModuleType, root_dir: Path) -> bool:
-    module_file = getattr(module, "__file__", None)
-    if isinstance(module_file, str):
-        try:
-            return Path(module_file).resolve().is_relative_to(root_dir)
-        except OSError:
-            return False
-    module_path = getattr(module, "__path__", None)
-    if module_path is None:
-        return False
-    try:
-        return any(Path(entry).resolve().is_relative_to(root_dir) for entry in module_path)
-    except OSError:
-        return False
 
 
 class _ServerDecisionPolicyBridge:
@@ -2352,7 +1977,7 @@ class _LocalHumanDecisionClient:
         if not human_seats:
             self.policy = None
             return
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from viewer.human_policy import HumanHttpPolicy
 
         self.policy = HumanHttpPolicy(
@@ -2422,19 +2047,30 @@ class _LocalHumanDecisionClient:
         if not isinstance(legal_choices, list):
             legal_choices = list(getattr(active_call, "legal_choices", []) or [])
             envelope["legal_choices"] = legal_choices
-        RuntimeService._ensure_gpt_import_path()
+        RuntimeService._ensure_engine_import_path()
         from runtime_modules.prompts import PromptApi
 
-        continuation = PromptApi().create_continuation(
+        existing_continuation = getattr(state, "runtime_active_prompt", None)
+        if self._is_matching_prompt_continuation(
+            existing_continuation,
             request_id=request_id,
-            prompt_instance_id=int(envelope.get("prompt_instance_id", 0) or 0),
-            frame=frame,
-            module=module,
+            frame_id=str(getattr(frame, "frame_id", "") or ""),
+            module_id=str(getattr(module, "module_id", "") or ""),
             player_id=int(internal_player_id),
             request_type=request_type,
-            legal_choices=[dict(choice) for choice in legal_choices if isinstance(choice, dict)],
-            public_context=public_context,
-        )
+        ):
+            continuation = existing_continuation
+        else:
+            continuation = PromptApi().create_continuation(
+                request_id=request_id,
+                prompt_instance_id=int(envelope.get("prompt_instance_id", 0) or 0),
+                frame=frame,
+                module=module,
+                player_id=int(internal_player_id),
+                request_type=request_type,
+                legal_choices=[dict(choice) for choice in legal_choices if isinstance(choice, dict)],
+                public_context=public_context,
+            )
         state.runtime_active_prompt = continuation
         state.runtime_active_prompt_batch = None
         module_fields = {
@@ -2456,6 +2092,29 @@ class _LocalHumanDecisionClient:
                 "module_cursor": continuation.module_cursor,
                 "runtime_module": module_fields,
             }
+        )
+
+    @staticmethod
+    def _is_matching_prompt_continuation(
+        continuation,
+        *,
+        request_id: str,
+        frame_id: str,
+        module_id: str,
+        player_id: int,
+        request_type: str,
+    ) -> bool:  # noqa: ANN001
+        if continuation is None:
+            return False
+        continuation_player_id = getattr(continuation, "player_id", None)
+        if continuation_player_id is None:
+            return False
+        return (
+            str(getattr(continuation, "request_id", "") or "") == request_id
+            and str(getattr(continuation, "frame_id", "") or "") == frame_id
+            and str(getattr(continuation, "module_id", "") or "") == module_id
+            and int(continuation_player_id) == int(player_id)
+            and str(getattr(continuation, "request_type", "") or "") == request_type
         )
 
     @staticmethod

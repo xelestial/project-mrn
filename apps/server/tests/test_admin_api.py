@@ -222,7 +222,7 @@ class _GameStateStoreStub:
 
     def load_view_state(self, session_id: str) -> dict:
         del session_id
-        return {"legacy": True}
+        return {"view_state_alias": True}
 
 
 if __name__ == "__main__":

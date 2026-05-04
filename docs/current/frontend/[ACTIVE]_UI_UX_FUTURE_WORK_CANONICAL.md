@@ -6,17 +6,9 @@ Owner: Codex
 
 ## Purpose
 
-This is the only frontend UI/UX execution document that should be used going forward.
-
-It merges and replaces the scattered open work that used to live across:
-
-- `docs/archive/frontend/[ACTIVE]_UI_UX_PRIORITY_ONE_PAGE.md`
-- `docs/archive/frontend/[PLAN]_BOARD_COORDINATE_SYSTEM_AND_HUD_LAYOUT_STABILIZATION.md`
-- `docs/archive/frontend/[PLAN]_LIVE_PLAY_STATE_AND_DECISION_RECOVERY.md`
-- `docs/archive/frontend/[PLAN]_PAWN_MOVEMENT_AND_EVENT_ANIMATION.md`
-- `docs/archive/frontend/[REPORT]_UI_UX_VALIDATION_AND_COMMERCIAL_BENCHMARK_2026-04-15.md`
-
-Older proposal and report docs now live under `docs/archive/frontend/` and remain only as archived references.
+This is the only frontend UI/UX execution document that should be used going
+forward. Superseded UI/UX proposals, plans, and reports have been removed from
+the active repository context.
 
 ## How To Use This Doc
 
@@ -280,9 +272,6 @@ Implement:
 - align reveal/event timing with turn beats
 - keep animations readable rather than flashy
 
-Source material:
-- `docs/archive/frontend/[PLAN]_PAWN_MOVEMENT_AND_EVENT_ANIMATION.md` is now reference-only
-
 Definition of done:
 - movement and outcome reveals add clarity instead of delaying decision readability
 
@@ -354,26 +343,6 @@ Definition of done:
 - a player can answer "what changed, why, and by how much?" from the screen alone after each public effect
 - Playwright/browser snapshots assert both final state and cause text for `잔꾀`, `운수`, `날씨`, and `객주`
 - no pending prompt from an already-consumed trick path can later reappear as a confusing hidden-card prompt
-
----
-
-## Closed And Superseded Docs
-
-These docs should no longer be used as execution sources:
-
-- `docs/archive/frontend/[ACTIVE]_UI_UX_PRIORITY_ONE_PAGE.md`
-- `docs/archive/frontend/[PLAN]_BOARD_COORDINATE_SYSTEM_AND_HUD_LAYOUT_STABILIZATION.md`
-- `docs/archive/frontend/[PLAN]_LIVE_PLAY_STATE_AND_DECISION_RECOVERY.md`
-- `docs/archive/frontend/[PLAN]_PAWN_MOVEMENT_AND_EVENT_ANIMATION.md`
-- `docs/archive/frontend/[REPORT]_UI_UX_VALIDATION_AND_COMMERCIAL_BENCHMARK_2026-04-15.md`
-
-These docs remain historical/reference only:
-
-- `docs/archive/frontend/[PROPOSAL]_UI_UX_COMMERCIAL_REDESIGN.md`
-- `docs/archive/frontend/[PROPOSAL]_UI_UX_DETAILED_SPEC.md`
-- `docs/archive/frontend/[PROPOSAL]_UI_UX_ISSUE_FIX_PLAN.md`
-- `docs/archive/frontend/[PROPOSAL]_UI_UX_REDESIGN_FROM_SCRATCH.md`
-- `docs/archive/frontend/[REPORT]_LIVE_PLAY_UX_FINDINGS_2026-04-07.md`
 
 ---
 

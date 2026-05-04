@@ -69,7 +69,7 @@ Result: automated backend, frontend, and Playwright gates pass.
 Backend projection:
 
 ```bash
-PYTHONPATH=.:GPT .venv/bin/python -m pytest \
+PYTHONPATH=.:engine .venv/bin/python -m pytest \
   apps/server/tests/test_view_state_prompt_selector.py::ViewStatePromptSelectorTests::test_build_prompt_view_state_projects_effect_context \
   apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_effect_context_covers_remaining_effect_prompt_boundaries \
   -q
@@ -116,12 +116,12 @@ Conclusion:
 Result: current modular-runtime and backend semantic contract regressions pass.
 
 ```bash
-PYTHONPATH=.:GPT .venv/bin/python -m pytest \
-  GPT/test_runtime_sequence_modules.py \
-  GPT/test_runtime_simultaneous_modules.py \
-  GPT/test_runtime_sequence_handlers.py \
-  GPT/test_runtime_effect_inventory.py \
-  GPT/test_runtime_prompt_continuation.py \
+PYTHONPATH=.:engine .venv/bin/python -m pytest \
+  engine/test_runtime_sequence_modules.py \
+  engine/test_runtime_simultaneous_modules.py \
+  engine/test_runtime_sequence_handlers.py \
+  engine/test_runtime_effect_inventory.py \
+  engine/test_runtime_prompt_continuation.py \
   apps/server/tests/test_prompt_module_continuation.py \
   apps/server/tests/test_runtime_semantic_guard.py \
   apps/server/tests/test_stream_module_idempotency.py \
@@ -135,7 +135,7 @@ Outcome: `132 passed`
 Additional prompt/runtime contract examples:
 
 ```bash
-PYTHONPATH=.:GPT .venv/bin/python -m pytest \
+PYTHONPATH=.:engine .venv/bin/python -m pytest \
   apps/server/tests/test_runtime_contract_examples.py \
   apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_purchase_tile_method_spec_keeps_request_context_and_choice_in_sync \
   apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_specific_reward_and_runaway_specs_keep_specialized_contracts \
@@ -157,7 +157,7 @@ Result: real localhost HTTP worker path and runbook endpoint smoke pass.
 Runtime-service real worker coverage:
 
 ```bash
-PYTHONPATH=.:GPT .venv/bin/python -m pytest \
+PYTHONPATH=.:engine .venv/bin/python -m pytest \
   apps/server/tests/test_external_ai_worker_api.py \
   apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_http_external_transport_reaches_real_worker_over_localhost \
   apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_http_external_transport_reaches_real_priority_worker_over_localhost \
@@ -173,7 +173,7 @@ Runbook priority worker:
   --host 127.0.0.1 \
   --port 8011 \
   --worker-id local-priority-bot \
-  --policy-mode heuristic_v3_gpt \
+  --policy-mode heuristic_v3_engine \
   --worker-profile priority_scored \
   --worker-adapter priority_score_v1
 ```

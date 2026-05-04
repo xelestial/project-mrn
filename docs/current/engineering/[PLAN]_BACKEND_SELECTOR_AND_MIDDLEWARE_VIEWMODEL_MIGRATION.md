@@ -583,7 +583,7 @@ Add tests for:
 - websocket snapshot payloads
 - replay export payloads
 - projection consistency across reconnect/replay windows
-- backward-compatible field presence for alternate clients where required
+- alias field presence for alternate clients where required
 
 Primary area:
 

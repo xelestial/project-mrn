@@ -84,7 +84,7 @@ class ParameterServiceTests(unittest.TestCase):
                         "max_attempt_count": 4,
                         "required_capabilities": ["choice_id_response", "healthcheck"],
                         "required_request_types": ["movement", "purchase_tile"],
-                        "required_policy_mode": "heuristic_v3_gpt",
+                        "required_policy_mode": "heuristic_v3_engine",
                         "required_worker_adapter": "reference_heuristic_v1",
                         "required_policy_class": "HeuristicPolicy",
                         "required_decision_style": "contract_heuristic",
@@ -117,7 +117,7 @@ class ParameterServiceTests(unittest.TestCase):
         self.assertEqual(resolved["participants"]["external_ai"]["max_attempt_count"], 4)
         self.assertEqual(resolved["participants"]["external_ai"]["required_capabilities"], ["choice_id_response", "healthcheck"])
         self.assertEqual(resolved["participants"]["external_ai"]["required_request_types"], ["movement", "purchase_tile"])
-        self.assertEqual(resolved["participants"]["external_ai"]["required_policy_mode"], "heuristic_v3_gpt")
+        self.assertEqual(resolved["participants"]["external_ai"]["required_policy_mode"], "heuristic_v3_engine")
         self.assertEqual(resolved["participants"]["external_ai"]["required_worker_adapter"], "reference_heuristic_v1")
         self.assertEqual(resolved["participants"]["external_ai"]["required_policy_class"], "HeuristicPolicy")
         self.assertEqual(resolved["participants"]["external_ai"]["required_decision_style"], "contract_heuristic")

@@ -13,7 +13,7 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8011)
     parser.add_argument("--worker-id", default="external-ai-worker")
-    parser.add_argument("--policy-mode", default="heuristic_v3_gpt")
+    parser.add_argument("--policy-mode", default="heuristic_v3_engine")
     parser.add_argument("--worker-profile", default="")
     parser.add_argument("--worker-adapter", default="reference_heuristic_v1")
     parser.add_argument("--log-level", default="info")

@@ -24,7 +24,7 @@ It does two jobs:
 
 ## Current Architecture Summary
 
-- Engine gameplay truth originates in `GPT/engine.py` and related runtime modules under `GPT/`.
+- Engine gameplay truth originates in `engine/engine.py` and related runtime modules under `engine/`.
 - Backend routes and runtime orchestration live under `apps/server/src/`.
 - Derived UI truth is partially projected in backend view-state selectors under `apps/server/src/domain/view_state/`.
 - The web app still contains important selector logic in:
@@ -49,9 +49,7 @@ This exists specifically to prevent the stale-backend problem where the browser 
 
 ### Latest browser gate result: REDIS-UI-10
 
-As of 2026-05-01, `REDIS-UI-10` is resolved. The detailed findings are archived
-in `docs/archive/engineering/[REPORT]_REDIS_UI_PLAYTEST_FINDINGS_2026-04-30.md`;
-the current lesson summary is
+As of 2026-05-01, `REDIS-UI-10` is resolved. The current lesson summary is
 `docs/current/engineering/[LESSONS]_REDIS_RUNTIME_UI_PLAYTEST.md`.
 
 The latest Docker Redis/browser retest proved that the game can boot, keep Redis-backed gameplay moving, render a readable board without console errors, and expose stable effect/spectator evidence:
@@ -64,7 +62,7 @@ The latest Docker Redis/browser retest proved that the game can boot, keep Redis
 Future effect-display work should keep the same closure rule. Do not close a similar regression until either:
 
 - `npm run e2e:human-runtime` is green, or
-- the old e2e selector contract is intentionally migrated to new stable selectors with equivalent coverage for weather, worker provenance, rent/payoff, fortune, trick, and passive-bonus effects.
+- selector coverage is intentionally migrated to stable selectors with equivalent coverage for weather, worker provenance, rent/payoff, fortune, trick, and passive-bonus effects.
 
 ### 1. Identifier-driven gameplay rules
 
@@ -85,7 +83,7 @@ Enforcement rule:
 - `tools/gameplay_literal_gate.py` is the policy gate for this workstream
 - runtime/domain files must not add new Korean gameplay-name comparisons
 - the only current runtime exceptions are:
-  - compatibility fortune aliases in `GPT/policy/environment_traits.py`
+  - fortune alias normalization in `engine/policy/environment_traits.py`
   - the `"어사"` reason string in engine logs
 - if a future change needs a new exception, it must be documented here first
 
@@ -103,7 +101,7 @@ Target direction:
 - move canonical rule decisions into engine or backend selectors
 - keep frontend as a renderer, formatter, and animation host
 
-### 3. Dead-code and obsolete-path cleanup
+### 3. Dead-code and closed-path cleanup
 
 We also need a disciplined dead-code pass.
 
@@ -112,11 +110,11 @@ Current evidence collected on 2026-04-12:
 - Frontend export audit:
   - `npx ts-prune` in `apps/web` returned no unused exported symbol list
 - Backend/Python candidate audit:
-  - `vulture apps/server/src GPT --min-confidence 80` produced candidate findings, mostly in `GPT/ai_policy.py`
+  - `vulture apps/server/src engine --min-confidence 80` produced candidate findings, mostly in `engine/ai_policy.py`
   - these are candidates, not confirmed removals
 - Event-bus convergence audit:
-  - `weather.round.apply` used to exist in both `GPT/engine.py` and `GPT/effect_handlers.py`
-  - that duplication has now been removed from `GPT/engine.py`
+  - `weather.round.apply` used to exist in both `engine/engine.py` and `engine/effect_handlers.py`
+  - that duplication has now been removed from `engine/engine.py`
   - round weather is now applied through the event bus only
   - current scan shows the remaining default effect-handler registrations are referenced by engine `emit_first_non_none(...)` calls
 - Non-code junk:
@@ -159,7 +157,7 @@ Rule for cleanup:
   - confirmed dead
   - test-only artifact
   - false positive
-  - intentionally retained compatibility path
+  - intentionally retained public API surface
 - Current confirmed cleanup:
   - weather application no longer has a dead duplicate implementation
   - engine wrapper remains, but actual logic lives in the event handler path

@@ -21,6 +21,7 @@ from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
 from apps.server.src.services.prompt_timeout_worker import PromptTimeoutWorker
+from apps.server.tests.prompt_payloads import module_prompt
 
 
 def _reset_state(max_buffer: int = 2000, heartbeat_interval_ms: int = 5000) -> None:
@@ -375,13 +376,13 @@ class StreamApiTests(unittest.TestCase):
                 await state.stream_service.publish(
                     session.session_id,
                     "prompt",
-                    {
+                    module_prompt({
                         "request_id": "r_private_prompt",
                         "request_type": "movement",
                         "player_id": 1,
                         "timeout_ms": 5000,
                         "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
-                    },
+                    }, module_type="MapMoveModule", frame_id="turn:test:p0"),
                 )
                 await state.stream_service.publish(
                     session.session_id,

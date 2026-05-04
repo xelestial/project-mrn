@@ -45,7 +45,7 @@ This means the board should be rendered in two layers:
 1. `board-lane-surface-layer`: owns the visible connected board.
 2. `board-tile-interaction-layer`: optional invisible or minimally visible hit targets, focus rings, stage/reveal effects, and accessibility semantics.
 
-The old approach, where every visible tile card is an independent board piece, should be removed for ring topology once the new renderer is stable.
+The tile-card-per-piece approach, should be removed for ring topology once the new renderer is stable.
 
 ## Non-Negotiable Invariants
 
@@ -218,7 +218,7 @@ Final rule:
 
 #### 3. Standee Layer
 
-Standee positions must derive from lane cell centers, not from the old independent tile card centers.
+Standee positions must derive from lane cell centers, not from independent tile card centers.
 
 ```ts
 export type LaneCellAnchor = {
@@ -374,7 +374,7 @@ Work:
 - render `board-lane-surface-layer`
 - render lane strips and cells from lane model
 - move visible tile content into lane cells
-- keep old tile cards only as invisible anchors
+- keep tile cards only as invisible anchors
 
 Acceptance:
 
@@ -427,7 +427,7 @@ Acceptance:
 
 Work:
 
-- remove obsolete quarterview rail/visual lane experiments
+- remove closed quarterview rail/visual lane experiments
 - remove duplicated tile visual CSS blocks
 - delete temporary hidden tile content paths after interaction layer is replaced
 

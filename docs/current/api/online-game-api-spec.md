@@ -681,7 +681,7 @@ Canonical `request_type` set (v1 human policy):
 - `runaway_step_choice`
 - `lap_reward`
 - `draft_card`
-- `final_character` (compat alias accepted in UI: `final_character_choice`)
+- `final_character` (alias accepted in UI: `final_character_choice`)
 - `trick_to_use`
 - `purchase_tile`
 - `hidden_trick_card`

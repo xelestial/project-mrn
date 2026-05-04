@@ -50,26 +50,26 @@ def _is_domain_logic_file(path: Path, root: Path) -> bool:
 def _is_runtime_logic_file(path: Path, root: Path) -> bool:
     rel = path.relative_to(root).as_posix()
     return rel in {
-        "GPT/ai_policy.py",
-        "GPT/effect_handlers.py",
-        "GPT/engine.py",
-        "GPT/policy_groups.py",
-        "GPT/policy_mark_utils.py",
-        "GPT/policy/environment_traits.py",
-        "GPT/policy/evaluator/character_scoring.py",
-        "GPT/policy/profile/presets.py",
-        "GPT/policy/decision/purchase.py",
+        "engine/ai_policy.py",
+        "engine/effect_handlers.py",
+        "engine/engine.py",
+        "engine/policy_groups.py",
+        "engine/policy_mark_utils.py",
+        "engine/policy/environment_traits.py",
+        "engine/policy/evaluator/character_scoring.py",
+        "engine/policy/profile/presets.py",
+        "engine/policy/decision/purchase.py",
     }
 
 
 ALLOWED_LITERAL_EXCEPTIONS: dict[str, set[str]] = {
-    "GPT/policy/environment_traits.py": {
+    "engine/policy/environment_traits.py": {
         "자원 순환",
         "자원 재활용",
         "모두의 순환",
         "모두의 재활용",
     },
-    "GPT/engine.py": {"어사"},
+    "engine/engine.py": {"어사"},
 }
 
 
@@ -84,11 +84,11 @@ def _character_literals(catalog: dict) -> set[str]:
 
 
 def _weather_literals(root: Path) -> set[str]:
-    return _load_named_card_values(root / "GPT" / "weather.csv")
+    return _load_named_card_values(root / "engine" / "weather.csv")
 
 
 def _fortune_literals(root: Path) -> set[str]:
-    return _load_named_card_values(root / "GPT" / "fortune.csv")
+    return _load_named_card_values(root / "engine" / "fortune.csv")
 
 
 def _weather_join_patterns(catalog: dict) -> list[re.Pattern[str]]:

@@ -57,7 +57,7 @@ describe("replayClient", () => {
     );
   });
 
-  it("appends the latest replay projection so redacted stream gaps can fast-forward", async () => {
+  it("appends the latest restored view state so redacted stream gaps can fast-forward", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -120,7 +120,7 @@ describe("replayClient", () => {
         seq: 43,
         session_id: "sess_gap",
         payload: {
-          event_type: "replay_projection",
+          event_type: "view_state_restored",
           view_state: {
             prompt: {
               active: {
@@ -135,7 +135,7 @@ describe("replayClient", () => {
     ]);
   });
 
-  it("places the latest replay projection beyond the caller's current sequence", async () => {
+  it("places the latest restored view state beyond the caller's current sequence", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -175,7 +175,7 @@ describe("replayClient", () => {
       seq: 201,
       session_id: "sess_gap",
       payload: {
-        event_type: "replay_projection",
+        event_type: "view_state_restored",
         view_state: {
           prompt: {
             active: {

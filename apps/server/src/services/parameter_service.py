@@ -19,15 +19,15 @@ class RootSourceRegistry:
         self._root_dir = root_dir or Path(__file__).resolve().parents[4]
 
     def list_sources(self) -> list[tuple[str, Path]]:
-        gpt = self._root_dir / "GPT"
+        engine = self._root_dir / "engine"
         return [
-            ("ruleset", gpt / "ruleset.json"),
-            ("board_layout", gpt / "board_layout.json"),
-            ("characters", gpt / "characters.py"),
-            ("trick_cards", gpt / "trick_cards.py"),
-            ("weather_cards", gpt / "weather_cards.py"),
-            ("fortune_cards", gpt / "fortune_cards.py"),
-            ("config", gpt / "config.py"),
+            ("ruleset", engine / "ruleset.json"),
+            ("board_layout", engine / "board_layout.json"),
+            ("characters", engine / "characters.py"),
+            ("trick_cards", engine / "trick_cards.py"),
+            ("weather_cards", engine / "weather_cards.py"),
+            ("fortune_cards", engine / "fortune_cards.py"),
+            ("config", engine / "config.py"),
         ]
 
     def compute_fingerprints(self) -> dict[str, str]:
@@ -358,9 +358,9 @@ class GameParameterResolver:
     @staticmethod
     def _load_default_config():
         root = Path(__file__).resolve().parents[4]
-        gpt_dir = root / "GPT"
-        if str(gpt_dir) not in sys.path:
-            sys.path.insert(0, str(gpt_dir))
+        engine_dir = root / "engine"
+        if str(engine_dir) not in sys.path:
+            sys.path.insert(0, str(engine_dir))
         from config import DEFAULT_CONFIG
 
         return copy.deepcopy(DEFAULT_CONFIG)

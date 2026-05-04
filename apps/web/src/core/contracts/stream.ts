@@ -1,3 +1,5 @@
+export const VIEW_STATE_RESTORED_EVENT = "view_state_restored";
+
 export type InboundMessage =
   | {
       type: "event";
