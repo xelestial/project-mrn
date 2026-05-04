@@ -4,6 +4,7 @@ from typing import Literal, NotRequired, TypedDict
 
 
 MarkerDraftDirection = Literal["clockwise", "counterclockwise"]
+PlayerTurnOrderSource = Literal["marker_draft", "round_order", "player_id"]
 
 
 class DerivedPlayerItemViewState(TypedDict):
@@ -22,10 +23,12 @@ class DerivedPlayerItemViewState(TypedDict):
     current_character_face: str
     is_marker_owner: bool
     is_current_actor: bool
+    turn_order_rank: int | None
 
 
 class PlayerOrderingViewState(TypedDict):
     ordered_player_ids: list[int]
+    turn_order_source: PlayerTurnOrderSource
     marker_owner_player_id: int | None
     marker_draft_direction: MarkerDraftDirection | None
     items: list[DerivedPlayerItemViewState]

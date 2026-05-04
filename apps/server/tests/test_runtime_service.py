@@ -28,6 +28,7 @@ from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.runtime_service import _LocalHumanDecisionClient
 from apps.server.src.services.runtime_service import (
     _FanoutVisEventStream,
+    _runtime_continuation_debug_fields,
     _runtime_module_debug_fields,
     resolve_runtime_runner_kind,
     runtime_checkpoint_schema_version_for_runner,
@@ -176,6 +177,49 @@ class RuntimeServiceTests(unittest.TestCase):
                 "idempotency_key": "idem:movement",
             },
         )
+
+    def test_runtime_continuation_debug_fields_trace_ids_without_resume_token(self) -> None:
+        resume = type(
+            "Resume",
+            (),
+            {
+                "request_id": "req:trick:7",
+                "request_type": "trick_to_use",
+                "player_id": 2,
+                "choice_id": "card:11",
+                "resume_token": "secret-resume-token",
+                "frame_id": "seq:trick:7:p2",
+                "module_id": "mod:seq:trick:7:p2:choice",
+                "module_type": "TrickChoiceModule",
+                "module_cursor": "await_choice",
+                "batch_id": "",
+            },
+        )()
+        payload = {
+            "pending_prompt_request_id": "req:trick:7",
+            "pending_prompt_type": "trick_to_use",
+            "pending_prompt_player_id": 2,
+            "pending_prompt_instance_id": 7,
+            "runtime_active_prompt": {
+                "request_id": "req:trick:7",
+                "request_type": "trick_to_use",
+                "player_id": 2,
+                "frame_id": "seq:trick:7:p2",
+                "module_id": "mod:seq:trick:7:p2:choice",
+                "module_type": "TrickChoiceModule",
+                "module_cursor": "await_choice",
+                "resume_token": "secret-resume-token",
+            },
+        }
+
+        fields = _runtime_continuation_debug_fields(payload, resume)
+
+        self.assertEqual(fields["runtime_active_prompt_request_id"], "req:trick:7")
+        self.assertEqual(fields["runtime_active_prompt_module_id"], "mod:seq:trick:7:p2:choice")
+        self.assertEqual(fields["decision_resume_choice_id"], "card:11")
+        self.assertTrue(fields["runtime_active_prompt_resume_token_present"])
+        self.assertTrue(fields["decision_resume_token_present"])
+        self.assertNotIn("secret-resume-token", json.dumps(fields, ensure_ascii=False))
 
     def test_fanout_debug_log_writes_only_committed_events_with_module_fields(self) -> None:
         loop = asyncio.new_event_loop()
@@ -4206,6 +4250,47 @@ class RuntimeServiceTests(unittest.TestCase):
         RuntimeService._prepare_state_for_transition_replay(checkpoint_state)
 
         self.assertEqual(checkpoint_state.current_round_order, [])
+
+    def test_module_runner_replay_preparation_preserves_authoritative_checkpoint_order(self) -> None:
+        checkpoint_state = type(
+            "CheckpointState",
+            (),
+            {
+                "runtime_runner_kind": "module",
+                "runtime_checkpoint_schema_version": 3,
+                "runtime_frame_stack": [{"frame_id": "round:2", "frame_type": "round"}],
+                "pending_prompt_request_id": "sess_module_replay:r2:t1:p1:draft_card:1",
+                "pending_prompt_type": "draft_card",
+                "current_round_order": [3, 1, 4, 2],
+            },
+        )()
+
+        RuntimeService._prepare_state_for_transition_replay(checkpoint_state, runner_kind="module")
+
+        self.assertEqual(checkpoint_state.current_round_order, [3, 1, 4, 2])
+
+    def test_module_runner_hydration_ignores_legacy_round_setup_replay_base(self) -> None:
+        payload = {
+            "runtime_runner_kind": "module",
+            "runtime_checkpoint_schema_version": 3,
+            "runtime_frame_stack": [{"frame_id": "round:2", "frame_type": "round"}],
+            "tiles": [{"tile_id": "checkpoint"}],
+            "prompt_sequence": 9,
+            "pending_prompt_request_id": "sess_module_hydrate:r2:t1:p1:draft_card:9",
+            "pending_prompt_type": "draft_card",
+            "current_round_order": [3, 1, 4, 2],
+            "round_setup_replay_base": {
+                "tiles": [{"tile_id": "legacy-base"}],
+                "prompt_sequence": 0,
+                "current_round_order": [1, 2, 3, 4],
+            },
+        }
+
+        hydrated = RuntimeService._checkpoint_payload_for_transition_replay(payload, runner_kind="module")
+
+        self.assertEqual(hydrated["tiles"], [{"tile_id": "checkpoint"}])
+        self.assertEqual(hydrated["prompt_sequence"], 9)
+        self.assertEqual(hydrated["current_round_order"], [3, 1, 4, 2])
 
     def test_round_setup_hidden_trick_replay_rewinds_to_setup_start_when_base_exists(self) -> None:
         checkpoint_state = type(

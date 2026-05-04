@@ -54,6 +54,11 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
         self.assertEqual(view_state["ordered_player_ids"], [2, 1, 4, 3])
         self.assertEqual(view_state["marker_owner_player_id"], 2)
         self.assertEqual(view_state["marker_draft_direction"], "counterclockwise")
+        self.assertEqual(view_state["turn_order_source"], "marker_draft")
+        self.assertEqual(
+            [(item["player_id"], item["turn_order_rank"]) for item in view_state["items"]],
+            [(2, 0), (1, 1), (4, 2), (3, 3)],
+        )
 
     def test_build_player_ordering_view_state_prefers_round_order_after_draft(self) -> None:
         messages = [
@@ -105,6 +110,11 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
         self.assertEqual(view_state["ordered_player_ids"], [3, 1, 4, 2])
         self.assertEqual(view_state["marker_owner_player_id"], 2)
         self.assertEqual(view_state["marker_draft_direction"], "counterclockwise")
+        self.assertEqual(view_state["turn_order_source"], "round_order")
+        self.assertEqual(
+            [(item["player_id"], item["turn_order_rank"]) for item in view_state["items"]],
+            [(3, 0), (1, 1), (4, 2), (2, 3)],
+        )
 
     def test_stream_service_publishes_additive_view_state_players_projection(self) -> None:
         stream = StreamService()

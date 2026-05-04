@@ -5,6 +5,25 @@
   "automation_commands": [
     "npm run e2e:module-runtime"
   ],
+  "required_wire_fields": [
+    "request_id",
+    "request_type",
+    "player_id",
+    "frame_id",
+    "module_id",
+    "module_type",
+    "module_cursor"
+  ],
+  "simultaneous_wire_fields": [
+    "batch_id",
+    "missing_player_ids",
+    "resume_tokens_by_player_id"
+  ],
+  "forbidden_legacy_replay_sources": [
+    "round_setup_replay_base",
+    "pending_prompt_instance_id - 1",
+    "frontend-created request id"
+  ],
   "e2e_grep_titles": [
     "human quick start surfaces turn banner and first prompt through stable ids",
     "runtime keeps fortune cash loss cause readable in overlay and event feed",

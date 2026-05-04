@@ -110,6 +110,57 @@ def _runtime_module_debug_fields(source: dict | None, state: object | None = Non
     return {key: str(value) for key, value in candidates.items() if value not in (None, "")}
 
 
+def _runtime_continuation_debug_fields(payload: dict | None, decision_resume: object | None = None) -> dict[str, object]:
+    payload = dict(payload or {})
+    active_prompt = payload.get("runtime_active_prompt")
+    active_prompt = dict(active_prompt) if isinstance(active_prompt, dict) else {}
+    active_batch = payload.get("runtime_active_prompt_batch")
+    active_batch = dict(active_batch) if isinstance(active_batch, dict) else {}
+    candidates: dict[str, object] = {
+        "waiting_prompt_request_id": payload.get("pending_prompt_request_id"),
+        "waiting_prompt_type": payload.get("pending_prompt_type"),
+        "waiting_prompt_player_id": payload.get("pending_prompt_player_id"),
+        "waiting_prompt_instance_id": payload.get("pending_prompt_instance_id"),
+        "prompt_sequence": payload.get("prompt_sequence"),
+        "runtime_active_prompt_request_id": active_prompt.get("request_id"),
+        "runtime_active_prompt_request_type": active_prompt.get("request_type"),
+        "runtime_active_prompt_player_id": active_prompt.get("player_id"),
+        "runtime_active_prompt_frame_id": active_prompt.get("frame_id"),
+        "runtime_active_prompt_module_id": active_prompt.get("module_id"),
+        "runtime_active_prompt_module_type": active_prompt.get("module_type"),
+        "runtime_active_prompt_module_cursor": active_prompt.get("module_cursor"),
+        "runtime_active_prompt_batch_id": active_batch.get("batch_id"),
+        "runtime_active_prompt_batch_request_type": active_batch.get("request_type"),
+        "runtime_active_prompt_batch_frame_id": active_batch.get("frame_id"),
+        "runtime_active_prompt_batch_module_id": active_batch.get("module_id"),
+        "runtime_active_prompt_batch_module_type": active_batch.get("module_type"),
+        "runtime_active_prompt_batch_module_cursor": active_batch.get("module_cursor"),
+        "runtime_active_prompt_batch_missing_player_ids": active_batch.get("missing_player_ids"),
+    }
+    if active_prompt:
+        candidates["runtime_active_prompt_resume_token_present"] = bool(active_prompt.get("resume_token"))
+    if active_batch:
+        candidates["runtime_active_prompt_batch_token_count"] = len(
+            active_batch.get("resume_tokens_by_player_id") or {}
+        )
+    if decision_resume is not None:
+        candidates.update(
+            {
+                "decision_resume_request_id": getattr(decision_resume, "request_id", None),
+                "decision_resume_request_type": getattr(decision_resume, "request_type", None),
+                "decision_resume_player_id": getattr(decision_resume, "player_id", None),
+                "decision_resume_choice_id": getattr(decision_resume, "choice_id", None),
+                "decision_resume_frame_id": getattr(decision_resume, "frame_id", None),
+                "decision_resume_module_id": getattr(decision_resume, "module_id", None),
+                "decision_resume_module_type": getattr(decision_resume, "module_type", None),
+                "decision_resume_module_cursor": getattr(decision_resume, "module_cursor", None),
+                "decision_resume_batch_id": getattr(decision_resume, "batch_id", None),
+                "decision_resume_token_present": bool(getattr(decision_resume, "resume_token", "")),
+            }
+        )
+    return {key: value for key, value in candidates.items() if value not in (None, "")}
+
+
 def _active_runtime_module_debug_fields(state: object | None) -> dict[str, str]:
     if state is None:
         return {}
@@ -931,7 +982,31 @@ class RuntimeService:
         return False
 
     @staticmethod
-    def _prepare_state_for_transition_replay(state) -> None:
+    def _uses_module_runner_checkpoint(source, runner_kind: str | None = None) -> bool:
+        explicit_runner_kind = str(runner_kind or "").strip().lower()
+        if explicit_runner_kind == "module":
+            return True
+        if isinstance(source, dict):
+            checkpoint_runner_kind = str(source.get("runtime_runner_kind") or "").strip().lower()
+            schema_version = source.get("runtime_checkpoint_schema_version")
+            frame_stack = source.get("runtime_frame_stack")
+        else:
+            checkpoint_runner_kind = str(getattr(source, "runtime_runner_kind", "") or "").strip().lower()
+            schema_version = getattr(source, "runtime_checkpoint_schema_version", None)
+            frame_stack = getattr(source, "runtime_frame_stack", None)
+        if checkpoint_runner_kind == "module":
+            return True
+        try:
+            if int(schema_version or 0) >= 3:
+                return True
+        except Exception:
+            pass
+        return isinstance(frame_stack, list) and bool(frame_stack)
+
+    @staticmethod
+    def _prepare_state_for_transition_replay(state, runner_kind: str | None = None) -> None:
+        if RuntimeService._uses_module_runner_checkpoint(state, runner_kind):
+            return
         if RuntimeService._is_round_setup_prompt(state):
             # Round setup prompts are replayed from setup start so previously
             # accepted decisions can be consumed deterministically.
@@ -939,6 +1014,19 @@ class RuntimeService:
             # in place makes run_next_transition skip draft and start a turn
             # with an empty character.
             state.current_round_order = []
+
+    @staticmethod
+    def _checkpoint_payload_for_transition_replay(payload: dict, runner_kind: str | None = None) -> dict:
+        if RuntimeService._uses_module_runner_checkpoint(payload, runner_kind):
+            return payload
+        if RuntimeService._is_round_setup_prompt_payload(payload):
+            replay_base = payload.get("round_setup_replay_base")
+            if isinstance(replay_base, dict) and replay_base.get("tiles"):
+                replay_payload = dict(replay_base)
+                replay_payload["current_round_order"] = []
+                replay_payload["prompt_sequence"] = 0
+                return replay_payload
+        return payload
 
     def _acquire_runtime_lease(self, session_id: str) -> bool:
         if self._runtime_state_store is None:
@@ -955,7 +1043,7 @@ class RuntimeService:
             return True
         return bool(self._runtime_state_store.release_lease(session_id, self._worker_id))
 
-    def _hydrate_engine_state(self, session_id: str, config, game_state_cls):
+    def _hydrate_engine_state(self, session_id: str, config, game_state_cls, runner_kind: str | None = None):
         if self._game_state_store is None:
             return None
         recovery = self.recovery_checkpoint(session_id)
@@ -964,13 +1052,7 @@ class RuntimeService:
         current_state = recovery.get("current_state")
         if not isinstance(current_state, dict) or "tiles" not in current_state:
             return None
-        payload = current_state
-        if self._is_round_setup_prompt_payload(current_state):
-            replay_base = current_state.get("round_setup_replay_base")
-            if isinstance(replay_base, dict) and replay_base.get("tiles"):
-                payload = dict(replay_base)
-                payload["current_round_order"] = []
-                payload["prompt_sequence"] = 0
+        payload = self._checkpoint_payload_for_transition_replay(current_state, runner_kind)
         return game_state_cls.from_checkpoint_payload(config, payload)
 
     def _run_engine_transition_once_for_recovery(self, session_id: str, seed: int = 42, policy_mode: str | None = None) -> dict:
@@ -1111,13 +1193,13 @@ class RuntimeService:
                 blocking_human_prompts=False,
             )
         config = self._config_factory.create(resolved)
-        state = self._hydrate_engine_state(session_id, config, GameState)
+        state = self._hydrate_engine_state(session_id, config, GameState, runner_kind)
         decision_resume = None
         if state is None:
             if require_checkpoint:
                 return {"status": "unavailable", "reason": "checkpoint_missing"}
         else:
-            self._prepare_state_for_transition_replay(state)
+            self._prepare_state_for_transition_replay(state, runner_kind)
         if state is not None:
             self._apply_runner_kind(state, runner_kind, checkpoint_schema_version)
             decision_resume = self._decision_resume_from_command(session_id, command_seq)
@@ -1247,6 +1329,7 @@ class RuntimeService:
                 },
                 state,
             )
+            continuation_debug_fields = _runtime_continuation_debug_fields(payload, decision_resume)
             command_commit_envelope = {
                 "version": 1,
                 "atomic_commit": "redis_transition_state_checkpoint_event_offset",
@@ -1293,6 +1376,7 @@ class RuntimeService:
                     "processed_command_seq": command_seq,
                     "processed_command_consumer": command_consumer_name,
                     "command_commit_envelope": command_commit_envelope,
+                    **continuation_debug_fields,
                     "updated_at_ms": updated_at_ms,
                 },
                 command_consumer_name=command_consumer_name,
@@ -1310,6 +1394,7 @@ class RuntimeService:
                     "pending_action_count": len(payload.get("pending_actions") or []),
                     "scheduled_action_count": len(payload.get("scheduled_actions") or []),
                     **module_debug_fields,
+                    **continuation_debug_fields,
                 },
                 runtime_event_server_time_ms=updated_at_ms,
             )
@@ -1329,6 +1414,7 @@ class RuntimeService:
                 pending_action_count=len(payload.get("pending_actions") or []),
                 scheduled_action_count=len(payload.get("scheduled_actions") or []),
                 **module_debug_fields,
+                **continuation_debug_fields,
             )
         if step.get("status") == "waiting_input":
             self._publish_active_module_prompt_batch_sync(loop, session_id, state)

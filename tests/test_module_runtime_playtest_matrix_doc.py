@@ -90,6 +90,25 @@ def test_round_combination_regression_pack_fixture_matches_matrix_doc() -> None:
     assert pack["pack_id"] == "MRN-MOD-ROUND-COMBINATION-1-5"
     assert "packages/runtime-contracts/ws/examples/round-combination.regression-pack.json" in text
     assert "npm run e2e:module-runtime" in pack["automation_commands"]
+    assert set(pack["required_wire_fields"]) == {
+        "request_id",
+        "request_type",
+        "player_id",
+        "frame_id",
+        "module_id",
+        "module_type",
+        "module_cursor",
+    }
+    assert set(pack["simultaneous_wire_fields"]) == {
+        "batch_id",
+        "missing_player_ids",
+        "resume_tokens_by_player_id",
+    }
+    assert set(pack["forbidden_legacy_replay_sources"]) == {
+        "round_setup_replay_base",
+        "pending_prompt_instance_id - 1",
+        "frontend-created request id",
+    }
 
     scenario_ids = {scenario["scenario_id"] for scenario in pack["scenarios"]}
     assert scenario_ids == {"MRN-MOD-003", "MRN-MOD-004", "MRN-MOD-005", "MRN-MOD-010", "MRN-MOD-014", "MRN-MOD-015"}
@@ -104,6 +123,12 @@ def test_round_combination_regression_pack_fixture_matches_matrix_doc() -> None:
 
     for invariant in pack["invariants"]:
         assert invariant in text
+    for field in pack["required_wire_fields"]:
+        assert field in text
+    for field in pack["simultaneous_wire_fields"]:
+        assert field in text
+    for source in pack["forbidden_legacy_replay_sources"]:
+        assert source in text
 
 
 def test_round_combination_regression_pack_e2e_titles_are_wired_to_module_runtime_script() -> None:
@@ -130,6 +155,8 @@ def test_redis_state_plan_documents_authoritative_continuation_boundary() -> Non
         "frontend-created request id",
         "mismatched continuation",
         "must not mutate canonical game state",
+        "ignores legacy prompt replay aids",
+        "raw resume tokens",
     }:
         assert phrase in text
 

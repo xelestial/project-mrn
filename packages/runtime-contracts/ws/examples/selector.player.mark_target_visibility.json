@@ -61,6 +61,7 @@
   "expected": {
     "players": {
       "ordered_player_ids": [2, 4, 1],
+      "turn_order_source": "marker_draft",
       "marker_owner_player_id": 2,
       "marker_draft_direction": null,
       "items": [
@@ -79,7 +80,8 @@
           "priority_slot": null,
           "current_character_face": "-",
           "is_marker_owner": true,
-          "is_current_actor": false
+          "is_current_actor": false,
+          "turn_order_rank": 0
         },
         {
           "player_id": 4,
@@ -96,7 +98,8 @@
           "priority_slot": null,
           "current_character_face": "-",
           "is_marker_owner": false,
-          "is_current_actor": false
+          "is_current_actor": false,
+          "turn_order_rank": 1
         },
         {
           "player_id": 1,
@@ -113,7 +116,8 @@
           "priority_slot": 2,
           "current_character_face": "산적",
           "is_marker_owner": false,
-          "is_current_actor": true
+          "is_current_actor": true,
+          "turn_order_rank": 2
         }
       ]
     },

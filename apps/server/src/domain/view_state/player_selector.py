@@ -197,6 +197,7 @@ def _to_player_item(raw: dict[str, Any]) -> DerivedPlayerItemViewState | None:
         "current_character_face": "-",
         "is_marker_owner": False,
         "is_current_actor": False,
+        "turn_order_rank": None,
     }
 
 
@@ -344,6 +345,7 @@ def build_player_view_state(messages: list[dict[str, Any]]) -> PlayerOrderingVie
         player["is_current_actor"] = current_actor_player_id == player["player_id"]
 
     ordered_player_ids = sorted(player["player_id"] for player in players)
+    turn_order_source = "player_id"
     if marker_owner_player_id in ordered_player_ids:
         owner_index = ordered_player_ids.index(marker_owner_player_id)
         direction = marker_draft_direction if marker_draft_direction in {"clockwise", "counterclockwise"} else "clockwise"
@@ -352,6 +354,7 @@ def build_player_view_state(messages: list[dict[str, Any]]) -> PlayerOrderingVie
             index = (owner_index + step) % len(ordered_player_ids) if direction == "clockwise" else (owner_index - step) % len(ordered_player_ids)
             ordered.append(ordered_player_ids[index])
         ordered_player_ids = ordered
+        turn_order_source = "marker_draft"
 
     round_order = _latest_round_order(messages)
     if round_order:
@@ -360,11 +363,15 @@ def build_player_view_state(messages: list[dict[str, Any]]) -> PlayerOrderingVie
         if turn_ordered:
             remaining = [player_id for player_id in ordered_player_ids if player_id not in set(turn_ordered)]
             ordered_player_ids = turn_ordered + remaining
+            turn_order_source = "round_order"
 
     player_by_id = {player["player_id"]: player for player in players}
     ordered_items = [player_by_id[player_id] for player_id in ordered_player_ids if player_id in player_by_id]
+    for rank, player in enumerate(ordered_items):
+        player["turn_order_rank"] = rank
     return {
         "ordered_player_ids": ordered_player_ids,
+        "turn_order_source": turn_order_source,
         "marker_owner_player_id": marker_owner_player_id,
         "marker_draft_direction": marker_draft_direction if marker_draft_direction in {"clockwise", "counterclockwise"} else None,
         "items": ordered_items,

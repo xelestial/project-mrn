@@ -18,6 +18,8 @@ The Redis-owned continuation envelope must contain the active module identity an
 
 Prompt boundaries are commit boundaries. Before a prompt is exposed to clients, the runtime commits the canonical game snapshot, frame cursor, prompt envelope, stream offset, and command offset to Redis. After wakeup, the worker continues from that module cursor. It never reconstructs the next action from frontend text, fallback labels, local process memory, or a completed parent turn.
 
+Module-runner recovery ignores legacy prompt replay aids such as `round_setup_replay_base` once the checkpoint carries a module schema, frame stack, or module runner kind. Structured runtime logs include continuation identifiers, prompt sequence, active frame/module/cursor, missing simultaneous responders, and token-presence booleans, but never raw resume tokens.
+
 ## Benchmarked Patterns
 
 The design follows the public architecture patterns used by commercial realtime games and managed Redis providers:
