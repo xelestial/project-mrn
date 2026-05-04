@@ -51,7 +51,7 @@ Card/marker flip is round-owned. It is invalid in an active turn or child sequen
 6. `ImmediateMarkerTransferModule`: executes immediate marker transfer inserted by the target adjudicator.
 7. `TrickWindowModule`: opens the trick window once and creates a child `TrickSequenceFrame`.
 8. `DiceRollModule`: consumes dice modifiers, calls the engine movement resolver, and captures legacy `pending_turn_completion` into the existing turn-owned `TurnEndSnapshotModule`.
-9. `MovementResolveModule`, `MapMoveModule`, `ArrivalTileModule`, `LapRewardModule`, `FortuneResolveModule`: native turn boundary slots. Follow-up actions may be executed as child `SequenceFrame`s when queued.
+9. `MovementResolveModule`, `MapMoveModule`, `ArrivalTileModule`, `LapRewardModule`, `FortuneResolveModule`: native turn boundary slots. `LapRewardModule` owns lap-reward prompt/mutation after movement detects lap traversal and before arrival/post-arrival work continues; recovery resumes from `lap_reward:await_choice`. Follow-up actions may be executed as child `SequenceFrame`s when queued.
 10. `TurnEndSnapshotModule`: emits `turn_end_snapshot`, applies control-finisher bookkeeping, checks game end, advances `turn_index`, and completes the child `TurnFrame` plus parent `PlayerTurnModule`.
 
 The important ownership rule: turn completion is not a sequence. A sequence-owned `TurnEndSnapshotModule` or orphan `pending_turn_completion` checkpoint is rejected.
@@ -88,6 +88,7 @@ Backend and Redis persist the engine checkpoint; they do not synthesize next gam
 - Runtime service resumes exactly one engine command against the saved checkpoint and stores the resulting checkpoint atomically.
 - Redis prompt state is authoritative for `request_id`, `resume_token`, `frame_id`, `module_id`, `module_type`, `module_cursor`, and `batch_id`.
 - WebSocket publishes the runtime module projection attached to each prompt/event. The semantic guard rejects impossible placements before they reach clients.
+- Backend `view_state.player_cards`, `view_state.active_by_card`, and `view_state.turn_stage` are frontend-consumable projections. If a prompt event arrives late or replay skips raw history, the frontend still renders the current card strip and prompt-active beat from those fields.
 - Frontend request IDs are not gameplay authority. The frontend preserves backend-issued continuation fields and uses a local ledger only to suppress duplicate sends.
 
 ## 7. Logging Map

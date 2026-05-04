@@ -12,6 +12,7 @@ Each round may contain these action groups. Every group must be controlled from 
 | Marker immediate effects | `PendingMarkResolutionModule`/`ImmediateMarkerTransferModule` at start of target player's turn | may occur before card flip; must carry current turn frame | displayed as early turn progress, not round-end marker flip |
 | Trick sequence | `Trick*Module` in `SequenceFrame` created by active turn module | prompt continuation must include `resume_token`, `frame_id`, `module_id`, `module_type`, sequence id | hand/trick UI active only when runtime active sequence is trick |
 | Dice/move/arrival | `DiceRollModule`, `MapMoveModule`, `ArrivalTileModule` | event must match active actor round+turn | displayed in current turn only |
+| Lap reward | `LapRewardModule` after movement lap detection | prompt continuation must resume `lap_reward:await_choice`; reward mutation happens inside the module, not during movement reconstruction | render reward prompt/current turn progress from backend `turn_stage`, not from inferred position changes |
 | Fortune follow-up | `FortuneResolveModule` in turn/sequence | any inserted extra action must be queued through runtime module API | displayed in current turn/sequence only |
 | Concurrent resupply | `SimultaneousResolutionFrame` | all participant prompts share `batch_id`; commit only when all required responses exist or policy timeout default applies | simultaneous response surface; must not supersede unrelated single-player prompts |
 | Turn end | `TurnEndSnapshotModule` in the active `TurnFrame` | backend/Redis must not promote `pending_turn_completion` into a sequence adapter; turn completion cannot publish round-end card flip | closes current turn UI |
@@ -37,6 +38,7 @@ Action sequence names must resolve to explicit module boundaries. Backend resume
 | --- | --- |
 | `resolve_mark` | `PendingMarkResolutionModule` |
 | `apply_move` | `MapMoveModule` |
+| `resolve_lap_reward` | `LapRewardModule` |
 | `resolve_arrival` | `ArrivalTileModule` |
 | `resolve_rent_payment` | `RentPaymentModule` |
 | `request_purchase_tile` | `PurchaseDecisionModule` |
@@ -118,6 +120,7 @@ Each effect is owned by a producer module and consumed only by declared runtime 
 - All catalogued `resolve_fortune_*` actions remain native `FortuneResolveModule` work and may chain `MapMoveModule`/`ArrivalTileModule` without creating a new turn.
 - Unknown action types must fail before runtime execution. Frontend/backend logs may mention the failed action type, but the engine must not create `LegacyActionAdapterModule` work for it.
 - Engine execution validates every action payload against its owning module before dispatch. A recovered checkpoint whose payload says `apply_move` but whose module says `ArrivalTileModule` fails inside the runner, not only at the backend WebSocket guard. Actionized `continue_after_trick_phase` is likewise executed as native `TrickDeferredFollowupsModule` work and transfers any pending turn completion into the active `TurnEndSnapshotModule` before follow-up actions are promoted.
+- Redis prompt-boundary resume coverage includes target adjudication, fortune target choice, rent payment, score-token placement, purchase, trick, and lap reward prompts. Each resumes from saved `runtime_active_prompt` frame/module/cursor data and must not call legacy prompt seed reconstruction.
 
 ## Backend/Redis Boundary
 
@@ -127,6 +130,7 @@ Backend and Redis do not own game-rule branching. They persist and validate the 
 - Character suppression, trick follow-up insertion, movement, arrival, fortune chaining, turn end, and simultaneous resupply are engine module responsibilities.
 - Redis may expose checkpoint visibility fields such as `has_pending_turn_completion` for legacy compatibility, but module-runner execution treats orphan `pending_turn_completion` as invalid unless it has already been consumed into `TurnEndSnapshotModule.payload.turn_completion`.
 - WebSocket payloads are accepted only when their runtime module placement matches the catalog. This prevents impossible engine states from being republished as frontend progress.
+- Backend `view_state` is the client projection source for `player_cards`, `active_by_card`, and `turn_stage`; frontend selectors consume those fields before reconstructing from raw prompt/event history, including backend-only `prompt_active` checkpoints.
 
 ## Latest Play Log Revalidation
 

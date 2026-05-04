@@ -8,6 +8,27 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Branch Push And Full Cutover Verification
+
+- What changed:
+  - pushed `codex/docs-handoff-flow-map` to origin through `0ef93192`
+  - ran the full engine/backend/frontend/e2e/build/policy verification matrix
+    after runtime resume and view-state projection changes
+  - documented `resolve_lap_reward`, prompt-boundary Redis resume coverage, and
+    backend-projected `active_by_card` / `prompt_active` frontend consumption
+- Why:
+  - before main merge prep, the latest branch needed remote safety, full matrix
+    proof, and docs aligned with the module boundary contracts
+- Validation:
+  - `PYTHONPATH=.:GPT uv run pytest -q GPT/test_runtime_module_contracts.py GPT/test_runtime_prompt_continuation.py GPT/test_runtime_round_modules.py GPT/test_runtime_sequence_modules.py GPT/test_runtime_simultaneous_modules.py GPT/test_rule_fixes.py` -> `190 passed, 3 subtests passed`
+  - `PYTHONPATH=.:GPT uv run pytest -q apps/server/tests/test_runtime_service.py apps/server/tests/test_prompt_service.py apps/server/tests/test_redis_realtime_services.py apps/server/tests/test_command_wakeup_worker.py apps/server/tests/test_runtime_semantic_guard.py apps/server/tests/test_view_state_runtime_projection.py` -> `191 passed, 13 subtests passed`
+  - `npm --prefix apps/web run test -- src/domain/selectors/promptSelectors.spec.ts src/hooks/useGameStream.spec.ts src/infra/ws/StreamClient.spec.ts` -> `90 passed`
+  - `npm --prefix apps/web run e2e:parity` -> `6 passed`
+  - `npm --prefix apps/web run e2e:module-runtime` -> `3 passed`
+  - `npm --prefix apps/web run build` -> passed with the existing Vite chunk-size warning
+  - `python3 tools/plan_policy_gate.py` -> passed
+  - `git diff --check` -> passed
+
 ## 2026-05-04 Module Boundary 1-4 Hardening
 
 - What changed:
