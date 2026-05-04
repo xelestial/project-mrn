@@ -1092,6 +1092,12 @@ def test_trick_resolve_followup_schedules_next_choice_in_same_sequence() -> None
     assert followup.module_type == "TrickChoiceModule"
     assert followup.status == "queued"
     assert followup.payload["turn_context"] == {"origin": "trick"}
+    assert {
+        "CharacterStartModule",
+        "PendingMarkResolutionModule",
+        "TargetJudicatorModule",
+        "TrickWindowModule",
+    }.isdisjoint({module.module_type for module in frame.module_queue})
 
 
 def test_trick_resolve_followup_insertion_is_idempotent_on_module_retry() -> None:

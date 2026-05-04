@@ -8,6 +8,25 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Module Projection Continuation Contract Hardening
+
+- What changed:
+  - made backend runtime projection prefer checkpoint active modules over stale event `runtime_module` metadata and default missing checkpoint cursors to `start`
+  - made the round-end card flip semantic guard prove ownership from checkpoint `active_module_id` when the stream payload omits duplicated `module_id`
+  - blocked frontend module prompts that declare only a partial continuation before they become actionable
+  - tightened 잔꾀 follow-up regression coverage so follow-up choice stays inside `TrickSequenceFrame` and cannot reopen character/mark/trick-window modules
+  - updated Redis fallback persistence coverage to use a legal fallback prompt under the current backend contract
+- Why:
+  - backend, Redis, and frontend should resume the exact module checkpoint instead of compensating with stale payload fields or frontend-created request identity
+  - round-end card flip, 잔꾀 follow-up, and fallback decisions must be structurally owned by their active module
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_runtime_module_contracts.py GPT/test_runtime_prompt_continuation.py GPT/test_runtime_round_modules.py GPT/test_runtime_sequence_modules.py GPT/test_runtime_simultaneous_modules.py GPT/test_rule_fixes.py -q` -> `183 passed, 3 subtests passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_prompt_service.py apps/server/tests/test_redis_realtime_services.py apps/server/tests/test_command_wakeup_worker.py apps/server/tests/test_runtime_semantic_guard.py apps/server/tests/test_view_state_runtime_projection.py -q` -> `187 passed, 9 subtests passed`
+  - `npm --prefix apps/web test -- --run src/domain/selectors/promptSelectors.spec.ts src/hooks/useGameStream.spec.ts src/infra/ws/StreamClient.spec.ts` -> `90 passed`
+  - `npm --prefix apps/web run build`
+  - `npm --prefix apps/web run e2e:parity` -> `6 passed`
+  - `git diff --check`
+
 ## 2026-05-04 Prompt Fallback Legality And Surface Fixture Expansion
 
 - What changed:

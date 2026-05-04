@@ -497,7 +497,10 @@ class RedisRealtimeServicesTests(unittest.TestCase):
                 request_id="req_timeout_rt",
                 player_id=2,
                 fallback_policy="timeout_fallback",
-                prompt_payload={"fallback_choice_id": "choice_default"},
+                prompt_payload={
+                    "fallback_choice_id": "choice_default",
+                    "legal_choices": [{"choice_id": "choice_default", "title": "Default"}],
+                },
             )
         )
         status = runtime.runtime_status(session.session_id)

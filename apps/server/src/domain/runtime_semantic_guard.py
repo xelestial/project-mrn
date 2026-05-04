@@ -163,10 +163,15 @@ def _checkpoint_proves_round_end_card_flip(
             continue
         if frame_id and str(frame.get("frame_id") or "") != frame_id:
             continue
-        if module_id and str(frame.get("active_module_id") or "") != module_id:
+        active_module_id = str(frame.get("active_module_id") or "")
+        if module_id and active_module_id != module_id:
             continue
         modules = [module for module in frame.get("module_queue") or [] if isinstance(module, dict)]
-        active = next((module for module in modules if str(module.get("module_id") or "") == module_id), None)
+        candidate_module_id = module_id or active_module_id
+        active = next(
+            (module for module in modules if str(module.get("module_id") or "") == candidate_module_id),
+            None,
+        )
         if not active or str(active.get("module_type") or "") != "RoundEndCardFlipModule":
             return False
         pending_turns = [

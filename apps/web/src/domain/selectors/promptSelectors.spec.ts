@@ -106,6 +106,37 @@ describe("promptSelectors", () => {
     });
   });
 
+  it("does not expose module prompts as actionable without a complete continuation", () => {
+    const incompleteModulePrompt: InboundMessage = {
+      type: "prompt",
+      seq: 1,
+      session_id: "s1",
+      payload: {
+        request_id: "req_move",
+        request_type: "movement",
+        player_id: 1,
+        runner_kind: "module",
+        resume_token: "tok_1",
+        frame_id: "turn:1:p1",
+        module_id: "mod:move",
+        module_type: "MapMoveModule",
+        legal_choices: [{ choice_id: "roll", title: "roll" }],
+      },
+    };
+    const completeModulePrompt: InboundMessage = {
+      ...incompleteModulePrompt,
+      seq: 2,
+      payload: {
+        ...incompleteModulePrompt.payload,
+        request_id: "req_move_2",
+        module_cursor: "movement:await_choice",
+      },
+    };
+
+    expect(selectActivePrompt([incompleteModulePrompt])).toBeNull();
+    expect(selectActivePrompt([completeModulePrompt])?.continuation.moduleCursor).toBe("movement:await_choice");
+  });
+
   it("returns active prompt when unresolved", () => {
     const promptMessage: InboundMessage = {
       type: "prompt",

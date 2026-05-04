@@ -200,7 +200,52 @@ class RuntimeProjectionViewStateTests(unittest.TestCase):
         self.assertEqual(view_state["active_frame_id"], "turn:1:p2")
         self.assertEqual(view_state["active_module_id"], "mod:turn:1:p2:dice")
         self.assertEqual(view_state["active_module_type"], "DiceRollModule")
-        self.assertEqual(view_state["active_module_cursor"], "")
+        self.assertEqual(view_state["active_module_cursor"], "start")
+
+    def test_projection_prefers_checkpoint_over_same_payload_stale_runtime_module_and_defaults_cursor(self) -> None:
+        view_state = build_runtime_view_state([
+            {
+                "type": "event",
+                "payload": {
+                    "event_type": "engine_transition",
+                    "runtime_module": {
+                        "runner_kind": "module",
+                        "frame_id": "round:2",
+                        "frame_type": "round",
+                        "module_id": "mod:round:2:draft",
+                        "module_type": "DraftModule",
+                        "module_path": ["round:2", "mod:round:2:draft"],
+                    },
+                    "engine_checkpoint": {
+                        "runtime_runner_kind": "module",
+                        "runtime_frame_stack": [
+                            {
+                                "frame_id": "turn:2:p1",
+                                "frame_type": "turn",
+                                "owner_player_id": 1,
+                                "parent_frame_id": "round:2",
+                                "active_module_id": "mod:turn:2:p1:move",
+                                "module_queue": [
+                                    {
+                                        "module_id": "mod:turn:2:p1:move",
+                                        "module_type": "MapMoveModule",
+                                        "phase": "turn",
+                                        "owner_player_id": 1,
+                                        "status": "running",
+                                    }
+                                ],
+                                "status": "running",
+                            }
+                        ],
+                    },
+                },
+            }
+        ])
+
+        self.assertFalse(view_state["draft_active"])
+        self.assertEqual(view_state["turn_stage"], "movement")
+        self.assertEqual(view_state["active_module_type"], "MapMoveModule")
+        self.assertEqual(view_state["active_module_cursor"], "start")
 
     def test_projection_carries_checkpoint_cursor_and_full_frame_path(self) -> None:
         view_state = build_runtime_view_state([

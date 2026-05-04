@@ -514,6 +514,26 @@ function parsePromptContinuation(raw: Record<string, unknown>): PromptContinuati
   };
 }
 
+const REQUIRED_MODULE_CONTINUATION_FIELDS = [
+  "resume_token",
+  "frame_id",
+  "module_id",
+  "module_type",
+  "module_cursor",
+] as const;
+
+function declaresModuleContinuation(raw: Record<string, unknown>): boolean {
+  const runnerKind = stringOrEmpty(raw["runner_kind"] ?? raw["runtime_runner_kind"]);
+  if (runnerKind === "module") {
+    return true;
+  }
+  return REQUIRED_MODULE_CONTINUATION_FIELDS.some((field) => stringOrEmpty(raw[field]).length > 0);
+}
+
+function hasCompleteModuleContinuation(raw: Record<string, unknown>): boolean {
+  return REQUIRED_MODULE_CONTINUATION_FIELDS.every((field) => stringOrEmpty(raw[field]).length > 0);
+}
+
 function parsePromptSurface(raw: unknown, requestType: string, publicContext: Record<string, unknown>, choicesRaw: unknown) {
   const surface = isRecord(raw) ? raw : null;
   const movement = isRecord(surface?.["movement"]) ? surface?.["movement"] : null;
@@ -890,6 +910,9 @@ function selectBackendActivePrompt(messages: InboundMessage[]): PromptViewModel 
   if (typeof requestId !== "string" || !requestId.trim() || typeof requestType !== "string" || typeof playerId !== "number") {
     return null;
   }
+  if (declaresModuleContinuation(active) && !hasCompleteModuleContinuation(active)) {
+    return null;
+  }
   return {
     requestId,
     requestType,
@@ -935,6 +958,9 @@ export function selectActivePrompt(messages: InboundMessage[]): PromptViewModel 
     const choicesRaw = Array.isArray(promptMessage.payload["legal_choices"])
       ? promptMessage.payload["legal_choices"]
       : promptMessage.payload["choices"];
+    if (declaresModuleContinuation(promptMessage.payload) && !hasCompleteModuleContinuation(promptMessage.payload)) {
+      continue;
+    }
     return {
       requestId,
       requestType,

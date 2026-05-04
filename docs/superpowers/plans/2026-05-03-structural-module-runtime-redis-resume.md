@@ -904,7 +904,7 @@ git commit -m "feat: route hostile mark suppression through modifiers"
 - Modify: `GPT/test_runtime_sequence_modules.py`
 - Modify: `GPT/test_rule_fixes.py`
 
-- [ ] **Step 1: Implement native turn module handlers**
+- [x] **Step 1: Implement native turn module handlers**
 
 The minimal first native turn path must execute in this order:
 
@@ -925,7 +925,7 @@ TURN_NATIVE_HANDLERS = {
 }
 ```
 
-- [ ] **Step 2: Make trick window spawn child sequence**
+- [x] **Step 2: Make trick window spawn child sequence**
 
 ```python
 def handle_trick_window(context: ModuleContext) -> ModuleResult:
@@ -952,7 +952,7 @@ def handle_trick_window(context: ModuleContext) -> ModuleResult:
     return ModuleResult(status="completed")
 ```
 
-- [ ] **Step 3: Make 잔꾀 stay inside `TrickSequenceFrame`**
+- [x] **Step 3: Make 잔꾀 stay inside `TrickSequenceFrame`**
 
 `TrickResolveModule` handles 잔꾀 by enqueuing another trick prompt module in the same sequence frame, not by re-entering `CharacterStartModule`.
 
@@ -975,7 +975,7 @@ def handle_trick_resolve(context: ModuleContext) -> ModuleResult:
     return ModuleResult(status="completed", events=context.events, queue_ops=context.queue_ops)
 ```
 
-- [ ] **Step 4: Add a journal assertion**
+- [x] **Step 4: Add a journal assertion**
 
 ```python
 def test_jangggwe_sequence_never_reopens_character_start():
@@ -993,7 +993,9 @@ Run: `.venv/bin/python -m pytest GPT/test_rule_fixes.py::test_jangggwe_sequence_
 
 Expected after implementation: pass.
 
-- [ ] **Step 5: Commit native trick sequence**
+- [x] **Step 5: Commit native trick sequence**
+
+Implementation note: the current runner coverage proves `TrickWindowModule` delegates into a child `TrickSequenceFrame`, 잔꾀 follow-up modules are appended to that same sequence frame, and follow-up processing does not reopen `CharacterStartModule`, `PendingMarkResolutionModule`, `TargetJudicatorModule`, or the parent `TrickWindowModule`.
 
 ```bash
 git add GPT/runtime_modules/handlers/turn.py GPT/runtime_modules/handlers/sequences.py GPT/runtime_modules/sequence_modules.py GPT/runtime_modules/runner.py GPT/test_runtime_sequence_modules.py GPT/test_rule_fixes.py
@@ -1256,7 +1258,7 @@ git commit -m "feat: resolve resupply through simultaneous prompt batches"
 - Modify: `apps/server/tests/test_view_state_runtime_projection.py`
 - Modify: `apps/server/tests/test_runtime_semantic_guard.py`
 
-- [ ] **Step 1: Project active module from checkpoint first**
+- [x] **Step 1: Project active module from checkpoint first**
 
 ```python
 def _runtime_module_from_checkpoint(checkpoint: Any) -> dict[str, Any] | None:
@@ -1283,7 +1285,7 @@ def _runtime_module_from_checkpoint(checkpoint: Any) -> dict[str, Any] | None:
     return None
 ```
 
-- [ ] **Step 2: Make guard check contracts, not compensate gameplay**
+- [x] **Step 2: Make guard check contracts, not compensate gameplay**
 
 `runtime_semantic_guard.py` keeps these assertions:
 
@@ -1298,7 +1300,7 @@ FRAME_ALLOWED_MODULES = {
 
 It must not contain card-name gameplay conditions such as 어사/산적/잔꾀.
 
-- [ ] **Step 3: Test card flip guard is a contract assertion only**
+- [x] **Step 3: Test card flip guard is a contract assertion only**
 
 ```python
 def test_card_flip_guard_uses_frame_contract_not_active_turn_guess():
@@ -1321,7 +1323,9 @@ Run: `.venv/bin/python -m pytest apps/server/tests/test_runtime_semantic_guard.p
 
 Expected after implementation: pass.
 
-- [ ] **Step 4: Commit projection and contract guard**
+- [x] **Step 4: Commit projection and contract guard**
+
+Implementation note: runtime view projection now selects checkpoint active modules before same-payload `runtime_module` metadata and normalizes missing checkpoint cursors to `start`. The semantic guard validates round-end card flip against the checkpoint active module, including payloads that omit duplicated `module_id`.
 
 ```bash
 git add apps/server/src/domain/view_state/runtime_selector.py apps/server/src/domain/runtime_semantic_guard.py apps/server/src/services/stream_service.py apps/server/tests/test_view_state_runtime_projection.py apps/server/tests/test_runtime_semantic_guard.py
@@ -1339,7 +1343,7 @@ git commit -m "feat: project runtime state from module checkpoints"
 - Modify: `apps/web/src/domain/selectors/promptSelectors.spec.ts`
 - Modify: `apps/web/src/hooks/useGameStream.spec.ts`
 
-- [ ] **Step 1: Extend continuation view model**
+- [x] **Step 1: Extend continuation view model**
 
 ```ts
 export type PromptContinuationViewModel = {
@@ -1352,7 +1356,7 @@ export type PromptContinuationViewModel = {
 };
 ```
 
-- [ ] **Step 2: Parse cursor from prompt payload**
+- [x] **Step 2: Parse cursor from prompt payload**
 
 ```ts
 function parsePromptContinuation(raw: Record<string, unknown>): PromptContinuationViewModel {
@@ -1367,7 +1371,7 @@ function parsePromptContinuation(raw: Record<string, unknown>): PromptContinuati
 }
 ```
 
-- [ ] **Step 3: Send cursor with decision**
+- [x] **Step 3: Send cursor with decision**
 
 ```ts
 client.send({
@@ -1386,7 +1390,7 @@ client.send({
 });
 ```
 
-- [ ] **Step 4: Test module prompt without continuation is not actionable**
+- [x] **Step 4: Test module prompt without continuation is not actionable**
 
 ```ts
 it("marks module prompts without continuation as blocked", () => {
@@ -1409,7 +1413,9 @@ Run: `cd apps/web && npm test -- --run src/domain/selectors/promptSelectors.spec
 
 Expected after implementation: pass.
 
-- [ ] **Step 5: Commit frontend continuation echo**
+- [x] **Step 5: Commit frontend continuation echo**
+
+Implementation note: frontend prompt selectors now treat a partially declared module continuation as invalid for actionability. A module prompt must carry `resume_token`, `frame_id`, `module_id`, `module_type`, and `module_cursor` together before it can be exposed to the player.
 
 ```bash
 git add apps/web/src/core/contracts/stream.ts apps/web/src/domain/selectors/promptSelectors.ts apps/web/src/hooks/useGameStream.ts apps/web/src/features/prompt/PromptOverlay.tsx apps/web/src/domain/selectors/promptSelectors.spec.ts apps/web/src/hooks/useGameStream.spec.ts
@@ -1425,7 +1431,7 @@ git commit -m "feat: echo module continuation cursor from prompts"
 - Modify: `GPT/test_runtime_sequence_modules.py`
 - Modify: `apps/server/tests/test_runtime_service.py`
 
-- [ ] **Step 1: Make legacy adapters explicit and measured**
+- [x] **Step 1: Make legacy adapters explicit and measured**
 
 ```python
 LEGACY_ADAPTER_MODULE_TYPES = frozenset({
@@ -1442,7 +1448,7 @@ def _advance_action_adapter_module(self, engine, state, frame, module):
 
 During migration slices where an adapter is still allowed, put the module type in `runtime.allowed_legacy_adapters` session config and assert the list is empty before cutover.
 
-- [ ] **Step 2: Add a parity gate that fails if module runner uses legacy turn body**
+- [x] **Step 2: Add a parity gate that fails if module runner uses legacy turn body**
 
 ```python
 def test_module_runner_has_no_legacy_turn_body_adapter_after_cutover():
@@ -1456,7 +1462,9 @@ Run: `.venv/bin/python -m pytest GPT/test_runtime_sequence_modules.py::test_modu
 
 Expected after implementation: pass.
 
-- [ ] **Step 3: Commit adapter retirement gates**
+- [x] **Step 3: Commit adapter retirement gates**
+
+Implementation note: the adapter retirement gate asserts that the module runner no longer falls back into the legacy turn body from the player-turn section, and the broader sequence-module suite keeps that path covered.
 
 ```bash
 git add GPT/runtime_modules/runner.py GPT/engine.py GPT/test_runtime_sequence_modules.py apps/server/tests/test_runtime_service.py
@@ -1471,7 +1479,7 @@ git commit -m "test: gate legacy adapters out of module runner"
 - Modify: `docs/current/runtime/round-action-control-matrix.md`
 - Modify: `docs/current/backend/turn-structure-and-order-source-map.md`
 
-- [ ] **Step 1: Run engine module tests**
+- [x] **Step 1: Run engine module tests**
 
 ```bash
 .venv/bin/python -m pytest \
@@ -1486,7 +1494,7 @@ git commit -m "test: gate legacy adapters out of module runner"
 
 Expected: all selected tests pass.
 
-- [ ] **Step 2: Run backend runtime tests**
+- [x] **Step 2: Run backend runtime tests**
 
 ```bash
 .venv/bin/python -m pytest \
@@ -1501,7 +1509,7 @@ Expected: all selected tests pass.
 
 Expected: all selected tests pass.
 
-- [ ] **Step 3: Run frontend prompt/stream tests**
+- [x] **Step 3: Run frontend prompt/stream tests**
 
 ```bash
 cd apps/web && npm test -- --run \
@@ -1512,7 +1520,7 @@ cd apps/web && npm test -- --run \
 
 Expected: all selected tests pass.
 
-- [ ] **Step 4: Run parity playtest**
+- [x] **Step 4: Run parity playtest**
 
 ```bash
 cd apps/web && npm run e2e:parity
@@ -1520,7 +1528,7 @@ cd apps/web && npm run e2e:parity
 
 Expected: no duplicate prompt, no mid-turn draft, no mid-turn card flip, no missing second final choice.
 
-- [ ] **Step 5: Update current docs**
+- [x] **Step 5: Update current docs**
 
 `docs/current/runtime/round-action-control-matrix.md` must state:
 
@@ -1539,7 +1547,9 @@ PlayerTurnModule creates a TurnFrame and waits for that child frame to complete.
 It does not call the legacy _take_turn body in module runner sessions.
 ```
 
-- [ ] **Step 6: Final commit**
+- [x] **Step 6: Final commit**
+
+Verification note: the final pass for this slice ran the engine module suite (`183 passed, 3 subtests passed`), backend runtime suite (`187 passed, 9 subtests passed`), frontend prompt/stream suite (`90 passed`), production build, parity playtest (`6 passed`), and `git diff --check`.
 
 ```bash
 git add docs/current/runtime/round-action-control-matrix.md docs/current/backend/turn-structure-and-order-source-map.md apps/web/e2e/parity.spec.ts

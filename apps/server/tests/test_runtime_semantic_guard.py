@@ -235,6 +235,52 @@ def test_allows_round_end_marker_flip_when_checkpoint_proves_round_module_after_
     )
 
 
+def test_card_flip_guard_uses_checkpoint_active_module_when_payload_omits_module_id() -> None:
+    history = [
+        {
+            "type": "event",
+            "seq": 10,
+            "payload": {
+                "event_type": "turn_start",
+                "round_index": 1,
+                "turn_index": 4,
+                "acting_player_id": 4,
+            },
+        }
+    ]
+
+    validate_stream_payload(
+        history=history,
+        msg_type="event",
+        payload={
+            "event_type": "marker_flip",
+            "round_index": 1,
+            "turn_index": 4,
+            "runtime_module": {
+                "frame_type": "round",
+                "frame_id": "round:1",
+                "module_type": "RoundEndCardFlipModule",
+            },
+            "engine_checkpoint": {
+                "runtime_runner_kind": "module",
+                "runtime_frame_stack": [
+                    {
+                        "frame_id": "round:1",
+                        "frame_type": "round",
+                        "status": "running",
+                        "active_module_id": "mod:flip",
+                        "module_queue": [
+                            {"module_id": "mod:p0", "module_type": "PlayerTurnModule", "status": "completed"},
+                            {"module_id": "mod:p1", "module_type": "PlayerTurnModule", "status": "skipped"},
+                            {"module_id": "mod:flip", "module_type": "RoundEndCardFlipModule", "status": "running"},
+                        ],
+                    }
+                ],
+            },
+        },
+    )
+
+
 def test_rejects_module_prompt_without_module_cursor() -> None:
     with pytest.raises(RuntimeSemanticViolation, match="module_cursor"):
         validate_stream_payload(

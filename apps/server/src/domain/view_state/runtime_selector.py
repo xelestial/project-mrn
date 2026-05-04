@@ -153,7 +153,7 @@ def _runtime_module_from_checkpoint(checkpoint: Any) -> dict[str, Any] | None:
             "module_id": module_id,
             "module_type": str(module.get("module_type") or ""),
             "module_status": str(module.get("status") or "queued"),
-            "module_cursor": str(module.get("cursor") or module.get("module_cursor") or ""),
+            "module_cursor": str(module.get("cursor") or module.get("module_cursor") or "start"),
             "module_path": module_path,
             "idempotency_key": str(module.get("idempotency_key") or ""),
             "round_index": checkpoint.get("rounds_completed") or runtime_state.get("round_index") or 0,
