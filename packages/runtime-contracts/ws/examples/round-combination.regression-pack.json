@@ -24,6 +24,200 @@
     "pending_prompt_instance_id - 1",
     "frontend-created request id"
   ],
+  "prompt_decision_contract_matrix": [
+    {
+      "request_type": "mark_target",
+      "frame_contract": "TurnFrame",
+      "owner_modules": [
+        "CharacterStartModule",
+        "TargetJudicatorModule"
+      ],
+      "resume_contract": "PromptContinuation",
+      "required_wire_fields": [
+        "request_id",
+        "request_type",
+        "player_id",
+        "frame_id",
+        "module_id",
+        "module_type",
+        "module_cursor"
+      ],
+      "replay_must_not": [
+        "must not reopen CharacterStartModule"
+      ]
+    },
+    {
+      "request_type": "trick_to_use",
+      "frame_contract": "TrickSequenceFrame",
+      "owner_modules": [
+        "TrickWindowModule",
+        "TrickChoiceModule"
+      ],
+      "resume_contract": "PromptContinuation",
+      "required_wire_fields": [
+        "request_id",
+        "request_type",
+        "player_id",
+        "frame_id",
+        "module_id",
+        "module_type",
+        "module_cursor"
+      ],
+      "replay_must_not": [
+        "must not reopen TrickWindowModule"
+      ]
+    },
+    {
+      "request_type": "hidden_trick_card",
+      "frame_contract": "TrickSequenceFrame",
+      "owner_modules": [
+        "TrickChoiceModule",
+        "TrickResolveModule"
+      ],
+      "resume_contract": "PromptContinuation",
+      "required_wire_fields": [
+        "request_id",
+        "request_type",
+        "player_id",
+        "frame_id",
+        "module_id",
+        "module_type",
+        "module_cursor"
+      ],
+      "replay_must_not": [
+        "must not insert duplicate followup TrickChoiceModule"
+      ]
+    },
+    {
+      "request_type": "specific_trick_reward",
+      "frame_contract": "TrickSequenceFrame",
+      "owner_modules": [
+        "TrickResolveModule",
+        "TrickDeferredFollowupsModule"
+      ],
+      "resume_contract": "PromptContinuation",
+      "required_wire_fields": [
+        "request_id",
+        "request_type",
+        "player_id",
+        "frame_id",
+        "module_id",
+        "module_type",
+        "module_cursor"
+      ],
+      "replay_must_not": [
+        "must not leave current TrickSequenceFrame"
+      ]
+    },
+    {
+      "request_type": "movement",
+      "frame_contract": "TurnFrame",
+      "owner_modules": [
+        "DiceRollModule",
+        "MapMoveModule",
+        "ArrivalTileModule"
+      ],
+      "resume_contract": "PromptContinuation",
+      "required_wire_fields": [
+        "request_id",
+        "request_type",
+        "player_id",
+        "frame_id",
+        "module_id",
+        "module_type",
+        "module_cursor"
+      ],
+      "replay_must_not": [
+        "must not create a new TurnFrame"
+      ]
+    },
+    {
+      "request_type": "lap_reward",
+      "frame_contract": "ActionSequenceFrame",
+      "owner_modules": [
+        "LapRewardModule"
+      ],
+      "resume_contract": "PromptContinuation",
+      "required_wire_fields": [
+        "request_id",
+        "request_type",
+        "player_id",
+        "frame_id",
+        "module_id",
+        "module_type",
+        "module_cursor"
+      ],
+      "replay_must_not": [
+        "must not rerun MovementResolveModule"
+      ]
+    },
+    {
+      "request_type": "purchase_tile",
+      "frame_contract": "ActionSequenceFrame",
+      "owner_modules": [
+        "PurchaseDecisionModule",
+        "PurchaseCommitModule"
+      ],
+      "resume_contract": "PromptContinuation",
+      "required_wire_fields": [
+        "request_id",
+        "request_type",
+        "player_id",
+        "frame_id",
+        "module_id",
+        "module_type",
+        "module_cursor"
+      ],
+      "replay_must_not": [
+        "must not rerun ArrivalTileModule"
+      ]
+    },
+    {
+      "request_type": "score_token_placement",
+      "frame_contract": "ActionSequenceFrame",
+      "owner_modules": [
+        "ScoreTokenPlacementPromptModule",
+        "ScoreTokenPlacementCommitModule"
+      ],
+      "resume_contract": "PromptContinuation",
+      "required_wire_fields": [
+        "request_id",
+        "request_type",
+        "player_id",
+        "frame_id",
+        "module_id",
+        "module_type",
+        "module_cursor"
+      ],
+      "replay_must_not": [
+        "must not rerun PurchaseCommitModule"
+      ]
+    },
+    {
+      "request_type": "burden_exchange",
+      "frame_contract": "SimultaneousResolutionFrame",
+      "owner_modules": [
+        "ResupplyModule",
+        "SimultaneousCommitModule"
+      ],
+      "resume_contract": "SimultaneousPromptBatchContinuation",
+      "required_wire_fields": [
+        "request_id",
+        "request_type",
+        "player_id",
+        "frame_id",
+        "module_id",
+        "module_type",
+        "module_cursor",
+        "batch_id",
+        "missing_player_ids",
+        "resume_tokens_by_player_id"
+      ],
+      "replay_must_not": [
+        "must not recalculate eligible burden cards"
+      ]
+    }
+  ],
   "redis_resume_evidence": [
     {
       "scenario_id": "MRN-MOD-003",
@@ -31,6 +225,14 @@
       "required_tests": [
         "apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_preserves_checkpoint_frame_stack_without_replay",
         "apps/server/tests/test_command_wakeup_worker.py::CommandStreamWakeupWorkerTests::test_wakeup_worker_prefers_command_processing_hook_before_offset"
+      ]
+    },
+    {
+      "scenario_id": "MRN-MOD-004",
+      "checkpoint_contract": "PromptContinuation + TrickSequenceFrame",
+      "required_tests": [
+        "GPT/test_runtime_sequence_modules.py::test_trick_followup_runs_inside_child_sequence_before_turn_dice",
+        "GPT/test_runtime_prompt_continuation.py::test_resume_rejects_same_module_with_stale_cursor"
       ]
     },
     {
@@ -47,6 +249,14 @@
       "required_tests": [
         "apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_simultaneous_batch_continuation_survives_service_reconstruction",
         "apps/server/tests/test_command_wakeup_worker.py::CommandStreamWakeupWorkerTests::test_wakeup_worker_prefers_command_processing_hook_before_offset"
+      ]
+    },
+    {
+      "scenario_id": "MRN-MOD-015",
+      "checkpoint_contract": "PromptContinuation + TrickSequenceFrame",
+      "required_tests": [
+        "GPT/test_runtime_sequence_modules.py::test_trick_resolve_followup_insertion_is_idempotent_on_module_retry",
+        "GPT/test_runtime_sequence_modules.py::test_bandit_mark_then_trick_followup_never_replays_target_or_trick_window"
       ]
     }
   ],
@@ -146,6 +356,9 @@
     "TargetJudicatorModule",
     "RoundEndCardFlipModule",
     "SimultaneousResolutionFrame",
+    "TrickWindowModule may suspend only into a child TrickSequenceFrame",
+    "completed pre-trick modules must not replay after TrickSequenceFrame completion",
+    "SimultaneousPromptBatchContinuation",
     "프론트 생성 request id나 stale continuation이 엔진을 진행시키지 않는지 확인한다"
   ]
 }

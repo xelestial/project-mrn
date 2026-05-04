@@ -138,7 +138,13 @@ def test_round_combination_regression_pack_documents_redis_resume_evidence() -> 
     pack = json.loads(ROUND_COMBINATION_REGRESSION_PACK.read_text(encoding="utf-8"))
 
     evidence = pack["redis_resume_evidence"]
-    assert {item["scenario_id"] for item in evidence} == {"MRN-MOD-003", "MRN-MOD-005", "MRN-MOD-014"}
+    assert {item["scenario_id"] for item in evidence} == {
+        "MRN-MOD-003",
+        "MRN-MOD-004",
+        "MRN-MOD-005",
+        "MRN-MOD-014",
+        "MRN-MOD-015",
+    }
     for item in evidence:
         assert item["scenario_id"] in text
         assert item["checkpoint_contract"] in text
@@ -150,7 +156,59 @@ def test_round_combination_regression_pack_documents_redis_resume_evidence() -> 
         "PromptContinuation + ActionSequenceFrame",
         "SimultaneousPromptBatchContinuation + SimultaneousResolutionFrame",
     }
-    assert {item["checkpoint_contract"] for item in evidence} == required_contracts
+    assert required_contracts.issubset({item["checkpoint_contract"] for item in evidence})
+
+
+def test_round_combination_regression_pack_documents_prompt_decision_contract_matrix() -> None:
+    matrix_doc = MATRIX_DOC.read_text(encoding="utf-8")
+    control_doc = ROUND_ACTION_CONTROL_MATRIX.read_text(encoding="utf-8")
+    pack = json.loads(ROUND_COMBINATION_REGRESSION_PACK.read_text(encoding="utf-8"))
+
+    rows = pack["prompt_decision_contract_matrix"]
+    request_types = {row["request_type"] for row in rows}
+    assert request_types == {
+        "mark_target",
+        "trick_to_use",
+        "hidden_trick_card",
+        "specific_trick_reward",
+        "movement",
+        "lap_reward",
+        "purchase_tile",
+        "score_token_placement",
+        "burden_exchange",
+    }
+
+    required_fields = set(pack["required_wire_fields"])
+    simultaneous_fields = set(pack["simultaneous_wire_fields"])
+    for row in rows:
+        assert required_fields.issubset(set(row["required_wire_fields"]))
+        if row["request_type"] == "burden_exchange":
+            assert simultaneous_fields.issubset(set(row["required_wire_fields"]))
+            assert row["frame_contract"] == "SimultaneousResolutionFrame"
+        else:
+            assert row["resume_contract"] == "PromptContinuation"
+        assert row["request_type"] in matrix_doc
+        assert row["request_type"] in control_doc
+        assert row["frame_contract"] in control_doc
+        for module_type in row["owner_modules"]:
+            assert module_type in control_doc
+        for forbidden in row["replay_must_not"]:
+            assert forbidden in matrix_doc
+
+
+def test_round_action_control_matrix_documents_trick_mark_loop_gates_and_simultaneous_response_term() -> None:
+    text = ROUND_ACTION_CONTROL_MATRIX.read_text(encoding="utf-8")
+
+    for phrase in {
+        "Prompt/Decision Contract Matrix",
+        "Trick/Mark Loop Structural Gates",
+        "Simultaneous response",
+        "SimultaneousPromptBatchContinuation",
+        "TrickWindowModule may suspend only into a child `TrickSequenceFrame`",
+        "completed pre-trick modules must not replay after `TrickSequenceFrame` completion",
+        "후속 잔꾀 선택은 `followup_choice_module_id`로 한 번만 삽입",
+    }:
+        assert phrase in text
 
 
 def test_round_combination_regression_pack_e2e_titles_are_wired_to_module_runtime_script() -> None:

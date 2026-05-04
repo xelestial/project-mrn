@@ -70,8 +70,26 @@
 
 Wire 계약은 모든 단일 prompt에 `request_id`/`request_type`/`player_id`와 `frame_id`/`module_id`/`module_type`/`module_cursor`가 포함되어야 한다. 동시 응답 prompt는 추가로 `batch_id`/`missing_player_ids`/`resume_tokens_by_player_id`를 포함해야 하며, module runner 재개는 `round_setup_replay_base`, `pending_prompt_instance_id - 1`, `frontend-created request id`를 재실행 근거로 사용하지 않는다.
 
+Prompt/decision 계약 매트릭스는 회귀 pack의 `prompt_decision_contract_matrix`에 기계 판독 가능한 형태로 고정한다.
+
+잔꾀/지목 루프 차단 불변식은 다음 문장으로 고정한다. TrickWindowModule may suspend only into a child TrickSequenceFrame. completed pre-trick modules must not replay after TrickSequenceFrame completion. `SimultaneousPromptBatchContinuation`은 순차 턴 재개가 아니라 동시응답 batch 재개 계약이다.
+
+| request_type | 프레임 계약 | 소유 모듈 | 재개 계약 | 재실행 금지 |
+| --- | --- | --- | --- | --- |
+| `mark_target` | `TurnFrame` | `CharacterStartModule`, `TargetJudicatorModule` | `PromptContinuation` | must not reopen CharacterStartModule |
+| `trick_to_use` | `TrickSequenceFrame` | `TrickWindowModule`, `TrickChoiceModule` | `PromptContinuation` | must not reopen TrickWindowModule |
+| `hidden_trick_card` | `TrickSequenceFrame` | `TrickChoiceModule`, `TrickResolveModule` | `PromptContinuation` | must not insert duplicate followup TrickChoiceModule |
+| `specific_trick_reward` | `TrickSequenceFrame` | `TrickResolveModule`, `TrickDeferredFollowupsModule` | `PromptContinuation` | must not leave current TrickSequenceFrame |
+| `movement` | `TurnFrame` | `DiceRollModule`, `MapMoveModule`, `ArrivalTileModule` | `PromptContinuation` | must not create a new TurnFrame |
+| `lap_reward` | `ActionSequenceFrame` | `LapRewardModule` | `PromptContinuation` | must not rerun MovementResolveModule |
+| `purchase_tile` | `ActionSequenceFrame` | `PurchaseDecisionModule`, `PurchaseCommitModule` | `PromptContinuation` | must not rerun ArrivalTileModule |
+| `score_token_placement` | `ActionSequenceFrame` | `ScoreTokenPlacementPromptModule`, `ScoreTokenPlacementCommitModule` | `PromptContinuation` | must not rerun PurchaseCommitModule |
+| `burden_exchange` | `SimultaneousResolutionFrame` | `ResupplyModule`, `SimultaneousCommitModule` | `SimultaneousPromptBatchContinuation` | must not recalculate eligible burden cards |
+
 Redis 재개 증거는 회귀 pack의 `redis_resume_evidence`와 아래 테스트 이름이 함께 고정한다.
 
 - `MRN-MOD-003`: `PromptContinuation + TrickSequenceFrame` 계약으로 `apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_preserves_checkpoint_frame_stack_without_replay`와 `apps/server/tests/test_command_wakeup_worker.py::CommandStreamWakeupWorkerTests::test_wakeup_worker_prefers_command_processing_hook_before_offset`를 통과해야 한다.
+- `MRN-MOD-004`: `PromptContinuation + TrickSequenceFrame` 계약으로 `GPT/test_runtime_sequence_modules.py::test_trick_followup_runs_inside_child_sequence_before_turn_dice`와 `GPT/test_runtime_prompt_continuation.py::test_resume_rejects_same_module_with_stale_cursor`를 통과해야 한다.
 - `MRN-MOD-005`: `PromptContinuation + ActionSequenceFrame` 계약으로 `apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_prompt_boundary_matrix_preserves_checkpoint_without_replay`와 `apps/server/tests/test_command_wakeup_worker.py::CommandStreamWakeupWorkerTests::test_wakeup_worker_prefers_command_processing_hook_before_offset`를 통과해야 한다.
 - `MRN-MOD-014`: `SimultaneousPromptBatchContinuation + SimultaneousResolutionFrame` 계약으로 `apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_simultaneous_batch_continuation_survives_service_reconstruction`와 `apps/server/tests/test_command_wakeup_worker.py::CommandStreamWakeupWorkerTests::test_wakeup_worker_prefers_command_processing_hook_before_offset`를 통과해야 한다.
+- `MRN-MOD-015`: `PromptContinuation + TrickSequenceFrame` 계약으로 `GPT/test_runtime_sequence_modules.py::test_trick_resolve_followup_insertion_is_idempotent_on_module_retry`와 `GPT/test_runtime_sequence_modules.py::test_bandit_mark_then_trick_followup_never_replays_target_or_trick_window`를 통과해야 한다.

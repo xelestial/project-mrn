@@ -14,7 +14,7 @@ Each round may contain these action groups. Every group must be controlled from 
 | Dice/move/arrival | `DiceRollModule`, `MapMoveModule`, `ArrivalTileModule` | event must match active actor round+turn | displayed in current turn only |
 | Lap reward | `LapRewardModule` after movement lap detection | prompt continuation must resume `lap_reward:await_choice`; reward mutation happens inside the module, not during movement reconstruction | render reward prompt/current turn progress from backend `turn_stage`, not from inferred position changes |
 | Fortune follow-up | `FortuneResolveModule` in turn/sequence | any inserted extra action must be queued through runtime module API | displayed in current turn/sequence only |
-| Concurrent resupply | `SimultaneousResolutionFrame` | all participant prompts share `batch_id`; commit only when all required responses exist or policy timeout default applies | simultaneous response surface; must not supersede unrelated single-player prompts |
+| Simultaneous response / resupply | `SimultaneousResolutionFrame` | all participant prompts share `batch_id`; commit only when all required responses exist or policy timeout default applies | simultaneous response surface; must not supersede unrelated single-player prompts |
 | Turn end | `TurnEndSnapshotModule` in the active `TurnFrame` | backend/Redis must not promote `pending_turn_completion` into a sequence adapter; turn completion cannot publish round-end card flip | closes current turn UI |
 | Round-end card flip | `RoundEndCardFlipModule` in `RoundFrame` | allowed only after all `PlayerTurnModule`s completed/skipped | show as round-end stage, never as current turn progress |
 | Cleanup/next round | `RoundCleanupAndNextRoundModule` | starts next round only after card flip/cleanup complete | clear stale prompt/turn stage before next draft |
@@ -63,6 +63,38 @@ Prompt-resuming action coverage is tested as a native-module contract. `resolve_
 `request_score_token_placement`, `resolve_score_token_placement`, and
 `resolve_trick_tile_rent_modifier` must resolve to the explicit modules above
 and must never be assigned to `LegacyActionAdapterModule`.
+
+## Prompt/Decision Contract Matrix
+
+Every player decision is owned by the active engine frame and module that opened
+the prompt. The backend/Redis layer persists this identity; WebSocket forwards
+it; the frontend returns it unchanged. The frontend does not invent request ids
+or resume tokens.
+
+| request_type | Frame contract | Owner modules | Resume contract | Structural replay ban |
+| --- | --- | --- | --- | --- |
+| `mark_target` | `TurnFrame` | `CharacterStartModule`, `TargetJudicatorModule` | `PromptContinuation` | must not reopen `CharacterStartModule` |
+| `trick_to_use` | `TrickSequenceFrame` | `TrickWindowModule`, `TrickChoiceModule` | `PromptContinuation` | must not reopen `TrickWindowModule` |
+| `hidden_trick_card` | `TrickSequenceFrame` | `TrickChoiceModule`, `TrickResolveModule` | `PromptContinuation` | must not insert duplicate followup `TrickChoiceModule` |
+| `specific_trick_reward` | `TrickSequenceFrame` | `TrickResolveModule`, `TrickDeferredFollowupsModule` | `PromptContinuation` | must not leave current `TrickSequenceFrame` |
+| `movement` | `TurnFrame` | `DiceRollModule`, `MapMoveModule`, `ArrivalTileModule` | `PromptContinuation` | must not create a new `TurnFrame` |
+| `lap_reward` | `ActionSequenceFrame` | `LapRewardModule` | `PromptContinuation` | must not rerun `MovementResolveModule` |
+| `purchase_tile` | `ActionSequenceFrame` | `PurchaseDecisionModule`, `PurchaseCommitModule` | `PromptContinuation` | must not rerun `ArrivalTileModule` |
+| `score_token_placement` | `ActionSequenceFrame` | `ScoreTokenPlacementPromptModule`, `ScoreTokenPlacementCommitModule` | `PromptContinuation` | must not rerun `PurchaseCommitModule` |
+| `burden_exchange` | `SimultaneousResolutionFrame` | `ResupplyModule`, `SimultaneousCommitModule` | `SimultaneousPromptBatchContinuation` | must not recalculate eligible burden cards |
+
+Single-player prompt rows must carry `request_id`, `request_type`, `player_id`,
+`frame_id`, `module_id`, `module_type`, and `module_cursor`. Simultaneous
+response rows additionally carry `batch_id`, `missing_player_ids`, and
+`resume_tokens_by_player_id`.
+
+## Trick/Mark Loop Structural Gates
+
+- TrickWindowModule may suspend only into a child `TrickSequenceFrame`; it does not reopen the turn's character, target, dice, or movement modules.
+- completed pre-trick modules must not replay after `TrickSequenceFrame` completion; the parent `TurnFrame` resumes at the suspended `TrickWindowModule` and then advances to the next queued turn module.
+- 후속 잔꾀 선택은 `followup_choice_module_id`로 한 번만 삽입된다. Worker retry/recovery reuses that module id instead of appending another `TrickChoiceModule`.
+- A mark prompt such as `mark_target` is consumed by `TargetJudicatorModule`; later trick prompts such as `trick_to_use`, `hidden_trick_card`, and `specific_trick_reward` stay inside the child `TrickSequenceFrame`.
+- A same-turn trick follow-up may enqueue action modules, but it must not call the round turn scheduler or create a new `TurnFrame`.
 
 ## Legacy Adapter Removal Classification
 
