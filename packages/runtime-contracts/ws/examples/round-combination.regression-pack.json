@@ -197,6 +197,7 @@
       "request_type": "burden_exchange",
       "frame_contract": "SimultaneousResolutionFrame",
       "owner_modules": [
+        "SimultaneousPromptBatchModule",
         "ResupplyModule",
         "SimultaneousCommitModule"
       ],
@@ -328,7 +329,11 @@
       "title": "재보급 eligible 스냅샷 재개",
       "required_modules": [
         "SimultaneousResolutionFrame",
-        "ResupplyModule"
+        "SimultaneousProcessingModule",
+        "SimultaneousPromptBatchModule",
+        "ResupplyModule",
+        "SimultaneousCommitModule",
+        "CompleteSimultaneousResolutionModule"
       ],
       "automation": [
         "GPT/test_runtime_simultaneous_modules.py",

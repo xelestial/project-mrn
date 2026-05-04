@@ -580,7 +580,21 @@ function declaresModuleContinuation(raw: Record<string, unknown>): boolean {
 }
 
 function hasCompleteModuleContinuation(raw: Record<string, unknown>): boolean {
-  return REQUIRED_MODULE_CONTINUATION_FIELDS.every((field) => stringOrEmpty(raw[field]).length > 0);
+  if (!REQUIRED_MODULE_CONTINUATION_FIELDS.every((field) => stringOrEmpty(raw[field]).length > 0)) {
+    return false;
+  }
+  const frameId = stringOrEmpty(raw["frame_id"]);
+  const moduleType = stringOrEmpty(raw["module_type"]);
+  const requiresBatch =
+    frameId.startsWith("simul:") || moduleType === "ResupplyModule" || moduleType === "SimultaneousPromptBatchModule";
+  if (!requiresBatch) {
+    return true;
+  }
+  return (
+    stringOrEmpty(raw["batch_id"]).length > 0 &&
+    Array.isArray(raw["missing_player_ids"]) &&
+    isRecord(raw["resume_tokens_by_player_id"])
+  );
 }
 
 function parsePromptSurface(raw: unknown, requestType: string, publicContext: Record<string, unknown>, choicesRaw: unknown) {

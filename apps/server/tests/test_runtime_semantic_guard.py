@@ -40,6 +40,47 @@ def test_rejects_draft_module_in_turn_frame_stream_payload() -> None:
         )
 
 
+def test_rejects_simultaneous_module_prompt_without_batch_id() -> None:
+    with pytest.raises(RuntimeSemanticViolation, match="simultaneous prompt missing batch_id"):
+        validate_stream_payload(
+            history=[],
+            msg_type="prompt",
+            payload={
+                "runner_kind": "module",
+                "request_id": "req_resupply_p1",
+                "request_type": "burden_exchange",
+                "player_id": 1,
+                "resume_token": "resume:1",
+                "frame_id": "simul:resupply:1:0",
+                "module_id": "mod:simul:resupply:1:0:processing",
+                "module_type": "SimultaneousProcessingModule",
+                "module_cursor": "await_resupply_batch:1",
+                "legal_choices": [{"choice_id": "yes"}],
+            },
+        )
+
+
+def test_rejects_simultaneous_module_prompt_without_batch_wire_state() -> None:
+    with pytest.raises(RuntimeSemanticViolation, match="simultaneous prompt missing batch state"):
+        validate_stream_payload(
+            history=[],
+            msg_type="prompt",
+            payload={
+                "runner_kind": "module",
+                "request_id": "req_resupply_p1",
+                "request_type": "burden_exchange",
+                "player_id": 1,
+                "resume_token": "resume:1",
+                "frame_id": "simul:resupply:1:0",
+                "module_id": "mod:simul:resupply:1:0:processing",
+                "module_type": "SimultaneousProcessingModule",
+                "module_cursor": "await_resupply_batch:1",
+                "batch_id": "batch:simul:resupply:1:0",
+                "legal_choices": [{"choice_id": "yes"}],
+            },
+        )
+
+
 def test_semantic_guard_derives_module_and_action_catalogs_from_engine_runtime_modules() -> None:
     from runtime_modules.catalog import MODULE_RULES
     from runtime_modules.sequence_modules import (

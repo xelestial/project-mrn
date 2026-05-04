@@ -452,6 +452,11 @@ def _require_module_continuation(prompt: dict) -> None:
     if module_type in {"ResupplyModule", "SimultaneousPromptBatchModule"} or frame_id.startswith("simul:"):
         if not str(prompt.get("batch_id") or "").strip():
             raise ValueError("missing_batch_id")
+        if not isinstance(prompt.get("missing_player_ids"), list) or not isinstance(
+            prompt.get("resume_tokens_by_player_id"),
+            dict,
+        ):
+            raise ValueError("missing_simultaneous_batch_state")
 
 
 def _module_decision_mismatch(prompt: dict, decision: dict) -> str:
@@ -472,9 +477,15 @@ def _module_decision_mismatch(prompt: dict, decision: dict) -> str:
 def _module_command_continuation_fields(prompt: dict, decision: dict) -> dict:
     if not _is_module_prompt(prompt):
         return {}
-    fields: dict[str, str] = {}
+    fields: dict[str, object] = {}
     for field in ("resume_token", "frame_id", "module_id", "module_type", "module_cursor", "batch_id"):
         value = str(decision.get(field) or prompt.get(field) or "").strip()
         if value:
+            fields[field] = value
+    for field in ("missing_player_ids", "resume_tokens_by_player_id"):
+        value = decision.get(field)
+        if value is None:
+            value = prompt.get(field)
+        if isinstance(value, (list, dict)):
             fields[field] = value
     return fields

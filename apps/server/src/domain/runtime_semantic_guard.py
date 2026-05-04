@@ -200,8 +200,17 @@ def _validate_prompt_payload(payload: dict[str, Any]) -> None:
     frame_type = _frame_type_from_frame_id(frame_id)
     if frame_type:
         _validate_runtime_module({"module_type": module_type, "frame_type": frame_type, "frame_id": frame_id})
-    if module_type in {"ResupplyModule", "SimultaneousPromptBatchModule"} and not str(payload.get("batch_id") or "").strip():
-        raise RuntimeSemanticViolation("simultaneous prompt missing batch_id")
+    if (
+        module_type in {"ResupplyModule", "SimultaneousPromptBatchModule"}
+        or frame_id.startswith("simul:")
+    ):
+        if not str(payload.get("batch_id") or "").strip():
+            raise RuntimeSemanticViolation("simultaneous prompt missing batch_id")
+        if not isinstance(payload.get("missing_player_ids"), list) or not isinstance(
+            payload.get("resume_tokens_by_player_id"),
+            dict,
+        ):
+            raise RuntimeSemanticViolation("simultaneous prompt missing batch state")
 
 
 def _validate_card_flip_not_before_turns_complete(frame: dict[str, Any]) -> None:

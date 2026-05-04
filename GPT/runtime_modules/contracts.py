@@ -238,6 +238,10 @@ class SimultaneousPromptBatchContinuation:
                 for player_id, response in self.responses_by_player_id.items()
             },
             "missing_player_ids": list(self.missing_player_ids),
+            "resume_tokens_by_player_id": {
+                str(player_id): prompt.resume_token
+                for player_id, prompt in self.prompts_by_player_id.items()
+            },
             "eligibility_snapshot": dict(self.eligibility_snapshot),
             "commit_policy": self.commit_policy,
             "default_policy": dict(self.default_policy),

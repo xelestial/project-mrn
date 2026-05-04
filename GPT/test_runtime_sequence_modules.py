@@ -757,8 +757,10 @@ def test_pending_supply_threshold_action_is_promoted_to_resupply_frame_before_se
 
     assert state.pending_actions == []
     assert [frame.frame_type for frame in state.runtime_frame_stack] == ["turn", "simultaneous", "sequence"]
-    assert state.runtime_frame_stack[1].module_queue[0].module_type == "ResupplyModule"
-    assert state.runtime_frame_stack[1].module_queue[0].payload["action"]["action_id"] == "supply-1"
+    resupply_module = next(
+        module for module in state.runtime_frame_stack[1].module_queue if module.module_type == "ResupplyModule"
+    )
+    assert resupply_module.payload["action"]["action_id"] == "supply-1"
     assert state.runtime_frame_stack[2].module_queue[0].module_type == "MapMoveModule"
 
 

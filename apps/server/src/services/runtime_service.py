@@ -1544,6 +1544,13 @@ class RuntimeService:
                 "module_type": str(getattr(continuation, "module_type", "") or ""),
                 "module_cursor": str(getattr(continuation, "module_cursor", "") or ""),
                 "batch_id": str(getattr(batch, "batch_id", "") or ""),
+                "missing_player_ids": [
+                    int(missing_player_id) + 1
+                    for missing_player_id in list(getattr(batch, "missing_player_ids", []) or [])
+                ],
+                "resume_tokens_by_player_id": {
+                    str(player_id): str(getattr(continuation, "resume_token", "") or ""),
+                },
                 "runtime_module": {
                     "runner_kind": "module",
                     "frame_type": "simultaneous",

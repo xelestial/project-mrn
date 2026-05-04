@@ -991,7 +991,10 @@ class ModuleRunner:
                     session_id=session_id,
                     participants=self._resupply_participants(state, action),
                 )
-                resupply_frame.module_queue[0].payload["action"] = dict(action)
+                resupply_module = next(
+                    module for module in resupply_frame.module_queue if module.module_type == "ResupplyModule"
+                )
+                resupply_module.payload["action"] = dict(action)
                 state.runtime_frame_stack.append(resupply_frame)
             if not actions:
                 return

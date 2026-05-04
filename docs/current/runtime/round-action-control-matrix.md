@@ -81,7 +81,7 @@ or resume tokens.
 | `lap_reward` | `ActionSequenceFrame` | `LapRewardModule` | `PromptContinuation` | must not rerun `MovementResolveModule` |
 | `purchase_tile` | `ActionSequenceFrame` | `PurchaseDecisionModule`, `PurchaseCommitModule` | `PromptContinuation` | must not rerun `ArrivalTileModule` |
 | `score_token_placement` | `ActionSequenceFrame` | `ScoreTokenPlacementPromptModule`, `ScoreTokenPlacementCommitModule` | `PromptContinuation` | must not rerun `PurchaseCommitModule` |
-| `burden_exchange` | `SimultaneousResolutionFrame` | `ResupplyModule`, `SimultaneousCommitModule` | `SimultaneousPromptBatchContinuation` | must not recalculate eligible burden cards |
+| `burden_exchange` | `SimultaneousResolutionFrame` | `SimultaneousPromptBatchModule`, `ResupplyModule`, `SimultaneousCommitModule` | `SimultaneousPromptBatchContinuation` | must not recalculate eligible burden cards |
 
 Single-player prompt rows must carry `request_id`, `request_type`, `player_id`,
 `frame_id`, `module_id`, `module_type`, and `module_cursor`. Simultaneous
@@ -148,13 +148,13 @@ Each effect is owned by a producer module and consumed only by declared runtime 
 | `trick:sequence` | 잔꾀 | `TrickWindowModule` | `TrickChoiceModule`, `TrickResolveModule` |
 | `trick:specific_reward` | 잔꾀 보상 | `TrickResolveModule` | `TrickResolveModule` |
 | `fortune:extra_arrival` | 운수 | `FortuneResolveModule` | `MapMoveModule`, `ArrivalTileModule` |
-| `simultaneous:resupply` | 재보급 | `ConcurrentResolutionSchedulerModule` | `ResupplyModule` |
+| `simultaneous:resupply` | 재보급 | `ConcurrentResolutionSchedulerModule` | `SimultaneousProcessingModule`, `SimultaneousPromptBatchModule`, `ResupplyModule`, `SimultaneousCommitModule`, `CompleteSimultaneousResolutionModule` |
 
 ## Replay/Retry Invariants
 
 - `TrickResolveModule` may insert a follow-up `TrickChoiceModule` only once. The inserted module id is stored as `followup_choice_module_id`; worker retry must reuse that module instead of appending another prompt.
 - `RoundEndCardFlipModule` requires all `PlayerTurnModule` entries to be completed or skipped and also requires no active child `TurnFrame`, `SequenceFrame`, or `SimultaneousResolutionFrame`.
-- `resolve_supply_threshold` remains outside action sequences; retry/recovery must resume `ResupplyModule` with the stored eligible snapshot.
+- `resolve_supply_threshold` remains outside action sequences; retry/recovery must resume the stored `SimultaneousResolutionFrame` and its `ResupplyModule` eligible snapshot without recreating processing/prompt-batch modules.
 - `TurnEndSnapshotModule` is turn-owned only. A module-runner replay must not create a `SequenceFrame` from `pending_turn_completion`; the backend semantic guard rejects that old shape before publish/recovery can continue.
 - All catalogued `resolve_fortune_*` actions remain native `FortuneResolveModule` work and may chain `MapMoveModule`/`ArrivalTileModule` without creating a new turn.
 - Unknown action types must fail before runtime execution. Frontend/backend logs may mention the failed action type, but the engine must not create `LegacyActionAdapterModule` work for it.

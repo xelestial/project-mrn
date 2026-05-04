@@ -366,7 +366,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 parent_module_id="mod:turn:1:p0:arrival",
                 participants=[0, 1],
             )
-            module = frame.module_queue[0]
+            module = next(module for module in frame.module_queue if module.module_type == "ResupplyModule")
             module.cursor = "await_resupply_batch:1"
             batch = PromptApi().create_batch(
                 batch_id="batch:simul:resupply:1",
@@ -5019,7 +5019,7 @@ class RuntimeServiceTests(unittest.TestCase):
             participants=[0, 1],
         )
         frame.status = "suspended"
-        module = frame.module_queue[0]
+        module = next(module for module in frame.module_queue if module.module_type == "ResupplyModule")
         frame.active_module_id = module.module_id
         module.status = "suspended"
         module.cursor = "await_resupply_batch:5"
@@ -5097,7 +5097,11 @@ class RuntimeServiceTests(unittest.TestCase):
                     "responses_by_player_id": dict(active_batch.responses_by_player_id),
                     "eligibility_snapshot": dict(active_batch.eligibility_snapshot),
                     "frame_type": resumed_state.runtime_frame_stack[0].frame_type,
-                    "module_cursor": resumed_state.runtime_frame_stack[0].module_queue[0].cursor,
+                    "module_cursor": next(
+                        module
+                        for module in resumed_state.runtime_frame_stack[0].module_queue
+                        if module.module_type == "ResupplyModule"
+                    ).cursor,
                     "resume_batch_id": decision_resume.batch_id,
                     "resume_request_id": decision_resume.request_id,
                     "resume_player_id": decision_resume.player_id,

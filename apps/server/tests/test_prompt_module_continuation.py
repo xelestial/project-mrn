@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -7,6 +9,9 @@ import pytest
 from GPT.runtime_modules.contracts import FrameState, ModuleRef
 from apps.server.src.services.prompt_service import PromptService
 from apps.server.src.services.runtime_service import _LocalHumanDecisionClient
+
+ROOT_DIR = Path(__file__).resolve().parents[3]
+ROUND_COMBINATION_PACK = ROOT_DIR / "packages/runtime-contracts/ws/examples/round-combination.regression-pack.json"
 
 
 def _module_prompt() -> dict:
@@ -22,6 +27,66 @@ def _module_prompt() -> dict:
         "module_type": "MapMoveModule",
         "module_cursor": "move:await_choice",
         "legal_choices": [{"choice_id": "roll"}],
+    }
+
+
+def _contract_prompt(entry: dict, index: int) -> dict:
+    request_type = str(entry["request_type"])
+    prompt_module_by_type = {
+        "mark_target": "TargetJudicatorModule",
+        "trick_to_use": "TrickChoiceModule",
+        "hidden_trick_card": "TrickChoiceModule",
+        "specific_trick_reward": "TrickResolveModule",
+        "movement": "MapMoveModule",
+        "lap_reward": "LapRewardModule",
+        "purchase_tile": "PurchaseDecisionModule",
+        "score_token_placement": "ScoreTokenPlacementPromptModule",
+        "burden_exchange": "ResupplyModule",
+    }
+    module_type = prompt_module_by_type.get(request_type, "MapMoveModule")
+    frame_contract = str(entry.get("frame_contract") or "")
+    frame_prefix = {
+        "TurnFrame": "turn",
+        "TrickSequenceFrame": "seq:trick",
+        "ActionSequenceFrame": "seq:action",
+        "SimultaneousResolutionFrame": "simul:resupply",
+    }.get(frame_contract, "turn")
+    frame_id = f"{frame_prefix}:contract:{index}:p0"
+    prompt = {
+        "runner_kind": "module",
+        "request_id": f"req_contract_{index}_{request_type}",
+        "request_type": request_type,
+        "player_id": 1,
+        "timeout_ms": 30000,
+        "resume_token": f"resume_contract_{index}",
+        "frame_id": frame_id,
+        "module_id": f"mod:{frame_id}:{request_type}",
+        "module_type": module_type,
+        "module_cursor": f"{request_type}:await_choice",
+        "legal_choices": [{"choice_id": "choice_1"}],
+    }
+    if entry.get("resume_contract") == "SimultaneousPromptBatchContinuation":
+        prompt.update(
+            {
+                "batch_id": f"batch:{frame_id}",
+                "missing_player_ids": [1],
+                "resume_tokens_by_player_id": {"1": f"resume_contract_{index}"},
+            }
+        )
+    return prompt
+
+
+def _decision_from_prompt(prompt: dict) -> dict:
+    return {
+        "request_id": prompt["request_id"],
+        "player_id": prompt["player_id"],
+        "choice_id": "choice_1",
+        "resume_token": prompt["resume_token"],
+        "frame_id": prompt["frame_id"],
+        "module_id": prompt["module_id"],
+        "module_type": prompt["module_type"],
+        "module_cursor": prompt["module_cursor"],
+        "batch_id": prompt.get("batch_id"),
     }
 
 
@@ -212,12 +277,16 @@ def test_batch_prompt_payload_contains_batch_and_module_ids() -> None:
         "request_id": "batch_1:p1",
         "request_type": "resupply_choice",
         "batch_id": "batch_1",
+        "missing_player_ids": [1],
+        "resume_tokens_by_player_id": {"1": "token_1"},
         "module_id": "mod:simul:resupply:1:1:resupply",
         "module_type": "ResupplyModule",
     }
     pending = service.create_prompt("s1", prompt)
 
     assert pending.payload["batch_id"] == "batch_1"
+    assert pending.payload["missing_player_ids"] == [1]
+    assert pending.payload["resume_tokens_by_player_id"] == {"1": "token_1"}
     assert pending.payload["module_type"] == "ResupplyModule"
 
 
@@ -234,6 +303,50 @@ def test_simultaneous_module_prompt_requires_batch_id() -> None:
 
     with pytest.raises(ValueError, match="missing_batch_id"):
         service.create_prompt("s1", prompt)
+
+
+def test_simultaneous_module_prompt_requires_batch_wire_state() -> None:
+    service = PromptService()
+    prompt = {
+        **_module_prompt(),
+        "request_id": "resupply_1:p1",
+        "request_type": "burden_exchange",
+        "frame_id": "simul:resupply:1:0",
+        "module_id": "mod:simul:resupply:1:0:resupply",
+        "module_type": "ResupplyModule",
+        "batch_id": "batch:simul:resupply:1:0",
+    }
+
+    with pytest.raises(ValueError, match="missing_simultaneous_batch_state"):
+        service.create_prompt("s1", prompt)
+
+
+def test_prompt_decision_contract_matrix_preserves_required_wire_fields() -> None:
+    commands: list[dict] = []
+
+    class _CommandStore:
+        def append_command(self, session_id, command_type, payload, **kwargs):  # noqa: ANN001
+            commands.append(
+                {
+                    "session_id": session_id,
+                    "type": command_type,
+                    "payload": dict(payload),
+                    "kwargs": dict(kwargs),
+                }
+            )
+
+    pack = json.loads(ROUND_COMBINATION_PACK.read_text(encoding="utf-8"))
+    service = PromptService(command_store=_CommandStore())
+
+    for index, entry in enumerate(pack["prompt_decision_contract_matrix"], start=1):
+        prompt = _contract_prompt(entry, index)
+        pending = service.create_prompt("s1", prompt)
+        result = service.submit_decision(_decision_from_prompt(prompt))
+
+        assert result["status"] == "accepted"
+        for field in entry["required_wire_fields"]:
+            assert pending.payload[field], f"{entry['request_type']} prompt missing {field}"
+            assert commands[-1]["payload"][field], f"{entry['request_type']} command missing {field}"
 
 
 def test_local_human_prompt_created_inside_module_attaches_active_continuation() -> None:

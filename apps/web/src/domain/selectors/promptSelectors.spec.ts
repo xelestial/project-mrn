@@ -1109,6 +1109,55 @@ describe("promptSelectors", () => {
     expect(selectActivePrompt(messagesFor(allowedRuntime, true))?.requestId).toBe(`req_${requestType}`);
   });
 
+  it("rejects simultaneous module prompts that do not carry a batch id", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "prompt",
+        seq: 84,
+        session_id: "s1",
+        payload: {
+          runner_kind: "module",
+          request_id: "req_resupply_without_batch",
+          request_type: "burden_exchange",
+          player_id: 1,
+          resume_token: "resume:1",
+          frame_id: "simul:resupply:1:0",
+          module_id: "mod:simul:resupply:1:0:processing",
+          module_type: "SimultaneousProcessingModule",
+          module_cursor: "await_resupply_batch:1",
+          legal_choices: [{ choice_id: "yes", title: "정리" }],
+        },
+      },
+    ];
+
+    expect(selectActivePrompt(messages)).toBeNull();
+  });
+
+  it("rejects simultaneous module prompts that do not carry batch wire state", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "prompt",
+        seq: 85,
+        session_id: "s1",
+        payload: {
+          runner_kind: "module",
+          request_id: "req_resupply_without_batch_state",
+          request_type: "burden_exchange",
+          player_id: 1,
+          resume_token: "resume:1",
+          frame_id: "simul:resupply:1:0",
+          module_id: "mod:simul:resupply:1:0:processing",
+          module_type: "SimultaneousProcessingModule",
+          module_cursor: "await_resupply_batch:1",
+          batch_id: "batch:simul:resupply:1:0",
+          legal_choices: [{ choice_id: "yes", title: "정리" }],
+        },
+      },
+    ];
+
+    expect(selectActivePrompt(messages)).toBeNull();
+  });
+
   it("closes any prompt superseded by a newer active runtime request id", () => {
     const messages: InboundMessage[] = [
       {

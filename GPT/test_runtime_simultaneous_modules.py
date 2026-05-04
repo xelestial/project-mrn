@@ -14,6 +14,20 @@ from runtime_modules.simultaneous import batch_is_ready_to_commit, build_resuppl
 from trick_cards import TrickCard
 
 
+def _resupply_module(frame):
+    return next(module for module in frame.module_queue if module.module_type == "ResupplyModule")
+
+
+def _advance_until_waiting_or_committed(engine, state, decision_resume=None):
+    runner = ModuleRunner()
+    result = runner.advance_engine(engine, state, decision_resume=decision_resume)
+    while result["status"] == "committed" and state.runtime_frame_stack[-1].frame_type == "simultaneous":
+        if state.runtime_frame_stack[-1].status == "completed":
+            break
+        result = runner.advance_engine(engine, state)
+    return result
+
+
 def test_resupply_frame_contains_batch_commit_and_complete_modules() -> None:
     frame = build_resupply_frame(
         1,
@@ -26,11 +40,13 @@ def test_resupply_frame_contains_batch_commit_and_complete_modules() -> None:
 
     assert frame.frame_type == "simultaneous"
     assert [module.module_type for module in frame.module_queue] == [
+        "SimultaneousProcessingModule",
+        "SimultaneousPromptBatchModule",
         "ResupplyModule",
         "SimultaneousCommitModule",
         "CompleteSimultaneousResolutionModule",
     ]
-    assert frame.module_queue[0].payload["participants"] == [0, 1, 2]
+    assert _resupply_module(frame).payload["participants"] == [0, 1, 2]
 
 
 def test_resupply_batch_waits_for_all_required_players() -> None:
@@ -41,7 +57,7 @@ def test_resupply_batch_waits_for_all_required_players() -> None:
         parent_module_id="mod:turn:1:p0:arrival",
         participants=[0, 1],
     )
-    module = frame.module_queue[0]
+    module = _resupply_module(frame)
     batch = PromptApi().create_batch(
         batch_id="batch_resupply_1",
         frame=frame,
@@ -77,7 +93,7 @@ def test_partial_resupply_response_does_not_mutate_start_snapshot() -> None:
     batch = PromptApi().create_batch(
         batch_id="batch_resupply_1",
         frame=frame,
-        module=frame.module_queue[0],
+        module=_resupply_module(frame),
         participant_player_ids=[0, 1],
         request_type="resupply_choice",
         legal_choices_by_player_id={0: [{"choice_id": "skip"}], 1: [{"choice_id": "skip"}]},
@@ -107,7 +123,7 @@ def test_stale_resupply_batch_response_rejected() -> None:
     batch = PromptApi().create_batch(
         batch_id="batch_resupply_1",
         frame=frame,
-        module=frame.module_queue[0],
+        module=_resupply_module(frame),
         participant_player_ids=[0],
         request_type="resupply_choice",
         legal_choices_by_player_id={0: [{"choice_id": "skip"}]},
@@ -148,7 +164,8 @@ def test_resupply_module_commits_only_after_all_batch_responses() -> None:
         parent_module_id="mod:turn:1:p0:arrival",
         participants=[0, 1],
     )
-    frame.module_queue[0].payload["action"] = {
+    resupply_module = _resupply_module(frame)
+    resupply_module.payload["action"] = {
         "type": "resolve_supply_threshold",
         "actor_player_id": 0,
         "source": "supply_threshold",
@@ -156,7 +173,7 @@ def test_resupply_module_commits_only_after_all_batch_responses() -> None:
     }
     state.runtime_frame_stack = [frame]
 
-    result = ModuleRunner().advance_engine(engine, state)
+    result = _advance_until_waiting_or_committed(engine, state)
 
     assert result["status"] == "waiting_input"
     assert state.runtime_active_prompt_batch is not None
@@ -168,7 +185,7 @@ def test_resupply_module_commits_only_after_all_batch_responses() -> None:
 
     batch = state.runtime_active_prompt_batch
     prompt0 = batch.prompts_by_player_id[0]
-    result = ModuleRunner().advance_engine(
+    result = _advance_until_waiting_or_committed(
         engine,
         state,
         decision_resume=SimpleNamespace(
@@ -192,7 +209,7 @@ def test_resupply_module_commits_only_after_all_batch_responses() -> None:
     assert [card.deck_index for card in state.players[0].trick_hand] == [101]
     assert state.players[0].cash == 10
 
-    duplicate = ModuleRunner().advance_engine(
+    duplicate = _advance_until_waiting_or_committed(
         engine,
         state,
         decision_resume=SimpleNamespace(
@@ -217,7 +234,7 @@ def test_resupply_module_commits_only_after_all_batch_responses() -> None:
     assert state.players[0].cash == 10
 
     prompt1 = batch.prompts_by_player_id[1]
-    result = ModuleRunner().advance_engine(
+    result = _advance_until_waiting_or_committed(
         engine,
         state,
         decision_resume=SimpleNamespace(
@@ -241,7 +258,7 @@ def test_resupply_module_commits_only_after_all_batch_responses() -> None:
     assert state.players[1].cash == 8
     assert 101 not in {card.deck_index for card in state.players[0].trick_hand}
     assert 102 not in {card.deck_index for card in state.players[1].trick_hand}
-    assert frame.module_queue[0].status == "completed"
+    assert resupply_module.status == "completed"
 
 
 def test_resupply_module_uses_action_eligibility_snapshot_when_resuming() -> None:
@@ -266,7 +283,8 @@ def test_resupply_module_uses_action_eligibility_snapshot_when_resuming() -> Non
         parent_module_id="mod:turn:1:p0:arrival",
         participants=[0],
     )
-    frame.module_queue[0].payload["action"] = {
+    resupply_module = _resupply_module(frame)
+    resupply_module.payload["action"] = {
         "type": "resolve_supply_threshold",
         "actor_player_id": 0,
         "source": "supply_threshold",
@@ -279,11 +297,11 @@ def test_resupply_module_uses_action_eligibility_snapshot_when_resuming() -> Non
     }
     state.runtime_frame_stack = [frame]
 
-    result = ModuleRunner().advance_engine(engine, state)
+    result = _advance_until_waiting_or_committed(engine, state)
 
     assert result["status"] == "waiting_input"
     assert state.runtime_active_prompt_batch is not None
     assert state.runtime_active_prompt_batch.eligibility_snapshot["targets_by_player"] == {"0": 101}
-    assert frame.module_queue[0].payload["resupply_state"][
+    assert resupply_module.payload["resupply_state"][
         "eligible_burden_deck_indices_by_player"
     ] == {"0": [101]}
