@@ -240,6 +240,7 @@ export function gameStreamReducer(state: GameStreamState, action: GameStreamActi
     if (
       Number.isFinite(seq) &&
       carriesCurrentProjection(action.message) &&
+      projectedMessageIsCompatibleWithLatest(state.messages, action.message) &&
       !state.messages.some((message) => sameStreamMessage(message, action.message))
     ) {
       const messages =

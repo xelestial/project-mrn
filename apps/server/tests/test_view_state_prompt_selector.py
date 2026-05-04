@@ -290,6 +290,38 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
 
         self.assertIsNone(view_state)
 
+    def test_build_prompt_view_state_closes_hidden_trick_prompt_after_trick_used(self) -> None:
+        view_state = build_prompt_view_state(
+            [
+                {
+                    "type": "prompt",
+                    "seq": 50,
+                    "session_id": "s1",
+                    "server_time_ms": 50,
+                    "payload": {
+                        "request_id": "req_hidden_trick_1",
+                        "request_type": "hidden_trick_card",
+                        "player_id": 1,
+                        "timeout_ms": 300000,
+                        "legal_choices": [{"choice_id": "42", "title": "박수", "description": "select hidden"}],
+                    },
+                },
+                {
+                    "type": "event",
+                    "seq": 51,
+                    "session_id": "s1",
+                    "server_time_ms": 51,
+                    "payload": {
+                        "event_type": "trick_used",
+                        "acting_player_id": 1,
+                        "card_name": "박수",
+                    },
+                },
+            ]
+        )
+
+        self.assertIsNone(view_state)
+
     def test_stream_service_projects_prompt_view_state_for_target_viewer(self) -> None:
         stream = StreamService()
 

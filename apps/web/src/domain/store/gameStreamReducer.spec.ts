@@ -92,7 +92,7 @@ describe("gameStreamReducer", () => {
     ]);
   });
 
-  it("keeps older replay runtime projections from overriding newer runtime stage", () => {
+  it("keeps incompatible older replay runtime projections in debug without making them visible", () => {
     let state = initialGameStreamState;
     state = gameStreamReducer(state, {
       type: "message",
@@ -133,7 +133,8 @@ describe("gameStreamReducer", () => {
       },
     });
 
-    expect(state.messages.map((message) => message.seq)).toEqual([80, 100]);
+    expect(state.messages.map((message) => message.seq)).toEqual([100]);
+    expect(state.debugMessages.map((message) => message.seq)).toEqual([80, 100]);
     expect(selectRuntimeProjection(state.messages)).toMatchObject({
       roundStage: "in_round",
       turnStage: "dice",

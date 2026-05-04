@@ -681,10 +681,11 @@ def _closes_prompt_by_phase_progress(request_type: str, payload: dict[str, Any],
         return ((event_type == "draft_pick" and payload_player_id == prompt_player_id) or event_type in {"final_character_choice", "turn_start"})
     if request_type in {"final_character", "final_character_choice"}:
         return ((event_type == "final_character_choice" and payload_player_id == prompt_player_id) or event_type == "turn_start")
-    if request_type == "trick_to_use":
+    if request_type in {"trick_to_use", "hidden_trick_card", "hand_choice"}:
         return (
             (event_type == "trick_used" and payload_player_id == prompt_player_id)
             or (event_type == "trick_window_closed" and payload_player_id == prompt_player_id)
+            or event_type in {"dice_roll", "player_move", "turn_end_snapshot"}
         )
     return False
 

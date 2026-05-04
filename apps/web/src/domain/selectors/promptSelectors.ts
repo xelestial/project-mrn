@@ -375,10 +375,13 @@ function closesPromptByPhaseProgress(requestType: string, payload: Record<string
   if (requestType === "final_character" || requestType === "final_character_choice") {
     return (eventType === "final_character_choice" && payloadPlayerId === promptPlayerId) || eventType === "turn_start";
   }
-  if (requestType === "trick_to_use") {
+  if (requestType === "trick_to_use" || requestType === "hidden_trick_card" || requestType === "hand_choice") {
     return (
       (eventType === "trick_used" && payloadPlayerId === promptPlayerId) ||
-      (eventType === "trick_window_closed" && payloadPlayerId === promptPlayerId)
+      (eventType === "trick_window_closed" && payloadPlayerId === promptPlayerId) ||
+      eventType === "dice_roll" ||
+      eventType === "player_move" ||
+      eventType === "turn_end_snapshot"
     );
   }
   return false;

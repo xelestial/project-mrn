@@ -923,6 +923,34 @@ describe("promptSelectors", () => {
     expect(selectActivePrompt(messages)).toBeNull();
   });
 
+  it("returns null when a later trick_used already completed the same player's hidden trick prompt", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "prompt",
+        seq: 50,
+        session_id: "s1",
+        payload: {
+          request_id: "req_hidden_trick_1",
+          request_type: "hidden_trick_card",
+          player_id: 1,
+          timeout_ms: 300000,
+          legal_choices: [{ choice_id: "42", title: "박수", description: "select hidden" }],
+        },
+      },
+      {
+        type: "event",
+        seq: 51,
+        session_id: "s1",
+        payload: {
+          event_type: "trick_used",
+          acting_player_id: 1,
+          card_name: "박수",
+        },
+      },
+    ];
+    expect(selectActivePrompt(messages)).toBeNull();
+  });
+
   it("does not reopen a draft prompt after runtime projection leaves draft", () => {
     const messages: InboundMessage[] = [
       {
