@@ -14,4 +14,6 @@ Operational scripts for local runs, export, and migration helpers.
   runtime manifest, builds the matching `redis_restart_smoke.py` command, and
   can run the manifest's preflight plus restart/decision smoke. Use
   `--validate-only` before rollout, `--print-command` for deployment logs, and
-  `--run --preflight` for the repository-local executable profile.
+  `--run --preflight` for the repository-local executable profile. Add
+  `--evidence-output <path>` to store the manifest summary, generated command,
+  and final smoke JSON as a rollout artifact.

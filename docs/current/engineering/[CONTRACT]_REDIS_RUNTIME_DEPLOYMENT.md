@@ -89,14 +89,17 @@ The manifest-driven wrapper is the preferred way to prove the input path:
 python3 tools/scripts/redis_platform_smoke_from_manifest.py \
   --manifest deploy/redis-runtime/local-platform-managed.smoke.json \
   --run \
-  --preflight
+  --preflight \
+  --evidence-output /tmp/mrn-platform-smoke-evidence.json
 ```
 
 For a real hosting platform, create a filled manifest from
 `platform-managed.manifest.template.json`, then run the same wrapper with that
 manifest. `--validate-only` prints the role/hash/preflight summary, and
 `--print-command` prints the raw `redis_restart_smoke.py` command for deployment
-logs.
+logs. `--evidence-output` writes a JSON rollout artifact containing the manifest
+identity, validation summary, generated smoke command, and final
+`redis_restart_smoke.py` summary.
 
 Passing evidence must include:
 
@@ -143,17 +146,19 @@ Latest checked platform-managed input-path evidence:
 - topology `local-runtime-platform-managed-decision`
 - restart mode `custom-command`
 - profile `deploy/redis-runtime/local-platform-managed.smoke.json`
-- runner `tools/scripts/redis_platform_smoke_from_manifest.py --run --preflight`
+- runner
+  `tools/scripts/redis_platform_smoke_from_manifest.py --run --preflight --evidence-output /tmp/mrn-platform-smoke-evidence.json`
 - prefix `mrn:{runtime-platform-decision-smoke}`
-- session `sess_4-hrRVNYgxOa79bRESsZwtIp`
+- evidence file `/tmp/mrn-platform-smoke-evidence.json`
+- session `sess_eJiWJunqrTrmwQ62DhzAYwsf`
 - restart status `waiting_input -> waiting_input`
 - replay events `11 -> 12`
 - worker health checks `4`
-- decision request `sess_4-hrRVNYgxOa79bRESsZwtIp:r1:t1:p1:draft_card:1`
+- decision request `sess_eJiWJunqrTrmwQ62DhzAYwsf:r1:t1:p1:draft_card:1`
 - accepted decision status `accepted`
 - duplicate decision status `stale`, reason `already_resolved`
 - decision advanced to
-  `sess_4-hrRVNYgxOa79bRESsZwtIp:r1:t1:p1:final_character:1`
+  `sess_eJiWJunqrTrmwQ62DhzAYwsf:r1:t1:p1:final_character:1`
 - post-decision replay events `26`
 
 This proves the repository's `--skip-up`/custom-command smoke contract,

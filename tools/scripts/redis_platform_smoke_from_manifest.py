@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 import shlex
@@ -18,7 +19,9 @@ DEFAULT_CONTRACT = ROOT_DIR / "deploy/redis-runtime/process-contract.json"
 
 def load_manifest(path: str | Path) -> dict[str, Any]:
     manifest_path = _resolve_repo_path(path)
-    return json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text())
+    manifest["_manifest_path"] = str(manifest_path.relative_to(ROOT_DIR))
+    return manifest
 
 
 def validate_manifest(
@@ -145,6 +148,30 @@ def build_manifest_env(manifest: dict[str, Any]) -> dict[str, str]:
     return env
 
 
+def build_evidence_document(
+    *,
+    manifest: dict[str, Any],
+    validation: dict[str, Any],
+    command: list[str],
+    smoke_stdout: str,
+) -> dict[str, Any]:
+    smoke_summary = _extract_smoke_summary(smoke_stdout)
+    return {
+        "ok": smoke_summary.get("ok") is True,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "manifest": {
+            "path": manifest.get("_manifest_path"),
+            "name": manifest.get("name"),
+            "target_topology": manifest.get("target_topology"),
+            "source_contract": manifest.get("source_contract"),
+            "source_template": manifest.get("source_template"),
+        },
+        "validation": validation,
+        "smoke_command": command,
+        "smoke_summary": smoke_summary,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Validate a Redis runtime platform manifest and run the contract smoke from it."
@@ -156,6 +183,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run", action="store_true", help="Run redis_restart_smoke.py using manifest commands.")
     parser.add_argument("--preflight", action="store_true", help="Run manifest preflight up/down around --run.")
     parser.add_argument("--keep-running", action="store_true", help="Do not run preflight down after --run.")
+    parser.add_argument(
+        "--evidence-output",
+        help="Write manifest validation, smoke command, and final smoke JSON summary to this file after --run.",
+    )
     args = parser.parse_args(argv)
 
     manifest = load_manifest(args.manifest)
@@ -175,11 +206,22 @@ def main(argv: list[str] | None = None) -> int:
     down_command = preflight.get("down_command")
     if args.preflight and up_command:
         _run_shell(up_command, env=env)
+    smoke_stdout = ""
     try:
-        subprocess.run(command, cwd=ROOT_DIR, env=env, check=True)
+        smoke_stdout = _run_and_capture(command, env=env)
     finally:
         if args.preflight and down_command and not args.keep_running:
             _run_shell(down_command, env=env)
+    if args.evidence_output:
+        evidence = build_evidence_document(
+            manifest=manifest,
+            validation=validation,
+            command=command,
+            smoke_stdout=smoke_stdout,
+        )
+        evidence_path = _resolve_repo_path(args.evidence_output)
+        evidence_path.parent.mkdir(parents=True, exist_ok=True)
+        evidence_path.write_text(json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     return 0
 
 
@@ -204,6 +246,43 @@ def _filled_command_list(value: object) -> bool:
 
 def _run_shell(command: str, *, env: dict[str, str]) -> None:
     subprocess.run(command, cwd=ROOT_DIR, env=env, shell=True, check=True)
+
+
+def _run_and_capture(command: list[str], *, env: dict[str, str]) -> str:
+    process = subprocess.Popen(
+        command,
+        cwd=ROOT_DIR,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    lines: list[str] = []
+    assert process.stdout is not None
+    for line in process.stdout:
+        print(line, end="")
+        lines.append(line)
+    return_code = process.wait()
+    if return_code != 0:
+        raise subprocess.CalledProcessError(return_code, command, output="".join(lines))
+    return "".join(lines)
+
+
+def _extract_smoke_summary(output: str) -> dict[str, Any]:
+    decoder = json.JSONDecoder()
+    summaries: list[dict[str, Any]] = []
+    for index, char in enumerate(output):
+        if char != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(output[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and {"ok", "topology", "session_id"} <= set(value):
+            summaries.append(value)
+    if not summaries:
+        raise ValueError("could not find final redis_restart_smoke.py JSON summary in smoke output")
+    return summaries[-1]
 
 
 if __name__ == "__main__":

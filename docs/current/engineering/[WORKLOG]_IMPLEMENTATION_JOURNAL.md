@@ -8,6 +8,24 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Platform Smoke Evidence Artifact
+
+- What changed:
+  - extended `tools/scripts/redis_platform_smoke_from_manifest.py` with `--evidence-output`
+  - the wrapper now stores manifest identity, validation summary, generated smoke command, and the final `redis_restart_smoke.py` JSON summary in one artifact file
+  - added coverage for extracting the final smoke summary from mixed command output
+  - refreshed deployment docs with the evidence-output flow
+- Why:
+  - the actual external platform smoke should leave a structured artifact, not only terminal output
+  - this makes future rollout evidence comparable across local profile, staging, and production-like platform manifests
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest tests/test_redis_runtime_deployment_manifest.py -q` -> `10 passed`
+  - `python3 -m py_compile tools/scripts/redis_platform_smoke_from_manifest.py` -> `PASS`
+  - `python3 tools/scripts/redis_platform_smoke_from_manifest.py --validate-only` -> `PASS`
+  - `python3 tools/scripts/redis_platform_smoke_from_manifest.py --print-command` -> `PASS`
+  - `python3 tools/scripts/redis_platform_smoke_from_manifest.py --run --preflight --evidence-output /tmp/mrn-platform-smoke-evidence.json` -> `PASS`
+  - evidence summary: `ok=true`, `session_id=sess_eJiWJunqrTrmwQ62DhzAYwsf`, duplicate decision `stale/already_resolved`, manifest path `deploy/redis-runtime/local-platform-managed.smoke.json`
+
 ## 2026-05-04 Manifest-Driven Platform Smoke Runner
 
 - What changed:

@@ -200,3 +200,48 @@ def test_platform_smoke_script_validates_contract_mapping_and_preflight() -> Non
         "up -d --build redis server prompt-timeout-worker command-wakeup-worker"
     )
     assert validation["preflight_down_command"].endswith(" down")
+
+
+def test_platform_smoke_script_builds_evidence_from_mixed_smoke_output() -> None:
+    module = _load_platform_smoke_script()
+    manifest = module.load_manifest(LOCAL_PLATFORM_SMOKE)
+    validation = module.validate_manifest(manifest, contract_path=PROCESS_CONTRACT)
+    command = module.build_smoke_command(manifest, contract_path=PROCESS_CONTRACT)
+    smoke_output = """
++ worker-health[before-restart]#1: command
+{"ok": true, "role": "prompt-timeout-worker"}
+{
+  "ok": true,
+  "topology": "local-runtime-platform-managed-decision",
+  "session_id": "sess_evidence",
+  "prefix": "mrn:{runtime-platform-decision-smoke}",
+  "before_status": "waiting_input",
+  "after_status": "waiting_input",
+  "before_replay_events": 11,
+  "after_replay_events": 12,
+  "worker_health_checks": 4,
+  "decision_smoke": {
+    "request_id": "sess_evidence:r1:t1:p1:draft_card:1",
+    "accepted_status": "accepted",
+    "duplicate_status": "stale",
+    "duplicate_reason": "already_resolved",
+    "after_waiting_request_id": "sess_evidence:r1:t1:p1:final_character:1",
+    "after_replay_events": 26
+  }
+}
+Container cleanup line
+"""
+
+    evidence = module.build_evidence_document(
+        manifest=manifest,
+        validation=validation,
+        command=command,
+        smoke_stdout=smoke_output,
+    )
+
+    assert evidence["ok"] is True
+    assert evidence["manifest"]["path"] == "deploy/redis-runtime/local-platform-managed.smoke.json"
+    assert evidence["validation"]["roles"] == ["server", "prompt-timeout-worker", "command-wakeup-worker"]
+    assert evidence["smoke_command"][0:3] == ["python3", "tools/scripts/redis_restart_smoke.py", "--skip-up"]
+    assert evidence["smoke_summary"]["session_id"] == "sess_evidence"
+    assert evidence["smoke_summary"]["decision_smoke"]["duplicate_status"] == "stale"
