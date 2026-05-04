@@ -2024,6 +2024,12 @@ export function selectTurnStage(
         : beatSource
           ? pickMessageDetail(beatSource, text) || "-"
           : model.currentBeatDetail;
+    if (backendTurnStage.currentBeatEventCode === "prompt_active" && backendTurnStage.promptRequestType !== "-") {
+      model.promptSummary = text.stream.promptWaiting(
+        promptLabelForType(backendTurnStage.promptRequestType, text.promptType)
+      );
+      model.currentBeatDetail = model.promptSummary;
+    }
     model.latestActionLabel = model.currentBeatLabel;
     model.latestActionDetail = model.currentBeatDetail;
     if (backendTurnStage.progressCodes.length > 0) {
@@ -2417,6 +2423,7 @@ function snapshotFromBackendViewStatePayload(payload: Record<string, unknown>): 
       activeByCard[slot] = character;
     }
   }
+  mergeActiveByCard(activeByCard, viewState["active_by_card"]);
 
   return {
     round:

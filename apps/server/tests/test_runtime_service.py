@@ -5461,6 +5461,251 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(store.commits[0]["checkpoint"]["active_module_type"], "LapRewardModule")
         self.assertEqual(store.commits[0]["checkpoint"]["active_module_cursor"], "lap_reward:await_choice")
 
+    def test_module_resume_prompt_boundary_matrix_preserves_checkpoint_without_replay(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        import engine
+        from runtime_modules.contracts import FrameState, ModuleRef, PromptContinuation
+        from state import GameState
+
+        class _CommandStoreStub:
+            def __init__(self) -> None:
+                self.commands: list[dict] = []
+                self.offsets: list[tuple[str, str, int]] = []
+
+            def list_commands(self, session_id: str) -> list[dict]:
+                return [copy.deepcopy(command) for command in self.commands if command["session_id"] == session_id]
+
+            def save_consumer_offset(self, consumer_name: str, session_id: str, seq: int) -> None:
+                self.offsets.append((consumer_name, session_id, int(seq)))
+
+        cases = [
+            {
+                "name": "target_judicator",
+                "frame_type": "turn",
+                "module_type": "TargetJudicatorModule",
+                "request_type": "mark_target",
+                "cursor": "target:await_choice",
+                "choice_id": "p2",
+            },
+            {
+                "name": "fortune_target",
+                "frame_type": "sequence",
+                "module_type": "FortuneResolveModule",
+                "request_type": "fortune_target",
+                "cursor": "fortune:await_choice",
+                "choice_id": "p2",
+            },
+            {
+                "name": "rent_payment",
+                "frame_type": "sequence",
+                "module_type": "RentPaymentModule",
+                "request_type": "rent_payment",
+                "cursor": "rent:await_choice",
+                "choice_id": "pay",
+            },
+            {
+                "name": "score_token",
+                "frame_type": "sequence",
+                "module_type": "ScoreTokenPlacementPromptModule",
+                "request_type": "coin_placement",
+                "cursor": "score_token:await_choice",
+                "choice_id": "tile-7",
+            },
+        ]
+
+        for index, case in enumerate(cases, start=1):
+            with self.subTest(case=case["name"]):
+                store = _MutableGameStateStoreStub()
+                command_store = _CommandStoreStub()
+                runtime = RuntimeService(
+                    session_service=self.session_service,
+                    stream_service=self.stream_service,
+                    prompt_service=self.prompt_service,
+                    game_state_store=store,
+                    command_store=command_store,
+                )
+                session = self.session_service.create_session(
+                    seats=[
+                        {"seat": 1, "seat_type": "human"},
+                        {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                        {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                        {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+                    ],
+                    config={"seed": 42 + index, "runtime": {"runner_kind": "module", "ai_decision_delay_ms": 0}},
+                )
+                self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+                self.session_service.start_session(session.session_id, session.host_token)
+                config = runtime._config_factory.create(session.resolved_parameters)  # type: ignore[attr-defined]
+                state = GameState.create(config)
+                state.runtime_runner_kind = "module"
+                state.runtime_checkpoint_schema_version = 3
+                frame_id = f"turn:{index}:p0"
+                module_id = f"mod:{case['name']}:{index}:p0"
+                if case["frame_type"] == "turn":
+                    state.runtime_frame_stack = [
+                        FrameState(
+                            frame_id=frame_id,
+                            frame_type="turn",
+                            owner_player_id=0,
+                            parent_frame_id=None,
+                            status="suspended",
+                            active_module_id=module_id,
+                            completed_module_ids=["mod:turn:start"],
+                            module_queue=[
+                                ModuleRef(
+                                    module_id="mod:turn:start",
+                                    module_type="TurnStartModule",
+                                    phase="turn_start",
+                                    owner_player_id=0,
+                                    status="completed",
+                                    cursor="done",
+                                ),
+                                ModuleRef(
+                                    module_id=module_id,
+                                    module_type=str(case["module_type"]),
+                                    phase=str(case["name"]),
+                                    owner_player_id=0,
+                                    status="suspended",
+                                    cursor=str(case["cursor"]),
+                                    suspension_id=f"suspend:{case['name']}:1",
+                                ),
+                            ],
+                        )
+                    ]
+                    prompt_frame_id = frame_id
+                else:
+                    sequence_frame_id = f"seq:{case['name']}:{index}:p0"
+                    state.runtime_frame_stack = [
+                        FrameState(
+                            frame_id=frame_id,
+                            frame_type="turn",
+                            owner_player_id=0,
+                            parent_frame_id=None,
+                            status="suspended",
+                            active_module_id=f"mod:turn:{index}:p0:arrival",
+                            module_queue=[
+                                ModuleRef(
+                                    module_id=f"mod:turn:{index}:p0:arrival",
+                                    module_type="ArrivalTileModule",
+                                    phase="arrival",
+                                    owner_player_id=0,
+                                    status="suspended",
+                                    cursor=f"child_sequence:{sequence_frame_id}",
+                                ),
+                            ],
+                        ),
+                        FrameState(
+                            frame_id=sequence_frame_id,
+                            frame_type="sequence",
+                            owner_player_id=0,
+                            parent_frame_id=frame_id,
+                            status="suspended",
+                            active_module_id=module_id,
+                            created_by_module_id=f"mod:turn:{index}:p0:arrival",
+                            module_queue=[
+                                ModuleRef(
+                                    module_id=module_id,
+                                    module_type=str(case["module_type"]),
+                                    phase=str(case["name"]),
+                                    owner_player_id=0,
+                                    status="suspended",
+                                    cursor=str(case["cursor"]),
+                                    suspension_id=f"suspend:{case['name']}:1",
+                                ),
+                                ModuleRef(
+                                    module_id=f"mod:{case['name']}:{index}:p0:after",
+                                    module_type="LandingPostEffectsModule",
+                                    phase="post_effects",
+                                    owner_player_id=0,
+                                    status="queued",
+                                    cursor="start",
+                                ),
+                            ],
+                        ),
+                    ]
+                    prompt_frame_id = sequence_frame_id
+                state.runtime_active_prompt = PromptContinuation(
+                    request_id=f"req_{case['name']}",
+                    prompt_instance_id=100 + index,
+                    resume_token=f"resume_{case['name']}",
+                    frame_id=prompt_frame_id,
+                    module_id=module_id,
+                    module_type=str(case["module_type"]),
+                    module_cursor=str(case["cursor"]),
+                    player_id=0,
+                    request_type=str(case["request_type"]),
+                    legal_choices=[{"choice_id": str(case["choice_id"])}],
+                )
+                store.current_state = state.to_checkpoint_payload()
+                store.checkpoint = {
+                    "schema_version": 3,
+                    "session_id": session.session_id,
+                    "runner_kind": "module",
+                    "has_snapshot": True,
+                }
+                command_store.commands.append(
+                    {
+                        "seq": 1,
+                        "type": "decision_submitted",
+                        "session_id": session.session_id,
+                        "payload": {
+                            "request_id": f"req_{case['name']}",
+                            "player_id": 1,
+                            "request_type": str(case["request_type"]),
+                            "choice_id": str(case["choice_id"]),
+                            "resume_token": f"resume_{case['name']}",
+                            "frame_id": prompt_frame_id,
+                            "module_id": module_id,
+                            "module_type": str(case["module_type"]),
+                            "module_cursor": str(case["cursor"]),
+                            "decision": {},
+                        },
+                    }
+                )
+                seen: list[dict] = []
+
+                def _fake_run_next_transition(self, resumed_state, decision_resume=None):  # noqa: ANN001
+                    del self
+                    frames = resumed_state.runtime_frame_stack
+                    active_frame = frames[-1]
+                    active_module_index = 0 if active_frame.frame_type == "sequence" else 1
+                    seen.append(
+                        {
+                            "frame_ids": [frame.frame_id for frame in frames],
+                            "active_module_id": active_frame.active_module_id,
+                            "active_module_cursor": active_frame.module_queue[active_module_index].cursor,
+                            "active_prompt_token": resumed_state.runtime_active_prompt.resume_token,
+                            "resume_module_type": decision_resume.module_type,
+                            "resume_choice_id": decision_resume.choice_id,
+                        }
+                    )
+                    return {"status": "committed", "runner_kind": "module", "module_type": case["module_type"]}
+
+                with patch.object(
+                    runtime,
+                    "_prompt_sequence_seed_for_transition",
+                    side_effect=AssertionError("module resume must not rebuild state from legacy prompt seeds"),
+                ), patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition):
+                    result = runtime._run_engine_transition_once_sync(
+                        None,
+                        session.session_id,
+                        42,
+                        None,
+                        True,
+                        "runtime-worker",
+                        1,
+                    )
+
+                self.assertEqual(result["status"], "committed")
+                self.assertEqual(len(seen), 1)
+                self.assertEqual(seen[0]["active_module_id"], module_id)
+                self.assertEqual(seen[0]["active_module_cursor"], case["cursor"])
+                self.assertEqual(seen[0]["active_prompt_token"], f"resume_{case['name']}")
+                self.assertEqual(seen[0]["resume_module_type"], case["module_type"])
+                self.assertEqual(seen[0]["resume_choice_id"], case["choice_id"])
+                self.assertEqual(store.commits[0]["checkpoint"]["active_module_type"], case["module_type"])
+                self.assertEqual(store.commits[0]["checkpoint"]["active_module_cursor"], case["cursor"])
+
     def test_bridge_consumes_valid_decision_resume_without_creating_prompt(self) -> None:
         RuntimeService._ensure_gpt_import_path()
         from engine import DecisionRequest

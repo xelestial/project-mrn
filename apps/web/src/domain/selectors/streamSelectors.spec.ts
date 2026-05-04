@@ -428,6 +428,56 @@ describe("streamSelectors", () => {
     expect(snapshot?.tiles.find((tile) => tile.tileIndex === 7)?.pawnPlayerIds).toEqual([1]);
   });
 
+  it("merges backend view_state active cards with player card projections", () => {
+    const snapshot = selectLatestSnapshot([
+      {
+        type: "prompt",
+        seq: 11,
+        session_id: "s1",
+        payload: {
+          request_id: "req_mark_target_1",
+          request_type: "mark_target",
+          player_id: 1,
+          view_state: {
+            active_by_card: {
+              "1": "어사",
+              "2": "산적",
+              "3": "박수",
+            },
+            players: {
+              ordered_player_ids: [1, 2],
+              items: [
+                { player_id: 1, display_name: "Player 1", current_character_face: "어사" },
+                { player_id: 2, display_name: "Player 2", current_character_face: "산적" },
+              ],
+            },
+            player_cards: {
+              items: [
+                {
+                  player_id: 1,
+                  character: "어사",
+                  priority_slot: 1,
+                  reveal_state: "revealed",
+                },
+                {
+                  player_id: 2,
+                  character: "산적",
+                  priority_slot: 2,
+                  reveal_state: "revealed",
+                },
+              ],
+            },
+            board: {
+              tiles: [],
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(snapshot?.activeByCard).toEqual({ 1: "어사", 2: "산적", 3: "박수" });
+  });
+
   it("orders player cards from the marker owner using marker draft direction", () => {
     const clockwiseMessages: InboundMessage[] = [
       {
@@ -4818,7 +4868,57 @@ describe("streamSelectors", () => {
     expect(stage.currentBeatKind).toBe("decision");
     expect(stage.currentBeatLabel).toBe("드래프트 인물 선택");
     expect(stage.currentBeatEventCode).toBe("prompt_active");
+    expect(stage.promptSummary).toContain("드래프트 인물 선택");
     expect(stage.progressTrail).toEqual(["턴 시작", "드래프트 인물 선택"]);
+  });
+
+  it("uses backend prompt-active turn stage even when the prompt message has not arrived", () => {
+    const stage = selectTurnStage([
+      {
+        type: "event",
+        seq: 610,
+        session_id: "s1",
+        payload: {
+          event_type: "turn_start",
+          round_index: 5,
+          turn_index: 2,
+          acting_player_id: 1,
+          character: "건설업자",
+        },
+      },
+      {
+        type: "event",
+        seq: 611,
+        session_id: "s1",
+        payload: {
+          event_type: "engine_checkpoint",
+          view_state: {
+            turn_stage: {
+              turn_start_seq: 610,
+              actor_player_id: 1,
+              round_index: 5,
+              turn_index: 2,
+              character: "건설업자",
+              current_beat_kind: "decision",
+              current_beat_event_code: "prompt_active",
+              current_beat_request_type: "purchase_tile",
+              current_beat_seq: null,
+              focus_tile_index: 12,
+              focus_tile_indices: [12],
+              prompt_request_type: "purchase_tile",
+              progress_codes: ["turn_start", "prompt_active"],
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(stage.currentBeatEventCode).toBe("prompt_active");
+    expect(stage.currentBeatLabel).toBe("땅 사기");
+    expect(stage.promptRequestType).toBe("purchase_tile");
+    expect(stage.promptSummary).toContain("땅 사기");
+    expect(stage.currentBeatDetail).toBe(stage.promptSummary);
+    expect(stage.focusTileIndices).toEqual([12]);
   });
 
   it("preserves backend-projected game end as the current beat", () => {
