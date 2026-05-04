@@ -92,6 +92,64 @@ def test_debug_log_audit_accepts_clean_draft_to_final_flow(tmp_path: Path) -> No
     assert report["violations"] == []
 
 
+def test_debug_log_audit_reads_final_prompt_legal_choices(tmp_path: Path) -> None:
+    script = _load_script()
+    run_dir = tmp_path / "20260504-120000-000001-p123"
+    run_dir.mkdir()
+    _write_jsonl(
+        run_dir / "frontend.jsonl",
+        [
+            _row(
+                "frontend",
+                "stream_message",
+                session_id="sess_1",
+                payload={
+                    "type": "prompt",
+                    "payload": {
+                        "request_id": "draft_1",
+                        "request_type": "draft_card",
+                        "player_id": 1,
+                        "legal_choices": [{"choice_id": "6"}, {"choice_id": "2"}],
+                    },
+                },
+            ),
+            _row(
+                "frontend",
+                "decision_sent",
+                session_id="sess_1",
+                payload={"request_id": "draft_1", "player_id": 1, "choice_id": "6"},
+            ),
+            _row(
+                "frontend",
+                "stream_message",
+                session_id="sess_1",
+                payload={
+                    "type": "prompt",
+                    "payload": {
+                        "request_id": "final_1",
+                        "request_type": "final_character",
+                        "player_id": 1,
+                        "legal_choices": [{"choice_id": "6"}, {"choice_id": "8"}],
+                    },
+                },
+            ),
+        ],
+    )
+    _write_jsonl(
+        run_dir / "backend.jsonl",
+        [_row("backend", "decision_received", session_id="sess_1", request_id="draft_1", player_id=1, status="accepted")],
+    )
+    _write_jsonl(
+        run_dir / "engine.jsonl",
+        [_row("engine", "marker_flip", session_id="sess_1", module_type="RoundEndCardFlipModule")],
+    )
+
+    report = script.audit_debug_log_run(run_dir)
+
+    assert report["ok"] is True
+    assert report["violations"] == []
+
+
 def test_debug_log_audit_reports_known_turn_flow_violations(tmp_path: Path) -> None:
     script = _load_script()
     run_dir = tmp_path / "20260504-120000-000001-p123"

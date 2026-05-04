@@ -13,8 +13,8 @@ This records the verification pass for the requested remaining items:
 4. external AI endpoint verification
 5. playtest evidence documentation
 
-The final long-form manual 2H+2AI and 4-human playtests were not part of this
-pass and remain a separate closure item.
+Follow-up final manual evidence was completed in
+`docs/current/engineering/[EVIDENCE]_FINAL_MANUAL_PLAYTEST_2026-05-04.md`.
 
 ## 1. Redis Platform Topology
 
@@ -212,7 +212,40 @@ Conclusion:
 - a remote non-local external AI endpoint still requires its actual base URL and
   credential/config values before it can be called evidence
 
-## 5. Remaining Closure Items
+## 5. Final Manual Playtest Closure
+
+Result: final local long-form manual playtests passed.
+
+Evidence:
+
+- `docs/current/engineering/[EVIDENCE]_FINAL_MANUAL_PLAYTEST_2026-05-04.md`
+- `docs/current/engineering/evidence/manual-playtest-2026-05-04/manual-playtest-driver-result.json`
+- eight 1440x900 screenshots under
+  `docs/current/engineering/evidence/manual-playtest-2026-05-04/`
+
+Covered:
+
+- 2-human + 2-AI with the real localhost external-AI worker endpoint
+- 4-human with frontend-resolved blocking prompts
+- active weather context persistence through replay prompts and frontend
+  screenshots
+- debug log audit against `.log/20260504-223005-136500-p4061`
+
+Outcome:
+
+- 2H+2AI session `sess_g9jUne6iNvKi7QC20SJnZYUO`: `123` replay messages, `13`
+  frontend clicks, `0` rejected decisions, `5 / 5` prompts with weather context
+- 4-human session `sess_ScoFp5k9ZMmjvro_8eWrTtIr`: `70` replay messages, `20`
+  frontend clicks, `0` rejected decisions, `4 / 4` prompts with weather context
+- debug log audit after audit-tool contract fix: `ok=true`, `0` violations,
+  `0` warnings
+
+Conclusion:
+
+- final local manual playtest evidence is no longer pending
+- no active-weather context polish was required by this pass
+
+## 6. Remaining Closure Items
 
 1. Fill a real platform Redis manifest and run:
 
@@ -225,10 +258,5 @@ python3 tools/scripts/redis_platform_smoke_from_manifest.py \
 
 Then run the same manifest with `--run --evidence-output <artifact>.json`.
 
-2. Run final long-form manual playtests:
-
-- 2 human + 2 AI with external AI configured for at least one AI seat
-- 4 human where all blocking prompts are manually resolved
-
-3. Attach the resulting screenshots/logs/evidence artifacts to a follow-up
-playtest evidence document.
+2. Deployment-only: run the same filled external-topology manifest against the
+actual deployment platform and attach the resulting evidence artifact.

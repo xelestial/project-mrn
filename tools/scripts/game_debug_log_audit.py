@@ -230,7 +230,7 @@ def _audit_draft_choice_survives_final_prompt(rows: Iterable[dict[str, Any]]) ->
         final_prompt = _first_final_prompt(prompts_by_session_player.get((session_id, player_id), []), request_id)
         if final_prompt is None:
             continue
-        final_choices = {str(choice.get("id") or choice.get("choice_id") or "") for choice in final_prompt.get("choices") or [] if isinstance(choice, dict)}
+        final_choices = _prompt_choice_ids(final_prompt)
         if choice_id and choice_id not in final_choices:
             issues.append(
                 AuditIssue(
@@ -244,6 +244,49 @@ def _audit_draft_choice_survives_final_prompt(rows: Iterable[dict[str, Any]]) ->
                 )
             )
     return issues
+
+
+def _prompt_choice_ids(prompt: dict[str, Any]) -> set[str]:
+    choice_ids: set[str] = set()
+
+    def add_choice(value: Any) -> None:
+        if isinstance(value, (str, int)):
+            choice_ids.add(str(value))
+            return
+        if not isinstance(value, dict):
+            return
+        for key in ("id", "choice_id", "card_index"):
+            if value.get(key) not in (None, ""):
+                choice_ids.add(str(value[key]))
+        nested_value = value.get("value")
+        if isinstance(nested_value, dict) and nested_value.get("card_index") not in (None, ""):
+            choice_ids.add(str(nested_value["card_index"]))
+
+    def add_choices(values: Any) -> None:
+        if isinstance(values, list):
+            for value in values:
+                add_choice(value)
+
+    add_choices(prompt.get("choices"))
+    add_choices(prompt.get("legal_choices"))
+    add_choices(_get_path(prompt, ("surface", "character_pick", "options")))
+    add_choices(_get_path(prompt, ("prompt", "active", "choices")))
+    add_choices(_get_path(prompt, ("prompt", "active", "surface", "character_pick", "options")))
+    add_choices(_get_path(prompt, ("view_state", "prompt", "active", "choices")))
+    add_choices(_get_path(prompt, ("view_state", "prompt", "active", "surface", "character_pick", "options")))
+    add_choices(_get_path(prompt, ("public_context", "choice_faces")))
+    add_choices(_get_path(prompt, ("prompt", "active", "public_context", "choice_faces")))
+    add_choices(_get_path(prompt, ("view_state", "prompt", "active", "public_context", "choice_faces")))
+    return choice_ids
+
+
+def _get_path(value: dict[str, Any], path: tuple[str, ...]) -> Any:
+    current: Any = value
+    for key in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
 
 
 def _audit_forbidden_runtime_signals(rows: Iterable[dict[str, Any]]) -> list[AuditIssue]:

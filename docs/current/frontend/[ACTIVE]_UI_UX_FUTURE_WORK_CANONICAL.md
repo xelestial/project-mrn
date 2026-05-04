@@ -55,8 +55,8 @@ What was completed in this pass:
 
 Open scheduled items:
 
-- final 2H+2AI and 4-human playtest evidence for effect cause visibility across `잔꾀`, `운수`, `날씨`, character passives, and AI-triggered follow-up prompts.
-- active weather should remain visible as round context if the final playtest still shows weather/result attribution fading too quickly.
+- none for the final local manual playtest closure. Deployment/topology evidence
+  remains tracked outside this frontend document.
 
 ---
 
@@ -74,7 +74,7 @@ Open scheduled items:
 
 ### P0. Effect Cause Visibility During Live Play
 
-Status: BASELINE IMPLEMENTED AND AUTOMATED GATE PASSED (2026-05-04), FINAL MANUAL PLAYTEST PENDING
+Status: DONE FOR LOCAL FINAL MANUAL PLAYTEST (2026-05-04)
 
 Goal:
 - make every rule-driven state mutation understandable at the moment it happens, especially when the next prompt appears immediately
@@ -101,6 +101,15 @@ Automated evidence:
 - `src/features/prompt/promptEffectContextDisplay.spec.ts` and `src/domain/selectors/promptSelectors.spec.ts` passed on 2026-05-04.
 - `npm --prefix apps/web run e2e:human-runtime` passed all 18 checks on 2026-05-04, including fortune cash loss, innkeeper lap bonus, Manshin mark, Baksu burden transfer, matchmaker purchase, and mixed participant continuity cases.
 - Detailed evidence lives in `docs/current/engineering/[EVIDENCE]_RUNTIME_CONTRACT_EXTERNAL_CHECKS_2026-05-04.md`.
+
+Final manual evidence:
+- 2H+2AI session `sess_g9jUne6iNvKi7QC20SJnZYUO` passed with `0` rejected
+  decisions and `5 / 5` replay prompts carrying weather context.
+- 4-human session `sess_ScoFp5k9ZMmjvro_8eWrTtIr` passed with `0` rejected
+  decisions and `4 / 4` replay prompts carrying weather context.
+- Active weather remained visible in final screenshots for `길고 긴 겨울` and
+  `맑고 포근한 하루`.
+- Evidence lives in `docs/current/engineering/[EVIDENCE]_FINAL_MANUAL_PLAYTEST_2026-05-04.md`.
 
 Definition of done:
 - a player can explain why a cash, shard, hand-count, burden, movement, or purchase prompt changed without reading debug logs
@@ -329,6 +338,9 @@ Observed:
 - `객주` reward enhancement is applied after lap reward in backend state, but the visible reward event does not clearly break out the passive bonus.
 - 2026-05-01 2H+2AI continuation found a stale tray rendering: Redis/current player panel showed P1 `Trick0` and empty `trick_hand`, but the bottom `Trick hand` tray still showed the consumed `뭔칙휜` card.
 - The same continuation showed repeated P1 movement prompts after a reroll-style trick path. Even if some prompts are stale and rejected by the backend, the screen can still make the player believe the action is unresolved or repeating.
+- 2026-05-04 final manual playtest closure passed: active weather remained named
+  in the play surface and every replay prompt in the 2H+2AI and 4-human sessions
+  carried weather context.
 
 Required UX behavior:
 - every money/shard/coin/position delta caused by `운수` must produce a persistent enough reveal/feed line with card name and delta

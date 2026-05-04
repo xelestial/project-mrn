@@ -56,6 +56,8 @@ Read and maintain these:
 - Human/external AI playtest checklist: `docs/current/engineering/HUMAN_EXTERNAL_AI_PLAYTEST_CHECKLIST.md`
 - Current runtime/external evidence:
   `docs/current/engineering/[EVIDENCE]_RUNTIME_CONTRACT_EXTERNAL_CHECKS_2026-05-04.md`
+- Final local manual playtest evidence:
+  `docs/current/engineering/[EVIDENCE]_FINAL_MANUAL_PLAYTEST_2026-05-04.md`
 
 ## Archived Documents
 
@@ -121,9 +123,9 @@ Those themes should reopen only if a concrete regression or rollout need appears
    `effect_context` source player, source family, source name, and resource
    delta through the prompt overlay. The 2026-05-04 automated evidence pass
    confirms backend projection, frontend selector/overlay rendering, and the
-   18-test `e2e:human-runtime` gate. Remaining UI work is final 2H+2AI /
-   4-human manual playtest evidence and any active-weather context polish
-   revealed by that playtest. Use only
+   18-test `e2e:human-runtime` gate. The final local 2H+2AI and 4-human manual
+   playtest evidence also passed, including active-weather context visibility.
+   Use only
    `docs/current/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md` and
    `docs/current/frontend/[AUDIT]_MRN_FRONTEND_GAME_DESIGN_REVIEW_2026-04-30.md`
    as current frontend planning inputs.

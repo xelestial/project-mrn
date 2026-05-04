@@ -8,6 +8,33 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Final Manual Playtest Closure
+
+- What changed:
+  - ran the final local 2H+2AI and 4-human manual playtest pass through the real
+    frontend, backend, and localhost external-AI worker endpoint
+  - captured replay JSON and eight 1440x900 screenshots under
+    `docs/current/engineering/evidence/manual-playtest-2026-05-04/`
+  - added
+    `docs/current/engineering/[EVIDENCE]_FINAL_MANUAL_PLAYTEST_2026-05-04.md`
+  - updated the runtime evidence, planning index, and frontend canonical docs so
+    final manual playtest evidence and active-weather context are no longer
+    listed as pending
+  - fixed `tools/scripts/game_debug_log_audit.py` so final-character draft
+    checks read `legal_choices` and prompt/view-state/public-context choice
+    projections, not only the legacy `choices` field
+- Why:
+  - close the local non-deployment verification loop with real UI evidence
+  - avoid treating a debug-audit contract-shape false positive as a gameplay
+    violation
+  - confirm active weather remains visible as round context while players act
+- Validation:
+  - `.venv/bin/python tools/check_external_ai_endpoint.py --base-url http://127.0.0.1:8011 --require-ready --require-profile priority_scored --require-adapter priority_score_v1 --require-policy-class PriorityScoredPolicy --require-decision-style priority_scored_contract --require-request-type movement --require-request-type purchase_tile` -> `OK: external AI endpoint passed smoke checks`
+  - 2H+2AI session `sess_g9jUne6iNvKi7QC20SJnZYUO` -> `123` replay messages, `13` frontend clicks, `0` rejected decisions, `5 / 5` replay prompts with weather context
+  - 4-human session `sess_ScoFp5k9ZMmjvro_8eWrTtIr` -> `70` replay messages, `20` frontend clicks, `0` rejected decisions, `4 / 4` replay prompts with weather context
+  - `.venv/bin/python -m pytest tests/test_game_debug_log_audit_script.py -q` -> `5 passed`
+  - `PYTHONPATH=. .venv/bin/python tools/scripts/game_debug_log_audit.py .log/20260504-223005-136500-p4061` -> `ok=true`, `0` violations, `0` warnings
+
 ## 2026-05-04 Runtime Contract, External AI, And Evidence Closure Pass
 
 - What changed:
