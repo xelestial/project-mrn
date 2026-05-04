@@ -1,4 +1,8 @@
 {
+  "case_id": "prompt_trick_tile_target_surface",
+  "metadata": {
+    "expected_choice_ids": ["tile_5", "tile_12"]
+  },
   "messages": [
     {
       "type": "prompt",

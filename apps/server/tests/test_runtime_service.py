@@ -520,6 +520,17 @@ class RuntimeServiceTests(unittest.TestCase):
                 "cost": 4,
                 "source": "landing",
                 "landing_tile_index": 8,
+                "effect_context": {
+                    "label": "Tile purchase",
+                    "detail": "The player reached a purchasable tile and must choose whether to buy it.",
+                    "attribution": "Movement result",
+                    "tone": "economy",
+                    "source": "move",
+                    "intent": "buy",
+                    "enhanced": True,
+                    "source_family": "movement",
+                    "source_name": "arrival_purchase",
+                },
             },
         )
 
@@ -548,6 +559,17 @@ class RuntimeServiceTests(unittest.TestCase):
                 "one_short_pos": 25,
                 "bonus_target_pos": 26,
                 "bonus_target_kind": "S",
+                "effect_context": {
+                    "label": "탈출 노비",
+                    "detail": "탈출 노비 효과로 추가 이동 여부를 결정합니다.",
+                    "attribution": "Character effect",
+                    "tone": "move",
+                    "source": "character",
+                    "intent": "move",
+                    "enhanced": True,
+                    "source_family": "character",
+                    "source_name": "탈출 노비",
+                },
             },
         )
 
@@ -606,6 +628,17 @@ class RuntimeServiceTests(unittest.TestCase):
                 "decision_reason": "supply_threshold",
                 "supply_threshold": 3,
                 "current_f_value": 3.5,
+                "effect_context": {
+                    "label": "무거운 짐",
+                    "detail": "Supply threshold reached; choose the burden card to resolve.",
+                    "attribution": "Supply threshold",
+                    "tone": "economy",
+                    "source": "trick",
+                    "intent": "cost",
+                    "enhanced": True,
+                    "source_family": "trick",
+                    "source_name": "무거운 짐",
+                },
             },
         )
 

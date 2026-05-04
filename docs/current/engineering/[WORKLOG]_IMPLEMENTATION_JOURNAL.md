@@ -8,6 +8,34 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Prompt Fixture Contract Normalization
+
+- What changed:
+  - committed the prior prompt effect-context boundary completion as `fb112190`
+  - ran the expanded engine/backend/frontend regression matrix for module
+    prompt continuity, Redis/runtime service prompt boundaries, semantic guards,
+    view-state prompt projection, websocket client hooks, and frontend build
+  - aligned backend exact-match prompt request specs with the newly authored
+    `effect_context` for purchase tile, runaway step, and burden exchange
+    prompts
+  - added an all-fixtures shared-schema regression for every
+    `selector.prompt.*_surface.json` contract example
+  - normalized the purchase-tile and trick-tile-target prompt fixtures with
+    required `case_id` and `metadata`
+- Why:
+  - prompt fixtures should not drift into one-off shapes; every prompt surface
+    contract must prove it satisfies the same backend/frontend schema boundary
+  - broader regression verification should cover both engine-native module
+    continuation and the backend/frontend prompt projection layer before the
+    next migration slice begins
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_runtime_module_contracts.py GPT/test_runtime_prompt_continuation.py GPT/test_runtime_round_modules.py GPT/test_runtime_sequence_modules.py GPT/test_runtime_sequence_handlers.py GPT/test_runtime_effect_inventory.py GPT/test_runtime_simultaneous_modules.py GPT/test_runtime_target_judicator_modules.py GPT/test_rule_fixes.py -q` -> `209 passed, 3 subtests passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_prompt_service.py apps/server/tests/test_redis_realtime_services.py apps/server/tests/test_command_wakeup_worker.py apps/server/tests/test_runtime_semantic_guard.py apps/server/tests/test_view_state_runtime_projection.py apps/server/tests/test_view_state_prompt_selector.py apps/server/tests/test_runtime_contract_examples.py -q` -> `238 passed, 34 subtests passed`
+  - `npm --prefix apps/web run test -- src/domain/selectors/promptSelectors.spec.ts src/hooks/useGameStream.spec.ts src/infra/ws/StreamClient.spec.ts` -> `91 passed`
+  - `npm --prefix apps/web run build` -> passed with the existing Vite chunk-size warning
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_runtime_contract_examples.py apps/server/tests/test_view_state_prompt_selector.py apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_effect_context_covers_remaining_effect_prompt_boundaries apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_matchmaker_purchase_context_exposes_tile_metadata_and_adjacent_candidates apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_burden_exchange_context_exposes_supply_trigger_details apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_purchase_tile_method_spec_keeps_request_context_and_choice_in_sync apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_specific_reward_and_runaway_specs_keep_specialized_contracts -q` -> `52 passed, 21 subtests passed`
+  - `npm --prefix apps/web run test -- src/domain/selectors/promptSelectors.spec.ts` -> `78 passed`
+
 ## 2026-05-04 Prompt Effect Context Boundary Completion
 
 - What changed:

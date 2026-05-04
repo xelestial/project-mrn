@@ -215,6 +215,15 @@ class RuntimeContractExampleTests(unittest.TestCase):
         example = _load_json(root / "examples" / "selector.prompt.pabal_dice_mode_surface.json")
         _validate_subset(example, schema, path="$<selector.prompt.pabal_dice_mode_surface.json>")
 
+    def test_all_selector_prompt_surface_fixtures_match_shared_schema(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "selector.prompt.fixture.schema.json")
+        examples = root / "examples"
+
+        for example_path in sorted(examples.glob("selector.prompt.*_surface.json")):
+            example = _load_json(example_path)
+            _validate_subset(example, schema, path=f"$<{example_path.name}>")
+
     def test_external_ai_examples_match_frozen_schemas(self) -> None:
         root = _project_root() / "packages" / "runtime-contracts" / "external-ai"
         schemas = root / "schemas"
