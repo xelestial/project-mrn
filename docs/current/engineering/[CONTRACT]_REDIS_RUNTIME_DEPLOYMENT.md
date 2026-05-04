@@ -12,6 +12,10 @@ The platform-managed mapping template lives at
 `deploy/redis-runtime/platform-managed.manifest.template.json`; copy it into the
 target deployment system and replace the placeholder restart/exec commands with
 that platform's native commands before rollout smoke.
+The executable local platform-managed smoke mapping lives at
+`deploy/redis-runtime/local-platform-managed.smoke.json`; it pins the same
+contract to concrete Docker Compose restart/exec commands so the `--skip-up`
+input path can be tested before an external platform is selected.
 
 ## 2. Required Roles
 
@@ -71,6 +75,12 @@ contract to platform roles:
 - `command-wakeup-worker`: worker process, `--health` readiness command, worker
   smoke health command placeholder
 
+Before replacing those placeholders for a real platform, the repository-local
+`local-platform-managed.smoke.json` profile must stay executable. It starts the
+local Redis runtime stack as preflight, then runs `redis_restart_smoke.py` in
+`--skip-up` mode using explicit restart and worker health commands, including
+`--decision-smoke`.
+
 Passing evidence must include:
 
 - `before_status=waiting_input`
@@ -113,17 +123,25 @@ Latest checked local restart+decision evidence:
 Latest checked platform-managed input-path evidence:
 
 - checked `2026-05-04`
-- topology `local-runtime-platform-managed`
+- topology `local-runtime-platform-managed-decision`
 - restart mode `custom-command`
-- prefix `mrn:{runtime-platform-smoke}`
-- session `sess_puHzrvjLOoEdawsov5ef0m-K`
-- status `waiting_input -> waiting_input`
+- profile `deploy/redis-runtime/local-platform-managed.smoke.json`
+- prefix `mrn:{runtime-platform-decision-smoke}`
+- session `sess_2KtlLh6lzf6vW2bVsxMLu5BT`
+- restart status `waiting_input -> waiting_input`
 - replay events `11 -> 12`
 - worker health checks `4`
+- decision request `sess_2KtlLh6lzf6vW2bVsxMLu5BT:r1:t1:p1:draft_card:1`
+- accepted decision status `accepted`
+- duplicate decision status `stale`, reason `already_resolved`
+- decision advanced to
+  `sess_2KtlLh6lzf6vW2bVsxMLu5BT:r1:t1:p1:final_character:1`
+- post-decision replay events `26`
 
-This proves the repository's `--skip-up`/custom-command smoke contract and
-manifest mapping shape. A real external deployment still must replace the
-placeholder restart and worker exec commands in
+This proves the repository's `--skip-up`/custom-command smoke contract,
+manifest mapping shape, post-restart decision wakeup, and duplicate decision
+dedupe. A real external deployment still must replace the placeholder restart
+and worker exec commands in
 `platform-managed.manifest.template.json` with the target platform's native
 commands and capture fresh passing smoke evidence before live routing.
 

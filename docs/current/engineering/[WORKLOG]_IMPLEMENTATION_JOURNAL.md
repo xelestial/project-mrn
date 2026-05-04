@@ -8,6 +8,28 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Local Platform-Managed Decision Smoke And 1-5 Regression Pass
+
+- What changed:
+  - added `deploy/redis-runtime/local-platform-managed.smoke.json` as an executable local mapping for the platform-managed Redis runtime smoke contract
+  - pinned the mapping to concrete `docker compose` preflight, restart, worker-health, Redis hash-tag, and `--decision-smoke` values
+  - expanded the deployment manifest tests so the local profile must cover every process-contract role, contain no platform placeholders, restart all runtime roles, and carry the full restart+decision evidence contract
+  - refreshed the Redis deployment contract and plan/status docs with the latest platform-managed input-path evidence
+- Why:
+  - the external deployment platform is not selected in-repo, but the platform-managed restart/exec shape still needs an executable proof instead of remaining only a placeholder template
+  - Redis-backed runtime stability must prove both restart recovery and post-restart human decision continuation, including duplicate-decision dedupe
+- Validation:
+  - `python3 -m json.tool deploy/redis-runtime/local-platform-managed.smoke.json >/dev/null` -> `PASS`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest tests/test_redis_runtime_deployment_manifest.py -q` -> `7 passed`
+  - `MRN_REDIS_KEY_PREFIX='mrn:{runtime-platform-decision-smoke}' docker compose -p project-mrn-runtime-platform-decision-smoke -f deploy/redis-runtime/docker-compose.runtime.yml up -d --build redis server prompt-timeout-worker command-wakeup-worker` -> `PASS`
+  - `MRN_REDIS_KEY_PREFIX='mrn:{runtime-platform-decision-smoke}' python3 tools/scripts/redis_restart_smoke.py --skip-up --compose-project project-mrn-runtime-platform-decision-smoke --compose-file deploy/redis-runtime/docker-compose.runtime.yml --topology-name local-runtime-platform-managed-decision --expected-redis-hash-tag runtime-platform-decision-smoke --restart-command 'docker compose -p project-mrn-runtime-platform-decision-smoke -f deploy/redis-runtime/docker-compose.runtime.yml restart server prompt-timeout-worker command-wakeup-worker' --worker-health-command 'docker compose -p project-mrn-runtime-platform-decision-smoke -f deploy/redis-runtime/docker-compose.runtime.yml exec -T prompt-timeout-worker python -m apps.server.src.workers.prompt_timeout_worker_app --health' --worker-health-command 'docker compose -p project-mrn-runtime-platform-decision-smoke -f deploy/redis-runtime/docker-compose.runtime.yml exec -T command-wakeup-worker python -m apps.server.src.workers.command_wakeup_worker_app --health' --decision-smoke` -> `PASS`
+  - smoke summary: `session_id=sess_2KtlLh6lzf6vW2bVsxMLu5BT`, restart status `waiting_input -> waiting_input`, restart replay events `11 -> 12`, worker health checks `4`
+  - decision summary: request `sess_2KtlLh6lzf6vW2bVsxMLu5BT:r1:t1:p1:draft_card:1`, choice `8`, first ack `accepted`, duplicate ack `stale/already_resolved`, next waiting request `sess_2KtlLh6lzf6vW2bVsxMLu5BT:r1:t1:p1:final_character:1`, replay events `26`
+  - compose cleanup removed the platform-decision smoke server, workers, Redis container, and network
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest tests/test_module_runtime_playtest_matrix_doc.py GPT/test_runtime_round_modules.py GPT/test_runtime_sequence_modules.py GPT/test_runtime_sequence_handlers.py GPT/test_runtime_effect_inventory.py GPT/test_runtime_simultaneous_modules.py GPT/test_runtime_target_judicator_modules.py apps/server/tests/test_runtime_semantic_guard.py apps/server/tests/test_prompt_module_continuation.py apps/server/tests/test_runtime_service.py -q` -> `216 passed, 9 subtests passed`
+  - `npm --prefix apps/web run test -- --run src/domain/selectors/promptSelectors.spec.ts src/hooks/useGameStream.spec.ts src/infra/ws/StreamClient.spec.ts src/features/theater/coreActionScene.spec.ts` -> `95 passed`
+  - `npm --prefix apps/web run e2e:module-runtime` -> `3 passed`
+
 ## 2026-05-04 Redis Runtime Restart Decision Smoke
 
 - What changed:

@@ -9,6 +9,23 @@ MANIFEST = ROOT / "deploy/redis-runtime/docker-compose.runtime.yml"
 ENV_EXAMPLE = ROOT / "deploy/redis-runtime/.env.example"
 PROCESS_CONTRACT = ROOT / "deploy/redis-runtime/process-contract.json"
 PLATFORM_MANIFEST = ROOT / "deploy/redis-runtime/platform-managed.manifest.template.json"
+LOCAL_PLATFORM_SMOKE = ROOT / "deploy/redis-runtime/local-platform-managed.smoke.json"
+
+
+def _walk_strings(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        strings: list[str] = []
+        for item in value:
+            strings.extend(_walk_strings(item))
+        return strings
+    if isinstance(value, dict):
+        strings = []
+        for item in value.values():
+            strings.extend(_walk_strings(item))
+        return strings
+    return []
 
 
 def test_runtime_compose_manifest_covers_process_contract_roles() -> None:
@@ -98,3 +115,44 @@ def test_platform_managed_manifest_requires_shared_redis_environment() -> None:
 
     for env_name in shared_required:
         assert env_name in contract["shared_environment"]
+
+
+def test_local_platform_smoke_manifest_is_executable_mapping() -> None:
+    contract = json.loads(PROCESS_CONTRACT.read_text())
+    template = json.loads(PLATFORM_MANIFEST.read_text())
+    smoke_manifest = json.loads(LOCAL_PLATFORM_SMOKE.read_text())
+
+    assert smoke_manifest["source_contract"] == "deploy/redis-runtime/process-contract.json"
+    assert smoke_manifest["source_template"] == "deploy/redis-runtime/platform-managed.manifest.template.json"
+    assert smoke_manifest["target_topology"] == "local-platform-managed-smoke"
+    assert smoke_manifest["shared_environment"]["MRN_REDIS_KEY_PREFIX"] == "mrn:{runtime-platform-decision-smoke}"
+    assert smoke_manifest["shared_environment"]["expected_redis_hash_tag"] == "runtime-platform-decision-smoke"
+
+    role_names = {role["name"] for role in smoke_manifest["roles"]}
+    assert role_names == {role["name"] for role in contract["required_roles"]}
+    assert role_names == {role["name"] for role in template["roles"]}
+
+    strings = _walk_strings(smoke_manifest)
+    assert not any("<platform" in value or "<deployment" in value or "<hash" in value for value in strings)
+    assert any("up -d --build redis server prompt-timeout-worker command-wakeup-worker" in value for value in strings)
+    assert any(value.endswith(" down") for value in strings)
+
+    smoke = smoke_manifest["rollout_smoke"]
+    assert smoke["script"] == contract["rollout_smoke"]["script"]
+    assert smoke["required_mode"] == "--skip-up"
+    assert smoke["topology_name"] == "local-runtime-platform-managed-decision"
+    assert smoke["expected_redis_hash_tag"] == smoke_manifest["shared_environment"]["expected_redis_hash_tag"]
+    assert smoke["decision_smoke"] == "--decision-smoke"
+    assert len(smoke["restart_commands"]) == 1
+    assert len(smoke["worker_health_commands"]) == 2
+
+    restart_command = smoke["restart_commands"][0]
+    assert "restart server prompt-timeout-worker command-wakeup-worker" in restart_command
+    assert "project-mrn-runtime-platform-decision-smoke" in restart_command
+
+    worker_commands = "\n".join(smoke["worker_health_commands"])
+    assert "prompt_timeout_worker_app --health" in worker_commands
+    assert "command_wakeup_worker_app --health" in worker_commands
+
+    evidence = set(smoke["passing_evidence"])
+    assert set(contract["rollout_smoke"]["passing_evidence"]) <= evidence

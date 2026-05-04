@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "name": "project-mrn-redis-runtime-local-platform-managed-smoke",
+  "source_contract": "deploy/redis-runtime/process-contract.json",
+  "source_template": "deploy/redis-runtime/platform-managed.manifest.template.json",
+  "target_topology": "local-platform-managed-smoke",
+  "intent": "Executable local mapping for the platform-managed --skip-up restart and decision-smoke contract before a real external platform is selected.",
+  "shared_environment": {
+    "required": [
+      "MRN_REDIS_URL",
+      "MRN_REDIS_KEY_PREFIX"
+    ],
+    "MRN_REDIS_KEY_PREFIX": "mrn:{runtime-platform-decision-smoke}",
+    "expected_redis_hash_tag": "runtime-platform-decision-smoke"
+  },
+  "preflight": {
+    "compose_project": "project-mrn-runtime-platform-decision-smoke",
+    "compose_file": "deploy/redis-runtime/docker-compose.runtime.yml",
+    "up_command": "docker compose -p project-mrn-runtime-platform-decision-smoke -f deploy/redis-runtime/docker-compose.runtime.yml up -d --build redis server prompt-timeout-worker command-wakeup-worker",
+    "down_command": "docker compose -p project-mrn-runtime-platform-decision-smoke -f deploy/redis-runtime/docker-compose.runtime.yml down"
+  },
+  "roles": [
+    {
+      "name": "server",
+      "platform_kind": "web",
+      "command": "python -m uvicorn apps.server.src.app:app --host 0.0.0.0 --port 9090",
+      "readiness": {
+        "type": "http",
+        "path": "/health"
+      },
+      "restart_policy": "always",
+      "restart_recovery_policy": "keep only after target topology passes redis_restart_smoke.py; otherwise abort_in_progress",
+      "restart_command": "docker compose -p project-mrn-runtime-platform-decision-smoke -f deploy/redis-runtime/docker-compose.runtime.yml restart server"
+    },
+    {
+      "name": "prompt-timeout-worker",
+      "platform_kind": "worker",
+      "command": "python -m apps.server.src.workers.prompt_timeout_worker_app",
+      "readiness": {
+        "type": "command",
+        "command": "python -m apps.server.src.workers.prompt_timeout_worker_app --health"
+      },
+      "restart_policy": "always",
+      "restart_recovery_policy": "keep",
+      "restart_command": "docker compose -p project-mrn-runtime-platform-decision-smoke -f deploy/redis-runtime/docker-compose.runtime.yml restart prompt-timeout-worker",
+      "smoke_health_command": "docker compose -p project-mrn-runtime-platform-decision-smoke -f deploy/redis-runtime/docker-compose.runtime.yml exec -T prompt-timeout-worker python -m apps.server.src.workers.prompt_timeout_worker_app --health"
+    },
+    {
+      "name": "command-wakeup-worker",
+      "platform_kind": "worker",
+      "command": "python -m apps.server.src.workers.command_wakeup_worker_app",
+      "readiness": {
+        "type": "command",
+        "command": "python -m apps.server.src.workers.command_wakeup_worker_app --health"
+      },
+      "restart_policy": "always",
+      "restart_recovery_policy": "keep",
+      "restart_command": "docker compose -p project-mrn-runtime-platform-decision-smoke -f deploy/redis-runtime/docker-compose.runtime.yml restart command-wakeup-worker",
+      "smoke_health_command": "docker compose -p project-mrn-runtime-platform-decision-smoke -f deploy/redis-runtime/docker-compose.runtime.yml exec -T command-wakeup-worker python -m apps.server.src.workers.command_wakeup_worker_app --health"
+    }
+  ],
+  "rollout_smoke": {
+    "script": "python3 tools/scripts/redis_restart_smoke.py",
+    "required_mode": "--skip-up",
+    "topology_name": "local-runtime-platform-managed-decision",
+    "expected_redis_hash_tag": "runtime-platform-decision-smoke",
+    "restart_commands": [
+      "docker compose -p project-mrn-runtime-platform-decision-smoke -f deploy/redis-runtime/docker-compose.runtime.yml restart server prompt-timeout-worker command-wakeup-worker"
+    ],
+    "worker_health_commands": [
+      "docker compose -p project-mrn-runtime-platform-decision-smoke -f deploy/redis-runtime/docker-compose.runtime.yml exec -T prompt-timeout-worker python -m apps.server.src.workers.prompt_timeout_worker_app --health",
+      "docker compose -p project-mrn-runtime-platform-decision-smoke -f deploy/redis-runtime/docker-compose.runtime.yml exec -T command-wakeup-worker python -m apps.server.src.workers.command_wakeup_worker_app --health"
+    ],
+    "decision_smoke": "--decision-smoke",
+    "passing_evidence": [
+      "before_status=waiting_input",
+      "after_status=waiting_input",
+      "after_replay_events >= before_replay_events",
+      "worker_health_checks >= 2",
+      "health.redis.cluster_hash_tag == expected hash tag",
+      "decision_smoke.accepted_status=accepted",
+      "decision_smoke.duplicate_status is stale or rejected",
+      "decision_smoke.after_waiting_request_id differs from decision_smoke.request_id or decision_smoke.after_status is finished/unavailable/aborted",
+      "decision_smoke.after_replay_events > after_replay_events"
+    ]
+  }
+}
