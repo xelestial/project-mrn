@@ -8,6 +8,24 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 ModuleContext Dispatch And Character Suppression Ownership
+
+- What changed:
+  - added `ModuleContext` and `ModuleHandlerRegistry` as the common module handler boundary
+  - routed round, turn, sequence, and simultaneous frame fallbacks through `ModuleRunner._dispatch_module()` when a registry handler owns the module
+  - centralized handler result application so queue ops go through `FrameQueueApi`, event types are journaled, and module status changes happen in one runner path
+  - changed 어사/무뢰 character suppression to a single-use `CharacterStartModule` modifier consumed before legacy character-start logic can run
+  - documented the completed migration-plan steps for handler dispatch and character suppression ownership
+- Why:
+  - module-owned effects should flow through the active frame/module, not backend Redis compensation or card-name comparison patches
+  - suppressed hostile mark abilities must be impossible to prompt because the ability module consumes the modifier first
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_runtime_module_contracts.py::test_module_context_dispatch_applies_queue_ops_and_journals_events GPT/test_runtime_module_contracts.py::test_module_registry_missing_handler_fails_loudly GPT/test_runtime_module_contracts.py::test_round_frame_uses_module_handler_registry_for_uncatalogued_module GPT/test_runtime_sequence_modules.py::test_character_start_suppression_consumes_modifier_without_legacy_character_start -q` -> `4 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_runtime_module_contracts.py GPT/test_runtime_sequence_modules.py GPT/test_runtime_effect_inventory.py GPT/test_runtime_round_modules.py GPT/test_runtime_simultaneous_modules.py GPT/test_runtime_target_judicator_modules.py GPT/test_runtime_turn_handlers.py -q` -> `79 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_runtime_service.py apps/server/tests/test_runtime_semantic_guard.py apps/server/tests/test_view_state_runtime_projection.py apps/server/tests/test_prompt_service.py apps/server/tests/test_command_wakeup_worker.py -q` -> `160 passed, 9 subtests passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m compileall GPT/runtime_modules`
+  - `git diff --check`
+
 ## 2026-05-04 Module Projection Continuation Contract Hardening
 
 - What changed:

@@ -77,7 +77,7 @@ def seed_character_start_modifiers(state: Any, *, source_module_id: str = "Chara
                     ),
                     source_module_id=source_module_id,
                     target_module_type="CharacterStartModule",
-                    scope="round",
+                    scope="single_use",
                     owner_player_id=target_player_id,
                     priority=0,
                     payload={

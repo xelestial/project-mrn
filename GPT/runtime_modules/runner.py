@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
+from .context import ModuleContext
 from .contracts import FrameState, ModuleJournalEntry, ModuleRef, ModuleResult
+from .handlers import ModuleHandlerRegistry, build_default_handler_registry
 from .handlers.round import ROUND_FRAME_HANDLERS, RoundFrameHandlerContext
 from .handlers.sequence import SEQUENCE_FRAME_HANDLERS, SequenceFrameHandlerContext
 from .handlers.simultaneous import SIMULTANEOUS_FRAME_HANDLERS, SimultaneousFrameHandlerContext
@@ -11,6 +13,7 @@ from .handlers.turn import TURN_FRAME_HANDLERS, TurnFrameHandlerContext
 from .ids import round_frame_id
 from .modifiers import ModifierRegistry
 from .prompts import PromptApi
+from .queue import FrameQueueApi
 from .round_modules import build_round_frame
 from .sequence_modules import UnknownActionTypeError, build_action_sequence_frame, module_type_for_action
 from .simultaneous import build_resupply_frame
@@ -31,6 +34,8 @@ class ModuleRunner:
     establishes the invariant that only one explicit queued module becomes
     active during an advance.
     """
+
+    handler_registry: ModuleHandlerRegistry = field(default_factory=build_default_handler_registry)
 
     def advance_one(self, frame_stack: list[FrameState]) -> ModuleResult | None:
         frame = self._active_frame(frame_stack)
@@ -158,6 +163,16 @@ class ModuleRunner:
         module.status = "running"
         handler = ROUND_FRAME_HANDLERS.get(module.module_type)
         if handler is None:
+            if self.handler_registry.has(module.module_type):
+                result = self._dispatch_module(engine, state, frame, module)
+                return {
+                    **self._module_result_summary(
+                        result,
+                        module_type=module.module_type,
+                        frame_id=frame.frame_id,
+                    ),
+                    "runner_kind": "module",
+                }
             raise ModuleRunnerError(f"no round handler for module type: {module.module_type}")
         result = handler(RoundFrameHandlerContext(self, engine, state, frame, module))
         return {**result, "runner_kind": "module"}
@@ -269,8 +284,62 @@ class ModuleRunner:
                     player=player,
                 )
             )
+        if self.handler_registry.has(module.module_type):
+            result = self._dispatch_module(engine, state, frame, module)
+            return self._module_result_summary(
+                result,
+                module_type=module.module_type,
+                player_id=player_id + 1,
+            )
         self._complete_module(state, frame, module)
         return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
+
+    def _dispatch_module(self, engine: Any, state: Any, frame: FrameState, module: ModuleRef) -> ModuleResult:
+        handler = self.handler_registry.resolve(module.module_type)
+        if handler is None:
+            raise ModuleRunnerError(f"no module handler for module type: {module.module_type}")
+        frame.status = "running"
+        frame.active_module_id = module.module_id
+        module.status = "running"
+        self._attach_applicable_modifiers(state, module)
+        result = handler(ModuleContext(self, engine, state, frame, module))
+        self._apply_module_result(state, frame, module, result)
+        return result
+
+    def _apply_module_result(self, state: Any, frame: FrameState, module: ModuleRef, result: ModuleResult) -> None:
+        if result.queue_ops:
+            FrameQueueApi(state.runtime_frame_stack).apply(result.queue_ops)
+        event_types = [event.event_type for event in result.events]
+        if result.status == "completed":
+            self._complete_module(state, frame, module, event_types=event_types)
+            return
+        if result.status == "suspended":
+            module.status = "suspended"
+            module.suspension_id = frame.frame_id
+            frame.status = "suspended"
+            if result.prompt is not None:
+                state.runtime_active_prompt = result.prompt
+            return
+        module.status = "failed"
+        frame.status = "failed"
+        frame.active_module_id = module.module_id
+        state.runtime_module_journal.append(
+            ModuleJournalEntry(
+                module_id=module.module_id,
+                frame_id=frame.frame_id,
+                status=module.status,
+                idempotency_key=module.idempotency_key,
+                event_types=event_types,
+                error="" if result.error is None else result.error.message,
+            )
+        )
+
+    @staticmethod
+    def _module_result_summary(result: ModuleResult, *, module_type: str, **fields: Any) -> dict[str, Any]:
+        summary = {"status": "committed", "module_type": module_type, **fields}
+        if result.events:
+            summary["events"] = [event.event_type for event in result.events]
+        return summary
 
     def _advance_sequence_frame(self, engine: Any, state: Any, frame: FrameState) -> dict[str, Any]:
         module = self._next_live_module(frame)
@@ -291,6 +360,14 @@ class ModuleRunner:
         handler = SEQUENCE_FRAME_HANDLERS.get(module.module_type)
         if handler is not None:
             return handler(context)
+        if self.handler_registry.has(module.module_type):
+            result = self._dispatch_module(engine, state, frame, module)
+            self._complete_sequence_frame_if_drained(frame)
+            return self._module_result_summary(
+                result,
+                module_type=module.module_type,
+                frame_id=frame.frame_id,
+            )
         if module.module_type == "LegacyActionAdapterModule":
             raise ModuleRunnerError("LegacyActionAdapterModule is no longer executable; catalogue the action module")
         if "action" in module.payload:
@@ -367,6 +444,13 @@ class ModuleRunner:
                     module=module,
                     decision_resume=decision_resume,
                 )
+            )
+        if self.handler_registry.has(module.module_type):
+            result = self._dispatch_module(engine, state, frame, module)
+            return self._module_result_summary(
+                result,
+                module_type=module.module_type,
+                frame_id=frame.frame_id,
             )
         self._complete_module(state, frame, module)
         return {"status": "committed", "module_type": module.module_type, "frame_id": frame.frame_id}
@@ -1086,7 +1170,14 @@ class ModuleRunner:
         )
 
     @staticmethod
-    def _complete_module(state: Any, frame: FrameState, module: ModuleRef, *, status: str = "completed") -> None:
+    def _complete_module(
+        state: Any,
+        frame: FrameState,
+        module: ModuleRef,
+        *,
+        status: str = "completed",
+        event_types: list[str] | None = None,
+    ) -> None:
         module.status = status  # type: ignore[assignment]
         module.cursor = "skipped" if status == "skipped" else "completed"
         module.suspension_id = ""
@@ -1099,6 +1190,7 @@ class ModuleRunner:
                 frame_id=frame.frame_id,
                 status=module.status,
                 idempotency_key=module.idempotency_key,
+                event_types=list(event_types or []),
             )
         )
 

@@ -7,6 +7,7 @@ import pytest
 
 from state import ActionEnvelope
 from runtime_modules.contracts import Modifier, ModifierRegistryState, ModuleJournalEntry, ModuleRef
+from runtime_modules.modifiers import MUROE_SKILL_SUPPRESSION_KIND, MUROE_SKILL_SUPPRESSION_REASON
 from runtime_modules.round_modules import build_round_frame
 from runtime_modules.runner import ModuleRunner, ModuleRunnerError
 from runtime_modules.sequence_modules import (
@@ -1018,6 +1019,74 @@ def test_completed_trick_sequence_resumes_turn_without_reopening_trick_window() 
     assert engine.vis_events == []
     assert rolled["module_type"] == "DiceRollModule"
     assert engine.finish_calls == 1
+
+
+def test_character_start_suppression_consumes_modifier_without_legacy_character_start() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+        def __init__(self) -> None:
+            self.logs: list[dict] = []
+            self.vis_events: list[str] = []
+
+        def _log(self, event):
+            self.logs.append(dict(event))
+
+        def _emit_vis(self, event_type, *_args, **_kwargs):
+            self.vis_events.append(str(event_type))
+
+        def _apply_character_start(self, *_args, **_kwargs):
+            raise AssertionError("CharacterStartModule must consume suppress modifiers before legacy ability flow")
+
+    player = SimpleNamespace(
+        alive=True,
+        player_id=0,
+        current_character="산적",
+        attribute="무뢰",
+        extra_dice_count_this_turn=0,
+    )
+    turn_frame = build_turn_frame(
+        1,
+        0,
+        parent_module_id="mod:round:1:playerturn:p0",
+        session_id="test-session",
+    )
+    character_module = next(module for module in turn_frame.module_queue if module.module_type == "CharacterStartModule")
+    for module in turn_frame.module_queue:
+        if module.module_id == character_module.module_id:
+            break
+        module.status = "completed"
+        turn_frame.completed_module_ids.append(module.module_id)
+    modifier = Modifier(
+        modifier_id="modifier:test:eosa:suppress:p0",
+        source_module_id="mod:round:1:eosa",
+        target_module_type="CharacterStartModule",
+        scope="single_use",
+        owner_player_id=0,
+        priority=0,
+        payload={"kind": MUROE_SKILL_SUPPRESSION_KIND, "reason": MUROE_SKILL_SUPPRESSION_REASON},
+        propagation=["TargetJudicatorModule"],
+        expires_on="turn_completed",
+    )
+    state = SimpleNamespace(
+        current_weather_effects=[],
+        pending_actions=[],
+        pending_turn_completion={},
+        players=[player],
+        runtime_frame_stack=[turn_frame],
+        runtime_module_journal=[],
+        runtime_modifier_registry=ModifierRegistryState(modifiers=[modifier]),
+        rounds_completed=0,
+        current_round_order=[0],
+        turn_index=0,
+    )
+
+    result = ModuleRunner().advance_engine(FakeEngine(), state)
+
+    assert result["module_type"] == "CharacterStartModule"
+    assert result["suppressed"] is True
+    assert character_module.status == "completed"
+    assert modifier.consumed is True
 
 
 def test_trick_choice_continues_to_resolve_module_inside_same_sequence() -> None:

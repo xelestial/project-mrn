@@ -12,8 +12,10 @@ from policy.character_traits import is_builder, is_pabalggun
 from ..contracts import FrameState, ModuleRef
 from ..modifiers import (
     MUROE_SKILL_SUPPRESSION_KIND,
+    MUROE_SKILL_SUPPRESSION_REASON,
     PABAL_DICE_MODIFIER_KIND,
     ModifierRegistry,
+    character_skill_suppression_modifier,
     consume_pabal_dice_modifier,
     seed_builder_purchase_modifier,
     seed_pabal_dice_modifier,
@@ -120,6 +122,15 @@ def handle_character_start(ctx: TurnFrameHandlerContext) -> dict[str, Any]:
     player = ctx.player
     if has_weather_id(state.current_weather_effects, WEATHER_FATTENED_HORSES_ID):
         player.extra_dice_count_this_turn += 1
+    suppression = _consume_character_start_suppression(ctx)
+    if suppression:
+        runner._complete_module(state, frame, module)
+        return {
+            "status": "committed",
+            "module_type": module.module_type,
+            "player_id": player_id + 1,
+            "suppressed": True,
+        }
     module.cursor = "await_character_prompt"
     try:
         if not _seed_native_character_start_modifier(ctx):
@@ -135,6 +146,45 @@ def handle_character_start(ctx: TurnFrameHandlerContext) -> dict[str, Any]:
         state.turn_index += 1
         runner._complete_turn_frame_and_parent(state, frame)
     return {"status": "committed", "module_type": module.module_type, "player_id": player_id + 1}
+
+
+def _consume_character_start_suppression(ctx: TurnFrameHandlerContext) -> bool:
+    if getattr(ctx.state, "runtime_modifier_registry", None) is None:
+        return False
+    modifier = character_skill_suppression_modifier(ctx.state, ctx.player_id)
+    if modifier is None:
+        return False
+    char = str(getattr(ctx.player, "current_character", "") or "")
+    reason = str(modifier.payload.get("reason") or MUROE_SKILL_SUPPRESSION_REASON)
+    ctx.module.payload["native_character_ability"] = {
+        "kind": MUROE_SKILL_SUPPRESSION_KIND,
+        "reason": reason,
+        "source_modifier_id": modifier.modifier_id,
+        "suppressed": True,
+    }
+    ctx.engine._emit_vis(
+        "ability_suppressed",
+        Phase.MARK,
+        ctx.player.player_id + 1,
+        ctx.state,
+        source_player_id=ctx.player.player_id + 1,
+        actor_name=char,
+        reason=reason,
+        effect_type="character_skill_suppressed",
+        effect_source="character_modifier",
+        summary=f"{char} 능력 차단 / 어사가 무뢰 인물 능력을 막음",
+    )
+    ctx.engine._log(
+        {
+            "event": "ability_suppressed",
+            "player": ctx.player.player_id + 1,
+            "character": char,
+            "reason": reason,
+            "source": "CharacterStartModule",
+            "modifier_id": modifier.modifier_id,
+        }
+    )
+    return True
 
 
 def _seed_native_character_start_modifier(ctx: TurnFrameHandlerContext) -> bool:

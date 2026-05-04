@@ -13,11 +13,15 @@ from runtime_modules.contracts import (
     Modifier,
     ModifierRegistryState,
     ModuleRef,
+    ModuleResult,
     PromptContinuation,
 )
+from runtime_modules.context import ModuleContext
+from runtime_modules.handlers import ModuleHandlerRegistry
 from runtime_modules.modifiers import ModifierRegistry
 from runtime_modules.prompts import PromptApi, PromptContinuationError, validate_resume
 from runtime_modules.queue import FrameQueueApi, QueueValidationError
+from runtime_modules.runner import ModuleRunner, ModuleRunnerError
 from state import GameState
 
 
@@ -76,6 +80,104 @@ def test_completed_frame_rejects_queue_insertion() -> None:
         FrameQueueApi([frame]).apply([
             {"op": "push_back", "target_frame_id": frame.frame_id, "module": _module("WeatherModule")}
         ])
+
+
+def test_module_context_dispatch_applies_queue_ops_and_journals_events() -> None:
+    frame = FrameState(
+        frame_id="round:1",
+        frame_type="round",
+        owner_player_id=None,
+        parent_frame_id=None,
+        module_queue=[_module("ContractTestModule", module_id="mod:contract", idempotency_key="idem:contract")],
+    )
+    state = type(
+        "RuntimeState",
+        (),
+        {
+            "runtime_frame_stack": [frame],
+            "runtime_module_journal": [],
+            "runtime_modifier_registry": ModifierRegistryState(),
+        },
+    )()
+
+    def handler(ctx: ModuleContext) -> ModuleResult:
+        ctx.emit("contract.event", value=1)
+        ctx.push_back(_module("WeatherModule", module_id="mod:weather", idempotency_key="idem:weather"))
+        return ModuleResult(status="completed", events=ctx.events, queue_ops=ctx.queue_ops)
+
+    registry = ModuleHandlerRegistry()
+    registry.register("ContractTestModule", handler)
+    module = frame.module_queue[0]
+
+    result = ModuleRunner(handler_registry=registry)._dispatch_module(object(), state, frame, module)
+
+    assert result.status == "completed"
+    assert module.status == "completed"
+    assert [item.module_type for item in frame.module_queue] == ["ContractTestModule", "WeatherModule"]
+    assert state.runtime_module_journal[-1].event_types == ["contract.event"]
+
+
+def test_module_registry_missing_handler_fails_loudly() -> None:
+    frame = FrameState(
+        frame_id="round:1",
+        frame_type="round",
+        owner_player_id=None,
+        parent_frame_id=None,
+        module_queue=[_module("UnknownContractModule")],
+    )
+    state = type(
+        "RuntimeState",
+        (),
+        {
+            "runtime_frame_stack": [frame],
+            "runtime_module_journal": [],
+            "runtime_modifier_registry": ModifierRegistryState(),
+        },
+    )()
+
+    with pytest.raises(ModuleRunnerError, match="no module handler"):
+        ModuleRunner(handler_registry=ModuleHandlerRegistry())._dispatch_module(
+            object(),
+            state,
+            frame,
+            frame.module_queue[0],
+        )
+
+
+def test_round_frame_uses_module_handler_registry_for_uncatalogued_module() -> None:
+    frame = FrameState(
+        frame_id="round:1",
+        frame_type="round",
+        owner_player_id=None,
+        parent_frame_id=None,
+        module_queue=[_module("ContractRoundModule", module_id="mod:round:contract")],
+    )
+    state = type(
+        "RuntimeState",
+        (),
+        {
+            "runtime_frame_stack": [frame],
+            "runtime_module_journal": [],
+            "runtime_modifier_registry": ModifierRegistryState(),
+            "rounds_completed": 0,
+            "current_round_order": [0],
+            "pending_actions": [],
+        },
+    )()
+
+    def handler(ctx: ModuleContext) -> ModuleResult:
+        ctx.emit("contract.round")
+        return ModuleResult(status="completed", events=ctx.events)
+
+    registry = ModuleHandlerRegistry()
+    registry.register("ContractRoundModule", handler)
+
+    result = ModuleRunner(handler_registry=registry).advance_engine(object(), state)
+
+    assert result["runner_kind"] == "module"
+    assert result["module_type"] == "ContractRoundModule"
+    assert result["events"] == ["contract.round"]
+    assert frame.module_queue[0].status == "completed"
 
 
 def test_duplicate_module_id_rejects_different_idempotency_key() -> None:

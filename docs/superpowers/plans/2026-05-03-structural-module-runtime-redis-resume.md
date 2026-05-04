@@ -501,7 +501,7 @@ git commit -m "feat: persist module cursor in prompt continuations"
 - Modify: `GPT/runtime_modules/runner.py`
 - Modify: `GPT/test_runtime_module_contracts.py`
 
-- [ ] **Step 1: Create `ModuleContext`**
+- [x] **Step 1: Create `ModuleContext`**
 
 ```python
 from __future__ import annotations
@@ -547,7 +547,7 @@ class ModuleContext:
         return applicable
 ```
 
-- [ ] **Step 2: Create handler registry**
+- [x] **Step 2: Create handler registry**
 
 ```python
 from __future__ import annotations
@@ -574,7 +574,7 @@ class ModuleHandlerRegistry:
             raise KeyError(f"missing module handler: {module_type}") from exc
 ```
 
-- [ ] **Step 3: Make runner dispatch to handlers**
+- [x] **Step 3: Make runner dispatch to handlers**
 
 Add to `ModuleRunner`:
 
@@ -591,7 +591,7 @@ def _dispatch_module(self, engine, state, frame, module, decision=None):
     return result
 ```
 
-- [ ] **Step 4: Apply queue ops in one runner method**
+- [x] **Step 4: Apply queue ops in one runner method**
 
 ```python
 def _apply_queue_ops(self, state, ops):
@@ -611,7 +611,7 @@ def _apply_queue_ops(self, state, ops):
             raise ModuleRunnerError(f"unknown queue op: {kind}")
 ```
 
-- [ ] **Step 5: Test missing handler fails loudly**
+- [x] **Step 5: Test missing handler fails loudly**
 
 ```python
 def test_module_runner_rejects_missing_native_handler():
@@ -638,6 +638,8 @@ def test_module_runner_rejects_missing_native_handler():
 Run: `.venv/bin/python -m pytest GPT/test_runtime_module_contracts.py::test_module_runner_rejects_missing_native_handler -q`
 
 Expected after implementation: pass.
+
+Implementation note: the current slice adds `ModuleContext`, `ModuleHandlerRegistry`, and a shared `_dispatch_module()` path in `ModuleRunner`. Round, turn, sequence, and simultaneous frames keep their existing native handler tables first, then fall back to the registry for module-owned handlers. `_apply_module_result()` is now the single place that applies handler queue ops through `FrameQueueApi`, persists emitted event types into the module journal, and transitions modules to completed/suspended/failed. Regression coverage includes direct dispatch, loud missing-handler failure, and `advance_engine()` round-frame registry dispatch.
 
 - [ ] **Step 6: Commit handler dispatch**
 
@@ -813,7 +815,7 @@ def seed_character_modifiers(context: ModuleContext) -> None:
             )
 ```
 
-- [ ] **Step 3: Make `CharacterStartModule` consume suppress modifiers**
+- [x] **Step 3: Make `CharacterStartModule` consume suppress modifiers**
 
 ```python
 def handle_character_start(context: ModuleContext) -> ModuleResult:
@@ -842,7 +844,7 @@ def handle_character_start(context: ModuleContext) -> ModuleResult:
     return run_character_ability(context, player)
 ```
 
-- [ ] **Step 4: Make targeting prompt a character handler concern**
+- [x] **Step 4: Make targeting prompt a character handler concern**
 
 For hostile mark characters:
 
@@ -884,7 +886,7 @@ Run: `.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::Runt
 
 Expected after implementation: pass.
 
-Implementation note: the current slice adds `seed_character_start_modifiers()` and `character_skill_suppression_modifier()` in `GPT/runtime_modules/modifiers.py`, seeds the modifier after draft finalization for module runner sessions, and changes module-runner 어사/무뢰 suppression to require the seeded modifier. This is intentionally narrower than the final `handlers/characters.py` registry design above: `CharacterStartModule` still bridges through engine character-start logic, while the backend module path no longer seeds prompt sequence by card-rule inference and has a source-level regression against embedding 어사/무뢰/mark-card suppression.
+Implementation note: the current slice adds `seed_character_start_modifiers()` and `character_skill_suppression_modifier()` in `GPT/runtime_modules/modifiers.py`, seeds the modifier after draft finalization for module runner sessions, and changes module-runner 어사/무뢰 suppression to require the seeded modifier. `CharacterStartModule` now consumes the single-use suppress modifier before legacy character-start logic can run, emits `ability_suppressed`, journals the module completion, and structurally prevents the suppressed mark prompt from being created. Hostile mark targeting remains owned by the turn handler path (`CharacterStartModule`/`TargetJudicatorModule`) rather than backend Redis compensation.
 
 - [ ] **Step 7: Commit modifier character flow**
 
