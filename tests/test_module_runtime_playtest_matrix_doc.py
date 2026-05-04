@@ -47,6 +47,7 @@ REQUIRED_COVERAGE_TOKENS = {
     "apps/server/tests/test_runtime_semantic_guard.py",
     "apps/server/tests/test_prompt_module_continuation.py",
     "apps/web/src/hooks/useGameStream.spec.ts",
+    "apps/web/src/features/prompt/promptEffectContextDisplay.spec.ts",
     "npm run e2e:module-runtime",
 }
 

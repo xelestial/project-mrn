@@ -8,6 +8,32 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Runtime Contract And Prompt Context Hardening
+
+- What changed:
+  - catalogued `resolve_supply_threshold -> ResupplyModule` as a simultaneous
+    action in the engine runtime module map
+  - made the backend semantic guard derive valid action/module ownership from
+    engine sequence, fortune, and simultaneous action catalogs
+  - added a backend regression proving a valid `SimultaneousResolutionFrame ->
+    ResupplyModule` checkpoint can carry `resolve_supply_threshold`
+  - added frontend prompt effect-context resource delta chips and Korean/English
+    resource labels for visible cash/score/shard/burden/card changes
+  - tied the playtest matrix to exact automated regressions for the 박수 final
+    draft issue, 산적/잔꾀 replay loop, simultaneous resupply, and prompt delta
+    display
+- Why:
+  - legal simultaneous work should be structurally owned by `ResupplyModule`
+    instead of being treated as an unknown legacy action or blocked by a late
+    guardrail
+  - effect-caused prompts need to show the engine-authored resource change,
+    not only the cause label
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_runtime_semantic_guard.py GPT/test_runtime_sequence_modules.py::test_bandit_mark_then_trick_followup_never_replays_target_or_trick_window GPT/test_runtime_simultaneous_modules.py apps/server/tests/test_prompt_module_continuation.py apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_first_human_draft_resume_auto_resolves_forced_draft_before_final_character tests/test_module_runtime_playtest_matrix_doc.py -q` -> `52 passed`
+  - `npm --prefix apps/web run test -- src/features/prompt/promptEffectContextDisplay.spec.ts src/domain/selectors/promptSelectors.spec.ts` -> `80 passed`
+  - `npm --prefix apps/web run build` -> passed with the existing Vite chunk-size warning
+  - `git diff --check` -> passed
+
 ## 2026-05-04 Prompt Fixture Contract Normalization
 
 - What changed:

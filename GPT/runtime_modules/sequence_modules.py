@@ -57,7 +57,11 @@ FORTUNE_ACTION_TYPE_TO_MODULE_TYPE = {
     "resolve_fortune_pious_marker": "FortuneResolveModule",
 }
 
-SIMULTANEOUS_ACTION_TYPES = frozenset({"resolve_supply_threshold"})
+SIMULTANEOUS_ACTION_TYPE_TO_MODULE_TYPE = {
+    "resolve_supply_threshold": "ResupplyModule",
+}
+
+SIMULTANEOUS_ACTION_TYPES = frozenset(SIMULTANEOUS_ACTION_TYPE_TO_MODULE_TYPE)
 
 
 class UnknownActionTypeError(ValueError):

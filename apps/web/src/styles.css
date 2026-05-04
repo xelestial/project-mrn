@@ -6573,6 +6573,47 @@ body {
   -webkit-line-clamp: 2;
 }
 
+.prompt-effect-context-delta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.prompt-effect-context-delta-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 22px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(201, 213, 225, 0.22);
+  background: rgba(15, 23, 42, 0.64);
+  color: #e8eef9;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.prompt-effect-context-delta-chip-gain {
+  border-color: color-mix(in srgb, var(--ui-accent-success) 48%, rgba(201, 213, 225, 0.2));
+  background: color-mix(in srgb, var(--ui-accent-success) 16%, rgba(15, 23, 42, 0.72));
+  color: #c9f7df;
+}
+
+.prompt-effect-context-delta-chip-loss {
+  border-color: color-mix(in srgb, var(--ui-accent-danger) 54%, rgba(201, 213, 225, 0.2));
+  background: color-mix(in srgb, var(--ui-accent-danger) 18%, rgba(15, 23, 42, 0.72));
+  color: #ffd7df;
+}
+
+.prompt-effect-context-delta-chip-neutral {
+  border-color: color-mix(in srgb, var(--ui-accent-resource) 42%, rgba(201, 213, 225, 0.2));
+  background: color-mix(in srgb, var(--ui-accent-resource) 12%, rgba(15, 23, 42, 0.72));
+  color: #dff3ff;
+}
+
 .prompt-effect-context-economy {
   border-color: color-mix(in srgb, var(--ui-accent-danger) 42%, rgba(255, 218, 119, 0.34));
   background:

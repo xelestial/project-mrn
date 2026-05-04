@@ -42,7 +42,11 @@ def test_rejects_draft_module_in_turn_frame_stream_payload() -> None:
 
 def test_semantic_guard_derives_module_and_action_catalogs_from_engine_runtime_modules() -> None:
     from runtime_modules.catalog import MODULE_RULES
-    from runtime_modules.sequence_modules import ACTION_TYPE_TO_MODULE_TYPE, FORTUNE_ACTION_TYPE_TO_MODULE_TYPE
+    from runtime_modules.sequence_modules import (
+        ACTION_TYPE_TO_MODULE_TYPE,
+        FORTUNE_ACTION_TYPE_TO_MODULE_TYPE,
+        SIMULTANEOUS_ACTION_TYPE_TO_MODULE_TYPE,
+    )
 
     assert MODULE_ALLOWED_FRAMES == {
         module_type: set(rule.frame_types)
@@ -51,6 +55,7 @@ def test_semantic_guard_derives_module_and_action_catalogs_from_engine_runtime_m
     assert ACTION_TYPE_REQUIRED_MODULES == {
         **ACTION_TYPE_TO_MODULE_TYPE,
         **FORTUNE_ACTION_TYPE_TO_MODULE_TYPE,
+        **SIMULTANEOUS_ACTION_TYPE_TO_MODULE_TYPE,
     }
     source = inspect.getsource(runtime_semantic_guard)
     assert "MODULE_ALLOWED_FRAMES: dict" not in source
@@ -371,6 +376,41 @@ def test_checkpoint_allows_matching_native_action_sequence_module() -> None:
                                     "action_id": "act:move",
                                     "type": "apply_move",
                                     "actor_player_id": 0,
+                                }
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+
+def test_checkpoint_allows_matching_simultaneous_resupply_action_module() -> None:
+    validate_checkpoint_payload(
+        {
+            "runtime_runner_kind": "module",
+            "runtime_frame_stack": [
+                {
+                    "frame_id": "simul:resupply:1:3",
+                    "frame_type": "simultaneous",
+                    "status": "running",
+                    "active_module_id": "mod:resupply",
+                    "module_queue": [
+                        {
+                            "module_id": "mod:resupply",
+                            "module_type": "ResupplyModule",
+                            "status": "running",
+                            "payload": {
+                                "action": {
+                                    "action_id": "act:supply:1:3",
+                                    "type": "resolve_supply_threshold",
+                                    "actor_player_id": 0,
+                                    "source": "supply_threshold",
+                                    "payload": {
+                                        "threshold": 3,
+                                        "participants": [0, 1, 2, 3],
+                                    },
                                 }
                             },
                         }

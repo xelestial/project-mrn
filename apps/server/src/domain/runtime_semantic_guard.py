@@ -10,7 +10,11 @@ if GPT_DIR_TEXT not in sys.path:
     sys.path.insert(0, GPT_DIR_TEXT)
 
 from runtime_modules.catalog import MODULE_RULES
-from runtime_modules.sequence_modules import ACTION_TYPE_TO_MODULE_TYPE, FORTUNE_ACTION_TYPE_TO_MODULE_TYPE
+from runtime_modules.sequence_modules import (
+    ACTION_TYPE_TO_MODULE_TYPE,
+    FORTUNE_ACTION_TYPE_TO_MODULE_TYPE,
+    SIMULTANEOUS_ACTION_TYPE_TO_MODULE_TYPE,
+)
 
 
 class RuntimeSemanticViolation(ValueError):
@@ -43,6 +47,7 @@ EVENT_REQUIRED_MODULES = {
 ACTION_TYPE_REQUIRED_MODULES = {
     **ACTION_TYPE_TO_MODULE_TYPE,
     **FORTUNE_ACTION_TYPE_TO_MODULE_TYPE,
+    **SIMULTANEOUS_ACTION_TYPE_TO_MODULE_TYPE,
 }
 
 

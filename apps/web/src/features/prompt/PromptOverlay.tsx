@@ -8,6 +8,7 @@ import type { LocaleMessages } from "../../i18n/types";
 import { useI18n } from "../../i18n/useI18n";
 import characterPortraitSpriteUrl from "../../assets/characters/character-card-portraits-sprite.png";
 import { isSpecializedPromptType } from "./promptSurfaceCatalog";
+import { buildPromptEffectResourceDeltaChips } from "./promptEffectContextDisplay";
 
 type PromptOverlayProps = {
   prompt: PromptViewModel | null;
@@ -37,6 +38,7 @@ type PromptEffectContext = {
   source: string;
   intent: string;
   enhanced: boolean;
+  resourceDelta?: Record<string, unknown> | null;
 };
 
 type PromptText = LocaleMessages["prompt"];
@@ -1069,6 +1071,7 @@ export function PromptOverlay({
       : null;
   const headMetaPills = promptText.requestCompactMetaPills(prompt.playerId, secondsLeft).slice(0, 2);
   const effectAttribution = effectContext ? effectAttributionLabel(effectContext, promptText) : null;
+  const effectDeltaChips = effectContext ? buildPromptEffectResourceDeltaChips(effectContext, locale) : [];
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {
@@ -1458,6 +1461,18 @@ export function PromptOverlay({
                   <p>{cleanDisplayText(effectContext.detail)}</p>
                 ) : null}
               </div>
+              {effectDeltaChips.length > 0 ? (
+                <div className="prompt-effect-context-delta" data-testid="prompt-effect-context-delta">
+                  {effectDeltaChips.map((chip) => (
+                    <span
+                      key={chip.key}
+                      className={`prompt-effect-context-delta-chip prompt-effect-context-delta-chip-${chip.polarity}`}
+                    >
+                      {chip.label}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
             </section>
           ) : null}
 
