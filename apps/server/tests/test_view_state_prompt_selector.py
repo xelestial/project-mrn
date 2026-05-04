@@ -162,6 +162,58 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         self.assertEqual(active["module_cursor"], "movement:await_choice")
         self.assertEqual(active["batch_id"], "batch_move_1")
 
+    def test_build_prompt_view_state_projects_effect_context(self) -> None:
+        view_state = build_prompt_view_state(
+            [
+                {
+                    "type": "prompt",
+                    "seq": 1,
+                    "session_id": "s1",
+                    "server_time_ms": 1,
+                    "payload": {
+                        "request_id": "req_mark_1",
+                        "request_type": "mark_target",
+                        "player_id": 2,
+                        "timeout_ms": 30000,
+                        "legal_choices": [{"choice_id": "none", "title": "None"}],
+                        "public_context": {
+                            "actor_name": "자객",
+                            "effect_context": {
+                                "label": "자객",
+                                "detail": "자객의 지목 효과로 다음 대상을 고릅니다.",
+                                "attribution": "인물 지목",
+                                "tone": "effect",
+                                "source": "character",
+                                "intent": "mark",
+                                "enhanced": True,
+                                "source_player_id": 2,
+                                "source_family": "character",
+                                "source_name": "자객",
+                                "resource_delta": {"cash": -3},
+                            },
+                        },
+                    },
+                }
+            ]
+        )
+
+        self.assertEqual(
+            view_state["active"]["effect_context"],
+            {
+                "label": "자객",
+                "detail": "자객의 지목 효과로 다음 대상을 고릅니다.",
+                "attribution": "인물 지목",
+                "tone": "effect",
+                "source": "character",
+                "intent": "mark",
+                "enhanced": True,
+                "source_player_id": 2,
+                "source_family": "character",
+                "source_name": "자객",
+                "resource_delta": {"cash": -3},
+            },
+        )
+
     def test_build_prompt_view_state_keeps_accepted_feedback_after_prompt_closes(self) -> None:
         view_state = build_prompt_view_state(
             [

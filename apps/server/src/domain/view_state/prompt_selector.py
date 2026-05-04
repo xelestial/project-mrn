@@ -5,6 +5,7 @@ from typing import Any
 from .types import (
     ActivePromptBehaviorViewState,
     ActivePromptViewState,
+    PromptEffectContextViewState,
     PromptSurfaceCoinPlacementOptionViewState,
     PromptSurfaceCoinPlacementViewState,
     PromptChoiceItemViewState,
@@ -632,6 +633,41 @@ def _prompt_behavior(payload: dict[str, Any], public_context: dict[str, Any]) ->
     return behavior
 
 
+def _prompt_effect_context(public_context: dict[str, Any]) -> PromptEffectContextViewState | None:
+    raw = _record(public_context.get("effect_context"))
+    if not raw:
+        return None
+    label = _string(raw.get("label")) or _string(raw.get("source_name"))
+    detail = _string(raw.get("detail")) or label
+    if not label and not detail:
+        return None
+    tone = _string(raw.get("tone"))
+    if tone not in {"move", "effect", "economy"}:
+        tone = "effect"
+    effect_context: PromptEffectContextViewState = {
+        "label": label or detail,
+        "detail": detail or label,
+        "attribution": _string(raw.get("attribution")),
+        "tone": tone,
+        "source": _string(raw.get("source")) or _string(raw.get("source_family")) or "system",
+        "intent": _string(raw.get("intent")) or "neutral",
+        "enhanced": raw.get("enhanced") is True,
+    }
+    source_player_id = _number(raw.get("source_player_id"))
+    if source_player_id is not None:
+        effect_context["source_player_id"] = source_player_id
+    source_family = _string(raw.get("source_family"))
+    if source_family:
+        effect_context["source_family"] = source_family
+    source_name = _string(raw.get("source_name"))
+    if source_name:
+        effect_context["source_name"] = source_name
+    resource_delta = _record(raw.get("resource_delta"))
+    if resource_delta is not None:
+        effect_context["resource_delta"] = {key: value for key, value in resource_delta.items()}
+    return effect_context
+
+
 def _event_player_id(payload: dict[str, Any]) -> int | None:
     return _number(payload.get("player_id", payload.get("acting_player_id", payload.get("player"))))
 
@@ -751,6 +787,9 @@ def build_prompt_view_state(messages: list[dict[str, Any]]) -> PromptViewState |
             "behavior": _prompt_behavior(active_prompt, public_context),
             "surface": _prompt_surface(active_prompt, public_context),
         }
+        effect_context = _prompt_effect_context(public_context)
+        if effect_context:
+            active["effect_context"] = effect_context
         for field in ("resume_token", "frame_id", "module_id", "module_type", "module_cursor", "batch_id"):
             value = _string(active_prompt.get(field))
             if value:

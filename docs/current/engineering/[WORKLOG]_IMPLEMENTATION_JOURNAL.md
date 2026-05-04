@@ -8,6 +8,26 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Prompt Effect Context Projection
+
+- What changed:
+  - added `public_context.effect_context` authoring in the backend decision gateway
+    for mark target, trick tile target, lap reward, geo bonus, and burden exchange prompts
+  - projected normalized prompt effect context through backend `prompt.view_state.active`
+  - parsed the backend projection in the frontend prompt selector and made the live
+    prompt overlay prefer it over recent-event inference
+  - moved the prompt effect-context badge label into locale resources
+- Why:
+  - prompts caused by modular effects should carry their own cause/effect contract
+    across engine -> backend -> frontend instead of relying on frontend event-history guesses
+- Validation:
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_view_state_prompt_selector.py::ViewStatePromptSelectorTests::test_build_prompt_view_state_projects_effect_context apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_lap_reward_context_exposes_budget_bundles_and_player_status apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_trick_tile_target_context_exposes_candidates -q` -> `3 passed`
+  - `npm --prefix apps/web run test -- src/domain/selectors/promptSelectors.spec.ts -t "effect context"` -> `1 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_view_state_prompt_selector.py apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_lap_reward_context_exposes_budget_bundles_and_player_status apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_trick_tile_target_context_exposes_candidates apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_mark_target_context_uses_public_active_faces_for_future_slots -q` -> `33 passed, 16 subtests passed`
+  - `npm --prefix apps/web run test -- src/domain/selectors/promptSelectors.spec.ts` -> `78 passed`
+  - `npm --prefix apps/web run build` -> passed with the existing Vite chunk-size warning
+  - `git diff --check` -> passed
+
 ## 2026-05-04 Branch Push And Full Cutover Verification
 
 - What changed:

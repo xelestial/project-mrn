@@ -748,6 +748,14 @@ export const koLocale = {
   },
   prompt: {
     noChoiceDescription: "선택지가 아직 없습니다.",
+    effectContextLabel: "직전 결과",
+    effectAttribution: {
+      characterMark: "인물 지목",
+      trickEffect: "잔꾀 효과",
+      movementResult: "이동 결과",
+      characterEffect: "인물 효과",
+      supplyThreshold: "재보급",
+    },
     hiddenCardName: "히든 카드",
     hiddenCardDescription: (name: string) => `${name} 효과`,
     hiddenState: {

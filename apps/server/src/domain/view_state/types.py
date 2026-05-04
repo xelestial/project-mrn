@@ -338,6 +338,20 @@ class PromptSurfaceViewState(TypedDict, total=False):
     active_flip: PromptSurfaceActiveFlipViewState
 
 
+class PromptEffectContextViewState(TypedDict):
+    label: str
+    detail: str
+    attribution: str
+    tone: Literal["move", "effect", "economy"]
+    source: str
+    intent: str
+    enhanced: bool
+    source_player_id: NotRequired[int]
+    source_family: NotRequired[str]
+    source_name: NotRequired[str]
+    resource_delta: NotRequired[dict[str, object]]
+
+
 class ActivePromptViewState(TypedDict):
     request_id: str
     request_type: str
@@ -347,6 +361,7 @@ class ActivePromptViewState(TypedDict):
     public_context: dict[str, object]
     behavior: ActivePromptBehaviorViewState
     surface: PromptSurfaceViewState
+    effect_context: NotRequired[PromptEffectContextViewState]
     resume_token: NotRequired[str]
     frame_id: NotRequired[str]
     module_id: NotRequired[str]

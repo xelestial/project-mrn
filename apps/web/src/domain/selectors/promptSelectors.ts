@@ -17,6 +17,20 @@ export type PromptContinuationViewModel = {
   batchId: string | null;
 };
 
+export type PromptEffectContextViewModel = {
+  label: string;
+  detail: string;
+  attribution: string | null;
+  tone: "move" | "effect" | "economy";
+  source: string;
+  intent: string;
+  enhanced: boolean;
+  sourcePlayerId: number | null;
+  sourceFamily: string;
+  sourceName: string;
+  resourceDelta: Record<string, unknown> | null;
+};
+
 export type PromptViewModel = {
   requestId: string;
   requestType: string;
@@ -25,6 +39,7 @@ export type PromptViewModel = {
   choices: PromptChoiceViewModel[];
   publicContext: Record<string, unknown>;
   continuation: PromptContinuationViewModel;
+  effectContext: PromptEffectContextViewModel | null;
   behavior: {
     normalizedRequestType: string;
     singleSurface: boolean;
@@ -314,6 +329,32 @@ function choiceDescriptionText(item: Record<string, unknown>, value: Record<stri
 
 function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function parsePromptEffectContext(raw: unknown): PromptEffectContextViewModel | null {
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const label = stringOrEmpty(raw["label"]) || stringOrEmpty(raw["source_name"]);
+  const detail = stringOrEmpty(raw["detail"]) || label;
+  if (!label && !detail) {
+    return null;
+  }
+  const rawTone = stringOrEmpty(raw["tone"]);
+  const tone = rawTone === "move" || rawTone === "effect" || rawTone === "economy" ? rawTone : "effect";
+  return {
+    label: label || detail,
+    detail: detail || label,
+    attribution: stringOrEmpty(raw["attribution"]) || null,
+    tone,
+    source: stringOrEmpty(raw["source"]) || stringOrEmpty(raw["source_family"]) || "system",
+    intent: stringOrEmpty(raw["intent"]) || "neutral",
+    enhanced: raw["enhanced"] === true,
+    sourcePlayerId: numberOrNull(raw["source_player_id"]),
+    sourceFamily: stringOrEmpty(raw["source_family"]),
+    sourceName: stringOrEmpty(raw["source_name"]),
+    resourceDelta: isRecord(raw["resource_delta"]) ? { ...raw["resource_delta"] } : null,
+  };
 }
 
 function eventPlayerId(payload: Record<string, unknown>): number | null {
@@ -913,19 +954,21 @@ function selectBackendActivePrompt(messages: InboundMessage[]): PromptViewModel 
   if (declaresModuleContinuation(active) && !hasCompleteModuleContinuation(active)) {
     return null;
   }
+  const publicContext = isRecord(active["public_context"]) ? active["public_context"] : {};
   return {
     requestId,
     requestType,
     playerId,
     timeoutMs: typeof active["timeout_ms"] === "number" ? active["timeout_ms"] : 30000,
     choices: parseChoices(active["choices"]),
-    publicContext: isRecord(active["public_context"]) ? { ...active["public_context"] } : {},
+    publicContext: { ...publicContext },
     continuation: parsePromptContinuation(active),
-    behavior: parsePromptBehavior(active["behavior"], requestType, isRecord(active["public_context"]) ? active["public_context"] : {}),
+    effectContext: parsePromptEffectContext(active["effect_context"] ?? publicContext["effect_context"]),
+    behavior: parsePromptBehavior(active["behavior"], requestType, publicContext),
     surface: parsePromptSurface(
       active["surface"],
       requestType,
-      isRecord(active["public_context"]) ? active["public_context"] : {},
+      publicContext,
       active["choices"]
     ),
   };
@@ -961,23 +1004,25 @@ export function selectActivePrompt(messages: InboundMessage[]): PromptViewModel 
     if (declaresModuleContinuation(promptMessage.payload) && !hasCompleteModuleContinuation(promptMessage.payload)) {
       continue;
     }
+    const publicContext = isRecord(promptMessage.payload["public_context"]) ? promptMessage.payload["public_context"] : {};
     return {
       requestId,
       requestType,
       playerId,
       timeoutMs: typeof promptMessage.payload["timeout_ms"] === "number" ? promptMessage.payload["timeout_ms"] : 30000,
       choices: parseChoices(choicesRaw),
-      publicContext: isRecord(promptMessage.payload["public_context"]) ? { ...promptMessage.payload["public_context"] } : {},
+      publicContext: { ...publicContext },
       continuation: parsePromptContinuation(promptMessage.payload),
+      effectContext: parsePromptEffectContext(publicContext["effect_context"]),
       behavior: parsePromptBehavior(
         null,
         requestType,
-        isRecord(promptMessage.payload["public_context"]) ? promptMessage.payload["public_context"] : {}
+        publicContext
       ),
       surface: parsePromptSurface(
         null,
         requestType,
-        isRecord(promptMessage.payload["public_context"]) ? promptMessage.payload["public_context"] : {},
+        publicContext,
         choicesRaw
       ),
     };

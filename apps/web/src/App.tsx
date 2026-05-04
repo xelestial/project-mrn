@@ -1084,6 +1084,19 @@ export function App() {
     return candidates[0] ?? null;
   }, [currentRoundRevealItems, currentTurnRevealItems, visibleActionablePrompt]);
   const promptEffectContext = useMemo(() => {
+    if (visibleActionablePrompt?.effectContext) {
+      return {
+        label: visibleActionablePrompt.effectContext.label,
+        detail: hasReadableValue(visibleActionablePrompt.effectContext.detail)
+          ? visibleActionablePrompt.effectContext.detail
+          : visibleActionablePrompt.effectContext.label,
+        attribution: visibleActionablePrompt.effectContext.attribution,
+        tone: visibleActionablePrompt.effectContext.tone,
+        source: visibleActionablePrompt.effectContext.source,
+        intent: visibleActionablePrompt.effectContext.intent,
+        enhanced: visibleActionablePrompt.effectContext.enhanced,
+      };
+    }
     if (!promptEffectContextItem) {
       return null;
     }
@@ -1102,7 +1115,7 @@ export function App() {
       intent: effect.effectIntent,
       enhanced: effect.effectEnhanced,
     };
-  }, [locale, promptEffectContextItem, turnStage.weatherEffect, turnStage.weatherName]);
+  }, [locale, promptEffectContextItem, turnStage.weatherEffect, turnStage.weatherName, visibleActionablePrompt?.effectContext]);
   const playerStageFallbackLabel =
     currentPromptLabel && currentPromptLabel !== "-"
       ? currentPromptLabel

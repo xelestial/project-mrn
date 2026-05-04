@@ -106,6 +106,10 @@ def _trim_public_context(data: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in data.items() if value is not None}
 
 
+def _compact_nested_payload(data: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in data.items() if value is not None}
+
+
 def _build_player_trick_hand_context(player: Any, *, usable_cards: list[Any] | None = None) -> dict[str, Any]:
     full_hand_cards = list(getattr(player, "trick_hand", []) or usable_cards or [])
     hidden_deck_index = getattr(player, "hidden_trick_deck_index", None)
@@ -252,6 +256,113 @@ def _public_weather_context(state: Any) -> dict[str, str]:
     if weather_effect:
         payload["weather_effect"] = weather_effect
     return payload
+
+
+def _effect_context_payload(
+    *,
+    label: str,
+    detail: str,
+    attribution: str,
+    tone: Literal["move", "effect", "economy"],
+    source: str,
+    intent: str,
+    source_player_id: int | None = None,
+    source_family: str | None = None,
+    source_name: str | None = None,
+    resource_delta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return _compact_nested_payload(
+        {
+            "label": label,
+            "detail": detail,
+            "attribution": attribution,
+            "tone": tone,
+            "source": source,
+            "intent": intent,
+            "enhanced": True,
+            "source_player_id": source_player_id,
+            "source_family": source_family,
+            "source_name": source_name,
+            "resource_delta": resource_delta,
+        }
+    )
+
+
+def _prompt_effect_context(request_type: str, context: dict[str, Any], player: Any) -> dict[str, Any] | None:
+    if isinstance(context.get("effect_context"), dict):
+        return context["effect_context"]
+    player_id = _number_or_none(getattr(player, "player_id", None))
+    if request_type == "mark_target":
+        actor_name = str(context.get("actor_name") or "").strip()
+        if not actor_name:
+            return None
+        return _effect_context_payload(
+            label=actor_name,
+            detail=f"{actor_name}의 지목 효과로 다음 대상을 고릅니다.",
+            attribution="Character mark",
+            tone="effect",
+            source="character",
+            intent="mark",
+            source_player_id=player_id,
+            source_family="character",
+            source_name=actor_name,
+        )
+    if request_type == "trick_tile_target":
+        card_name = str(context.get("card_name") or "").strip()
+        if not card_name:
+            return None
+        return _effect_context_payload(
+            label=card_name,
+            detail=f"{card_name} 효과로 대상 타일을 고릅니다.",
+            attribution="Trick effect",
+            tone="effect",
+            source="trick",
+            intent="target",
+            source_player_id=player_id,
+            source_family="trick",
+            source_name=card_name,
+        )
+    if request_type == "lap_reward":
+        return _effect_context_payload(
+            label="LAP reward",
+            detail="The player crossed the start tile and must choose the lap reward allocation.",
+            attribution="Movement result",
+            tone="economy",
+            source="move",
+            intent="gain",
+            source_player_id=player_id,
+            source_family="movement",
+            source_name="lap_reward",
+        )
+    if request_type == "geo_bonus":
+        actor_name = str(context.get("actor_name") or "").strip()
+        if not actor_name:
+            return None
+        return _effect_context_payload(
+            label=actor_name,
+            detail=f"{actor_name} 효과 보상을 고릅니다.",
+            attribution="Character effect",
+            tone="economy",
+            source="character",
+            intent="gain",
+            source_player_id=player_id,
+            source_family="character",
+            source_name=actor_name,
+        )
+    if request_type == "burden_exchange":
+        card_name = str(context.get("card_name") or "").strip() or "Burden"
+        return _effect_context_payload(
+            label=card_name,
+            detail="Supply threshold reached; choose the burden card to resolve.",
+            attribution="Supply threshold",
+            tone="economy",
+            source="trick",
+            intent="cost",
+            source_player_id=player_id,
+            source_family="trick",
+            source_name=card_name,
+        )
+    return None
 
 
 def _build_card_choice_context(
@@ -1367,6 +1478,9 @@ def build_public_context(method_name: str, args: tuple[Any, ...], kwargs: dict[s
     spec = _decision_method_spec_for_method(method_name)
     if spec.public_context_builder is not None:
         context.update(spec.public_context_builder(args, kwargs, state, player))
+    effect_context = _prompt_effect_context(spec.request_type, context, player)
+    if effect_context:
+        context["effect_context"] = effect_context
 
     return _trim_public_context(context)
 

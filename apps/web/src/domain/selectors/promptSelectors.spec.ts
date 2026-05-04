@@ -106,6 +106,64 @@ describe("promptSelectors", () => {
     });
   });
 
+  it("projects backend effect context onto the active prompt", () => {
+    const prompt = selectActivePrompt([
+      {
+        type: "prompt",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          request_id: "req_mark",
+          request_type: "mark_target",
+          player_id: 2,
+          timeout_ms: 30000,
+          legal_choices: [{ choice_id: "none", title: "None" }],
+          view_state: {
+            prompt: {
+              active: {
+                request_id: "req_mark",
+                request_type: "mark_target",
+                player_id: 2,
+                timeout_ms: 30000,
+                choices: [{ choice_id: "none", title: "None" }],
+                public_context: { actor_name: "자객" },
+                behavior: { normalized_request_type: "mark_target" },
+                surface: { kind: "mark_target", blocks_public_events: true },
+                effect_context: {
+                  label: "자객",
+                  detail: "자객의 지목 효과로 다음 대상을 고릅니다.",
+                  attribution: "인물 지목",
+                  tone: "effect",
+                  source: "character",
+                  intent: "mark",
+                  enhanced: true,
+                  source_player_id: 2,
+                  source_family: "character",
+                  source_name: "자객",
+                  resource_delta: { cash: -3 },
+                },
+              },
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(prompt?.effectContext).toEqual({
+      label: "자객",
+      detail: "자객의 지목 효과로 다음 대상을 고릅니다.",
+      attribution: "인물 지목",
+      tone: "effect",
+      source: "character",
+      intent: "mark",
+      enhanced: true,
+      sourcePlayerId: 2,
+      sourceFamily: "character",
+      sourceName: "자객",
+      resourceDelta: { cash: -3 },
+    });
+  });
+
   it("does not expose module prompts as actionable without a complete continuation", () => {
     const incompleteModulePrompt: InboundMessage = {
       type: "prompt",
@@ -1103,6 +1161,7 @@ describe("promptSelectors", () => {
         moduleCursor: null,
         batchId: null,
       },
+      effectContext: null,
       behavior: {
         normalizedRequestType: "movement",
         singleSurface: false,
@@ -1187,6 +1246,7 @@ describe("promptSelectors", () => {
           moduleCursor: null,
           batchId: null,
         },
+        effectContext: null,
         behavior: {
           normalizedRequestType: "movement",
           singleSurface: false,
@@ -1245,6 +1305,7 @@ describe("promptSelectors", () => {
           moduleCursor: null,
           batchId: null,
         },
+        effectContext: null,
         behavior: {
           normalizedRequestType: "movement",
           singleSurface: false,

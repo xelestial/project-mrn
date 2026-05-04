@@ -743,6 +743,14 @@ export const enLocale = {
   },
   prompt: {
     noChoiceDescription: "No choices available yet.",
+    effectContextLabel: "Previous result",
+    effectAttribution: {
+      characterMark: "Character mark",
+      trickEffect: "Trick effect",
+      movementResult: "Movement result",
+      characterEffect: "Character effect",
+      supplyThreshold: "Supply threshold",
+    },
     hiddenCardName: "Hidden Card",
     hiddenCardDescription: (name: string) => `${name} effect`,
     hiddenState: {

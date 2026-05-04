@@ -146,6 +146,38 @@ function cleanDisplayText(value: string): string {
   return trimmed;
 }
 
+function effectAttributionLabel(effectContext: PromptEffectContext, promptText: PromptText): string | null {
+  const attribution = cleanDisplayText(effectContext.attribution ?? "");
+  if (attribution === "Character mark") {
+    return promptText.effectAttribution.characterMark;
+  }
+  if (attribution === "Trick effect") {
+    return promptText.effectAttribution.trickEffect;
+  }
+  if (attribution === "Movement result") {
+    return promptText.effectAttribution.movementResult;
+  }
+  if (attribution === "Character effect") {
+    return promptText.effectAttribution.characterEffect;
+  }
+  if (attribution === "Supply threshold") {
+    return promptText.effectAttribution.supplyThreshold;
+  }
+  if (attribution) {
+    return attribution;
+  }
+  if (effectContext.source === "character" && effectContext.intent === "mark") {
+    return promptText.effectAttribution.characterMark;
+  }
+  if (effectContext.source === "trick" && effectContext.intent === "target") {
+    return promptText.effectAttribution.trickEffect;
+  }
+  if (effectContext.source === "move") {
+    return promptText.effectAttribution.movementResult;
+  }
+  return null;
+}
+
 /**
  * Strip or reformat inline bracket tags from card description text.
  * Transforms: "[효과] 통행료 면제" → "효과: 통행료 면제"
@@ -1030,6 +1062,7 @@ export function PromptOverlay({
       ? Math.max(0, Math.min(100, (secondsLeft * 1000 * 100) / prompt.timeoutMs))
       : null;
   const headMetaPills = promptText.requestCompactMetaPills(prompt.playerId, secondsLeft).slice(0, 2);
+  const effectAttribution = effectContext ? effectAttributionLabel(effectContext, promptText) : null;
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {
@@ -1410,8 +1443,8 @@ export function PromptOverlay({
               data-effect-enhanced={effectContext.enhanced ? "true" : "false"}
             >
               <div className="prompt-effect-context-meta">
-                <span>{isKoreanLocale(locale) ? "직전 결과" : "Previous result"}</span>
-                {effectContext.attribution ? <strong>{effectContext.attribution}</strong> : null}
+                <span>{promptText.effectContextLabel}</span>
+                {effectAttribution ? <strong>{effectAttribution}</strong> : null}
               </div>
               <div className="prompt-effect-context-copy">
                 <strong>{cleanDisplayText(effectContext.label)}</strong>

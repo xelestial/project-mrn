@@ -948,6 +948,20 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(context["player_placed_coins"], 3)
         self.assertEqual(context["player_total_score"], 5)
         self.assertEqual(context["player_owned_tile_count"], 5)
+        self.assertEqual(
+            context["effect_context"],
+            {
+                "label": "LAP reward",
+                "detail": "The player crossed the start tile and must choose the lap reward allocation.",
+                "attribution": "Movement result",
+                "tone": "economy",
+                "source": "move",
+                "intent": "gain",
+                "enhanced": True,
+                "source_family": "movement",
+                "source_name": "lap_reward",
+            },
+        )
 
     def test_trick_tile_target_context_exposes_candidates(self) -> None:
         state = type("State", (), {"rounds_completed": 2, "turn_index": 1})()
@@ -963,6 +977,20 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(context["candidate_count"], 3)
         self.assertEqual(context["candidate_tiles"], [4, 9, 12])
         self.assertEqual(context["target_scope"], "other_owned_highest")
+        self.assertEqual(
+            context["effect_context"],
+            {
+                "label": "재뿌리기",
+                "detail": "재뿌리기 효과로 대상 타일을 고릅니다.",
+                "attribution": "Trick effect",
+                "tone": "effect",
+                "source": "trick",
+                "intent": "target",
+                "enhanced": True,
+                "source_family": "trick",
+                "source_name": "재뿌리기",
+            },
+        )
 
     def test_matchmaker_purchase_context_exposes_tile_metadata_and_adjacent_candidates(self) -> None:
         Tile = lambda zone, cost, rent, score: type(
