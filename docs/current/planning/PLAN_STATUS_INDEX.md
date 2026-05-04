@@ -54,6 +54,8 @@ Read and maintain these:
 - Rule/balance/reference material: `docs/current/rules/`
 - External AI operation: `docs/current/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md`
 - Human/external AI playtest checklist: `docs/current/engineering/HUMAN_EXTERNAL_AI_PLAYTEST_CHECKLIST.md`
+- Current runtime/external evidence:
+  `docs/current/engineering/[EVIDENCE]_RUNTIME_CONTRACT_EXTERNAL_CHECKS_2026-05-04.md`
 
 ## Archived Documents
 
@@ -105,7 +107,9 @@ Those themes should reopen only if a concrete regression or rollout need appears
    is replacing the platform manifest placeholders with the chosen deployment
    platform's native restart/exec commands, running that filled manifest through
    the platform smoke runner with `--require-external-topology`, and capturing
-   smoke evidence from the actual external topology. See
+   smoke evidence from the actual external topology. The 2026-05-04 evidence
+   pass confirmed that the local manifest validates and that
+   `--require-external-topology` correctly rejects local-only evidence. See
    `docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`.
 2. Runtime contract stabilization. The current baseline is guarded by the
    module-runtime matrix, native module/semantic-guard/continuation/idempotency
@@ -115,12 +119,19 @@ Those themes should reopen only if a concrete regression or rollout need appears
    new rule changes land.
 3. UI/UX follow-up. Effect cause visibility now preserves backend
    `effect_context` source player, source family, source name, and resource
-   delta through the prompt overlay. Remaining UI work is final 2H+2AI /
-   4-human playtest evidence and any active-weather context polish revealed by
-   that playtest. Use only
+   delta through the prompt overlay. The 2026-05-04 automated evidence pass
+   confirms backend projection, frontend selector/overlay rendering, and the
+   18-test `e2e:human-runtime` gate. Remaining UI work is final 2H+2AI /
+   4-human manual playtest evidence and any active-weather context polish
+   revealed by that playtest. Use only
    `docs/current/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md` and
    `docs/current/frontend/[AUDIT]_MRN_FRONTEND_GAME_DESIGN_REVIEW_2026-04-30.md`
    as current frontend planning inputs.
+4. External AI endpoint operation. Local real HTTP worker behavior is verified
+   through the priority-scored worker runbook smoke and runtime-service
+   localhost transport tests. A remote non-local external AI endpoint still
+   needs its actual base URL and credential/config values before it can be
+   called deployment evidence.
 
 ## Rule For New Work
 

@@ -8,6 +8,34 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Runtime Contract, External AI, And Evidence Closure Pass
+
+- What changed:
+  - added `docs/current/engineering/[EVIDENCE]_RUNTIME_CONTRACT_EXTERNAL_CHECKS_2026-05-04.md`
+    as the current evidence record for Redis topology validation, effect-cause
+    visibility, runtime contract maintenance, external AI endpoint smoke, and
+    remaining manual playtest closure
+  - updated the planning index so future work starts from the evidence record
+    instead of treating local Redis smoke as external platform proof
+  - updated the canonical frontend UI/UX document to distinguish automated
+    effect-cause gate completion from the still-pending long-form manual
+    2H+2AI and 4-human playtests
+- Why:
+  - separate what is structurally verified today from what still requires real
+    deployment inputs or human play evidence
+  - keep runtime/backend/frontend/external-AI evidence discoverable for the next
+    stabilization pass
+- Validation:
+  - `python3 tools/scripts/redis_platform_smoke_from_manifest.py --validate-only` -> passed local contract proof with `external_topology_ready=false`
+  - `python3 tools/scripts/redis_platform_smoke_from_manifest.py --validate-only --require-external-topology` -> failed as expected with `external platform manifest is required; local smoke manifests only prove the contract locally`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_view_state_prompt_selector.py::ViewStatePromptSelectorTests::test_build_prompt_view_state_projects_effect_context apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_effect_context_covers_remaining_effect_prompt_boundaries -q` -> `2 passed, 5 subtests passed`
+  - `npm --prefix apps/web test -- --run src/features/prompt/promptEffectContextDisplay.spec.ts src/domain/selectors/promptSelectors.spec.ts` -> `2 passed`, `87 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest GPT/test_runtime_sequence_modules.py GPT/test_runtime_simultaneous_modules.py GPT/test_runtime_sequence_handlers.py GPT/test_runtime_effect_inventory.py GPT/test_runtime_prompt_continuation.py apps/server/tests/test_prompt_module_continuation.py apps/server/tests/test_runtime_semantic_guard.py apps/server/tests/test_stream_module_idempotency.py tests/test_module_runtime_playtest_matrix_doc.py tests/test_redis_runtime_deployment_manifest.py -q` -> `132 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_runtime_contract_examples.py apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_purchase_tile_method_spec_keeps_request_context_and_choice_in_sync apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_specific_reward_and_runaway_specs_keep_specialized_contracts -q` -> `19 passed`
+  - `PYTHONPATH=.:GPT .venv/bin/python -m pytest apps/server/tests/test_external_ai_worker_api.py apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_http_external_transport_reaches_real_worker_over_localhost apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_http_external_transport_reaches_real_priority_worker_over_localhost -q` -> `13 passed`
+  - `.venv/bin/python tools/check_external_ai_endpoint.py --base-url http://127.0.0.1:8011 --require-ready --require-profile priority_scored --require-adapter priority_score_v1 --require-policy-class PriorityScoredPolicy --require-decision-style priority_scored_contract --require-request-type movement --require-request-type purchase_tile` -> `OK: external AI endpoint passed smoke checks`
+  - `npm --prefix apps/web run e2e:human-runtime` -> `18 passed`
+
 ## 2026-05-04 Prompt Decision Wire Contract Alignment
 
 - What changed:

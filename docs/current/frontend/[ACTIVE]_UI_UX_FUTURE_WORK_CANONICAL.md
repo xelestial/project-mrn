@@ -74,7 +74,7 @@ Open scheduled items:
 
 ### P0. Effect Cause Visibility During Live Play
 
-Status: BASELINE IMPLEMENTED (2026-05-04), FINAL PLAYTEST PENDING
+Status: BASELINE IMPLEMENTED AND AUTOMATED GATE PASSED (2026-05-04), FINAL MANUAL PLAYTEST PENDING
 
 Goal:
 - make every rule-driven state mutation understandable at the moment it happens, especially when the next prompt appears immediately
@@ -95,6 +95,12 @@ Implemented baseline:
 - backend-provided `effect_context.source_player_id`, `source_family`, `source_name`, and `resource_delta` now survive selector parsing, `App.tsx` prompt mapping, and `PromptOverlay` rendering.
 - prompt overlay renders source chips for source player, effect family, and card/weather name, plus resource delta chips when a non-zero known delta exists.
 - AI-triggered and human-triggered follow-up prompts use the same effect context route when the backend provides the same fields.
+
+Automated evidence:
+- `apps/server/tests/test_view_state_prompt_selector.py::ViewStatePromptSelectorTests::test_build_prompt_view_state_projects_effect_context` and `apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_effect_context_covers_remaining_effect_prompt_boundaries` passed on 2026-05-04.
+- `src/features/prompt/promptEffectContextDisplay.spec.ts` and `src/domain/selectors/promptSelectors.spec.ts` passed on 2026-05-04.
+- `npm --prefix apps/web run e2e:human-runtime` passed all 18 checks on 2026-05-04, including fortune cash loss, innkeeper lap bonus, Manshin mark, Baksu burden transfer, matchmaker purchase, and mixed participant continuity cases.
+- Detailed evidence lives in `docs/current/engineering/[EVIDENCE]_RUNTIME_CONTRACT_EXTERNAL_CHECKS_2026-05-04.md`.
 
 Definition of done:
 - a player can explain why a cash, shard, hand-count, burden, movement, or purchase prompt changed without reading debug logs
