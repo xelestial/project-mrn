@@ -8,6 +8,22 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Redis Runtime Restart Smoke Evidence
+
+- What changed:
+  - ran the Redis-backed production-like local compose restart smoke after the native module runtime migration
+  - verified server, prompt-timeout worker, and command-wakeup worker all boot with the same hash-tagged `MRN_REDIS_KEY_PREFIX`
+  - verified a live prompt remained resumable across server and worker restarts
+  - recorded the smoke result in the Redis authoritative state plan as rollout evidence
+- Why:
+  - the native module runtime migration must prove that Redis, not in-process backend state, owns the waiting prompt and replayable stream across process restarts
+  - deployment mapping work needs a concrete passing topology baseline before translating the process contract to a hosting manifest
+- Validation:
+  - `MRN_REDIS_KEY_PREFIX='mrn:{runtime-compose-smoke}' python3 tools/scripts/redis_restart_smoke.py --compose-project project-mrn-runtime-smoke --compose-file deploy/redis-runtime/docker-compose.runtime.yml --topology-name local-runtime-compose --expected-redis-hash-tag runtime-compose-smoke` -> `PASS`
+  - smoke summary: `session_id=sess_sw248OA5ryRLSBInW2vEe73o`, `before_status=waiting_input`, `after_status=waiting_input`, `before_replay_events=11`, `after_replay_events=12`, `worker_health_checks=4`
+  - verified worker health before and after restart for `prompt-timeout-worker` and `command-wakeup-worker`, each reporting Redis hash tag `runtime-compose-smoke`
+  - compose cleanup removed the smoke server, workers, Redis container, and network
+
 ## 2026-05-04 Native Turn Handler Bridge Removal And Exact Wakeup Identity
 
 - What changed:

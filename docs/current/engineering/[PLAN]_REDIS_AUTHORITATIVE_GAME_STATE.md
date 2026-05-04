@@ -836,6 +836,7 @@ Next action-pipeline hardening:
 - compatibility helper audit now has two contract guards: production modules outside `engine.py` may not call `_advance_player()`, `_apply_fortune_arrival()`, or `_apply_fortune_move_only()` directly, and engine-internal direct calls are limited to the legacy `_apply_fortune_card_impl()` non-queued fallback. `_advance_player()` has no production caller and remains for parity tests/compatibility hooks only.
 - production/local orchestration contract is now documented in `apps/server/README.md`: Redis-backed gameplay requires the FastAPI server, prompt-timeout worker, and command-wakeup worker as separately restarted long-lived roles on the same Redis URL/key prefix. Compose now healthchecks the server through `/health`, waits for it before starting workers, and gives the server a restart policy.
 - optional actionization watch-list status is explicit in `[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md`: rent payment is no longer on the watch list, while force sale/takeover and global all-player payments stay atomic until they gain a prompt, per-target animation, partial recovery, or shared modifier boundary.
+- latest Redis restart smoke evidence: local production-like compose topology passed with `MRN_REDIS_KEY_PREFIX=mrn:{runtime-compose-smoke}`. Server, prompt-timeout worker, and command-wakeup worker restarted against the same Redis hash tag while a session stayed at `waiting_input`; stream replay grew from 11 to 12 events instead of shrinking.
 
 ## Testing Strategy
 
@@ -898,7 +899,7 @@ Performance:
 
 Recommended next implementation PR:
 
-1. Run `tools/scripts/redis_restart_smoke.py` against the target production-like topology with `--skip-up`, `--restart-command`, `--worker-health-command`, and `--expected-redis-hash-tag`, then preserve the output as rollout evidence.
+1. Translate the passing local compose smoke into the target hosting platform's native process manifest, then rerun `tools/scripts/redis_restart_smoke.py` with `--skip-up`, `--restart-command`, `--worker-health-command`, and `--expected-redis-hash-tag`.
 2. Map `deploy/redis-runtime/process-contract.json` and `[CONTRACT]_REDIS_RUNTIME_DEPLOYMENT.md` onto the chosen hosting platform's native manifest format.
 3. Before multi-node Redis deployment, verify every process role uses the same hash-tagged `MRN_REDIS_KEY_PREFIX` and run restart/decision smoke tests against that exact prefix.
 
