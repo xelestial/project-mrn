@@ -1094,7 +1094,6 @@ class RuntimeService:
 
     @staticmethod
     def _command_module_identity_mismatch(checkpoint: dict, command: dict) -> bool:
-        payload = RuntimeService._command_payload(command)
         field_pairs = (
             ("frame_id", "active_frame_id"),
             ("module_id", "active_module_id"),
@@ -1102,7 +1101,7 @@ class RuntimeService:
             ("module_cursor", "active_module_cursor"),
         )
         for command_field, checkpoint_field in field_pairs:
-            command_value = str(payload.get(command_field) or "").strip()
+            command_value = RuntimeService._command_payload_field(command, command_field)
             checkpoint_value = str(checkpoint.get(checkpoint_field) or "").strip()
             if command_value and checkpoint_value and command_value != checkpoint_value:
                 return True

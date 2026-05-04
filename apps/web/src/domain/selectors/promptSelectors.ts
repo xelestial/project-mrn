@@ -316,6 +316,10 @@ function choiceValueRecord(item: Record<string, unknown>): Record<string, unknow
   return isRecord(item["value"]) ? { ...item["value"] } : null;
 }
 
+function choiceIdFromRecord(item: Record<string, unknown>): string {
+  return stringOrEmpty(item["choice_id"] ?? item["choiceId"] ?? item["id"]);
+}
+
 function choiceDescriptionText(item: Record<string, unknown>, value: Record<string, unknown> | null): string {
   const explicitDescription = stringOrEmpty(item["description"]);
   if (explicitDescription) {
@@ -510,8 +514,8 @@ function parseChoices(raw: unknown): PromptChoiceViewModel[] {
       if (!isRecord(item)) {
         return null;
       }
-      const choiceId = item["choice_id"];
-      if (typeof choiceId !== "string" || !choiceId.trim()) {
+      const choiceId = choiceIdFromRecord(item);
+      if (!choiceId) {
         return null;
       }
       const value = choiceValueRecord(item);
@@ -612,7 +616,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                   if (!isRecord(item)) {
                     return [];
                   }
-                  const choiceId = stringOrEmpty(item["choice_id"]);
+                  const choiceId = choiceIdFromRecord(item);
                   if (!choiceId) {
                     return [];
                   }
@@ -650,7 +654,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                   if (!isRecord(item)) {
                     return [];
                   }
-                  const choiceId = stringOrEmpty(item["choice_id"]);
+                  const choiceId = choiceIdFromRecord(item);
                   const cashUnits = numberOrNull(item["cash_units"]);
                   const shardUnits = numberOrNull(item["shard_units"]);
                   const coinUnits = numberOrNull(item["coin_units"]);
@@ -697,7 +701,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                   if (!isRecord(item)) {
                     return [];
                   }
-                  const choiceId = stringOrEmpty(item["choice_id"]);
+                  const choiceId = choiceIdFromRecord(item);
                   const targetCharacter = stringOrEmpty(item["target_character"]);
                   if (!choiceId || !targetCharacter) {
                     return [];
@@ -726,8 +730,8 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                   if (!isRecord(item)) {
                     return [];
                   }
-                  const choiceId = stringOrEmpty(item["choice_id"]);
-                  const name = stringOrEmpty(item["name"]);
+                  const choiceId = choiceIdFromRecord(item);
+                  const name = stringOrEmpty(item["name"] ?? item["title"] ?? item["label"]);
                   if (!choiceId || !name) {
                     return [];
                   }
@@ -755,7 +759,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                     return [];
                   }
                   return [{
-                    choiceId: stringOrEmpty(item["choice_id"]) || null,
+                    choiceId: choiceIdFromRecord(item) || null,
                     deckIndex: numberOrNull(item["deck_index"]),
                     name: stringOrEmpty(item["name"]) || "Trick",
                     description: stringOrEmpty(item["description"]),
@@ -788,7 +792,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                   if (!isRecord(item)) {
                     return [];
                   }
-                  const choiceId = stringOrEmpty(item["choice_id"]);
+                  const choiceId = choiceIdFromRecord(item);
                   const tileIndex = numberOrNull(item["tile_index"]);
                   if (!choiceId || tileIndex === null) {
                     return [];
@@ -807,7 +811,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                   if (!isRecord(item)) {
                     return [];
                   }
-                  const choiceId = stringOrEmpty(item["choice_id"]);
+                  const choiceId = choiceIdFromRecord(item);
                   const tileIndex = numberOrNull(item["tile_index"]);
                   if (!choiceId || tileIndex === null) {
                     return [];
@@ -826,7 +830,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                   if (!isRecord(item)) {
                     return [];
                   }
-                  const choiceId = stringOrEmpty(item["choice_id"]);
+                  const choiceId = choiceIdFromRecord(item);
                   if (!choiceId) {
                     return [];
                   }
@@ -850,7 +854,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                   if (!isRecord(item)) {
                     return [];
                   }
-                  const choiceId = stringOrEmpty(item["choice_id"]);
+                  const choiceId = choiceIdFromRecord(item);
                   if (!choiceId) {
                     return [];
                   }
@@ -873,7 +877,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                   if (!isRecord(item)) {
                     return [];
                   }
-                  const choiceId = stringOrEmpty(item["choice_id"]);
+                  const choiceId = choiceIdFromRecord(item);
                   if (!choiceId) {
                     return [];
                   }
@@ -895,7 +899,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                   if (!isRecord(item)) {
                     return [];
                   }
-                  const choiceId = stringOrEmpty(item["choice_id"]);
+                  const choiceId = choiceIdFromRecord(item);
                   if (!choiceId) {
                     return [];
                   }
@@ -928,7 +932,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                   if (!isRecord(item)) {
                     return [];
                   }
-                  const choiceId = stringOrEmpty(item["choice_id"]);
+                  const choiceId = choiceIdFromRecord(item);
                   if (!choiceId) {
                     return [];
                   }

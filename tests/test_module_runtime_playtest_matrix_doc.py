@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -304,6 +305,42 @@ def test_round_action_control_matrix_covers_runtime_module_catalog_and_effects()
         assert f"`{entry.producer_module}`" in text
         for module_type in entry.consumer_modules + entry.runtime_boundary_modules:
             assert f"`{module_type}`" in text
+
+
+def _inventory_line_modules(text: str, label: str) -> set[str]:
+    match = re.search(rf"^- {re.escape(label)}: (?P<body>.+)$", text, flags=re.MULTILINE)
+    assert match is not None, f"missing inventory line: {label}"
+    body = match.group("body").split(". ", 1)[0]
+    return set(re.findall(r"`([A-Za-z0-9_]+Module)`", body))
+
+
+def test_round_action_control_matrix_frame_inventory_matches_catalog_exactly() -> None:
+    from runtime_modules.catalog import MODULE_RULES
+    from runtime_modules.effect_inventory import VIRTUAL_EFFECT_MODULE_FRAME_KINDS
+
+    text = ROUND_ACTION_CONTROL_MATRIX.read_text(encoding="utf-8")
+    documented_round = _inventory_line_modules(text, "RoundFrame modules")
+    documented_turn = _inventory_line_modules(text, "TurnFrame modules")
+    documented_sequence = (
+        _inventory_line_modules(text, "SequenceFrame trick modules")
+        | _inventory_line_modules(text, "SequenceFrame action modules")
+    )
+    documented_simultaneous = _inventory_line_modules(text, "SimultaneousResolutionFrame modules")
+    documented_virtual = _inventory_line_modules(text, "Virtual effect modules")
+
+    assert documented_round == {
+        module_type for module_type, rule in MODULE_RULES.items() if rule.frame_types == frozenset({"round"})
+    }
+    assert documented_turn == {
+        module_type for module_type, rule in MODULE_RULES.items() if "turn" in rule.frame_types
+    }
+    assert documented_sequence == {
+        module_type for module_type, rule in MODULE_RULES.items() if "sequence" in rule.frame_types
+    }
+    assert documented_simultaneous == {
+        module_type for module_type, rule in MODULE_RULES.items() if rule.frame_types == frozenset({"simultaneous"})
+    }
+    assert documented_virtual == set(VIRTUAL_EFFECT_MODULE_FRAME_KINDS)
 
 
 def test_round_action_control_matrix_documents_latest_log_revalidation() -> None:

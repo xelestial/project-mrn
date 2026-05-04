@@ -167,10 +167,16 @@ class CommandStreamWakeupWorker:
 
     @staticmethod
     def _command_request_id(command: dict) -> str:
+        return CommandStreamWakeupWorker._command_payload_field(command, "request_id")
+
+    @staticmethod
+    def _command_payload_field(command: dict, name: str) -> str:
         payload = command.get("payload")
         if not isinstance(payload, dict):
             return ""
-        return str(payload.get("request_id") or "").strip()
+        decision = payload.get("decision")
+        decision = decision if isinstance(decision, dict) else {}
+        return str(payload.get(name) or decision.get(name) or "").strip()
 
     @staticmethod
     def _module_identity_mismatch(status: dict, command: dict) -> bool:
@@ -190,7 +196,7 @@ class CommandStreamWakeupWorker:
             ("module_cursor", "active_module_cursor"),
         )
         for command_field, checkpoint_field in field_pairs:
-            command_value = str(payload.get(command_field) or "").strip()
+            command_value = CommandStreamWakeupWorker._command_payload_field(command, command_field)
             checkpoint_value = str(checkpoint.get(checkpoint_field) or "").strip()
             if command_value and checkpoint_value and command_value != checkpoint_value:
                 return True

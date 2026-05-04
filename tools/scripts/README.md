@@ -19,3 +19,9 @@ Operational scripts for local runs, export, and migration helpers.
   and final smoke JSON as a rollout artifact. Use
   `--require-external-topology` for real staging/production evidence; it rejects
   local smoke profiles and requires a filled external platform manifest.
+- `game_debug_log_audit.py`: audits one debug-log run directory, or the latest
+  run under `.log`, across `frontend.jsonl`, `backend.jsonl`, and
+  `engine.jsonl`. It flags duplicate frontend decision sends, duplicate backend
+  accepts, draft choices missing from the final character prompt, forbidden
+  `LegacyActionAdapterModule` signals, and card flips that do not come from
+  `RoundEndCardFlipModule`.

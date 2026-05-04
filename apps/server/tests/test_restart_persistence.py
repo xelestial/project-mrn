@@ -220,6 +220,59 @@ class RestartPersistenceTests(unittest.TestCase):
         self.assertEqual(status["recovery_checkpoint"]["checkpoint"]["turn_index"], 4)
         self.assertEqual(commands[0]["payload"]["request_id"], "req_restart_ai")
 
+    def test_pending_resume_command_rejects_nested_decision_module_mismatch(self) -> None:
+        connection = RedisConnection(
+            RedisConnectionSettings(
+                url="redis://127.0.0.1:6379/10",
+                key_prefix="mrn-restart-nested-module",
+                socket_timeout_ms=250,
+            ),
+            client_factory=_FakeRedis,
+        )
+        game_state = RedisGameStateStore(connection)
+        command_store = RedisCommandStore(connection)
+        session_id = "sess_nested_resume"
+        game_state.save_current_state(session_id, {"tiles": [{"owner": None}], "turn_index": 2})
+        game_state.save_checkpoint(
+            session_id,
+            {
+                "schema_version": 3,
+                "session_id": session_id,
+                "runner_kind": "module",
+                "waiting_prompt_request_id": "req_resume",
+                "active_frame_id": "turn:2:p0",
+                "active_module_id": "mod:turn:2:p0:movement",
+                "active_module_type": "MapMoveModule",
+                "active_module_cursor": "move:await_choice",
+            },
+        )
+        command_store.append_command(
+            session_id,
+            "decision_submitted",
+            {
+                "decision": {
+                    "request_id": "req_resume",
+                    "choice_id": "roll",
+                    "frame_id": "turn:2:p0",
+                    "module_id": "mod:turn:2:p0:movement",
+                    "module_type": "MapMoveModule",
+                    "module_cursor": "move:old",
+                }
+            },
+            request_id="req_resume",
+        )
+        runtime = RuntimeService(
+            session_service=SessionService(restart_recovery_policy="keep"),
+            stream_service=StreamService(),
+            prompt_service=PromptService(),
+            game_state_store=game_state,
+            command_store=command_store,
+        )
+
+        pending = runtime.pending_resume_command(session_id)
+
+        self.assertIsNone(pending)
+
 
 if __name__ == "__main__":
     unittest.main()

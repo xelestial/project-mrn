@@ -492,10 +492,11 @@ describe("promptSelectors", () => {
   it("does not hydrate backend-owned surface fields from public_context", () => {
     const model = selectActivePrompt([
       {
-        type: "view_state",
+        type: "event",
         seq: 100,
         session_id: "s1",
         payload: {
+          event_type: "view_state",
           version: 1,
           revision: 1,
           view_state: {
@@ -2109,6 +2110,59 @@ describe("promptSelectors", () => {
         { choiceId: "산적", name: "산적", description: "Finalize 산적 as your active character." },
       ],
     });
+  });
+
+  it("keeps final character choices visible for id alias payloads", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "prompt",
+        seq: 10,
+        session_id: "s1",
+        payload: {
+          request_id: "req_final_alias",
+          request_type: "final_character",
+          player_id: 1,
+          timeout_ms: 300000,
+          legal_choices: [
+            { id: "6", title: "박수", description: "Finalize 박수." },
+            { id: "8", label: "건설업자", description: "Finalize 건설업자." },
+          ],
+          view_state: {
+            prompt: {
+              active: {
+                request_id: "req_final_alias",
+                request_type: "final_character",
+                player_id: 1,
+                timeout_ms: 300000,
+                choices: [
+                  { id: "6", title: "박수", description: "Finalize 박수." },
+                  { id: "8", label: "건설업자", description: "Finalize 건설업자." },
+                ],
+                surface: {
+                  kind: "character_pick",
+                  character_pick: {
+                    phase: "final",
+                    choice_count: 2,
+                    options: [
+                      { id: "6", title: "박수", description: "Finalize 박수." },
+                      { id: "8", label: "건설업자", description: "Finalize 건설업자." },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    ];
+
+    const model = selectActivePrompt(messages);
+
+    expect(model?.choices.map((choice) => choice.choiceId)).toEqual(["6", "8"]);
+    expect(model?.surface.characterPick?.options).toEqual([
+      { choiceId: "6", name: "박수", description: "Finalize 박수." },
+      { choiceId: "8", name: "건설업자", description: "Finalize 건설업자." },
+    ]);
   });
 
   it("matches shared selector prompt purchase tile surface fixture", () => {

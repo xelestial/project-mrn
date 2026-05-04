@@ -1257,6 +1257,186 @@ test("draft prompt keeps active strip hydrated before any flip events arrive", a
   await expect(page.getByTestId("board-hand-tray")).toContainText("비공개 잔꾀");
 });
 
+test("baksu draft choice stays available in final character prompt", async ({ page }) => {
+  const sessionId = "sess_baksu_draft_final_regression";
+  const manifest = buildManifest({
+    hash: "baksu_draft_final_regression_hash_001",
+    topology: "ring",
+    tileCount: 40,
+    seats: [1, 2, 3, 4],
+  });
+  const initialActiveByCard = {
+    "1": "어사",
+    "2": "산적",
+    "3": "탈출 노비",
+    "4": "아전",
+    "5": "교리 감독관",
+    "6": "박수",
+    "7": "객주",
+    "8": "건설업자",
+  };
+
+  await installMockRuntime(page, {
+    sessionManifests: { [sessionId]: manifest },
+    sessionEvents: {
+      [sessionId]: [
+        eventMessage({
+          seq: 1,
+          sessionId,
+          payload: {
+            event_type: "parameter_manifest",
+            parameter_manifest: manifest,
+          },
+        }),
+        eventMessage({
+          seq: 2,
+          sessionId,
+          payload: {
+            event_type: "round_start",
+            round_index: 1,
+          },
+        }),
+        {
+          type: "prompt",
+          seq: 3,
+          session_id: sessionId,
+          server_time_ms: 1_700_000_001_003,
+          payload: {
+            request_id: "req_baksu_draft_1",
+            request_type: "draft_card",
+            player_id: 1,
+            timeout_ms: 300000,
+            public_context: {
+              draft_phase: 1,
+              offered_count: 4,
+              offered_names: ["박수", "산적", "객주", "아전"],
+            },
+            legal_choices: [
+              { choice_id: "6", title: "박수", description: "Select 박수 for your draft pool." },
+              { choice_id: "2", title: "산적", description: "Select 산적 for your draft pool." },
+              { choice_id: "7", title: "객주", description: "Select 객주 for your draft pool." },
+              { choice_id: "4", title: "아전", description: "Select 아전 for your draft pool." },
+            ],
+          },
+        },
+      ],
+    },
+    decisionFollowups: {
+      req_baksu_draft_1: [
+        {
+          type: "decision_ack",
+          seq: 4,
+          session_id: sessionId,
+          server_time_ms: 1_700_000_001_004,
+          delay_ms: 0,
+          payload: {
+            request_id: "req_baksu_draft_1",
+            status: "accepted",
+            player_id: 1,
+            provider: "human",
+          },
+        },
+        {
+          ...eventMessage({
+            seq: 5,
+            sessionId,
+            payload: {
+              event_type: "draft_pick",
+              round_index: 1,
+              player_id: 1,
+              choice_id: "6",
+              character: "박수",
+            },
+          }),
+          delay_ms: 20,
+        },
+        {
+          type: "prompt",
+          seq: 6,
+          session_id: sessionId,
+          server_time_ms: 1_700_000_001_006,
+          delay_ms: 80,
+          payload: {
+            request_id: "req_baksu_final_1",
+            request_type: "final_character",
+            player_id: 1,
+            timeout_ms: 300000,
+            public_context: {
+              draft_phase: "final",
+              offered_count: 2,
+              offered_names: ["박수", "건설업자"],
+            },
+            legal_choices: [
+              { choice_id: "6", title: "박수", description: "Finalize 박수 as your active character." },
+              { choice_id: "8", title: "건설업자", description: "Finalize 건설업자 as your active character." },
+            ],
+          },
+        },
+      ],
+      req_baksu_final_1: [
+        {
+          type: "decision_ack",
+          seq: 7,
+          session_id: sessionId,
+          server_time_ms: 1_700_000_001_007,
+          delay_ms: 0,
+          payload: {
+            request_id: "req_baksu_final_1",
+            status: "accepted",
+            player_id: 1,
+            provider: "human",
+          },
+        },
+        {
+          ...eventMessage({
+            seq: 8,
+            sessionId,
+            payload: {
+              event_type: "final_character_choice",
+              round_index: 1,
+              player_id: 1,
+              acting_player_id: 1,
+              choice_id: "6",
+              character: "박수",
+            },
+          }),
+          delay_ms: 20,
+        },
+      ],
+    },
+    createSessionQueue: [
+      {
+        session_id: sessionId,
+        status: "in_progress",
+        host_token: "host_baksu_draft_final_regression",
+        join_tokens: { "1": "seat1", "2": "seat2", "3": "seat3", "4": "seat4" },
+        initial_active_by_card: initialActiveByCard,
+        seats: [
+          { seat: 1, seat_type: "human", connected: true, player_id: 1 },
+          { seat: 2, seat_type: "ai", connected: true, player_id: 2, ai_profile: "balanced" },
+          { seat: 3, seat_type: "ai", connected: true, player_id: 3, ai_profile: "balanced" },
+          { seat: 4, seat_type: "ai", connected: true, player_id: 4, ai_profile: "balanced" },
+        ],
+        parameter_manifest: manifest,
+      },
+    ],
+  });
+
+  await page.goto(`/#/match?session=${sessionId}&token=session_p1_baksu_draft_final_demo`);
+  await expect(page.getByTestId("prompt-overlay")).toHaveAttribute("data-prompt-type", "draft_card");
+  await expect(page.getByTestId("character-choice-6")).toContainText("박수");
+  await expect(page.getByTestId("character-choice-2")).toContainText("산적");
+
+  await page.getByTestId("character-choice-6").click();
+
+  await expect(page.getByTestId("prompt-overlay")).toHaveAttribute("data-prompt-type", "final_character");
+  await expect(page.getByTestId("character-choice-6")).toContainText("박수");
+  await expect(page.getByTestId("character-choice-8")).toContainText("건설업자");
+
+  await page.getByTestId("character-choice-6").click();
+  await expect(page.getByTestId("prompt-overlay")).toHaveCount(0);
+});
+
 test("round start shows weather and active strip before any prompt appears", async ({ page }) => {
   const sessionId = "sess_round_start_status";
   const manifest = buildManifest({

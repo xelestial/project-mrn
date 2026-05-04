@@ -26,7 +26,7 @@ This section is intentionally exhaustive and is checked by tests against `GPT/ru
 - RoundFrame modules: `RoundStartModule`, `WeatherModule`, `DraftModule`, `TurnSchedulerModule`, `PlayerTurnModule`, `RoundEndCardFlipModule`, `RoundCleanupAndNextRoundModule`.
 - TurnFrame modules: `TurnStartModule`, `ScheduledStartActionsModule`, `CharacterStartModule`, `ImmediateMarkerTransferModule`, `TargetJudicatorModule`, `TrickWindowModule`, `DiceRollModule`, `MovementResolveModule`, `LapRewardModule`, `PendingMarkResolutionModule`, `MapMoveModule`, `ArrivalTileModule`, `FortuneResolveModule`, `TurnEndSnapshotModule`.
 - SequenceFrame trick modules: `TrickChoiceModule`, `TrickSkipModule`, `TrickResolveModule`, `TrickDiscardModule`, `TrickDeferredFollowupsModule`, `TrickVisibilitySyncModule`.
-- SequenceFrame action modules: `PendingMarkResolutionModule`, `MapMoveModule`, `ArrivalTileModule`, `RentPaymentModule`, `PurchaseDecisionModule`, `PurchaseCommitModule`, `UnownedPostPurchaseModule`, `ScoreTokenPlacementPromptModule`, `ScoreTokenPlacementCommitModule`, `LandingPostEffectsModule`, `TrickTileRentModifierModule`, `FortuneResolveModule`. `LegacyActionAdapterModule` and sequence-owned `TurnEndSnapshotModule` remain documented only as forbidden legacy checkpoint signals and are no longer executable runtime paths.
+- SequenceFrame action modules: `LapRewardModule`, `PendingMarkResolutionModule`, `MapMoveModule`, `ArrivalTileModule`, `RentPaymentModule`, `PurchaseDecisionModule`, `PurchaseCommitModule`, `UnownedPostPurchaseModule`, `ScoreTokenPlacementPromptModule`, `ScoreTokenPlacementCommitModule`, `LandingPostEffectsModule`, `TrickTileRentModifierModule`, `FortuneResolveModule`. `LegacyActionAdapterModule` and sequence-owned `TurnEndSnapshotModule` remain documented only as forbidden legacy checkpoint signals and are no longer executable runtime paths.
 - SimultaneousResolutionFrame modules: `SimultaneousProcessingModule`, `SimultaneousPromptBatchModule`, `ResupplyModule`, `SimultaneousCommitModule`, `CompleteSimultaneousResolutionModule`.
 - Virtual effect modules: `CharacterModifierSeedModule`, `CharacterPassiveModifierSeedModule`, `ConcurrentResolutionSchedulerModule`. These are inventory-only module boundaries used to express modifier/scheduler ownership without allowing ad hoc backend branching.
 
@@ -114,6 +114,7 @@ Each effect is owned by a producer module and consumed only by declared runtime 
 | `character:builder:free_purchase` | 건설업자 | `CharacterStartModule` | `PurchaseDecisionModule`, `PurchaseCommitModule` |
 | `character:swindler:takeover` | 사기꾼 | `ArrivalTileModule` | `ArrivalTileModule`, `RentPaymentModule`, `LandingPostEffectsModule` |
 | `trick:sequence` | 잔꾀 | `TrickWindowModule` | `TrickChoiceModule`, `TrickResolveModule` |
+| `trick:specific_reward` | 잔꾀 보상 | `TrickResolveModule` | `TrickResolveModule` |
 | `fortune:extra_arrival` | 운수 | `FortuneResolveModule` | `MapMoveModule`, `ArrivalTileModule` |
 | `simultaneous:resupply` | 재보급 | `ConcurrentResolutionSchedulerModule` | `ResupplyModule` |
 
