@@ -8,6 +8,31 @@ Updated: 2026-05-04
 - Record every task summary regardless of size (small/large).
 - For complex logic changes, write/update plan docs first, then implement.
 
+## 2026-05-04 Prompt Decision Wire Contract Alignment
+
+- What changed:
+  - aligned the round-combination regression pack, playtest matrix, round-action
+    control matrix, and end-to-end contract on `coin_placement` as the
+    backend/frontend wire `request_type`
+  - documented that score-token placement remains owned inside the engine by
+    `request_score_token_placement`, `resolve_score_token_placement`,
+    `ScoreTokenPlacementPromptModule`, and `ScoreTokenPlacementCommitModule`
+  - added server contract coverage tying regression-pack prompt request types
+    to `decision_gateway.METHOD_SPECS` and their owner modules
+  - added document/frontend coverage tying regression-pack prompt request types
+    to the end-to-end contract and `promptSelectors.spec.ts`
+- Why:
+  - prevent engine module names and backend/frontend prompt-surface names from
+    drifting, especially around purchase and score-token prompt resumes
+  - make the 1-13 migration follow-up enforceable without changing the
+    deliberate `coin_placement` wire API
+- Validation:
+  - `PYTHONPATH=. .venv/bin/pytest tests/test_module_runtime_playtest_matrix_doc.py apps/server/tests/test_prompt_module_continuation.py -q` -> `33 passed`
+  - `PYTHONPATH=. .venv/bin/pytest apps/server/tests/test_runtime_semantic_guard.py apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_active_simultaneous_batch_publishes_module_prompts_for_missing_players apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_simultaneous_batch_continuation_survives_service_reconstruction apps/server/tests/test_game_debug_log.py -q` -> `28 passed`
+  - `PYTHONPATH=. .venv/bin/pytest GPT/test_runtime_sequence_modules.py::test_bandit_mark_then_trick_followup_never_replays_target_or_trick_window GPT/test_runtime_sequence_modules.py::test_all_fortune_decision_actions_can_chain_move_and_arrival_without_legacy_turn_restart GPT/test_runtime_sequence_modules.py::test_pending_supply_threshold_action_is_promoted_to_resupply_frame_before_sequence_actions GPT/test_runtime_simultaneous_modules.py GPT/test_runtime_module_contracts.py -q` -> `27 passed`
+  - `npm --prefix apps/web test -- --run src/domain/selectors/promptSelectors.spec.ts` -> `84 passed`
+  - `jq empty packages/runtime-contracts/ws/examples/round-combination.regression-pack.json` and `git diff --check` -> passed
+
 ## 2026-05-04 Runtime Contract And Prompt Context Hardening
 
 - What changed:

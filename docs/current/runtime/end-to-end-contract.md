@@ -48,3 +48,27 @@ or round-end effect. The current covered prompt families are:
 Frontend renderers consume this projection from `view_state.prompt.active` and
 may localize display text, but must not reconstruct the source or intent from
 older stream events.
+
+## Prompt Decision Surface Inventory
+
+These request types are the backend/frontend wire surface for resumable module
+prompts:
+
+- `mark_target`: `TargetJudicatorModule` resumes the active `TurnFrame`.
+- `trick_to_use`: `TrickWindowModule` opens a child `TrickSequenceFrame`.
+- `hidden_trick_card`: `TrickChoiceModule` resumes inside the child trick
+  sequence.
+- `specific_trick_reward`: `TrickResolveModule` resumes inside the child trick
+  sequence.
+- `movement`: `DiceRollModule`, `MapMoveModule`, or `ArrivalTileModule` resumes
+  the current turn without creating a new turn.
+- `lap_reward`: `LapRewardModule` resumes the movement-created action
+  sequence.
+- `purchase_tile`: `PurchaseDecisionModule` and `PurchaseCommitModule` resume
+  the arrival action sequence.
+- `coin_placement`: frontend/backend request type for score-token placement;
+  engine ownership stays in `ScoreTokenPlacementPromptModule` and
+  `ScoreTokenPlacementCommitModule`.
+- `burden_exchange`: simultaneous response request type owned by
+  `SimultaneousPromptBatchModule`, `ResupplyModule`, and
+  `SimultaneousCommitModule`.

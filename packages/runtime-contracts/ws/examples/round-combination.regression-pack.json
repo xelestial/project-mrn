@@ -173,7 +173,7 @@
       ]
     },
     {
-      "request_type": "score_token_placement",
+      "request_type": "coin_placement",
       "frame_contract": "ActionSequenceFrame",
       "owner_modules": [
         "ScoreTokenPlacementPromptModule",

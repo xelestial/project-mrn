@@ -83,7 +83,7 @@ Prompt/decision 계약 매트릭스는 회귀 pack의 `prompt_decision_contract_
 | `movement` | `TurnFrame` | `DiceRollModule`, `MapMoveModule`, `ArrivalTileModule` | `PromptContinuation` | must not create a new TurnFrame |
 | `lap_reward` | `ActionSequenceFrame` | `LapRewardModule` | `PromptContinuation` | must not rerun MovementResolveModule |
 | `purchase_tile` | `ActionSequenceFrame` | `PurchaseDecisionModule`, `PurchaseCommitModule` | `PromptContinuation` | must not rerun ArrivalTileModule |
-| `score_token_placement` | `ActionSequenceFrame` | `ScoreTokenPlacementPromptModule`, `ScoreTokenPlacementCommitModule` | `PromptContinuation` | must not rerun PurchaseCommitModule |
+| `coin_placement` | `ActionSequenceFrame` | `ScoreTokenPlacementPromptModule`, `ScoreTokenPlacementCommitModule` | `PromptContinuation` | must not rerun PurchaseCommitModule |
 | `burden_exchange` | `SimultaneousResolutionFrame` | `SimultaneousPromptBatchModule`, `ResupplyModule`, `SimultaneousCommitModule` | `SimultaneousPromptBatchContinuation` | must not recalculate eligible burden cards |
 
 Redis 재개 증거는 회귀 pack의 `redis_resume_evidence`와 아래 테스트 이름이 함께 고정한다.

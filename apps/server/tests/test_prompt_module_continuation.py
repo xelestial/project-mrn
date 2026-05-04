@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from GPT.runtime_modules.contracts import FrameState, ModuleRef
+from apps.server.src.services.decision_gateway import METHOD_SPECS
 from apps.server.src.services.prompt_service import PromptService
 from apps.server.src.services.runtime_service import _LocalHumanDecisionClient
 
@@ -40,7 +41,7 @@ def _contract_prompt(entry: dict, index: int) -> dict:
         "movement": "MapMoveModule",
         "lap_reward": "LapRewardModule",
         "purchase_tile": "PurchaseDecisionModule",
-        "score_token_placement": "ScoreTokenPlacementPromptModule",
+        "coin_placement": "ScoreTokenPlacementPromptModule",
         "burden_exchange": "ResupplyModule",
     }
     module_type = prompt_module_by_type.get(request_type, "MapMoveModule")
@@ -344,9 +345,18 @@ def test_prompt_decision_contract_matrix_preserves_required_wire_fields() -> Non
         result = service.submit_decision(_decision_from_prompt(prompt))
 
         assert result["status"] == "accepted"
+        assert prompt["module_type"] in entry["owner_modules"]
         for field in entry["required_wire_fields"]:
             assert pending.payload[field], f"{entry['request_type']} prompt missing {field}"
             assert commands[-1]["payload"][field], f"{entry['request_type']} command missing {field}"
+
+
+def test_prompt_decision_contract_matrix_request_types_are_decision_gateway_specs() -> None:
+    pack = json.loads(ROUND_COMBINATION_PACK.read_text(encoding="utf-8"))
+    gateway_request_types = {spec.request_type for spec in METHOD_SPECS.values()}
+
+    for entry in pack["prompt_decision_contract_matrix"]:
+        assert entry["request_type"] in gateway_request_types
 
 
 def test_local_human_prompt_created_inside_module_attaches_active_continuation() -> None:

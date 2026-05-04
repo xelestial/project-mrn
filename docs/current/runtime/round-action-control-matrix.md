@@ -80,8 +80,13 @@ or resume tokens.
 | `movement` | `TurnFrame` | `DiceRollModule`, `MapMoveModule`, `ArrivalTileModule` | `PromptContinuation` | must not create a new `TurnFrame` |
 | `lap_reward` | `ActionSequenceFrame` | `LapRewardModule` | `PromptContinuation` | must not rerun `MovementResolveModule` |
 | `purchase_tile` | `ActionSequenceFrame` | `PurchaseDecisionModule`, `PurchaseCommitModule` | `PromptContinuation` | must not rerun `ArrivalTileModule` |
-| `score_token_placement` | `ActionSequenceFrame` | `ScoreTokenPlacementPromptModule`, `ScoreTokenPlacementCommitModule` | `PromptContinuation` | must not rerun `PurchaseCommitModule` |
+| `coin_placement` | `ActionSequenceFrame` | `ScoreTokenPlacementPromptModule`, `ScoreTokenPlacementCommitModule` | `PromptContinuation` | must not rerun `PurchaseCommitModule` |
 | `burden_exchange` | `SimultaneousResolutionFrame` | `SimultaneousPromptBatchModule`, `ResupplyModule`, `SimultaneousCommitModule` | `SimultaneousPromptBatchContinuation` | must not recalculate eligible burden cards |
+
+`coin_placement` is the backend/frontend wire request type for score-token
+placement. The engine action/module names remain
+`request_score_token_placement`, `resolve_score_token_placement`,
+`ScoreTokenPlacementPromptModule`, and `ScoreTokenPlacementCommitModule`.
 
 Single-player prompt rows must carry `request_id`, `request_type`, `player_id`,
 `frame_id`, `module_id`, `module_type`, and `module_cursor`. Simultaneous

@@ -11,10 +11,12 @@ sys.path.insert(0, str(ROOT / "GPT"))
 
 MATRIX_DOC = ROOT / "docs/current/engineering/[MATRIX]_MODULE_RUNTIME_PLAYTEST_SCENARIOS.md"
 ROUND_ACTION_CONTROL_MATRIX = ROOT / "docs/current/runtime/round-action-control-matrix.md"
+END_TO_END_CONTRACT_DOC = ROOT / "docs/current/runtime/end-to-end-contract.md"
 TILE_TRAIT_PLAN_DOC = ROOT / "docs/current/engineering/[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md"
 REDIS_STATE_PLAN_DOC = ROOT / "docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md"
 SERVER_README = ROOT / "apps/server/README.md"
 WEB_PACKAGE_JSON = ROOT / "apps/web/package.json"
+WEB_PROMPT_SELECTOR_SPEC = ROOT / "apps/web/src/domain/selectors/promptSelectors.spec.ts"
 DEPLOYMENT_CONTRACT_DOC = ROOT / "docs/current/engineering/[CONTRACT]_REDIS_RUNTIME_DEPLOYMENT.md"
 DEPLOYMENT_PROCESS_CONTRACT = ROOT / "deploy/redis-runtime/process-contract.json"
 ROUND_COMBINATION_REGRESSION_PACK = (
@@ -174,7 +176,7 @@ def test_round_combination_regression_pack_documents_prompt_decision_contract_ma
         "movement",
         "lap_reward",
         "purchase_tile",
-        "score_token_placement",
+        "coin_placement",
         "burden_exchange",
     }
 
@@ -194,6 +196,26 @@ def test_round_combination_regression_pack_documents_prompt_decision_contract_ma
             assert module_type in control_doc
         for forbidden in row["replay_must_not"]:
             assert forbidden in matrix_doc
+
+
+def test_runtime_end_to_end_contract_covers_prompt_decision_request_types() -> None:
+    text = END_TO_END_CONTRACT_DOC.read_text(encoding="utf-8")
+    pack = json.loads(ROUND_COMBINATION_REGRESSION_PACK.read_text(encoding="utf-8"))
+
+    for row in pack["prompt_decision_contract_matrix"]:
+        assert row["request_type"] in text
+
+    assert "`coin_placement`" in text
+    assert "`score_token_placement`" not in text
+
+
+def test_prompt_decision_contract_matrix_is_covered_by_frontend_prompt_selector_spec() -> None:
+    text = WEB_PROMPT_SELECTOR_SPEC.read_text(encoding="utf-8")
+    pack = json.loads(ROUND_COMBINATION_REGRESSION_PACK.read_text(encoding="utf-8"))
+
+    for row in pack["prompt_decision_contract_matrix"]:
+        request_type = row["request_type"]
+        assert f'requestType: "{request_type}"' in text or f'request_type: "{request_type}"' in text
 
 
 def test_round_action_control_matrix_documents_trick_mark_loop_gates_and_simultaneous_response_term() -> None:
