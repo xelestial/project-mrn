@@ -105,7 +105,14 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                         "request_type": "draft_card",
                         "player_id": 3,
                         "timeout_ms": 300000,
-                        "legal_choices": [{"choice_id": "card_8", "title": "만신", "description": "pick"}],
+                        "legal_choices": [
+                            {
+                                "choice_id": "card_8",
+                                "title": "만신",
+                                "description": "pick",
+                                "value": {"inactive_character_name": "박수"},
+                            }
+                        ],
                         "public_context": {
                             "draft_phase": 2,
                             "draft_phase_label": "draft_phase_2",
@@ -123,7 +130,7 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                 "draft_phase": 2,
                 "draft_phase_label": "draft_phase_2",
                 "choice_count": 1,
-                "options": [{"choice_id": "card_8", "name": "만신", "description": "pick"}],
+                "options": [{"choice_id": "card_8", "name": "만신", "description": "pick", "inactive_name": "박수"}],
             },
         )
 

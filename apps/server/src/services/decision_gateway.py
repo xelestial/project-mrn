@@ -213,21 +213,28 @@ def _choice_payload(
 
 
 def _active_character_for_card_index(state: Any, card_index: int) -> tuple[str, str]:
+    active_name, _inactive_name, ability = _character_faces_for_card_index(state, card_index)
+    return active_name, ability
+
+
+def _character_faces_for_card_index(state: Any, card_index: int) -> tuple[str, str, str]:
     try:
         _ensure_gpt_import_path()
         from characters import CARD_TO_NAMES, CHARACTERS
 
         active_name = str((getattr(state, "active_by_card", {}) or {}).get(int(card_index)) or "")
-        if active_name:
-            ability = str(getattr(CHARACTERS.get(active_name), "ability_text", "") or "")
-            return active_name, ability
-
         names = CARD_TO_NAMES.get(int(card_index), ("", ""))
+        if active_name:
+            inactive_name = next((str(candidate) for candidate in names if candidate and str(candidate) != active_name), "")
+            ability = str(getattr(CHARACTERS.get(active_name), "ability_text", "") or "")
+            return active_name, inactive_name, ability
+
         fallback_name = next((candidate for candidate in names if candidate), "")
+        inactive_name = next((candidate for candidate in names if candidate and candidate != fallback_name), "")
         ability = str(getattr(CHARACTERS.get(fallback_name), "ability_text", "") or "")
-        return fallback_name, ability
+        return str(fallback_name), str(inactive_name), ability
     except Exception:
-        return "", ""
+        return "", "", ""
 
 
 def _public_active_by_card(state: Any) -> dict[int, str] | None:
@@ -473,16 +480,25 @@ def _build_card_choice_context(
     if isinstance(cards, list):
         names: list[str] = []
         abilities: list[str] = []
+        faces: list[dict[str, Any]] = []
         for card_index in cards:
-            name, ability = _active_character_for_card_index(state, int(card_index))
+            name, inactive_name, ability = _character_faces_for_card_index(state, int(card_index))
             if name:
                 names.append(name)
             if ability:
                 abilities.append(ability)
+            faces.append(
+                {
+                    "card_index": int(card_index),
+                    "active_character_name": name,
+                    "inactive_character_name": inactive_name,
+                }
+            )
         return {
             "choice_count": len(cards),
             "choice_names": names,
             "choice_abilities": abilities,
+            "choice_faces": faces,
         }
     return {}
 
@@ -502,6 +518,7 @@ def _build_draft_choice_context(
             "offered_count": len(offered_cards) if isinstance(offered_cards, list) else 0,
             "offered_names": context.get("choice_names", []),
             "offered_abilities": context.get("choice_abilities", []),
+            "offered_faces": context.get("choice_faces", []),
             "draft_phase": draft_phase,
             "draft_phase_label": f"draft_phase_{draft_phase}",
         }
@@ -1076,14 +1093,21 @@ def _build_card_index_choices(args: tuple[Any, ...], kwargs: dict[str, Any], sta
     raw_cards = _arg_or_kw(args, kwargs, index, key) or []
     choices: list[dict[str, Any]] = []
     for card_index in raw_cards:
-        name, ability = _active_character_for_card_index(state, int(card_index))
+        name, inactive_name, ability = _character_faces_for_card_index(state, int(card_index))
         title = name or str(card_index)
         choices.append(
             _choice_payload(
                 str(card_index),
                 title=title,
                 description=ability or None,
-                value={"card_index": int(card_index), "character_name": title, "character_ability": ability},
+                value={
+                    "card_index": int(card_index),
+                    "character_name": title,
+                    "active_character_name": title,
+                    "inactive_character_name": inactive_name,
+                    "character_ability": ability,
+                    "card_faces": {"active": title, "inactive": inactive_name},
+                },
             )
         )
     return choices

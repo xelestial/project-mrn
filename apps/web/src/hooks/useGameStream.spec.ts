@@ -50,6 +50,17 @@ describe("useGameStream replay recovery guards", () => {
     expect(ledger.shouldSend(secondStream, "req_1")).toBe(true);
   });
 
+  it("keeps sent decision ids across fresh hook ledgers for the same stream key", () => {
+    const streamKey = buildGameStreamKey("sess_recovered_ledgers", "seat-1");
+    const firstLedger = createDecisionRequestLedger();
+    const secondLedger = createDecisionRequestLedger();
+
+    firstLedger.recordSent(streamKey, "req_burden_3");
+
+    expect(secondLedger.shouldSend(streamKey, "req_burden_3")).toBe(false);
+    expect(secondLedger.shouldSend(streamKey, "req_burden_4")).toBe(true);
+  });
+
   it("builds decision messages with the backend-issued module continuation", () => {
     expect(
       buildDecisionMessage({

@@ -3522,10 +3522,11 @@ export function selectActiveCharacterSlots(
   const snapshot = selectLiveSnapshot(messages, text);
   if (!snapshot) {
     const backendSlots = selectBackendActiveCharacterSlots(messages, currentLocalPlayerId);
+    if (backendSlots) {
+      return backendSlots;
+    }
     const rawSlots = selectRawActiveCharacterSlotsWithoutSnapshot(messages);
-    const backendKnownCount = backendSlots?.filter((slot) => Boolean(slot.character)).length ?? 0;
-    const rawKnownCount = rawSlots.filter((slot) => Boolean(slot.character)).length;
-    let bestSlots = backendKnownCount >= rawKnownCount && backendSlots ? backendSlots : rawSlots;
+    let bestSlots = rawSlots;
     const bestKnownCount = bestSlots.filter((slot) => Boolean(slot.character)).length;
     if (fallbackKnownCount > bestKnownCount) {
       bestSlots = fallbackSlots;

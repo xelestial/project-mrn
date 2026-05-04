@@ -7473,6 +7473,14 @@ body {
   line-height: 1.05;
 }
 
+.prompt-character-card-face-note {
+  display: block;
+  color: rgba(232, 240, 255, 0.74);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
 .prompt-overlay-draft_card .prompt-choice-summary,
 .prompt-overlay-final_character .prompt-choice-summary,
 .prompt-overlay-final_character_choice .prompt-choice-summary,

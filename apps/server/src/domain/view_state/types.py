@@ -196,6 +196,7 @@ class PromptSurfaceCharacterPickOptionViewState(TypedDict):
     choice_id: str
     name: str
     description: str
+    inactive_name: NotRequired[str]
 
 
 class PromptSurfaceCharacterPickViewState(TypedDict):

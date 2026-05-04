@@ -764,6 +764,13 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(context["draft_phase"], 2)
         self.assertEqual(context["draft_phase_label"], "draft_phase_2")
         self.assertEqual(context["active_by_card"], {1: "산적", 2: "건설업자"})
+        self.assertEqual(
+            context["offered_faces"],
+            [
+                {"card_index": 1, "active_character_name": "산적", "inactive_character_name": "어사"},
+                {"card_index": 2, "active_character_name": "건설업자", "inactive_character_name": "자객"},
+            ],
+        )
         self.assertEqual(context["total_hand_count"], 2)
         self.assertEqual(context["hidden_trick_count"], 1)
         self.assertEqual([card["name"] for card in context["full_hand"]], ["가벼운 짐", "건강 검진"])
@@ -970,7 +977,15 @@ class RuntimeServiceTests(unittest.TestCase):
         routed = build_routed_decision_call(invocation, fallback_policy="required")
 
         self.assertEqual(context["choice_names"], ["중매꾼", "사기꾼"])
+        self.assertEqual(
+            context["choice_faces"],
+            [
+                {"card_index": 7, "active_character_name": "중매꾼", "inactive_character_name": "객주"},
+                {"card_index": 8, "active_character_name": "사기꾼", "inactive_character_name": "건설업자"},
+            ],
+        )
         self.assertEqual([choice["title"] for choice in routed.legal_choices], ["중매꾼", "사기꾼"])
+        self.assertEqual(routed.legal_choices[0]["value"]["inactive_character_name"], "객주")
         self.assertEqual(routed.choice_parser("7", invocation.args, invocation.kwargs, invocation.state, invocation.player), "중매꾼")
 
     def test_public_context_includes_weather_fields_when_state_has_current_weather(self) -> None:
@@ -5717,6 +5732,30 @@ class RuntimeServiceTests(unittest.TestCase):
                 "request_type": "coin_placement",
                 "cursor": "score_token:await_choice",
                 "choice_id": "tile-7",
+            },
+            {
+                "name": "character_start_doctrine",
+                "frame_type": "turn",
+                "module_type": "CharacterStartModule",
+                "request_type": "doctrine_relief",
+                "cursor": "character_start:await_doctrine_relief",
+                "choice_id": "p2",
+            },
+            {
+                "name": "movement_choice",
+                "frame_type": "turn",
+                "module_type": "MovementDecisionModule",
+                "request_type": "movement",
+                "cursor": "movement:await_choice",
+                "choice_id": "roll",
+            },
+            {
+                "name": "specific_trick_reward",
+                "frame_type": "sequence",
+                "module_type": "SpecificTrickRewardModule",
+                "request_type": "specific_trick_reward",
+                "cursor": "trick_reward:await_choice",
+                "choice_id": "102",
             },
         ]
 

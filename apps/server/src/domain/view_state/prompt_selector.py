@@ -266,13 +266,15 @@ def _character_pick_surface(
         if not choice_id:
             continue
         value = _choice_value(choice)
-        options.append(
-            {
-                "choice_id": choice_id,
-                "name": _string(choice.get("title", choice.get("label"))) or choice_id,
-                "description": _choice_description(choice, value),
-            }
-        )
+        item: PromptSurfaceCharacterPickOptionViewState = {
+            "choice_id": choice_id,
+            "name": _string(choice.get("title", choice.get("label"))) or choice_id,
+            "description": _choice_description(choice, value),
+        }
+        inactive_name = _string(value.get("inactive_character_name")) if value else ""
+        if inactive_name:
+            item["inactive_name"] = inactive_name
+        options.append(item)
     return {
         "phase": "draft" if request_type == "draft_card" else "final",
         "draft_phase": _number(public_context.get("draft_phase")) if request_type == "draft_card" else None,

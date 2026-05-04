@@ -109,6 +109,7 @@ export type PromptViewModel = {
         choiceId: string;
         name: string;
         description: string;
+        inactiveName?: string;
       }>;
     } | null;
     handChoice: {
@@ -729,7 +730,15 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
                   if (!choiceId || !name) {
                     return [];
                   }
-                  return [{ choiceId, name, description: stringOrEmpty(item["description"]) }];
+                  const inactiveName = stringOrEmpty(item["inactive_name"]);
+                  return [
+                    {
+                      choiceId,
+                      name,
+                      description: stringOrEmpty(item["description"]),
+                      ...(inactiveName ? { inactiveName } : {}),
+                    },
+                  ];
                 })
               : [],
           }

@@ -31,34 +31,42 @@ export function shouldApplyReplayResponse(
   return requestedStreamKey === activeStreamKey && !signal?.aborted;
 }
 
+const sentDecisionRequestIdsByStreamKey = new Map<string, Set<string>>();
+
+function sentDecisionRequestIdsFor(streamKey: string): Set<string> {
+  let sentRequestIds = sentDecisionRequestIdsByStreamKey.get(streamKey);
+  if (!sentRequestIds) {
+    sentRequestIds = new Set<string>();
+    sentDecisionRequestIdsByStreamKey.set(streamKey, sentRequestIds);
+  }
+  return sentRequestIds;
+}
+
 export function createDecisionRequestLedger(): {
   shouldSend: (streamKey: string, requestId: string) => boolean;
   recordSent: (streamKey: string, requestId: string) => void;
   clear: () => void;
 } {
   let activeStreamKey = "";
-  let sentRequestIds = new Set<string>();
 
   const resetIfStreamChanged = (streamKey: string) => {
     if (activeStreamKey === streamKey) {
       return;
     }
     activeStreamKey = streamKey;
-    sentRequestIds = new Set<string>();
   };
 
   return {
     shouldSend: (streamKey, requestId) => {
       resetIfStreamChanged(streamKey);
-      return !sentRequestIds.has(requestId);
+      return !sentDecisionRequestIdsFor(streamKey).has(requestId);
     },
     recordSent: (streamKey, requestId) => {
       resetIfStreamChanged(streamKey);
-      sentRequestIds.add(requestId);
+      sentDecisionRequestIdsFor(streamKey).add(requestId);
     },
     clear: () => {
       activeStreamKey = "";
-      sentRequestIds = new Set<string>();
     },
   };
 }

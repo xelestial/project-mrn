@@ -2141,6 +2141,58 @@ describe("streamSelectors", () => {
     expect(slots[5]).toMatchObject({ slot: 6, character: "박수" });
   });
 
+  it("prefers current backend active-slot projections over denser raw replay state", () => {
+    const messages: InboundMessage[] = [
+      {
+        type: "event",
+        seq: 1,
+        session_id: "s1",
+        payload: {
+          event_type: "round_order",
+          round_index: 1,
+          turn_index: 1,
+          active_by_card: {
+            "2": "산적",
+            "5": "교리 감독관",
+            "6": "박수",
+          },
+        },
+      },
+      {
+        type: "event",
+        seq: 2,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_resolved",
+          request_type: "final_character",
+          view_state: {
+            active_slots: {
+              items: Array.from({ length: 8 }, (_, index) => ({
+                slot: index + 1,
+                player_id: index === 5 ? 1 : null,
+                label: index === 5 ? "P1" : null,
+                character: index === 5 ? "만신" : null,
+                inactive_character: index === 5 ? "박수" : null,
+                is_current_actor: false,
+              })),
+            },
+          },
+        },
+      },
+    ];
+
+    const slots = selectActiveCharacterSlots(messages, 1);
+
+    expect(slots[1]).toMatchObject({ slot: 2, character: null });
+    expect(slots[4]).toMatchObject({ slot: 5, character: null });
+    expect(slots[5]).toMatchObject({
+      slot: 6,
+      playerId: 1,
+      character: "만신",
+      inactiveCharacter: "박수",
+    });
+  });
+
   it("builds active slots from manifest-carried active faces before any snapshot exists", () => {
     const messages: InboundMessage[] = [
       {

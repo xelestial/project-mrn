@@ -449,13 +449,14 @@ class HumanHttpPolicy:
         options = []
         for card_index in offered_cards:
             # card_index is an int index into the characters config
-            char_name = _card_name(state, card_index)
+            char_name, inactive_name = _flip_names(state, card_index)
             ability_text = _character_ability_text(char_name)
             options.append({
                 "id": str(card_index),
                 "label": char_name,
                 "card_index": card_index,
                 "character_name": char_name,
+                "inactive_character_name": inactive_name,
                 "character_ability": ability_text,
             })
 
@@ -470,7 +471,10 @@ class HumanHttpPolicy:
                     "value": {
                         "card_index": opt["card_index"],
                         "character_name": opt["character_name"],
+                        "active_character_name": opt["character_name"],
+                        "inactive_character_name": opt["inactive_character_name"],
                         "character_ability": opt["character_ability"],
+                        "card_faces": {"active": opt["character_name"], "inactive": opt["inactive_character_name"]},
                     },
                 }
                 for opt in options
@@ -481,6 +485,14 @@ class HumanHttpPolicy:
                 "offered_count": len(options),
                 "offered_names": [opt["label"] for opt in options],
                 "offered_abilities": [opt["character_ability"] for opt in options],
+                "offered_faces": [
+                    {
+                        "card_index": opt["card_index"],
+                        "active_character_name": opt["character_name"],
+                        "inactive_character_name": opt["inactive_character_name"],
+                    }
+                    for opt in options
+                ],
                 "draft_phase": len(list(getattr(player, "drafted_cards", []) or [])) + 1,
                 "draft_phase_label": f"draft_phase_{len(list(getattr(player, 'drafted_cards', []) or [])) + 1}",
                 **_player_trick_hand_context(player),
@@ -508,13 +520,14 @@ class HumanHttpPolicy:
 
         options = []
         for card_index in card_choices:
-            char_name = _card_name(state, card_index)
+            char_name, inactive_name = _flip_names(state, card_index)
             ability_text = _character_ability_text(char_name)
             options.append({
                 "id": str(card_index),
                 "label": char_name,
                 "card_index": card_index,
                 "character_name": char_name,
+                "inactive_character_name": inactive_name,
                 "character_ability": ability_text,
             })
 
@@ -529,7 +542,10 @@ class HumanHttpPolicy:
                     "value": {
                         "card_index": opt["card_index"],
                         "character_name": opt["character_name"],
+                        "active_character_name": opt["character_name"],
+                        "inactive_character_name": opt["inactive_character_name"],
                         "character_ability": opt["character_ability"],
+                        "card_faces": {"active": opt["character_name"], "inactive": opt["inactive_character_name"]},
                     },
                 }
                 for opt in options
@@ -540,6 +556,14 @@ class HumanHttpPolicy:
                 "choice_count": len(options),
                 "choice_names": [opt["label"] for opt in options],
                 "choice_abilities": [opt["character_ability"] for opt in options],
+                "choice_faces": [
+                    {
+                        "card_index": opt["card_index"],
+                        "active_character_name": opt["character_name"],
+                        "inactive_character_name": opt["inactive_character_name"],
+                    }
+                    for opt in options
+                ],
                 "final_choice": True,
                 "decision_phase_label": "final_character_confirmation",
                 **_player_trick_hand_context(player),

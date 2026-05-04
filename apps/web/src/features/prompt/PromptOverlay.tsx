@@ -1638,6 +1638,9 @@ export function PromptOverlay({
                   choiceId: choice.choiceId,
                   name: choice.title,
                   description: characterAbilityText(choice, promptText),
+                  ...(asString(choice.value?.["inactive_character_name"])
+                    ? { inactiveName: asString(choice.value?.["inactive_character_name"]) }
+                    : {}),
                 }));
 
               return (
@@ -1681,6 +1684,11 @@ export function PromptOverlay({
                       </div>
                       <div className="prompt-character-card-body">
                         <strong>{choice.name}</strong>
+                        {choice.inactiveName && choice.inactiveName !== choice.name ? (
+                          <small className="prompt-character-card-face-note">
+                            {isKoreanLocale(locale) ? `뒷면 ${choice.inactiveName}` : `Back ${choice.inactiveName}`}
+                          </small>
+                        ) : null}
                         <div className="prompt-choice-body">
                           {body.summary ? <p className="prompt-choice-summary">{body.summary}</p> : null}
                           {body.detail ? <small className="prompt-choice-detail">{body.detail}</small> : null}
