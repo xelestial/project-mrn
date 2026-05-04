@@ -5285,6 +5285,182 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(store.commits[0]["checkpoint"]["active_module_type"], "PurchaseDecisionModule")
         self.assertEqual(store.commits[0]["checkpoint"]["active_module_cursor"], "purchase:await_choice")
 
+    def test_module_resume_preserves_lap_reward_sequence_checkpoint_without_replay(self) -> None:
+        RuntimeService._ensure_gpt_import_path()
+        import engine
+        from runtime_modules.contracts import FrameState, ModuleRef, PromptContinuation
+        from state import GameState
+
+        class _CommandStoreStub:
+            def __init__(self) -> None:
+                self.commands: list[dict] = []
+                self.offsets: list[tuple[str, str, int]] = []
+
+            def list_commands(self, session_id: str) -> list[dict]:
+                return [copy.deepcopy(command) for command in self.commands if command["session_id"] == session_id]
+
+            def save_consumer_offset(self, consumer_name: str, session_id: str, seq: int) -> None:
+                self.offsets.append((consumer_name, session_id, int(seq)))
+
+        store = _MutableGameStateStoreStub()
+        command_store = _CommandStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            game_state_store=store,
+            command_store=command_store,
+        )
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42, "runtime": {"runner_kind": "module", "ai_decision_delay_ms": 0}},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.start_session(session.session_id, session.host_token)
+        config = runtime._config_factory.create(session.resolved_parameters)  # type: ignore[attr-defined]
+        state = GameState.create(config)
+        state.runtime_runner_kind = "module"
+        state.runtime_checkpoint_schema_version = 3
+        state.runtime_frame_stack = [
+            FrameState(
+                frame_id="turn:3:p0",
+                frame_type="turn",
+                owner_player_id=0,
+                parent_frame_id=None,
+                status="suspended",
+                active_module_id="mod:turn:3:p0:move",
+                module_queue=[
+                    ModuleRef(
+                        module_id="mod:turn:3:p0:move",
+                        module_type="MapMoveModule",
+                        phase="movement",
+                        owner_player_id=0,
+                        status="suspended",
+                        cursor="child_sequence:seq:lap:3:p0",
+                    ),
+                ],
+            ),
+            FrameState(
+                frame_id="seq:lap:3:p0",
+                frame_type="sequence",
+                owner_player_id=0,
+                parent_frame_id="turn:3:p0",
+                status="suspended",
+                active_module_id="mod:lap:3:p0:reward",
+                created_by_module_id="mod:turn:3:p0:move",
+                module_queue=[
+                    ModuleRef(
+                        module_id="mod:lap:3:p0:reward",
+                        module_type="LapRewardModule",
+                        phase="lapreward",
+                        owner_player_id=0,
+                        status="suspended",
+                        cursor="lap_reward:await_choice",
+                        suspension_id="suspend:lap_reward:1",
+                    ),
+                    ModuleRef(
+                        module_id="mod:lap:3:p0:arrival",
+                        module_type="ArrivalTileModule",
+                        phase="arrival",
+                        owner_player_id=0,
+                        status="queued",
+                        cursor="start",
+                    ),
+                ],
+            ),
+        ]
+        state.runtime_active_prompt = PromptContinuation(
+            request_id="req_lap_1",
+            prompt_instance_id=11,
+            resume_token="resume_lap_1",
+            frame_id="seq:lap:3:p0",
+            module_id="mod:lap:3:p0:reward",
+            module_type="LapRewardModule",
+            module_cursor="lap_reward:await_choice",
+            player_id=0,
+            request_type="lap_reward",
+            legal_choices=[{"choice_id": "cash-5_shards-0_coins-0"}],
+        )
+        store.current_state = state.to_checkpoint_payload()
+        store.checkpoint = {
+            "schema_version": 3,
+            "session_id": session.session_id,
+            "runner_kind": "module",
+            "has_snapshot": True,
+        }
+        command_store.commands.append(
+            {
+                "seq": 1,
+                "type": "decision_submitted",
+                "session_id": session.session_id,
+                "payload": {
+                    "request_id": "req_lap_1",
+                    "player_id": 1,
+                    "request_type": "lap_reward",
+                    "choice_id": "cash-5_shards-0_coins-0",
+                    "resume_token": "resume_lap_1",
+                    "frame_id": "seq:lap:3:p0",
+                    "module_id": "mod:lap:3:p0:reward",
+                    "module_type": "LapRewardModule",
+                    "module_cursor": "lap_reward:await_choice",
+                    "decision": {},
+                },
+            }
+        )
+        seen: list[dict] = []
+
+        def _fake_run_next_transition(self, resumed_state, decision_resume=None):  # noqa: ANN001
+            del self
+            frames = resumed_state.runtime_frame_stack
+            seen.append(
+                {
+                    "frame_ids": [frame.frame_id for frame in frames],
+                    "active_modules": [frame.active_module_id for frame in frames],
+                    "lap_cursor": frames[1].module_queue[0].cursor,
+                    "arrival_status": frames[1].module_queue[1].status,
+                    "active_prompt_token": resumed_state.runtime_active_prompt.resume_token,
+                    "resume_module_type": decision_resume.module_type,
+                    "resume_choice_id": decision_resume.choice_id,
+                }
+            )
+            return {"status": "committed", "runner_kind": "module", "module_type": "LapRewardModule"}
+
+        with patch.object(
+            runtime,
+            "_prompt_sequence_seed_for_transition",
+            side_effect=AssertionError("module resume must not rebuild state from legacy prompt seeds"),
+        ), patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition):
+            result = runtime._run_engine_transition_once_sync(
+                None,
+                session.session_id,
+                42,
+                None,
+                True,
+                "runtime-worker",
+                1,
+            )
+
+        self.assertEqual(result["status"], "committed")
+        self.assertEqual(
+            seen,
+            [
+                {
+                    "frame_ids": ["turn:3:p0", "seq:lap:3:p0"],
+                    "active_modules": ["mod:turn:3:p0:move", "mod:lap:3:p0:reward"],
+                    "lap_cursor": "lap_reward:await_choice",
+                    "arrival_status": "queued",
+                    "active_prompt_token": "resume_lap_1",
+                    "resume_module_type": "LapRewardModule",
+                    "resume_choice_id": "cash-5_shards-0_coins-0",
+                }
+            ],
+        )
+        self.assertEqual(store.commits[0]["checkpoint"]["active_module_type"], "LapRewardModule")
+        self.assertEqual(store.commits[0]["checkpoint"]["active_module_cursor"], "lap_reward:await_choice")
+
     def test_bridge_consumes_valid_decision_resume_without_creating_prompt(self) -> None:
         RuntimeService._ensure_gpt_import_path()
         from engine import DecisionRequest

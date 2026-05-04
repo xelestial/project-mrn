@@ -424,6 +424,7 @@ describe("streamSelectors", () => {
       placedCoins: 3,
       totalScore: 5,
     });
+    expect(snapshot?.activeByCard).toEqual({ 3: "박수" });
     expect(snapshot?.tiles.find((tile) => tile.tileIndex === 7)?.pawnPlayerIds).toEqual([1]);
   });
 

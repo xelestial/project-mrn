@@ -2409,6 +2409,14 @@ function snapshotFromBackendViewStatePayload(payload: Record<string, unknown>): 
   const turnStage = isRecord(viewState["turn_stage"]) ? viewState["turn_stage"] : null;
   const scene = isRecord(viewState["scene"]) ? viewState["scene"] : null;
   const situation = isRecord(scene?.["situation"]) ? scene["situation"] : null;
+  const activeByCard: Record<number, string> = {};
+  for (const playerCard of playerCardsByPlayerId.values()) {
+    const slot = numberOrNull(playerCard.priority_slot);
+    const character = typeof playerCard.character === "string" ? playerCard.character.trim() : "";
+    if (slot !== null && character.length > 0) {
+      activeByCard[slot] = character;
+    }
+  }
 
   return {
     round:
@@ -2430,7 +2438,7 @@ function snapshotFromBackendViewStatePayload(payload: Record<string, unknown>): 
     currentRoundOrder: Array.from(new Set(integerArray(playersState?.["ordered_player_ids"]))).filter(
       (value) => value >= 1
     ),
-    activeByCard: {},
+    activeByCard,
     players,
     tiles,
   };

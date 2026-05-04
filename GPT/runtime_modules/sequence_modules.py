@@ -17,6 +17,7 @@ TRICK_SEQUENCE_MODULE_TYPES = (
 ACTION_SEQUENCE_MODULE_TYPES = (
     "PendingMarkResolutionModule",
     "MapMoveModule",
+    "LapRewardModule",
     "ArrivalTileModule",
     "RentPaymentModule",
     "PurchaseDecisionModule",
@@ -34,6 +35,7 @@ SEQUENCE_MODULE_TYPES = TRICK_SEQUENCE_MODULE_TYPES + ACTION_SEQUENCE_MODULE_TYP
 ACTION_TYPE_TO_MODULE_TYPE = {
     "resolve_mark": "PendingMarkResolutionModule",
     "apply_move": "MapMoveModule",
+    "resolve_lap_reward": "LapRewardModule",
     "resolve_arrival": "ArrivalTileModule",
     "resolve_rent_payment": "RentPaymentModule",
     "request_purchase_tile": "PurchaseDecisionModule",

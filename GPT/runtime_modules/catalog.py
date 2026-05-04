@@ -29,7 +29,7 @@ MODULE_RULES: dict[str, ModuleRule] = {
     "TrickWindowModule": ModuleRule("TrickWindowModule", frozenset({"turn"})),
     "DiceRollModule": ModuleRule("DiceRollModule", frozenset({"turn"})),
     "MovementResolveModule": ModuleRule("MovementResolveModule", frozenset({"turn"})),
-    "LapRewardModule": ModuleRule("LapRewardModule", frozenset({"turn"})),
+    "LapRewardModule": ModuleRule("LapRewardModule", frozenset({"turn", "sequence"})),
     "PendingMarkResolutionModule": ModuleRule("PendingMarkResolutionModule", frozenset({"turn", "sequence"})),
     "MapMoveModule": ModuleRule("MapMoveModule", frozenset({"turn", "sequence"})),
     "ArrivalTileModule": ModuleRule("ArrivalTileModule", frozenset({"turn", "sequence"})),

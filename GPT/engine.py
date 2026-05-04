@@ -1100,20 +1100,21 @@ class GameEngine:
             raw_target = old_pos + (move_value * direction)
             if lap_credit and direction > 0 and move_value > 0:
                 laps_crossed = max(0, raw_target // board_len)
-                for _ in range(laps_crossed):
-                    lap_event = self._apply_lap_reward(state, player)
-                    lap_events.append(lap_event)
-                    if is_gakju(player.current_character):
-                        geo_result = self._apply_geo_bonus(player, lap_event)
-                        self._record_ai_decision(
-                            state,
-                            player,
-                            "geo_bonus",
-                            None,
-                            result=geo_result,
-                            source_event="lap_reward",
-                        )
-                        lap_events.append(geo_result)
+                if not queue_followups:
+                    for _ in range(laps_crossed):
+                        lap_event = self._apply_lap_reward(state, player)
+                        lap_events.append(lap_event)
+                        if is_gakju(player.current_character):
+                            geo_result = self._apply_geo_bonus(player, lap_event)
+                            self._record_ai_decision(
+                                state,
+                                player,
+                                "geo_bonus",
+                                None,
+                                result=geo_result,
+                                source_event="lap_reward",
+                            )
+                            lap_events.append(geo_result)
             if direction > 0 and not path:
                 cursor = old_pos
                 for _ in range(max(0, move_value)):
@@ -1154,6 +1155,28 @@ class GameEngine:
                 path=path,
                 movement_source=payload.get("trigger", action.source),
             )
+        followup_actions: list[ActionEnvelope] = []
+        if queue_followups and laps_crossed > 0:
+            followup_actions.extend(
+                self._action(
+                    state,
+                    "resolve_lap_reward",
+                    player,
+                    str(payload.get("trigger", action.source)),
+                    {
+                        "trigger": payload.get("trigger", action.source),
+                        "card_name": payload.get("card_name", ""),
+                        "lap_ordinal": index + 1,
+                        "laps_crossed": laps_crossed,
+                    },
+                    parent_action_id=action.action_id,
+                )
+                for index in range(laps_crossed)
+            )
+            result["lap_rewards"] = [
+                {"queued_action_id": lap_action.action_id, "lap_ordinal": index + 1}
+                for index, lap_action in enumerate(followup_actions)
+            ]
         if payload.get("schedule_arrival", False):
             arrival_action = self._action(
                 state,
@@ -1166,16 +1189,20 @@ class GameEngine:
                 },
             )
             if queue_followups:
-                state.pending_actions.insert(0, arrival_action)
+                followup_actions.append(arrival_action)
                 result["arrival"] = {"queued_action_id": arrival_action.action_id}
             else:
                 result["arrival"] = self._execute_action(state, arrival_action)
+        if followup_actions:
+            state.pending_actions[0:0] = followup_actions
         self._record_pending_move_segment(state, action, result)
         return result
 
     def _execute_action(self, state: GameState, action: ActionEnvelope, *, queue_followups: bool = False) -> dict:
         if action.type == "apply_move":
             return self._apply_move_action(state, action, queue_followups=queue_followups)
+        if action.type == "resolve_lap_reward":
+            return self._resolve_lap_reward_action(state, action)
         if action.type == "resolve_arrival":
             return self._resolve_arrival_action(state, action, queue_followups=queue_followups)
         if action.type == "resolve_mark":
@@ -1213,6 +1240,30 @@ class GameEngine:
         if action.type == "continue_after_trick_phase":
             return self._continue_after_trick_phase_action(state, action)
         raise ValueError(f"Unsupported action type: {action.type}")
+
+    def _resolve_lap_reward_action(self, state: GameState, action: ActionEnvelope) -> dict:
+        player = state.players[action.actor_player_id]
+        lap_event = self._apply_lap_reward(state, player)
+        result = {
+            "type": "LAP_REWARD",
+            "trigger": action.payload.get("trigger", action.source),
+            "card_name": action.payload.get("card_name", ""),
+            "lap_ordinal": action.payload.get("lap_ordinal"),
+            "laps_crossed": action.payload.get("laps_crossed"),
+            "lap_reward": lap_event,
+        }
+        if is_gakju(player.current_character):
+            geo_result = self._apply_geo_bonus(player, lap_event)
+            self._record_ai_decision(
+                state,
+                player,
+                "geo_bonus",
+                None,
+                result=geo_result,
+                source_event="lap_reward",
+            )
+            result["geo_bonus"] = geo_result
+        return result
 
     def _apply_target_move(
         self,

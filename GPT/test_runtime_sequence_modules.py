@@ -111,6 +111,10 @@ def test_fortune_action_types_are_never_legacy_or_turn_modules() -> None:
     } == {"FortuneResolveModule"}
 
 
+def test_lap_reward_action_is_owned_by_native_lap_reward_module() -> None:
+    assert module_type_for_action("resolve_lap_reward") == "LapRewardModule"
+
+
 def test_unknown_fortune_action_type_must_be_catalogued_before_sequence_build() -> None:
     with pytest.raises(UnknownActionTypeError, match="resolve_fortune_unreviewed_effect"):
         module_type_for_action("resolve_fortune_unreviewed_effect")

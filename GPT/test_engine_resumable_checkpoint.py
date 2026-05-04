@@ -1039,16 +1039,61 @@ def test_engine_queued_step_move_separates_lap_reward_from_arrival() -> None:
     assert first["action_type"] == "apply_move"
     assert player.position == 0
     assert player.total_steps == 1
-    assert (player.cash, player.shards, player.hand_coins) != (start_cash, start_shards, start_hand_coins)
+    assert (player.cash, player.shards, player.hand_coins) == (start_cash, start_shards, start_hand_coins)
     assert state.f_value == before_f
-    assert len(state.pending_actions) == 1
-    assert state.pending_actions[0].type == "resolve_arrival"
+    assert [action.type for action in state.pending_actions] == ["resolve_lap_reward", "resolve_arrival"]
 
     second = engine.run_next_transition(state)
 
-    assert second["action_type"] == "resolve_arrival"
+    assert second["action_type"] == "resolve_lap_reward"
+    assert (player.cash, player.shards, player.hand_coins) != (start_cash, start_shards, start_hand_coins)
+    assert state.f_value == before_f
+    assert [action.type for action in state.pending_actions] == ["resolve_arrival"]
+
+    third = engine.run_next_transition(state)
+
+    assert third["action_type"] == "resolve_arrival"
     assert state.pending_actions == []
     assert state.f_value > before_f
+
+
+def test_engine_queued_step_move_without_arrival_still_queues_lap_reward() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(4))
+    state = engine.prepare_run()
+    player = state.players[0]
+    player.position = len(state.board) - 1
+    start_cash = player.cash
+    start_shards = player.shards
+    start_hand_coins = player.hand_coins
+    state.pending_actions = [
+        ActionEnvelope(
+            action_id="act_step_to_f1_no_arrival",
+            type="apply_move",
+            actor_player_id=0,
+            source="test_step",
+            payload={
+                "move_value": 1,
+                "lap_credit": True,
+                "schedule_arrival": False,
+                "emit_move_event": False,
+                "trigger": "test_step_move",
+            },
+        )
+    ]
+
+    first = engine.run_next_transition(state)
+
+    assert first["action_type"] == "apply_move"
+    assert player.position == 0
+    assert (player.cash, player.shards, player.hand_coins) == (start_cash, start_shards, start_hand_coins)
+    assert [action.type for action in state.pending_actions] == ["resolve_lap_reward"]
+
+    second = engine.run_next_transition(state)
+
+    assert second["action_type"] == "resolve_lap_reward"
+    assert (player.cash, player.shards, player.hand_coins) != (start_cash, start_shards, start_hand_coins)
+    assert state.pending_actions == []
 
 
 def test_standard_move_action_adapter_matches_simple_advance_player_result() -> None:
@@ -1075,10 +1120,12 @@ def test_standard_move_action_adapter_matches_simple_advance_player_result() -> 
 
     first = action_engine.run_next_transition(action_state)
     second = action_engine.run_next_transition(action_state)
+    third = action_engine.run_next_transition(action_state)
 
     assert action.type == "apply_move"
     assert first["action_type"] == "apply_move"
-    assert second["action_type"] == "resolve_arrival"
+    assert second["action_type"] == "resolve_lap_reward"
+    assert third["action_type"] == "resolve_arrival"
     assert action_state.pending_actions == []
     assert action_player.position == legacy_player.position
     assert action_player.total_steps == legacy_player.total_steps
