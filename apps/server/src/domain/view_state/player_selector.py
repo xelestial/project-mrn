@@ -400,6 +400,7 @@ def build_player_cards_view_state(messages: list[dict[str, Any]]) -> PlayerCards
             "character": character,
             "reveal_state": "revealed" if event_type == "turn_start" else "selected_private",
             "is_current_actor": False,
+            "turn_order_rank": None,
         }
     if not assignments:
         return None
@@ -410,6 +411,9 @@ def build_player_cards_view_state(messages: list[dict[str, Any]]) -> PlayerCards
 
     players_view = build_player_view_state(messages)
     ordered_player_ids = players_view.get("ordered_player_ids", []) if players_view else []
+    rank_by_player_id = {player_id: rank for rank, player_id in enumerate(ordered_player_ids)}
+    for player_id, item in assignments.items():
+        item["turn_order_rank"] = rank_by_player_id.get(player_id)
     ordered_items: list[PlayerCardAssignmentItemViewState] = [
         assignments[player_id] for player_id in ordered_player_ids if player_id in assignments
     ]

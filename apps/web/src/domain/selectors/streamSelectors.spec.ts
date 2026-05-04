@@ -1412,7 +1412,7 @@ describe("streamSelectors", () => {
     ]);
   });
 
-  it("prefers fresher raw prompt active faces over a sparse backend active slot projection", () => {
+  it("keeps current backend active slots authoritative even when raw prompt context has extra stale faces", () => {
     const messages: InboundMessage[] = [
       {
         type: "event",
@@ -1497,18 +1497,18 @@ describe("streamSelectors", () => {
     ];
 
     expect(selectActiveCharacterSlots(messages, 1).map((slot) => slot.character)).toEqual([
-      "탐관오리",
-      "산적",
-      "추노꾼",
-      "파발꾼",
-      "교리 감독관",
+      null,
+      null,
+      null,
+      null,
+      null,
       "만신",
       "중매꾼",
       "사기꾼",
     ]);
   });
 
-  it("prefers fresher raw mark target candidates over a sparser backend projection", () => {
+  it("keeps current backend mark target candidates authoritative even when raw choices contain extra stale faces", () => {
     const messages: InboundMessage[] = [
       {
         type: "event",
@@ -1602,7 +1602,6 @@ describe("streamSelectors", () => {
 
     expect(selectMarkTargetCharacterSlots(messages, "만신", 1)).toEqual([
       { slot: 7, playerId: null, label: null, character: "중매꾼" },
-      { slot: 8, playerId: null, label: null, character: "사기꾼" },
     ]);
   });
 

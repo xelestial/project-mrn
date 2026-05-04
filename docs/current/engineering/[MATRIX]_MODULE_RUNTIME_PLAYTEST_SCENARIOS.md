@@ -69,3 +69,9 @@
 6. 프론트 prompt surface: backend `effect_context.resource_delta`가 있으면 prompt overlay에 현금/승점/조각/짐/카드 증감을 표시하고, 0 또는 unknown delta는 표시하지 않는지 확인한다.
 
 Wire 계약은 모든 단일 prompt에 `request_id`/`request_type`/`player_id`와 `frame_id`/`module_id`/`module_type`/`module_cursor`가 포함되어야 한다. 동시 응답 prompt는 추가로 `batch_id`/`missing_player_ids`/`resume_tokens_by_player_id`를 포함해야 하며, module runner 재개는 `round_setup_replay_base`, `pending_prompt_instance_id - 1`, `frontend-created request id`를 재실행 근거로 사용하지 않는다.
+
+Redis 재개 증거는 회귀 pack의 `redis_resume_evidence`와 아래 테스트 이름이 함께 고정한다.
+
+- `MRN-MOD-003`: `PromptContinuation + TrickSequenceFrame` 계약으로 `apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_preserves_checkpoint_frame_stack_without_replay`와 `apps/server/tests/test_command_wakeup_worker.py::CommandStreamWakeupWorkerTests::test_wakeup_worker_prefers_command_processing_hook_before_offset`를 통과해야 한다.
+- `MRN-MOD-005`: `PromptContinuation + ActionSequenceFrame` 계약으로 `apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_prompt_boundary_matrix_preserves_checkpoint_without_replay`와 `apps/server/tests/test_command_wakeup_worker.py::CommandStreamWakeupWorkerTests::test_wakeup_worker_prefers_command_processing_hook_before_offset`를 통과해야 한다.
+- `MRN-MOD-014`: `SimultaneousPromptBatchContinuation + SimultaneousResolutionFrame` 계약으로 `apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_simultaneous_batch_continuation_survives_service_reconstruction`와 `apps/server/tests/test_command_wakeup_worker.py::CommandStreamWakeupWorkerTests::test_wakeup_worker_prefers_command_processing_hook_before_offset`를 통과해야 한다.

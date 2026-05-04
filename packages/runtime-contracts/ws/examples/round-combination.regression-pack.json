@@ -24,6 +24,32 @@
     "pending_prompt_instance_id - 1",
     "frontend-created request id"
   ],
+  "redis_resume_evidence": [
+    {
+      "scenario_id": "MRN-MOD-003",
+      "checkpoint_contract": "PromptContinuation + TrickSequenceFrame",
+      "required_tests": [
+        "apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_preserves_checkpoint_frame_stack_without_replay",
+        "apps/server/tests/test_command_wakeup_worker.py::CommandStreamWakeupWorkerTests::test_wakeup_worker_prefers_command_processing_hook_before_offset"
+      ]
+    },
+    {
+      "scenario_id": "MRN-MOD-005",
+      "checkpoint_contract": "PromptContinuation + ActionSequenceFrame",
+      "required_tests": [
+        "apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_prompt_boundary_matrix_preserves_checkpoint_without_replay",
+        "apps/server/tests/test_command_wakeup_worker.py::CommandStreamWakeupWorkerTests::test_wakeup_worker_prefers_command_processing_hook_before_offset"
+      ]
+    },
+    {
+      "scenario_id": "MRN-MOD-014",
+      "checkpoint_contract": "SimultaneousPromptBatchContinuation + SimultaneousResolutionFrame",
+      "required_tests": [
+        "apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_simultaneous_batch_continuation_survives_service_reconstruction",
+        "apps/server/tests/test_command_wakeup_worker.py::CommandStreamWakeupWorkerTests::test_wakeup_worker_prefers_command_processing_hook_before_offset"
+      ]
+    }
+  ],
   "e2e_grep_titles": [
     "human quick start surfaces turn banner and first prompt through stable ids",
     "runtime keeps fortune cash loss cause readable in overlay and event feed",

@@ -43,6 +43,7 @@ class PlayerCardAssignmentItemViewState(TypedDict):
     character: str
     reveal_state: PlayerCardRevealState
     is_current_actor: bool
+    turn_order_rank: int | None
 
 
 class PlayerCardsViewState(TypedDict):

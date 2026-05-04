@@ -46,6 +46,7 @@ REQUIRED_COVERAGE_TOKENS = {
     "GPT/test_runtime_effect_inventory.py",
     "apps/server/tests/test_runtime_semantic_guard.py",
     "apps/server/tests/test_prompt_module_continuation.py",
+    "apps/server/tests/test_command_wakeup_worker.py",
     "apps/web/src/hooks/useGameStream.spec.ts",
     "apps/web/src/features/prompt/promptEffectContextDisplay.spec.ts",
     "npm run e2e:module-runtime",
@@ -129,6 +130,26 @@ def test_round_combination_regression_pack_fixture_matches_matrix_doc() -> None:
         assert field in text
     for source in pack["forbidden_legacy_replay_sources"]:
         assert source in text
+
+
+def test_round_combination_regression_pack_documents_redis_resume_evidence() -> None:
+    text = MATRIX_DOC.read_text(encoding="utf-8")
+    pack = json.loads(ROUND_COMBINATION_REGRESSION_PACK.read_text(encoding="utf-8"))
+
+    evidence = pack["redis_resume_evidence"]
+    assert {item["scenario_id"] for item in evidence} == {"MRN-MOD-003", "MRN-MOD-005", "MRN-MOD-014"}
+    for item in evidence:
+        assert item["scenario_id"] in text
+        assert item["checkpoint_contract"] in text
+        for test_name in item["required_tests"]:
+            assert test_name in text
+
+    required_contracts = {
+        "PromptContinuation + TrickSequenceFrame",
+        "PromptContinuation + ActionSequenceFrame",
+        "SimultaneousPromptBatchContinuation + SimultaneousResolutionFrame",
+    }
+    assert {item["checkpoint_contract"] for item in evidence} == required_contracts
 
 
 def test_round_combination_regression_pack_e2e_titles_are_wired_to_module_runtime_script() -> None:

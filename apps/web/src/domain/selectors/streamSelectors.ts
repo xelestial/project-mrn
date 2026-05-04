@@ -241,6 +241,7 @@ type BackendPlayerCardItem = {
   player_id: number;
   character: string;
   priority_slot: number | null;
+  turn_order_rank: number | null;
   reveal_state: "selected_private" | "revealed";
   is_current_actor: boolean;
 };
@@ -2907,6 +2908,7 @@ function selectBackendPlayerCardItemsFromViewState(viewState: Record<string, unk
         player_id: item["player_id"],
         character,
         priority_slot: typeof item["priority_slot"] === "number" ? item["priority_slot"] : null,
+        turn_order_rank: typeof item["turn_order_rank"] === "number" ? item["turn_order_rank"] : null,
         reveal_state: revealState,
         is_current_actor: item["is_current_actor"] === true,
       };
@@ -3555,17 +3557,10 @@ export function selectActiveCharacterSlots(
     };
   });
   const backendSlots = selectBackendActiveCharacterSlots(messages, currentLocalPlayerId);
-  if (!backendSlots || backendSlots.length === 0) {
-    return rawSlots;
+  if (backendSlots && backendSlots.length > 0) {
+    return backendSlots;
   }
-  const backendKnownCount = backendSlots.filter((slot) => Boolean(slot.character)).length;
-  const rawKnownCount = rawSlots.filter((slot) => Boolean(slot.character)).length;
-  let bestSlots = backendKnownCount >= rawKnownCount ? backendSlots : rawSlots;
-  const bestKnownCount = bestSlots.filter((slot) => Boolean(slot.character)).length;
-  if (fallbackKnownCount > bestKnownCount) {
-    bestSlots = fallbackSlots;
-  }
-  return bestSlots;
+  return rawSlots;
 }
 
 export function selectMarkTargetCharacterSlots(
@@ -3574,11 +3569,15 @@ export function selectMarkTargetCharacterSlots(
   currentLocalPlayerId: number | null = null,
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): MarkTargetSlotViewModel[] {
+  const backendCandidates = selectBackendMarkTargetCharacterSlots(messages);
+  if (backendCandidates) {
+    return backendCandidates;
+  }
   const actorSlot = prioritySlotForCharacter(actorCharacterName);
   if (actorSlot === null) {
-    return selectBackendMarkTargetCharacterSlots(messages) ?? [];
+    return [];
   }
-  const rawCandidates = selectActiveCharacterSlots(messages, currentLocalPlayerId, text)
+  return selectActiveCharacterSlots(messages, currentLocalPlayerId, text)
     .filter((slot) => slot.slot > actorSlot && typeof slot.character === "string" && slot.character.trim().length > 0)
     .map((slot) => ({
       slot: slot.slot,
@@ -3586,11 +3585,6 @@ export function selectMarkTargetCharacterSlots(
       label: slot.label,
       character: slot.character as string,
     }));
-  const backendCandidates = selectBackendMarkTargetCharacterSlots(messages);
-  if (!backendCandidates) {
-    return rawCandidates;
-  }
-  return backendCandidates.length >= rawCandidates.length ? backendCandidates : rawCandidates;
 }
 
 export function selectMarkerOrderedPlayers(

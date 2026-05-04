@@ -8,6 +8,7 @@ from apps.server.src.domain.view_state import project_view_state
 from apps.server.src.domain.view_state.player_selector import (
     build_active_slots_view_state,
     build_mark_target_view_state,
+    build_player_cards_view_state,
     build_player_view_state,
 )
 from apps.server.src.services.stream_service import StreamService
@@ -667,6 +668,7 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
                     "character": "박수",
                     "reveal_state": "selected_private",
                     "is_current_actor": False,
+                    "turn_order_rank": 0,
                 }
             ],
         )
@@ -690,6 +692,67 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
         revealed_view = project_view_state(messages, viewer=ViewerContext(role="spectator"))
         self.assertEqual(revealed_view["player_cards"]["items"][0]["reveal_state"], "revealed")
         self.assertEqual(revealed_view["players"]["items"][0]["current_character_face"], "박수")
+
+    def test_player_cards_view_state_carries_backend_turn_order_rank(self) -> None:
+        messages = [
+            {
+                "type": "event",
+                "seq": 1,
+                "session_id": "s1",
+                "server_time_ms": 1,
+                "payload": {
+                    "event_type": "turn_end_snapshot",
+                    "snapshot": {
+                        "players": [
+                            {"player_id": 1, "display_name": "P1"},
+                            {"player_id": 2, "display_name": "P2"},
+                            {"player_id": 3, "display_name": "P3"},
+                        ],
+                        "board": {"marker_owner_player_id": 2},
+                    },
+                },
+            },
+            {
+                "type": "event",
+                "seq": 2,
+                "session_id": "s1",
+                "server_time_ms": 2,
+                "payload": {"event_type": "round_order", "order": [3, 1, 2]},
+            },
+            {
+                "type": "event",
+                "seq": 3,
+                "session_id": "s1",
+                "server_time_ms": 3,
+                "payload": {
+                    "event_type": "final_character_choice",
+                    "player_id": 1,
+                    "character": "박수",
+                },
+            },
+            {
+                "type": "event",
+                "seq": 4,
+                "session_id": "s1",
+                "server_time_ms": 4,
+                "payload": {
+                    "event_type": "final_character_choice",
+                    "player_id": 3,
+                    "character": "산적",
+                },
+            },
+        ]
+
+        view_state = build_player_cards_view_state(messages)
+
+        self.assertIsNotNone(view_state)
+        self.assertEqual(
+            [
+                (item["player_id"], item["character"], item["turn_order_rank"])
+                for item in view_state["items"]
+            ],
+            [(3, "산적", 0), (1, "박수", 1)],
+        )
 
     def test_player_view_state_overlays_latest_prompt_resource_and_hand_context(self) -> None:
         messages = [
