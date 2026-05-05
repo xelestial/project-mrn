@@ -504,7 +504,7 @@ test("quick start human vs ai enters match and surfaces the first human prompt",
             request_id: "req_hidden_1",
             request_type: "hidden_trick_card",
             player_id: 1,
-            timeout_ms: 300000,
+            timeout_ms: 30000,
             public_context: {
               hidden_trick_count: 0,
               full_hand: [
@@ -770,7 +770,7 @@ test("trick use advances to tile target without resurrecting the stale trick pic
             request_id: "req_trick_use_1",
             request_type: "trick_to_use",
             player_id: 1,
-            timeout_ms: 300000,
+            timeout_ms: 30000,
             public_context: {
               total_hand_count: 1,
               hidden_trick_count: 0,
@@ -833,7 +833,7 @@ test("trick use advances to tile target without resurrecting the stale trick pic
             request_id: "req_trick_target_1",
             request_type: "trick_tile_target",
             player_id: 1,
-            timeout_ms: 300000,
+            timeout_ms: 30000,
             public_context: {
               card_name: "긴장감 조성",
               target_scope: "owned_or_any",
@@ -924,7 +924,7 @@ test("extreme separation trick closes picker while queued movement resolves", as
             request_id: "req_extreme_separation_1",
             request_type: "trick_to_use",
             player_id: 1,
-            timeout_ms: 300000,
+            timeout_ms: 30000,
             public_context: {
               total_hand_count: 2,
               hidden_trick_count: 0,
@@ -1196,7 +1196,7 @@ test("draft prompt keeps active strip hydrated before any flip events arrive", a
             request_id: "req_draft_ui_1",
             request_type: "draft_card",
             player_id: 1,
-            timeout_ms: 300000,
+            timeout_ms: 30000,
             public_context: {
               draft_phase: 1,
               offered_count: 4,
@@ -1305,7 +1305,7 @@ test("baksu draft choice stays available in final character prompt", async ({ pa
             request_id: "req_baksu_draft_1",
             request_type: "draft_card",
             player_id: 1,
-            timeout_ms: 300000,
+            timeout_ms: 30000,
             public_context: {
               draft_phase: 1,
               offered_count: 4,
@@ -1360,7 +1360,7 @@ test("baksu draft choice stays available in final character prompt", async ({ pa
             request_id: "req_baksu_final_1",
             request_type: "final_character",
             player_id: 1,
-            timeout_ms: 300000,
+            timeout_ms: 30000,
             public_context: {
               draft_phase: "final",
               offered_count: 2,
@@ -1560,7 +1560,7 @@ test("movement prompt supports dice_* contract choices and card-mode selection",
             request_id: "req_move_ui_1",
             request_type: "movement",
             player_id: 1,
-            timeout_ms: 300000,
+            timeout_ms: 30000,
             public_context: {
               player_position: 9,
               weather_name: "긴급 피난",
@@ -1650,7 +1650,7 @@ test("purchase and mark prompts render dedicated decision cards", async ({ page 
             request_id: "req_purchase_ui_1",
             request_type: "purchase_tile",
             player_id: 1,
-            timeout_ms: 300000,
+            timeout_ms: 30000,
             public_context: {
               tile_index: 14,
               cost: 4,
@@ -1726,7 +1726,7 @@ test("purchase and mark prompts render dedicated decision cards", async ({ page 
             request_id: "req_mark_ui_1",
             request_type: "mark_target",
             player_id: 1,
-            timeout_ms: 300000,
+            timeout_ms: 30000,
             public_context: {
               actor_name: "자객",
               player_position: 8,

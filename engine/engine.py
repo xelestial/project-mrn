@@ -5030,7 +5030,22 @@ class GameEngine:
         )
         if pos is None:
             return {"type": "NO_EFFECT", "reason": "no_empty_block"}
-        return {"type": "SUBSCRIPTION", "selection": pos, "purchase": self._try_purchase_tile(state, player, pos, state.board[pos])}
+        purchase_action = self._action(
+            state,
+            "request_purchase_tile",
+            player,
+            "fortune_subscription",
+            {
+                "tile_index": pos,
+                "purchase_source": "fortune_subscription",
+            },
+        )
+        state.enqueue_pending_action(purchase_action)
+        return {
+            "type": "QUEUED_SUBSCRIPTION_PURCHASE",
+            "selection": pos,
+            "queued_action_id": purchase_action.action_id,
+        }
 
     def _enqueue_fortune_decision_action(self, state: GameState, player: PlayerState, action_type: str, card_name: str, result_type: str) -> dict:
         action = self._action(
@@ -5071,6 +5086,10 @@ class GameEngine:
             selection = result.get("selection")
             selected_tile = f"{int(selection) + 1}번 칸" if isinstance(selection, int) else tile_text
             return f"{card_name}: P{player.player_id + 1}이 {selected_tile}을 구매함"
+        if result_type == "QUEUED_SUBSCRIPTION_PURCHASE":
+            selection = result.get("selection")
+            selected_tile = f"{int(selection) + 1}번 칸" if isinstance(selection, int) else tile_text
+            return f"{card_name}: P{player.player_id + 1}이 {selected_tile} 구매를 선택함"
         if result_type == "FORCED_TRADE":
             own = result.get("own_to_other") if isinstance(result.get("own_to_other"), dict) else {}
             other = result.get("other_to_self") if isinstance(result.get("other_to_self"), dict) else {}

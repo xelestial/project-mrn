@@ -20,6 +20,7 @@ from apps.server.src.domain.session_models import ParticipantClientType, SeatCon
 from apps.server.src.infra.game_debug_log import write_game_debug_log
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.decision_gateway import (
+    DEFAULT_HUMAN_PROMPT_TIMEOUT_MS,
     DecisionGateway,
     DecisionInvocation,
     PromptRequired,
@@ -29,6 +30,7 @@ from apps.server.src.services.decision_gateway import (
     build_routed_decision_call,
 )
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
+from apps.server.src.services.parameter_service import DEFAULT_EXTERNAL_AI_TIMEOUT_MS
 
 
 def resolve_runtime_runner_kind(runtime: dict | None, settings: RuntimeSettings | None = None) -> str:
@@ -929,6 +931,12 @@ class RuntimeService:
         if state is not None:
             self._apply_runner_kind(state, runner_kind, checkpoint_schema_version)
             decision_resume = self._decision_resume_from_command(session_id, command_seq)
+            if callable(getattr(policy, "set_prompt_sequence", None)):
+                prompt_sequence = int(getattr(state, "prompt_sequence", 0) or 0)
+                pending_prompt_instance_id = int(getattr(state, "pending_prompt_instance_id", 0) or 0)
+                if decision_resume is None and pending_prompt_instance_id > 0:
+                    prompt_sequence = max(0, pending_prompt_instance_id - 1)
+                policy.set_prompt_sequence(prompt_sequence)
             if decision_resume is not None:
                 try:
                     self._validate_decision_resume_against_checkpoint(state, decision_resume)
@@ -976,6 +984,7 @@ class RuntimeService:
         )
         engine._vis_session_id_override = session_id
         try:
+            prompt_boundary_payload: dict | None = None
             if state is None:
                 state = engine.create_initial_state()
                 self._apply_runner_kind(state, runner_kind, checkpoint_schema_version)
@@ -999,6 +1008,7 @@ class RuntimeService:
             state = state or getattr(engine, "_last_prepared_state", None)
             if state is None:
                 raise
+            prompt_boundary_payload = dict(exc.prompt)
             prompt_instance_id = int(exc.prompt.get("prompt_instance_id", 0) or 0)
             state.prompt_sequence = max(int(getattr(state, "prompt_sequence", 0) or 0), prompt_instance_id)
             state.pending_prompt_request_id = str(exc.prompt.get("request_id") or "")
@@ -1013,10 +1023,17 @@ class RuntimeService:
                 "player_id": exc.prompt.get("player_id"),
             }
         else:
+            prompt_boundary_payload = None
             state.pending_prompt_request_id = ""
             state.pending_prompt_type = ""
             state.pending_prompt_player_id = 0
             state.pending_prompt_instance_id = 0
+        current_prompt_sequence = getattr(policy, "current_prompt_sequence", None)
+        if state is not None and callable(current_prompt_sequence):
+            state.prompt_sequence = max(
+                int(getattr(state, "prompt_sequence", 0) or 0),
+                int(current_prompt_sequence() or 0),
+            )
         effective_runner_kind = str(getattr(state, "runtime_runner_kind", runner_kind) or runner_kind)
         effective_checkpoint_schema_version = int(
             getattr(state, "runtime_checkpoint_schema_version", checkpoint_schema_version) or checkpoint_schema_version
@@ -1045,6 +1062,8 @@ class RuntimeService:
             runtime_active_prompt = runtime_active_prompt if isinstance(runtime_active_prompt, dict) else {}
             runtime_active_prompt_batch = payload.get("runtime_active_prompt_batch")
             runtime_active_prompt_batch = runtime_active_prompt_batch if isinstance(runtime_active_prompt_batch, dict) else {}
+            if latest_event_type == "prompt_required" and prompt_boundary_payload:
+                self._materialize_prompt_boundary_sync(loop, session_id, prompt_boundary_payload)
             module_debug_fields = _runtime_module_debug_fields(
                 {
                     **step,
@@ -1151,6 +1170,51 @@ class RuntimeService:
         future = asyncio.run_coroutine_threadsafe(self._stream_service.latest_seq(session_id), loop)
         return int(future.result(timeout=5))
 
+    def _materialize_prompt_boundary_sync(
+        self,
+        loop: asyncio.AbstractEventLoop | None,
+        session_id: str,
+        prompt_payload: dict,
+    ) -> None:
+        if loop is None or self._stream_service is None or self._prompt_service is None:
+            return
+        payload = dict(prompt_payload)
+        request_id = str(payload.get("request_id") or "").strip()
+        if not request_id:
+            return
+        payload.setdefault("provider", "human")
+        try:
+            self._prompt_service.create_prompt(session_id=session_id, prompt=payload)
+        except ValueError as exc:
+            if str(exc) not in {"duplicate_pending_request_id", "duplicate_recent_request_id"}:
+                raise
+            if str(exc) == "duplicate_recent_request_id":
+                return
+
+        prompt_future = asyncio.run_coroutine_threadsafe(
+            self._stream_service.publish(session_id, "prompt", payload),
+            loop,
+        )
+        prompt_future.result(timeout=5)
+
+        public_context = dict(payload.get("public_context") or {})
+        requested = build_decision_requested_payload(
+            request_id=request_id,
+            player_id=int(payload.get("player_id") or 0),
+            request_type=str(payload.get("request_type") or ""),
+            fallback_policy=str(payload.get("fallback_policy") or "required"),
+            provider=str(payload.get("provider") or "human"),
+            round_index=public_context.get("round_index"),
+            turn_index=public_context.get("turn_index"),
+            public_context=public_context,
+        )
+        event_future = asyncio.run_coroutine_threadsafe(
+            self._stream_service.publish(session_id, "event", requested),
+            loop,
+        )
+        event_future.result(timeout=5)
+        self._touch_activity(session_id)
+
     def _publish_active_module_prompt_batch_sync(
         self,
         loop: asyncio.AbstractEventLoop | None,
@@ -1176,7 +1240,7 @@ class RuntimeService:
                 "prompt_instance_id": int(getattr(continuation, "prompt_instance_id", 0) or 0),
                 "legal_choices": list(getattr(continuation, "legal_choices", []) or []),
                 "public_context": public_context,
-                "timeout_ms": 300000,
+                "timeout_ms": DEFAULT_HUMAN_PROMPT_TIMEOUT_MS,
                 "fallback_policy": "required",
                 "runner_kind": "module",
                 "resume_token": str(getattr(continuation, "resume_token", "") or ""),
@@ -1201,33 +1265,7 @@ class RuntimeService:
                     "module_cursor": str(getattr(continuation, "module_cursor", "") or ""),
                 },
             }
-            try:
-                self._prompt_service.create_prompt(session_id=session_id, prompt=payload)
-            except ValueError as exc:
-                if str(exc) in {"duplicate_pending_request_id", "duplicate_recent_request_id"}:
-                    continue
-                raise
-            future = asyncio.run_coroutine_threadsafe(
-                self._stream_service.publish(session_id, "prompt", {**payload, "provider": "human"}),
-                loop,
-            )
-            future.result(timeout=5)
-            requested = build_decision_requested_payload(
-                request_id=payload["request_id"],
-                player_id=player_id,
-                request_type=payload["request_type"],
-                fallback_policy="required",
-                provider="human",
-                round_index=public_context.get("round_index"),
-                turn_index=public_context.get("turn_index"),
-                public_context=public_context,
-            )
-            event_future = asyncio.run_coroutine_threadsafe(
-                self._stream_service.publish(session_id, "event", requested),
-                loop,
-            )
-            event_future.result(timeout=5)
-            self._touch_activity(session_id)
+            self._materialize_prompt_boundary_sync(loop, session_id, {**payload, "provider": "human"})
 
 
 class _ServerDecisionPolicyBridge:
@@ -1294,6 +1332,11 @@ class _ServerDecisionPolicyBridge:
     def set_prompt_sequence(self, value: int) -> None:
         if self._human_client is not None:
             self._human_client.set_prompt_seq(value)
+
+    def current_prompt_sequence(self) -> int:
+        if self._human_client is None:
+            return 0
+        return int(self._human_client.prompt_seq)
 
     def _ask(self, prompt: dict, parser, fallback_fn):
         if self._human_client is not None:
@@ -1398,6 +1441,8 @@ class _ServerDecisionPolicyBridge:
         def _wrapped(*args, **kwargs):
             invocation = build_decision_invocation(name, args, kwargs)
             call = build_routed_decision_call(invocation, fallback_policy="ai")
+            if self._decision_resume is not None and self._decision_resume_matches_call(call, self._decision_resume):
+                return self._consume_decision_resume(call)
             client = self._router.client_for_call(call)
             return client.resolve(call)
 
@@ -1718,7 +1763,9 @@ def _default_external_ai_http_sender(envelope: _ExternalAiDecisionEnvelope) -> d
     endpoint = str(envelope.participant_config.get("endpoint") or "").strip()
     if not endpoint:
         raise ValueError("external_ai_missing_endpoint")
-    timeout_ms = int(envelope.participant_config.get("timeout_ms", 15000) or 15000)
+    timeout_ms = int(
+        envelope.participant_config.get("timeout_ms", DEFAULT_EXTERNAL_AI_TIMEOUT_MS) or DEFAULT_EXTERNAL_AI_TIMEOUT_MS
+    )
     headers = {"Content-Type": "application/json"}
     _merge_external_ai_auth_headers(headers, envelope.participant_config)
     raw_headers = envelope.participant_config.get("headers") or {}
@@ -1789,7 +1836,7 @@ def _default_external_ai_healthcheck(config: dict[str, object]) -> dict[str, obj
     if not endpoint:
         raise ValueError("external_ai_missing_endpoint")
     healthcheck_path = str(config.get("healthcheck_path", "/health") or "/health").strip() or "/health"
-    timeout_ms = int(config.get("timeout_ms", 15000) or 15000)
+    timeout_ms = int(config.get("timeout_ms", DEFAULT_EXTERNAL_AI_TIMEOUT_MS) or DEFAULT_EXTERNAL_AI_TIMEOUT_MS)
     ttl_ms = max(0, int(config.get("healthcheck_ttl_ms", 10000) or 0))
     required_version = str(config.get("contract_version", "v1") or "v1").strip().lower()
     required_capabilities = {

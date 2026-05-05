@@ -11,6 +11,7 @@ from typing import Any, Callable, Literal
 from apps.server.src.services.prompt_fingerprint import ensure_prompt_fingerprint, prompt_fingerprint_mismatch
 
 DecisionProvider = Literal["human", "ai"]
+DEFAULT_HUMAN_PROMPT_TIMEOUT_MS = 30_000
 
 ChoiceSerializer = Callable[[Any], str]
 ContextBuilder = Callable[[tuple[Any, ...], dict[str, Any], Any, Any], dict[str, Any]]
@@ -1887,7 +1888,7 @@ class DecisionGateway:
 
     def resolve_human_prompt(self, prompt: dict, parser, fallback_fn):
         envelope = dict(prompt)
-        timeout_ms = max(1, int(envelope.get("timeout_ms", 300000)))
+        timeout_ms = max(1, int(envelope.get("timeout_ms", DEFAULT_HUMAN_PROMPT_TIMEOUT_MS)))
         player_id = int(envelope.get("player_id", 0))
         fallback_policy = str(envelope.get("fallback_policy", "timeout_fallback"))
         request_type = str(envelope.get("request_type", ""))
@@ -1923,6 +1924,20 @@ class DecisionGateway:
         except ValueError as exc:
             if str(exc) == "prompt_fingerprint_mismatch":
                 raise PromptFingerprintMismatch(request_id=request_id) from exc
+            if str(exc) == "duplicate_pending_request_id" and not self._blocking_human_prompts:
+                pending = self._prompt_service.get_pending_prompt(request_id)
+                prompt_payload = dict(pending.payload) if pending is not None else envelope
+                self.publish("prompt", {**prompt_payload, "provider": "human"})
+                self._publish_decision_requested(
+                    request_id=request_id,
+                    player_id=player_id,
+                    request_type=str(prompt_payload.get("request_type", request_type)),
+                    fallback_policy=fallback_policy,
+                    provider="human",
+                    public_context=public_context,
+                )
+                self._touch_activity(self._session_id)
+                raise PromptRequired(prompt_payload)
             if not self._blocking_human_prompts:
                 raise PromptRequired(envelope)
             request_id = self.next_request_id()

@@ -40,6 +40,16 @@ class RuleInjectionTest(unittest.TestCase):
         state.f_value = 5.0
         self.assertEqual(engine._evaluate_end_rules(state), 'F_THRESHOLD')
 
+    def test_alive_threshold_is_below_starting_player_count(self):
+        rules = GameRules(end=EndConditionRules(f_threshold=None, monopolies_to_trigger_end=0, tiles_to_trigger_end=None, alive_players_at_most=2))
+        cfg = GameConfig(player_count=2, rules=rules)
+        state = GameState.create(cfg)
+        engine = GameEngine(cfg, BasePolicy(), rng=random.Random(1), enable_logging=False)
+
+        self.assertIsNone(engine._evaluate_end_rules(state))
+        state.players[1].alive = False
+        self.assertEqual(engine._evaluate_end_rules(state), 'ALIVE_THRESHOLD')
+
     def test_custom_force_sale_rules_disable_refund_and_repurchase_block(self):
         rules = GameRules(force_sale=ForceSaleRules(refund_purchase_cost=False, return_tile_coins_to_original_owner=False, block_repurchase_until_next_turn=False))
         cfg = GameConfig(rules=rules)

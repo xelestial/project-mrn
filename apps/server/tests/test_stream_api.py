@@ -4,7 +4,8 @@ import asyncio
 import time
 import unittest
 
-from apps.server.src.routes.stream import _filter_stream_message
+from apps.server.src.domain.visibility import ViewerContext
+from apps.server.src.routes.stream import _filter_stream_message, _send_stream_catch_up
 
 try:
     from fastapi.testclient import TestClient
@@ -244,6 +245,69 @@ class StreamApiTests(unittest.TestCase):
 
         self.assertEqual(seen, [1, 2])
         self.assertEqual(transition_calls, [])
+
+    def test_stream_catch_up_replays_persisted_events_missed_by_live_queue(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 305, "visibility": "public"})
+
+        async def _seed() -> None:
+            await state.stream_service.publish(session.session_id, "event", {"event_type": "round_start", "round_index": 1})
+            await state.stream_service.publish(
+                session.session_id,
+                "prompt",
+                module_prompt(
+                    {
+                        "request_id": "r_seat1",
+                        "request_type": "final_character",
+                        "player_id": 1,
+                        "timeout_ms": 5000,
+                        "legal_choices": [{"choice_id": "6", "label": "박수"}],
+                    },
+                    module_type="DraftModule",
+                    frame_id="round:test:draft:p1",
+                ),
+            )
+            await state.stream_service.publish(
+                session.session_id,
+                "prompt",
+                module_prompt(
+                    {
+                        "request_id": "r_seat2",
+                        "request_type": "final_character",
+                        "player_id": 2,
+                        "timeout_ms": 5000,
+                        "legal_choices": [{"choice_id": "1", "label": "어사"}],
+                    },
+                    module_type="DraftModule",
+                    frame_id="round:test:draft:p2",
+                ),
+            )
+
+        class FakeWebSocket:
+            def __init__(self) -> None:
+                self.sent: list[dict] = []
+
+            async def send_json(self, message: dict) -> None:
+                self.sent.append(message)
+
+        fake_ws = FakeWebSocket()
+        asyncio.run(_seed())
+        latest = asyncio.run(
+            _send_stream_catch_up(
+                fake_ws,  # type: ignore[arg-type]
+                state.stream_service,
+                session_id=session.session_id,
+                last_sent_seq=0,
+                viewer=ViewerContext(role="seat", session_id=session.session_id, player_id=1),
+                auth_ctx={"role": "seat", "player_id": 1},
+            )
+        )
+
+        self.assertEqual(latest, 3)
+        self.assertEqual([message.get("seq") for message in fake_ws.sent], [1, 2])
+        self.assertEqual(fake_ws.sent[-1].get("payload", {}).get("request_id"), "r_seat1")
+        self.assertIn("view_state", fake_ws.sent[-1].get("payload", {}))
 
     def test_spectator_decision_is_rejected_with_unauthorized_seat(self) -> None:
         from apps.server.src import state

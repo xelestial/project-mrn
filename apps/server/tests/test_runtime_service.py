@@ -5346,6 +5346,83 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_bridge_consumes_direct_choose_resume_without_creating_prompt(self) -> None:
+        from apps.server.src.services.runtime_service import RuntimeDecisionResume, _ServerDecisionPolicyBridge
+
+        class _DummyAi:
+            def choose_hidden_trick_card(self, state, player, hand):
+                del state, player
+                return hand[0]
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerDecisionPolicyBridge(
+                session_id="sess_direct_resume_bridge_test",
+                session_seats=[],
+                human_seats=[0],
+                ai_fallback=_DummyAi(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+                blocking_human_prompts=False,
+            )
+            card_a = type("Card", (), {"deck_index": 37, "name": "저속", "description": "desc-a"})()
+            card_b = type("Card", (), {"deck_index": 21, "name": "도움 닫기", "description": "desc-b"})()
+            player = type(
+                "Player",
+                (),
+                {
+                    "player_id": 0,
+                    "cash": 10,
+                    "position": 0,
+                    "shards": 0,
+                    "hidden_trick_deck_index": None,
+                    "trick_hand": [card_a, card_b],
+                },
+            )()
+            state = type(
+                "State",
+                (),
+                {
+                    "rounds_completed": 0,
+                    "turn_index": 0,
+                    "active_by_card": {},
+                    "runtime_runner_kind": "module",
+                },
+            )()
+            bridge.set_decision_resume(
+                RuntimeDecisionResume(
+                    request_id="sess_direct_resume_bridge_test:r1:t0:p1:hidden_trick_card:3",
+                    player_id=1,
+                    request_type="hidden_trick_card",
+                    choice_id="37",
+                    choice_payload={},
+                    resume_token="resume_hidden_37",
+                    frame_id="round:1",
+                    module_id="mod:round:1:draft",
+                    module_type="DraftModule",
+                    module_cursor="draft:final:3",
+                )
+            )
+
+            with patch.object(
+                bridge._gateway,
+                "resolve_human_prompt",
+                side_effect=AssertionError("direct choose resume must not create a new prompt"),
+            ):
+                result = bridge.choose_hidden_trick_card(state, player, [card_a, card_b])
+
+            self.assertIs(result, card_a)
+            self.assertIsNone(bridge._decision_resume)
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
     def test_bridge_defers_decision_resume_until_matching_replayed_prompt(self) -> None:
         RuntimeService._ensure_engine_import_path()
         from engine import DecisionRequest
@@ -5494,6 +5571,123 @@ class RuntimeServiceTests(unittest.TestCase):
 
             prompt = raised.exception.prompt
             self.assertEqual(prompt["request_id"], "sess_sparse_prompt_id_test:r0:t0:p1:movement:0")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_decision_gateway_repairs_missing_prompt_stream_for_pending_prompt(self) -> None:
+        from apps.server.src.services.decision_gateway import DecisionGateway, PromptRequired
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            gateway = DecisionGateway(
+                session_id="sess_pending_prompt_repair",
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+                blocking_human_prompts=False,
+            )
+            prompt = self._module_prompt(
+                {
+                    "request_id": "repair_req_1",
+                    "request_type": "final_character",
+                    "player_id": 1,
+                    "timeout_ms": 2000,
+                    "legal_choices": [
+                        {"choice_id": "character:6", "label": "박수"},
+                        {"choice_id": "character:8", "label": "건설업자"},
+                    ],
+                    "fallback_policy": "timeout_fallback",
+                    "public_context": {"round_index": 1, "turn_index": 1},
+                },
+                frame_id="round:1:draft:p1",
+                module_type="DraftModule",
+                module_cursor="final_character",
+            )
+            self.prompt_service.create_prompt("sess_pending_prompt_repair", prompt)
+
+            with self.assertRaises(PromptRequired) as raised:
+                gateway.resolve_human_prompt(
+                    prompt,
+                    lambda response: str(response.get("choice_id", "")),
+                    lambda: "fallback",
+                )
+
+            messages = asyncio.run(self.stream_service.snapshot("sess_pending_prompt_repair"))
+            prompt_messages = [msg for msg in messages if msg.type == "prompt"]
+            requested_events = [
+                msg
+                for msg in messages
+                if msg.type == "event" and msg.payload.get("event_type") == "decision_requested"
+            ]
+
+            self.assertEqual(raised.exception.prompt["request_id"], "repair_req_1")
+            self.assertEqual(len(prompt_messages), 1)
+            self.assertEqual(prompt_messages[0].payload["request_id"], "repair_req_1")
+            self.assertEqual(prompt_messages[0].payload["legal_choices"][0]["label"], "박수")
+            self.assertEqual(len(requested_events), 1)
+            self.assertEqual(requested_events[0].payload["request_id"], "repair_req_1")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_runtime_prompt_boundary_materializes_missing_stream_prompt(self) -> None:
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            prompt = self._module_prompt(
+                {
+                    "request_id": "runtime_boundary_req_1",
+                    "request_type": "final_character",
+                    "player_id": 1,
+                    "timeout_ms": 30000,
+                    "legal_choices": [
+                        {"choice_id": "character:6", "label": "박수"},
+                        {"choice_id": "character:8", "label": "건설업자"},
+                    ],
+                    "fallback_policy": "required",
+                    "public_context": {"round_index": 1, "turn_index": 0},
+                },
+                frame_id="round:1:draft:p1",
+                module_type="DraftModule",
+                module_cursor="final_character",
+            )
+            self.prompt_service.create_prompt("sess_runtime_boundary_prompt", prompt)
+
+            self.runtime_service._materialize_prompt_boundary_sync(  # type: ignore[attr-defined]
+                loop,
+                "sess_runtime_boundary_prompt",
+                prompt,
+            )
+            self.runtime_service._materialize_prompt_boundary_sync(  # type: ignore[attr-defined]
+                loop,
+                "sess_runtime_boundary_prompt",
+                prompt,
+            )
+
+            messages = asyncio.run(self.stream_service.snapshot("sess_runtime_boundary_prompt"))
+            prompt_messages = [msg for msg in messages if msg.type == "prompt"]
+            requested_events = [
+                msg
+                for msg in messages
+                if msg.type == "event" and msg.payload.get("event_type") == "decision_requested"
+            ]
+
+            self.assertEqual(len(prompt_messages), 1)
+            self.assertEqual(prompt_messages[0].payload["request_id"], "runtime_boundary_req_1")
+            self.assertEqual(
+                [choice["label"] for choice in prompt_messages[0].payload["legal_choices"]],
+                ["박수", "건설업자"],
+            )
+            self.assertEqual(len(requested_events), 1)
+            self.assertEqual(requested_events[0].payload["request_id"], "runtime_boundary_req_1")
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)

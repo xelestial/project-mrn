@@ -67,43 +67,47 @@ class ModuleRunner:
         """
         self._reject_orphan_turn_completion_checkpoint(state)
         self._restore_checkpoint_work_to_module_frames(engine, state)
-        self._promote_pending_work_to_sequence_frames(engine, state)
+        if decision_resume is None:
+            self._promote_pending_work_to_sequence_frames(engine, state)
 
         simultaneous_frame = self._active_simultaneous_frame(state)
         if simultaneous_frame is not None:
             simultaneous_module = self._next_live_module(simultaneous_frame)
             result = self._advance_simultaneous_frame(engine, state, simultaneous_frame, decision_resume=decision_resume)
-            self._promote_pending_work_to_sequence_frames(
-                engine,
-                state,
-                parent_frame=simultaneous_frame,
-                parent_module=simultaneous_module,
-            )
-            self._sync_active_player_turn_after_module_work(state)
+            if result.get("status") != "waiting_input":
+                self._promote_pending_work_to_sequence_frames(
+                    engine,
+                    state,
+                    parent_frame=simultaneous_frame,
+                    parent_module=simultaneous_module,
+                )
+                self._sync_active_player_turn_after_module_work(state)
             return {**result, "runner_kind": "module"}
         sequence_frame = self._active_sequence_frame(state)
         if sequence_frame is not None:
             sequence_module = self._next_live_module(sequence_frame)
             result = self._advance_sequence_frame(engine, state, sequence_frame)
-            self._promote_pending_work_to_sequence_frames(
-                engine,
-                state,
-                parent_frame=sequence_frame,
-                parent_module=sequence_module,
-            )
-            self._sync_active_player_turn_after_module_work(state)
+            if result.get("status") != "waiting_input":
+                self._promote_pending_work_to_sequence_frames(
+                    engine,
+                    state,
+                    parent_frame=sequence_frame,
+                    parent_module=sequence_module,
+                )
+                self._sync_active_player_turn_after_module_work(state)
             return {**result, "runner_kind": "module"}
         turn_frame = self._active_turn_frame(state)
         if turn_frame is not None:
             turn_module = self._next_live_module(turn_frame)
             result = self._advance_turn_frame(engine, state, turn_frame)
-            self._promote_pending_work_to_sequence_frames(
-                engine,
-                state,
-                parent_frame=turn_frame,
-                parent_module=turn_module,
-            )
-            self._sync_active_player_turn_after_module_work(state)
+            if result.get("status") != "waiting_input":
+                self._promote_pending_work_to_sequence_frames(
+                    engine,
+                    state,
+                    parent_frame=turn_frame,
+                    parent_module=turn_module,
+                )
+                self._sync_active_player_turn_after_module_work(state)
             return {**result, "runner_kind": "module"}
 
         if not state.runtime_frame_stack:
@@ -997,10 +1001,19 @@ class ModuleRunner:
         session_id = getattr(engine, "_vis_session_id", "")
         round_index = int(getattr(state, "rounds_completed", 0) or 0) + 1
         if state.pending_actions:
-            supply_actions, actions = self._split_supply_threshold_actions(
-                [action.to_payload() for action in state.pending_actions]
-            )
+            pending_payloads = [action.to_payload() for action in state.pending_actions]
+            owned_action_ids = self._owned_action_ids(state)
+            pending_payloads = [
+                action
+                for action in pending_payloads
+                if str(action.get("action_id") or "") not in owned_action_ids
+            ]
             self._clear_pending_actions(state)
+            if not pending_payloads:
+                return
+            supply_actions, actions = self._split_supply_threshold_actions(
+                pending_payloads
+            )
             for action in supply_actions:
                 ordinal = self._next_simultaneous_ordinal(state)
                 resupply_frame = build_resupply_frame(
@@ -1030,6 +1043,19 @@ class ModuleRunner:
                     session_id=session_id,
                 )
             )
+
+    @staticmethod
+    def _owned_action_ids(state: Any) -> set[str]:
+        owned: set[str] = set()
+        for frame in getattr(state, "runtime_frame_stack", []) or []:
+            for module in getattr(frame, "module_queue", []) or []:
+                action = getattr(module, "payload", {}).get("action") if isinstance(getattr(module, "payload", {}), dict) else None
+                if not isinstance(action, dict):
+                    continue
+                action_id = str(action.get("action_id") or "")
+                if action_id:
+                    owned.add(action_id)
+        return owned
 
     @staticmethod
     def _action_from_payload(payload: dict[str, Any]) -> Any:

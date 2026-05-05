@@ -105,7 +105,7 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                         "request_id": "req_draft_phase_2",
                         "request_type": "draft_card",
                         "player_id": 3,
-                        "timeout_ms": 300000,
+                        "timeout_ms": 30000,
                         "legal_choices": [
                             {
                                 "choice_id": "card_8",
@@ -271,7 +271,7 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                         "request_id": "req_trick_1",
                         "request_type": "trick_to_use",
                         "player_id": 1,
-                        "timeout_ms": 300000,
+                        "timeout_ms": 30000,
                         "legal_choices": [{"choice_id": "42", "title": "긴장감 조성", "description": "rent double"}],
                     },
                 },
@@ -303,7 +303,7 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                         "request_id": "req_hidden_trick_1",
                         "request_type": "hidden_trick_card",
                         "player_id": 1,
-                        "timeout_ms": 300000,
+                        "timeout_ms": 30000,
                         "legal_choices": [{"choice_id": "42", "title": "박수", "description": "select hidden"}],
                     },
                 },

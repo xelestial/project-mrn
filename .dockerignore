@@ -3,8 +3,8 @@
 !apps
 !apps/server
 !apps/server/**
-!GPT
-!GPT/**
+!engine
+!engine/**
 !packages
 !packages/ui-domain
 !packages/ui-domain/**
@@ -21,8 +21,8 @@
 **/build
 
 apps/server/tests
-GPT/test_*
-GPT/*_test.py
-GPT/_*
-GPT/*.log
-GPT/*.md
+engine/test_*
+engine/*_test.py
+engine/_*
+engine/*.log
+engine/*.md

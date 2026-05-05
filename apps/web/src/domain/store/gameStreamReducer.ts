@@ -1,4 +1,4 @@
-import type { ConnectionStatus, InboundMessage } from "../../core/contracts/stream";
+import { VIEW_STATE_RESTORED_EVENT, type ConnectionStatus, type InboundMessage } from "../../core/contracts/stream";
 
 export type GameStreamState = {
   status: ConnectionStatus;
@@ -131,6 +131,10 @@ function projectedMessageIsCompatibleWithLatest(messages: InboundMessage[], cand
   return true;
 }
 
+function isViewStateRestoredMessage(message: InboundMessage): boolean {
+  return message.type === "event" && message.payload["event_type"] === VIEW_STATE_RESTORED_EVENT;
+}
+
 function flushPendingMessages(
   startSeq: number,
   pendingBySeq: Record<number, InboundMessage>,
@@ -167,7 +171,7 @@ function flushPendingMessages(
       return Boolean(
         candidate &&
           (carriesCurrentProjection(candidate) || candidate.type === "prompt") &&
-          projectedMessageIsCompatibleWithLatest(nextMessages, candidate)
+          (isViewStateRestoredMessage(candidate) || projectedMessageIsCompatibleWithLatest(nextMessages, candidate))
       );
     });
     if (firstProjectedSeq === undefined) {

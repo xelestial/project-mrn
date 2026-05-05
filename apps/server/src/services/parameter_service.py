@@ -12,6 +12,9 @@ class ParameterValidationError(ValueError):
     """Raised when session config cannot be resolved into safe runtime parameters."""
 
 
+DEFAULT_EXTERNAL_AI_TIMEOUT_MS = 30_000
+
+
 class RootSourceRegistry:
     """Canonical root-source registry for fingerprint generation."""
 
@@ -186,7 +189,7 @@ class GameParameterResolver:
         if not auth_scheme:
             raise ParameterValidationError("invalid_external_ai_auth_scheme")
 
-        timeout_ms = external_ai_raw.get("timeout_ms", 15000)
+        timeout_ms = external_ai_raw.get("timeout_ms", DEFAULT_EXTERNAL_AI_TIMEOUT_MS)
         if not isinstance(timeout_ms, int) or timeout_ms <= 0:
             raise ParameterValidationError("invalid_external_ai_timeout")
         retry_count = external_ai_raw.get("retry_count", 1)

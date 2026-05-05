@@ -55,6 +55,41 @@ async def _project_replay_messages(
     return projected
 
 
+async def _send_stream_catch_up(
+    websocket: WebSocket,
+    stream_service: Any,
+    *,
+    session_id: str,
+    last_sent_seq: int,
+    viewer: Any,
+    auth_ctx: dict[str, Any],
+) -> int:
+    latest_seq = int(await stream_service.latest_seq(session_id))
+    if latest_seq <= last_sent_seq:
+        return last_sent_seq
+
+    replay = await stream_service.replay_from(session_id, last_sent_seq)
+    if not replay:
+        return latest_seq
+
+    for filtered in await _project_replay_messages(
+        stream_service,
+        replay,
+        viewer=viewer,
+        auth_ctx=auth_ctx,
+    ):
+        await websocket.send_json(filtered)
+
+    return latest_seq
+
+
+def _stream_seq(message: dict[str, Any]) -> int:
+    try:
+        return int(message.get("seq", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 @router.get("/{session_id}/stream-capability")
 def stream_capability(session_id: str) -> dict:
     """Temporary probe endpoint for B1 baseline.
@@ -181,10 +216,35 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
         player_id=auth_ctx.get("player_id"),
     )
     viewer = viewer_from_auth_context(auth_ctx, session_id=session_id)
+    delivered_seq = 0
+    resume_received = False
+    delivery_lock = asyncio.Lock()
 
     async def _heartbeat() -> None:
+        nonlocal delivered_seq
         while not stop_event.is_set():
-            latest = await stream_service.latest_seq(session_id)
+            if resume_received:
+                async with delivery_lock:
+                    previous_seq = delivered_seq
+                    delivered_seq = await _send_stream_catch_up(
+                        websocket,
+                        stream_service,
+                        session_id=session_id,
+                        last_sent_seq=delivered_seq,
+                        viewer=viewer,
+                        auth_ctx=auth_ctx,
+                    )
+                    latest = delivered_seq
+                if delivered_seq > previous_seq:
+                    log_event(
+                        "stream_catch_up",
+                        session_id=session_id,
+                        connection_id=conn_id,
+                        from_seq=previous_seq,
+                        latest_seq=delivered_seq,
+                    )
+            else:
+                latest = await stream_service.latest_seq(session_id)
             pressure = await stream_service.backpressure_stats(session_id)
             runtime_diag = runtime_service.runtime_status(session_id)
             active_module = None
@@ -216,14 +276,20 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                 pass
 
     async def _sender() -> None:
+        nonlocal delivered_seq
         while not stop_event.is_set():
             try:
                 message = await asyncio.wait_for(subscriber_queue.get(), timeout=sender_poll_timeout_sec)
             except asyncio.TimeoutError:
                 continue
-            filtered = await stream_service.project_message_for_viewer(message, viewer)
-            if filtered is not None:
-                await websocket.send_json(filtered)
+            seq = _stream_seq(message)
+            async with delivery_lock:
+                if seq > 0 and seq <= delivered_seq:
+                    continue
+                filtered = await stream_service.project_message_for_viewer(message, viewer)
+                delivered_seq = max(delivered_seq, seq)
+                if filtered is not None:
+                    await websocket.send_json(filtered)
 
     heart = asyncio.create_task(_heartbeat())
     sender = asyncio.create_task(_sender())
@@ -232,6 +298,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
             message: dict[str, Any] = await websocket.receive_json()
             msg_type = str(message.get("type", "")).strip().lower()
             if msg_type == "resume":
+                requested_last_seq = int(message.get("last_seq", 0))
                 last_seq = int(message.get("last_seq", 0))
                 oldest_seq, latest_seq = await stream_service.replay_window(session_id)
                 if oldest_seq > 0 and last_seq < (oldest_seq - 1):
@@ -254,20 +321,25 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                         }
                     )
                     last_seq = oldest_seq - 1
-                replay = await stream_service.replay_from(session_id, last_seq)
-                for filtered in await _project_replay_messages(
-                    stream_service,
-                    replay,
-                    viewer=viewer,
-                    auth_ctx=auth_ctx,
-                ):
-                    await websocket.send_json(filtered)
+                async with delivery_lock:
+                    last_seq = max(last_seq, delivered_seq)
+                    replay = await stream_service.replay_from(session_id, last_seq)
+                    for filtered in await _project_replay_messages(
+                        stream_service,
+                        replay,
+                        viewer=viewer,
+                        auth_ctx=auth_ctx,
+                    ):
+                        await websocket.send_json(filtered)
+                    delivered_seq = max(delivered_seq, latest_seq)
+                    resume_received = True
                 log_event(
                     "stream_resume",
                     session_id=session_id,
                     connection_id=conn_id,
                     replay_count=len(replay),
-                    last_seq=last_seq,
+                    last_seq=requested_last_seq,
+                    delivered_seq=delivered_seq,
                 )
                 continue
             if msg_type == "decision":

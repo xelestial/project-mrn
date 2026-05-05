@@ -83,7 +83,11 @@ class EndConditionRules:
             p.alive and p.tiles_owned >= self.tiles_to_trigger_end for p in state.players
         ):
             return 'NINE_TILES'
-        if state.alive_count() <= self.alive_players_at_most:
+        effective_alive_threshold = min(
+            int(self.alive_players_at_most),
+            max(1, int(getattr(state.config, "player_count", len(state.players))) - 1),
+        )
+        if state.alive_count() <= effective_alive_threshold:
             return 'ALIVE_THRESHOLD'
         return None
 

@@ -141,6 +141,75 @@ describe("gameStreamReducer", () => {
     });
   });
 
+  it("fast-forwards to the latest restored view-state snapshot across redacted replay gaps", () => {
+    let state = initialGameStreamState;
+    for (const message of [
+      {
+        type: "event" as const,
+        seq: 48,
+        session_id: "s1",
+        payload: {
+          event_type: "prompt_required",
+          request_type: "hidden_trick_card",
+          view_state: {
+            runtime: {
+              latest_module_path: ["turn:1:p0", "mod:turn:1:p0:hidden_trick"],
+              turn_stage: "hidden_trick_card",
+            },
+            prompt: { active: null },
+          },
+        },
+      },
+      {
+        type: "event" as const,
+        seq: 49,
+        session_id: "s1",
+        payload: {
+          event_type: "decision_resolved",
+          request_type: "hidden_trick_card",
+          view_state: {
+            runtime: {
+              latest_module_path: ["turn:1:p0", "mod:turn:1:p0:hidden_trick"],
+              turn_stage: "hidden_trick_card",
+            },
+            prompt: { active: null },
+          },
+        },
+      },
+      {
+        type: "event" as const,
+        seq: 60,
+        session_id: "s1",
+        payload: {
+          event_type: "view_state_restored",
+          view_state: {
+            runtime: {
+              latest_module_path: ["turn:1:p0", "mod:turn:1:p0:trick_to_use"],
+              turn_stage: "trick_to_use",
+            },
+            prompt: {
+              active: {
+                request_id: "req_trick",
+                request_type: "trick_to_use",
+                player_id: 1,
+                choices: [{ choice_id: "none", label: "사용 안 함" }],
+              },
+            },
+          },
+        },
+      },
+    ]) {
+      state = gameStreamReducer(state, { type: "message", message });
+    }
+
+    expect(state.lastSeq).toBe(60);
+    expect(state.pendingBySeq).toEqual({});
+    expect(state.messages.map((message) => message.seq)).toEqual([48, 49, 60]);
+    expect(selectRuntimeProjection(state.messages)).toMatchObject({
+      turnStage: "trick_to_use",
+    });
+  });
+
   it("buffers out-of-order messages and flushes contiguous sequence", () => {
     let state = initialGameStreamState;
     state = gameStreamReducer(state, {

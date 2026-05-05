@@ -20,6 +20,7 @@ from runtime_modules.sequence_modules import (
     build_trick_sequence_frame,
     module_type_for_action,
 )
+from runtime_modules.simultaneous import build_resupply_frame
 from runtime_modules.turn_modules import build_turn_frame
 
 
@@ -762,6 +763,80 @@ def test_pending_supply_threshold_action_is_promoted_to_resupply_frame_before_se
     )
     assert resupply_module.payload["action"]["action_id"] == "supply-1"
     assert state.runtime_frame_stack[2].module_queue[0].module_type == "MapMoveModule"
+
+
+def test_pending_actions_already_owned_by_runtime_frames_are_not_promoted_again() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+    turn_frame = build_turn_frame(2, 0, parent_module_id="mod:round:2:playerturn", session_id="test-session")
+    resupply_frame = build_resupply_frame(
+        2,
+        83,
+        parent_frame_id=turn_frame.frame_id,
+        parent_module_id="mod:turn:2:p0:trickwindow",
+        session_id="test-session",
+        participants=[0, 1],
+    )
+    resupply_module = next(module for module in resupply_frame.module_queue if module.module_type == "ResupplyModule")
+    resupply_module.payload["action"] = {
+        "action_id": "supply-1",
+        "type": "resolve_supply_threshold",
+        "actor_player_id": 0,
+        "source": "trick_supply_threshold",
+        "payload": {"threshold": 6},
+    }
+    sequence_frame = build_action_sequence_frame(
+        2,
+        0,
+        84,
+        [
+            {
+                "action_id": "continue-1",
+                "type": "continue_after_trick_phase",
+                "actor_player_id": 0,
+                "source": "trick_supply_threshold",
+                "payload": {},
+            }
+        ],
+        parent_frame_id=turn_frame.frame_id,
+        parent_module_id="mod:turn:2:p0:trickwindow",
+        session_id="test-session",
+    )
+    state = SimpleNamespace(
+        pending_actions=[
+            ActionEnvelope(
+                action_id="supply-1",
+                type="resolve_supply_threshold",
+                actor_player_id=0,
+                source="trick_supply_threshold",
+                payload={"threshold": 6},
+            ),
+            ActionEnvelope(
+                action_id="continue-1",
+                type="continue_after_trick_phase",
+                actor_player_id=0,
+                source="trick_supply_threshold",
+                payload={},
+            ),
+        ],
+        pending_turn_completion={},
+        players=[SimpleNamespace(player_id=0, alive=True), SimpleNamespace(player_id=1, alive=True)],
+        runtime_frame_stack=[turn_frame, resupply_frame, sequence_frame],
+        runtime_module_journal=[],
+        rounds_completed=1,
+        current_round_order=[0, 1],
+        turn_index=0,
+    )
+
+    ModuleRunner()._promote_pending_work_to_sequence_frames(FakeEngine(), state)
+
+    assert state.pending_actions == []
+    assert [frame.frame_id for frame in state.runtime_frame_stack] == [
+        turn_frame.frame_id,
+        resupply_frame.frame_id,
+        sequence_frame.frame_id,
+    ]
 
 
 def test_module_runner_promotes_pending_actions_before_execution() -> None:

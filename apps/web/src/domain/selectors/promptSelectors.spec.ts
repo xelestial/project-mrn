@@ -284,7 +284,7 @@ describe("promptSelectors", () => {
         request_id: "req_legal_1",
         request_type: "trick_to_use",
         player_id: 1,
-        timeout_ms: 300000,
+        timeout_ms: 30000,
         legal_choices: [
           {
             choice_id: "deck_12",
@@ -312,7 +312,7 @@ describe("promptSelectors", () => {
         request_id: "req_choices_mirror",
         request_type: "trick_to_use",
         player_id: 1,
-        timeout_ms: 300000,
+        timeout_ms: 30000,
         choices: [{ choice_id: "deck_12", title: "건강 검진" }],
       },
     };
@@ -332,7 +332,7 @@ describe("promptSelectors", () => {
         request_id: "req_pabal_1",
         request_type: "pabal_dice_mode",
         player_id: 1,
-        timeout_ms: 300000,
+        timeout_ms: 30000,
         legal_choices: [
           {
             choice_id: "minus_one",
@@ -358,7 +358,7 @@ describe("promptSelectors", () => {
           request_id: "req_draft_raw",
           request_type: "draft_card",
           player_id: 1,
-          timeout_ms: 300000,
+          timeout_ms: 30000,
           legal_choices: [{ choice_id: "박수", title: "박수" }],
           public_context: { draft_phase: 1, offered_count: 1 },
         },
@@ -816,7 +816,7 @@ describe("promptSelectors", () => {
           request_id: "req_draft_1",
           request_type: "draft_card",
           player_id: 1,
-          timeout_ms: 300000,
+          timeout_ms: 30000,
           legal_choices: [{ choice_id: "card_1", title: "중매꾼", description: "pick" }],
         },
       },
@@ -845,7 +845,7 @@ describe("promptSelectors", () => {
           request_id: "req_draft_phase_2",
           request_type: "draft_card",
           player_id: 3,
-          timeout_ms: 300000,
+          timeout_ms: 30000,
           legal_choices: [{ choice_id: "card_8", title: "만신", description: "pick" }],
           public_context: { draft_phase: 2, draft_phase_label: "draft_phase_2", offered_count: 1 },
           view_state: {
@@ -854,7 +854,7 @@ describe("promptSelectors", () => {
                 request_id: "req_draft_phase_2",
                 request_type: "draft_card",
                 player_id: 3,
-                timeout_ms: 300000,
+                timeout_ms: 30000,
                 choices: [{ choice_id: "card_8", title: "만신", description: "pick", value: null, secondary: false }],
                 public_context: { draft_phase: 2, draft_phase_label: "draft_phase_2", offered_count: 1 },
                 behavior: {
@@ -898,7 +898,7 @@ describe("promptSelectors", () => {
           request_id: "req_final_1",
           request_type: "final_character",
           player_id: 1,
-          timeout_ms: 300000,
+          timeout_ms: 30000,
           legal_choices: [{ choice_id: "만신", title: "만신", description: "pick" }],
         },
       },
@@ -926,7 +926,7 @@ describe("promptSelectors", () => {
           request_id: "req_trick_1",
           request_type: "trick_to_use",
           player_id: 1,
-          timeout_ms: 300000,
+          timeout_ms: 30000,
           legal_choices: [{ choice_id: "42", title: "긴장감 조성", description: "rent double" }],
         },
       },
@@ -954,7 +954,7 @@ describe("promptSelectors", () => {
           request_id: "req_hidden_trick_1",
           request_type: "hidden_trick_card",
           player_id: 1,
-          timeout_ms: 300000,
+          timeout_ms: 30000,
           legal_choices: [{ choice_id: "42", title: "박수", description: "select hidden" }],
         },
       },
@@ -1261,7 +1261,7 @@ describe("promptSelectors", () => {
                 request_id: "req_draft_live",
                 request_type: "draft_card",
                 player_id: 1,
-                timeout_ms: 300000,
+                timeout_ms: 30000,
                 choices: [{ choice_id: "card_1", title: "중매꾼", description: "", value: null, secondary: false }],
                 public_context: {},
                 behavior: {
@@ -1707,7 +1707,7 @@ describe("promptSelectors", () => {
           request_id: "req_draft_1",
           request_type: "draft_card",
           player_id: 1,
-          timeout_ms: 300000,
+          timeout_ms: 30000,
           public_context: {
             draft_phase: 1,
             offered_count: 4,
@@ -2191,7 +2191,7 @@ describe("promptSelectors", () => {
           request_id: "req_final_alias",
           request_type: "final_character",
           player_id: 1,
-          timeout_ms: 300000,
+          timeout_ms: 30000,
           legal_choices: [
             { id: "6", title: "박수", description: "Finalize 박수." },
             { id: "8", label: "건설업자", description: "Finalize 건설업자." },
@@ -2202,7 +2202,7 @@ describe("promptSelectors", () => {
                 request_id: "req_final_alias",
                 request_type: "final_character",
                 player_id: 1,
-                timeout_ms: 300000,
+                timeout_ms: 30000,
                 choices: [
                   { id: "6", title: "박수", description: "Finalize 박수." },
                   { id: "8", label: "건설업자", description: "Finalize 건설업자." },

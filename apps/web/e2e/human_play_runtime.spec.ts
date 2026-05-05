@@ -705,7 +705,7 @@ test("human quick start surfaces turn banner and first prompt through stable ids
             request_id: "req_hidden_1",
             request_type: "hidden_trick_card",
             player_id: 1,
-            timeout_ms: 300000,
+            timeout_ms: 30000,
             public_context: {
               hidden_trick_count: 0,
               full_hand: [
@@ -821,7 +821,7 @@ test("character selection prompt uses one four-card row without scrollbars on de
             request_id: "req_final_character_layout",
             request_type: "final_character_choice",
             player_id: 1,
-            timeout_ms: 300000,
+            timeout_ms: 30000,
             public_context: {},
             choices: [
               { choice_id: "tamgwanori", title: "탐관오리", description: "세금과 통행료 흐름을 빠르게 굴립니다.", value: { character: "탐관오리" } },
@@ -1879,7 +1879,7 @@ test("matchmaker adjacent purchase prompt labels the ability and double-price co
             request_id: "req_matchmaker_purchase_1",
             request_type: "purchase_tile",
             player_id: 1,
-            timeout_ms: 300000,
+            timeout_ms: 30000,
             public_context: {
               source: "matchmaker_adjacent",
               tile_index: 6,

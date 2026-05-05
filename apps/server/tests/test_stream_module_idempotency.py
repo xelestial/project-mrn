@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from apps.server.src.services.stream_service import StreamService
+from apps.server.tests.prompt_payloads import module_prompt
 
 
 def test_same_idempotency_key_returns_existing_message() -> None:
@@ -39,5 +40,96 @@ def test_same_event_type_different_module_id_publishes_twice() -> None:
         )
 
         assert len(await service.snapshot("s1")) == 2
+
+    asyncio.run(_run())
+
+
+def test_request_scoped_prompt_ignores_shared_module_idempotency_key() -> None:
+    service = StreamService()
+
+    async def _run() -> None:
+        first = await service.publish(
+            "s1",
+            "prompt",
+            module_prompt({
+                "request_id": "req:draft",
+                "request_type": "draft_card",
+                "player_id": 1,
+                "idempotency_key": "module:draft",
+            }),
+        )
+        second = await service.publish(
+            "s1",
+            "prompt",
+            module_prompt({
+                "request_id": "req:final",
+                "request_type": "final_character",
+                "player_id": 1,
+                "idempotency_key": "module:draft",
+            }),
+        )
+        duplicate = await service.publish(
+            "s1",
+            "prompt",
+            module_prompt({
+                "request_id": "req:final",
+                "request_type": "final_character",
+                "player_id": 1,
+                "idempotency_key": "module:draft:retry",
+            }),
+        )
+        snapshot = await service.snapshot("s1")
+
+        assert first.seq == 1
+        assert second.seq == 2
+        assert duplicate.seq == second.seq
+        assert [message.payload["request_id"] for message in snapshot] == ["req:draft", "req:final"]
+
+    asyncio.run(_run())
+
+
+def test_request_scoped_decision_event_ignores_shared_module_idempotency_key() -> None:
+    service = StreamService()
+
+    async def _run() -> None:
+        first = await service.publish(
+            "s1",
+            "event",
+            {
+                "event_type": "decision_requested",
+                "request_id": "req:draft",
+                "request_type": "draft_card",
+                "player_id": 1,
+                "idempotency_key": "module:draft",
+            },
+        )
+        second = await service.publish(
+            "s1",
+            "event",
+            {
+                "event_type": "decision_requested",
+                "request_id": "req:final",
+                "request_type": "final_character",
+                "player_id": 1,
+                "idempotency_key": "module:draft",
+            },
+        )
+        duplicate = await service.publish(
+            "s1",
+            "event",
+            {
+                "event_type": "decision_requested",
+                "request_id": "req:final",
+                "request_type": "final_character",
+                "player_id": 1,
+                "idempotency_key": "module:draft:retry",
+            },
+        )
+        snapshot = await service.snapshot("s1")
+
+        assert first.seq == 1
+        assert second.seq == 2
+        assert duplicate.seq == second.seq
+        assert [message.payload["request_id"] for message in snapshot] == ["req:draft", "req:final"]
 
     asyncio.run(_run())

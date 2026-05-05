@@ -26,7 +26,7 @@ from viewer.prompt_contract import build_prompt_envelope, extract_choice_id
 # ---------------------------------------------------------------------------
 # Timeout for waiting on browser input (seconds)
 # ---------------------------------------------------------------------------
-TIMEOUT_S = 300.0  # 5 minutes
+TIMEOUT_S = 30.0
 
 
 def _round_index_from_state(state: Any) -> int | None:

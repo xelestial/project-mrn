@@ -68,9 +68,9 @@ class StreamService:
             self._inject_display_names(session_id, enriched_payload)
             history = self._history_records_no_lock(session_id)
             validate_stream_payload(history=history, msg_type=msg_type, payload=enriched_payload)
-            duplicate = self._duplicate_idempotency_key_message_no_lock(history, enriched_payload)
+            duplicate = self._duplicate_request_message_no_lock(history, msg_type, enriched_payload)
             if duplicate is None:
-                duplicate = self._duplicate_request_message_no_lock(history, msg_type, enriched_payload)
+                duplicate = self._duplicate_idempotency_key_message_no_lock(history, msg_type, enriched_payload)
             if duplicate is None:
                 duplicate = self._duplicate_round_setup_event_no_lock(history, msg_type, enriched_payload)
             if duplicate is not None:
@@ -376,7 +376,12 @@ class StreamService:
         if msg_type == "prompt":
             expected_type = "prompt"
             expected_event_type = ""
-        elif msg_type == "event" and event_type in {"decision_requested", "decision_resolved"}:
+        elif msg_type == "event" and event_type in {
+            "decision_requested",
+            "decision_resolved",
+            "decision_timeout_fallback",
+            "prompt_required",
+        }:
             expected_type = "event"
             expected_event_type = event_type
         else:
@@ -397,8 +402,11 @@ class StreamService:
     def _duplicate_idempotency_key_message_no_lock(
         self,
         history: list[dict],
+        msg_type: str,
         payload: dict,
     ) -> StreamMessage | None:
+        if self._is_request_scoped_message(msg_type, payload):
+            return None
         key = self._idempotency_key_from_payload(payload)
         if not key:
             return None
@@ -409,6 +417,22 @@ class StreamService:
             if self._idempotency_key_from_payload(message_payload) == key:
                 return self._message_from_payload(message)
         return None
+
+    @staticmethod
+    def _is_request_scoped_message(msg_type: str, payload: dict) -> bool:
+        request_id = str(payload.get("request_id") or "").strip()
+        if not request_id:
+            return False
+        if msg_type == "prompt":
+            return True
+        if msg_type == "event":
+            return str(payload.get("event_type") or "").strip() in {
+                "decision_requested",
+                "decision_resolved",
+                "decision_timeout_fallback",
+                "prompt_required",
+            }
+        return False
 
     @staticmethod
     def _idempotency_key_from_payload(payload: dict) -> str:

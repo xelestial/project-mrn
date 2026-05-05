@@ -11,7 +11,7 @@ def build_prompt_envelope(
     legal_choices: list[dict[str, Any]],
     public_context: dict[str, Any] | None = None,
     can_pass: bool = False,
-    timeout_ms: int = 300_000,
+    timeout_ms: int = 30_000,
     fallback_policy: str = "ai",
 ) -> dict[str, Any]:
     """Build a canonical prompt envelope."""

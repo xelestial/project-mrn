@@ -99,10 +99,18 @@ def test_engine_next_transition_commits_one_turn_boundary() -> None:
 
     assert step["status"] in {"committed", "finished"}
     assert payload["schema_version"] == 1
-    assert payload["turn_index"] >= 1 or payload["pending_actions"] or payload["pending_turn_completion"] or step["status"] == "finished"
+    assert (
+        payload["turn_index"] >= 1
+        or payload["pending_actions"]
+        or payload["pending_turn_completion"]
+        or payload["runtime_frame_stack"]
+        or step["status"] == "finished"
+    )
     assert len(payload["players"]) == 2
 
-    while step["status"] != "finished" and (_checkpoint_pending_actions(state) or state.pending_turn_completion):
+    for _ in range(50):
+        if step["status"] == "finished" or state.turn_index >= 1:
+            break
         step = engine.run_next_transition(state)
 
     assert state.turn_index >= 1 or step["status"] == "finished"
@@ -332,6 +340,16 @@ def test_fortune_subscription_produces_decision_action() -> None:
     step = engine.run_next_transition(state)
 
     assert step["action_type"] == "resolve_fortune_subscription"
+    assert _checkpoint_pending_action_types(state) == ["request_purchase_tile"]
+
+    purchase = engine.run_next_transition(state)
+
+    assert purchase["action_type"] == "request_purchase_tile"
+    assert _checkpoint_pending_action_types(state) == ["resolve_purchase_tile"]
+
+    commit = engine.run_next_transition(state)
+
+    assert commit["action_type"] == "resolve_purchase_tile"
     assert any(owner == player.player_id for owner in state.tile_owner)
 
 
@@ -359,6 +377,45 @@ def test_fortune_subscription_decision_prompt_keeps_action_queued() -> None:
         raise AssertionError("fortune subscription target prompt should have interrupted the action")
 
     assert _checkpoint_pending_action_types(state) == ["resolve_fortune_subscription"]
+
+
+def test_fortune_subscription_purchase_prompt_does_not_restart_target_selection() -> None:
+    calls: list[str] = []
+
+    class PurchaseWaitingDecisionPort:
+        def request(self, request):  # noqa: ANN001
+            calls.append(request.decision_name)
+            if request.decision_name == "choose_trick_tile_target":
+                return request.args[1][0]
+            if request.decision_name == "choose_purchase_tile":
+                raise RuntimeError("purchase_prompt_required_for_test")
+            return request.args[0][0]
+
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=PurchaseWaitingDecisionPort(), rng=random.Random(231))
+    state = GameState.create(config)
+    player = state.players[0]
+    player.cash = 20
+    state.fortune_draw_pile = [_fortune_card_by_id(FORTUNE_SUBSCRIPTION_WIN_ID)]
+
+    result = engine._resolve_fortune_tile_single(state, player)
+
+    assert result["resolution"]["type"] == "QUEUED_FORTUNE_SUBSCRIPTION"
+    target_step = engine.run_next_transition(state)
+
+    assert target_step["action_type"] == "resolve_fortune_subscription"
+    assert calls == ["choose_trick_tile_target"]
+    assert _checkpoint_pending_action_types(state) == ["request_purchase_tile"]
+
+    try:
+        engine.run_next_transition(state)
+    except RuntimeError as exc:
+        assert str(exc) == "purchase_prompt_required_for_test"
+    else:
+        raise AssertionError("subscription purchase prompt should have interrupted the purchase action")
+
+    assert calls == ["choose_trick_tile_target", "choose_purchase_tile"]
+    assert _checkpoint_pending_action_types(state) == ["request_purchase_tile"]
 
 
 def test_fortune_land_thief_produces_decision_action() -> None:

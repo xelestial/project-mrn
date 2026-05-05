@@ -140,6 +140,28 @@ class PromptServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.service.create_prompt("s1", payload)
 
+    def test_get_pending_prompt_returns_copy(self) -> None:
+        self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "pending_copy",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+            },
+        )
+
+        pending = self.service.get_pending_prompt("pending_copy")
+        self.assertIsNotNone(pending)
+        assert pending is not None
+        pending.payload["legal_choices"] = []
+
+        reloaded = self.service.get_pending_prompt("pending_copy")
+        self.assertIsNotNone(reloaded)
+        assert reloaded is not None
+        self.assertEqual(reloaded.payload["legal_choices"][0]["choice_id"], "roll")
+
     def test_already_resolved_request_returns_stale(self) -> None:
         self.service.create_prompt(
             "s1",

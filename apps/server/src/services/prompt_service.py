@@ -72,6 +72,20 @@ class PromptService:
             waiter.set()
         return item
 
+    def get_pending_prompt(self, request_id: str) -> PendingPrompt | None:
+        with self._lock:
+            pending = self._get_pending(request_id)
+            if pending is None:
+                return None
+            return PendingPrompt(
+                session_id=pending.session_id,
+                request_id=pending.request_id,
+                player_id=pending.player_id,
+                timeout_ms=pending.timeout_ms,
+                created_at_ms=pending.created_at_ms,
+                payload=dict(pending.payload),
+            )
+
     def submit_decision(self, payload: dict) -> dict:
         waiter: threading.Event | None = None
         with self._lock:
