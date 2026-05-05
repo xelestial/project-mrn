@@ -448,8 +448,18 @@ class RedisGameStateStore:
             return
         seq = int(message.get("seq", 0))
         server_time_ms = int(message.get("server_time_ms", 0))
-        event_type = str(payload.get("event_type") or message.get("type") or "").strip()
+        message_type = str(message.get("type") or "").strip()
         previous = self.load_checkpoint(session_id) or {}
+        if message_type == "view_commit":
+            self._apply_view_commit_message(
+                session_id,
+                payload,
+                seq=seq,
+                server_time_ms=server_time_ms,
+                previous=previous,
+            )
+            return
+        event_type = str(payload.get("event_type") or message.get("type") or "").strip()
         round_index = payload.get("round_index", previous.get("round_index", 0))
         turn_index = payload.get("turn_index", previous.get("turn_index", 0))
         checkpoint = {
@@ -477,6 +487,58 @@ class RedisGameStateStore:
             self.save_view_state(session_id, view_state)
         self.save_checkpoint(session_id, checkpoint)
 
+    def _apply_view_commit_message(
+        self,
+        session_id: str,
+        payload: dict[str, Any],
+        *,
+        seq: int,
+        server_time_ms: int,
+        previous: dict[str, Any],
+    ) -> None:
+        viewer_payload = payload.get("viewer")
+        viewer_payload = viewer_payload if isinstance(viewer_payload, dict) else {}
+        viewer_role = str(viewer_payload.get("role") or "spectator").strip().lower()
+        player_id = _int_or_none(viewer_payload.get("player_id"))
+        runtime = payload.get("runtime")
+        runtime = runtime if isinstance(runtime, dict) else {}
+        commit_seq = _int_or_default(payload.get("commit_seq"), seq)
+        source_event_seq = _int_or_default(payload.get("source_event_seq"), previous.get("latest_source_event_seq", 0))
+        round_index = _positive_or_previous(runtime.get("round_index"), previous.get("round_index", 0))
+        turn_index = _positive_or_previous(runtime.get("turn_index"), previous.get("turn_index", 0))
+        checkpoint = {
+            "schema_version": 1,
+            "session_id": session_id,
+            "latest_seq": seq,
+            "latest_event_type": "view_commit",
+            "latest_commit_seq": commit_seq,
+            "latest_source_event_seq": source_event_seq,
+            "updated_at_ms": server_time_ms,
+            "round_index": round_index,
+            "turn_index": turn_index,
+            "has_view_commit": True,
+        }
+        for key in (
+            "has_snapshot",
+            "has_view_state",
+            "has_pending_actions",
+            "has_scheduled_actions",
+            "has_pending_turn_completion",
+        ):
+            if previous.get(key):
+                checkpoint[key] = bool(previous.get(key))
+        self.save_view_commit(session_id, payload, viewer=viewer_role, player_id=player_id)
+        view_state = payload.get("view_state")
+        if isinstance(view_state, dict):
+            checkpoint["has_view_state"] = True
+            if viewer_role in {"spectator", "public", "admin"}:
+                self.save_view_state(session_id, view_state)
+                if viewer_role != "public":
+                    self.save_projected_view_state(session_id, viewer_role, view_state)
+            elif viewer_role in {"seat", "player"} and player_id is not None:
+                self.save_projected_view_state(session_id, "player", view_state, player_id=player_id)
+        self.save_checkpoint(session_id, checkpoint)
+
     def save_checkpoint(self, session_id: str, payload: dict[str, Any]) -> None:
         self._connection.client().set(self._checkpoint_key(session_id), _json_dump(payload))
 
@@ -497,6 +559,28 @@ class RedisGameStateStore:
 
     def load_view_state(self, session_id: str) -> dict[str, Any] | None:
         raw = self._connection.client().get(self._view_state_key(session_id))
+        return _json_load_dict(str(raw)) if raw is not None else None
+
+    def save_view_commit(
+        self,
+        session_id: str,
+        payload: dict[str, Any],
+        *,
+        viewer: str,
+        player_id: int | None = None,
+    ) -> None:
+        normalized_viewer = "player" if str(viewer or "").strip().lower() == "seat" else str(viewer or "spectator").strip().lower()
+        if normalized_viewer == "player" and player_id is None:
+            return
+        self._connection.client().set(
+            self._view_commit_key(session_id, normalized_viewer, player_id=player_id),
+            _json_dump(payload),
+        )
+        self._remember_view_commit_viewer(session_id, normalized_viewer, player_id=player_id)
+
+    def load_view_commit(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict[str, Any] | None:
+        normalized_viewer = "player" if str(viewer or "").strip().lower() == "seat" else str(viewer or "spectator").strip().lower()
+        raw = self._connection.client().get(self._view_commit_key(session_id, normalized_viewer, player_id=player_id))
         return _json_load_dict(str(raw)) if raw is not None else None
 
     def save_projected_view_state(self, session_id: str, viewer: str, payload: dict[str, Any], *, player_id: int | None = None) -> None:
@@ -598,17 +682,29 @@ class RedisGameStateStore:
             self._projected_view_state_key(session_id, "admin"),
             self._projection_checkpoint_key(session_id),
         ]
+        view_commit_keys = [
+            self._view_commit_key(session_id, "public"),
+            self._view_commit_key(session_id, "spectator"),
+            self._view_commit_key(session_id, "admin"),
+        ]
         projected_viewers = projection_checkpoint.get("projected_viewers")
         if isinstance(projected_viewers, list):
             for viewer in projected_viewers:
                 key = self._projected_view_state_key_from_label(session_id, str(viewer))
                 if key:
                     projection_keys.append(key)
+        view_commit_viewers = projection_checkpoint.get("view_commit_viewers")
+        if isinstance(view_commit_viewers, list):
+            for viewer in view_commit_viewers:
+                key = self._view_commit_key_from_label(session_id, str(viewer))
+                if key:
+                    view_commit_keys.append(key)
         self._connection.client().delete(
             self._checkpoint_key(session_id),
             self._current_state_key(session_id),
             self._view_state_key(session_id),
             *projection_keys,
+            *view_commit_keys,
         )
 
     def _checkpoint_key(self, session_id: str) -> str:
@@ -619,6 +715,18 @@ class RedisGameStateStore:
 
     def _view_state_key(self, session_id: str) -> str:
         return self._connection.key("game", session_id, "view_state")
+
+    def _view_commit_key(self, session_id: str, viewer: str, *, player_id: int | None = None) -> str:
+        normalized = str(viewer or "spectator").strip().lower()
+        if normalized == "seat":
+            normalized = "player"
+        if normalized == "player":
+            if player_id is None:
+                raise ValueError("player_id is required for player view_commit")
+            return self._connection.key("game", session_id, "view_commit", "player", str(int(player_id)))
+        if normalized not in {"public", "spectator", "admin"}:
+            raise ValueError(f"unsupported view_commit viewer: {viewer}")
+        return self._connection.key("game", session_id, "view_commit", normalized)
 
     def _projected_view_state_key(self, session_id: str, viewer: str, *, player_id: int | None = None) -> str:
         normalized = str(viewer or "public").strip().lower()
@@ -643,6 +751,40 @@ class RedisGameStateStore:
             except Exception:
                 return None
             return self._projected_view_state_key(session_id, "player", player_id=player_id)
+        return None
+
+    def _view_commit_key_from_label(self, session_id: str, label: str) -> str | None:
+        normalized = str(label or "").strip().lower()
+        if normalized in {"public", "spectator", "admin"}:
+            return self._view_commit_key(session_id, normalized)
+        if normalized.startswith("player:"):
+            try:
+                player_id = int(normalized.split(":", 1)[1])
+            except Exception:
+                return None
+            return self._view_commit_key(session_id, "player", player_id=player_id)
+        return None
+
+    def _remember_view_commit_viewer(self, session_id: str, viewer: str, *, player_id: int | None = None) -> None:
+        label = self._viewer_label(viewer, player_id=player_id)
+        if label is None:
+            return
+        checkpoint = self.load_projection_checkpoint(session_id) or {"schema_version": 1}
+        viewers = checkpoint.get("view_commit_viewers")
+        existing = {str(item) for item in viewers} if isinstance(viewers, list) else set()
+        existing.add(label)
+        checkpoint["view_commit_viewers"] = sorted(existing)
+        self.save_projection_checkpoint(session_id, checkpoint)
+
+    @staticmethod
+    def _viewer_label(viewer: str, *, player_id: int | None = None) -> str | None:
+        normalized = str(viewer or "").strip().lower()
+        if normalized == "seat":
+            normalized = "player"
+        if normalized in {"public", "spectator", "admin"}:
+            return normalized
+        if normalized == "player" and player_id is not None:
+            return f"player:{int(player_id)}"
         return None
 
     def _command_offset_key(self, consumer_name: str | None) -> str:
@@ -670,6 +812,30 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, tuple):
         return [_json_safe(item) for item in value]
     return value
+
+
+def _int_or_default(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return int(default or 0)
+
+
+def _positive_or_previous(value: Any, previous: Any) -> int:
+    parsed = _int_or_default(value, 0)
+    previous_parsed = _int_or_default(previous, 0)
+    if parsed > 0:
+        return parsed
+    if previous_parsed > 0:
+        return previous_parsed
+    return parsed
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value)
+    except Exception:
+        return None
 
 
 def _json_load_dict(raw: str) -> dict[str, Any] | None:

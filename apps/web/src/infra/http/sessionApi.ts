@@ -1,3 +1,5 @@
+import type { ViewCommitPayload } from "../../core/contracts/stream";
+
 type SeatType = "human" | "ai";
 
 let apiBaseUrl = "";
@@ -17,9 +19,28 @@ type ApiEnvelope<T> = {
 type ErrorEnvelope = {
   ok?: boolean;
   data?: unknown;
-  error?: { message?: string } | null;
+  error?: { code?: string; category?: string; message?: string; retryable?: boolean } | null;
   detail?: unknown;
 };
+
+export class ApiRequestError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly category?: string;
+  readonly retryable?: boolean;
+
+  constructor(
+    message: string,
+    args: { status: number; code?: string; category?: string; retryable?: boolean }
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = args.status;
+    this.code = args.code;
+    this.category = args.category;
+    this.retryable = args.retryable;
+  }
+}
 
 export type ParameterManifest = {
   manifest_version: number;
@@ -113,6 +134,8 @@ export type RuntimeStatusResult = {
     last_activity_ms?: number;
   };
 };
+
+export type ViewCommitResult = ViewCommitPayload;
 
 export type RoomSeatPublic = {
   seat: number;
@@ -230,7 +253,12 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!response.ok || !payload?.ok || payload.data == null) {
     const message = extractErrorMessage(payload, response.status);
-    throw new Error(message);
+    throw new ApiRequestError(message, {
+      status: response.status,
+      code: payload?.error?.code,
+      category: payload?.error?.category,
+      retryable: payload?.error?.retryable,
+    });
   }
   return payload.data;
 }
@@ -287,6 +315,17 @@ export async function getRuntimeStatus(sessionId: string, token?: string): Promi
   const query = params.toString();
   return requestJson<RuntimeStatusResult>(
     `/api/v1/sessions/${encodeURIComponent(sessionId)}/runtime-status${query ? `?${query}` : ""}`,
+  );
+}
+
+export async function getViewCommit(args: { sessionId: string; token?: string }): Promise<ViewCommitResult> {
+  const params = new URLSearchParams();
+  if (args.token?.trim()) {
+    params.set("token", args.token.trim());
+  }
+  const query = params.toString();
+  return requestJson<ViewCommitResult>(
+    `/api/v1/sessions/${encodeURIComponent(args.sessionId)}/view-commit${query ? `?${query}` : ""}`,
   );
 }
 

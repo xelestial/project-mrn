@@ -9,6 +9,8 @@ import {
   selectPromptInteractionState,
 } from "./promptSelectors";
 
+type SourceInboundMessage = Exclude<InboundMessage, { type: "view_commit" }>;
+
 type SharedPromptEffectContext = {
   label: string;
   detail: string;
@@ -26,7 +28,7 @@ type SharedPromptEffectContext = {
 function loadSharedPromptFixture(filename: string) {
   const path = resolve(process.cwd(), "../../packages/runtime-contracts/ws/examples", filename);
   return JSON.parse(readFileSync(path, "utf-8")) as {
-    messages: InboundMessage[];
+    messages: SourceInboundMessage[];
     expected: {
       prompt: {
         active: {
@@ -119,6 +121,7 @@ describe("promptSelectors", () => {
       moduleType: "MapMoveModule",
       moduleCursor: "movement:await_choice",
       batchId: null,
+      promptInstanceId: null,
     });
   });
 
@@ -1360,6 +1363,7 @@ describe("promptSelectors", () => {
         moduleType: null,
         moduleCursor: null,
         batchId: null,
+        promptInstanceId: null,
       },
       effectContext: null,
       behavior: {
@@ -1445,6 +1449,7 @@ describe("promptSelectors", () => {
           moduleType: null,
           moduleCursor: null,
           batchId: null,
+          promptInstanceId: null,
         },
         effectContext: null,
         behavior: {
@@ -1504,6 +1509,7 @@ describe("promptSelectors", () => {
           moduleType: null,
           moduleCursor: null,
           batchId: null,
+          promptInstanceId: null,
         },
         effectContext: null,
         behavior: {

@@ -9,6 +9,7 @@ export type PromptChoiceViewModel = {
 };
 
 export type PromptContinuationViewModel = {
+  promptInstanceId: number | null;
   resumeToken: string | null;
   frameId: string | null;
   moduleId: string | null;
@@ -235,7 +236,7 @@ export type PromptInteractionViewModel = {
 };
 
 function isStateBearingMessage(message: InboundMessage): boolean {
-  return message.type === "event" || message.type === "prompt" || message.type === "decision_ack";
+  return message.type === "view_commit" || message.type === "event" || message.type === "prompt" || message.type === "decision_ack";
 }
 
 function latestStateBearingMessageIndex(messages: InboundMessage[]): number | null {
@@ -554,6 +555,7 @@ function parsePromptBehavior(raw: unknown, requestType: string, publicContext: R
 
 function parsePromptContinuation(raw: Record<string, unknown>): PromptContinuationViewModel {
   return {
+    promptInstanceId: numberOrNull(raw["prompt_instance_id"]),
     resumeToken: stringOrEmpty(raw["resume_token"]) || null,
     frameId: stringOrEmpty(raw["frame_id"]) || null,
     moduleId: stringOrEmpty(raw["module_id"]) || null,

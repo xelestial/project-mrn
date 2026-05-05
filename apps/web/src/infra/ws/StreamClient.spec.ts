@@ -41,6 +41,10 @@ class MockWebSocket {
     this.readyState = MockWebSocket.CLOSED;
     this.onclose?.();
   }
+
+  triggerMessage(payload: unknown): void {
+    this.onmessage?.({ data: JSON.stringify(payload) });
+  }
 }
 
 function setupWindowStub(): void {
@@ -66,7 +70,7 @@ describe("StreamClient", () => {
 
   it("sends resume request on socket open", () => {
     const client = new StreamClient();
-    client.connect({ sessionId: "sess_a", token: "seat token", onOpenResumeSeq: 7 });
+    client.connect({ sessionId: "sess_a", token: "seat token", onOpenResumeCommitSeq: 7 });
     expect(MockWebSocket.instances).toHaveLength(1);
 
     const socket = MockWebSocket.instances[0];
@@ -75,7 +79,7 @@ describe("StreamClient", () => {
 
     socket.triggerOpen();
     expect(socket.sent).toHaveLength(1);
-    expect(JSON.parse(socket.sent[0])).toEqual({ type: "resume", last_seq: 7 });
+    expect(JSON.parse(socket.sent[0])).toEqual({ type: "resume", last_commit_seq: 7 });
   });
 
   it("reconnects after close and replays latest resume seq", () => {
@@ -87,7 +91,7 @@ describe("StreamClient", () => {
       globalThis.clearTimeout;
 
     const client = new StreamClient();
-    client.connect({ sessionId: "sess_b", onOpenResumeSeq: 4 });
+    client.connect({ sessionId: "sess_b", onOpenResumeCommitSeq: 4 });
     const first = MockWebSocket.instances[0];
     first.triggerOpen();
     first.triggerClose();
@@ -97,20 +101,20 @@ describe("StreamClient", () => {
     const second = MockWebSocket.instances[1];
     second.triggerOpen();
     expect(second.sent).toHaveLength(1);
-    expect(JSON.parse(second.sent[0])).toEqual({ type: "resume", last_seq: 4 });
+    expect(JSON.parse(second.sent[0])).toEqual({ type: "resume", last_commit_seq: 4 });
   });
 
   it("does not open a duplicate socket for the same active connection", () => {
     const client = new StreamClient();
-    client.connect({ sessionId: "sess_same", token: "seat-token", onOpenResumeSeq: 4 });
-    client.connect({ sessionId: "sess_same", token: "seat-token", onOpenResumeSeq: 9 });
+    client.connect({ sessionId: "sess_same", token: "seat-token", onOpenResumeCommitSeq: 4 });
+    client.connect({ sessionId: "sess_same", token: "seat-token", onOpenResumeCommitSeq: 9 });
 
     expect(MockWebSocket.instances).toHaveLength(1);
 
     const socket = MockWebSocket.instances[0];
     socket.triggerOpen();
     expect(socket.sent).toHaveLength(1);
-    expect(JSON.parse(socket.sent[0])).toEqual({ type: "resume", last_seq: 4 });
+    expect(JSON.parse(socket.sent[0])).toEqual({ type: "resume", last_commit_seq: 4 });
   });
 
   it("does not reconnect after explicit disconnect", () => {
@@ -122,13 +126,40 @@ describe("StreamClient", () => {
       globalThis.clearTimeout;
 
     const client = new StreamClient();
-    client.connect({ sessionId: "sess_c", onOpenResumeSeq: 3 });
+    client.connect({ sessionId: "sess_c", onOpenResumeCommitSeq: 3 });
     const first = MockWebSocket.instances[0];
     first.triggerOpen();
 
     client.disconnect();
     vi.advanceTimersByTime(15000);
     expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it("does not reconnect after a non-retryable stream error", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    (window as unknown as { setTimeout: typeof setTimeout; clearTimeout: typeof clearTimeout }).setTimeout =
+      globalThis.setTimeout;
+    (window as unknown as { setTimeout: typeof setTimeout; clearTimeout: typeof clearTimeout }).clearTimeout =
+      globalThis.clearTimeout;
+
+    const client = new StreamClient();
+    const statuses: string[] = [];
+    client.onStatus((status) => statuses.push(status));
+    client.connect({ sessionId: "sess_missing", token: "session_p1_old", onOpenResumeCommitSeq: 0 });
+    const socket = MockWebSocket.instances[0];
+    socket.triggerOpen();
+    socket.triggerMessage({
+      type: "error",
+      seq: 0,
+      session_id: "sess_missing",
+      payload: { code: "SESSION_NOT_FOUND", retryable: false },
+    });
+    socket.triggerClose();
+
+    vi.advanceTimersByTime(15000);
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(statuses).toContain("error");
   });
 
   it("returns false when sending decision without open socket", () => {
@@ -138,6 +169,7 @@ describe("StreamClient", () => {
       request_id: "req_1",
       player_id: 1,
       choice_id: "dice",
+      view_commit_seq_seen: 0,
       client_seq: 0,
     });
     expect(sent).toBe(false);
@@ -157,6 +189,6 @@ describe("StreamClient", () => {
 
     expect(client.requestResume(12.9)).toBe(true);
     expect(socket.sent).toHaveLength(1);
-    expect(JSON.parse(socket.sent[0])).toEqual({ type: "resume", last_seq: 12 });
+    expect(JSON.parse(socket.sent[0])).toEqual({ type: "resume", last_commit_seq: 12 });
   });
 });

@@ -54,6 +54,10 @@ def _event_code(payload: dict[str, Any]) -> str:
     return _string(payload.get("event_type", payload.get("type"))) or "event"
 
 
+def _is_terminal_engine_transition(payload: dict[str, Any]) -> bool:
+    return _event_code(payload) == "engine_transition" and _string(payload.get("status")) == "finished"
+
+
 def _round_turn(payload: dict[str, Any]) -> tuple[int | None, int | None]:
     return (_number(payload.get("round_index")), _number(payload.get("turn_index")))
 
@@ -337,9 +341,15 @@ def build_turn_stage_view_state(messages: list[dict[str, Any]]) -> TurnStageView
             continue
         if message.get("type") != "event":
             continue
+        event_code = _event_code(payload)
+        if _is_terminal_engine_transition(payload):
+            update_beat("game_end", message.get("seq"), "system", None)
+            model["actor_player_id"] = None
+            model["prompt_request_type"] = "-"
+            model["current_beat_request_type"] = "-"
+            continue
         if not _same_round_turn(payload, model["round_index"], model["turn_index"]):
             continue
-        event_code = _event_code(payload)
         if event_code == "turn_start":
             continue
         if event_code in CORE_EVENT_CODES and event_code != "turn_end_snapshot":

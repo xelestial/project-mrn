@@ -70,6 +70,7 @@ import {
   setApiBaseUrl,
   setRoomReady,
   resumeRoom,
+  ApiRequestError,
   type ParameterManifest,
   type PublicSessionResult,
   type RuntimeStatusResult,
@@ -748,7 +749,8 @@ export function App() {
     originY: number;
   } | null>(null);
 
-  const stream = useGameStream({ sessionId, token, baseUrl: serverBaseUrl });
+  const activeStreamSessionId = route === "match" ? sessionId : "";
+  const stream = useGameStream({ sessionId: activeStreamSessionId, token, baseUrl: serverBaseUrl });
   const debugMessages = stream.debugMessages;
   const eventQueue = useEventQueue();
 
@@ -832,6 +834,7 @@ export function App() {
 
   const currentActorId =
     turnStage.currentBeatEventCode === "game_end" ? null : selectCurrentActorPlayerId(stream.messages);
+  const gameEnded = turnStage.currentBeatEventCode === "game_end";
   const markerOwnerPlayerId = snapshot?.markerOwnerPlayerId ?? null;
   const isMyTurn = currentActorId !== null && effectivePlayerId !== null && currentActorId === effectivePlayerId;
   const actorLabel = currentActorId !== null ? `P${currentActorId}` : turnStage.actor;
@@ -1157,6 +1160,16 @@ export function App() {
     [visibleActionablePrompt?.requestType, stream.messages, markTargetActorName, effectivePlayerId, selectorText]
   );
 
+  function clearActiveMatchState() {
+    setSessionId("");
+    setToken("");
+    setLocalPlayerId(null);
+    setRuntime({ status: "-" });
+    setSessionManifest(null);
+    setSessionInitialActiveByCard(null);
+    setSessionSeats(null);
+  }
+
   useEffect(() => {
     setApiBaseUrl(serverBaseUrl);
     saveStoredRoomServer(serverBaseUrl);
@@ -1166,6 +1179,10 @@ export function App() {
     const onHashChange = () => {
       const parsed = parseHashState(window.location.hash);
       setRoute(parsed.route);
+      if (parsed.route === "lobby") {
+        clearActiveMatchState();
+        return;
+      }
       if (parsed.sessionId) {
         setSessionInput(parsed.sessionId);
         setSessionId(parsed.sessionId);
@@ -1305,7 +1322,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!sessionId.trim()) {
+    if (route !== "match" || !sessionId.trim()) {
       return;
     }
     let active = true;
@@ -1315,7 +1332,15 @@ export function App() {
         if (active) {
           setRuntime(runtimeState.runtime);
         }
-      } catch {
+      } catch (e) {
+        if (active && e instanceof ApiRequestError && (e.status === 404 || e.code === "SESSION_NOT_FOUND")) {
+          clearActiveMatchState();
+          if (window.location.hash !== LOBBY_HASH) {
+            window.location.hash = LOBBY_HASH;
+          }
+          setRoute("lobby");
+          return;
+        }
         // ignore transient polling errors
       }
     };
@@ -1325,7 +1350,7 @@ export function App() {
       active = false;
       window.clearInterval(id);
     };
-  }, [sessionId, token]);
+  }, [route, sessionId, token]);
 
   useEffect(() => {
     if (!sessionId.trim()) {
@@ -2745,7 +2770,9 @@ export function App() {
                                   ? `AI ${seatEntry.seat}`
                                   : `Player ${seatEntry.seat}`;
                             const characterStatus =
-                              isCurrentActor && hasReadableValue(playerStageFallbackLabel)
+                              gameEnded && hasReadableValue(turnStage.currentBeatLabel)
+                                ? turnStage.currentBeatLabel
+                                : isCurrentActor && hasReadableValue(playerStageFallbackLabel)
                                 ? stageInProgressLabel(playerStageFallbackLabel, locale)
                                 : seatType === "ai"
                                   ? waitingPlayerLabel(locale)

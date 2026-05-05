@@ -57,7 +57,7 @@ describe("replayClient", () => {
     );
   });
 
-  it("appends the latest restored view state so redacted stream gaps can fast-forward", async () => {
+  it("does not inject restored view state from replay data", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -115,27 +115,10 @@ describe("replayClient", () => {
           player_id: 1,
         },
       },
-      {
-        type: "event",
-        seq: 43,
-        session_id: "sess_gap",
-        payload: {
-          event_type: "view_state_restored",
-          view_state: {
-            prompt: {
-              active: {
-                request_id: "sess_gap:r1:t1:p1:hidden_trick_card:4",
-                request_type: "hidden_trick_card",
-                player_id: 1,
-              },
-            },
-          },
-        },
-      },
     ]);
   });
 
-  it("places the latest restored view state beyond the caller's current sequence", async () => {
+  it("ignores projection sequence floor because replay is debug-only", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -164,28 +147,15 @@ describe("replayClient", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const messages = await fetchReplayMessages({
-      sessionId: "sess_gap",
-      baseUrl: "http://room.test",
-      projectionSeqFloor: 200,
-    });
+    const messages = await fetchReplayMessages({ sessionId: "sess_gap", baseUrl: "http://room.test" });
 
-    expect(messages.at(-1)).toMatchObject({
-      type: "event",
-      seq: 201,
-      session_id: "sess_gap",
-      payload: {
-        event_type: "view_state_restored",
-        view_state: {
-          prompt: {
-            active: {
-              request_id: "sess_gap:r1:t1:p1:hidden_trick_card:4",
-              request_type: "hidden_trick_card",
-              player_id: 1,
-            },
-          },
-        },
+    expect(messages).toEqual([
+      {
+        type: "event",
+        seq: 80,
+        session_id: "sess_gap",
+        payload: { event_type: "prompt_required" },
       },
-    });
+    ]);
   });
 });

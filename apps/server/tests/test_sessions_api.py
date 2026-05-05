@@ -496,21 +496,26 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(data["schema_name"], "mrn.redacted_replay_export")
         self.assertEqual(data["visibility"], "spectator")
         self.assertTrue(data["browser_safe"])
-        self.assertEqual(data["event_count"], 4)
-        self.assertEqual(data["events"][-2]["seq"], 3)
-        self.assertEqual(data["events"][-1]["seq"], 4)
-        self.assertEqual(data["events"][-2].get("payload", {}).get("event_type"), "round_start")
-        self.assertEqual(data["events"][-1].get("payload", {}).get("event_type"), "turn_start")
+        self.assertEqual(data["event_count"], 8)
+        source_events = [event for event in data["events"] if event.get("type") == "event"]
+        view_commits = [event for event in data["events"] if event.get("type") == "view_commit"]
+        self.assertEqual([event.get("payload", {}).get("event_type") for event in source_events], [
+            "session_created",
+            "turn_end_snapshot",
+            "round_start",
+            "turn_start",
+        ])
+        self.assertEqual(len(view_commits), 4)
+        self.assertEqual(view_commits[-1].get("payload", {}).get("source_event_seq"), source_events[-1]["seq"])
         self.assertIn("server_time_ms", data["events"][0])
-        self.assertIn("view_state", data["events"][-1].get("payload", {}))
-        self.assertIn("players", data["events"][-1].get("payload", {}).get("view_state", {}))
-        self.assertIn("view_state", data)
-        self.assertIn("players", data["view_state"])
+        self.assertNotIn("view_state", source_events[-1].get("payload", {}))
+        self.assertIn("view_state", view_commits[-1].get("payload", {}))
+        self.assertNotIn("view_state", data)
         self.assertNotIn("final_state", data)
         self.assertNotIn("streams", data)
         self.assertNotIn("analysis", data)
 
-    def test_replay_endpoint_projects_latest_view_state_for_authenticated_seat(self) -> None:
+    def test_view_commit_endpoint_projects_latest_view_state_for_authenticated_seat(self) -> None:
         payload = _two_seat_matrix_payload()
         payload["config"]["visibility"] = "public"
         created = self.client.post("/api/v1/sessions", json=payload)
@@ -543,22 +548,17 @@ class SessionsApiTests(unittest.TestCase):
 
         asyncio.run(_seed_private_prompt())
 
-        spectator = self.client.get(f"/api/v1/sessions/{session_id}/replay")
+        spectator = self.client.get(f"/api/v1/sessions/{session_id}/view-commit")
         self.assertEqual(spectator.status_code, 200)
         spectator_data = spectator.json()["data"]
-        self.assertEqual(spectator_data["visibility"], "spectator")
-        self.assertNotIn("final_state", spectator_data)
-        self.assertNotIn("streams", spectator_data)
-        self.assertNotIn("prompt", {event.get("type") for event in spectator_data["events"]})
+        self.assertEqual(spectator_data["viewer"]["role"], "spectator")
         self.assertNotIn("prompt", spectator_data["view_state"])
         self.assertNotIn("hand_tray", spectator_data["view_state"])
 
-        seat = self.client.get(f"/api/v1/sessions/{session_id}/replay?token={session_token}")
+        seat = self.client.get(f"/api/v1/sessions/{session_id}/view-commit?token={session_token}")
         self.assertEqual(seat.status_code, 200)
         seat_data = seat.json()["data"]
-        self.assertEqual(seat_data["visibility"], "player")
         self.assertEqual(seat_data["viewer"]["player_id"], 1)
-        self.assertIn("prompt", {event.get("type") for event in seat_data["events"]})
         self.assertEqual(seat_data["view_state"]["prompt"]["active"]["request_id"], "req_trick")
         self.assertEqual(seat_data["view_state"]["hand_tray"]["cards"][0]["name"], "재뿌리기")
 
@@ -606,11 +606,12 @@ class SessionsApiTests(unittest.TestCase):
 
         self.assertEqual(replay.status_code, 200)
         data = replay.json()["data"]
-        self.assertEqual(data["event_count"], 22)
-        self.assertIn("view_state", data)
+        self.assertEqual(data["event_count"], 44)
+        self.assertNotIn("view_state", data)
+        self.assertEqual(data["events"][-1].get("type"), "view_commit")
         self.assertIn("view_state", data["events"][-1].get("payload", {}))
 
-    def test_runtime_status_recovery_view_state_is_projected_for_authenticated_seat(self) -> None:
+    def test_runtime_status_does_not_return_live_view_state_for_authenticated_seat(self) -> None:
         created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
         created_data = created.json()["data"]
         session_id = created_data["session_id"]
@@ -640,27 +641,14 @@ class SessionsApiTests(unittest.TestCase):
 
         asyncio.run(_seed_private_prompt())
 
-        from apps.server.src import state
-
-        state.runtime_service.public_runtime_status = lambda _session_id: {
-            "status": "recovery_required",
-            "recovery_checkpoint": {
-                "available": True,
-                "checkpoint": {},
-                "view_state": {"prompt": {"last_feedback": {"request_id": "old_public_feedback"}}},
-                "current_state_available": True,
-            },
-        }
-
         runtime = self.client.get(
             f"/api/v1/sessions/{session_id}/runtime-status",
             params={"token": session_token},
         )
 
         self.assertEqual(runtime.status_code, 200)
-        view_state = runtime.json()["data"]["runtime"]["recovery_checkpoint"]["view_state"]
-        self.assertEqual(view_state["prompt"]["active"]["request_id"], "req_runtime_trick")
-        self.assertEqual(view_state["hand_tray"]["cards"][0]["name"], "재뿌리기")
+        recovery = runtime.json()["data"]["runtime"].get("recovery_checkpoint", {})
+        self.assertNotIn("view_state", recovery)
 
     def test_replay_endpoint_rejects_invalid_session_token(self) -> None:
         created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())

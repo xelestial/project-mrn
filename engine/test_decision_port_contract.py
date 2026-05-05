@@ -76,6 +76,8 @@ class RecordingDecisionPort:
             return MovementDecision(False, ())
         if request.decision_name == "choose_trick_to_use":
             return request.args[0][0] if request.args and request.args[0] else None
+        if request.decision_name == "choose_hidden_trick_card":
+            return request.args[0][0] if request.args and request.args[0] else None
         if request.decision_name == "choose_purchase_tile":
             return False
         if request.decision_name == "choose_mark_target":
@@ -146,6 +148,21 @@ class DecisionPortContractTests(unittest.TestCase):
             engine._use_trick_phase(state, player)
 
         self.assertIn("choose_trick_to_use", [request.decision_name for request in port.requests])
+
+    def test_hidden_trick_visibility_routes_hidden_choice_through_decision_port(self) -> None:
+        port = RecordingDecisionPort()
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=False, decision_port=port)
+        state = GameState.create(DEFAULT_CONFIG)
+        player = state.players[0]
+        player.trick_hand = [
+            TrickCard(deck_index=998, name="첫 잔꾀", description="first"),
+            TrickCard(deck_index=999, name="둘 잔꾀", description="second"),
+        ]
+
+        engine._sync_trick_visibility(state, player)
+
+        self.assertIn("choose_hidden_trick_card", [request.decision_name for request in port.requests])
+        self.assertEqual(player.hidden_trick_deck_index, 998)
 
     def test_try_purchase_tile_routes_purchase_decision_through_decision_port(self) -> None:
         port = RecordingDecisionPort()

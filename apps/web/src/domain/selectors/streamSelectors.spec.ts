@@ -24,8 +24,10 @@ import {
   selectTurnStage,
 } from "./streamSelectors";
 
+type SourceInboundMessage = Exclude<InboundMessage, { type: "view_commit" }>;
+
 function loadSharedSceneFixture(): {
-  messages: InboundMessage[];
+  messages: SourceInboundMessage[];
   expected: {
     scene: {
       situation: {
@@ -47,7 +49,7 @@ function loadSharedSceneFixture(): {
 }
 
 function loadSharedPlayerMarkTargetFixture(): {
-  messages: InboundMessage[];
+  messages: SourceInboundMessage[];
   expected: {
     players: {
       items: Array<{
@@ -91,7 +93,7 @@ function loadSharedPlayerMarkTargetFixture(): {
 }
 
 function loadSharedBoardFixture(): {
-  messages: InboundMessage[];
+  messages: SourceInboundMessage[];
   expected: {
     board: {
       last_move: {

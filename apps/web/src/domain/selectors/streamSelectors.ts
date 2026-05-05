@@ -2453,7 +2453,12 @@ function snapshotFromBackendViewStatePayload(payload: Record<string, unknown>): 
 }
 
 function snapshotFromMessage(message: InboundMessage): SnapshotViewModel | null {
-  if (message.type !== "event" && message.type !== "prompt" && message.type !== "decision_ack") {
+  if (
+    message.type !== "view_commit" &&
+    message.type !== "event" &&
+    message.type !== "prompt" &&
+    message.type !== "decision_ack"
+  ) {
     return null;
   }
   const round = typeof message.payload["round_index"] === "number" ? message.payload["round_index"] : 0;
@@ -2860,7 +2865,7 @@ export function selectRuntimeProjection(messages: InboundMessage[]): RuntimeProj
 }
 
 function isStateBearingMessage(message: InboundMessage): boolean {
-  return message.type === "event" || message.type === "prompt" || message.type === "decision_ack";
+  return message.type === "view_commit" || message.type === "event" || message.type === "prompt" || message.type === "decision_ack";
 }
 
 function latestStateBearingMessageIndex(messages: InboundMessage[]): number | null {
@@ -3872,6 +3877,10 @@ function manifestRecordFromPayload(payload: Record<string, unknown>): Record<str
   if (isRecord(payload["parameter_manifest"])) {
     return payload["parameter_manifest"];
   }
+  const viewState = isRecord(payload["view_state"]) ? payload["view_state"] : null;
+  if (isRecord(viewState?.["parameter_manifest"])) {
+    return viewState["parameter_manifest"];
+  }
   if (messageKindFromPayload(payload) === "parameter_manifest" && typeof payload["manifest_hash"] === "string") {
     return payload;
   }
@@ -4018,7 +4027,7 @@ function manifestFromPayload(payload: Record<string, unknown>): ParameterManifes
 export function selectLatestManifest(messages: InboundMessage[]): ParameterManifestViewModel | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
-    if (message.type !== "event") {
+    if (message.type !== "event" && message.type !== "view_commit") {
       continue;
     }
     const manifest = manifestFromPayload(message.payload);

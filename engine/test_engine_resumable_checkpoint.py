@@ -52,6 +52,19 @@ def _checkpoint_pending_action_types(state: GameState) -> list[str]:
     return [action.type for action in _checkpoint_pending_actions(state)]
 
 
+_NO_HIDDEN_TRICK_SELECTION = object()
+
+
+def _hidden_trick_selection_for_test(request):  # noqa: ANN001
+    if request.decision_name != "choose_hidden_trick_card":
+        return _NO_HIDDEN_TRICK_SELECTION
+    fallback = getattr(request, "fallback", None)
+    if callable(fallback):
+        return fallback()
+    hand = request.args[2] if len(request.args) > 2 else []
+    return hand[0] if hand else None
+
+
 def _assert_core_move_state_matches(action_state: GameState, legacy_state: GameState, player_index: int = 0) -> None:
     action_player = action_state.players[player_index]
     legacy_player = legacy_state.players[player_index]
@@ -590,6 +603,9 @@ def test_fortune_forced_trade_prompt_keeps_action_queued() -> None:
 def test_prompt_action_remains_queued_when_decision_waits() -> None:
     class WaitingDecisionPort:
         def request(self, request):  # noqa: ANN001
+            hidden_selection = _hidden_trick_selection_for_test(request)
+            if hidden_selection is not _NO_HIDDEN_TRICK_SELECTION:
+                return hidden_selection
             if request.decision_name == "choose_draft_card":
                 return request.args[0][0]
             if request.decision_name == "choose_final_character":
@@ -733,6 +749,9 @@ def test_trick_tile_rent_modifier_prompt_keeps_action_queued() -> None:
 def test_request_purchase_tile_action_can_resume_and_purchase() -> None:
     class YesDecisionPort:
         def request(self, request):  # noqa: ANN001
+            hidden_selection = _hidden_trick_selection_for_test(request)
+            if hidden_selection is not _NO_HIDDEN_TRICK_SELECTION:
+                return hidden_selection
             if request.decision_name == "choose_draft_card":
                 return request.args[0][0]
             if request.decision_name == "choose_final_character":
@@ -775,6 +794,9 @@ def test_request_purchase_tile_action_can_resume_and_purchase() -> None:
 def test_purchase_resolution_queues_score_token_placement() -> None:
     class YesDecisionPort:
         def request(self, request):  # noqa: ANN001
+            hidden_selection = _hidden_trick_selection_for_test(request)
+            if hidden_selection is not _NO_HIDDEN_TRICK_SELECTION:
+                return hidden_selection
             if request.decision_name == "choose_draft_card":
                 return request.args[0][0]
             if request.decision_name == "choose_final_character":

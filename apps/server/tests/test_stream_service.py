@@ -14,10 +14,31 @@ class FakeProjectionStore:
     def __init__(self) -> None:
         self.messages: list[dict] = []
         self.view_states: dict[tuple[str, str], dict] = {}
+        self.view_commits: dict[tuple[str, str], dict] = {}
         self.checkpoints: dict[str, dict] = {}
 
     def apply_stream_message(self, message: dict) -> None:
         self.messages.append(message)
+        if message.get("type") != "view_commit":
+            return
+        payload = message.get("payload")
+        if not isinstance(payload, dict):
+            return
+        viewer = payload.get("viewer")
+        viewer = viewer if isinstance(viewer, dict) else {}
+        role = str(viewer.get("role") or "spectator")
+        player_id = viewer.get("player_id")
+        label = f"player:{player_id}" if role in {"player", "seat"} and player_id is not None else role
+        self.view_commits[(str(message.get("session_id") or ""), label)] = payload
+        checkpoint = self.checkpoints.setdefault(str(message.get("session_id") or ""), {"schema_version": 1})
+        checkpoint.update(
+            {
+                "latest_seq": int(message.get("seq") or 0),
+                "latest_commit_seq": int(payload.get("commit_seq") or 0),
+                "latest_source_event_seq": int(payload.get("source_event_seq") or 0),
+                "has_view_commit": True,
+            }
+        )
 
     def save_projected_view_state(self, session_id: str, viewer: str, payload: dict, *, player_id: int | None = None) -> None:
         label = f"player:{player_id}" if viewer == "player" else viewer
@@ -33,6 +54,26 @@ class FakeProjectionStore:
     def save_projection_checkpoint(self, session_id: str, payload: dict) -> None:
         self.checkpoints[session_id] = payload
 
+    def save_view_commit(self, session_id: str, payload: dict, *, viewer: str, player_id: int | None = None) -> None:
+        label = f"player:{player_id}" if viewer in {"player", "seat"} and player_id is not None else viewer
+        self.view_commits[(session_id, label)] = payload
+        checkpoint = self.checkpoints.setdefault(session_id, {"schema_version": 1})
+        viewers = set(str(item) for item in checkpoint.get("view_commit_viewers", []))
+        viewers.add(label)
+        checkpoint["view_commit_viewers"] = sorted(viewers)
+
+    def load_view_commit(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict | None:
+        label = f"player:{player_id}" if viewer in {"player", "seat"} and player_id is not None else viewer
+        return self.view_commits.get((session_id, label))
+
+
+def _source_messages(messages: list) -> list:
+    return [message for message in messages if message.type != "view_commit"]
+
+
+def _view_commit_messages(messages: list) -> list:
+    return [message for message in messages if message.type == "view_commit"]
+
 
 class StreamServiceTests(unittest.TestCase):
     def test_publish_increments_seq(self) -> None:
@@ -42,7 +83,7 @@ class StreamServiceTests(unittest.TestCase):
             one = await service.publish("s1", "event", {"a": 1})
             two = await service.publish("s1", "event", {"a": 2})
             self.assertEqual(one.seq, 1)
-            self.assertEqual(two.seq, 2)
+            self.assertEqual(two.seq, 3)
             self.assertIsInstance(one.server_time_ms, int)
             self.assertGreater(one.server_time_ms, 0)
 
@@ -56,7 +97,7 @@ class StreamServiceTests(unittest.TestCase):
             await service.publish("s1", "event", {"n": 2})
             await service.publish("s1", "event", {"n": 3})
             replay = await service.replay_from("s1", 1)
-            self.assertEqual([m.seq for m in replay], [2, 3])
+            self.assertEqual([m.seq for m in replay], [2, 3, 4, 5, 6])
 
         asyncio.run(_run())
 
@@ -81,9 +122,8 @@ class StreamServiceTests(unittest.TestCase):
             await service.publish("s1", "event", {"n": 1})
             await service.publish("s1", "prompt", module_prompt({"request_id": "r1"}))
             snapshot = await service.snapshot("s1")
-            self.assertEqual(len(snapshot), 2)
-            self.assertEqual(snapshot[0].seq, 1)
-            self.assertEqual(snapshot[1].seq, 2)
+            self.assertEqual([message.seq for message in _source_messages(snapshot)], [1, 3])
+            self.assertEqual([message.seq for message in _view_commit_messages(snapshot)], [2, 4])
 
         asyncio.run(_run())
 
@@ -107,7 +147,8 @@ class StreamServiceTests(unittest.TestCase):
 
             self.assertEqual(first_prompt.seq, second_prompt.seq)
             self.assertEqual(first_requested.seq, second_requested.seq)
-            self.assertEqual(len(snapshot), 2)
+            self.assertEqual(len(_source_messages(snapshot)), 2)
+            self.assertEqual(len(_view_commit_messages(snapshot)), 2)
 
         asyncio.run(_run())
 
@@ -141,7 +182,8 @@ class StreamServiceTests(unittest.TestCase):
             snapshot = await service.snapshot("s1")
 
             self.assertEqual(first.seq, second.seq)
-            self.assertEqual(len(snapshot), 1)
+            self.assertEqual(len(_source_messages(snapshot)), 1)
+            self.assertEqual(len(_view_commit_messages(snapshot)), 1)
 
         asyncio.run(_run())
 
@@ -173,7 +215,8 @@ class StreamServiceTests(unittest.TestCase):
             )
             snapshot = await service.snapshot("s1")
 
-            self.assertEqual(len(snapshot), 2)
+            self.assertEqual(len(_source_messages(snapshot)), 2)
+            self.assertEqual(len(_view_commit_messages(snapshot)), 2)
 
         asyncio.run(_run())
 
@@ -257,7 +300,7 @@ class StreamServiceTests(unittest.TestCase):
                 }),
             )
 
-            target = await service.project_message_for_viewer(prompt.to_dict(), ViewerContext(role="seat", session_id="s1", player_id=1))
+            target = await service.latest_view_commit_message_for_viewer("s1", ViewerContext(role="seat", session_id="s1", player_id=1))
             other = await service.project_message_for_viewer(prompt.to_dict(), ViewerContext(role="seat", session_id="s1", player_id=2))
 
             self.assertIsNotNone(target)
@@ -288,10 +331,11 @@ class StreamServiceTests(unittest.TestCase):
                 },
             )
 
-            cached = store.view_states[("s1", "spectator")]
-            self.assertEqual(cached["board"]["f_value"], 7)
-            self.assertEqual(store.checkpoints["s1"]["latest_seq"], 1)
-            self.assertEqual(store.checkpoints["s1"]["projected_viewers"], ["spectator"])
+            cached = store.view_commits[("s1", "spectator")]
+            self.assertEqual(cached["view_state"]["board"]["f_value"], 7)
+            self.assertEqual(cached["commit_seq"], 2)
+            self.assertEqual(store.checkpoints["s1"]["latest_seq"], 2)
+            self.assertEqual(store.checkpoints["s1"]["latest_source_event_seq"], 1)
 
         asyncio.run(_run())
 
@@ -314,18 +358,17 @@ class StreamServiceTests(unittest.TestCase):
                 }),
             )
 
-            target = await service.project_message_for_viewer(prompt.to_dict(), ViewerContext(role="seat", session_id="s1", player_id=1))
+            target = await service.latest_view_commit_message_for_viewer("s1", ViewerContext(role="seat", session_id="s1", player_id=1))
 
             self.assertIsNotNone(target)
-            cached = store.view_states[("s1", "player:1")]
-            self.assertEqual(cached["prompt"]["active"]["request_id"], "req_trick")
-            self.assertEqual(cached["hand_tray"]["cards"][0]["name"], "재뿌리기")
-            self.assertEqual(store.checkpoints["s1"]["projected_viewers"], ["player:1", "spectator"])
-            self.assertEqual(store.checkpoints["s1"]["projected_viewer_seqs"], {"player:1": 1, "spectator": 1})
+            cached = store.view_commits[("s1", "player:1")]
+            self.assertEqual(cached["view_state"]["prompt"]["active"]["request_id"], "req_trick")
+            self.assertEqual(cached["view_state"]["hand_tray"]["cards"][0]["name"], "재뿌리기")
+            self.assertIn("player:1", store.checkpoints["s1"]["view_commit_viewers"])
 
         asyncio.run(_run())
 
-    def test_latest_view_state_for_viewer_uses_fresh_cache(self) -> None:
+    def test_latest_view_commit_for_viewer_uses_cached_commit(self) -> None:
         store = FakeProjectionStore()
         service = StreamService(game_state_store=store)
 
@@ -341,16 +384,23 @@ class StreamServiceTests(unittest.TestCase):
                     },
                 },
             )
-            store.view_states[("s1", "spectator")] = {"cached": True}
-            store.checkpoints["s1"]["projected_viewer_seqs"]["spectator"] = 1
+            store.view_commits[("s1", "spectator")] = {
+                "schema_version": 1,
+                "commit_seq": 99,
+                "source_event_seq": 1,
+                "viewer": {"role": "spectator"},
+                "runtime": {"status": "running"},
+                "view_state": {"cached": True},
+            }
 
-            latest = await service.latest_view_state_for_viewer("s1", ViewerContext(role="spectator", session_id="s1"))
+            latest = await service.latest_view_commit_message_for_viewer("s1", ViewerContext(role="spectator", session_id="s1"))
 
-            self.assertEqual(latest, {"cached": True})
+            self.assertEqual(latest["payload"]["commit_seq"], 99)
+            self.assertEqual(latest["payload"]["view_state"], {"cached": True})
 
         asyncio.run(_run())
 
-    def test_rebuild_latest_view_state_for_viewer_ignores_fresh_but_wrong_cache(self) -> None:
+    def test_project_message_for_viewer_rebuilds_view_commit_and_updates_cache(self) -> None:
         store = FakeProjectionStore()
         service = StreamService(game_state_store=store)
 
@@ -369,21 +419,25 @@ class StreamServiceTests(unittest.TestCase):
                 }),
             )
             viewer = ViewerContext(role="seat", session_id="s1", player_id=1)
-            store.view_states[("s1", "player:1")] = {"prompt": {"last_feedback": {"request_id": "old"}}}
-            store.checkpoints["s1"]["projected_viewer_seqs"]["player:1"] = 1
+            store.view_commits[("s1", "player:1")] = {
+                "schema_version": 1,
+                "commit_seq": 2,
+                "source_event_seq": 1,
+                "viewer": {"role": "seat", "player_id": 1},
+                "runtime": {"status": "running"},
+                "view_state": {"prompt": {"last_feedback": {"request_id": "old"}}},
+            }
+            commit_record = _view_commit_messages(await service.snapshot("s1"))[-1]
 
-            latest = await service.latest_view_state_for_viewer("s1", viewer)
-            rebuilt = await service.rebuild_latest_view_state_for_viewer("s1", viewer)
+            rebuilt = await service.project_message_for_viewer(commit_record.to_dict(), viewer)
 
-            self.assertEqual(latest, {"prompt": {"last_feedback": {"request_id": "old"}}})
-            self.assertEqual(rebuilt["prompt"]["active"]["request_id"], "req_trick")
-            self.assertEqual(store.view_states[("s1", "player:1")]["prompt"]["active"]["request_id"], "req_trick")
+            self.assertEqual(rebuilt["payload"]["view_state"]["prompt"]["active"]["request_id"], "req_trick")
+            self.assertEqual(store.view_commits[("s1", "player:1")]["view_state"]["prompt"]["active"]["request_id"], "req_trick")
 
         asyncio.run(_run())
 
-    def test_latest_view_state_for_viewer_rebuilds_stale_cache(self) -> None:
-        store = FakeProjectionStore()
-        service = StreamService(game_state_store=store)
+    def test_latest_view_commit_for_viewer_builds_from_latest_commit_record(self) -> None:
+        service = StreamService()
 
         async def _run() -> None:
             await service.publish(
@@ -398,14 +452,12 @@ class StreamServiceTests(unittest.TestCase):
                 },
             )
             await service.publish("s1", "event", {"event_type": "turn_start", "acting_player_id": 1})
-            store.view_states[("s1", "spectator")] = {"cached": "stale"}
-            store.checkpoints["s1"]["projected_viewer_seqs"]["spectator"] = 1
 
-            latest = await service.latest_view_state_for_viewer("s1", ViewerContext(role="spectator", session_id="s1"))
+            latest = await service.latest_view_commit_message_for_viewer("s1", ViewerContext(role="spectator", session_id="s1"))
 
-            self.assertNotEqual(latest, {"cached": "stale"})
-            self.assertEqual(store.checkpoints["s1"]["projected_viewer_seqs"]["spectator"], 2)
-            self.assertIn("players", latest)
+            self.assertEqual(latest["payload"]["commit_seq"], 4)
+            self.assertEqual(latest["payload"]["source_event_seq"], 3)
+            self.assertIn("players", latest["payload"]["view_state"])
 
         asyncio.run(_run())
 
@@ -419,7 +471,7 @@ class StreamServiceTests(unittest.TestCase):
             await service.publish("s1", "event", {"n": 2})
             await service.publish("s1", "event", {"n": 3})
             window = await service.replay_window("s1")
-            self.assertEqual(window, (2, 3))
+            self.assertEqual(window, (5, 6))
 
         asyncio.run(_run())
 
@@ -435,7 +487,7 @@ class StreamServiceTests(unittest.TestCase):
             first = await asyncio.wait_for(queue.get(), timeout=0.5)
             second = await asyncio.wait_for(queue.get(), timeout=0.5)
 
-            self.assertEqual([first["seq"], second["seq"]], [2, 3])
+            self.assertEqual([first["seq"], second["seq"]], [5, 6])
             stats = await service.backpressure_stats("s1")
             self.assertEqual(stats["subscriber_count"], 1)
             self.assertEqual(stats["queue_size"], 2)
@@ -451,9 +503,9 @@ class StreamServiceTests(unittest.TestCase):
             for n in range(1, 301):
                 await service.publish("s1", "event", {"n": n})
             oldest, latest = await service.replay_window("s1")
-            self.assertEqual((oldest, latest), (251, 300))
-            replay = await service.replay_from("s1", 295)
-            self.assertEqual([m.seq for m in replay], [296, 297, 298, 299, 300])
+            self.assertEqual((oldest, latest), (551, 600))
+            replay = await service.replay_from("s1", 595)
+            self.assertEqual([m.seq for m in replay], [596, 597, 598, 599, 600])
 
         asyncio.run(_run())
 

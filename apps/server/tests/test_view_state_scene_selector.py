@@ -92,7 +92,7 @@ class ViewStateSceneSelectorTests(unittest.TestCase):
                     "character": "만신",
                 },
             )
-            prompt = await stream.publish(
+            await stream.publish(
                 "sess_scene_weather",
                 "prompt",
                 module_prompt({
@@ -108,8 +108,8 @@ class ViewStateSceneSelectorTests(unittest.TestCase):
                     },
                 }),
             )
-            projected = await stream.project_message_for_viewer(
-                prompt.to_dict(),
+            projected = await stream.latest_view_commit_message_for_viewer(
+                "sess_scene_weather",
                 ViewerContext(role="seat", session_id="sess_scene_weather", player_id=1),
             )
             return projected["payload"]["view_state"]["scene"]["situation"]

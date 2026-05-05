@@ -119,6 +119,8 @@ class LocalJsonArchiveService:
             for message in stream_messages
             if message.get("type") not in {"command", "analysis"}
         ]
+        source_events = [entry for entry in events if entry.get("type") != "view_commit"]
+        view_commits = [entry for entry in events if entry.get("type") == "view_commit"]
         final_view_state = self._load_final_view_state(session.session_id, stream_messages)
         final_state = self._load_final_state(session.session_id)
         room_no = getattr(room, "room_no", None)
@@ -182,7 +184,9 @@ class LocalJsonArchiveService:
             },
             "counts": {
                 "command_count": len(commands),
-                "event_count": len(events),
+                "event_count": len(source_events),
+                "view_commit_count": len(view_commits),
+                "stream_message_count": len(commands) + len(events) + len(analysis),
                 "analysis_count": len(analysis),
             },
         }
@@ -231,16 +235,29 @@ class LocalJsonArchiveService:
     def _load_final_view_state(self, session_id: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
         if self._game_state_store is not None:
             try:
+                view_commit = self._game_state_store.load_view_commit(session_id, "spectator")
+            except Exception:
+                view_commit = None
+            if isinstance(view_commit, dict) and isinstance(view_commit.get("view_state"), dict):
+                return dict(view_commit["view_state"])
+            try:
+                view_state = self._game_state_store.load_view_state(session_id)
+            except Exception:
+                view_state = None
+            if isinstance(view_state, dict):
+                return view_state
+            try:
                 view_state = self._game_state_store.load_projected_view_state(session_id, "public")
             except Exception:
                 view_state = None
-            if not isinstance(view_state, dict):
-                try:
-                    view_state = self._game_state_store.load_view_state(session_id)
-                except Exception:
-                    view_state = None
             if isinstance(view_state, dict):
                 return view_state
+            try:
+                view_commit = self._game_state_store.load_view_commit(session_id, "admin")
+            except Exception:
+                view_commit = None
+            if isinstance(view_commit, dict) and isinstance(view_commit.get("view_state"), dict):
+                return dict(view_commit["view_state"])
         return self._latest_view_state(messages)
 
     def _load_command_stream(self, session_id: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -5,7 +5,7 @@ import time
 import unittest
 
 from apps.server.src.domain.visibility import ViewerContext
-from apps.server.src.routes.stream import _filter_stream_message, _send_stream_catch_up
+from apps.server.src.domain.visibility.projector import project_stream_message_for_viewer
 
 try:
     from fastapi.testclient import TestClient
@@ -104,7 +104,7 @@ class StreamApiTests(unittest.TestCase):
         _reset_state(max_buffer=256, heartbeat_interval_ms=250)
         self.client = TestClient(app)
 
-    def test_resume_gap_too_old_emits_error_and_replays_latest_buffer(self) -> None:
+    def test_resume_uses_latest_view_commit_without_gap_replay(self) -> None:
         from apps.server.src import state
 
         _reset_state(max_buffer=2, heartbeat_interval_ms=250)
@@ -120,29 +120,25 @@ class StreamApiTests(unittest.TestCase):
 
         path = f"/api/v1/sessions/{session.session_id}/stream"
         with self.client.websocket_connect(path) as ws:
-            ws.send_json({"type": "resume", "last_seq": 0})
+            ws.send_json({"type": "resume", "last_commit_seq": 0})
 
             messages: list[dict] = []
             for _ in range(6):
                 msg = ws.receive_json()
                 messages.append(msg)
-                has_gap_error = any(
-                    m.get("type") == "error" and m.get("payload", {}).get("code") == "RESUME_GAP_TOO_OLD"
-                    for m in messages
-                )
-                replayed_seqs = sorted(m.get("seq") for m in messages if m.get("type") == "event")
-                if has_gap_error and replayed_seqs == [2, 3]:
+                commits = [m for m in messages if m.get("type") == "view_commit"]
+                if commits and commits[-1].get("payload", {}).get("source_event_seq") == 5:
                     break
 
-        gap_errors = [
-            m for m in messages if m.get("type") == "error" and m.get("payload", {}).get("code") == "RESUME_GAP_TOO_OLD"
-        ]
-        replayed_seqs = sorted(m.get("seq") for m in messages if m.get("type") == "event")
+        gap_errors = [m for m in messages if m.get("type") == "error"]
+        replayed_events = [m for m in messages if m.get("type") == "event"]
+        commits = [m for m in messages if m.get("type") == "view_commit"]
 
-        self.assertGreaterEqual(len(gap_errors), 1)
-        self.assertEqual(replayed_seqs, [2, 3])
-        self.assertIn("server_time_ms", gap_errors[0])
-        self.assertEqual(gap_errors[0].get("payload", {}).get("category"), "transport")
+        self.assertEqual(gap_errors, [])
+        self.assertEqual(replayed_events, [])
+        self.assertGreaterEqual(len(commits), 1)
+        self.assertEqual(commits[-1].get("payload", {}).get("commit_seq"), 6)
+        self.assertEqual(commits[-1].get("payload", {}).get("source_event_seq"), 5)
 
     def test_heartbeat_does_not_run_prompt_timeout_worker(self) -> None:
         from apps.server.src import state
@@ -164,7 +160,7 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(heartbeat.get("type"), "heartbeat")
         self.assertEqual(calls, [])
 
-    def test_resume_projects_only_latest_replayed_message(self) -> None:
+    def test_resume_sends_only_latest_view_commit_snapshot(self) -> None:
         from apps.server.src import state
 
         session = state.session_service.create_session(_all_ai_seats(), config={"seed": 303, "visibility": "public"})
@@ -190,26 +186,25 @@ class StreamApiTests(unittest.TestCase):
         try:
             path = f"/api/v1/sessions/{session.session_id}/stream"
             with self.client.websocket_connect(path) as ws:
-                ws.send_json({"type": "resume", "last_seq": 0})
-                seen: list[int] = []
-                latest_payload: dict | None = None
+                ws.send_json({"type": "resume", "last_commit_seq": 0})
+                commits: list[dict] = []
                 for _ in range(20):
                     msg = ws.receive_json()
-                    if msg.get("type") != "event":
+                    if msg.get("type") != "view_commit":
                         continue
-                    seen.append(int(msg.get("seq", 0)))
-                    latest_payload = msg.get("payload") if msg.get("seq") == 8 else latest_payload
-                    if seen == list(range(1, 9)):
+                    commits.append(msg)
+                    if msg.get("payload", {}).get("commit_seq") == 16:
                         break
         finally:
             state.stream_service.project_message_for_viewer = original_project  # type: ignore[method-assign]
 
-        self.assertEqual(seen, list(range(1, 9)))
-        self.assertEqual(projected_seqs, [8])
-        self.assertIsInstance(latest_payload, dict)
-        self.assertIn("view_state", latest_payload or {})
+        self.assertGreaterEqual(len(commits), 1)
+        self.assertEqual(commits[-1].get("payload", {}).get("commit_seq"), 16)
+        self.assertEqual(commits[-1].get("payload", {}).get("source_event_seq"), 15)
+        self.assertEqual(projected_seqs, [])
+        self.assertIn("view_state", commits[-1].get("payload", {}))
 
-    def test_resume_replays_stream_without_runtime_transition(self) -> None:
+    def test_resume_snapshot_without_runtime_transition(self) -> None:
         from apps.server.src import state
 
         session = state.session_service.create_session(_all_ai_seats(), config={"seed": 304, "visibility": "public"})
@@ -231,22 +226,23 @@ class StreamApiTests(unittest.TestCase):
         try:
             path = f"/api/v1/sessions/{session.session_id}/stream"
             with self.client.websocket_connect(path) as ws:
-                ws.send_json({"type": "resume", "last_seq": 0})
-                seen: list[int] = []
+                ws.send_json({"type": "resume", "last_commit_seq": 0})
+                commit: dict | None = None
                 for _ in range(8):
                     msg = ws.receive_json()
-                    if msg.get("type") != "event":
+                    if msg.get("type") != "view_commit":
                         continue
-                    seen.append(int(msg.get("seq", 0)))
-                    if seen == [1, 2]:
+                    commit = msg
+                    if msg.get("payload", {}).get("commit_seq") == 4:
                         break
         finally:
             state.runtime_service._run_engine_transition_once_sync = original_once  # type: ignore[method-assign]
 
-        self.assertEqual(seen, [1, 2])
+        self.assertIsNotNone(commit)
+        self.assertEqual(commit.get("payload", {}).get("source_event_seq"), 3)
         self.assertEqual(transition_calls, [])
 
-    def test_stream_catch_up_replays_persisted_events_missed_by_live_queue(self) -> None:
+    def test_connection_uses_latest_view_commit_instead_of_stream_catch_up(self) -> None:
         from apps.server.src import state
 
         session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 305, "visibility": "public"})
@@ -284,30 +280,20 @@ class StreamApiTests(unittest.TestCase):
                 ),
             )
 
-        class FakeWebSocket:
-            def __init__(self) -> None:
-                self.sent: list[dict] = []
-
-            async def send_json(self, message: dict) -> None:
-                self.sent.append(message)
-
-        fake_ws = FakeWebSocket()
         asyncio.run(_seed())
+
         latest = asyncio.run(
-            _send_stream_catch_up(
-                fake_ws,  # type: ignore[arg-type]
-                state.stream_service,
-                session_id=session.session_id,
-                last_sent_seq=0,
-                viewer=ViewerContext(role="seat", session_id=session.session_id, player_id=1),
-                auth_ctx={"role": "seat", "player_id": 1},
+            state.stream_service.latest_view_commit_message_for_viewer(
+                session.session_id,
+                ViewerContext(role="seat", session_id=session.session_id, player_id=1),
             )
         )
 
-        self.assertEqual(latest, 3)
-        self.assertEqual([message.get("seq") for message in fake_ws.sent], [1, 2])
-        self.assertEqual(fake_ws.sent[-1].get("payload", {}).get("request_id"), "r_seat1")
-        self.assertIn("view_state", fake_ws.sent[-1].get("payload", {}))
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest.get("type"), "view_commit")
+        self.assertEqual(latest.get("payload", {}).get("commit_seq"), 6)
+        self.assertEqual(latest.get("payload", {}).get("source_event_seq"), 5)
+        self.assertIn("view_state", latest.get("payload", {}))
 
     def test_spectator_decision_is_rejected_with_unauthorized_seat(self) -> None:
         from apps.server.src import state
@@ -409,6 +395,7 @@ class StreamApiTests(unittest.TestCase):
                     "player_id": 1,
                     "choice_id": "roll",
                     "choice_payload": {},
+                    "view_commit_seq_seen": 0,
                 }
             )
 
@@ -505,6 +492,7 @@ class StreamApiTests(unittest.TestCase):
                     "player_id": 1,
                     "choice_id": "roll",
                     "choice_payload": {},
+                    "view_commit_seq_seen": 0,
                 }
             )
             ws.send_json(
@@ -514,6 +502,7 @@ class StreamApiTests(unittest.TestCase):
                     "player_id": 1,
                     "choice_id": "roll",
                     "choice_payload": {},
+                    "view_commit_seq_seen": 0,
                 }
             )
 
@@ -590,7 +579,7 @@ class StreamApiTests(unittest.TestCase):
         self.assertGreaterEqual(len(recent), 1)
         self.assertEqual(recent[-1].get("request_id"), "r_timeout_1")
 
-    def test_resume_replays_latest_parameter_manifest_change(self) -> None:
+    def test_resume_returns_latest_view_commit_parameter_manifest_change(self) -> None:
         from apps.server.src import state
 
         session = state.session_service.create_session(_all_ai_seats(), config={"seed": 99, "visibility": "public"})
@@ -618,24 +607,20 @@ class StreamApiTests(unittest.TestCase):
 
         path = f"/api/v1/sessions/{session.session_id}/stream"
         with self.client.websocket_connect(path) as ws:
-            ws.send_json({"type": "resume", "last_seq": 1})
-            replayed = []
+            ws.send_json({"type": "resume", "last_commit_seq": 0})
+            commit: dict | None = None
             for _ in range(4):
                 msg = ws.receive_json()
-                if msg.get("type") == "event":
-                    replayed.append(msg)
-                if len(replayed) >= 2:
+                if msg.get("type") != "view_commit":
+                    continue
+                commit = msg
+                if msg.get("payload", {}).get("view_state", {}).get("parameter_manifest", {}).get("manifest_hash") == "hash_new":
                     break
 
-        self.assertEqual([m.get("seq") for m in replayed], [2, 3])
-        self.assertEqual(replayed[0].get("payload", {}).get("event_type"), "round_start")
-        self.assertEqual(replayed[1].get("payload", {}).get("event_type"), "parameter_manifest")
-        self.assertEqual(
-            replayed[1].get("payload", {}).get("parameter_manifest", {}).get("manifest_hash"),
-            "hash_new",
-        )
+        self.assertIsNotNone(commit)
+        self.assertEqual(commit.get("payload", {}).get("view_state", {}).get("parameter_manifest", {}).get("manifest_hash"), "hash_new")
 
-    def test_resume_replays_flat_parameter_manifest_shape_without_mutation(self) -> None:
+    def test_resume_returns_flat_parameter_manifest_shape_without_mutation(self) -> None:
         from apps.server.src import state
 
         session = state.session_service.create_session(_all_ai_seats(), config={"seed": 100, "visibility": "public"})
@@ -657,22 +642,20 @@ class StreamApiTests(unittest.TestCase):
 
         path = f"/api/v1/sessions/{session.session_id}/stream"
         with self.client.websocket_connect(path) as ws:
-            ws.send_json({"type": "resume", "last_seq": 1})
-            replayed = []
+            ws.send_json({"type": "resume", "last_commit_seq": 0})
+            manifest: dict = {}
             for _ in range(4):
                 msg = ws.receive_json()
-                if msg.get("type") == "event":
-                    replayed.append(msg)
-                if len(replayed) >= 2:
+                if msg.get("type") != "view_commit":
+                    continue
+                manifest = msg.get("payload", {}).get("view_state", {}).get("parameter_manifest", {})
+                if manifest.get("manifest_hash") == "flat_hash_new":
                     break
 
-        self.assertEqual([m.get("seq") for m in replayed], [2, 3])
-        self.assertEqual(replayed[0].get("payload", {}).get("event_type"), "parameter_manifest")
-        self.assertEqual(replayed[0].get("payload", {}).get("manifest_hash"), "flat_hash_new")
-        self.assertEqual(replayed[0].get("payload", {}).get("board", {}).get("tile_count"), 40)
-        self.assertEqual(replayed[1].get("payload", {}).get("event_type"), "turn_start")
+        self.assertEqual(manifest.get("manifest_hash"), "flat_hash_new")
+        self.assertEqual(manifest.get("board", {}).get("tile_count"), 40)
 
-    def test_resume_preserves_decision_then_domain_event_order(self) -> None:
+    def test_resume_does_not_replay_decision_event_order_for_live_ui(self) -> None:
         from apps.server.src import state
 
         session = state.session_service.create_session(_all_ai_seats(), config={"seed": 101, "visibility": "public"})
@@ -714,18 +697,21 @@ class StreamApiTests(unittest.TestCase):
 
         path = f"/api/v1/sessions/{session.session_id}/stream"
         with self.client.websocket_connect(path) as ws:
-            ws.send_json({"type": "resume", "last_seq": 0})
-            replayed: list[dict] = []
+            ws.send_json({"type": "resume", "last_commit_seq": 0})
+            commit: dict | None = None
+            replayed_events: list[dict] = []
             for _ in range(8):
                 msg = ws.receive_json()
-                if msg.get("type") != "event":
-                    continue
-                replayed.append(msg)
-                if len(replayed) >= 3:
+                if msg.get("type") == "event":
+                    replayed_events.append(msg)
+                if msg.get("type") == "view_commit":
+                    commit = msg
+                if commit is not None:
                     break
 
-        event_types = [m.get("payload", {}).get("event_type") for m in replayed]
-        self.assertEqual(event_types, ["decision_requested", "decision_resolved", "player_move"])
+        self.assertEqual(replayed_events, [])
+        self.assertIsNotNone(commit)
+        self.assertEqual(commit.get("payload", {}).get("source_event_seq"), 5)
 
     def test_filter_stream_message_hides_private_draft_details_from_other_viewers(self) -> None:
         seat1_auth = {"role": "seat", "player_id": 1}
@@ -769,26 +755,30 @@ class StreamApiTests(unittest.TestCase):
             },
         }
 
-        self.assertIsNotNone(_filter_stream_message(draft_requested, seat1_auth))
-        self.assertIsNone(_filter_stream_message(draft_requested, seat2_auth))
-        self.assertIsNone(_filter_stream_message(draft_requested, spectator_auth))
+        seat1_viewer = ViewerContext(role="seat", player_id=1)
+        seat2_viewer = ViewerContext(role="seat", player_id=2)
+        spectator_viewer = ViewerContext(role="spectator")
 
-        self.assertIsNotNone(_filter_stream_message(draft_resolved, seat1_auth))
-        self.assertIsNone(_filter_stream_message(draft_resolved, seat2_auth))
-        self.assertIsNone(_filter_stream_message(draft_resolved, spectator_auth))
+        self.assertIsNotNone(project_stream_message_for_viewer(draft_requested, seat1_viewer))
+        self.assertIsNone(project_stream_message_for_viewer(draft_requested, seat2_viewer))
+        self.assertIsNone(project_stream_message_for_viewer(draft_requested, spectator_viewer))
 
-        filtered_seat2_draft = _filter_stream_message(draft_pick, seat2_auth)
-        filtered_spectator_draft = _filter_stream_message(draft_pick, spectator_auth)
+        self.assertIsNotNone(project_stream_message_for_viewer(draft_resolved, seat1_viewer))
+        self.assertIsNone(project_stream_message_for_viewer(draft_resolved, seat2_viewer))
+        self.assertIsNone(project_stream_message_for_viewer(draft_resolved, spectator_viewer))
+
+        filtered_seat2_draft = project_stream_message_for_viewer(draft_pick, seat2_viewer)
+        filtered_spectator_draft = project_stream_message_for_viewer(draft_pick, spectator_viewer)
         self.assertIsNotNone(filtered_seat2_draft)
         self.assertIsNotNone(filtered_spectator_draft)
         self.assertNotIn("picked_card", filtered_seat2_draft["payload"])
         self.assertNotIn("picked_card", filtered_spectator_draft["payload"])
 
-        self.assertIsNotNone(_filter_stream_message(final_choice, seat1_auth))
-        self.assertIsNone(_filter_stream_message(final_choice, seat2_auth))
-        self.assertIsNone(_filter_stream_message(final_choice, spectator_auth))
+        self.assertIsNotNone(project_stream_message_for_viewer(final_choice, seat1_viewer))
+        self.assertIsNone(project_stream_message_for_viewer(final_choice, seat2_viewer))
+        self.assertIsNone(project_stream_message_for_viewer(final_choice, spectator_viewer))
 
-    def test_resume_replays_manifest_with_non_default_topology_and_seat_profile(self) -> None:
+    def test_resume_view_commit_includes_manifest_with_non_default_topology_and_seat_profile(self) -> None:
         from apps.server.src import state
 
         created = self.client.post("/api/v1/sessions", json=_three_seat_line_with_human_payload())
@@ -821,28 +811,21 @@ class StreamApiTests(unittest.TestCase):
 
         path = f"/api/v1/sessions/{session_id}/stream"
         with self.client.websocket_connect(path) as ws:
-            ws.send_json({"type": "resume", "last_seq": 0})
-            messages: list[dict] = []
+            ws.send_json({"type": "resume", "last_commit_seq": 0})
+            manifest: dict = {}
             for _ in range(80):
                 msg = ws.receive_json()
-                messages.append(msg)
-                manifest_events = [
-                    m for m in messages if m.get("type") == "event" and m.get("payload", {}).get("event_type") == "parameter_manifest"
-                ]
-                if manifest_events:
+                if msg.get("type") != "view_commit":
+                    continue
+                manifest = msg.get("payload", {}).get("view_state", {}).get("parameter_manifest", {})
+                if manifest:
                     break
 
-        manifest_event = next(
-            m
-            for m in messages
-            if m.get("type") == "event" and m.get("payload", {}).get("event_type") == "parameter_manifest"
-        )
-        manifest = manifest_event.get("payload", {}).get("parameter_manifest", {})
         self.assertEqual(manifest.get("manifest_hash"), expected_hash)
         self.assertEqual(manifest.get("board", {}).get("topology"), "line")
         self.assertEqual(manifest.get("seats", {}).get("allowed"), [1, 2, 3])
 
-    def test_reconnect_replays_latest_manifest_after_hash_change_end_to_end(self) -> None:
+    def test_reconnect_sends_latest_manifest_view_commit_after_hash_change_end_to_end(self) -> None:
         from apps.server.src import state
 
         created = self.client.post("/api/v1/sessions", json=_three_seat_line_with_human_payload())
@@ -872,20 +855,20 @@ class StreamApiTests(unittest.TestCase):
             state.runtime_service.start_runtime = original  # type: ignore[assignment]
         self.assertEqual(started.status_code, 200)
 
-        first_manifest_seq = 0
+        first_commit_seq = 0
         ws_path = f"/api/v1/sessions/{session_id}/stream"
         with self.client.websocket_connect(ws_path) as ws:
-            ws.send_json({"type": "resume", "last_seq": 0})
+            ws.send_json({"type": "resume", "last_commit_seq": 0})
             for _ in range(120):
                 msg = ws.receive_json()
-                if msg.get("type") != "event":
+                if msg.get("type") != "view_commit":
                     continue
-                payload = msg.get("payload", {})
-                if payload.get("event_type") == "parameter_manifest":
-                    first_manifest_seq = int(msg.get("seq", 0))
+                manifest = msg.get("payload", {}).get("view_state", {}).get("parameter_manifest", {})
+                if manifest.get("manifest_hash"):
+                    first_commit_seq = int(msg.get("payload", {}).get("commit_seq", 0))
                     break
 
-        self.assertGreater(first_manifest_seq, 0)
+        self.assertGreater(first_commit_seq, 0)
 
         async def _publish_manifest_change() -> None:
             await state.stream_service.publish(
@@ -904,24 +887,16 @@ class StreamApiTests(unittest.TestCase):
         asyncio.run(_publish_manifest_change())
 
         with self.client.websocket_connect(ws_path) as ws:
-            ws.send_json({"type": "resume", "last_seq": first_manifest_seq})
-            replayed: list[dict] = []
+            ws.send_json({"type": "resume", "last_commit_seq": first_commit_seq})
+            changed_manifest: dict = {}
             for _ in range(80):
                 msg = ws.receive_json()
-                if msg.get("type") != "event":
+                if msg.get("type") != "view_commit":
                     continue
-                replayed.append(msg)
-                payload = msg.get("payload", {})
-                if payload.get("event_type") == "parameter_manifest" and payload.get("parameter_manifest", {}).get("manifest_hash") == "hash_e2e_changed":
+                changed_manifest = msg.get("payload", {}).get("view_state", {}).get("parameter_manifest", {})
+                if changed_manifest.get("manifest_hash") == "hash_e2e_changed":
                     break
 
-        changed_manifest_event = next(
-            m
-            for m in replayed
-            if m.get("payload", {}).get("event_type") == "parameter_manifest"
-            and m.get("payload", {}).get("parameter_manifest", {}).get("manifest_hash") == "hash_e2e_changed"
-        )
-        changed_manifest = changed_manifest_event.get("payload", {}).get("parameter_manifest", {})
         self.assertEqual(changed_manifest.get("board", {}).get("topology"), "line")
         self.assertEqual(changed_manifest.get("seats", {}).get("allowed"), [1, 2, 3])
 
@@ -976,7 +951,7 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], session_id)
 
-    def test_reconnect_soak_preserves_seq_continuity_across_multiple_resumes(self) -> None:
+    def test_reconnect_soak_preserves_latest_commit_monotonicity_across_multiple_resumes(self) -> None:
         from apps.server.src import state
 
         session = state.session_service.create_session(_all_ai_seats(), config={"seed": 303, "visibility": "public"})
@@ -993,32 +968,32 @@ class StreamApiTests(unittest.TestCase):
 
         path = f"/api/v1/sessions/{session.session_id}/stream"
 
-        def _collect_after(last_seq: int, target_latest_seq: int) -> list[int]:
+        def _latest_commit_after(last_commit_seq: int, target_latest_commit_seq: int) -> int:
             with self.client.websocket_connect(path) as ws:
-                ws.send_json({"type": "resume", "last_seq": last_seq})
-                seen: list[int] = []
+                ws.send_json({"type": "resume", "last_commit_seq": last_commit_seq})
+                latest_commit_seq = 0
                 for _ in range(200):
                     msg = ws.receive_json()
-                    if msg.get("type") != "event":
+                    if msg.get("type") != "view_commit":
                         continue
-                    seq = int(msg.get("seq", 0))
-                    if seq <= 0:
+                    commit_seq = int(msg.get("payload", {}).get("commit_seq", 0))
+                    if commit_seq <= 0:
                         continue
-                    seen.append(seq)
-                    if seq >= target_latest_seq:
+                    latest_commit_seq = commit_seq
+                    if commit_seq >= target_latest_commit_seq:
                         break
-            return seen
+            return latest_commit_seq
 
-        first_seen = _collect_after(last_seq=0, target_latest_seq=12)
-        self.assertEqual(first_seen, list(range(1, 13)))
+        first_seen = _latest_commit_after(last_commit_seq=0, target_latest_commit_seq=24)
+        self.assertEqual(first_seen, 24)
 
         asyncio.run(_seed(13, 18))
-        second_seen = _collect_after(last_seq=12, target_latest_seq=18)
-        self.assertEqual(second_seen, list(range(13, 19)))
+        second_seen = _latest_commit_after(last_commit_seq=24, target_latest_commit_seq=36)
+        self.assertEqual(second_seen, 36)
 
         asyncio.run(_seed(19, 23))
-        third_seen = _collect_after(last_seq=18, target_latest_seq=23)
-        self.assertEqual(third_seen, list(range(19, 24)))
+        third_seen = _latest_commit_after(last_commit_seq=36, target_latest_commit_seq=46)
+        self.assertEqual(third_seen, 46)
 
 
 if __name__ == "__main__":

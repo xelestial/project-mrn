@@ -877,7 +877,13 @@ class GameEngine:
             return
         chosen = None
         if hasattr(self.policy, "choose_hidden_trick_card"):
-            chosen = self.policy.choose_hidden_trick_card(state, player, list(player.trick_hand))
+            chosen = self._request_decision(
+                "choose_hidden_trick_card",
+                state,
+                player,
+                list(player.trick_hand),
+                fallback=lambda: self.policy.choose_hidden_trick_card(state, player, list(player.trick_hand)),
+            )
             hidden_debug = self.policy.pop_debug("hide_trick", player.player_id) if hasattr(self.policy, "pop_debug") else None
             if hidden_debug is not None:
                 self._record_ai_decision(

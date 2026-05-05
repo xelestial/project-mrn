@@ -71,6 +71,7 @@ class ArchiveServiceTests(unittest.TestCase):
             self.assertEqual(payload["session"]["room_no"], 1)
             self.assertEqual(payload["session"]["room_title"], "Archive Room")
             self.assertEqual(payload["counts"]["event_count"], 2)
+            self.assertEqual(payload["counts"]["view_commit_count"], 2)
             self.assertEqual(payload["exporter"]["redis_prefix"], "mrn-test")
             self.assertEqual(payload["final_state"]["host_token"], "")
             self.assertEqual(payload["final_state"]["session_tokens"], {})
@@ -127,7 +128,7 @@ class ArchiveServiceTests(unittest.TestCase):
             self.assertEqual(payload["streams"]["commands"][0]["type"], "decision_submitted")
             self.assertEqual(payload["streams"]["commands"][0]["payload"]["request_id"], "req_archive_1")
 
-    def test_archive_final_view_state_prefers_public_projection_cache(self) -> None:
+    def test_archive_final_view_state_prefers_latest_view_commit(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             sessions = SessionService(restart_recovery_policy="keep")
             streams = StreamService()
@@ -156,7 +157,7 @@ class ArchiveServiceTests(unittest.TestCase):
             asyncio.run(_exercise())
 
             payload = json.loads((Path(temp_dir) / f"{session.session_id}.json").read_text(encoding="utf-8"))
-            self.assertEqual(payload["final_view_state"], {"public_projection": True})
+            self.assertEqual(payload["final_view_state"], {"view_commit": True})
             self.assertEqual(payload["final_state"], {"canonical": True})
 
 class _CommandStoreStub:
@@ -181,6 +182,10 @@ class _CommandStoreStub:
 
 
 class _GameStateStoreStub:
+    def load_view_commit(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict:
+        del session_id, viewer, player_id
+        return {"view_state": {"view_commit": True}}
+
     def load_checkpoint(self, session_id: str) -> dict:
         return {"session_id": session_id, "latest_seq": 1}
 

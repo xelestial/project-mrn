@@ -8,10 +8,10 @@ export class StreamClient {
   private reconnectTimer: number | null = null;
   private reconnectAttempt = 0;
   private closedByUser = false;
-  private lastConnectParams: { sessionId: string; token?: string; onOpenResumeSeq?: number; baseUrl?: string } | null = null;
+  private lastConnectParams: { sessionId: string; token?: string; onOpenResumeCommitSeq?: number; baseUrl?: string } | null = null;
   private connectionKey = "";
 
-  connect(params: { sessionId: string; token?: string; onOpenResumeSeq?: number; baseUrl?: string }): void {
+  connect(params: { sessionId: string; token?: string; onOpenResumeCommitSeq?: number; baseUrl?: string }): void {
     this.closedByUser = false;
     this.lastConnectParams = params;
     this.baseUrl = params.baseUrl ?? this.baseUrl;
@@ -44,8 +44,11 @@ export class StreamClient {
       }
       this.reconnectAttempt = 0;
       this.emitStatus("connected");
-      if (typeof params.onOpenResumeSeq === "number" && params.onOpenResumeSeq >= 0) {
-        this.send({ type: "resume", last_seq: params.onOpenResumeSeq });
+      if (typeof params.onOpenResumeCommitSeq === "number" && params.onOpenResumeCommitSeq >= 0) {
+        this.send({
+          type: "resume",
+          last_commit_seq: Math.max(0, Math.floor(params.onOpenResumeCommitSeq)),
+        });
       }
     };
 
@@ -71,6 +74,11 @@ export class StreamClient {
       }
       try {
         const parsed = JSON.parse(String(event.data)) as InboundMessage;
+        if (parsed.type === "error" && parsed.payload?.retryable === false) {
+          this.closedByUser = true;
+          this.lastConnectParams = null;
+          this.emitStatus("error");
+        }
         this.onMessageHandlers.forEach((handler) => handler(parsed));
       } catch {
         this.emitStatus("error");
@@ -98,11 +106,11 @@ export class StreamClient {
     return true;
   }
 
-  requestResume(lastSeq: number): boolean {
+  requestResume(lastCommitSeq: number): boolean {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       return false;
     }
-    return this.send({ type: "resume", last_seq: Math.max(0, Math.floor(lastSeq)) });
+    return this.send({ type: "resume", last_commit_seq: Math.max(0, Math.floor(lastCommitSeq)) });
   }
 
   onMessage(handler: (message: InboundMessage) => void): () => void {

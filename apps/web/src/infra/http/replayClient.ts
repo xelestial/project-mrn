@@ -1,11 +1,10 @@
-import { VIEW_STATE_RESTORED_EVENT, type InboundMessage } from "../../core/contracts/stream";
+import type { InboundMessage } from "../../core/contracts/stream";
 
 type ReplayResponseBody = {
   ok?: boolean;
   data?: {
     session_id?: unknown;
     events?: unknown;
-    view_state?: unknown;
   };
 };
 
@@ -37,10 +36,6 @@ function isInboundMessage(value: unknown): value is InboundMessage {
   );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object";
-}
-
 export function buildReplayUrl(args: {
   sessionId: string;
   token?: string;
@@ -61,7 +56,6 @@ export async function fetchReplayMessages(args: {
   token?: string;
   baseUrl?: string;
   signal?: AbortSignal;
-  projectionSeqFloor?: number;
 }): Promise<InboundMessage[]> {
   const response = await fetch(buildReplayUrl(args), { signal: args.signal });
   if (!response.ok) {
@@ -72,25 +66,5 @@ export async function fetchReplayMessages(args: {
   if (!Array.isArray(events)) {
     return [];
   }
-  const messages = events.filter(isInboundMessage);
-  const viewState = body.data?.view_state;
-  if (!isRecord(viewState)) {
-    return messages;
-  }
-  const sessionId =
-    typeof body.data?.session_id === "string" && body.data.session_id.trim()
-      ? body.data.session_id
-      : args.sessionId;
-  const maxSeq = messages.reduce((highest, message) => Math.max(highest, message.seq), 0);
-  const projectionSeq = Math.max(maxSeq, args.projectionSeqFloor ?? 0) + 1;
-  messages.push({
-    type: "event",
-    seq: projectionSeq,
-    session_id: sessionId,
-    payload: {
-      event_type: VIEW_STATE_RESTORED_EVENT,
-      view_state: viewState,
-    },
-  });
-  return messages;
+  return events.filter(isInboundMessage);
 }

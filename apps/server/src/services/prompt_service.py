@@ -221,6 +221,7 @@ class PromptService:
             "choice_payload": {},
             "provider": "timeout_fallback",
         }
+        decision_payload.update(_module_command_continuation_fields(pending.payload, decision_payload))
         expected_fingerprint = str(pending.payload.get("prompt_fingerprint") or "").strip()
         if expected_fingerprint:
             decision_payload["prompt_fingerprint"] = expected_fingerprint
@@ -461,9 +462,7 @@ def _require_module_continuation(prompt: dict) -> None:
     missing = [field for field in required if not str(prompt.get(field) or "").strip()]
     if missing:
         raise ValueError(f"missing_module_continuation:{','.join(missing)}")
-    module_type = str(prompt.get("module_type") or "").strip()
-    frame_id = str(prompt.get("frame_id") or "").strip()
-    if module_type in {"ResupplyModule", "SimultaneousPromptBatchModule"} or frame_id.startswith("simul:"):
+    if _is_simultaneous_batch_prompt(prompt):
         if not str(prompt.get("batch_id") or "").strip():
             raise ValueError("missing_batch_id")
         if not isinstance(prompt.get("missing_player_ids"), list) or not isinstance(
@@ -471,6 +470,19 @@ def _require_module_continuation(prompt: dict) -> None:
             dict,
         ):
             raise ValueError("missing_simultaneous_batch_state")
+
+
+def _is_simultaneous_batch_prompt(prompt: dict) -> bool:
+    module_type = str(prompt.get("module_type") or "").strip()
+    request_type = str(prompt.get("request_type") or "").strip()
+    module_cursor = str(prompt.get("module_cursor") or "").strip()
+    if module_type == "SimultaneousPromptBatchModule":
+        return True
+    return (
+        module_type == "ResupplyModule"
+        and request_type in {"burden_exchange", "resupply_choice"}
+        and module_cursor.startswith("await_resupply_batch")
+    )
 
 
 def _module_decision_mismatch(prompt: dict, decision: dict) -> str:
@@ -494,6 +506,8 @@ def _module_command_continuation_fields(prompt: dict, decision: dict) -> dict:
     fields: dict[str, object] = {}
     for field in ("resume_token", "frame_id", "module_id", "module_type", "module_cursor", "batch_id"):
         value = str(decision.get(field) or prompt.get(field) or "").strip()
+        if field == "batch_id" and not value:
+            value = _derive_batch_id_from_request_id(str(decision.get("request_id") or prompt.get("request_id") or ""))
         if value:
             fields[field] = value
     for field in ("missing_player_ids", "resume_tokens_by_player_id"):
@@ -503,3 +517,13 @@ def _module_command_continuation_fields(prompt: dict, decision: dict) -> dict:
         if isinstance(value, (list, dict)):
             fields[field] = value
     return fields
+
+
+def _derive_batch_id_from_request_id(request_id: str) -> str:
+    request_id = str(request_id or "").strip()
+    if not request_id.startswith("batch:") or ":p" not in request_id:
+        return ""
+    batch_id, player_suffix = request_id.rsplit(":p", 1)
+    if not player_suffix.isdigit():
+        return ""
+    return batch_id

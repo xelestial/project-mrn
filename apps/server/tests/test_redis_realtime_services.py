@@ -57,17 +57,22 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             )
             first = await queue.get()
             second = await queue.get()
-            self.assertEqual([first["seq"], second["seq"]], [2, 3])
+            self.assertEqual([first["seq"], second["seq"]], [5, 6])
+            self.assertEqual([first["type"], second["type"]], ["event", "view_commit"])
             snapshot = await service.snapshot("s1")
-            self.assertEqual([item.seq for item in snapshot], [2, 3])
-            replay = await service.replay_from("s1", 2)
-            self.assertEqual([item.seq for item in replay], [3])
+            self.assertEqual([item.seq for item in snapshot], [5, 6])
+            replay = await service.replay_from("s1", 5)
+            self.assertEqual([item.seq for item in replay], [6])
             stats = await service.backpressure_stats("s1")
             self.assertGreaterEqual(stats["drop_count"], 1)
             checkpoint = game_state.load_checkpoint("s1")
             self.assertIsNotNone(checkpoint)
-            self.assertEqual(checkpoint["latest_seq"], 3)
+            self.assertEqual(checkpoint["latest_seq"], 6)
+            self.assertEqual(checkpoint["latest_event_type"], "view_commit")
+            self.assertEqual(checkpoint["latest_commit_seq"], 6)
+            self.assertEqual(checkpoint["latest_source_event_seq"], 5)
             self.assertEqual(checkpoint["round_index"], 1)
+            self.assertEqual(checkpoint["turn_index"], 3)
             self.assertEqual(game_state.load_current_state("s1")["board"]["f_value"], 7)
             await service.publish(
                 "s1",
@@ -244,6 +249,60 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertIsNone(game_state.load_projected_view_state("s-view", "player", player_id=1))
         self.assertIsNone(game_state.load_projected_view_state("s-view", "admin"))
         self.assertIsNone(game_state.load_projection_checkpoint("s-view"))
+
+    def test_game_state_store_persists_authoritative_view_commit_variants(self) -> None:
+        game_state = RedisGameStateStore(self.connection)
+
+        game_state.apply_stream_message(
+            {
+                "seq": 12,
+                "type": "view_commit",
+                "session_id": "s-view-commit",
+                "server_time_ms": 12345,
+                "payload": {
+                    "schema_version": 1,
+                    "commit_seq": 12,
+                    "source_event_seq": 11,
+                    "viewer": {"role": "spectator"},
+                    "runtime": {"round_index": 2, "turn_index": 3},
+                    "view_state": {"board": {"turn": 3}},
+                },
+            }
+        )
+        game_state.save_view_commit(
+            "s-view-commit",
+            {
+                "schema_version": 1,
+                "commit_seq": 12,
+                "source_event_seq": 11,
+                "viewer": {"role": "seat", "player_id": 1, "seat": 1},
+                "runtime": {"round_index": 2, "turn_index": 3},
+                "view_state": {"prompt": {"active": {"request_id": "req_p1"}}},
+            },
+            viewer="player",
+            player_id=1,
+        )
+
+        checkpoint = game_state.load_checkpoint("s-view-commit")
+        self.assertIsNotNone(checkpoint)
+        self.assertEqual(checkpoint["latest_event_type"], "view_commit")
+        self.assertEqual(checkpoint["latest_commit_seq"], 12)
+        self.assertEqual(checkpoint["latest_source_event_seq"], 11)
+        self.assertTrue(checkpoint["has_view_commit"])
+        self.assertEqual(game_state.load_view_commit("s-view-commit", "spectator")["commit_seq"], 12)
+        self.assertEqual(game_state.load_view_state("s-view-commit")["board"]["turn"], 3)
+        self.assertEqual(
+            game_state.load_view_commit("s-view-commit", "player", player_id=1)["view_state"]["prompt"]["active"][
+                "request_id"
+            ],
+            "req_p1",
+        )
+
+        game_state.delete_session_data("s-view-commit")
+
+        self.assertIsNone(game_state.load_view_commit("s-view-commit", "spectator"))
+        self.assertIsNone(game_state.load_view_commit("s-view-commit", "player", player_id=1))
+        self.assertIsNone(game_state.load_checkpoint("s-view-commit"))
 
     def test_game_state_store_preserves_positions_and_trick_state_in_state_and_projection(self) -> None:
         game_state = RedisGameStateStore(self.connection)

@@ -20,6 +20,7 @@ ENGINE_DECISION_CONTINUATION_CLASSIFICATION: dict[str, str] = {
     "choose_doctrine_relief_target": "atomic_effect_boundary",
     "choose_draft_card": "round_setup_boundary",
     "choose_final_character": "round_setup_boundary",
+    "choose_hidden_trick_card": "round_setup_boundary",
     "choose_lap_reward": "atomic_effect_boundary",
     "choose_mark_target": "atomic_effect_boundary",
     "choose_movement": "turn_boundary",

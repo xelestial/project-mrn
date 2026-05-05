@@ -327,7 +327,7 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         stream = StreamService()
 
         async def _publish() -> tuple[dict, dict | None]:
-            prompt = await stream.publish(
+            await stream.publish(
                 "sess_1",
                 "prompt",
                 module_prompt({
@@ -340,8 +340,8 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                 }, module_type="MapMoveModule", frame_id="turn:test:p0"),
             )
             snapshot = await stream.snapshot("sess_1")
-            projected = await stream.project_message_for_viewer(
-                prompt.to_dict(),
+            projected = await stream.latest_view_commit_message_for_viewer(
+                "sess_1",
                 ViewerContext(role="seat", session_id="sess_1", player_id=1),
             )
             return [message.to_dict() for message in snapshot][-1], projected

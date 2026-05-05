@@ -6,6 +6,54 @@ from apps.server.src.domain.view_state.turn_selector import build_turn_stage_vie
 
 
 class ViewStateTurnSelectorTests(unittest.TestCase):
+    def test_finished_engine_transition_projects_terminal_game_end_stage(self) -> None:
+        view_state = build_turn_stage_view_state(
+            [
+                {
+                    "type": "event",
+                    "seq": 300,
+                    "session_id": "s1",
+                    "server_time_ms": 1,
+                    "payload": {
+                        "event_type": "turn_start",
+                        "round_index": 7,
+                        "turn_index": 26,
+                        "acting_player_id": 1,
+                        "character": "산적",
+                    },
+                },
+                {
+                    "type": "event",
+                    "seq": 301,
+                    "session_id": "s1",
+                    "server_time_ms": 2,
+                    "payload": {
+                        "event_type": "turn_end_snapshot",
+                        "round_index": 7,
+                        "turn_index": 26,
+                        "acting_player_id": 1,
+                    },
+                },
+                {
+                    "type": "event",
+                    "seq": 302,
+                    "session_id": "s1",
+                    "server_time_ms": 3,
+                    "payload": {
+                        "event_type": "engine_transition",
+                        "status": "finished",
+                        "reason": "end_rule",
+                    },
+                },
+            ]
+        )
+
+        self.assertEqual(view_state["current_beat_event_code"], "game_end")
+        self.assertIsNone(view_state["actor_player_id"])
+        self.assertEqual(view_state["prompt_request_type"], "-")
+        self.assertEqual(view_state["current_beat_request_type"], "-")
+        self.assertIn("game_end", view_state["progress_codes"])
+
     def test_draft_prompt_after_turn_does_not_mutate_previous_turn_stage(self) -> None:
         view_state = build_turn_stage_view_state(
             [

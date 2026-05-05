@@ -526,3 +526,4 @@ class ViewStatePayload(TypedDict, total=False):
     turn_stage: TurnStageViewState
     scene: SceneViewState
     runtime: RuntimeProjectionViewState
+    parameter_manifest: dict[str, object]

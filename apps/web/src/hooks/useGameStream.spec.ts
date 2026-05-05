@@ -3,29 +3,12 @@ import {
   buildDecisionMessage,
   buildGameStreamKey,
   createDecisionRequestLedger,
-  shouldApplyReplayResponse,
 } from "./useGameStream";
 
-describe("useGameStream replay recovery guards", () => {
+describe("useGameStream authoritative commit helpers", () => {
   it("builds the active stream key from the normalized session and token", () => {
     expect(buildGameStreamKey(" sess_a ", "seat-token")).toBe("sess_a\nseat-token");
     expect(buildGameStreamKey("sess_a")).toBe("sess_a\n");
-  });
-
-  it("rejects replay responses captured for a previous stream key", () => {
-    const captured = buildGameStreamKey("sess_a", "seat-1");
-    const active = buildGameStreamKey("sess_a", "seat-2");
-
-    expect(shouldApplyReplayResponse(captured, active)).toBe(false);
-  });
-
-  it("rejects replay responses after the request is aborted", () => {
-    const controller = new AbortController();
-    const streamKey = buildGameStreamKey("sess_a", "seat-1");
-
-    controller.abort();
-
-    expect(shouldApplyReplayResponse(streamKey, streamKey, controller.signal)).toBe(false);
   });
 
   it("records a decision request id exactly once per stream key", () => {
@@ -69,6 +52,7 @@ describe("useGameStream replay recovery guards", () => {
         choiceId: "roll",
         choicePayload: { dice: 4 },
         continuation: {
+          promptInstanceId: 31,
           resumeToken: "resume-token-1",
           frameId: "turn:1:p1",
           moduleId: "mod:turn:1:p1:dice",
@@ -76,6 +60,7 @@ describe("useGameStream replay recovery guards", () => {
           moduleCursor: "dice:await_choice",
           batchId: null,
         },
+        viewCommitSeqSeen: 42,
         clientSeq: 42,
       }),
     ).toEqual({
@@ -89,6 +74,8 @@ describe("useGameStream replay recovery guards", () => {
       module_id: "mod:turn:1:p1:dice",
       module_type: "DiceRollModule",
       module_cursor: "dice:await_choice",
+      prompt_instance_id: 31,
+      view_commit_seq_seen: 42,
       client_seq: 42,
     });
   });

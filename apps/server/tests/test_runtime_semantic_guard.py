@@ -53,7 +53,7 @@ def test_rejects_simultaneous_module_prompt_without_batch_id() -> None:
                 "resume_token": "resume:1",
                 "frame_id": "simul:resupply:1:0",
                 "module_id": "mod:simul:resupply:1:0:processing",
-                "module_type": "SimultaneousProcessingModule",
+                "module_type": "ResupplyModule",
                 "module_cursor": "await_resupply_batch:1",
                 "legal_choices": [{"choice_id": "yes"}],
             },
@@ -73,12 +73,31 @@ def test_rejects_simultaneous_module_prompt_without_batch_wire_state() -> None:
                 "resume_token": "resume:1",
                 "frame_id": "simul:resupply:1:0",
                 "module_id": "mod:simul:resupply:1:0:processing",
-                "module_type": "SimultaneousProcessingModule",
+                "module_type": "ResupplyModule",
                 "module_cursor": "await_resupply_batch:1",
                 "batch_id": "batch:simul:resupply:1:0",
                 "legal_choices": [{"choice_id": "yes"}],
             },
         )
+
+
+def test_allows_single_player_prompt_inside_simultaneous_frame_without_batch_state() -> None:
+    validate_stream_payload(
+        history=[],
+        msg_type="prompt",
+        payload={
+            "runner_kind": "module",
+            "request_id": "req_hidden_p1",
+            "request_type": "hidden_trick_card",
+            "player_id": 1,
+            "resume_token": "resume:1",
+            "frame_id": "simul:resupply:1:0",
+            "module_id": "mod:simul:resupply:1:0:processing",
+            "module_type": "ResupplyModule",
+            "module_cursor": "hidden_trick_card:await_choice",
+            "legal_choices": [{"choice_id": "0"}],
+        },
+    )
 
 
 def test_semantic_guard_derives_module_and_action_catalogs_from_engine_runtime_modules() -> None:

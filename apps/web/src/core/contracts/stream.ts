@@ -1,6 +1,35 @@
-export const VIEW_STATE_RESTORED_EVENT = "view_state_restored";
+export type ViewCommitRuntimeStatus = "running" | "waiting_input" | "completed" | "recovery_required";
+
+export type ViewCommitPayload = {
+  [key: string]: unknown;
+  schema_version: 1;
+  commit_seq: number;
+  source_event_seq: number;
+  viewer: {
+    role: "spectator" | "seat" | "admin";
+    player_id?: number;
+    seat?: number;
+  };
+  runtime: {
+    status: ViewCommitRuntimeStatus;
+    round_index: number;
+    turn_index: number;
+    active_frame_id: string;
+    active_module_id: string;
+    active_module_type: string;
+    module_path: string[];
+  };
+  view_state: Record<string, unknown>;
+};
 
 export type InboundMessage =
+  | {
+      type: "view_commit";
+      seq: number;
+      session_id: string;
+      server_time_ms?: number;
+      payload: ViewCommitPayload;
+    }
   | {
       type: "event";
       seq: number;
@@ -46,19 +75,21 @@ export type InboundMessage =
     };
 
 export type OutboundMessage =
-  | { type: "resume"; last_seq: number }
+  | { type: "resume"; last_commit_seq: number }
   | {
       type: "decision";
       request_id: string;
       player_id: number;
       choice_id: string;
       choice_payload?: Record<string, unknown>;
+      prompt_instance_id?: number;
       resume_token?: string;
       frame_id?: string;
       module_id?: string;
       module_type?: string;
       module_cursor?: string;
       batch_id?: string;
+      view_commit_seq_seen: number;
       client_seq: number;
     };
 

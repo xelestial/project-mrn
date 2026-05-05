@@ -383,10 +383,33 @@ async def runtime_status(
     session_id: str,
     token: str | None = None,
     service: SessionService = Depends(_service),
-    stream: StreamService = Depends(_stream_service),
     runtime: RuntimeService = Depends(_runtime),
 ) -> dict:
     try:
+        auth_ctx = service.verify_session_token(session_id, token)
+    except SessionNotFoundError:
+        _error("SESSION_NOT_FOUND", "Session not found.", status.HTTP_404_NOT_FOUND)
+    except SessionStateError as exc:
+        _session_auth_error(exc)
+    await _recover_runtime_for_authenticated_seat(
+        session_id=session_id,
+        auth_ctx=auth_ctx,
+        service=service,
+        runtime=runtime,
+    )
+    runtime_payload = runtime.public_runtime_status(session_id)
+    return _ok({"session_id": session_id, "runtime": runtime_payload})
+
+
+@router.get("/{session_id}/view-commit")
+async def latest_view_commit(
+    session_id: str,
+    token: str | None = None,
+    service: SessionService = Depends(_service),
+    stream: StreamService = Depends(_stream_service),
+) -> dict:
+    try:
+        service.get_session(session_id)
         auth_ctx = service.verify_session_token(session_id, token)
     except SessionNotFoundError:
         _error("SESSION_NOT_FOUND", "Session not found.", status.HTTP_404_NOT_FOUND)
@@ -398,20 +421,9 @@ async def runtime_status(
         seat=auth_ctx.get("seat"),
         player_id=auth_ctx.get("player_id"),
     )
-    await _recover_runtime_for_authenticated_seat(
-        session_id=session_id,
-        auth_ctx=auth_ctx,
-        service=service,
-        runtime=runtime,
-    )
-    runtime_payload = runtime.public_runtime_status(session_id)
-    recovery = runtime_payload.get("recovery_checkpoint")
-    if isinstance(recovery, dict):
-        runtime_payload = dict(runtime_payload)
-        recovery = dict(recovery)
-        recovery["view_state"] = await stream.rebuild_latest_view_state_for_viewer(session_id, viewer)
-        runtime_payload["recovery_checkpoint"] = recovery
-    return _ok({"session_id": session_id, "runtime": runtime_payload})
+    message = await stream.latest_view_commit_message_for_viewer(session_id, viewer)
+    payload = message.get("payload") if isinstance(message, dict) else None
+    return _ok(payload if isinstance(payload, dict) else {})
 
 
 @router.get("/{session_id}/replay")
@@ -434,16 +446,11 @@ async def replay_export(
         seat=auth_ctx.get("seat"),
         player_id=auth_ctx.get("player_id"),
     )
-    view_state = await stream.latest_view_state_for_viewer(session_id, viewer)
     events = []
     for message in await stream.snapshot(session_id):
         projected = project_stream_message_for_viewer(message.to_dict(), viewer)
         if projected is not None:
             events.append(projected)
-    if events and view_state:
-        payload = events[-1].setdefault("payload", {})
-        if isinstance(payload, dict):
-            payload["view_state"] = view_state
     replay_export_payload = {
         "schema_version": 1,
         "schema_name": "mrn.redacted_replay_export",
@@ -457,6 +464,5 @@ async def replay_export(
         },
         "event_count": len(events),
         "events": events,
-        "view_state": view_state,
     }
     return _ok(replay_export_payload)

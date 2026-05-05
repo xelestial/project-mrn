@@ -207,9 +207,50 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertFalse(runtime.has_unprocessed_runtime_commands("sess_pending"))
 
-    def test_pending_resume_command_matches_checkpoint_even_when_offset_reached_command(self) -> None:
+    def test_pending_resume_command_ignores_consumed_offset_command(self) -> None:
         command_store = _CommandStoreStub(
             offset=7,
+            commands=[
+                {
+                    "seq": 7,
+                    "type": "decision_submitted",
+                    "payload": {
+                        "request_id": "sess_1:r1:t1:p1:final_character:1",
+                        "choice_id": "mansin",
+                        "frame_id": "turn:1:p0",
+                        "module_id": "mod:turn:1:p0:draft",
+                        "module_type": "DraftModule",
+                        "module_cursor": "final_character:1",
+                    },
+                }
+            ],
+        )
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=command_store,
+        )
+        runtime.recovery_checkpoint = lambda _session_id: {  # type: ignore[method-assign]
+            "available": True,
+            "checkpoint": {
+                "waiting_prompt_request_id": "sess_1:r1:t1:p1:final_character:1",
+                "active_frame_id": "turn:1:p0",
+                "active_module_id": "mod:turn:1:p0:draft",
+                "active_module_type": "DraftModule",
+                "active_module_cursor": "final_character:1",
+            },
+            "current_state": {},
+            "view_state": {},
+        }
+
+        command = runtime.pending_resume_command("sess_1")
+
+        self.assertIsNone(command)
+
+    def test_pending_resume_command_returns_unconsumed_matching_command(self) -> None:
+        command_store = _CommandStoreStub(
+            offset=6,
             commands=[
                 {
                     "seq": 7,
@@ -449,8 +490,8 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertIn("current_state", internal)
         self.assertTrue(public["recovery_checkpoint"]["available"])
         self.assertNotIn("current_state", public["recovery_checkpoint"])
+        self.assertNotIn("view_state", public["recovery_checkpoint"])
         self.assertTrue(public["recovery_checkpoint"]["current_state_available"])
-        self.assertEqual(public["recovery_checkpoint"]["view_state"], {"players": {"items": []}})
 
     def test_active_simultaneous_batch_publishes_module_prompts_for_missing_players(self) -> None:
         loop = asyncio.new_event_loop()
@@ -506,6 +547,149 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertEqual(len(decision_requested), 2)
             self.assertEqual(prompt_messages[0].payload["runtime_module"]["frame_type"], "simultaneous")
             self.assertEqual(prompt_messages[0].payload["batch_id"], "batch:simul:resupply:1")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_runtime_prompt_boundary_enriches_active_simultaneous_batch_contract(self) -> None:
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            frame = build_resupply_frame(
+                1,
+                4,
+                parent_frame_id="turn:1:p0",
+                parent_module_id="mod:turn:1:p0:arrival",
+                participants=[0, 1],
+            )
+            module = next(module for module in frame.module_queue if module.module_type == "ResupplyModule")
+            module.cursor = "await_resupply_batch:1"
+            batch = PromptApi().create_batch(
+                batch_id="batch:simul:resupply:1:4:mod:simul:resupply:1:4:resupply:1",
+                frame=frame,
+                module=module,
+                participant_player_ids=[0, 1],
+                request_type="burden_exchange",
+                legal_choices_by_player_id={
+                    0: [{"choice_id": "yes"}, {"choice_id": "no"}],
+                    1: [{"choice_id": "yes"}, {"choice_id": "no"}],
+                },
+                public_context_by_player_id={
+                    0: {"round_index": 1, "turn_index": 4, "card_name": "무거운 짐"},
+                    1: {"round_index": 1, "turn_index": 4, "card_name": "가벼운 짐"},
+                },
+            )
+            state = type("State", (), {"runtime_active_prompt_batch": batch})()
+            continuation = batch.prompts_by_player_id[1]
+            prompt_payload = {
+                "request_id": continuation.request_id,
+                "request_type": continuation.request_type,
+                "player_id": 2,
+                "prompt_instance_id": 12,
+                "legal_choices": list(continuation.legal_choices),
+                "public_context": dict(continuation.public_context),
+                "timeout_ms": 30000,
+                "fallback_policy": "required",
+                "runner_kind": "module",
+                "resume_token": continuation.resume_token,
+                "frame_id": continuation.frame_id,
+                "module_id": continuation.module_id,
+                "module_type": continuation.module_type,
+                "module_cursor": continuation.module_cursor,
+            }
+
+            self.runtime_service._materialize_prompt_boundary_sync(  # type: ignore[attr-defined]
+                loop,
+                "sess_batch_boundary_prompt",
+                prompt_payload,
+                state=state,
+            )
+
+            pending = self.prompt_service._pending[continuation.request_id]  # type: ignore[attr-defined]
+            self.assertEqual(pending.payload["batch_id"], batch.batch_id)
+            self.assertEqual(pending.payload["missing_player_ids"], [1, 2])
+            self.assertEqual(
+                pending.payload["resume_tokens_by_player_id"],
+                {
+                    "1": batch.prompts_by_player_id[0].resume_token,
+                    "2": batch.prompts_by_player_id[1].resume_token,
+                },
+            )
+            self.assertEqual(pending.payload["runtime_module"]["frame_type"], "simultaneous")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_runtime_prompt_boundary_enriches_checkpoint_payload_batch_contract(self) -> None:
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            frame = build_resupply_frame(
+                1,
+                4,
+                parent_frame_id="turn:1:p0",
+                parent_module_id="mod:turn:1:p0:arrival",
+                participants=[0, 1],
+            )
+            module = next(module for module in frame.module_queue if module.module_type == "ResupplyModule")
+            module.cursor = "await_resupply_batch:1"
+            batch = PromptApi().create_batch(
+                batch_id="batch:simul:resupply:1:4:mod:simul:resupply:1:4:resupply:1",
+                frame=frame,
+                module=module,
+                participant_player_ids=[0, 1],
+                request_type="burden_exchange",
+                legal_choices_by_player_id={
+                    0: [{"choice_id": "yes"}, {"choice_id": "no"}],
+                    1: [{"choice_id": "yes"}, {"choice_id": "no"}],
+                },
+                public_context_by_player_id={
+                    0: {"round_index": 1, "turn_index": 4, "card_name": "무거운 짐"},
+                    1: {"round_index": 1, "turn_index": 4, "card_name": "가벼운 짐"},
+                },
+            )
+            batch.missing_player_ids = [0, 1]
+            state = type("State", (), {"runtime_active_prompt_batch": batch.to_payload()})()
+            continuation = batch.prompts_by_player_id[0]
+            prompt_payload = {
+                "request_id": continuation.request_id,
+                "request_type": continuation.request_type,
+                "player_id": 1,
+                "prompt_instance_id": 12,
+                "legal_choices": list(continuation.legal_choices),
+                "public_context": dict(continuation.public_context),
+                "timeout_ms": 30000,
+                "fallback_policy": "required",
+                "runner_kind": "module",
+                "resume_token": continuation.resume_token,
+                "frame_id": continuation.frame_id,
+                "module_id": continuation.module_id,
+                "module_type": continuation.module_type,
+                "module_cursor": continuation.module_cursor,
+            }
+
+            self.runtime_service._materialize_prompt_boundary_sync(  # type: ignore[attr-defined]
+                loop,
+                "sess_batch_boundary_checkpoint_prompt",
+                prompt_payload,
+                state=state,
+            )
+
+            pending = self.prompt_service._pending[continuation.request_id]  # type: ignore[attr-defined]
+            self.assertEqual(pending.payload["batch_id"], batch.batch_id)
+            self.assertEqual(pending.payload["missing_player_ids"], [1, 2])
+            self.assertEqual(
+                pending.payload["resume_tokens_by_player_id"],
+                {
+                    "1": batch.prompts_by_player_id[0].resume_token,
+                    "2": batch.prompts_by_player_id[1].resume_token,
+                },
+            )
+            self.assertEqual(pending.payload["runtime_module"]["frame_type"], "simultaneous")
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -4393,6 +4577,84 @@ class RuntimeServiceTests(unittest.TestCase):
             },
         )
         self.assertEqual(store.commits[0]["checkpoint"]["active_module_type"], "ResupplyModule")
+
+    def test_decision_resume_derives_batch_id_from_batch_request_id(self) -> None:
+        class _CommandStoreStub:
+            def list_commands(self, session_id: str) -> list[dict]:
+                return [
+                    {
+                        "seq": 7,
+                        "type": "decision_submitted",
+                        "session_id": session_id,
+                        "payload": {
+                            "request_id": (
+                                "batch:simul:resupply:2:107:"
+                                "mod:simul:resupply:2:107:resupply:1:p1"
+                            ),
+                            "player_id": 2,
+                            "request_type": "burden_exchange",
+                            "choice_id": "yes",
+                            "resume_token": "resume_p1",
+                            "frame_id": "simul:resupply:2:107",
+                            "module_id": "mod:simul:resupply:2:107:resupply",
+                            "module_type": "ResupplyModule",
+                            "module_cursor": "await_resupply_batch:1",
+                            "decision": {},
+                        },
+                    }
+                ]
+
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=_CommandStoreStub(),
+        )
+
+        resume = runtime._decision_resume_from_command("sess_batch", 7)
+
+        self.assertIsNotNone(resume)
+        self.assertEqual(
+            resume.batch_id,
+            "batch:simul:resupply:2:107:mod:simul:resupply:2:107:resupply:1",
+        )
+
+    def test_decision_resume_ignores_scalar_choice_payload(self) -> None:
+        class _CommandStoreStub:
+            def list_commands(self, session_id: str) -> list[dict]:
+                return [
+                    {
+                        "seq": 7,
+                        "type": "decision_submitted",
+                        "session_id": session_id,
+                        "payload": {
+                            "request_id": "sess:r1:t1:p1:purchase_tile:19",
+                            "player_id": 1,
+                            "request_type": "purchase_tile",
+                            "choice_id": "yes",
+                            "choice_payload": True,
+                            "resume_token": "resume_purchase",
+                            "frame_id": "seq:action:1:p0:22",
+                            "module_id": "mod:seq:action:1:p0:22:purchasedecision",
+                            "module_type": "PurchaseDecisionModule",
+                            "module_cursor": "await_action_prompt",
+                            "decision": {},
+                        },
+                    }
+                ]
+
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=_CommandStoreStub(),
+        )
+
+        resume = runtime._decision_resume_from_command("sess_scalar", 7)
+
+        self.assertIsNotNone(resume)
+        self.assertEqual(resume.choice_id, "yes")
+        self.assertEqual(resume.choice_payload, {})
 
     def test_module_resume_preserves_checkpoint_frame_stack_without_replay(self) -> None:
         RuntimeService._ensure_engine_import_path()

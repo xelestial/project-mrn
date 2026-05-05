@@ -500,7 +500,7 @@ class ModuleRunner:
     ) -> dict[str, Any]:
         self._ensure_resupply_state(engine, state, module)
         active_batch = getattr(state, "runtime_active_prompt_batch", None)
-        if decision_resume is not None:
+        if decision_resume is not None and self._is_resupply_batch_decision_resume(decision_resume):
             if active_batch is None or getattr(active_batch, "module_id", "") != module.module_id:
                 raise ModuleRunnerError("resupply decision resume without active batch")
             PromptApi().record_batch_response(
@@ -531,6 +531,14 @@ class ModuleRunner:
             state.runtime_active_prompt = None
             state.runtime_active_prompt_batch = batch
             return self._resupply_waiting_result(state, frame, module, batch)
+
+    @staticmethod
+    def _is_resupply_batch_decision_resume(decision_resume: Any) -> bool:
+        request_type = str(getattr(decision_resume, "request_type", "") or "").strip()
+        batch_id = str(getattr(decision_resume, "batch_id", "") or "").strip()
+        if batch_id:
+            return True
+        return request_type in {"burden_exchange", "resupply_choice"}
 
     def _ensure_resupply_state(self, engine: Any, state: Any, module: ModuleRef) -> dict[str, Any]:
         existing = module.payload.get("resupply_state")

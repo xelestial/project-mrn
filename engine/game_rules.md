@@ -43,3 +43,7 @@
 
 ### 0.7.61 economy profiles
 `EconomyRules` now resolves tile purchase/rent through `land_profiles` when a tile is defined structurally with an `economy_profile` key.
+
+## Snapshot contract
+
+Rule defaults and injected config mirrors are part of the server parameter manifest. When rule-visible defaults change, regenerate the manifest snapshot so runtime setup, tests, and UI-visible configuration stay aligned.

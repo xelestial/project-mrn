@@ -38,6 +38,8 @@ Completed modules must not be re-run when a child sequence resumes.
 
 Rule data flows through `GameRules`, tile metadata, modifier registries, and module contexts. Frontend code renders decisions and events; it does not reconstruct gameplay rules.
 
+Hidden trick selection is also routed through the engine decision boundary so a persisted runtime can resume the round setup step from the same canonical state instead of asking policy code directly.
+
 ## Observability
 
 The engine emits semantic events and action-log entries so backend stream guards and debug-log audits can verify module ownership.

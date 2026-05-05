@@ -23,6 +23,7 @@ from apps.server.src.services.decision_gateway import (
     DEFAULT_HUMAN_PROMPT_TIMEOUT_MS,
     DecisionGateway,
     DecisionInvocation,
+    PromptFingerprintMismatch,
     PromptRequired,
     build_decision_requested_payload,
     build_decision_invocation,
@@ -60,6 +61,30 @@ class RuntimeDecisionResume:
 
 class RuntimeDecisionResumeMismatch(ValueError):
     pass
+
+
+def _derive_batch_id_from_request_id(request_id: str) -> str:
+    request_id = str(request_id or "").strip()
+    if not request_id.startswith("batch:") or ":p" not in request_id:
+        return ""
+    batch_id, player_suffix = request_id.rsplit(":p", 1)
+    if not player_suffix.isdigit():
+        return ""
+    return batch_id
+
+
+def _derive_internal_player_id_from_batch_request_id(request_id: str) -> int | None:
+    request_id = str(request_id or "").strip()
+    if not request_id.startswith("batch:") or ":p" not in request_id:
+        return None
+    _, player_suffix = request_id.rsplit(":p", 1)
+    if not player_suffix.isdigit():
+        return None
+    return int(player_suffix)
+
+
+def _normalize_decision_choice_payload(value: object) -> dict:
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def _runtime_module_debug_fields(source: dict | None, state: object | None = None) -> dict[str, str]:
@@ -250,12 +275,13 @@ class RuntimeService:
         return False
 
     def pending_resume_command(self, session_id: str, consumer_name: str = "runtime_wakeup") -> dict | None:
-        del consumer_name
         if self._command_store is None:
             return None
         list_commands = getattr(self._command_store, "list_commands", None)
         if not callable(list_commands):
             return None
+        load_offset = getattr(self._command_store, "load_consumer_offset", None)
+        last_consumed_seq = int(load_offset(consumer_name, session_id)) if callable(load_offset) else 0
         recovery = self.recovery_checkpoint(session_id)
         checkpoint = recovery.get("checkpoint") if isinstance(recovery, dict) else None
         if not isinstance(checkpoint, dict):
@@ -271,6 +297,8 @@ class RuntimeService:
         }
         for command in commands:
             if str(command.get("type") or "").strip() != "decision_submitted":
+                continue
+            if int(command.get("seq", 0) or 0) <= last_consumed_seq:
                 continue
             if self._command_payload_field(command, "request_id") != waiting_request_id:
                 continue
@@ -318,7 +346,6 @@ class RuntimeService:
             public_recovery = {
                 "available": bool(recovery.get("available")),
                 "checkpoint": recovery.get("checkpoint") if isinstance(recovery.get("checkpoint"), dict) else {},
-                "view_state": recovery.get("view_state") if isinstance(recovery.get("view_state"), dict) else {},
             }
             if isinstance(recovery.get("reason"), str):
                 public_recovery["reason"] = recovery["reason"]
@@ -814,7 +841,10 @@ class RuntimeService:
             decision = decision if isinstance(decision, dict) else {}
 
             def _field(name: str) -> str:
-                return str(payload.get(name) or decision.get(name) or "").strip()
+                value = str(payload.get(name) or decision.get(name) or "").strip()
+                if name == "batch_id" and not value:
+                    value = _derive_batch_id_from_request_id(str(payload.get("request_id") or decision.get("request_id") or ""))
+                return value
 
             choice_payload = payload.get("choice_payload")
             if not isinstance(choice_payload, dict):
@@ -824,7 +854,7 @@ class RuntimeService:
                 player_id=int(payload.get("player_id") or decision.get("player_id") or 0),
                 request_type=_field("request_type"),
                 choice_id=_field("choice_id"),
-                choice_payload=dict(choice_payload or {}),
+                choice_payload=_normalize_decision_choice_payload(choice_payload),
                 resume_token=_field("resume_token"),
                 frame_id=_field("frame_id"),
                 module_id=_field("module_id"),
@@ -995,7 +1025,7 @@ class RuntimeService:
                 step = engine.run_next_transition(state)
             else:
                 step = engine.run_next_transition(state, decision_resume=decision_resume)
-        except RuntimeDecisionResumeMismatch as exc:
+        except (RuntimeDecisionResumeMismatch, PromptFingerprintMismatch) as exc:
             self._save_rejected_command_offset(command_consumer_name, session_id, command_seq)
             return {
                 "status": "rejected",
@@ -1063,7 +1093,7 @@ class RuntimeService:
             runtime_active_prompt_batch = payload.get("runtime_active_prompt_batch")
             runtime_active_prompt_batch = runtime_active_prompt_batch if isinstance(runtime_active_prompt_batch, dict) else {}
             if latest_event_type == "prompt_required" and prompt_boundary_payload:
-                self._materialize_prompt_boundary_sync(loop, session_id, prompt_boundary_payload)
+                self._materialize_prompt_boundary_sync(loop, session_id, prompt_boundary_payload, state=state)
             module_debug_fields = _runtime_module_debug_fields(
                 {
                     **step,
@@ -1175,6 +1205,8 @@ class RuntimeService:
         loop: asyncio.AbstractEventLoop | None,
         session_id: str,
         prompt_payload: dict,
+        *,
+        state: object | None = None,
     ) -> None:
         if loop is None or self._stream_service is None or self._prompt_service is None:
             return
@@ -1183,6 +1215,7 @@ class RuntimeService:
         if not request_id:
             return
         payload.setdefault("provider", "human")
+        self._enrich_prompt_boundary_from_active_batch(payload, state)
         try:
             self._prompt_service.create_prompt(session_id=session_id, prompt=payload)
         except ValueError as exc:
@@ -1266,6 +1299,79 @@ class RuntimeService:
                 },
             }
             self._materialize_prompt_boundary_sync(loop, session_id, {**payload, "provider": "human"})
+
+    @staticmethod
+    def _enrich_prompt_boundary_from_active_batch(payload: dict, state: object | None) -> None:
+        def _field(source: object | None, key: str, default: object | None = None) -> object | None:
+            if isinstance(source, dict):
+                return source.get(key, default)
+            return getattr(source, key, default)
+
+        def _text_field(source: object | None, key: str) -> str:
+            return str(_field(source, key, "") or "").strip()
+
+        request_id = str(payload.get("request_id") or "").strip()
+        derived_batch_id = _derive_batch_id_from_request_id(request_id)
+        if derived_batch_id and not str(payload.get("batch_id") or "").strip():
+            payload["batch_id"] = derived_batch_id
+
+        batch = getattr(state, "runtime_active_prompt_batch", None) if state is not None else None
+        if batch is None:
+            return
+
+        active_batch_id = _text_field(batch, "batch_id")
+        prompts = _field(batch, "prompts_by_player_id", {}) or {}
+        if not isinstance(prompts, dict):
+            prompts = {}
+        matching_prompt = None
+        for internal_player_id, continuation in prompts.items():
+            if _text_field(continuation, "request_id") == request_id:
+                matching_prompt = continuation
+                break
+            try:
+                continuation_internal_player_id = int(internal_player_id)
+            except (TypeError, ValueError):
+                continue
+            if (
+                active_batch_id
+                and derived_batch_id == active_batch_id
+                and _derive_internal_player_id_from_batch_request_id(request_id) == continuation_internal_player_id
+            ):
+                matching_prompt = continuation
+                break
+        if matching_prompt is None and (not active_batch_id or derived_batch_id != active_batch_id):
+            return
+
+        payload.setdefault("runner_kind", "module")
+        payload["batch_id"] = str(active_batch_id or payload.get("batch_id") or "")
+        if matching_prompt is not None:
+            payload["frame_id"] = str(_text_field(matching_prompt, "frame_id") or payload.get("frame_id") or "")
+            payload["module_id"] = str(_text_field(matching_prompt, "module_id") or payload.get("module_id") or "")
+            payload["module_type"] = str(_text_field(matching_prompt, "module_type") or payload.get("module_type") or "")
+            payload["module_cursor"] = str(_text_field(matching_prompt, "module_cursor") or payload.get("module_cursor") or "")
+            payload["resume_token"] = str(_text_field(matching_prompt, "resume_token") or payload.get("resume_token") or "")
+        missing_player_ids = [
+            int(missing_player_id) + 1
+            for missing_player_id in list(_field(batch, "missing_player_ids", []) or [])
+        ]
+        payload["missing_player_ids"] = missing_player_ids
+        payload["resume_tokens_by_player_id"] = {
+            str(int(internal_player_id) + 1): _text_field(continuation, "resume_token")
+            for internal_player_id, continuation in prompts.items()
+            if int(internal_player_id) in list(_field(batch, "missing_player_ids", []) or [])
+        }
+        runtime_module = dict(payload.get("runtime_module") or {})
+        runtime_module.update(
+            {
+                "runner_kind": "module",
+                "frame_type": "simultaneous",
+                "frame_id": payload["frame_id"],
+                "module_id": payload["module_id"],
+                "module_type": payload["module_type"],
+                "module_cursor": payload["module_cursor"],
+            }
+        )
+        payload["runtime_module"] = runtime_module
 
 
 class _ServerDecisionPolicyBridge:
@@ -2059,9 +2165,11 @@ class _LocalHumanDecisionClient:
             request = getattr(active_call, "request", None)
             if request is not None:
                 envelope.setdefault("request_type", getattr(request, "request_type", None))
-                if "player_id" not in envelope:
-                    internal_player_id = getattr(request, "player_id", None)
+                internal_player_id = getattr(request, "player_id", None)
+                if internal_player_id is not None:
                     envelope["player_id"] = int(internal_player_id) + 1 if internal_player_id is not None else None
+                else:
+                    envelope.setdefault("player_id", None)
                 envelope.setdefault("fallback_policy", getattr(request, "fallback_policy", None))
                 prompt_context = dict(envelope.get("public_context") or {})
                 request_context = dict(getattr(request, "public_context", {}) or {})

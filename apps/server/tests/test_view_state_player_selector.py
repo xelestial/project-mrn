@@ -298,7 +298,7 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
                     "character": "산적",
                 },
             )
-            prompt = await stream.publish(
+            await stream.publish(
                 "sess_1",
                 "prompt",
                 module_prompt({
@@ -316,8 +316,8 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
                     },
                 }, module_type="TargetJudicatorModule", frame_id="turn:test:p0"),
             )
-            projected = await stream.project_message_for_viewer(
-                prompt.to_dict(),
+            projected = await stream.latest_view_commit_message_for_viewer(
+                "sess_1",
                 ViewerContext(role="seat", session_id="sess_1", player_id=1),
             )
             return projected["payload"]["view_state"]
@@ -364,7 +364,7 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
                     "character": "만신",
                 },
             )
-            prompt = await stream.publish(
+            await stream.publish(
                 "sess_1",
                 "prompt",
                 module_prompt({
@@ -387,8 +387,8 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
                     },
                 }),
             )
-            projected = await stream.project_message_for_viewer(
-                prompt.to_dict(),
+            projected = await stream.latest_view_commit_message_for_viewer(
+                "sess_1",
                 ViewerContext(role="seat", session_id="sess_1", player_id=1),
             )
             return projected["payload"]["view_state"]

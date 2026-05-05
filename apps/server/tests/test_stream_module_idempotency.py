@@ -6,6 +6,10 @@ from apps.server.src.services.stream_service import StreamService
 from apps.server.tests.prompt_payloads import module_prompt
 
 
+def _source_messages(messages):
+    return [message for message in messages if message.type != "view_commit"]
+
+
 def test_same_idempotency_key_returns_existing_message() -> None:
     service = StreamService()
 
@@ -14,7 +18,7 @@ def test_same_idempotency_key_returns_existing_message() -> None:
         second = await service.publish("s1", "event", {"event_type": "dice_roll", "idempotency_key": "idem:1", "dice": [6]})
 
         assert first.seq == second.seq
-        assert len(await service.snapshot("s1")) == 1
+        assert len(_source_messages(await service.snapshot("s1"))) == 1
 
     asyncio.run(_run())
 
@@ -39,7 +43,7 @@ def test_same_event_type_different_module_id_publishes_twice() -> None:
             },
         )
 
-        assert len(await service.snapshot("s1")) == 2
+        assert len(_source_messages(await service.snapshot("s1"))) == 2
 
     asyncio.run(_run())
 
@@ -81,9 +85,9 @@ def test_request_scoped_prompt_ignores_shared_module_idempotency_key() -> None:
         snapshot = await service.snapshot("s1")
 
         assert first.seq == 1
-        assert second.seq == 2
+        assert second.seq == 3
         assert duplicate.seq == second.seq
-        assert [message.payload["request_id"] for message in snapshot] == ["req:draft", "req:final"]
+        assert [message.payload["request_id"] for message in _source_messages(snapshot)] == ["req:draft", "req:final"]
 
     asyncio.run(_run())
 
@@ -128,8 +132,8 @@ def test_request_scoped_decision_event_ignores_shared_module_idempotency_key() -
         snapshot = await service.snapshot("s1")
 
         assert first.seq == 1
-        assert second.seq == 2
+        assert second.seq == 3
         assert duplicate.seq == second.seq
-        assert [message.payload["request_id"] for message in snapshot] == ["req:draft", "req:final"]
+        assert [message.payload["request_id"] for message in _source_messages(snapshot)] == ["req:draft", "req:final"]
 
     asyncio.run(_run())
