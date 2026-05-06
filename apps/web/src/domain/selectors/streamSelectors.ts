@@ -185,6 +185,7 @@ export type CurrentTurnRevealItem = {
   tone: "move" | "effect" | "economy";
   focusTileIndex: number | null;
   isInterrupt: boolean;
+  effectCharacter?: string;
 };
 
 export type TileViewModel = {
@@ -281,6 +282,7 @@ type BackendSceneCoreActionItemProjection = {
   actorPlayerId: number | null;
   roundIndex: number | null;
   turnIndex: number | null;
+  detail: string;
 };
 
 type BackendSceneTimelineItemProjection = {
@@ -1138,7 +1140,7 @@ export function selectCoreActionFeed(
     round: item.roundIndex,
     turn: item.turnIndex,
     label: eventLabelForCode(item.eventCode, text.eventLabel),
-    detail: "",
+    detail: item.detail,
     isLocalActor: focusPlayerId !== null && item.actorPlayerId === focusPlayerId,
   }));
 }
@@ -2369,6 +2371,7 @@ function selectBackendScene(messages: InboundMessage[]): BackendSceneProjection 
           actorPlayerId: typeof item["actor_player_id"] === "number" ? item["actor_player_id"] : null,
           roundIndex: typeof item["round_index"] === "number" ? item["round_index"] : null,
           turnIndex: typeof item["turn_index"] === "number" ? item["turn_index"] : null,
+          detail: typeof item["detail"] === "string" && item["detail"].trim() ? item["detail"].trim() : "-",
         } satisfies BackendSceneCoreActionItemProjection;
       })
       .filter((item): item is BackendSceneCoreActionItemProjection => item !== null),
@@ -2412,7 +2415,7 @@ function selectBackendCurrentTurnRevealItems(
     return null;
   }
   return items
-    .map((item) => {
+    .map((item): CurrentTurnRevealItem | null => {
       if (!isRecord(item) || typeof item["seq"] !== "number" || typeof item["event_code"] !== "string") {
         return null;
       }
@@ -2422,6 +2425,12 @@ function selectBackendCurrentTurnRevealItems(
           ? item["label"].trim()
           : eventLabelForCode(eventCode, text.eventLabel);
       const detail = typeof item["detail"] === "string" && item["detail"].trim() ? item["detail"].trim() : "-";
+      const effectCharacter =
+        typeof item["effect_character"] === "string" && item["effect_character"].trim()
+          ? item["effect_character"].trim()
+          : typeof item["effect_character_name"] === "string" && item["effect_character_name"].trim()
+            ? item["effect_character_name"].trim()
+            : undefined;
       return {
         seq: item["seq"],
         eventCode,
@@ -2437,6 +2446,7 @@ function selectBackendCurrentTurnRevealItems(
                 : "effect",
         focusTileIndex: typeof item["focus_tile_index"] === "number" ? item["focus_tile_index"] : null,
         isInterrupt: item["is_interrupt"] === true,
+        effectCharacter,
       } satisfies CurrentTurnRevealItem;
     })
     .filter((item): item is CurrentTurnRevealItem => item !== null);
@@ -2532,6 +2542,8 @@ type BackendTurnStageProjection = {
   currentBeatKind: TurnStageViewModel["currentBeatKind"];
   currentBeatEventCode: string;
   currentBeatRequestType: string;
+  currentBeatLabel: string;
+  currentBeatDetail: string;
   currentBeatSeq: number | null;
   focusTileIndex: number | null;
   focusTileIndices: number[];
@@ -2554,6 +2566,22 @@ type BackendTurnStageProjection = {
   actorTotalScore: number | null;
   actorOwnedTileCount: number | null;
   progressCodes: string[];
+  diceSummary: string;
+  moveSummary: string;
+  trickSummary: string;
+  landingSummary: string;
+  purchaseSummary: string;
+  rentSummary: string;
+  turnEndSummary: string;
+  fortuneDrawSummary: string;
+  fortuneResolvedSummary: string;
+  fortuneSummary: string;
+  lapRewardSummary: string;
+  markSummary: string;
+  flipSummary: string;
+  weatherSummary: string;
+  effectSummary: string;
+  promptSummary: string;
 };
 
 function selectBackendTurnStage(messages: InboundMessage[]): BackendTurnStageProjection | null {
@@ -2588,6 +2616,14 @@ function selectBackendTurnStage(messages: InboundMessage[]): BackendTurnStagePro
     currentBeatRequestType:
       typeof turnStage["current_beat_request_type"] === "string" && turnStage["current_beat_request_type"].trim()
         ? turnStage["current_beat_request_type"]
+        : "-",
+    currentBeatLabel:
+      typeof turnStage["current_beat_label"] === "string" && turnStage["current_beat_label"].trim()
+        ? turnStage["current_beat_label"]
+        : "-",
+    currentBeatDetail:
+      typeof turnStage["current_beat_detail"] === "string" && turnStage["current_beat_detail"].trim()
+        ? turnStage["current_beat_detail"]
         : "-",
     currentBeatSeq: typeof turnStage["current_beat_seq"] === "number" ? turnStage["current_beat_seq"] : null,
     focusTileIndex: typeof turnStage["focus_tile_index"] === "number" ? turnStage["focus_tile_index"] : null,
@@ -2642,6 +2678,22 @@ function selectBackendTurnStage(messages: InboundMessage[]): BackendTurnStagePro
     actorOwnedTileCount:
       typeof turnStage["actor_owned_tile_count"] === "number" ? turnStage["actor_owned_tile_count"] : null,
     progressCodes: stringArray(turnStage["progress_codes"]),
+    diceSummary: asString(turnStage["dice_summary"]),
+    moveSummary: asString(turnStage["move_summary"]),
+    trickSummary: asString(turnStage["trick_summary"]),
+    landingSummary: asString(turnStage["landing_summary"]),
+    purchaseSummary: asString(turnStage["purchase_summary"]),
+    rentSummary: asString(turnStage["rent_summary"]),
+    turnEndSummary: asString(turnStage["turn_end_summary"]),
+    fortuneDrawSummary: asString(turnStage["fortune_draw_summary"]),
+    fortuneResolvedSummary: asString(turnStage["fortune_resolved_summary"]),
+    fortuneSummary: asString(turnStage["fortune_summary"]),
+    lapRewardSummary: asString(turnStage["lap_reward_summary"]),
+    markSummary: asString(turnStage["mark_summary"]),
+    flipSummary: asString(turnStage["flip_summary"]),
+    weatherSummary: asString(turnStage["weather_summary"]),
+    effectSummary: asString(turnStage["effect_summary"]),
+    promptSummary: asString(turnStage["prompt_summary"]),
   };
 }
 
@@ -2697,15 +2749,40 @@ function applyBackendTurnStageProjection(
   model.actorPlacedCoins = backendTurnStage.actorPlacedCoins;
   model.actorTotalScore = backendTurnStage.actorTotalScore;
   model.actorOwnedTileCount = backendTurnStage.actorOwnedTileCount;
-  model.currentBeatLabel = labelForTurnStageCode(
+  model.diceSummary = backendTurnStage.diceSummary;
+  model.moveSummary = backendTurnStage.moveSummary;
+  model.trickSummary = backendTurnStage.trickSummary;
+  model.landingSummary = backendTurnStage.landingSummary;
+  model.purchaseSummary = backendTurnStage.purchaseSummary;
+  model.rentSummary = backendTurnStage.rentSummary;
+  model.turnEndSummary = backendTurnStage.turnEndSummary;
+  model.fortuneDrawSummary = backendTurnStage.fortuneDrawSummary;
+  model.fortuneResolvedSummary = backendTurnStage.fortuneResolvedSummary;
+  model.fortuneSummary = backendTurnStage.fortuneSummary;
+  model.lapRewardSummary = backendTurnStage.lapRewardSummary;
+  model.markSummary = backendTurnStage.markSummary;
+  model.flipSummary = backendTurnStage.flipSummary;
+  model.weatherSummary = backendTurnStage.weatherSummary;
+  model.effectSummary = backendTurnStage.effectSummary;
+  model.promptSummary = backendTurnStage.promptSummary;
+  const defaultBeatLabel = labelForTurnStageCode(
     backendTurnStage.currentBeatEventCode,
     backendTurnStage.currentBeatRequestType,
     text
   );
+  model.currentBeatLabel =
+    backendTurnStage.currentBeatEventCode !== "prompt_active" && backendTurnStage.currentBeatLabel !== "-"
+      ? backendTurnStage.currentBeatLabel
+      : defaultBeatLabel;
   const beatSource =
     backendTurnStage.currentBeatSeq === null ? null : messageBySeq.get(backendTurnStage.currentBeatSeq) ?? null;
-  model.currentBeatDetail =
-    backendTurnStage.currentBeatEventCode === "prompt_active"
+  const explicitBeatDetail =
+    backendTurnStage.currentBeatEventCode !== "prompt_active" && backendTurnStage.currentBeatDetail !== "-"
+      ? backendTurnStage.currentBeatDetail
+      : "";
+  model.currentBeatDetail = explicitBeatDetail
+    ? explicitBeatDetail
+    : backendTurnStage.currentBeatEventCode === "prompt_active"
       ? text.stream.promptWaiting(promptLabelForType(backendTurnStage.currentBeatRequestType, text.promptType))
       : beatSource
         ? pickMessageDetail(beatSource, text) || "-"

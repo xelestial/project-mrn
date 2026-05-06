@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { nextFollowupCommitBase, withAuthoritativeViewCommits } from "./helpers/authoritativeMockRuntime";
 
 const WEATHER_EFFECT_BY_NAME: Record<string, string> = {
   "긴급 피난": "모든 짐 제거 비용이 2배가 됩니다.",
@@ -193,6 +194,32 @@ async function installMockRuntime(
     >;
   },
 ): Promise<void> {
+  const sessionEvents = withAuthoritativeViewCommits({
+    sessionManifests: args.sessionManifests,
+    sessionEvents: args.sessionEvents,
+    createSessionQueue: args.createSessionQueue,
+    startedSessions: args.startedSessions,
+  }) as Record<string, StreamMessage[]>;
+  const followupCommitBaseBySession = new Map<string, number>();
+  const decisionFollowups = Object.fromEntries(
+    Object.entries(args.decisionFollowups ?? {}).map(([requestId, followups]) => {
+      const sessionId = followups[0]?.session_id;
+      if (!sessionId) {
+        return [requestId, followups];
+      }
+      const startingCommitSeq = followupCommitBaseBySession.get(sessionId) ?? nextFollowupCommitBase(sessionEvents[sessionId]);
+      const normalized = withAuthoritativeViewCommits({
+        sessionManifests: args.sessionManifests,
+        sessionEvents: { [sessionId]: followups },
+        createSessionQueue: args.createSessionQueue,
+        startedSessions: args.startedSessions,
+        startingCommitSeq,
+      })[sessionId] as TimedStreamMessage[];
+      followupCommitBaseBySession.set(sessionId, nextFollowupCommitBase(normalized, startingCommitSeq));
+      return [requestId, normalized];
+    }),
+  ) as Record<string, TimedStreamMessage[]>;
+
   await page.addInitScript(
     ({ sessionManifests, sessionEvents, decisionFollowups, createSessionQueue, joinResults, startedSessions }) => {
       window.localStorage.setItem("mrn:web:locale", "ko");
@@ -239,6 +266,18 @@ async function installMockRuntime(
         );
       }
 
+      function latestCommitForSession(sessionId: string): StreamMessage | null {
+        const commits = (eventsBySession[sessionId] ?? []).filter((message) => message.type === "view_commit");
+        if (commits.length === 0) {
+          return null;
+        }
+        return commits.reduce((latest, message) => {
+          const latestSeq = typeof latest.payload.commit_seq === "number" ? latest.payload.commit_seq : 0;
+          const currentSeq = typeof message.payload.commit_seq === "number" ? message.payload.commit_seq : 0;
+          return currentSeq > latestSeq ? message : latest;
+        });
+      }
+
       const originalFetch = window.fetch.bind(window);
       window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const urlValue = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -247,13 +286,27 @@ async function installMockRuntime(
         const method = (init?.method ?? "GET").toUpperCase();
         const sessionMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)$/);
         const runtimeMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)\/runtime-status$/);
+        const viewCommitMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)\/view-commit$/);
         const joinMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)\/join$/);
         const startMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)\/start$/);
         if (runtimeMatch) {
+          const sessionId = decodeURIComponent(runtimeMatch[1]);
+          const latestCommit = latestCommitForSession(sessionId);
           return response({
-            session_id: decodeURIComponent(runtimeMatch[1]),
-            runtime: { status: "running", watchdog_state: "ok", last_activity_ms: Date.now() },
+            session_id: sessionId,
+            runtime: {
+              status: latestCommit?.payload.runtime && typeof latestCommit.payload.runtime === "object"
+                ? (latestCommit.payload.runtime as Record<string, unknown>).status ?? "running"
+                : "running",
+              watchdog_state: "ok",
+              last_activity_ms: Date.now(),
+            },
           });
+        }
+        if (viewCommitMatch) {
+          const sessionId = decodeURIComponent(viewCommitMatch[1]);
+          const latestCommit = latestCommitForSession(sessionId);
+          return latestCommit ? response(latestCommit.payload) : response(null, 404);
         }
         if (path === "/api/v1/sessions" && method === "POST") {
           const created = pendingCreates.shift();
@@ -406,8 +459,13 @@ async function installMockRuntime(
           }
           const match = this.url.match(/\/api\/v1\/sessions\/([^/]+)\/stream/);
           const sessionId = match ? decodeURIComponent(match[1]) : "";
-          const lastSeq = typeof payload.last_seq === "number" ? payload.last_seq : 0;
-          const replay = (eventsBySession[sessionId] ?? []).filter((message) => message.seq > lastSeq);
+          const lastCommitSeq = typeof payload.last_commit_seq === "number" ? payload.last_commit_seq : 0;
+          const latestCommit = latestCommitForSession(sessionId);
+          const replay = lastCommitSeq <= 0
+            ? (eventsBySession[sessionId] ?? [])
+            : latestCommit
+              ? [latestCommit]
+              : [];
           this.emitMessages(replay);
         }
 
@@ -426,7 +484,7 @@ async function installMockRuntime(
         value: MockWebSocket,
       });
     },
-    args,
+    { ...args, sessionEvents, decisionFollowups },
   );
 }
 
@@ -1841,11 +1899,11 @@ test("non-default topology fixture renders line board and 3-seat lobby options",
   await page.goto("/#/match?session=sess_line");
   await expect(page.locator(".tile-card")).toHaveCount(6);
   await page.getByRole("button", { name: "로비" }).click();
-  const joinOptions = page.locator("label:has-text('참가 좌석') option");
+  const joinOptions = page.getByRole("combobox", { name: "호스트 좌석" }).locator("option");
   await expect(joinOptions).toHaveCount(3);
-  await expect(joinOptions.nth(0)).toHaveValue("1");
-  await expect(joinOptions.nth(1)).toHaveValue("2");
-  await expect(joinOptions.nth(2)).toHaveValue("3");
+  await expect(joinOptions.nth(0)).toHaveAttribute("value", "1");
+  await expect(joinOptions.nth(1)).toHaveAttribute("value", "2");
+  await expect(joinOptions.nth(2)).toHaveAttribute("value", "3");
 });
 
 test("manifest-hash reconnect fixture rehydrates projection after session switch", async ({ page }) => {
@@ -1902,7 +1960,7 @@ test("manifest-hash reconnect fixture rehydrates projection after session switch
   await expect(page.getByTestId("runtime-manifest-metadata")).toHaveAttribute("data-board-topology", "line");
   await expect(page.getByTestId("runtime-manifest-metadata")).toHaveAttribute("data-tile-count", "7");
   await page.getByRole("button", { name: "로비" }).click();
-  await expect(page.locator("label:has-text('참가 좌석') option")).toHaveCount(3);
+  await expect(page.getByRole("combobox", { name: "호스트 좌석" }).locator("option")).toHaveCount(3);
 });
 
 test("parameter matrix fixture rehydrates seat/economy/dice assumptions", async ({ page }) => {
@@ -1938,7 +1996,7 @@ test("parameter matrix fixture rehydrates seat/economy/dice assumptions", async 
   });
 
   await page.goto("/#/match?session=sess_matrix");
-  await page.getByRole("button", { name: "Raw 보기" }).click();
+  await page.getByRole("button", { name: "디버그 로그" }).click();
   await expect(page.locator(".tile-card")).toHaveCount(5);
   await expect(page.getByTestId("runtime-manifest-metadata")).toHaveAttribute("data-manifest-hash", manifest.manifest_hash);
   await expect(page.getByTestId("runtime-manifest-metadata")).toHaveAttribute("data-starting-cash", "55");
@@ -1947,5 +2005,5 @@ test("parameter matrix fixture rehydrates seat/economy/dice assumptions", async 
   await expect(page.getByTestId("runtime-manifest-metadata")).toHaveAttribute("data-seat-allowed", "1,2");
   await expect(page.getByTestId("runtime-manifest-metadata")).toHaveAttribute("data-tile-count", "5");
   await page.getByRole("button", { name: "로비" }).click();
-  await expect(page.locator("label:has-text('참가 좌석') option")).toHaveCount(2);
+  await expect(page.getByRole("combobox", { name: "호스트 좌석" }).locator("option")).toHaveCount(2);
 });

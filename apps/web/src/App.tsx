@@ -315,8 +315,22 @@ function rentOverlayKindForPlayer(
   }
   const playerToken = `P${playerId}`;
   const escapedToken = playerToken.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const payerPattern = new RegExp(`\\b${escapedToken}\\b\\s*(?:->|paid\\b)`);
-  const receiverPattern = new RegExp(`(?:->|paid\\s+P\\d+\\s+to\\s+)\\s*\\b${escapedToken}\\b|\\bpaid\\s+\\b${escapedToken}\\b`);
+  const arrowPattern = /\bP(\d+)\b\s*->\s*\bP(\d+)\b/;
+  const arrowMatch = arrowPattern.exec(detail);
+  if (arrowMatch) {
+    if (arrowMatch[1] === String(playerId)) {
+      return "rent_pay";
+    }
+    if (arrowMatch[2] === String(playerId)) {
+      return "rent_receive";
+    }
+  }
+  const paidToPattern = new RegExp(`\\bpaid\\s+P\\d+\\s+to\\s+\\b${escapedToken}\\b`);
+  const payerPattern = new RegExp(`\\b${escapedToken}\\b\\s+paid\\b`);
+  const receiverPattern = new RegExp(`\\bpaid\\s+\\b${escapedToken}\\b`);
+  if (paidToPattern.test(detail)) {
+    return "rent_receive";
+  }
   if (payerPattern.test(detail)) {
     return "rent_pay";
   }
@@ -989,10 +1003,14 @@ export function App() {
       }));
   }, [derivedPlayers, markerOrderedPlayers, sessionSeats]);
 
-  const joinSeatOptions = (sessionManifest?.seats?.allowed ?? [])
-    .slice()
-    .sort((a, b) => a - b)
-    .map((seat) => String(seat));
+  const joinSeatOptions = useMemo(
+    () =>
+      (sessionManifest?.seats?.allowed ?? [])
+        .slice()
+        .sort((a, b) => a - b)
+        .map((seat) => String(seat)),
+    [sessionManifest?.seats?.allowed]
+  );
   const manifestTiles = (sessionManifest?.board?.tiles ?? []).map((tile) => ({
     tileIndex: tile.tile_index,
     tileKind: tile.tile_kind,
@@ -1300,6 +1318,16 @@ export function App() {
   }, [joinSeatInput, joinSeatOptions]);
 
   useEffect(() => {
+    if (joinSeatOptions.length === 0) {
+      return;
+    }
+    setSeatCountInput(String(joinSeatOptions.length));
+    if (!joinSeatOptions.includes(hostSeatInput)) {
+      setHostSeatInput(joinSeatOptions[0]);
+    }
+  }, [hostSeatInput, joinSeatOptions]);
+
+  useEffect(() => {
     const parsed = Number(seatCountInput);
     if (!Number.isFinite(parsed)) {
       return;
@@ -1550,8 +1578,9 @@ export function App() {
     if (pendingRevealItems.length === 0) return;
 
     for (const item of pendingRevealItems) {
-      const { eventCode, label, detail, seq } = item;
+      const { eventCode, label, detail, seq, effectCharacter } = item;
       const sourcePayload = appRecordOrNull(stream.messages.find((message) => message.seq === seq)?.payload);
+      const authoritativeEffectCharacter = effectCharacter ?? effectCharacterFromPayload(sourcePayload);
       const effect = (kind: EventOverlayEffectKind) =>
         eventEffectForReveal({
           eventCode,
@@ -1583,7 +1612,7 @@ export function App() {
           label,
           detail,
           ...effect("purchase"),
-          effectCharacter: effectCharacterFromPayload(sourcePayload),
+          effectCharacter: authoritativeEffectCharacter,
         });
       } else if (eventCode === "rent_paid") {
         const kind = rentOverlayKindForPlayer(detail, effectivePlayerId);
@@ -1612,7 +1641,7 @@ export function App() {
           label,
           detail,
           ...effect("mark_success"),
-          effectCharacter: effectCharacterFromPayload(sourcePayload),
+          effectCharacter: authoritativeEffectCharacter,
         });
       } else if (eventCode === "ability_suppressed") {
         eventQueue.enqueue({
@@ -1620,7 +1649,7 @@ export function App() {
           label,
           detail,
           ...effect("economy"),
-          effectCharacter: effectCharacterFromPayload(sourcePayload),
+          effectCharacter: authoritativeEffectCharacter,
         });
       } else if (eventCode === "bankruptcy") {
         eventQueue.enqueue({ kind: "bankruptcy", label, detail, ...effect("bankruptcy") });

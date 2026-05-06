@@ -798,12 +798,13 @@ function selectBackendActivePrompt(messages: InboundMessage[]): PromptViewModel 
     return null;
   }
   const publicContext = isRecord(active["public_context"]) ? active["public_context"] : {};
+  const choicesRaw = Array.isArray(active["choices"]) ? active["choices"] : active["legal_choices"];
   return {
     requestId,
     requestType,
     playerId,
     timeoutMs: typeof active["timeout_ms"] === "number" ? active["timeout_ms"] : 30000,
-    choices: parseChoices(active["choices"]),
+    choices: parseChoices(choicesRaw),
     publicContext: { ...publicContext },
     continuation: parsePromptContinuation(active),
     effectContext: parsePromptEffectContext(active["effect_context"]),
@@ -812,7 +813,7 @@ function selectBackendActivePrompt(messages: InboundMessage[]): PromptViewModel 
       active["surface"],
       requestType,
       publicContext,
-      active["choices"]
+      choicesRaw
     ),
   };
 }

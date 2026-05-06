@@ -642,7 +642,7 @@ body {
 .match-global-bar {
   position: sticky;
   top: 0;
-  z-index: 920;
+  z-index: 5000;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;

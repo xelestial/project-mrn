@@ -556,7 +556,7 @@ export function BoardPanel({
         })?.tileIndex ?? null
       : null;
   const showBoardRevealPanel =
-    Boolean(revealFocus) && revealFocus?.focusTileIndex === null && actorRevealFallbackTileIndex === null;
+    Boolean(revealFocus) && (useQuarterview || (revealFocus?.focusTileIndex === null && actorRevealFallbackTileIndex === null));
   const tilesByIndex = new Map(tiles.map((tile) => [tile.tileIndex, tile]));
   const projectedTilePolygons = useQuarterview
     ? quarterviewTilePolygons(tiles.length, normalizedTopology).filter((polygon) => tilesByIndex.has(polygon.tileIndex))
@@ -876,7 +876,7 @@ export function BoardPanel({
                     {board.activeTurnTag(stageFocus.actorPlayerId ?? 0)}
                   </div>
                 ) : null}
-                {isRevealFocus ? (
+                {!useQuarterview && isRevealFocus ? (
                   <div
                     className={`tile-reveal-spotlight tile-reveal-spotlight-${revealFocus?.tone ?? "effect"}`}
                     data-testid={`board-reveal-spotlight-${revealFocus?.eventCode ?? "event"}`}

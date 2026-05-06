@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { withAuthoritativeViewCommits } from "./helpers/authoritativeMockRuntime";
 
 type ManifestRecord = {
   manifest_version: number;
@@ -482,6 +483,13 @@ async function installMockRuntime(
     >;
   }
 ): Promise<void> {
+  const sessionEvents = withAuthoritativeViewCommits({
+    sessionManifests: args.sessionManifests,
+    sessionEvents: args.sessionEvents,
+    createSessionQueue: args.createSessionQueue,
+    startedSessions: args.startedSessions,
+  }) as Record<string, StreamMessage[]>;
+
   await page.addInitScript(
     ({ sessionManifests, sessionEvents, createSessionQueue, joinResults, startedSessions }) => {
       const manifests = sessionManifests as Record<string, ManifestRecord>;
@@ -502,6 +510,18 @@ async function installMockRuntime(
         );
       }
 
+      function latestCommitForSession(sessionId: string): StreamMessage | null {
+        const commits = (eventsBySession[sessionId] ?? []).filter((message) => message.type === "view_commit");
+        if (commits.length === 0) {
+          return null;
+        }
+        return commits.reduce((latest, message) => {
+          const latestSeq = typeof latest.payload.commit_seq === "number" ? latest.payload.commit_seq : 0;
+          const currentSeq = typeof message.payload.commit_seq === "number" ? message.payload.commit_seq : 0;
+          return currentSeq > latestSeq ? message : latest;
+        });
+      }
+
       const originalFetch = window.fetch.bind(window);
       window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const urlValue = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -510,14 +530,30 @@ async function installMockRuntime(
         const method = (init?.method ?? "GET").toUpperCase();
         const sessionMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)$/);
         const runtimeMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)\/runtime-status$/);
+        const viewCommitMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)\/view-commit$/);
         const joinMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)\/join$/);
         const startMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)\/start$/);
 
         if (runtimeMatch) {
+          const sessionId = decodeURIComponent(runtimeMatch[1]);
+          const latestCommit = latestCommitForSession(sessionId);
           return response({
-            session_id: decodeURIComponent(runtimeMatch[1]),
-            runtime: { status: "running", watchdog_state: "ok", last_activity_ms: Date.now() },
+            session_id: sessionId,
+            runtime: {
+              status:
+                latestCommit?.payload.runtime && typeof latestCommit.payload.runtime === "object"
+                  ? (latestCommit.payload.runtime as Record<string, unknown>).status ?? "running"
+                  : "running",
+              watchdog_state: "ok",
+              last_activity_ms: Date.now(),
+            },
           });
+        }
+
+        if (viewCommitMatch) {
+          const sessionId = decodeURIComponent(viewCommitMatch[1]);
+          const latestCommit = latestCommitForSession(sessionId);
+          return latestCommit ? response(latestCommit.payload) : response(null, 404);
         }
 
         if (path === "/api/v1/sessions" && method === "POST") {
@@ -638,8 +674,9 @@ async function installMockRuntime(
           }
           const match = this.url.match(/\/api\/v1\/sessions\/([^/]+)\/stream/);
           const sessionId = match ? decodeURIComponent(match[1]) : "";
-          const lastSeq = typeof payload.last_seq === "number" ? payload.last_seq : 0;
-          const replay = (eventsBySession[sessionId] ?? []).filter((message) => message.seq > lastSeq);
+          const lastCommitSeq = typeof payload.last_commit_seq === "number" ? payload.last_commit_seq : 0;
+          const latestCommit = latestCommitForSession(sessionId);
+          const replay = lastCommitSeq <= 0 ? (eventsBySession[sessionId] ?? []) : latestCommit ? [latestCommit] : [];
           replay.forEach((message, index) => {
             window.setTimeout(() => {
               if (this.readyState !== MockWebSocket.OPEN) {
@@ -665,7 +702,7 @@ async function installMockRuntime(
         value: MockWebSocket,
       });
     },
-    args
+    { ...args, sessionEvents }
   );
 }
 
