@@ -8,7 +8,7 @@ from enum import Enum
 class SessionStatus(str, Enum):
     WAITING = "waiting"
     IN_PROGRESS = "in_progress"
-    FINISHED = "finished"
+    COMPLETED = "completed"
     ABORTED = "aborted"
 
 

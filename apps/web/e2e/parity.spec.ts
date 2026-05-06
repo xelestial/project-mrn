@@ -653,14 +653,14 @@ test("quick start human vs ai enters match and surfaces the first human prompt",
   ]);
 });
 
-test("finished engine transition shows a visible game-end state even with a stale backend turn projection", async ({ page }) => {
+test("completed engine transition shows a visible game-end state even with a stale backend turn projection", async ({ page }) => {
   const manifest = buildManifest({
-    hash: "finished_engine_transition_hash_001",
+    hash: "completed_engine_transition_hash_001",
     topology: "ring",
     tileCount: 40,
     seats: [1, 2, 3, 4],
   });
-  const sessionId = "sess_finished_engine_transition";
+  const sessionId = "sess_completed_engine_transition";
 
   await installMockRuntime(page, {
     sessionManifests: { [sessionId]: manifest },
@@ -743,7 +743,7 @@ test("finished engine transition shows a visible game-end state even with a stal
           sessionId,
           payload: {
             event_type: "engine_transition",
-            status: "finished",
+            status: "completed",
             reason: "end_rule",
           },
         }),
@@ -752,7 +752,7 @@ test("finished engine transition shows a visible game-end state even with a stal
     startedSessions: {
       [sessionId]: {
         session_id: sessionId,
-        status: "finished",
+        status: "completed",
         round_index: 6,
         turn_index: 21,
         seats: [

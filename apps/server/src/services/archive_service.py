@@ -39,12 +39,12 @@ class LocalJsonArchiveService:
         self._service_version = str(service_version or "dev")
         self._cleanup_tasks: dict[str, asyncio.Task] = {}
 
-    async def handle_session_finished(self, session_id: str) -> None:
+    async def handle_session_completed(self, session_id: str) -> None:
         try:
             session = self._session_service.get_session(session_id)
         except Exception:
             return
-        if session.status not in {SessionStatus.FINISHED, SessionStatus.ABORTED}:
+        if session.status not in {SessionStatus.COMPLETED, SessionStatus.ABORTED}:
             return
         room = self._resolve_room(session_id)
         stream_messages = [message.to_dict() for message in await self._stream_service.snapshot(session_id)]
@@ -157,7 +157,7 @@ class LocalJsonArchiveService:
                 "status": session.status.value,
                 "created_at": session.created_at,
                 "started_at": session.started_at,
-                "finished_at": exported_at,
+                "completed_at": exported_at,
                 "seed": seed,
                 "policy_mode": policy_mode,
             },

@@ -382,14 +382,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function messageKindFromPayload(payload: Record<string, unknown>): string {
   const eventType = payload["event_type"];
-  if (eventType === "engine_transition" && payload["status"] === "finished") {
+  if (eventType === "engine_transition" && payload["status"] === "completed") {
     return "game_end";
   }
   return typeof eventType === "string" && eventType.trim() ? eventType : "";
 }
 
-function isFinishedEngineTransitionPayload(payload: Record<string, unknown>): boolean {
-  return payload["event_type"] === "engine_transition" && payload["status"] === "finished";
+function isCompletedEngineTransitionPayload(payload: Record<string, unknown>): boolean {
+  return payload["event_type"] === "engine_transition" && payload["status"] === "completed";
 }
 
 function findLatestTerminalGameEndMessage(messages: InboundMessage[]): InboundMessage | null {

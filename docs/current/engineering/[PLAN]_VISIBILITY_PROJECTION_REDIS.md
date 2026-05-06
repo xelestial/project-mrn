@@ -58,7 +58,7 @@ Keys:
 Store:
 
 - room status, title, host seat, config
-- session status, resolved config, started/finished timestamps
+- session status, resolved config, started/completed timestamps
 - seat type, display name, participant type
 - keyed token hashes only, never raw tokens
 - role principal: seat, player id, spectator/admin permission if supported

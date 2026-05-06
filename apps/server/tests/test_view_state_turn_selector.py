@@ -6,7 +6,7 @@ from apps.server.src.domain.view_state.turn_selector import build_turn_stage_vie
 
 
 class ViewStateTurnSelectorTests(unittest.TestCase):
-    def test_finished_engine_transition_projects_terminal_game_end_stage(self) -> None:
+    def test_completed_engine_transition_projects_terminal_game_end_stage(self) -> None:
         view_state = build_turn_stage_view_state(
             [
                 {
@@ -41,7 +41,7 @@ class ViewStateTurnSelectorTests(unittest.TestCase):
                     "server_time_ms": 3,
                     "payload": {
                         "event_type": "engine_transition",
-                        "status": "finished",
+                        "status": "completed",
                         "reason": "end_rule",
                     },
                 },

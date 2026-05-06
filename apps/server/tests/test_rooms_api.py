@@ -35,7 +35,7 @@ def _reset_state() -> None:
         prompt_service=state.prompt_service,
     )
     state.room_service = RoomService(session_service=state.session_service)
-    state.runtime_service.add_session_finished_callback(state.room_service.handle_session_finished)
+    state.runtime_service.add_session_completed_callback(state.room_service.handle_session_completed)
     state.runtime_service.start_runtime = _noop_start_runtime
 
 

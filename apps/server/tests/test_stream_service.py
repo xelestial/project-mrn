@@ -421,7 +421,7 @@ class StreamServiceTests(unittest.TestCase):
                 service._append_stream_message_no_lock(
                     "s1",
                     "event",
-                    {"event_type": "engine_transition", "status": "finished", "reason": "end_rule"},
+                    {"event_type": "engine_transition", "status": "completed", "reason": "end_rule"},
                     server_time_ms=2000,
                 )
             store.view_commits[("s1", "spectator")] = stale

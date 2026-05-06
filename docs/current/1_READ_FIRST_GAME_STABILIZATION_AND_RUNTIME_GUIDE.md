@@ -45,6 +45,19 @@ Override patterns:
 
 This exists specifically to prevent the stale-backend problem where the browser silently talks to an older local server on a different port.
 
+## Browser Full-Game Timing Rule
+
+Do not fail a browser full-game check because total game duration exceeds an arbitrary wall-clock cap. A game can legitimately take longer depending on rules, seed, AI choices, and prompt timing.
+
+The automated screen test failure rule is:
+
+- prompt/decision timeout stays a rule/runtime setting, currently 30 seconds by default.
+- browser full-game validation has no total-duration limit.
+- while the automated browser test process is running, the visible screen signature must update within 60 seconds.
+- `ViewCommit.commit_seq` is sampled for diagnostics, but it does not reset the visible-screen stall timer.
+- if the visible signature does not update for 60 seconds, classify the run as `screen_update_stalled`.
+- time spent manually inspecting code with no browser-test process running is outside the measurement window.
+
 ## What Must Still Be Stabilized
 
 ### Latest browser gate result: REDIS-UI-10

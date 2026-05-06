@@ -150,7 +150,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
                 },
                 runtime_event_payload={
                     "event_type": "engine_transition",
-                    "status": "finished",
+                    "status": "completed",
                     "reason": "end_rule",
                 },
                 runtime_event_server_time_ms=1234,
@@ -939,7 +939,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         saved_state = game_state.load_current_state(session.session_id)
         saved_checkpoint = game_state.load_checkpoint(session.session_id)
 
-        self.assertEqual(step["status"], "finished")
+        self.assertEqual(step["status"], "completed")
         self.assertIsNotNone(saved_state)
         self.assertEqual(saved_state["f_value"], 15.0)
         self.assertEqual(saved_state["turn_index"], 7)
@@ -1960,7 +1960,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
 
         saved_checkpoint = game_state.load_checkpoint(session.session_id)
         runtime_events = RedisStreamStore(self.connection).snapshot(session.session_id)
-        self.assertEqual(result["status"], "finished")
+        self.assertEqual(result["status"], "completed")
         self.assertEqual(saved_checkpoint["processed_command_seq"], 4)
         self.assertEqual(
             saved_checkpoint["command_commit_envelope"],
@@ -2056,7 +2056,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         messages = asyncio.run(stream_service.snapshot(session.session_id))
         prompt_messages = [msg for msg in messages if msg.type == "prompt" and msg.payload.get("request_id") == request_id]
 
-        self.assertIn(second["status"], {"committed", "waiting_input", "finished"})
+        self.assertIn(second["status"], {"committed", "waiting_input", "completed"})
         self.assertEqual(prompt_store.get_pending(request_id), None)
         self.assertEqual(len(prompt_messages), 1)
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), int(command["seq"]))
@@ -2152,7 +2152,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         with unittest.mock.patch.object(
             runtime,
             "_run_engine_transition_loop_sync",
-            return_value={"status": "finished", "transitions": 1},
+            return_value={"status": "completed", "transitions": 1},
         ) as transition_loop:
             result = runtime._run_engine_sync(
                 unittest.mock.Mock(),
@@ -2161,7 +2161,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
                 None,
             )
 
-        self.assertEqual(result, {"status": "finished", "transitions": 1})
+        self.assertEqual(result, {"status": "completed", "transitions": 1})
         transition_loop.assert_called_once_with(
             unittest.mock.ANY,
             session.session_id,

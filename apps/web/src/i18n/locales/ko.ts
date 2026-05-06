@@ -140,7 +140,7 @@ export const koLocale = {
     },
     runtimeStatus: {
       running: "실행 중",
-      finished: "종료됨",
+      completed: "완료됨",
       failed: "실패",
       recovery_required: "복구 필요",
     },
@@ -299,7 +299,7 @@ export const koLocale = {
       active_flip_resolved: "카드 뒤집기 처리",
       bankruptcy: "파산",
       game_end: "게임 종료",
-      game_finished: "게임 종료",
+      game_completed: "게임 완료",
     },
     nonEvents: {
       prompt: "선택 요청",

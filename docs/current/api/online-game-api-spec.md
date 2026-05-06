@@ -331,7 +331,7 @@ Possible runtime status:
 
 - `idle`
 - `running`
-- `finished`
+- `completed`
 - `failed`
 - `stop_requested`
 - `recovery_required` (session is `in_progress` but runtime task is missing after restart; requires recovery/abort decision)

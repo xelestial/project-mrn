@@ -22,7 +22,7 @@
 - Enriched movement traces with best-single/best-double candidate summaries plus `hold_cards_default` / `single_card_tempo_pick` detectors, and added a small `analyze_ai_decisions.py` helper for summarizing decision logs.
 
 ## v0.7.65-ai-analysis-log (2026-03-29)
-- Finished the AI-improvement pass by exporting per-decision analysis rows into `ai_decisions.jsonl` alongside `games.jsonl` / `errors.jsonl`.
+- Completed the AI-improvement pass by exporting per-decision analysis rows into `ai_decisions.jsonl` alongside `games.jsonl` / `errors.jsonl`.
 - AI decision export now captures the canonical trace payloads for non-trick decisions plus purchase, lap reward, marker flip, and geo bonus choices with per-game seed/run metadata for offline comparison.
 - Chunked batch merge now carries `ai_decisions.jsonl` forward so long-running experiment batches preserve the same analysis stream after merge.
 

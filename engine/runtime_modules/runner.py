@@ -113,7 +113,7 @@ class ModuleRunner:
         if not state.runtime_frame_stack:
             initial_round = self._is_initial_round(state)
             if not initial_round and engine._check_end(state):
-                return {"status": "finished", "reason": "end_rule", "runner_kind": "module"}
+                return {"status": "completed", "reason": "end_rule", "runner_kind": "module"}
             self._install_round_frame_from_state(engine, state, completed_setup=False, initial=initial_round)
 
         frame = self._active_round_frame(state)
@@ -126,7 +126,7 @@ class ModuleRunner:
             )
             frame = self._active_round_frame(state)
         if frame is None:
-            return {"status": "finished", "reason": "empty_round_frame", "runner_kind": "module"}
+            return {"status": "completed", "reason": "empty_round_frame", "runner_kind": "module"}
         module = self._next_live_module(frame)
         if module is None:
             frame.status = "completed"

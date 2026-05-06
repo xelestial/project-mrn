@@ -210,7 +210,7 @@ class RuntimeService:
         self._last_activity_ms: dict[str, int] = {}
         self._fallback_history: dict[str, list[dict]] = {}
         self._watchdog_timeout_ms = int(watchdog_timeout_ms)
-        self._session_finished_callbacks: list = []
+        self._session_completed_callbacks: list = []
         self._runtime_state_store = runtime_state_store
         self._game_state_store = game_state_store
         self._command_store = command_store
@@ -218,10 +218,10 @@ class RuntimeService:
         self._lease_ttl_ms = max(5000, self._watchdog_timeout_ms * 2)
         self._initialize_recovery_state()
 
-    def add_session_finished_callback(self, callback) -> None:
+    def add_session_completed_callback(self, callback) -> None:
         if callback is None:
             return
-        self._session_finished_callbacks.append(callback)
+        self._session_completed_callbacks.append(callback)
 
     async def start_runtime(self, session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
         existing = self._runtime_tasks.get(session_id)
@@ -465,10 +465,10 @@ class RuntimeService:
             status = str(result.get("status", ""))
             if status == "waiting_input":
                 self._status[session_id] = {"status": "waiting_input", "watchdog_state": "waiting_input", "last_transition": result}
-            elif status == "finished":
+            elif status == "completed":
                 self._session_service.finish_session(session_id)
-                await self._notify_session_finished(session_id)
-                self._status[session_id] = {"status": "finished"}
+                await self._notify_session_completed(session_id)
+                self._status[session_id] = {"status": "completed"}
             else:
                 self._status[session_id] = {"status": "idle", "last_transition": result}
             self._touch_activity(session_id)
@@ -509,12 +509,12 @@ class RuntimeService:
                 log_event("runtime_waiting_input", session_id=session_id)
                 return
             self._session_service.finish_session(session_id)
-            await self._notify_session_finished(session_id)
-            self._status[session_id] = {"status": "finished"}
+            await self._notify_session_completed(session_id)
+            self._status[session_id] = {"status": "completed"}
             self._touch_activity(session_id)
             self._persist_runtime_state(session_id)
             self._release_runtime_lease(session_id)
-            log_event("runtime_finished", session_id=session_id)
+            log_event("runtime_completed", session_id=session_id)
         except Exception as exc:
             self._status[session_id] = {"status": "failed", "error": str(exc)}
             self._touch_activity(session_id)
@@ -531,14 +531,14 @@ class RuntimeService:
                 ),
             )
 
-    async def _notify_session_finished(self, session_id: str) -> None:
-        for callback in list(self._session_finished_callbacks):
+    async def _notify_session_completed(self, session_id: str) -> None:
+        for callback in list(self._session_completed_callbacks):
             try:
                 result = callback(session_id)
                 if inspect.isawaitable(result):
                     await result
             except Exception as exc:
-                log_event("session_finished_callback_failed", session_id=session_id, error=str(exc))
+                log_event("session_completed_callback_failed", session_id=session_id, error=str(exc))
                 await self._stream_service.publish(
                     session_id,
                     "error",
@@ -591,7 +591,7 @@ class RuntimeService:
             )
             transitions += 1
             status = str(last_step.get("status", ""))
-            if status in {"finished", "unavailable", "waiting_input", "rejected"}:
+            if status in {"completed", "unavailable", "waiting_input", "rejected"}:
                 return {**last_step, "transitions": transitions}
             if self._prompt_service is not None and self._prompt_service.has_pending_for_session(session_id):
                 current = dict(self._status.get(session_id, {"status": "running"}))
@@ -609,7 +609,7 @@ class RuntimeService:
             status = self._status.get(session_id, {}).get("status")
             if task is None:
                 return
-            if status in {"finished", "failed", "idle"}:
+            if status in {"completed", "failed", "idle"}:
                 return
             if task.done():
                 self._refresh_status(session_id)
@@ -671,7 +671,7 @@ class RuntimeService:
         current = self._status.get(session_id, {})
         status = current.get("status")
         if status == "running" and task.done():
-            self._status[session_id] = {"status": "finished"}
+            self._status[session_id] = {"status": "completed"}
             self._persist_runtime_state(session_id)
 
     @staticmethod
@@ -1805,7 +1805,7 @@ class RuntimeService:
         status = str(step.get("status") or "")
         if status == "waiting_input":
             return "waiting_input"
-        if status in {"completed", "finished", "game_over"} or checkpoint_payload.get("winner_ids") or checkpoint_payload.get("end_reason"):
+        if status in {"completed", "game_over"} or checkpoint_payload.get("winner_ids") or checkpoint_payload.get("end_reason"):
             return "completed"
         return "running"
 

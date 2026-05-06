@@ -353,14 +353,14 @@ class GameEngine:
         state = self.prepare_run(initial_state=initial_state)
         while True:
             step = self.run_next_transition(state)
-            if step["status"] == "finished":
+            if step["status"] == "completed":
                 break
             if step["status"] == "waiting_input":
                 for resume in self._auto_resume_waiting_input(state):
                     step = self.run_next_transition(state, decision_resume=resume)
-                    if step["status"] == "finished":
+                    if step["status"] == "completed":
                         break
-                if step["status"] == "finished":
+                if step["status"] == "completed":
                     break
         result = self._build_result(state)
         self._emit_vis(
@@ -509,7 +509,7 @@ class GameEngine:
                 return self._complete_pending_turn_transition(state)
             if not state.current_round_order:
                 if self._check_end(state):
-                    return {"status": "finished", "reason": "end_rule"}
+                    return {"status": "completed", "reason": "end_rule"}
                 initial_round = (
                     state.rounds_completed == 0
                     and state.turn_index == 0
@@ -518,7 +518,7 @@ class GameEngine:
                 )
                 self._start_new_round(state, initial=initial_round)
                 if not state.current_round_order:
-                    return {"status": "finished", "reason": "empty_round_order"}
+                    return {"status": "completed", "reason": "empty_round_order"}
             current_pid = state.current_round_order[state.turn_index % len(state.current_round_order)]
             player = state.players[current_pid]
             if self._materialize_scheduled_actions(state, phase="turn_start", player_id=current_pid):
@@ -529,7 +529,7 @@ class GameEngine:
                 if state.pending_actions or state.pending_turn_completion:
                     return {"status": "committed", "player_id": current_pid + 1, "turn_index": state.turn_index, "pending_actions": len(state.pending_actions)}
                 if self._check_end(state):
-                    return {"status": "finished", "reason": "end_rule", "player_id": current_pid + 1}
+                    return {"status": "completed", "reason": "end_rule", "player_id": current_pid + 1}
             round_ending = self._is_advancing_past_round_end(state)
             if round_ending:
                 self._apply_round_end_marker_management(state)
@@ -577,7 +577,7 @@ class GameEngine:
             snapshot=build_turn_end_snapshot(state),
         )
         if self._check_end(state):
-            return {"status": "finished", "reason": "end_rule", "player_id": player_id + 1}
+            return {"status": "completed", "reason": "end_rule", "player_id": player_id + 1}
         return self._advance_turn_cursor_after_completion(state, player_id)
 
     def _reset_run_trackers(self) -> None:

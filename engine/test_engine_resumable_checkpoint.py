@@ -110,23 +110,23 @@ def test_engine_next_transition_commits_one_turn_boundary() -> None:
     step = engine.run_next_transition(state)
     payload = state.to_checkpoint_payload()
 
-    assert step["status"] in {"committed", "finished"}
+    assert step["status"] in {"committed", "completed"}
     assert payload["schema_version"] == 1
     assert (
         payload["turn_index"] >= 1
         or payload["pending_actions"]
         or payload["pending_turn_completion"]
         or payload["runtime_frame_stack"]
-        or step["status"] == "finished"
+        or step["status"] == "completed"
     )
     assert len(payload["players"]) == 2
 
     for _ in range(50):
-        if step["status"] == "finished" or state.turn_index >= 1:
+        if step["status"] == "completed" or state.turn_index >= 1:
             break
         step = engine.run_next_transition(state)
 
-    assert state.turn_index >= 1 or step["status"] == "finished"
+    assert state.turn_index >= 1 or step["status"] == "completed"
 
 
 def test_engine_next_transition_drains_one_pending_action_before_turn() -> None:

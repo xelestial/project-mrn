@@ -3037,10 +3037,10 @@ class RuntimeServiceTests(unittest.TestCase):
             async def _exercise() -> dict:
                 await self.runtime_service.start_runtime(session.session_id, seed=99, policy_mode="balanced_v2")
                 status_local = self.runtime_service.runtime_status(session.session_id)
-                self.assertIn(status_local.get("status"), {"running", "finished"})
+                self.assertIn(status_local.get("status"), {"running", "completed"})
                 for _ in range(30):
                     status_local = self.runtime_service.runtime_status(session.session_id)
-                    if status_local.get("status") == "finished":
+                    if status_local.get("status") == "completed":
                         break
                     await asyncio.sleep(0.01)
                 return status_local
@@ -3048,9 +3048,9 @@ class RuntimeServiceTests(unittest.TestCase):
             status = asyncio.run(_exercise())
             for _ in range(3):
                 status = self.runtime_service.runtime_status(session.session_id)
-                if status.get("status") == "finished":
+                if status.get("status") == "completed":
                     break
-            self.assertEqual(status.get("status"), "finished")
+            self.assertEqual(status.get("status"), "completed")
         finally:
             self.runtime_service._run_engine_sync = original  # type: ignore[method-assign]
 

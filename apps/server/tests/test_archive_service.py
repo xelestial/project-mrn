@@ -54,8 +54,8 @@ class ArchiveServiceTests(unittest.TestCase):
                 await streams.publish(session.session_id, "event", {"event_type": "round_start", "round_index": 1})
                 await streams.publish(session.session_id, "event", {"event_type": "turn_start", "turn_index": 1})
                 sessions.finish_session(session.session_id)
-                await archive.handle_session_finished(session.session_id)
-                rooms.handle_session_finished(session.session_id)
+                await archive.handle_session_completed(session.session_id)
+                rooms.handle_session_completed(session.session_id)
                 await asyncio.sleep(0)
 
             asyncio.run(_exercise())
@@ -118,7 +118,7 @@ class ArchiveServiceTests(unittest.TestCase):
             async def _exercise() -> None:
                 await streams.publish(session.session_id, "event", {"event_type": "round_start", "round_index": 1})
                 sessions.finish_session(session.session_id)
-                await archive.handle_session_finished(session.session_id)
+                await archive.handle_session_completed(session.session_id)
                 await asyncio.sleep(0)
 
             asyncio.run(_exercise())
@@ -151,7 +151,7 @@ class ArchiveServiceTests(unittest.TestCase):
             async def _exercise() -> None:
                 await streams.publish(session.session_id, "event", {"event_type": "round_start", "round_index": 1})
                 sessions.finish_session(session.session_id)
-                await archive.handle_session_finished(session.session_id)
+                await archive.handle_session_completed(session.session_id)
                 await asyncio.sleep(0)
 
             asyncio.run(_exercise())

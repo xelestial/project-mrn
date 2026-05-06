@@ -28,7 +28,7 @@ class RuntimeProjectionViewStateTests(unittest.TestCase):
         self.assertEqual(view_state["round_stage"], "draft")
         self.assertEqual(view_state["turn_stage"], "")
 
-    def test_finished_engine_transition_clears_active_module(self) -> None:
+    def test_completed_engine_transition_clears_active_module(self) -> None:
         view_state = build_runtime_view_state([
             {
                 "type": "event",
@@ -48,7 +48,7 @@ class RuntimeProjectionViewStateTests(unittest.TestCase):
                 "type": "event",
                 "payload": {
                     "event_type": "engine_transition",
-                    "status": "finished",
+                    "status": "completed",
                     "reason": "end_rule",
                 },
             },

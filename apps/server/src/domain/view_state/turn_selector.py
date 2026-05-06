@@ -55,7 +55,7 @@ def _event_code(payload: dict[str, Any]) -> str:
 
 
 def _is_terminal_engine_transition(payload: dict[str, Any]) -> bool:
-    return _event_code(payload) == "engine_transition" and _string(payload.get("status")) == "finished"
+    return _event_code(payload) == "engine_transition" and _string(payload.get("status")) == "completed"
 
 
 def _round_turn(payload: dict[str, Any]) -> tuple[int | None, int | None]:

@@ -135,5 +135,5 @@ archive_service = (
     else None
 )
 if archive_service is not None:
-    runtime_service.add_session_finished_callback(archive_service.handle_session_finished)
-runtime_service.add_session_finished_callback(room_service.handle_session_finished)
+    runtime_service.add_session_completed_callback(archive_service.handle_session_completed)
+runtime_service.add_session_completed_callback(room_service.handle_session_completed)

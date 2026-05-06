@@ -953,7 +953,7 @@ export function withAuthoritativeViewCommits(args: {
           revealItems = [];
           currentFocusTileIndex = null;
         }
-        if (eventCode === "engine_transition" && payload.status === "finished") {
+        if (eventCode === "engine_transition" && payload.status === "completed") {
           activePrompt = null;
           gameEnded = true;
           eventCode = "game_end";

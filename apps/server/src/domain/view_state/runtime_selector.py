@@ -33,7 +33,7 @@ TURN_STAGE_BY_MODULE = {
 
 
 def build_runtime_view_state(messages: list[dict]) -> RuntimeProjectionViewState:
-    if _latest_source_is_finished(messages):
+    if _latest_source_is_completed(messages):
         return {
             "runner_kind": "module",
             "latest_module_path": [],
@@ -100,7 +100,7 @@ def _latest_runtime_module(messages: list[dict]) -> dict[str, Any] | None:
     return None
 
 
-def _latest_source_is_finished(messages: list[dict]) -> bool:
+def _latest_source_is_completed(messages: list[dict]) -> bool:
     for message in reversed(messages):
         message_type = str(message.get("type") or "")
         if message_type == "view_commit":
@@ -110,7 +110,7 @@ def _latest_source_is_finished(messages: list[dict]) -> bool:
             continue
         return (
             str(payload.get("event_type") or "") == "engine_transition"
-            and str(payload.get("status") or "") == "finished"
+            and str(payload.get("status") or "") == "completed"
         )
     return False
 

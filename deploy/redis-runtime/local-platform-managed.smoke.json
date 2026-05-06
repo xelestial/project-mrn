@@ -80,7 +80,7 @@
       "health.redis.cluster_hash_tag == expected hash tag",
       "decision_smoke.accepted_status=accepted",
       "decision_smoke.duplicate_status is stale or rejected",
-      "decision_smoke.after_waiting_request_id differs from decision_smoke.request_id or decision_smoke.after_status is finished/unavailable/aborted",
+      "decision_smoke.after_waiting_request_id differs from decision_smoke.request_id or decision_smoke.after_status is completed/unavailable/aborted",
       "decision_smoke.after_replay_events > after_replay_events"
     ]
   }

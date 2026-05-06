@@ -67,7 +67,7 @@ class RoomServiceTests(unittest.TestCase):
                 nickname="Another Host",
             )
 
-    def test_room_removed_after_finished_session(self) -> None:
+    def test_room_removed_after_completed_session(self) -> None:
         created = self.rooms.create_room(
             room_title="Alpha Room",
             seats=_room_seats(),
@@ -80,7 +80,7 @@ class RoomServiceTests(unittest.TestCase):
         started = self.rooms.start_room(room_no=1, room_member_token=created["room_member_token"])
 
         self.sessions.start_session(started["session_id"], self.sessions.get_session(started["session_id"]).host_token)
-        self.rooms.handle_session_finished(started["session_id"])
+        self.rooms.handle_session_completed(started["session_id"])
 
         with self.assertRaises(RoomNotFoundError):
             self.rooms.get_room(1)

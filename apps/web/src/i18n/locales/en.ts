@@ -139,7 +139,7 @@ export const enLocale = {
     },
     runtimeStatus: {
       running: "running",
-      finished: "finished",
+      completed: "completed",
       failed: "failed",
       recovery_required: "recovery required",
     },
@@ -294,7 +294,7 @@ export const enLocale = {
       active_flip_resolved: "Active flip resolved",
       bankruptcy: "Bankruptcy",
       game_end: "Game end",
-      game_finished: "Game finished",
+      game_completed: "Game completed",
     },
     nonEvents: {
       prompt: "Prompt",

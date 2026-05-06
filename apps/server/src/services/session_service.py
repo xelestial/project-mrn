@@ -211,7 +211,7 @@ class SessionService:
     def finish_session(self, session_id: str) -> None:
         session = self.get_session(session_id)
         if session.status == SessionStatus.IN_PROGRESS:
-            session.status = SessionStatus.FINISHED
+            session.status = SessionStatus.COMPLETED
             self._persist_sessions()
 
     def delete_session(self, session_id: str) -> None:
@@ -455,7 +455,7 @@ class SessionService:
         ordered = sorted(self._sessions.values(), key=lambda s: (s.created_at, s.session_id))
         if len(ordered) <= self._max_persisted_sessions:
             return ordered
-        removable_status = {SessionStatus.FINISHED, SessionStatus.ABORTED}
+        removable_status = {SessionStatus.COMPLETED, SessionStatus.ABORTED}
         removable = [s for s in ordered if s.status in removable_status]
         keep = list(ordered)
         overflow = len(keep) - self._max_persisted_sessions

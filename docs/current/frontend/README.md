@@ -80,6 +80,31 @@ The workflow is expected to cover:
 - weather headline/detail rendering
 - runtime theater/spectator structure
 
+## Live Full-Game Screen Check
+
+The live browser full-game check has no total game-duration failure limit. Game duration is a rule outcome, not a browser-test criterion.
+
+The failure criterion is screen progress:
+
+- every decision/prompt remains governed by the server prompt timeout, currently 30 seconds by default.
+- while the automated browser check is running, the visible screen signature must change within 60 seconds.
+- the latest authoritative `ViewCommit.commit_seq` is sampled for diagnostics only and does not reset the visible-screen stall timer.
+- if the visible signature does not change for 60 seconds, treat it as `screen_update_stalled`.
+- time spent inspecting code or not running the browser-check process is not counted.
+
+Run:
+
+```bash
+cd /Users/sil/Workspace/project-mrn/apps/web
+npm run e2e:live-full-game
+```
+
+Optional smoke mode can shorten rule completion without changing the screen-progress criterion:
+
+```bash
+MRN_FULL_GAME_BOUNDED=1 npm run e2e:live-full-game
+```
+
 ## Human Runtime E2E Gate
 
 `REDIS-UI-10` is resolved as of 2026-05-01. `npm --prefix apps/web run e2e:human-runtime` passed 18 of 18 checks after restoring spectator/core-action/reveal selectors, fixing desktop prompt overflow, and preserving effect-causality ordering.
