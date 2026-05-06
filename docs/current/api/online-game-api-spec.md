@@ -63,7 +63,15 @@ Request:
   "config": {
     "seed": 42,
     "seat_limits": { "min": 1, "max": 4, "allowed": [1, 2, 3, 4] },
-    "board_topology": "ring"
+    "board_topology": "ring",
+    "rules": {
+      "end": {
+        "f_threshold": 15,
+        "monopolies_to_trigger_end": 3,
+        "tiles_to_trigger_end": 9,
+        "alive_players_at_most": 2
+      }
+    }
   }
 }
 ```
@@ -77,6 +85,7 @@ Current v1 supported session `config` keys (baseline):
 - `starting_shards`
 - `dice_values`
 - `dice_max_cards_per_turn`
+- `rules.end` (`f_threshold`, `monopolies_to_trigger_end`, `tiles_to_trigger_end`, `alive_players_at_most`)
 - `labels`
 
 Response `data`:
@@ -95,7 +104,15 @@ Response `data`:
     "manifest_hash": "hash_x",
     "board": { "topology": "ring", "tile_count": 40 },
     "economy": { "starting_cash": 20 },
-    "resources": { "starting_shards": 4 }
+    "resources": { "starting_shards": 4 },
+    "rules": {
+      "end": {
+        "f_threshold": 15,
+        "monopolies_to_trigger_end": 3,
+        "tiles_to_trigger_end": 9,
+        "alive_players_at_most": 2
+      }
+    }
   },
   "initial_active_by_card": {
     "1": "어사",
@@ -158,7 +175,15 @@ Response `data`:
     "manifest_hash": "hash_x",
     "board": { "topology": "ring", "tile_count": 40 },
     "economy": { "starting_cash": 20 },
-    "resources": { "starting_shards": 4 }
+    "resources": { "starting_shards": 4 },
+    "rules": {
+      "end": {
+        "f_threshold": 15,
+        "monopolies_to_trigger_end": 3,
+        "tiles_to_trigger_end": 9,
+        "alive_players_at_most": 2
+      }
+    }
   },
   "initial_active_by_card": {
     "1": "어사",
@@ -222,7 +247,15 @@ Response `data`:
     "manifest_hash": "hash_x",
     "board": { "topology": "ring", "tile_count": 40 },
     "economy": { "starting_cash": 20 },
-    "resources": { "starting_shards": 4 }
+    "resources": { "starting_shards": 4 },
+    "rules": {
+      "end": {
+        "f_threshold": 15,
+        "monopolies_to_trigger_end": 3,
+        "tiles_to_trigger_end": 9,
+        "alive_players_at_most": 2
+      }
+    }
   },
   "initial_active_by_card": {
     "1": "어사",
@@ -770,9 +803,12 @@ Notes:
 ```json
 {
   "type": "resume",
-  "last_seq": 1041
+  "last_commit_seq": 42
 }
 ```
+
+The server responds with the latest cached `view_commit` when the client is
+missing or behind. It must not replay event gaps for live UI recovery.
 
 ## `decision`
 
@@ -803,7 +839,7 @@ Server-side validation:
 - First valid decision wins.
 - Duplicate decisions for accepted request return `decision_ack.status=stale`.
 - Timeout triggers server fallback once.
-- Fallback result is emitted as public events.
+- Fallback result is recorded in debug/audit events and reflected in the next authoritative `view_commit`.
 - Recommended fallback trace event payload:
   - `event_type=decision_timeout_fallback`
   - `request_id`, `player_id`, `fallback_policy`, `round_index`, `turn_index`
@@ -863,6 +899,7 @@ Implemented baseline fields:
 - `parameter_manifest.board` (tile topology + tile metadata)
 - `parameter_manifest.seats` (seat limits/model)
 - `parameter_manifest.dice` (values, per-turn limits)
+- `parameter_manifest.rules.end` (session-scoped engine end condition values)
 - `parameter_manifest.labels` (event/tile/prompt display labels)
 
 Implemented delivery points:

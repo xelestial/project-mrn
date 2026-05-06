@@ -145,7 +145,7 @@ class RestartPersistenceTests(unittest.TestCase):
 
             asyncio.run(_check())
 
-    def test_redis_restart_recovers_stream_status_checkpoint_and_commands(self) -> None:
+    def test_redis_restart_recovers_stream_status_and_commands_without_debug_checkpoint(self) -> None:
         connection = RedisConnection(
             RedisConnectionSettings(url="redis://127.0.0.1:6379/10", key_prefix="mrn-restart", socket_timeout_ms=250),
             client_factory=_FakeRedis,
@@ -220,8 +220,8 @@ class RestartPersistenceTests(unittest.TestCase):
         commands = command_store.list_commands(session.session_id)
 
         self.assertEqual(status["status"], "recovery_required")
-        self.assertTrue(status["recovery_checkpoint"]["available"])
-        self.assertEqual(status["recovery_checkpoint"]["checkpoint"]["turn_index"], 4)
+        self.assertNotIn("recovery_checkpoint", status)
+        self.assertIsNone(game_state.load_checkpoint(session.session_id))
         self.assertEqual(commands[0]["payload"]["request_id"], "req_restart_ai")
 
     def test_pending_resume_command_rejects_nested_decision_module_mismatch(self) -> None:

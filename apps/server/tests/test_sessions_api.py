@@ -212,6 +212,14 @@ def _two_seat_matrix_payload() -> dict:
             "starting_shards": 7,
             "dice_values": [2, 4, 8],
             "dice_max_cards_per_turn": 1,
+            "rules": {
+                "end": {
+                    "f_threshold": 1,
+                    "monopolies_to_trigger_end": 0,
+                    "tiles_to_trigger_end": 1,
+                    "alive_players_at_most": 1,
+                }
+            },
         },
     }
 
@@ -907,6 +915,8 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(manifest["resources"]["starting_shards"], 7)
         self.assertEqual(manifest["dice"]["values"], [2, 4, 8])
         self.assertEqual(manifest["dice"]["max_cards_per_turn"], 1)
+        self.assertEqual(manifest["rules"]["end"]["f_threshold"], 1.0)
+        self.assertEqual(manifest["rules"]["end"]["tiles_to_trigger_end"], 1)
         join_token = created_data["join_tokens"]["1"]
         joined = self.client.post(
             f"/api/v1/sessions/{session_id}/join",
@@ -936,6 +946,8 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(started_manifest["resources"]["starting_shards"], 7)
         self.assertEqual(started_manifest["dice"]["values"], [2, 4, 8])
         self.assertEqual(started_manifest["dice"]["max_cards_per_turn"], 1)
+        self.assertEqual(started_manifest["rules"]["end"]["f_threshold"], 1.0)
+        self.assertEqual(started_manifest["rules"]["end"]["tiles_to_trigger_end"], 1)
         self.assertEqual(len(started_active_by_card), 8)
         self.assertTrue(
             all(str(started_active_by_card.get(str(slot)) or started_active_by_card.get(slot) or "").strip() for slot in range(1, 9))

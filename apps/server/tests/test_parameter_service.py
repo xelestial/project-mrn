@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from apps.server.src.services.engine_config_factory import EngineConfigFactory
 from apps.server.src.services.parameter_service import (
     GameParameterResolver,
     ParameterValidationError,
@@ -63,6 +64,14 @@ class ParameterServiceTests(unittest.TestCase):
                 "starting_shards": 7,
                 "dice_values": [2, 4, 8],
                 "dice_max_cards_per_turn": 1,
+                "rules": {
+                    "end": {
+                        "f_threshold": 1,
+                        "monopolies_to_trigger_end": 0,
+                        "tiles_to_trigger_end": 2,
+                        "alive_players_at_most": 1,
+                    }
+                },
                 "labels": {"event_labels": {"player_move": "Move"}},
                 "participants": {
                     "external_ai": {
@@ -98,6 +107,8 @@ class ParameterServiceTests(unittest.TestCase):
         self.assertEqual(resolved["seats"]["allowed"], [1, 2])
         self.assertEqual(resolved["economy"]["starting_cash"], 55)
         self.assertEqual(resolved["resources"]["starting_shards"], 7)
+        self.assertEqual(resolved["rules"]["end"]["f_threshold"], 1.0)
+        self.assertEqual(resolved["rules"]["end"]["tiles_to_trigger_end"], 2)
         self.assertEqual(resolved["dice"]["values"], [2, 4, 8])
         self.assertEqual(resolved["dice"]["max_cards_per_turn"], 1)
         self.assertEqual(resolved["participants"]["external_ai"]["transport"], "http")
@@ -143,6 +154,69 @@ class ParameterServiceTests(unittest.TestCase):
         self.assertEqual(external_ai["required_decision_style"], "priority_scored_contract")
         self.assertIn("priority_scored_choice", external_ai["required_capabilities"])
         self.assertIn("scored_choice_strategy_v1", external_ai["required_capabilities"])
+
+    def test_resolve_accepts_explicit_end_rule_overrides(self) -> None:
+        resolved = self.resolver.resolve(
+            {
+                "seed": 42,
+                "rules": {
+                    "end": {
+                        "f_threshold": 1,
+                        "monopolies_to_trigger_end": 0,
+                        "tiles_to_trigger_end": 1,
+                        "alive_players_at_most": 1,
+                    }
+                },
+            }
+        )
+
+        self.assertEqual(
+            resolved["rules"]["end"],
+            {
+                "f_threshold": 1.0,
+                "monopolies_to_trigger_end": 0,
+                "tiles_to_trigger_end": 1,
+                "alive_players_at_most": 1,
+            },
+        )
+
+    def test_resolve_rejects_invalid_end_rule_overrides(self) -> None:
+        invalid_configs = [
+            {"rules": []},
+            {"rules": {"end": []}},
+            {"rules": {"end": {"f_threshold": 0}}},
+            {"rules": {"end": {"monopolies_to_trigger_end": -1}}},
+            {"rules": {"end": {"tiles_to_trigger_end": 0}}},
+            {"rules": {"end": {"alive_players_at_most": 0}}},
+        ]
+        for config in invalid_configs:
+            with self.subTest(config=config):
+                with self.assertRaises(ParameterValidationError):
+                    self.resolver.resolve(config)
+
+    def test_engine_config_factory_applies_explicit_end_rule_overrides(self) -> None:
+        resolved = self.resolver.resolve(
+            {
+                "seed": 42,
+                "end": {
+                    "f_threshold": 2,
+                    "monopolies_to_trigger_end": 0,
+                    "tiles_to_trigger_end": 1,
+                    "alive_players_at_most": 1,
+                },
+            }
+        )
+
+        runtime_config = EngineConfigFactory().create(resolved)
+
+        self.assertEqual(runtime_config.rules.end.f_threshold, 2.0)
+        self.assertEqual(runtime_config.rules.end.monopolies_to_trigger_end, 0)
+        self.assertEqual(runtime_config.rules.end.tiles_to_trigger_end, 1)
+        self.assertEqual(runtime_config.rules.end.alive_players_at_most, 1)
+        self.assertEqual(runtime_config.board.f_end_value, 2.0)
+        self.assertEqual(runtime_config.end.monopolies_to_trigger_end, 0)
+        self.assertEqual(runtime_config.end.higher_tiles_to_trigger_end, 1)
+        self.assertEqual(runtime_config.end.end_when_alive_players_at_most, 1)
 
     def test_resolve_rejects_invalid_external_ai_transport(self) -> None:
         with self.assertRaises(ParameterValidationError):

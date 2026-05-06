@@ -16,6 +16,7 @@ class EngineConfigFactory:
         dice = dict(resolved_parameters.get("dice", {}))
         economy = dict(resolved_parameters.get("economy", {}))
         resources = dict(resolved_parameters.get("resources", {}))
+        rules = dict(resolved_parameters.get("rules", {}))
 
         player_count = int(runtime.get("player_count", seats.get("max", cfg.player_count)))
         cfg.player_count = player_count
@@ -33,6 +34,18 @@ class EngineConfigFactory:
         start_shards = resources.get("starting_shards")
         if isinstance(start_shards, int):
             cfg.shards.starting_shards = int(start_shards)
+
+        end = rules.get("end")
+        if isinstance(end, dict) and cfg.rules is not None:
+            cfg.rules.end.f_threshold = end.get("f_threshold")
+            cfg.rules.end.monopolies_to_trigger_end = int(
+                end.get("monopolies_to_trigger_end", cfg.rules.end.monopolies_to_trigger_end)
+            )
+            cfg.rules.end.tiles_to_trigger_end = end.get("tiles_to_trigger_end")
+            cfg.rules.end.alive_players_at_most = int(
+                end.get("alive_players_at_most", cfg.rules.end.alive_players_at_most)
+            )
+            cfg.rules.sync_to_config_mirrors(cfg)
 
         return cfg
 

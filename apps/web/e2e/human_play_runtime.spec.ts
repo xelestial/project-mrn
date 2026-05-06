@@ -674,17 +674,16 @@ async function installMockRuntime(
           }
           const match = this.url.match(/\/api\/v1\/sessions\/([^/]+)\/stream/);
           const sessionId = match ? decodeURIComponent(match[1]) : "";
-          const lastCommitSeq = typeof payload.last_commit_seq === "number" ? payload.last_commit_seq : 0;
           const latestCommit = latestCommitForSession(sessionId);
-          const replay = lastCommitSeq <= 0 ? (eventsBySession[sessionId] ?? []) : latestCommit ? [latestCommit] : [];
-          replay.forEach((message, index) => {
-            window.setTimeout(() => {
-              if (this.readyState !== MockWebSocket.OPEN) {
-                return;
-              }
-              this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(message) }));
-            }, index * 5);
-          });
+          if (!latestCommit) {
+            return;
+          }
+          window.setTimeout(() => {
+            if (this.readyState !== MockWebSocket.OPEN) {
+              return;
+            }
+            this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(latestCommit) }));
+          }, 0);
         }
 
         close(): void {

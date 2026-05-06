@@ -90,6 +90,7 @@ class GameParameterResolver:
         seat_limits = self._resolve_seat_limits(raw=raw, default_player_count=int(cfg.player_count))
         board_topology = self._resolve_board_topology(raw=raw)
         participant_defaults = self._resolve_participant_defaults(raw=raw)
+        end_rules = self._resolve_end_rules(raw=raw, cfg=cfg)
 
         dice_values = raw.get("dice_values", list(cfg.dice_cards.values))
         if not isinstance(dice_values, list) or not dice_values or not all(isinstance(v, int) and v > 0 for v in dice_values):
@@ -148,6 +149,9 @@ class GameParameterResolver:
             },
             "resources": {
                 "starting_shards": int(starting_shards),
+            },
+            "rules": {
+                "end": end_rules,
             },
             "labels": labels,
         }
@@ -321,6 +325,51 @@ class GameParameterResolver:
             raise ParameterValidationError("invalid_board_topology")
         return topology
 
+    @staticmethod
+    def _resolve_end_rules(raw: dict[str, Any], cfg: Any) -> dict[str, Any]:
+        rules_raw = raw.get("rules")
+        if rules_raw is None:
+            rules_raw = {}
+        if not isinstance(rules_raw, dict):
+            raise ParameterValidationError("invalid_rules_config")
+
+        end_raw = raw.get("end")
+        if end_raw is None:
+            end_raw = rules_raw.get("end")
+        if end_raw is None:
+            end_raw = {}
+        if not isinstance(end_raw, dict):
+            raise ParameterValidationError("invalid_end_rules")
+
+        default_end = cfg.rules.end
+
+        f_threshold = end_raw.get("f_threshold", default_end.f_threshold)
+        if f_threshold is not None:
+            if isinstance(f_threshold, bool) or not isinstance(f_threshold, (int, float)) or float(f_threshold) <= 0:
+                raise ParameterValidationError("invalid_end_f_threshold")
+            f_threshold = float(f_threshold)
+
+        monopolies = end_raw.get("monopolies_to_trigger_end", default_end.monopolies_to_trigger_end)
+        if isinstance(monopolies, bool) or not isinstance(monopolies, int) or monopolies < 0:
+            raise ParameterValidationError("invalid_end_monopolies_to_trigger_end")
+
+        tiles = end_raw.get("tiles_to_trigger_end", default_end.tiles_to_trigger_end)
+        if tiles is not None:
+            if isinstance(tiles, bool) or not isinstance(tiles, int) or tiles < 1:
+                raise ParameterValidationError("invalid_end_tiles_to_trigger_end")
+            tiles = int(tiles)
+
+        alive = end_raw.get("alive_players_at_most", default_end.alive_players_at_most)
+        if isinstance(alive, bool) or not isinstance(alive, int) or alive < 1:
+            raise ParameterValidationError("invalid_end_alive_players_at_most")
+
+        return {
+            "f_threshold": f_threshold,
+            "monopolies_to_trigger_end": int(monopolies),
+            "tiles_to_trigger_end": tiles,
+            "alive_players_at_most": int(alive),
+        }
+
     def _resolve_seat_limits(self, raw: dict[str, Any], default_player_count: int) -> dict[str, Any]:
         seat_limits_raw = raw.get("seat_limits")
         if seat_limits_raw is None:
@@ -386,6 +435,7 @@ class PublicManifestBuilder:
             "dice": params.get("dice", {}),
             "economy": params.get("economy", {}),
             "resources": params.get("resources", {}),
+            "rules": params.get("rules", {}),
             "labels": params.get("labels", {}),
             "source_fingerprints": fingerprints,
         }

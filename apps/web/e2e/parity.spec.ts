@@ -459,14 +459,10 @@ async function installMockRuntime(
           }
           const match = this.url.match(/\/api\/v1\/sessions\/([^/]+)\/stream/);
           const sessionId = match ? decodeURIComponent(match[1]) : "";
-          const lastCommitSeq = typeof payload.last_commit_seq === "number" ? payload.last_commit_seq : 0;
           const latestCommit = latestCommitForSession(sessionId);
-          const replay = lastCommitSeq <= 0
-            ? (eventsBySession[sessionId] ?? [])
-            : latestCommit
-              ? [latestCommit]
-              : [];
-          this.emitMessages(replay);
+          if (latestCommit) {
+            this.emitMessages([latestCommit]);
+          }
         }
 
         close(): void {
