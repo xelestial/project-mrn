@@ -67,14 +67,8 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             self.assertEqual([item.seq for item in replay], [3])
             stats = await service.backpressure_stats("s1")
             self.assertGreaterEqual(stats["drop_count"], 1)
-            checkpoint = game_state.load_checkpoint("s1")
-            self.assertIsNotNone(checkpoint)
-            self.assertEqual(checkpoint["latest_seq"], 3)
-            self.assertEqual(checkpoint["latest_event_type"], "turn_end_snapshot")
-            self.assertNotIn("latest_commit_seq", checkpoint)
-            self.assertEqual(checkpoint["round_index"], 1)
-            self.assertEqual(checkpoint["turn_index"], 3)
-            self.assertEqual(game_state.load_current_state("s1")["board"]["f_value"], 7)
+            self.assertIsNone(game_state.load_checkpoint("s1"))
+            self.assertIsNone(game_state.load_current_state("s1"))
             await service.publish(
                 "s1",
                 "event",
@@ -463,6 +457,102 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertIsNone(game_state.load_view_commit("s-view-commit", "player", player_id=1))
         self.assertIsNone(game_state.load_checkpoint("s-view-commit"))
 
+    def test_game_state_store_rejects_stale_view_commit_overwrite(self) -> None:
+        game_state = RedisGameStateStore(self.connection)
+        game_state.save_view_commit(
+            "s-stale-commit",
+            {
+                "schema_version": 1,
+                "commit_seq": 5,
+                "source_event_seq": 22,
+                "viewer": {"role": "spectator"},
+                "runtime": {"round_index": 1, "turn_index": 2},
+                "view_state": {"runtime": {"commit_seq": 5}},
+            },
+            viewer="spectator",
+        )
+
+        with self.assertRaises(ViewCommitSequenceConflict):
+            game_state.save_view_commit(
+                "s-stale-commit",
+                {
+                    "schema_version": 1,
+                    "commit_seq": 4,
+                    "source_event_seq": 23,
+                    "viewer": {"role": "spectator"},
+                    "runtime": {"round_index": 1, "turn_index": 1},
+                    "view_state": {"runtime": {"commit_seq": 4}},
+                },
+                viewer="spectator",
+            )
+
+        self.assertEqual(game_state.load_view_commit("s-stale-commit", "spectator")["commit_seq"], 5)
+        self.assertEqual(game_state.load_view_commit_index("s-stale-commit")["latest_commit_seq"], 5)
+
+    def test_game_state_store_preserves_view_commit_sequence_when_applying_debug_event(self) -> None:
+        game_state = RedisGameStateStore(self.connection)
+        game_state.apply_stream_message(
+            {
+                "seq": 12,
+                "type": "view_commit",
+                "session_id": "s-preserve-commit",
+                "server_time_ms": 12345,
+                "payload": {
+                    "schema_version": 1,
+                    "commit_seq": 8,
+                    "source_event_seq": 11,
+                    "viewer": {"role": "spectator"},
+                    "runtime": {"round_index": 2, "turn_index": 3},
+                    "view_state": {"board": {"turn": 3}},
+                },
+            }
+        )
+        game_state.apply_stream_message(
+            {
+                "seq": 13,
+                "type": "event",
+                "session_id": "s-preserve-commit",
+                "server_time_ms": 12346,
+                "payload": {"event_type": "debug_event", "round_index": 2, "turn_index": 4},
+            }
+        )
+
+        checkpoint = game_state.load_checkpoint("s-preserve-commit")
+        self.assertEqual(checkpoint["latest_seq"], 13)
+        self.assertEqual(checkpoint["latest_event_type"], "debug_event")
+        self.assertEqual(checkpoint["latest_commit_seq"], 8)
+        self.assertEqual(checkpoint["latest_source_event_seq"], 11)
+        self.assertTrue(checkpoint["has_view_commit"])
+
+    def test_runtime_service_next_view_commit_seq_uses_cached_commit_index(self) -> None:
+        game_state = RedisGameStateStore(self.connection)
+        game_state.save_view_commit(
+            "s-next-commit",
+            {
+                "schema_version": 1,
+                "commit_seq": 14,
+                "source_event_seq": 55,
+                "viewer": {"role": "spectator"},
+                "runtime": {"round_index": 3, "turn_index": 2},
+                "view_state": {"runtime": {"commit_seq": 14}},
+            },
+            viewer="spectator",
+        )
+        game_state.save_checkpoint(
+            "s-next-commit",
+            {
+                "schema_version": 1,
+                "session_id": "s-next-commit",
+                "latest_seq": 56,
+                "latest_event_type": "debug_event",
+                "round_index": 3,
+                "turn_index": 2,
+            },
+        )
+        runtime = RuntimeService(None, None, game_state_store=game_state)
+
+        self.assertEqual(runtime._next_view_commit_seq("s-next-commit"), 15)
+
     def test_game_state_store_preserves_positions_and_trick_state_in_state_and_projection(self) -> None:
         game_state = RedisGameStateStore(self.connection)
         payload = {
@@ -765,10 +855,6 @@ class RedisRealtimeServicesTests(unittest.TestCase):
     def test_runtime_recovery_checkpoint_survives_service_reconstruction(self) -> None:
         sessions = SessionService()
         game_state = RedisGameStateStore(self.connection)
-        stream_service = StreamService(
-            stream_backend=RedisStreamStore(self.connection),
-            game_state_store=game_state,
-        )
         prompt_service = PromptService(prompt_store=RedisPromptStore(self.connection))
         session = sessions.create_session(
             seats=[
@@ -778,20 +864,19 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             config={"seed": 42},
         )
         sessions.start_session(session.session_id, session.host_token)
-
-        async def _seed_checkpoint() -> None:
-            await stream_service.publish(
-                session.session_id,
-                "event",
-                {
-                    "event_type": "turn_end_snapshot",
-                    "round_index": 2,
-                    "turn_index": 5,
-                    "snapshot": {"schema_version": 1, "turn": 5, "players": [{"player_id": 1}]},
-                },
-            )
-
-        asyncio.run(_seed_checkpoint())
+        game_state.commit_transition(
+            session.session_id,
+            current_state={"schema_version": 1, "turn": 5, "players": [{"player_id": 1}]},
+            checkpoint={
+                "schema_version": 1,
+                "session_id": session.session_id,
+                "latest_seq": 1,
+                "latest_event_type": "turn_end_snapshot",
+                "round_index": 2,
+                "turn_index": 5,
+                "has_snapshot": True,
+            },
+        )
         restored_runtime = RuntimeService(
             session_service=sessions,
             stream_service=StreamService(stream_backend=RedisStreamStore(self.connection), game_state_store=game_state),

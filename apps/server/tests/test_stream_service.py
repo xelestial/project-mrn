@@ -302,7 +302,7 @@ class StreamServiceTests(unittest.TestCase):
 
         asyncio.run(_run())
 
-    def test_publish_does_not_cache_spectator_projection(self) -> None:
+    def test_publish_does_not_write_live_game_state(self) -> None:
         store = FakeProjectionStore()
         service = StreamService(game_state_store=store)
 
@@ -323,7 +323,7 @@ class StreamServiceTests(unittest.TestCase):
             )
 
             self.assertNotIn(("s1", "spectator"), store.view_commits)
-            self.assertEqual([message["type"] for message in store.messages], ["event"])
+            self.assertEqual(store.messages, [])
 
         asyncio.run(_run())
 

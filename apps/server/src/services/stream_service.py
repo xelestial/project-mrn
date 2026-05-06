@@ -79,8 +79,6 @@ class StreamService:
                 server_time_ms=server_time_ms,
             )
             self._broadcast_no_lock(session_id, item)
-            if self._game_state_store is not None:
-                self._game_state_store.apply_stream_message(item.to_dict())
             if self._command_store is not None:
                 self._maybe_append_command(item)
             if self._stream_backend is None:

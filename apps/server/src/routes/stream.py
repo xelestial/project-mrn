@@ -293,7 +293,10 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                 delivered_seq = max(delivered_seq, seq)
                 if filtered is not None:
                     if filtered.get("type") == "view_commit":
-                        last_commit_seq = max(last_commit_seq, _commit_seq(filtered))
+                        commit_seq = _commit_seq(filtered)
+                        if commit_seq <= last_commit_seq:
+                            continue
+                        last_commit_seq = commit_seq
                     await websocket.send_json(filtered)
 
     latest_commit = await stream_service.latest_view_commit_message_for_viewer(session_id, viewer)
@@ -312,11 +315,12 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                 requested_last_commit_seq = int(message.get("last_commit_seq", 0) or 0)
                 async with delivery_lock:
                     previous_commit_seq = last_commit_seq
+                    effective_last_commit_seq = max(requested_last_commit_seq, last_commit_seq)
                     last_commit_seq = await _send_latest_view_commit(
                         websocket,
                         stream_service,
                         session_id=session_id,
-                        last_commit_seq=requested_last_commit_seq,
+                        last_commit_seq=effective_last_commit_seq,
                         viewer=viewer,
                     )
                     delivered_seq = max(delivered_seq, await stream_service.latest_seq(session_id))

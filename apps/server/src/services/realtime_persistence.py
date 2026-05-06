@@ -479,6 +479,9 @@ class RedisGameStateStore:
             checkpoint["has_snapshot"] = bool(previous.get("has_snapshot"))
         if previous.get("has_view_state"):
             checkpoint["has_view_state"] = bool(previous.get("has_view_state"))
+        for key in ("latest_commit_seq", "latest_source_event_seq", "has_view_commit"):
+            if key in previous:
+                checkpoint[key] = previous[key]
         snapshot = payload.get("engine_checkpoint")
         if not isinstance(snapshot, dict):
             snapshot = payload.get("snapshot")
@@ -576,11 +579,32 @@ class RedisGameStateStore:
         normalized_viewer = "player" if str(viewer or "").strip().lower() == "seat" else str(viewer or "spectator").strip().lower()
         if normalized_viewer == "player" and player_id is None:
             return
+        commit_seq = _int_or_default(payload.get("commit_seq"), 0)
+        if commit_seq <= 0:
+            raise ViewCommitSequenceConflict("view commits must have positive commit_seq")
+        previous = self.load_view_commit(session_id, normalized_viewer, player_id=player_id) or {}
+        index = self.load_view_commit_index(session_id) or {}
+        checkpoint = self.load_checkpoint(session_id) or {}
+        latest_existing_seq = max(
+            _int_or_default(previous.get("commit_seq"), 0) if isinstance(previous, dict) else 0,
+            _int_or_default(index.get("latest_commit_seq"), 0) if isinstance(index, dict) else 0,
+            _int_or_default(checkpoint.get("latest_commit_seq"), 0) if isinstance(checkpoint, dict) else 0,
+        )
+        if commit_seq < latest_existing_seq:
+            raise ViewCommitSequenceConflict(
+                f"stale_view_commit_seq: attempted {commit_seq}, found {latest_existing_seq}"
+            )
         self._connection.client().set(
             self._view_commit_key(session_id, normalized_viewer, player_id=player_id),
             _json_dump(payload),
         )
-        self._remember_view_commit_viewer(session_id, normalized_viewer, player_id=player_id)
+        self._remember_view_commit_viewer(
+            session_id,
+            normalized_viewer,
+            player_id=player_id,
+            commit_seq=commit_seq,
+            source_event_seq=_int_or_default(payload.get("source_event_seq"), 0),
+        )
 
     def load_view_commit(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict[str, Any] | None:
         normalized_viewer = "player" if str(viewer or "").strip().lower() == "seat" else str(viewer or "spectator").strip().lower()
@@ -770,7 +794,11 @@ class RedisGameStateStore:
             return
         expected_previous = max(0, int(view_commit_seq) - 1)
         current_checkpoint = self.load_checkpoint(session_id) or {}
-        current_seq = _int_or_default(current_checkpoint.get("latest_commit_seq"), 0)
+        current_index = self.load_view_commit_index(session_id) or {}
+        current_seq = max(
+            _int_or_default(current_checkpoint.get("latest_commit_seq"), 0),
+            _int_or_default(current_index.get("latest_commit_seq"), 0),
+        )
         if current_seq != expected_previous:
             raise ViewCommitSequenceConflict(
                 f"view_commit_seq_conflict: expected previous {expected_previous}, found {current_seq}"
@@ -927,7 +955,15 @@ class RedisGameStateStore:
             return self._view_commit_key(session_id, "player", player_id=player_id)
         return None
 
-    def _remember_view_commit_viewer(self, session_id: str, viewer: str, *, player_id: int | None = None) -> None:
+    def _remember_view_commit_viewer(
+        self,
+        session_id: str,
+        viewer: str,
+        *,
+        player_id: int | None = None,
+        commit_seq: int | None = None,
+        source_event_seq: int | None = None,
+    ) -> None:
         label = self._viewer_label(viewer, player_id=player_id)
         if label is None:
             return
@@ -936,6 +972,16 @@ class RedisGameStateStore:
         existing = {str(item) for item in viewers} if isinstance(viewers, list) else set()
         existing.add(label)
         checkpoint["view_commit_viewers"] = sorted(existing)
+        if commit_seq is not None:
+            checkpoint["latest_commit_seq"] = max(
+                _int_or_default(checkpoint.get("latest_commit_seq"), 0),
+                int(commit_seq),
+            )
+        if source_event_seq is not None:
+            checkpoint["latest_source_event_seq"] = max(
+                _int_or_default(checkpoint.get("latest_source_event_seq"), 0),
+                int(source_event_seq),
+            )
         self.save_view_commit_index(session_id, checkpoint)
 
     def _remember_cached_viewer(self, session_id: str, viewer: str, *, player_id: int | None = None) -> None:
@@ -1136,6 +1182,16 @@ if current_checkpoint_payload then
   local ok, current_checkpoint = pcall(cjson.decode, current_checkpoint_payload)
   if ok and type(current_checkpoint) == "table" then
     current_commit_seq = tonumber(current_checkpoint["latest_commit_seq"] or 0) or 0
+  end
+end
+local current_index_payload = redis.call("GET", KEYS[9])
+if current_index_payload then
+  local ok, current_index = pcall(cjson.decode, current_index_payload)
+  if ok and type(current_index) == "table" then
+    local indexed_commit_seq = tonumber(current_index["latest_commit_seq"] or 0) or 0
+    if indexed_commit_seq > current_commit_seq then
+      current_commit_seq = indexed_commit_seq
+    end
   end
 end
 if current_commit_seq ~= expected_previous_commit_seq then

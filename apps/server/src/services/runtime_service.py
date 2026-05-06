@@ -1234,15 +1234,46 @@ class RuntimeService:
         return int(future.result(timeout=5))
 
     def _next_view_commit_seq(self, session_id: str) -> int:
-        if self._game_state_store is None or not callable(getattr(self._game_state_store, "load_checkpoint", None)):
+        if self._game_state_store is None:
             return 1
-        checkpoint = self._game_state_store.load_checkpoint(session_id)
-        if not isinstance(checkpoint, dict):
-            return 1
-        try:
-            return int(checkpoint.get("latest_commit_seq", 0) or 0) + 1
-        except (TypeError, ValueError):
-            return 1
+        candidates: list[int] = []
+
+        if callable(getattr(self._game_state_store, "load_checkpoint", None)):
+            checkpoint = self._game_state_store.load_checkpoint(session_id)
+            if isinstance(checkpoint, dict):
+                commit_seq = self._int_or_none(checkpoint.get("latest_commit_seq"))
+                if commit_seq is not None:
+                    candidates.append(commit_seq)
+
+        index: dict | None = None
+        if callable(getattr(self._game_state_store, "load_view_commit_index", None)):
+            loaded_index = self._game_state_store.load_view_commit_index(session_id)
+            if isinstance(loaded_index, dict):
+                index = loaded_index
+                commit_seq = self._int_or_none(index.get("latest_commit_seq"))
+                if commit_seq is not None:
+                    candidates.append(commit_seq)
+
+        if callable(getattr(self._game_state_store, "load_view_commit", None)):
+            labels = {"spectator", "public", "admin"}
+            if isinstance(index, dict):
+                raw_labels = index.get("view_commit_viewers")
+                if isinstance(raw_labels, list):
+                    labels.update(str(label) for label in raw_labels)
+            for label in sorted(labels):
+                payload = None
+                if label.startswith("player:"):
+                    player_id = self._int_or_none(label.split(":", 1)[1])
+                    if player_id is not None:
+                        payload = self._game_state_store.load_view_commit(session_id, "player", player_id=player_id)
+                else:
+                    payload = self._game_state_store.load_view_commit(session_id, label)
+                if isinstance(payload, dict):
+                    commit_seq = self._int_or_none(payload.get("commit_seq"))
+                    if commit_seq is not None:
+                        candidates.append(commit_seq)
+
+        return max([0, *candidates]) + 1
 
     def _build_authoritative_view_commits(
         self,

@@ -278,6 +278,52 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(projected_seqs, [])
         self.assertIn("view_state", commits[-1].get("payload", {}))
 
+    def test_resume_does_not_duplicate_initial_latest_view_commit(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 3031, "visibility": "public"})
+        _save_cached_view_commit(
+            session.session_id,
+            commit_seq=9,
+            source_event_seq=8,
+            view_state={"turn_stage": {"round_index": 3, "turn_index": 1}},
+        )
+
+        path = f"/api/v1/sessions/{session.session_id}/stream"
+        with self.client.websocket_connect(path) as ws:
+            initial = ws.receive_json()
+            self.assertEqual(initial.get("type"), "view_commit")
+            self.assertEqual(initial.get("payload", {}).get("commit_seq"), 9)
+
+            ws.send_json({"type": "resume", "last_commit_seq": 0})
+            after_resume = ws.receive_json()
+
+        self.assertNotEqual(after_resume.get("type"), "view_commit")
+
+    def test_sender_suppresses_stale_view_commit_after_latest_snapshot(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 3032, "visibility": "public"})
+        cached = _save_cached_view_commit(
+            session.session_id,
+            commit_seq=5,
+            source_event_seq=4,
+            view_state={"turn_stage": {"round_index": 2, "turn_index": 0}},
+        )
+
+        path = f"/api/v1/sessions/{session.session_id}/stream"
+        with self.client.websocket_connect(path) as ws:
+            initial = ws.receive_json()
+            self.assertEqual(initial.get("type"), "view_commit")
+            self.assertEqual(initial.get("payload", {}).get("commit_seq"), 5)
+
+            stale = dict(cached)
+            stale["commit_seq"] = 4
+            asyncio.run(state.stream_service.publish_view_commit(session.session_id, stale))
+            next_message = ws.receive_json()
+
+        self.assertNotEqual(next_message.get("type"), "view_commit")
+
     def test_resume_snapshot_without_runtime_transition(self) -> None:
         from apps.server.src import state
 
