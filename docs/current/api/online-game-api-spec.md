@@ -237,9 +237,37 @@ Response `data`:
 }
 ```
 
-## 6) Replay Export
+## 6) View Commit
+
+`GET /api/v1/sessions/{session_id}/view-commit?token=...`
+
+Response `data` is the latest Redis-cached `ViewCommit.payload` for the
+authenticated viewer. This is the live UI recovery endpoint.
+
+```json
+{
+  "schema_version": 1,
+  "commit_seq": 42,
+  "source_event_seq": 1042,
+  "viewer": { "role": "seat", "player_id": 1, "seat": 1 },
+  "runtime": {
+    "status": "waiting_input",
+    "round_index": 2,
+    "turn_index": 5,
+    "active_frame_id": "frame_...",
+    "active_module_id": "module_...",
+    "active_module_type": "MovementChoiceModule",
+    "module_path": ["RoundFrame", "TurnFrame", "MovementChoiceModule"]
+  },
+  "view_state": {}
+}
+```
+
+## 7) Replay Export
 
 `GET /api/v1/sessions/{session_id}/replay`
+
+Replay export is debug/archive data. It is not a live UI recovery source.
 
 Response `data`:
 
@@ -251,7 +279,7 @@ Response `data`:
 }
 ```
 
-## 7) Runtime Status
+## 8) Runtime Status
 
 `GET /api/v1/sessions/{session_id}/runtime-status`
 
@@ -333,21 +361,12 @@ Common envelope:
 }
 ```
 
-Additive view-model channel:
+Live view-model channel:
 
-- stream/replay payloads may include a renderer-agnostic `payload.view_state` object
-- current first migrated slice is `payload.view_state.players`
-- current additive slices are:
-  - `view_state.players`
-  - `view_state.player_cards`
-  - `view_state.active_slots`
-  - `view_state.mark_target`
-  - `view_state.reveals`
-  - `view_state.board`
-  - `view_state.prompt`
-  - `view_state.hand_tray`
-  - `view_state.turn_stage`
-  - `view_state.scene`
+- only `type="view_commit"` carries live render state
+- UI freshness is determined by `payload.commit_seq`, not stream `seq`
+- `payload.view_state` contains board, players, hand, prompt, turn, runtime, and scene state
+- event, prompt, decision_ack, heartbeat, and replay messages are debug/audit inputs only; the live UI must not synthesize state from them
 - `view_state.players` currently contains:
   - `ordered_player_ids`
   - `marker_owner_player_id`
@@ -764,7 +783,9 @@ Notes:
   "player_id": 1,
   "choice_id": "roll",
   "choice_payload": {},
-  "client_seq": 1045
+  "prompt_instance_id": 17,
+  "resume_token": "resume_...",
+  "view_commit_seq_seen": 42
 }
 ```
 
@@ -773,6 +794,8 @@ Server-side validation:
 - spectator decision submission => `UNAUTHORIZED_SEAT`
 - seat decision with mismatched `player_id` => `PLAYER_MISMATCH`
 - stale/missing prompt request => `decision_ack.status=stale`
+- missing/stale/future `view_commit_seq_seen` => `decision_ack.status=stale`
+- stale `prompt_instance_id` or `resume_token` => `decision_ack.status=stale`
 
 ## Timeout and Idempotency Rules
 
@@ -790,8 +813,9 @@ Server-side validation:
 ## Resume Rules
 
 - Client must send `resume` after reconnect.
-- If `last_seq` is within server buffer, replay starts at `last_seq + 1`.
-- If too old, server returns error code `RESUME_GAP_TOO_OLD` and sends latest snapshot + current stream.
+- Payload shape is `{ "type": "resume", "last_commit_seq": number }`.
+- Server does not replay gaps for live recovery.
+- If the client is stale or missing state, the server sends the latest cached `view_commit` for that viewer.
 
 ## Security Rules (v1)
 
@@ -813,7 +837,7 @@ Server-side validation:
 | `DECISION_REJECTED` | WS | Invalid choice payload or seat mismatch | depends |
 | `RUNTIME_EXECUTION_FAILED` | WS | Background engine execution failed | no |
 | `RUNTIME_STALLED_WARN` | WS | Runtime inactivity watchdog warning | yes |
-| `RESUME_GAP_TOO_OLD` | WS | Replay buffer cannot satisfy last_seq | yes |
+| `VIEW_COMMIT_NOT_FOUND` | REST/WS | Cached authoritative ViewCommit is unavailable | yes |
 | `INTERNAL_SERVER_ERROR` | REST/WS | Unexpected server fault | yes |
 
 ## API Change Management

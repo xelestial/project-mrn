@@ -241,7 +241,6 @@ class RuntimeServiceTests(unittest.TestCase):
                 "active_module_cursor": "final_character:1",
             },
             "current_state": {},
-            "view_state": {},
         }
 
         command = runtime.pending_resume_command("sess_1")
@@ -282,7 +281,6 @@ class RuntimeServiceTests(unittest.TestCase):
                 "active_module_cursor": "final_character:1",
             },
             "current_state": {},
-            "view_state": {},
         }
 
         command = runtime.pending_resume_command("sess_1")
@@ -488,6 +486,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertTrue(internal["available"])
         self.assertIn("current_state", internal)
+        self.assertNotIn("view_state", internal)
         self.assertTrue(public["recovery_checkpoint"]["available"])
         self.assertNotIn("current_state", public["recovery_checkpoint"])
         self.assertNotIn("view_state", public["recovery_checkpoint"])
@@ -6483,7 +6482,7 @@ class _RecoveryGameStateStoreStub:
             "turn_index": 2,
         }
 
-    def load_projected_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict:
+    def load_cached_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict:
         del session_id, player_id
         if viewer == "public":
             return {"players": {"items": []}}
@@ -6498,6 +6497,8 @@ class _MutableGameStateStoreStub:
     def __init__(self) -> None:
         self.current_state: dict = {}
         self.checkpoint: dict = {}
+        self.view_state: dict = {}
+        self.view_commits: dict[str, dict] = {}
         self.commits: list[dict] = []
 
     def load_checkpoint(self, session_id: str) -> dict | None:
@@ -6508,13 +6509,19 @@ class _MutableGameStateStoreStub:
         del session_id
         return copy.deepcopy(self.current_state) if self.current_state else None
 
-    def load_projected_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict:
+    def load_cached_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict:
         del session_id, viewer, player_id
         return {}
 
     def load_view_state(self, session_id: str) -> dict:
         del session_id
-        return {}
+        return copy.deepcopy(self.view_state)
+
+    def load_view_commit(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict | None:
+        del session_id
+        label = f"player:{int(player_id)}" if viewer == "player" and player_id is not None else str(viewer)
+        payload = self.view_commits.get(label)
+        return copy.deepcopy(payload) if payload is not None else None
 
     def commit_transition(
         self,
@@ -6522,6 +6529,8 @@ class _MutableGameStateStoreStub:
         *,
         current_state: dict,
         checkpoint: dict,
+        view_state: dict | None = None,
+        view_commits: dict[str, dict] | None = None,
         command_consumer_name: str | None = None,
         command_seq: int | None = None,
         runtime_event_payload: dict | None = None,
@@ -6529,11 +6538,15 @@ class _MutableGameStateStoreStub:
     ) -> None:
         self.current_state = copy.deepcopy(current_state)
         self.checkpoint = copy.deepcopy(checkpoint)
+        self.view_state = copy.deepcopy(view_state or {})
+        self.view_commits = copy.deepcopy(view_commits or {})
         self.commits.append(
             {
                 "session_id": session_id,
                 "current_state": copy.deepcopy(current_state),
                 "checkpoint": copy.deepcopy(checkpoint),
+                "view_state": copy.deepcopy(view_state or {}),
+                "view_commits": copy.deepcopy(view_commits or {}),
                 "command_consumer_name": command_consumer_name,
                 "command_seq": command_seq,
                 "runtime_event_payload": copy.deepcopy(runtime_event_payload or {}),

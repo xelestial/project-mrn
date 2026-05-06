@@ -13,6 +13,10 @@ class RuntimeLeaseState:
     recent_fallbacks: list[dict[str, Any]]
 
 
+class ViewCommitSequenceConflict(RuntimeError):
+    """Raised when an authoritative ViewCommit write is not the next cached commit."""
+
+
 class RedisStreamStore:
     def __init__(self, connection: RedisConnection) -> None:
         self._connection = connection
@@ -534,9 +538,9 @@ class RedisGameStateStore:
             if viewer_role in {"spectator", "public", "admin"}:
                 self.save_view_state(session_id, view_state)
                 if viewer_role != "public":
-                    self.save_projected_view_state(session_id, viewer_role, view_state)
+                    self.save_cached_view_state(session_id, viewer_role, view_state)
             elif viewer_role in {"seat", "player"} and player_id is not None:
-                self.save_projected_view_state(session_id, "player", view_state, player_id=player_id)
+                self.save_cached_view_state(session_id, "player", view_state, player_id=player_id)
         self.save_checkpoint(session_id, checkpoint)
 
     def save_checkpoint(self, session_id: str, payload: dict[str, Any]) -> None:
@@ -554,7 +558,7 @@ class RedisGameStateStore:
         return _json_load_dict(str(raw)) if raw is not None else None
 
     def save_view_state(self, session_id: str, payload: dict[str, Any]) -> None:
-        self.save_projected_view_state(session_id, "public", payload)
+        self.save_cached_view_state(session_id, "public", payload)
         self._connection.client().set(self._view_state_key(session_id), _json_dump(payload))
 
     def load_view_state(self, session_id: str) -> dict[str, Any] | None:
@@ -583,18 +587,19 @@ class RedisGameStateStore:
         raw = self._connection.client().get(self._view_commit_key(session_id, normalized_viewer, player_id=player_id))
         return _json_load_dict(str(raw)) if raw is not None else None
 
-    def save_projected_view_state(self, session_id: str, viewer: str, payload: dict[str, Any], *, player_id: int | None = None) -> None:
-        self._connection.client().set(self._projected_view_state_key(session_id, viewer, player_id=player_id), _json_dump(payload))
+    def save_cached_view_state(self, session_id: str, viewer: str, payload: dict[str, Any], *, player_id: int | None = None) -> None:
+        self._connection.client().set(self._cached_view_state_key(session_id, viewer, player_id=player_id), _json_dump(payload))
+        self._remember_cached_viewer(session_id, viewer, player_id=player_id)
 
-    def load_projected_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict[str, Any] | None:
-        raw = self._connection.client().get(self._projected_view_state_key(session_id, viewer, player_id=player_id))
+    def load_cached_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict[str, Any] | None:
+        raw = self._connection.client().get(self._cached_view_state_key(session_id, viewer, player_id=player_id))
         return _json_load_dict(str(raw)) if raw is not None else None
 
-    def save_projection_checkpoint(self, session_id: str, payload: dict[str, Any]) -> None:
-        self._connection.client().set(self._projection_checkpoint_key(session_id), _json_dump(payload))
+    def save_view_commit_index(self, session_id: str, payload: dict[str, Any]) -> None:
+        self._connection.client().set(self._view_commit_index_key(session_id), _json_dump(payload))
 
-    def load_projection_checkpoint(self, session_id: str) -> dict[str, Any] | None:
-        raw = self._connection.client().get(self._projection_checkpoint_key(session_id))
+    def load_view_commit_index(self, session_id: str) -> dict[str, Any] | None:
+        raw = self._connection.client().get(self._view_commit_index_key(session_id))
         return _json_load_dict(str(raw)) if raw is not None else None
 
     def commit_transition(
@@ -604,6 +609,7 @@ class RedisGameStateStore:
         current_state: dict[str, Any],
         checkpoint: dict[str, Any],
         view_state: dict[str, Any] | None = None,
+        view_commits: dict[str, dict[str, Any]] | None = None,
         command_consumer_name: str | None = None,
         command_seq: int | None = None,
         runtime_event_payload: dict[str, Any] | None = None,
@@ -619,7 +625,24 @@ class RedisGameStateStore:
         event_fields_payload = _json_dump(event_payload) if event_payload is not None else ""
         event_stream_key = self._runtime_stream_key(session_id) if event_payload is not None else ""
         event_seq_key = self._runtime_stream_seq_key(session_id) if event_payload is not None else ""
-        if event_payload is not None and not callable(getattr(client, "eval", None)):
+        view_commit_entries = self._view_commit_entries(session_id, view_commits)
+        view_commit_seq = self._view_commit_sequence(view_commit_entries)
+        if view_commit_entries:
+            checkpoint_payload_source["has_view_commit"] = True
+            checkpoint_payload_source["latest_commit_seq"] = max(
+                _int_or_default(payload.get("commit_seq"), 0) for _, _, payload in view_commit_entries
+            )
+            checkpoint_payload_source["latest_source_event_seq"] = max(
+                _int_or_default(payload.get("source_event_seq"), 0) for _, _, payload in view_commit_entries
+            )
+        if command_seq is not None:
+            checkpoint_payload_source["processed_command_seq"] = int(command_seq)
+            if command_consumer_name:
+                checkpoint_payload_source["processed_command_consumer"] = str(command_consumer_name)
+        use_lua_commit = callable(getattr(client, "eval", None))
+        if view_commit_entries and not use_lua_commit:
+            self._assert_expected_previous_view_commit_seq(session_id, view_commit_seq)
+        if event_payload is not None and not use_lua_commit:
             event_seq = int(client.incr(event_seq_key))
             checkpoint_payload_source["latest_seq"] = event_seq
             if event_server_time_ms:
@@ -630,14 +653,60 @@ class RedisGameStateStore:
         offset_key = self._command_offset_key(command_consumer_name) if command_consumer_name else ""
         offset_index_key = self._command_offset_index_key() if command_consumer_name else ""
         offset_seq = str(max(0, int(command_seq))) if command_seq is not None else ""
-        if callable(getattr(client, "eval", None)):
+        if use_lua_commit and view_commit_entries:
+            view_commit_index_payload = self._view_commit_index_payload_for_entries(
+                session_id,
+                view_commit_entries,
+                checkpoint_payload_source=checkpoint_payload_source,
+            )
+            keys = [
+                self._current_state_key(session_id),
+                self._checkpoint_key(session_id),
+                self._view_state_key(session_id),
+                self._cached_view_state_key(session_id, "public"),
+                offset_key,
+                offset_index_key,
+                event_seq_key,
+                event_stream_key,
+                self._view_commit_index_key(session_id),
+                *(key for _, key, _ in view_commit_entries),
+            ]
+            args = [
+                current_payload,
+                checkpoint_payload,
+                view_payload,
+                str(session_id),
+                offset_seq,
+                str(runtime_event_type or "event"),
+                str(event_server_time_ms),
+                event_fields_payload,
+                str(event_max_buffer),
+                str(max(0, int(view_commit_seq or 0) - 1)),
+                str(view_commit_seq or 0),
+                view_commit_index_payload,
+                str(len(view_commit_entries)),
+                *(_json_dump(payload) for _, _, payload in view_commit_entries),
+            ]
+            try:
+                client.eval(
+                    _COMMIT_GAME_TRANSITION_WITH_VIEW_COMMITS_LUA,
+                    len(keys),
+                    *keys,
+                    *args,
+                )
+            except Exception as exc:
+                if "view_commit_seq_conflict" in str(exc) or "invalid_view_commit_seq" in str(exc):
+                    raise ViewCommitSequenceConflict(str(exc)) from exc
+                raise
+            return
+        if use_lua_commit:
             client.eval(
                 _COMMIT_GAME_TRANSITION_LUA,
                 8,
                 self._current_state_key(session_id),
                 self._checkpoint_key(session_id),
                 self._view_state_key(session_id),
-                self._projected_view_state_key(session_id, "public"),
+                self._cached_view_state_key(session_id, "public"),
                 offset_key,
                 offset_index_key,
                 event_seq_key,
@@ -658,7 +727,18 @@ class RedisGameStateStore:
         pipeline.set(self._checkpoint_key(session_id), checkpoint_payload)
         if isinstance(view_state, dict):
             pipeline.set(self._view_state_key(session_id), view_payload)
-            pipeline.set(self._projected_view_state_key(session_id, "public"), view_payload)
+            pipeline.set(self._cached_view_state_key(session_id, "public"), view_payload)
+        for _, key, payload in view_commit_entries:
+            pipeline.set(key, _json_dump(payload))
+        if view_commit_entries:
+            view_commit_index = _json_load_dict(
+                self._view_commit_index_payload_for_entries(
+                    session_id,
+                    view_commit_entries,
+                    checkpoint_payload_source=checkpoint_payload_source,
+                )
+            ) or {"schema_version": 1}
+            pipeline.set(self._view_commit_index_key(session_id), _json_dump(view_commit_index))
         if offset_key and offset_seq:
             pipeline.hset(offset_index_key, offset_key, "1")
             pipeline.hset(offset_key, session_id, offset_seq)
@@ -674,26 +754,108 @@ class RedisGameStateStore:
             pipeline.xadd(event_stream_key, fields, **kwargs)
         pipeline.execute()
 
+    def _view_commit_sequence(self, view_commit_entries: list[tuple[str, str, dict[str, Any]]]) -> int | None:
+        if not view_commit_entries:
+            return None
+        sequences = {_int_or_default(payload.get("commit_seq"), 0) for _, _, payload in view_commit_entries}
+        if len(sequences) != 1:
+            raise ViewCommitSequenceConflict("view commits in one transition must share commit_seq")
+        commit_seq = next(iter(sequences))
+        if commit_seq <= 0:
+            raise ViewCommitSequenceConflict("view commits must have positive commit_seq")
+        return commit_seq
+
+    def _assert_expected_previous_view_commit_seq(self, session_id: str, view_commit_seq: int | None) -> None:
+        if view_commit_seq is None:
+            return
+        expected_previous = max(0, int(view_commit_seq) - 1)
+        current_checkpoint = self.load_checkpoint(session_id) or {}
+        current_seq = _int_or_default(current_checkpoint.get("latest_commit_seq"), 0)
+        if current_seq != expected_previous:
+            raise ViewCommitSequenceConflict(
+                f"view_commit_seq_conflict: expected previous {expected_previous}, found {current_seq}"
+            )
+
+    def _view_commit_index_payload_for_entries(
+        self,
+        session_id: str,
+        view_commit_entries: list[tuple[str, str, dict[str, Any]]],
+        *,
+        checkpoint_payload_source: dict[str, Any],
+    ) -> str:
+        view_commit_index = self.load_view_commit_index(session_id) or {"schema_version": 1}
+        viewers = view_commit_index.get("view_commit_viewers")
+        existing = {str(item) for item in viewers} if isinstance(viewers, list) else set()
+        existing.update(label for label, _, _ in view_commit_entries)
+        view_commit_index["view_commit_viewers"] = sorted(existing)
+        view_commit_index["latest_commit_seq"] = checkpoint_payload_source.get("latest_commit_seq")
+        view_commit_index["latest_source_event_seq"] = checkpoint_payload_source.get("latest_source_event_seq")
+        return _json_dump(view_commit_index)
+
+    def _view_commit_entries(
+        self,
+        session_id: str,
+        view_commits: dict[str, dict[str, Any]] | None,
+    ) -> list[tuple[str, str, dict[str, Any]]]:
+        if not isinstance(view_commits, dict):
+            return []
+        entries: list[tuple[str, str, dict[str, Any]]] = []
+        seen: set[str] = set()
+        for raw_label, raw_payload in view_commits.items():
+            if not isinstance(raw_payload, dict):
+                continue
+            label = self._normalize_view_commit_label(raw_label, raw_payload)
+            if label is None or label in seen:
+                continue
+            key = self._view_commit_key_from_label(session_id, label)
+            if not key:
+                continue
+            entries.append((label, key, dict(raw_payload)))
+            seen.add(label)
+        return entries
+
+    @staticmethod
+    def _normalize_view_commit_label(raw_label: Any, payload: dict[str, Any]) -> str | None:
+        label = str(raw_label or "").strip().lower()
+        if label in {"public", "spectator", "admin"}:
+            return label
+        if label.startswith("seat:"):
+            label = f"player:{label.split(':', 1)[1]}"
+        if label.startswith("player:"):
+            player_id = _int_or_none(label.split(":", 1)[1])
+            return f"player:{player_id}" if player_id is not None else None
+        viewer = payload.get("viewer")
+        viewer = viewer if isinstance(viewer, dict) else {}
+        role = str(viewer.get("role") or label or "spectator").strip().lower()
+        if role == "seat":
+            role = "player"
+        if role in {"public", "spectator", "admin"}:
+            return role
+        if role == "player":
+            player_id = _int_or_none(viewer.get("player_id") or viewer.get("seat") or payload.get("player_id"))
+            return f"player:{player_id}" if player_id is not None else None
+        return None
+
     def delete_session_data(self, session_id: str) -> None:
-        projection_checkpoint = self.load_projection_checkpoint(session_id) or {}
-        projection_keys = [
-            self._projected_view_state_key(session_id, "public"),
-            self._projected_view_state_key(session_id, "spectator"),
-            self._projected_view_state_key(session_id, "admin"),
-            self._projection_checkpoint_key(session_id),
+        view_commit_index = self.load_view_commit_index(session_id) or {}
+        cached_view_state_keys = [
+            self._cached_view_state_key(session_id, "public"),
+            self._cached_view_state_key(session_id, "spectator"),
+            self._cached_view_state_key(session_id, "admin"),
+            self._view_commit_index_key(session_id),
         ]
         view_commit_keys = [
             self._view_commit_key(session_id, "public"),
             self._view_commit_key(session_id, "spectator"),
             self._view_commit_key(session_id, "admin"),
         ]
-        projected_viewers = projection_checkpoint.get("projected_viewers")
-        if isinstance(projected_viewers, list):
-            for viewer in projected_viewers:
-                key = self._projected_view_state_key_from_label(session_id, str(viewer))
+        cached_viewers = view_commit_index.get("cached_viewers")
+        if isinstance(cached_viewers, list):
+            for viewer in cached_viewers:
+                key = self._cached_view_state_key_from_label(session_id, str(viewer))
                 if key:
-                    projection_keys.append(key)
-        view_commit_viewers = projection_checkpoint.get("view_commit_viewers")
+                    cached_view_state_keys.append(key)
+        view_commit_viewers = view_commit_index.get("view_commit_viewers")
         if isinstance(view_commit_viewers, list):
             for viewer in view_commit_viewers:
                 key = self._view_commit_key_from_label(session_id, str(viewer))
@@ -703,7 +865,7 @@ class RedisGameStateStore:
             self._checkpoint_key(session_id),
             self._current_state_key(session_id),
             self._view_state_key(session_id),
-            *projection_keys,
+            *cached_view_state_keys,
             *view_commit_keys,
         )
 
@@ -728,29 +890,29 @@ class RedisGameStateStore:
             raise ValueError(f"unsupported view_commit viewer: {viewer}")
         return self._connection.key("game", session_id, "view_commit", normalized)
 
-    def _projected_view_state_key(self, session_id: str, viewer: str, *, player_id: int | None = None) -> str:
+    def _cached_view_state_key(self, session_id: str, viewer: str, *, player_id: int | None = None) -> str:
         normalized = str(viewer or "public").strip().lower()
         if normalized == "player":
             if player_id is None:
-                raise ValueError("player_id is required for player view_state projection")
+                raise ValueError("player_id is required for player cached view_state")
             return self._connection.key("game", session_id, "view_state", "player", str(int(player_id)))
         if normalized not in {"public", "spectator", "admin"}:
-            raise ValueError(f"unsupported view_state projection viewer: {viewer}")
+            raise ValueError(f"unsupported cached view_state viewer: {viewer}")
         return self._connection.key("game", session_id, "view_state", normalized)
 
-    def _projection_checkpoint_key(self, session_id: str) -> str:
-        return self._connection.key("game", session_id, "projection_checkpoint")
+    def _view_commit_index_key(self, session_id: str) -> str:
+        return self._connection.key("game", session_id, "view_commit_index")
 
-    def _projected_view_state_key_from_label(self, session_id: str, label: str) -> str | None:
+    def _cached_view_state_key_from_label(self, session_id: str, label: str) -> str | None:
         normalized = str(label or "").strip().lower()
         if normalized in {"public", "spectator", "admin"}:
-            return self._projected_view_state_key(session_id, normalized)
+            return self._cached_view_state_key(session_id, normalized)
         if normalized.startswith("player:"):
             try:
                 player_id = int(normalized.split(":", 1)[1])
             except Exception:
                 return None
-            return self._projected_view_state_key(session_id, "player", player_id=player_id)
+            return self._cached_view_state_key(session_id, "player", player_id=player_id)
         return None
 
     def _view_commit_key_from_label(self, session_id: str, label: str) -> str | None:
@@ -769,12 +931,23 @@ class RedisGameStateStore:
         label = self._viewer_label(viewer, player_id=player_id)
         if label is None:
             return
-        checkpoint = self.load_projection_checkpoint(session_id) or {"schema_version": 1}
+        checkpoint = self.load_view_commit_index(session_id) or {"schema_version": 1}
         viewers = checkpoint.get("view_commit_viewers")
         existing = {str(item) for item in viewers} if isinstance(viewers, list) else set()
         existing.add(label)
         checkpoint["view_commit_viewers"] = sorted(existing)
-        self.save_projection_checkpoint(session_id, checkpoint)
+        self.save_view_commit_index(session_id, checkpoint)
+
+    def _remember_cached_viewer(self, session_id: str, viewer: str, *, player_id: int | None = None) -> None:
+        label = self._viewer_label(viewer, player_id=player_id)
+        if label is None:
+            return
+        index = self.load_view_commit_index(session_id) or {"schema_version": 1}
+        viewers = index.get("cached_viewers")
+        existing = {str(item) for item in viewers} if isinstance(viewers, list) else set()
+        existing.add(label)
+        index["cached_viewers"] = sorted(existing)
+        self.save_view_commit_index(session_id, index)
 
     @staticmethod
     def _viewer_label(viewer: str, *, player_id: int | None = None) -> str | None:
@@ -946,6 +1119,91 @@ end
 if ARGV[5] ~= "" then
   redis.call("HSET", KEYS[6], KEYS[5], "1")
   redis.call("HSET", KEYS[5], ARGV[4], ARGV[5])
+end
+return 1
+"""
+
+_COMMIT_GAME_TRANSITION_WITH_VIEW_COMMITS_LUA = """
+local expected_previous_commit_seq = tonumber(ARGV[10]) or 0
+local new_commit_seq = tonumber(ARGV[11]) or 0
+if new_commit_seq <= 0 then
+  return redis.error_reply("invalid_view_commit_seq")
+end
+
+local current_commit_seq = 0
+local current_checkpoint_payload = redis.call("GET", KEYS[2])
+if current_checkpoint_payload then
+  local ok, current_checkpoint = pcall(cjson.decode, current_checkpoint_payload)
+  if ok and type(current_checkpoint) == "table" then
+    current_commit_seq = tonumber(current_checkpoint["latest_commit_seq"] or 0) or 0
+  end
+end
+if current_commit_seq ~= expected_previous_commit_seq then
+  return redis.error_reply("view_commit_seq_conflict")
+end
+
+local checkpoint_payload = ARGV[2]
+if ARGV[8] ~= "" then
+  local seq = redis.call("INCR", KEYS[7])
+  local checkpoint = cjson.decode(ARGV[2])
+  checkpoint["latest_seq"] = seq
+  if ARGV[7] ~= "0" then
+    checkpoint["updated_at_ms"] = tonumber(ARGV[7])
+  end
+  checkpoint_payload = cjson.encode(checkpoint)
+  if ARGV[9] ~= "0" then
+    redis.call(
+      "XADD",
+      KEYS[8],
+      "MAXLEN",
+      "=",
+      tonumber(ARGV[9]),
+      "*",
+      "seq",
+      tostring(seq),
+      "type",
+      ARGV[6],
+      "session_id",
+      ARGV[4],
+      "server_time_ms",
+      ARGV[7],
+      "payload",
+      ARGV[8]
+    )
+  else
+    redis.call(
+      "XADD",
+      KEYS[8],
+      "*",
+      "seq",
+      tostring(seq),
+      "type",
+      ARGV[6],
+      "session_id",
+      ARGV[4],
+      "server_time_ms",
+      ARGV[7],
+      "payload",
+      ARGV[8]
+    )
+  end
+end
+redis.call("SET", KEYS[1], ARGV[1])
+redis.call("SET", KEYS[2], checkpoint_payload)
+if ARGV[3] ~= "" then
+  redis.call("SET", KEYS[3], ARGV[3])
+  redis.call("SET", KEYS[4], ARGV[3])
+end
+if ARGV[5] ~= "" then
+  redis.call("HSET", KEYS[6], KEYS[5], "1")
+  redis.call("HSET", KEYS[5], ARGV[4], ARGV[5])
+end
+if ARGV[12] ~= "" then
+  redis.call("SET", KEYS[9], ARGV[12])
+end
+local view_commit_count = tonumber(ARGV[13]) or 0
+for i = 1, view_commit_count do
+  redis.call("SET", KEYS[9 + i], ARGV[13 + i])
 end
 return 1
 """

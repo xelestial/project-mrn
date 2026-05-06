@@ -4,7 +4,7 @@ import asyncio
 import unittest
 
 from apps.server.src.domain.visibility import ViewerContext
-from apps.server.src.domain.view_state import project_view_state
+from apps.server.src.domain.view_state import project_replay_view_state
 from apps.server.src.domain.view_state.player_selector import (
     build_active_slots_view_state,
     build_mark_target_view_state,
@@ -118,7 +118,7 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
             [(3, 0), (1, 1), (4, 2), (2, 3)],
         )
 
-    def test_stream_service_publishes_additive_view_state_players_projection(self) -> None:
+    def test_replay_projector_builds_additive_players_projection_from_stream_messages(self) -> None:
         stream = StreamService()
 
         async def _publish() -> list[dict]:
@@ -153,11 +153,12 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
 
         events = asyncio.run(_publish())
         latest_payload = events[-1]["payload"]
+        view_state = project_replay_view_state(events)
 
-        self.assertIn("view_state", latest_payload)
-        self.assertEqual(latest_payload["view_state"]["players"]["ordered_player_ids"], [2, 3, 1])
-        self.assertEqual(latest_payload["view_state"]["players"]["marker_owner_player_id"], 2)
-        self.assertEqual(latest_payload["view_state"]["players"]["marker_draft_direction"], "clockwise")
+        self.assertNotIn("view_state", latest_payload)
+        self.assertEqual(view_state["players"]["ordered_player_ids"], [2, 3, 1])
+        self.assertEqual(view_state["players"]["marker_owner_player_id"], 2)
+        self.assertEqual(view_state["players"]["marker_draft_direction"], "clockwise")
 
     def test_builds_active_slots_and_mark_target_from_prompt_rehydration(self) -> None:
         fixture = _load_player_fixture()
@@ -316,11 +317,11 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
                     },
                 }, module_type="TargetJudicatorModule", frame_id="turn:test:p0"),
             )
-            projected = await stream.latest_view_commit_message_for_viewer(
-                "sess_1",
-                ViewerContext(role="seat", session_id="sess_1", player_id=1),
+            snapshot = await stream.snapshot("sess_1")
+            return project_replay_view_state(
+                [message.to_dict() for message in snapshot],
+                viewer=ViewerContext(role="seat", session_id="sess_1", player_id=1),
             )
-            return projected["payload"]["view_state"]
 
         view_state = asyncio.run(_publish())
 
@@ -387,11 +388,11 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
                     },
                 }),
             )
-            projected = await stream.latest_view_commit_message_for_viewer(
-                "sess_1",
-                ViewerContext(role="seat", session_id="sess_1", player_id=1),
+            snapshot = await stream.snapshot("sess_1")
+            return project_replay_view_state(
+                [message.to_dict() for message in snapshot],
+                viewer=ViewerContext(role="seat", session_id="sess_1", player_id=1),
             )
-            return projected["payload"]["view_state"]
 
         view_state = asyncio.run(_publish())
 
@@ -456,7 +457,7 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
                 }, module_type="DraftModule", frame_id="round:test"),
             )
             snapshot = await stream.snapshot("sess_1")
-            return snapshot[-1].to_dict()["payload"]["view_state"]
+            return project_replay_view_state([message.to_dict() for message in snapshot])
 
         view_state = asyncio.run(_publish())
 
@@ -515,7 +516,7 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
                 }, module_type="DraftModule", frame_id="round:test"),
             )
             snapshot = await stream.snapshot("sess_1")
-            return snapshot[-1].to_dict()["payload"]["view_state"]
+            return project_replay_view_state([message.to_dict() for message in snapshot])
 
         view_state = asyncio.run(_publish())
 
@@ -553,7 +554,7 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
                 },
             )
             snapshot = await stream.snapshot("sess_1")
-            return snapshot[-1].to_dict()["payload"]["view_state"]
+            return project_replay_view_state([message.to_dict() for message in snapshot])
 
         view_state = asyncio.run(_publish())
 
@@ -625,7 +626,7 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
         revealed_view = build_player_view_state(messages)
         self.assertEqual(revealed_view["items"][0]["current_character_face"], "객주")
 
-    def test_project_view_state_projects_private_final_character_as_player_card_assignment(self) -> None:
+    def test_project_replay_view_state_projects_private_final_character_as_player_card_assignment(self) -> None:
         messages = [
             {
                 "type": "event",
@@ -657,8 +658,8 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
             },
         ]
 
-        seat_view = project_view_state(messages, viewer=ViewerContext(role="seat", player_id=1))
-        spectator_view = project_view_state(messages, viewer=ViewerContext(role="spectator"))
+        seat_view = project_replay_view_state(messages, viewer=ViewerContext(role="seat", player_id=1))
+        spectator_view = project_replay_view_state(messages, viewer=ViewerContext(role="spectator"))
 
         self.assertEqual(
             seat_view["player_cards"]["items"],
@@ -690,7 +691,7 @@ class ViewStatePlayerSelectorTests(unittest.TestCase):
             }
         )
 
-        revealed_view = project_view_state(messages, viewer=ViewerContext(role="spectator"))
+        revealed_view = project_replay_view_state(messages, viewer=ViewerContext(role="spectator"))
         self.assertEqual(revealed_view["player_cards"]["items"][0]["reveal_state"], "revealed")
         self.assertEqual(revealed_view["players"]["items"][0]["current_character_face"], "박수")
 

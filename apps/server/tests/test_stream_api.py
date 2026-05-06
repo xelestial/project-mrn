@@ -25,6 +25,20 @@ from apps.server.src.services.prompt_timeout_worker import PromptTimeoutWorker
 from apps.server.tests.prompt_payloads import module_prompt
 
 
+class _CachedViewCommitStore:
+    def __init__(self) -> None:
+        self._commits: dict[tuple[str, str, int | None], dict] = {}
+
+    def apply_stream_message(self, _message: dict) -> None:
+        return None
+
+    def load_view_commit(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict | None:
+        return self._commits.get((session_id, viewer, player_id if viewer == "player" else None))
+
+    def save_view_commit(self, session_id: str, payload: dict, *, viewer: str, player_id: int | None = None) -> None:
+        self._commits[(session_id, viewer, player_id if viewer == "player" else None)] = dict(payload)
+
+
 def _reset_state(max_buffer: int = 2000, heartbeat_interval_ms: int = 5000) -> None:
     from apps.server.src import state
 
@@ -46,6 +60,54 @@ def _reset_state(max_buffer: int = 2000, heartbeat_interval_ms: int = 5000) -> N
         runtime_service=state.runtime_service,
         stream_service=state.stream_service,
     )
+
+
+def _cached_store() -> _CachedViewCommitStore:
+    from apps.server.src import state
+
+    store = getattr(state.stream_service, "_game_state_store", None)
+    if not isinstance(store, _CachedViewCommitStore):
+        store = _CachedViewCommitStore()
+        state.stream_service._game_state_store = store
+    return store
+
+
+def _save_cached_view_commit(
+    session_id: str,
+    *,
+    commit_seq: int,
+    source_event_seq: int,
+    view_state: dict | None = None,
+    viewer: str = "spectator",
+    player_id: int | None = None,
+    seat: int | None = None,
+    runtime: dict | None = None,
+) -> dict:
+    role = "seat" if viewer == "player" else viewer
+    viewer_payload: dict = {"role": role}
+    if player_id is not None:
+        viewer_payload["player_id"] = player_id
+    if seat is not None:
+        viewer_payload["seat"] = seat
+    payload = {
+        "schema_version": 1,
+        "commit_seq": commit_seq,
+        "source_event_seq": source_event_seq,
+        "viewer": viewer_payload,
+        "runtime": runtime
+        or {
+            "status": "running",
+            "round_index": view_state.get("turn_stage", {}).get("round_index", 0) if isinstance(view_state, dict) else 0,
+            "turn_index": view_state.get("turn_stage", {}).get("turn_index", 0) if isinstance(view_state, dict) else 0,
+            "active_frame_id": "frame:test",
+            "active_module_id": "module:test",
+            "active_module_type": "TestModule",
+            "module_path": ["frame:test", "module:test"],
+        },
+        "view_state": dict(view_state or {}),
+    }
+    _cached_store().save_view_commit(session_id, payload, viewer=viewer, player_id=player_id)
+    return payload
 
 
 def _all_ai_seats() -> list[dict]:
@@ -117,6 +179,12 @@ class StreamApiTests(unittest.TestCase):
             await state.stream_service.publish(session.session_id, "event", {"event_type": "e3"})
 
         asyncio.run(_seed())
+        _save_cached_view_commit(
+            session.session_id,
+            commit_seq=6,
+            source_event_seq=5,
+            view_state={"turn_stage": {"round_index": 1, "turn_index": 1}},
+        )
 
         path = f"/api/v1/sessions/{session.session_id}/stream"
         with self.client.websocket_connect(path) as ws:
@@ -174,6 +242,12 @@ class StreamApiTests(unittest.TestCase):
                 )
 
         asyncio.run(_seed())
+        _save_cached_view_commit(
+            session.session_id,
+            commit_seq=16,
+            source_event_seq=15,
+            view_state={"turn_stage": {"round_index": 8, "turn_index": 0}},
+        )
 
         projected_seqs: list[int] = []
         original_project = state.stream_service.project_message_for_viewer
@@ -214,6 +288,12 @@ class StreamApiTests(unittest.TestCase):
             await state.stream_service.publish(session.session_id, "event", {"event_type": "turn_start", "turn_index": 1})
 
         asyncio.run(_seed())
+        _save_cached_view_commit(
+            session.session_id,
+            commit_seq=4,
+            source_event_seq=3,
+            view_state={"turn_stage": {"round_index": 1, "turn_index": 1}},
+        )
 
         transition_calls: list[str] = []
         original_once = state.runtime_service._run_engine_transition_once_sync
@@ -247,40 +327,34 @@ class StreamApiTests(unittest.TestCase):
 
         session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 305, "visibility": "public"})
 
-        async def _seed() -> None:
-            await state.stream_service.publish(session.session_id, "event", {"event_type": "round_start", "round_index": 1})
-            await state.stream_service.publish(
-                session.session_id,
-                "prompt",
-                module_prompt(
-                    {
+        _save_cached_view_commit(
+            session.session_id,
+            commit_seq=6,
+            source_event_seq=5,
+            viewer="player",
+            player_id=1,
+            seat=1,
+            view_state={
+                "prompt": {
+                    "active": {
                         "request_id": "r_seat1",
                         "request_type": "final_character",
                         "player_id": 1,
-                        "timeout_ms": 5000,
                         "legal_choices": [{"choice_id": "6", "label": "박수"}],
-                    },
-                    module_type="DraftModule",
-                    frame_id="round:test:draft:p1",
-                ),
-            )
-            await state.stream_service.publish(
-                session.session_id,
-                "prompt",
-                module_prompt(
-                    {
-                        "request_id": "r_seat2",
-                        "request_type": "final_character",
-                        "player_id": 2,
-                        "timeout_ms": 5000,
-                        "legal_choices": [{"choice_id": "1", "label": "어사"}],
-                    },
-                    module_type="DraftModule",
-                    frame_id="round:test:draft:p2",
-                ),
-            )
-
-        asyncio.run(_seed())
+                    }
+                },
+                "turn_stage": {"round_index": 1, "turn_index": 0},
+            },
+            runtime={
+                "status": "waiting_input",
+                "round_index": 1,
+                "turn_index": 0,
+                "active_frame_id": "round:test:draft:p1",
+                "active_module_id": "round:test:draft:p1:prompt",
+                "active_module_type": "DraftModule",
+                "module_path": ["round:test:draft:p1", "round:test:draft:p1:prompt"],
+            },
+        )
 
         latest = asyncio.run(
             state.stream_service.latest_view_commit_message_for_viewer(
@@ -293,7 +367,10 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(latest.get("type"), "view_commit")
         self.assertEqual(latest.get("payload", {}).get("commit_seq"), 6)
         self.assertEqual(latest.get("payload", {}).get("source_event_seq"), 5)
-        self.assertIn("view_state", latest.get("payload", {}))
+        self.assertEqual(
+            latest.get("payload", {}).get("view_state", {}).get("prompt", {}).get("active", {}).get("legal_choices"),
+            [{"choice_id": "6", "label": "박수"}],
+        )
 
     def test_spectator_decision_is_rejected_with_unauthorized_seat(self) -> None:
         from apps.server.src import state
@@ -604,6 +681,12 @@ class StreamApiTests(unittest.TestCase):
             )
 
         asyncio.run(_seed())
+        _save_cached_view_commit(
+            session.session_id,
+            commit_seq=3,
+            source_event_seq=3,
+            view_state={"parameter_manifest": {"manifest_hash": "hash_new"}},
+        )
 
         path = f"/api/v1/sessions/{session.session_id}/stream"
         with self.client.websocket_connect(path) as ws:
@@ -639,6 +722,12 @@ class StreamApiTests(unittest.TestCase):
             await state.stream_service.publish(session.session_id, "event", {"event_type": "turn_start", "turn_index": 1})
 
         asyncio.run(_seed())
+        _save_cached_view_commit(
+            session.session_id,
+            commit_seq=3,
+            source_event_seq=3,
+            view_state={"parameter_manifest": {"manifest_hash": "flat_hash_new", "board": {"tile_count": 40}}},
+        )
 
         path = f"/api/v1/sessions/{session.session_id}/stream"
         with self.client.websocket_connect(path) as ws:
@@ -694,6 +783,12 @@ class StreamApiTests(unittest.TestCase):
             )
 
         asyncio.run(_seed())
+        _save_cached_view_commit(
+            session.session_id,
+            commit_seq=4,
+            source_event_seq=5,
+            view_state={"board": {"players": [{"player_id": 1, "tile_index": 5}]}},
+        )
 
         path = f"/api/v1/sessions/{session.session_id}/stream"
         with self.client.websocket_connect(path) as ws:
@@ -808,6 +903,12 @@ class StreamApiTests(unittest.TestCase):
             state.runtime_service.start_runtime = original  # type: ignore[assignment]
         self.assertEqual(started.status_code, 200)
         expected_hash = started.json()["data"]["parameter_manifest"]["manifest_hash"]
+        _save_cached_view_commit(
+            session_id,
+            commit_seq=1,
+            source_event_seq=1,
+            view_state={"parameter_manifest": started.json()["data"]["parameter_manifest"]},
+        )
 
         path = f"/api/v1/sessions/{session_id}/stream"
         with self.client.websocket_connect(path) as ws:
@@ -854,6 +955,13 @@ class StreamApiTests(unittest.TestCase):
         finally:
             state.runtime_service.start_runtime = original  # type: ignore[assignment]
         self.assertEqual(started.status_code, 200)
+        first_manifest = started.json()["data"]["parameter_manifest"]
+        _save_cached_view_commit(
+            session_id,
+            commit_seq=1,
+            source_event_seq=1,
+            view_state={"parameter_manifest": first_manifest},
+        )
 
         first_commit_seq = 0
         ws_path = f"/api/v1/sessions/{session_id}/stream"
@@ -870,21 +978,18 @@ class StreamApiTests(unittest.TestCase):
 
         self.assertGreater(first_commit_seq, 0)
 
-        async def _publish_manifest_change() -> None:
-            await state.stream_service.publish(
-                session_id,
-                "event",
-                {
-                    "event_type": "parameter_manifest",
-                    "parameter_manifest": {
-                        "manifest_hash": "hash_e2e_changed",
-                        "board": {"topology": "line", "tile_count": 40},
-                        "seats": {"allowed": [1, 2, 3]},
-                    },
-                },
-            )
-
-        asyncio.run(_publish_manifest_change())
+        _save_cached_view_commit(
+            session_id,
+            commit_seq=2,
+            source_event_seq=2,
+            view_state={
+                "parameter_manifest": {
+                    "manifest_hash": "hash_e2e_changed",
+                    "board": {"topology": "line", "tile_count": 40},
+                    "seats": {"allowed": [1, 2, 3]},
+                }
+            },
+        )
 
         with self.client.websocket_connect(ws_path) as ws:
             ws.send_json({"type": "resume", "last_commit_seq": first_commit_seq})
@@ -956,15 +1061,12 @@ class StreamApiTests(unittest.TestCase):
 
         session = state.session_service.create_session(_all_ai_seats(), config={"seed": 303, "visibility": "public"})
 
-        async def _seed(start: int, end: int) -> None:
-            for n in range(start, end + 1):
-                await state.stream_service.publish(
-                    session.session_id,
-                    "event",
-                    {"event_type": "round_start", "round_index": n},
-                )
-
-        asyncio.run(_seed(1, 12))
+        _save_cached_view_commit(
+            session.session_id,
+            commit_seq=24,
+            source_event_seq=12,
+            view_state={"turn_stage": {"round_index": 12, "turn_index": 0}},
+        )
 
         path = f"/api/v1/sessions/{session.session_id}/stream"
 
@@ -987,11 +1089,21 @@ class StreamApiTests(unittest.TestCase):
         first_seen = _latest_commit_after(last_commit_seq=0, target_latest_commit_seq=24)
         self.assertEqual(first_seen, 24)
 
-        asyncio.run(_seed(13, 18))
+        _save_cached_view_commit(
+            session.session_id,
+            commit_seq=36,
+            source_event_seq=18,
+            view_state={"turn_stage": {"round_index": 18, "turn_index": 0}},
+        )
         second_seen = _latest_commit_after(last_commit_seq=24, target_latest_commit_seq=36)
         self.assertEqual(second_seen, 36)
 
-        asyncio.run(_seed(19, 23))
+        _save_cached_view_commit(
+            session.session_id,
+            commit_seq=46,
+            source_event_seq=23,
+            view_state={"turn_stage": {"round_index": 23, "turn_index": 0}},
+        )
         third_seen = _latest_commit_after(last_commit_seq=36, target_latest_commit_seq=46)
         self.assertEqual(third_seen, 46)
 

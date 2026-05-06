@@ -71,7 +71,7 @@ class ArchiveServiceTests(unittest.TestCase):
             self.assertEqual(payload["session"]["room_no"], 1)
             self.assertEqual(payload["session"]["room_title"], "Archive Room")
             self.assertEqual(payload["counts"]["event_count"], 2)
-            self.assertEqual(payload["counts"]["view_commit_count"], 2)
+            self.assertEqual(payload["counts"]["view_commit_count"], 0)
             self.assertEqual(payload["exporter"]["redis_prefix"], "mrn-test")
             self.assertEqual(payload["final_state"]["host_token"], "")
             self.assertEqual(payload["final_state"]["session_tokens"], {})
@@ -193,7 +193,7 @@ class _GameStateStoreStub:
         del session_id
         return {"canonical": True}
 
-    def load_projected_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict:
+    def load_cached_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict:
         del session_id, player_id
         if viewer == "public":
             return {"public_projection": True}

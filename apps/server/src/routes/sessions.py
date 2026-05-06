@@ -423,7 +423,13 @@ async def latest_view_commit(
     )
     message = await stream.latest_view_commit_message_for_viewer(session_id, viewer)
     payload = message.get("payload") if isinstance(message, dict) else None
-    return _ok(payload if isinstance(payload, dict) else {})
+    if not isinstance(payload, dict):
+        _error(
+            "VIEW_COMMIT_NOT_FOUND",
+            "Latest view commit is not available for this session.",
+            status.HTTP_404_NOT_FOUND,
+        )
+    return _ok(payload)
 
 
 @router.get("/{session_id}/replay")

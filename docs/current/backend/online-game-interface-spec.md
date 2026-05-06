@@ -99,12 +99,13 @@ class PromptService(Protocol):
 Responsibilities:
 
 - emit ordered `seq` messages
-- serve replay window for `resume(last_seq)`
+- fan out already-built authoritative `ViewCommit` messages
+- serve latest cached viewer `ViewCommit` for connect/resume
 
 ```py
 class StreamService(Protocol):
     async def publish(self, session_id: str, msg_type: str, payload: dict) -> StreamMessage: ...
-    async def replay_from(self, session_id: str, last_seq: int) -> list[StreamMessage]: ...
+    async def latest_view_commit_message_for_viewer(self, session_id: str, viewer: ViewerContext) -> dict | None: ...
     async def latest_seq(self, session_id: str) -> int: ...
 ```
 
@@ -284,7 +285,7 @@ Canonical codes:
 - `STALE_REQUEST_ID`
 - `PROMPT_TIMEOUT`
 - `DECISION_REJECTED`
-- `RESUME_GAP_TOO_OLD`
+- `VIEW_COMMIT_NOT_FOUND`
 - `INTERNAL_SERVER_ERROR`
 
 ## Compatibility Policy

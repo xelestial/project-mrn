@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 
+from apps.server.src.domain.view_state import project_replay_view_state
 from apps.server.src.domain.view_state.board_selector import build_board_view_state
 from apps.server.src.domain.view_state.reveal_selector import build_reveals_view_state
 from apps.server.src.services.stream_service import StreamService
@@ -289,14 +290,15 @@ class ViewStateRevealSelectorTests(unittest.TestCase):
 
         events = asyncio.run(_publish())
         latest_payload = events[-1]["payload"]
+        view_state = project_replay_view_state(events)
 
-        self.assertIn("view_state", latest_payload)
+        self.assertNotIn("view_state", latest_payload)
         self.assertEqual(
-            [item["event_code"] for item in latest_payload["view_state"]["reveals"]["items"]],
+            [item["event_code"] for item in view_state["reveals"]["items"]],
             ["dice_roll", "player_move"],
         )
         self.assertEqual(
-            latest_payload["view_state"]["board"]["last_move"],
+            view_state["board"]["last_move"],
             {
                 "player_id": 1,
                 "from_tile_index": 2,

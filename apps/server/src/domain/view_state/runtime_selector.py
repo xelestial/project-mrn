@@ -33,6 +33,25 @@ TURN_STAGE_BY_MODULE = {
 
 
 def build_runtime_view_state(messages: list[dict]) -> RuntimeProjectionViewState:
+    if _latest_source_is_finished(messages):
+        return {
+            "runner_kind": "module",
+            "latest_module_path": [],
+            "round_stage": "completed",
+            "turn_stage": "completed",
+            "active_sequence": "",
+            "active_prompt_request_id": "",
+            "active_frame_id": "",
+            "active_frame_type": "",
+            "active_module_id": "",
+            "active_module_type": "",
+            "active_module_status": "",
+            "active_module_cursor": "",
+            "active_module_idempotency_key": "",
+            "draft_active": False,
+            "trick_sequence_active": False,
+            "card_flip_legal": False,
+        }
     module = _latest_runtime_module(messages)
     prompt_request_id = _latest_active_prompt_request_id(messages)
     if not module and not prompt_request_id:
@@ -79,6 +98,21 @@ def _latest_runtime_module(messages: list[dict]) -> dict[str, Any] | None:
         if payload_module is not None:
             return payload_module
     return None
+
+
+def _latest_source_is_finished(messages: list[dict]) -> bool:
+    for message in reversed(messages):
+        message_type = str(message.get("type") or "")
+        if message_type == "view_commit":
+            continue
+        payload = message.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        return (
+            str(payload.get("event_type") or "") == "engine_transition"
+            and str(payload.get("status") or "") == "finished"
+        )
+    return False
 
 
 def _runtime_module_from_payload_fields(payload: dict[str, Any]) -> dict[str, Any] | None:

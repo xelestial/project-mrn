@@ -18,7 +18,7 @@ from .turn_selector import build_turn_stage_view_state
 from .types import ViewStatePayload
 
 
-def project_view_state(messages: list[dict], viewer: ViewerContext | None = None) -> ViewStatePayload:
+def project_replay_view_state(messages: list[dict], viewer: ViewerContext | None = None) -> ViewStatePayload:
     if viewer is not None:
         messages = _messages_for_viewer(messages, viewer)
     payload: ViewStatePayload = {}

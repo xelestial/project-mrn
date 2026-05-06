@@ -94,9 +94,9 @@ class RestartPersistenceTests(unittest.TestCase):
                 snap = await second.snapshot("sess_replay_1")
                 source = [message for message in snap if message.type != "view_commit"]
                 commits = [message for message in snap if message.type == "view_commit"]
-                self.assertEqual(latest, 4)
-                self.assertEqual([message.seq for message in source], [1, 3])
-                self.assertEqual([message.seq for message in commits], [2, 4])
+                self.assertEqual(latest, 2)
+                self.assertEqual([message.seq for message in source], [1, 2])
+                self.assertEqual([message.seq for message in commits], [])
                 self.assertEqual(source[0].payload.get("event_type"), "round_start")
                 self.assertEqual(source[1].payload.get("event_type"), "turn_start")
 
@@ -210,10 +210,10 @@ class RestartPersistenceTests(unittest.TestCase):
         )
 
         async def _verify() -> None:
-            self.assertEqual(await second_streams.latest_seq(session.session_id), 4)
+            self.assertEqual(await second_streams.latest_seq(session.session_id), 2)
             replay = await second_streams.replay_from(session.session_id, 0)
-            self.assertEqual([item.seq for item in replay if item.type != "view_commit"], [1, 3])
-            self.assertEqual([item.seq for item in replay if item.type == "view_commit"], [2, 4])
+            self.assertEqual([item.seq for item in replay if item.type != "view_commit"], [1, 2])
+            self.assertEqual([item.seq for item in replay if item.type == "view_commit"], [])
 
         asyncio.run(_verify())
         status = second_runtime.runtime_status(session.session_id)

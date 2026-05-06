@@ -71,6 +71,17 @@ def _decision_view_commit_rejection_reason(message: dict[str, Any], latest_commi
     message_player_id = _optional_int(message.get("player_id"))
     if active_player_id is not None and message_player_id is not None and active_player_id != message_player_id:
         return "prompt_player_mismatch"
+    active_prompt_instance_id = _optional_int(active_prompt.get("prompt_instance_id"))
+    message_prompt_instance_id = _optional_int(message.get("prompt_instance_id"))
+    if active_prompt_instance_id is not None:
+        if message_prompt_instance_id is None:
+            return "missing_prompt_instance_id"
+        if message_prompt_instance_id != active_prompt_instance_id:
+            return "stale_prompt_instance"
+    active_resume_token = str(active_prompt.get("resume_token") or "").strip()
+    message_resume_token = str(message.get("resume_token") or "").strip()
+    if active_resume_token and message_resume_token != active_resume_token:
+        return "stale_prompt_resume_token"
     prompt_commit_seq = _optional_int(
         active_prompt.get("view_commit_seq")
         or active_prompt.get("prompt_commit_seq")

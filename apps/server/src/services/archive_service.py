@@ -247,7 +247,7 @@ class LocalJsonArchiveService:
             if isinstance(view_state, dict):
                 return view_state
             try:
-                view_state = self._game_state_store.load_projected_view_state(session_id, "public")
+                view_state = self._game_state_store.load_cached_view_state(session_id, "public")
             except Exception:
                 view_state = None
             if isinstance(view_state, dict):

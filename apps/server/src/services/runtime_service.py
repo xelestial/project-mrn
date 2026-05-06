@@ -10,6 +10,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
@@ -17,6 +18,8 @@ from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.config.runtime_settings import RuntimeSettings
 from apps.server.src.domain.runtime_semantic_guard import validate_checkpoint_payload
 from apps.server.src.domain.session_models import ParticipantClientType, SeatConfig, SeatType, SessionStatus
+from apps.server.src.domain.view_state.prompt_selector import build_prompt_view_state
+from apps.server.src.domain.view_state.runtime_selector import ROUND_STAGE_BY_MODULE, TURN_STAGE_BY_MODULE
 from apps.server.src.infra.game_debug_log import write_game_debug_log
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.decision_gateway import (
@@ -32,6 +35,8 @@ from apps.server.src.services.decision_gateway import (
 )
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
 from apps.server.src.services.parameter_service import DEFAULT_EXTERNAL_AI_TIMEOUT_MS
+
+_VIEW_COMMIT_SCHEMA_VERSION = 1
 
 
 def resolve_runtime_runner_kind(runtime: dict | None, settings: RuntimeSettings | None = None) -> str:
@@ -358,12 +363,6 @@ class RuntimeService:
             return {"available": False, "reason": "game_state_store_unavailable"}
         checkpoint = self._game_state_store.load_checkpoint(session_id)
         current_state = self._game_state_store.load_current_state(session_id)
-        try:
-            view_state = self._game_state_store.load_projected_view_state(session_id, "public")
-        except Exception:
-            view_state = None
-        if not isinstance(view_state, dict):
-            view_state = self._game_state_store.load_view_state(session_id)
         if not isinstance(checkpoint, dict):
             return {"available": False, "reason": "checkpoint_missing"}
         if not isinstance(current_state, dict):
@@ -372,7 +371,6 @@ class RuntimeService:
             "available": True,
             "checkpoint": checkpoint,
             "current_state": current_state,
-            "view_state": view_state if isinstance(view_state, dict) else {},
         }
 
     async def execute_prompt_fallback(
@@ -1094,6 +1092,9 @@ class RuntimeService:
             runtime_active_prompt_batch = runtime_active_prompt_batch if isinstance(runtime_active_prompt_batch, dict) else {}
             if latest_event_type == "prompt_required" and prompt_boundary_payload:
                 self._materialize_prompt_boundary_sync(loop, session_id, prompt_boundary_payload, state=state)
+            latest_stream_seq = self._latest_stream_seq_sync(loop, session_id)
+            commit_seq = self._next_view_commit_seq(session_id)
+            source_event_seq = latest_stream_seq
             module_debug_fields = _runtime_module_debug_fields(
                 {
                     **step,
@@ -1111,48 +1112,70 @@ class RuntimeService:
                 "seq": processed_command_seq,
                 "state": True,
                 "checkpoint": True,
-                "view_state": False,
+                "view_state": True,
+                "view_commit": True,
                 "runtime_event": True,
                 "consumer_offset": bool(command_consumer_name and command_seq is not None),
             }
+            runtime_checkpoint = {
+                "schema_version": effective_checkpoint_schema_version,
+                "session_id": session_id,
+                "runner_kind": effective_runner_kind,
+                "latest_seq": latest_stream_seq,
+                "latest_event_type": latest_event_type,
+                "latest_commit_seq": commit_seq,
+                "latest_source_event_seq": source_event_seq,
+                "has_snapshot": True,
+                "has_view_commit": True,
+                "round_index": int(payload.get("rounds_completed", 0)) + 1,
+                "turn_index": int(payload.get("turn_index", 0)),
+                "waiting_prompt_request_id": payload.get("pending_prompt_request_id"),
+                "waiting_prompt_type": payload.get("pending_prompt_type"),
+                "waiting_prompt_player_id": payload.get("pending_prompt_player_id"),
+                "waiting_prompt_instance_id": payload.get("pending_prompt_instance_id"),
+                "prompt_sequence": payload.get("prompt_sequence"),
+                "runtime_active_prompt": runtime_active_prompt,
+                "runtime_active_prompt_batch": runtime_active_prompt_batch,
+                "active_frame_id": module_debug_fields.get("frame_id", ""),
+                "active_module_id": module_debug_fields.get("module_id", ""),
+                "active_module_type": module_debug_fields.get("module_type", ""),
+                "active_module_cursor": module_debug_fields.get("module_cursor", ""),
+                "pending_action_count": len(payload.get("pending_actions") or []),
+                "scheduled_action_count": len(payload.get("scheduled_actions") or []),
+                "pending_action_types": pending_action_types,
+                "scheduled_action_types": scheduled_action_types,
+                "next_action_type": pending_action_types[0] if pending_action_types else "",
+                "next_scheduled_action_type": scheduled_action_types[0] if scheduled_action_types else "",
+                "has_pending_actions": bool(payload.get("pending_actions")),
+                "has_scheduled_actions": bool(payload.get("scheduled_actions")),
+                "has_pending_turn_completion": bool(payload.get("pending_turn_completion")),
+                "processed_command_seq": processed_command_seq,
+                "processed_command_consumer": processed_command_consumer,
+                "command_commit_envelope": command_commit_envelope,
+                **continuation_debug_fields,
+                "updated_at_ms": updated_at_ms,
+            }
+            view_commits = self._build_authoritative_view_commits(
+                session_id=session_id,
+                state=state,
+                checkpoint_payload=payload,
+                runtime_checkpoint=runtime_checkpoint,
+                module_debug_fields=module_debug_fields,
+                step=step,
+                commit_seq=commit_seq,
+                source_event_seq=source_event_seq,
+                server_time_ms=updated_at_ms,
+            )
+            public_view_state = {}
+            spectator_commit = view_commits.get("spectator") or view_commits.get("public") or {}
+            if isinstance(spectator_commit, dict) and isinstance(spectator_commit.get("view_state"), dict):
+                public_view_state = dict(spectator_commit["view_state"])
             self._game_state_store.commit_transition(
                 session_id,
                 current_state=payload,
-                checkpoint={
-                    "schema_version": effective_checkpoint_schema_version,
-                    "session_id": session_id,
-                    "runner_kind": effective_runner_kind,
-                    "latest_seq": self._latest_stream_seq_sync(loop, session_id),
-                    "latest_event_type": latest_event_type,
-                    "round_index": int(payload.get("rounds_completed", 0)) + 1,
-                    "turn_index": int(payload.get("turn_index", 0)),
-                    "has_snapshot": True,
-                    "waiting_prompt_request_id": payload.get("pending_prompt_request_id"),
-                    "waiting_prompt_type": payload.get("pending_prompt_type"),
-                    "waiting_prompt_player_id": payload.get("pending_prompt_player_id"),
-                    "waiting_prompt_instance_id": payload.get("pending_prompt_instance_id"),
-                    "prompt_sequence": payload.get("prompt_sequence"),
-                    "runtime_active_prompt": runtime_active_prompt,
-                    "runtime_active_prompt_batch": runtime_active_prompt_batch,
-                    "active_frame_id": module_debug_fields.get("frame_id", ""),
-                    "active_module_id": module_debug_fields.get("module_id", ""),
-                    "active_module_type": module_debug_fields.get("module_type", ""),
-                    "active_module_cursor": module_debug_fields.get("module_cursor", ""),
-                    "pending_action_count": len(payload.get("pending_actions") or []),
-                    "scheduled_action_count": len(payload.get("scheduled_actions") or []),
-                    "pending_action_types": pending_action_types,
-                    "scheduled_action_types": scheduled_action_types,
-                    "next_action_type": pending_action_types[0] if pending_action_types else "",
-                    "next_scheduled_action_type": scheduled_action_types[0] if scheduled_action_types else "",
-                    "has_pending_actions": bool(payload.get("pending_actions")),
-                    "has_scheduled_actions": bool(payload.get("scheduled_actions")),
-                    "has_pending_turn_completion": bool(payload.get("pending_turn_completion")),
-                    "processed_command_seq": processed_command_seq,
-                    "processed_command_consumer": processed_command_consumer,
-                    "command_commit_envelope": command_commit_envelope,
-                    **continuation_debug_fields,
-                    "updated_at_ms": updated_at_ms,
-                },
+                checkpoint=runtime_checkpoint,
+                view_state=public_view_state,
+                view_commits=view_commits,
                 command_consumer_name=command_consumer_name,
                 command_seq=command_seq,
                 runtime_event_payload={
@@ -1172,6 +1195,7 @@ class RuntimeService:
                 },
                 runtime_event_server_time_ms=updated_at_ms,
             )
+            self._emit_latest_view_commit_sync(loop, session_id)
             write_game_debug_log(
                 "engine",
                 latest_event_type,
@@ -1194,11 +1218,614 @@ class RuntimeService:
             self._publish_active_module_prompt_batch_sync(loop, session_id, state)
         return step
 
+    def _emit_latest_view_commit_sync(self, loop: asyncio.AbstractEventLoop | None, session_id: str) -> None:
+        if loop is None or self._stream_service is None:
+            return
+        emit = getattr(self._stream_service, "emit_latest_view_commit", None)
+        if not callable(emit):
+            return
+        future = asyncio.run_coroutine_threadsafe(emit(session_id), loop)
+        future.result(timeout=5)
+
     def _latest_stream_seq_sync(self, loop: asyncio.AbstractEventLoop | None, session_id: str) -> int:
         if loop is None or self._stream_service is None:
             return 0
         future = asyncio.run_coroutine_threadsafe(self._stream_service.latest_seq(session_id), loop)
         return int(future.result(timeout=5))
+
+    def _next_view_commit_seq(self, session_id: str) -> int:
+        if self._game_state_store is None or not callable(getattr(self._game_state_store, "load_checkpoint", None)):
+            return 1
+        checkpoint = self._game_state_store.load_checkpoint(session_id)
+        if not isinstance(checkpoint, dict):
+            return 1
+        try:
+            return int(checkpoint.get("latest_commit_seq", 0) or 0) + 1
+        except (TypeError, ValueError):
+            return 1
+
+    def _build_authoritative_view_commits(
+        self,
+        *,
+        session_id: str,
+        state: object,
+        checkpoint_payload: dict,
+        runtime_checkpoint: dict,
+        module_debug_fields: dict[str, str],
+        step: dict,
+        commit_seq: int,
+        source_event_seq: int,
+        server_time_ms: int,
+    ) -> dict[str, dict]:
+        commits: dict[str, dict] = {}
+        public_snapshot = self._public_snapshot_from_state(state)
+        parameter_manifest = self._parameter_manifest_for_session(session_id)
+        active_module = self._active_runtime_module_from_checkpoint(checkpoint_payload, module_debug_fields)
+        viewer_specs: list[tuple[str, dict]] = [
+            ("spectator", {"role": "spectator"}),
+            ("public", {"role": "spectator"}),
+            ("admin", {"role": "admin"}),
+        ]
+        for raw_player in checkpoint_payload.get("players") or []:
+            if not isinstance(raw_player, dict):
+                continue
+            internal_player_id = self._int_or_none(raw_player.get("player_id"))
+            if internal_player_id is None:
+                continue
+            external_player_id = internal_player_id + 1
+            viewer_specs.append(
+                (
+                    f"player:{external_player_id}",
+                    {
+                        "role": "seat",
+                        "player_id": external_player_id,
+                        "seat": external_player_id,
+                    },
+                )
+            )
+
+        for label, viewer in viewer_specs:
+            view_state = self._build_authoritative_view_state(
+                session_id=session_id,
+                state=state,
+                checkpoint_payload=checkpoint_payload,
+                runtime_checkpoint=runtime_checkpoint,
+                public_snapshot=public_snapshot,
+                parameter_manifest=parameter_manifest,
+                active_module=active_module,
+                step=step,
+                commit_seq=commit_seq,
+                viewer=viewer,
+            )
+            commits[label] = {
+                "schema_version": _VIEW_COMMIT_SCHEMA_VERSION,
+                "commit_seq": commit_seq,
+                "source_event_seq": source_event_seq,
+                "viewer": dict(viewer),
+                "runtime": {
+                    "status": self._runtime_status_from_step(step, checkpoint_payload),
+                    "round_index": int(runtime_checkpoint.get("round_index", 0) or 0),
+                    "turn_index": int(runtime_checkpoint.get("turn_index", 0) or 0),
+                    "active_frame_id": str(active_module.get("frame_id") or runtime_checkpoint.get("active_frame_id") or ""),
+                    "active_module_id": str(active_module.get("module_id") or runtime_checkpoint.get("active_module_id") or ""),
+                    "active_module_type": str(
+                        active_module.get("module_type") or runtime_checkpoint.get("active_module_type") or ""
+                    ),
+                    "module_path": list(active_module.get("module_path") or []),
+                },
+                "view_state": view_state,
+                "server_time_ms": server_time_ms,
+            }
+        return commits
+
+    def _build_authoritative_view_state(
+        self,
+        *,
+        session_id: str,
+        state: object,
+        checkpoint_payload: dict,
+        runtime_checkpoint: dict,
+        public_snapshot: dict,
+        parameter_manifest: dict,
+        active_module: dict,
+        step: dict,
+        commit_seq: int,
+        viewer: dict,
+    ) -> dict:
+        del session_id
+        players_view = self._build_players_view_state(public_snapshot, checkpoint_payload)
+        board_view = self._build_board_view_state(public_snapshot, checkpoint_payload)
+        runtime_view = self._runtime_projection_view_state(runtime_checkpoint, active_module, step, checkpoint_payload)
+        turn_stage = {
+            "round_index": int(runtime_checkpoint.get("round_index", 0) or 0),
+            "turn_index": int(runtime_checkpoint.get("turn_index", 0) or 0),
+            "current_actor_player_id": self._current_actor_player_id(checkpoint_payload),
+            "ordered_player_ids": list(players_view.get("ordered_player_ids") or []),
+        }
+        actor_id = turn_stage["current_actor_player_id"]
+        situation = {
+            "round_index": turn_stage["round_index"],
+            "turn_index": turn_stage["turn_index"],
+            "roundIndex": turn_stage["round_index"],
+            "turnIndex": turn_stage["turn_index"],
+            "actor_player_id": actor_id,
+            "actorPlayerId": actor_id,
+            "active_module_type": runtime_view.get("active_module_type", ""),
+            "activeModuleType": runtime_view.get("active_module_type", ""),
+        }
+        view_state: dict[str, object] = {
+            "schema_version": _VIEW_COMMIT_SCHEMA_VERSION,
+            "commit_seq": commit_seq,
+            "board": board_view,
+            "players": players_view,
+            "player_cards": self._build_player_cards_view_state(public_snapshot, checkpoint_payload),
+            "active_slots": self._build_active_slots_view_state(public_snapshot, checkpoint_payload),
+            "active_by_card": dict(public_snapshot.get("active_by_card") or checkpoint_payload.get("active_by_card") or {}),
+            "turn_stage": turn_stage,
+            "scene": {"situation": situation},
+            "runtime": runtime_view,
+            "parameter_manifest": parameter_manifest,
+        }
+        prompt_view = self._build_prompt_view_state_for_viewer(
+            checkpoint_payload=checkpoint_payload,
+            viewer=viewer,
+            active_module=active_module,
+            commit_seq=commit_seq,
+        )
+        if prompt_view:
+            view_state["prompt"] = prompt_view
+        hand_tray = self._build_hand_tray_view_state(state, viewer)
+        if hand_tray:
+            view_state["hand_tray"] = {"items": hand_tray}
+        return view_state
+
+    @staticmethod
+    def _public_snapshot_from_state(state: object) -> dict:
+        try:
+            from viewer.public_state import build_turn_end_snapshot
+
+            snapshot = build_turn_end_snapshot(state)
+            return dict(snapshot) if isinstance(snapshot, dict) else {}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _build_board_view_state(public_snapshot: dict, checkpoint_payload: dict) -> dict:
+        board = dict(public_snapshot.get("board") or {})
+        board.setdefault("tiles", [])
+        board.setdefault("f_value", checkpoint_payload.get("f_value", 0))
+        board.setdefault("marker_owner_player_id", int(checkpoint_payload.get("marker_owner_id", 0) or 0) + 1)
+        board.setdefault("round_index", int(checkpoint_payload.get("rounds_completed", 0) or 0) + 1)
+        board.setdefault("turn_index", int(checkpoint_payload.get("turn_index", 0) or 0) + 1)
+        board["marker_draft_direction"] = (
+            "clockwise" if bool(checkpoint_payload.get("marker_draft_clockwise", True)) else "counterclockwise"
+        )
+        board["weather_effects"] = list(checkpoint_payload.get("current_weather_effects") or [])
+        board["next_supply_f_threshold"] = int(checkpoint_payload.get("next_supply_f_threshold", 0) or 0)
+        board["winner_ids"] = [int(item) + 1 for item in checkpoint_payload.get("winner_ids") or []]
+        board["end_reason"] = str(checkpoint_payload.get("end_reason") or "")
+        return board
+
+    def _build_players_view_state(self, public_snapshot: dict, checkpoint_payload: dict) -> dict:
+        snapshot_players = public_snapshot.get("players")
+        public_players = list(snapshot_players) if isinstance(snapshot_players, list) else []
+        payload_players = [item for item in checkpoint_payload.get("players") or [] if isinstance(item, dict)]
+        payload_by_external = {
+            int(player.get("player_id", -1)) + 1: player
+            for player in payload_players
+            if self._int_or_none(player.get("player_id")) is not None
+        }
+        ordered = [int(item) + 1 for item in checkpoint_payload.get("current_round_order") or []]
+        current_actor = self._current_actor_player_id(checkpoint_payload)
+        active_by_card = dict(public_snapshot.get("active_by_card") or checkpoint_payload.get("active_by_card") or {})
+        character_to_slot = {str(character): self._int_or_none(slot) for slot, character in active_by_card.items()}
+        items: list[dict] = []
+        for public_player in public_players:
+            if not isinstance(public_player, dict):
+                continue
+            player_id = self._int_or_none(public_player.get("player_id"))
+            if player_id is None:
+                continue
+            payload_player = payload_by_external.get(player_id, {})
+            current_character = str(public_player.get("character") or payload_player.get("current_character") or "")
+            hand_coins = int(public_player.get("hand_score_coins", payload_player.get("hand_coins", 0)) or 0)
+            placed_coins = int(public_player.get("placed_score_coins", payload_player.get("score_coins_placed", 0)) or 0)
+            score = int(public_player.get("score", 0) or 0)
+            if score <= 0:
+                score = int(public_player.get("owned_tile_count", payload_player.get("tiles_owned", 0)) or 0) + placed_coins
+            item = {
+                **public_player,
+                "player_id": player_id,
+                "seat": self._int_or_none(public_player.get("seat")) or player_id,
+                "current_character_face": current_character,
+                "character": current_character,
+                "hand_coins": hand_coins,
+                "placed_coins": placed_coins,
+                "placed_score_coins": placed_coins,
+                "score": score,
+                "total_score": score,
+                "is_marker_owner": player_id == int(checkpoint_payload.get("marker_owner_id", 0) or 0) + 1,
+                "is_current_actor": player_id == current_actor,
+                "turn_order_rank": ordered.index(player_id) if player_id in ordered else None,
+                "priority_slot": character_to_slot.get(current_character),
+            }
+            items.append(item)
+        if not ordered:
+            ordered = [int(item.get("player_id", 0)) for item in items if self._int_or_none(item.get("player_id"))]
+        return {
+            "items": items,
+            "ordered_player_ids": ordered,
+            "turn_order_source": "round_order" if ordered else "player_id",
+            "marker_owner_player_id": int(checkpoint_payload.get("marker_owner_id", 0) or 0) + 1,
+            "marker_draft_direction": (
+                "clockwise" if bool(checkpoint_payload.get("marker_draft_clockwise", True)) else "counterclockwise"
+            ),
+        }
+
+    def _build_player_cards_view_state(self, public_snapshot: dict, checkpoint_payload: dict) -> dict:
+        del checkpoint_payload
+        players = public_snapshot.get("players")
+        if not isinstance(players, list):
+            return {"items": []}
+        active_by_card = dict(public_snapshot.get("active_by_card") or {})
+        character_to_slot = {str(character): self._int_or_none(slot) for slot, character in active_by_card.items()}
+        items: list[dict] = []
+        for raw_player in players:
+            if not isinstance(raw_player, dict):
+                continue
+            player_id = self._int_or_none(raw_player.get("player_id"))
+            character = str(raw_player.get("character") or "")
+            if player_id is None or not character:
+                continue
+            items.append(
+                {
+                    "player_id": player_id,
+                    "seat": self._int_or_none(raw_player.get("seat")) or player_id,
+                    "character": character,
+                    "current_character_face": character,
+                    "priority_slot": character_to_slot.get(character),
+                    "reveal_state": "revealed",
+                }
+            )
+        return {"items": items}
+
+    def _build_active_slots_view_state(self, public_snapshot: dict, checkpoint_payload: dict) -> dict:
+        del checkpoint_payload
+        active_by_card = dict(public_snapshot.get("active_by_card") or {})
+        items = []
+        for slot, character in sorted(active_by_card.items(), key=lambda item: str(item[0])):
+            items.append(
+                {
+                    "priority_slot": self._int_or_none(slot),
+                    "character": str(character),
+                    "card_name": str(character),
+                    "occupied": bool(str(character)),
+                }
+            )
+        return {"items": items}
+
+    def _build_hand_tray_view_state(self, state: object, viewer: dict) -> list[dict]:
+        player_id = self._int_or_none(viewer.get("player_id"))
+        if player_id is None:
+            return []
+        players = getattr(state, "players", None)
+        if not isinstance(players, list):
+            return []
+        internal_id = player_id - 1
+        if internal_id < 0 or internal_id >= len(players):
+            return []
+        hand = getattr(players[internal_id], "trick_hand", None)
+        if not isinstance(hand, list):
+            return []
+        items = []
+        for index, card in enumerate(hand):
+            deck_index = self._int_or_none(getattr(card, "deck_index", None))
+            name = str(getattr(card, "name", "") or "")
+            effect = str(
+                getattr(card, "description", "")
+                or getattr(card, "effect", "")
+                or getattr(card, "text", "")
+                or ""
+            )
+            items.append(
+                {
+                    "key": f"{deck_index if deck_index is not None else index}:{name}:{index}",
+                    "deck_index": deck_index,
+                    "title": name,
+                    "name": name,
+                    "effect": effect,
+                    "description": effect,
+                    "serial": str(deck_index) if deck_index is not None else "",
+                    "hidden": False,
+                    "is_hidden": False,
+                    "currentTarget": False,
+                    "is_current_target": False,
+                }
+            )
+        return items
+
+    def _build_prompt_view_state_for_viewer(
+        self,
+        *,
+        checkpoint_payload: dict,
+        viewer: dict,
+        active_module: dict,
+        commit_seq: int,
+    ) -> dict | None:
+        player_id = self._int_or_none(viewer.get("player_id"))
+        if str(viewer.get("role") or "") not in {"seat", "player"} or player_id is None:
+            return None
+        prompt_payload = self._active_prompt_payload_for_player(checkpoint_payload, player_id, active_module)
+        if not prompt_payload:
+            return None
+        prompt_view = build_prompt_view_state([{"type": "prompt", "payload": prompt_payload}])
+        if not isinstance(prompt_view, dict):
+            return None
+        active = prompt_view.get("active")
+        if isinstance(active, dict):
+            active["commit_seq"] = commit_seq
+            active["view_commit_seq"] = commit_seq
+            active["prompt_commit_seq"] = commit_seq
+            active["prompt_instance_id"] = prompt_payload.get("prompt_instance_id")
+            active["legal_choices"] = list(prompt_payload.get("legal_choices") or [])
+        return prompt_view
+
+    def _active_prompt_payload_for_player(self, checkpoint_payload: dict, player_id: int, active_module: dict) -> dict | None:
+        active_prompt = checkpoint_payload.get("runtime_active_prompt")
+        if isinstance(active_prompt, dict):
+            prompt_player_id = self._external_prompt_player_id(active_prompt, checkpoint_payload)
+            if prompt_player_id == player_id:
+                return self._single_prompt_payload(active_prompt, checkpoint_payload, active_module, player_id=player_id)
+        active_batch = checkpoint_payload.get("runtime_active_prompt_batch")
+        if isinstance(active_batch, dict):
+            return self._batch_prompt_payload_for_player(active_batch, checkpoint_payload, active_module, player_id)
+        return None
+
+    def _single_prompt_payload(
+        self,
+        prompt: dict,
+        checkpoint_payload: dict,
+        active_module: dict,
+        *,
+        player_id: int,
+    ) -> dict:
+        payload = dict(prompt)
+        payload["player_id"] = player_id
+        payload.setdefault("request_id", checkpoint_payload.get("pending_prompt_request_id"))
+        payload.setdefault("request_type", checkpoint_payload.get("pending_prompt_type"))
+        payload.setdefault("prompt_instance_id", checkpoint_payload.get("pending_prompt_instance_id"))
+        payload.setdefault("timeout_ms", DEFAULT_HUMAN_PROMPT_TIMEOUT_MS)
+        payload.setdefault("provider", "human")
+        payload.setdefault("legal_choices", [])
+        payload.setdefault("public_context", {})
+        payload["runtime_module"] = self._runtime_module_prompt_payload(active_module)
+        return payload
+
+    def _batch_prompt_payload_for_player(
+        self,
+        batch: dict,
+        checkpoint_payload: dict,
+        active_module: dict,
+        player_id: int,
+    ) -> dict | None:
+        prompts = batch.get("prompts_by_player_id")
+        if not isinstance(prompts, dict):
+            return None
+        internal_player_id = player_id - 1
+        raw_prompt = prompts.get(str(internal_player_id)) or prompts.get(internal_player_id)
+        if not isinstance(raw_prompt, dict):
+            return None
+        prompt = dict(raw_prompt)
+        prompt["player_id"] = player_id
+        prompt.setdefault("request_id", checkpoint_payload.get("pending_prompt_request_id") or prompt.get("request_id"))
+        prompt.setdefault("request_type", batch.get("request_type"))
+        prompt.setdefault("timeout_ms", DEFAULT_HUMAN_PROMPT_TIMEOUT_MS)
+        prompt.setdefault("provider", "human")
+        prompt.setdefault("legal_choices", [])
+        prompt.setdefault("public_context", {})
+        prompt["batch_id"] = str(batch.get("batch_id") or "")
+        prompt["missing_player_ids"] = [
+            int(raw) + 1
+            for raw in batch.get("missing_player_ids") or []
+            if self._int_or_none(raw) is not None
+        ]
+        resume_tokens = batch.get("resume_tokens_by_player_id")
+        if isinstance(resume_tokens, dict):
+            prompt["resume_tokens_by_player_id"] = {
+                str(int(raw_id) + 1): str(token)
+                for raw_id, token in resume_tokens.items()
+                if self._int_or_none(raw_id) is not None
+            }
+        prompt["runtime_module"] = self._runtime_module_prompt_payload(active_module)
+        return prompt
+
+    def _external_prompt_player_id(self, prompt: dict, checkpoint_payload: dict) -> int | None:
+        raw_player_id = self._int_or_none(prompt.get("player_id"))
+        pending_player_id = self._int_or_none(checkpoint_payload.get("pending_prompt_player_id"))
+        player_count = len([item for item in checkpoint_payload.get("players") or [] if isinstance(item, dict)])
+        if raw_player_id is None:
+            return pending_player_id
+        if pending_player_id is not None and raw_player_id == pending_player_id:
+            return raw_player_id
+        if pending_player_id is not None and raw_player_id + 1 == pending_player_id:
+            return pending_player_id
+        if 0 <= raw_player_id < player_count:
+            return raw_player_id + 1
+        return raw_player_id
+
+    @staticmethod
+    def _runtime_module_prompt_payload(active_module: dict) -> dict:
+        return {
+            "runner_kind": str(active_module.get("runner_kind") or ""),
+            "frame_id": str(active_module.get("frame_id") or ""),
+            "frame_type": str(active_module.get("frame_type") or ""),
+            "module_id": str(active_module.get("module_id") or ""),
+            "module_type": str(active_module.get("module_type") or ""),
+            "module_cursor": str(active_module.get("module_cursor") or ""),
+            "module_path": list(active_module.get("module_path") or []),
+            "idempotency_key": str(active_module.get("idempotency_key") or ""),
+        }
+
+    def _active_runtime_module_from_checkpoint(self, checkpoint_payload: dict, module_debug_fields: dict[str, str]) -> dict:
+        frame_stack = checkpoint_payload.get("runtime_frame_stack")
+        if isinstance(frame_stack, list):
+            for frame_index in range(len(frame_stack) - 1, -1, -1):
+                frame = frame_stack[frame_index]
+                if not isinstance(frame, dict) or str(frame.get("status") or "") == "completed":
+                    continue
+                module = self._active_module_from_frame_payload(frame)
+                if module is None:
+                    continue
+                frame_id = str(frame.get("frame_id") or "")
+                module_id = str(module.get("module_id") or "")
+                path = [
+                    str(raw_frame.get("frame_id") or raw_frame.get("frame_type") or "")
+                    for raw_frame in frame_stack[: frame_index + 1]
+                    if isinstance(raw_frame, dict)
+                ]
+                if module_id:
+                    path.append(module_id)
+                return {
+                    "runner_kind": str(checkpoint_payload.get("runtime_runner_kind") or "module"),
+                    "frame_id": frame_id,
+                    "frame_type": str(frame.get("frame_type") or ""),
+                    "module_id": module_id,
+                    "module_type": str(module.get("module_type") or ""),
+                    "module_status": str(module.get("status") or ""),
+                    "module_cursor": str(module.get("module_cursor") or ""),
+                    "idempotency_key": str(module.get("idempotency_key") or ""),
+                    "module_path": [item for item in path if item],
+                }
+        return {
+            "runner_kind": str(module_debug_fields.get("runner_kind") or checkpoint_payload.get("runtime_runner_kind") or "module"),
+            "frame_id": str(module_debug_fields.get("frame_id") or ""),
+            "frame_type": "",
+            "module_id": str(module_debug_fields.get("module_id") or ""),
+            "module_type": str(module_debug_fields.get("module_type") or ""),
+            "module_status": "",
+            "module_cursor": str(module_debug_fields.get("module_cursor") or ""),
+            "idempotency_key": str(module_debug_fields.get("idempotency_key") or ""),
+            "module_path": [
+                item
+                for item in [
+                    str(module_debug_fields.get("frame_id") or ""),
+                    str(module_debug_fields.get("module_id") or ""),
+                ]
+                if item
+            ],
+        }
+
+    @staticmethod
+    def _active_module_from_frame_payload(frame: dict) -> dict | None:
+        queue = frame.get("module_queue")
+        if not isinstance(queue, list):
+            return None
+        active_module_id = str(frame.get("active_module_id") or "")
+        if active_module_id:
+            for module in queue:
+                if isinstance(module, dict) and str(module.get("module_id") or "") == active_module_id:
+                    return module
+        for module in queue:
+            if not isinstance(module, dict):
+                continue
+            if str(module.get("status") or "") in {"completed", "skipped", "failed"}:
+                continue
+            return module
+        return None
+
+    def _runtime_projection_view_state(
+        self,
+        runtime_checkpoint: dict,
+        active_module: dict,
+        step: dict,
+        checkpoint_payload: dict,
+    ) -> dict:
+        module_type = str(active_module.get("module_type") or runtime_checkpoint.get("active_module_type") or "")
+        module_path = [str(item) for item in active_module.get("module_path") or [] if str(item)]
+        active_sequence = self._active_sequence_from_path(module_path, module_type)
+        round_stage = ROUND_STAGE_BY_MODULE.get(module_type, "in_round" if module_type else "")
+        turn_stage = TURN_STAGE_BY_MODULE.get(module_type, "" if round_stage in {"round_setup", "draft", "turn_scheduler"} else "in_turn")
+        return {
+            "runner_kind": str(active_module.get("runner_kind") or runtime_checkpoint.get("runner_kind") or "module"),
+            "latest_module_path": module_path,
+            "module_path": module_path,
+            "round_stage": round_stage,
+            "turn_stage": turn_stage,
+            "active_sequence": active_sequence,
+            "active_prompt_request_id": str(
+                runtime_checkpoint.get("waiting_prompt_request_id") or step.get("request_id") or ""
+            ),
+            "active_frame_id": str(active_module.get("frame_id") or runtime_checkpoint.get("active_frame_id") or ""),
+            "active_frame_type": str(active_module.get("frame_type") or ""),
+            "active_module_id": str(active_module.get("module_id") or runtime_checkpoint.get("active_module_id") or ""),
+            "active_module_type": module_type,
+            "active_module_status": str(active_module.get("module_status") or ""),
+            "active_module_cursor": str(active_module.get("module_cursor") or runtime_checkpoint.get("active_module_cursor") or ""),
+            "active_module_idempotency_key": str(active_module.get("idempotency_key") or ""),
+            "draft_active": module_type == "DraftModule"
+            or str(runtime_checkpoint.get("waiting_prompt_type") or "") in {"draft_card", "final_character", "final_character_choice"},
+            "trick_sequence_active": active_sequence == "trick" or module_type.startswith("Trick"),
+            "card_flip_legal": module_type == "RoundEndCardFlipModule",
+            "status": self._runtime_status_from_step(step, checkpoint_payload),
+        }
+
+    @staticmethod
+    def _runtime_status_from_step(step: dict, checkpoint_payload: dict) -> str:
+        status = str(step.get("status") or "")
+        if status == "waiting_input":
+            return "waiting_input"
+        if status in {"completed", "finished", "game_over"} or checkpoint_payload.get("winner_ids") or checkpoint_payload.get("end_reason"):
+            return "completed"
+        return "running"
+
+    @staticmethod
+    def _active_sequence_from_path(module_path: list[str], module_type: str) -> str:
+        if any(item.startswith("seq:trick") for item in module_path) or module_type.startswith("Trick"):
+            return "trick"
+        if any(item.startswith("seq:fortune") for item in module_path) or module_type.startswith("Fortune"):
+            return "fortune"
+        return ""
+
+    @staticmethod
+    def _current_actor_player_id(checkpoint_payload: dict) -> int | None:
+        ordered = checkpoint_payload.get("current_round_order")
+        turn_index = int(checkpoint_payload.get("turn_index", 0) or 0)
+        if isinstance(ordered, list) and ordered:
+            raw_actor = ordered[min(turn_index, len(ordered) - 1)]
+            try:
+                return int(raw_actor) + 1
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def _parameter_manifest_for_session(self, session_id: str) -> dict:
+        get_session = getattr(self._session_service, "get_session", None)
+        if not callable(get_session):
+            return {}
+        try:
+            session = get_session(session_id)
+        except Exception:
+            return {}
+        for attr in ("parameter_manifest", "resolved_parameter_manifest", "manifest"):
+            value = getattr(session, attr, None)
+            if isinstance(value, dict):
+                return dict(value)
+        resolved_parameters = getattr(session, "resolved_parameters", None)
+        if isinstance(resolved_parameters, dict):
+            for key in ("parameter_manifest", "manifest"):
+                value = resolved_parameters.get(key)
+                if isinstance(value, dict):
+                    return dict(value)
+        return {}
+
+    @staticmethod
+    def _int_or_none(value: object) -> int | None:
+        try:
+            if value is None or value == "":
+                return None
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     def _materialize_prompt_boundary_sync(
         self,

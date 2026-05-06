@@ -5,12 +5,12 @@ import asyncio
 import pytest
 
 from apps.server.src.domain.visibility import ViewerContext
-from apps.server.src.domain.view_state import project_view_state
+from apps.server.src.domain.view_state import project_replay_view_state
 from apps.server.src.services.stream_service import StreamService
 
 
 def test_next_round_draft_does_not_pollute_previous_turn_stage() -> None:
-    view_state = project_view_state(
+    view_state = project_replay_view_state(
         [
             {
                 "type": "event",
@@ -123,8 +123,8 @@ def test_final_character_choice_projection_stays_private_until_turn_start() -> N
         },
     ]
 
-    seat_view = project_view_state(messages, viewer=ViewerContext(role="seat", player_id=1))
-    spectator_view = project_view_state(messages, viewer=ViewerContext(role="spectator"))
+    seat_view = project_replay_view_state(messages, viewer=ViewerContext(role="seat", player_id=1))
+    spectator_view = project_replay_view_state(messages, viewer=ViewerContext(role="spectator"))
 
     assert seat_view["player_cards"]["items"][0]["character"] == "박수"
     assert seat_view["player_cards"]["items"][0]["reveal_state"] == "selected_private"
@@ -155,7 +155,7 @@ def test_final_character_choice_projection_stays_private_until_turn_start() -> N
         }
     )
 
-    revealed_view = project_view_state(messages, viewer=ViewerContext(role="spectator"))
+    revealed_view = project_replay_view_state(messages, viewer=ViewerContext(role="spectator"))
     assert revealed_view["player_cards"]["items"][0]["character"] == "박수"
     assert revealed_view["player_cards"]["items"][0]["reveal_state"] == "revealed"
     assert revealed_view["players"]["items"][0]["current_character_face"] == "박수"

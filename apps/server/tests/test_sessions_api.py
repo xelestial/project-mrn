@@ -19,6 +19,20 @@ from apps.server.src.services.stream_service import StreamService
 from apps.server.tests.prompt_payloads import module_prompt
 
 
+class _CachedViewCommitStore:
+    def __init__(self) -> None:
+        self._commits: dict[tuple[str, str, int | None], dict] = {}
+
+    def apply_stream_message(self, _message: dict) -> None:
+        return None
+
+    def load_view_commit(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict | None:
+        return self._commits.get((session_id, viewer, player_id if viewer == "player" else None))
+
+    def save_view_commit(self, session_id: str, payload: dict, *, viewer: str, player_id: int | None = None) -> None:
+        self._commits[(session_id, viewer, player_id if viewer == "player" else None)] = dict(payload)
+
+
 def _reset_state() -> None:
     from apps.server.src import state
 
@@ -31,6 +45,54 @@ def _reset_state() -> None:
         stream_service=state.stream_service,
         prompt_service=state.prompt_service,
     )
+
+
+def _cached_store() -> _CachedViewCommitStore:
+    from apps.server.src import state
+
+    store = getattr(state.stream_service, "_game_state_store", None)
+    if not isinstance(store, _CachedViewCommitStore):
+        store = _CachedViewCommitStore()
+        state.stream_service._game_state_store = store
+    return store
+
+
+def _save_cached_view_commit(
+    session_id: str,
+    *,
+    commit_seq: int,
+    source_event_seq: int,
+    view_state: dict | None = None,
+    viewer: str = "spectator",
+    player_id: int | None = None,
+    seat: int | None = None,
+    runtime: dict | None = None,
+) -> dict:
+    role = "seat" if viewer == "player" else viewer
+    viewer_payload: dict = {"role": role}
+    if player_id is not None:
+        viewer_payload["player_id"] = player_id
+    if seat is not None:
+        viewer_payload["seat"] = seat
+    payload = {
+        "schema_version": 1,
+        "commit_seq": commit_seq,
+        "source_event_seq": source_event_seq,
+        "viewer": viewer_payload,
+        "runtime": runtime
+        or {
+            "status": "running",
+            "round_index": view_state.get("turn_stage", {}).get("round_index", 0) if isinstance(view_state, dict) else 0,
+            "turn_index": view_state.get("turn_stage", {}).get("turn_index", 0) if isinstance(view_state, dict) else 0,
+            "active_frame_id": "frame:test",
+            "active_module_id": "module:test",
+            "active_module_type": "TestModule",
+            "module_path": ["frame:test", "module:test"],
+        },
+        "view_state": dict(view_state or {}),
+    }
+    _cached_store().save_view_commit(session_id, payload, viewer=viewer, player_id=player_id)
+    return payload
 
 
 def _all_ai_payload() -> dict:
@@ -496,7 +558,7 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(data["schema_name"], "mrn.redacted_replay_export")
         self.assertEqual(data["visibility"], "spectator")
         self.assertTrue(data["browser_safe"])
-        self.assertEqual(data["event_count"], 8)
+        self.assertEqual(data["event_count"], 4)
         source_events = [event for event in data["events"] if event.get("type") == "event"]
         view_commits = [event for event in data["events"] if event.get("type") == "view_commit"]
         self.assertEqual([event.get("payload", {}).get("event_type") for event in source_events], [
@@ -505,17 +567,15 @@ class SessionsApiTests(unittest.TestCase):
             "round_start",
             "turn_start",
         ])
-        self.assertEqual(len(view_commits), 4)
-        self.assertEqual(view_commits[-1].get("payload", {}).get("source_event_seq"), source_events[-1]["seq"])
+        self.assertEqual(view_commits, [])
         self.assertIn("server_time_ms", data["events"][0])
         self.assertNotIn("view_state", source_events[-1].get("payload", {}))
-        self.assertIn("view_state", view_commits[-1].get("payload", {}))
         self.assertNotIn("view_state", data)
         self.assertNotIn("final_state", data)
         self.assertNotIn("streams", data)
         self.assertNotIn("analysis", data)
 
-    def test_view_commit_endpoint_projects_latest_view_state_for_authenticated_seat(self) -> None:
+    def test_view_commit_endpoint_returns_cached_view_state_for_authenticated_seat(self) -> None:
         payload = _two_seat_matrix_payload()
         payload["config"]["visibility"] = "public"
         created = self.client.post("/api/v1/sessions", json=payload)
@@ -529,24 +589,41 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(joined.status_code, 200)
         session_token = joined.json()["data"]["session_token"]
 
-        async def _seed_private_prompt() -> None:
-            from apps.server.src import state
-
-            await state.stream_service.publish(
-                session_id,
-                "prompt",
-                module_prompt({
-                    "request_id": "req_trick",
-                    "request_type": "trick_to_use",
-                    "player_id": 1,
-                    "legal_choices": [{"choice_id": "card-11", "title": "재뿌리기"}],
-                    "public_context": {
-                        "full_hand": [{"deck_index": 11, "name": "재뿌리기", "is_usable": True}],
-                    },
-                }),
-            )
-
-        asyncio.run(_seed_private_prompt())
+        _save_cached_view_commit(
+            session_id,
+            commit_seq=1,
+            source_event_seq=1,
+            view_state={"board": {"round": 1}},
+        )
+        _save_cached_view_commit(
+            session_id,
+            commit_seq=1,
+            source_event_seq=1,
+            viewer="player",
+            player_id=1,
+            seat=1,
+            view_state={
+                "board": {"round": 1},
+                "prompt": {
+                    "active": {
+                        "request_id": "req_trick",
+                        "request_type": "trick_to_use",
+                        "player_id": 1,
+                        "legal_choices": [{"choice_id": "card-11", "title": "재뿌리기"}],
+                    }
+                },
+                "hand_tray": {"cards": [{"deck_index": 11, "name": "재뿌리기", "is_usable": True}]},
+            },
+            runtime={
+                "status": "waiting_input",
+                "round_index": 1,
+                "turn_index": 0,
+                "active_frame_id": "frame:prompt",
+                "active_module_id": "module:prompt",
+                "active_module_type": "TrickPromptModule",
+                "module_path": ["frame:prompt", "module:prompt"],
+            },
+        )
 
         spectator = self.client.get(f"/api/v1/sessions/{session_id}/view-commit")
         self.assertEqual(spectator.status_code, 200)
@@ -561,6 +638,17 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(seat_data["viewer"]["player_id"], 1)
         self.assertEqual(seat_data["view_state"]["prompt"]["active"]["request_id"], "req_trick")
         self.assertEqual(seat_data["view_state"]["hand_tray"]["cards"][0]["name"], "재뿌리기")
+
+    def test_view_commit_endpoint_returns_404_without_cached_commit(self) -> None:
+        payload = _two_seat_matrix_payload()
+        payload["config"]["visibility"] = "public"
+        created = self.client.post("/api/v1/sessions", json=payload)
+        session_id = created.json()["data"]["session_id"]
+
+        response = self.client.get(f"/api/v1/sessions/{session_id}/view-commit")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["error"]["code"], "VIEW_COMMIT_NOT_FOUND")
 
     def test_replay_endpoint_uses_single_snapshot_projection_path(self) -> None:
         payload = _all_ai_payload()
@@ -606,10 +694,10 @@ class SessionsApiTests(unittest.TestCase):
 
         self.assertEqual(replay.status_code, 200)
         data = replay.json()["data"]
-        self.assertEqual(data["event_count"], 44)
+        self.assertEqual(data["event_count"], 22)
         self.assertNotIn("view_state", data)
-        self.assertEqual(data["events"][-1].get("type"), "view_commit")
-        self.assertIn("view_state", data["events"][-1].get("payload", {}))
+        self.assertEqual(data["events"][-1].get("type"), "event")
+        self.assertNotIn("view_state", data["events"][-1].get("payload", {}))
 
     def test_runtime_status_does_not_return_live_view_state_for_authenticated_seat(self) -> None:
         created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())

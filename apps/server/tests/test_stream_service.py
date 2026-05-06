@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 import unittest
 
 import pytest
@@ -40,18 +41,18 @@ class FakeProjectionStore:
             }
         )
 
-    def save_projected_view_state(self, session_id: str, viewer: str, payload: dict, *, player_id: int | None = None) -> None:
+    def save_cached_view_state(self, session_id: str, viewer: str, payload: dict, *, player_id: int | None = None) -> None:
         label = f"player:{player_id}" if viewer == "player" else viewer
         self.view_states[(session_id, label)] = payload
 
-    def load_projected_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict | None:
+    def load_cached_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict | None:
         label = f"player:{player_id}" if viewer == "player" else viewer
         return self.view_states.get((session_id, label))
 
-    def load_projection_checkpoint(self, session_id: str) -> dict | None:
+    def load_view_commit_index(self, session_id: str) -> dict | None:
         return self.checkpoints.get(session_id)
 
-    def save_projection_checkpoint(self, session_id: str, payload: dict) -> None:
+    def save_view_commit_index(self, session_id: str, payload: dict) -> None:
         self.checkpoints[session_id] = payload
 
     def save_view_commit(self, session_id: str, payload: dict, *, viewer: str, player_id: int | None = None) -> None:
@@ -76,6 +77,10 @@ def _view_commit_messages(messages: list) -> list:
 
 
 class StreamServiceTests(unittest.TestCase):
+    def test_stream_service_live_path_does_not_import_replay_projector(self) -> None:
+        source = Path(__file__).parents[1].joinpath("src/services/stream_service.py").read_text()
+        self.assertNotIn("project_replay_view_state", source)
+
     def test_publish_increments_seq(self) -> None:
         service = StreamService()
 
@@ -83,7 +88,7 @@ class StreamServiceTests(unittest.TestCase):
             one = await service.publish("s1", "event", {"a": 1})
             two = await service.publish("s1", "event", {"a": 2})
             self.assertEqual(one.seq, 1)
-            self.assertEqual(two.seq, 3)
+            self.assertEqual(two.seq, 2)
             self.assertIsInstance(one.server_time_ms, int)
             self.assertGreater(one.server_time_ms, 0)
 
@@ -97,7 +102,7 @@ class StreamServiceTests(unittest.TestCase):
             await service.publish("s1", "event", {"n": 2})
             await service.publish("s1", "event", {"n": 3})
             replay = await service.replay_from("s1", 1)
-            self.assertEqual([m.seq for m in replay], [2, 3, 4, 5, 6])
+            self.assertEqual([m.seq for m in replay], [2, 3])
 
         asyncio.run(_run())
 
@@ -122,8 +127,8 @@ class StreamServiceTests(unittest.TestCase):
             await service.publish("s1", "event", {"n": 1})
             await service.publish("s1", "prompt", module_prompt({"request_id": "r1"}))
             snapshot = await service.snapshot("s1")
-            self.assertEqual([message.seq for message in _source_messages(snapshot)], [1, 3])
-            self.assertEqual([message.seq for message in _view_commit_messages(snapshot)], [2, 4])
+            self.assertEqual([message.seq for message in _source_messages(snapshot)], [1, 2])
+            self.assertEqual(_view_commit_messages(snapshot), [])
 
         asyncio.run(_run())
 
@@ -148,7 +153,7 @@ class StreamServiceTests(unittest.TestCase):
             self.assertEqual(first_prompt.seq, second_prompt.seq)
             self.assertEqual(first_requested.seq, second_requested.seq)
             self.assertEqual(len(_source_messages(snapshot)), 2)
-            self.assertEqual(len(_view_commit_messages(snapshot)), 2)
+            self.assertEqual(_view_commit_messages(snapshot), [])
 
         asyncio.run(_run())
 
@@ -183,7 +188,7 @@ class StreamServiceTests(unittest.TestCase):
 
             self.assertEqual(first.seq, second.seq)
             self.assertEqual(len(_source_messages(snapshot)), 1)
-            self.assertEqual(len(_view_commit_messages(snapshot)), 1)
+            self.assertEqual(_view_commit_messages(snapshot), [])
 
         asyncio.run(_run())
 
@@ -216,7 +221,7 @@ class StreamServiceTests(unittest.TestCase):
             snapshot = await service.snapshot("s1")
 
             self.assertEqual(len(_source_messages(snapshot)), 2)
-            self.assertEqual(len(_view_commit_messages(snapshot)), 2)
+            self.assertEqual(_view_commit_messages(snapshot), [])
 
         asyncio.run(_run())
 
@@ -269,39 +274,25 @@ class StreamServiceTests(unittest.TestCase):
 
         asyncio.run(_run())
 
-    def test_project_message_for_target_rebuilds_private_view_state(self) -> None:
-        service = StreamService()
+    def test_latest_view_commit_for_target_uses_cached_player_commit(self) -> None:
+        store = FakeProjectionStore()
+        service = StreamService(game_state_store=store)
 
         async def _run() -> None:
-            prompt = await service.publish(
-                "s1",
-                "prompt",
-                module_prompt({
-                    "request_id": "req_trick",
-                    "request_type": "trick_to_use",
-                    "player_id": 1,
-                    "legal_choices": [
-                        {
-                            "choice_id": "card-11",
-                            "title": "재뿌리기",
-                            "value": {"deck_index": 11},
-                        }
-                    ],
-                    "public_context": {
-                        "full_hand": [
-                            {
-                                "deck_index": 11,
-                                "name": "재뿌리기",
-                                "card_description": "이번 턴 임대료를 0으로 만듭니다.",
-                                "is_usable": True,
-                            }
-                        ],
-                    },
-                }),
-            )
+            store.view_commits[("s1", "player:1")] = {
+                "schema_version": 1,
+                "commit_seq": 8,
+                "source_event_seq": 7,
+                "viewer": {"role": "seat", "player_id": 1, "seat": 1},
+                "runtime": {"status": "waiting_input"},
+                "view_state": {
+                    "prompt": {"active": {"request_id": "req_trick"}},
+                    "hand_tray": {"cards": [{"name": "재뿌리기"}]},
+                },
+            }
 
             target = await service.latest_view_commit_message_for_viewer("s1", ViewerContext(role="seat", session_id="s1", player_id=1))
-            other = await service.project_message_for_viewer(prompt.to_dict(), ViewerContext(role="seat", session_id="s1", player_id=2))
+            other = await service.latest_view_commit_message_for_viewer("s1", ViewerContext(role="seat", session_id="s1", player_id=2))
 
             self.assertIsNotNone(target)
             view_state = target["payload"]["view_state"]
@@ -311,7 +302,7 @@ class StreamServiceTests(unittest.TestCase):
 
         asyncio.run(_run())
 
-    def test_publish_caches_spectator_projection(self) -> None:
+    def test_publish_does_not_cache_spectator_projection(self) -> None:
         store = FakeProjectionStore()
         service = StreamService(game_state_store=store)
 
@@ -331,40 +322,42 @@ class StreamServiceTests(unittest.TestCase):
                 },
             )
 
-            cached = store.view_commits[("s1", "spectator")]
-            self.assertEqual(cached["view_state"]["board"]["f_value"], 7)
-            self.assertEqual(cached["commit_seq"], 2)
-            self.assertEqual(store.checkpoints["s1"]["latest_seq"], 2)
-            self.assertEqual(store.checkpoints["s1"]["latest_source_event_seq"], 1)
+            self.assertNotIn(("s1", "spectator"), store.view_commits)
+            self.assertEqual([message["type"] for message in store.messages], ["event"])
 
         asyncio.run(_run())
 
-    def test_project_message_for_target_caches_player_projection(self) -> None:
+    def test_project_message_for_viewer_uses_cached_player_commit_without_rebuild(self) -> None:
         store = FakeProjectionStore()
         service = StreamService(game_state_store=store)
 
         async def _run() -> None:
-            prompt = await service.publish(
+            commit = await service.publish_view_commit(
                 "s1",
-                "prompt",
-                module_prompt({
-                    "request_id": "req_trick",
-                    "request_type": "trick_to_use",
-                    "player_id": 1,
-                    "legal_choices": [{"choice_id": "card-11", "title": "재뿌리기"}],
-                    "public_context": {
-                        "full_hand": [{"deck_index": 11, "name": "재뿌리기", "is_usable": True}],
+                {
+                    "schema_version": 1,
+                    "commit_seq": 4,
+                    "source_event_seq": 3,
+                    "viewer": {"role": "spectator"},
+                    "runtime": {"status": "waiting_input"},
+                    "view_state": {
+                        "prompt": {"active": {"request_id": "spectator"}},
                     },
-                }),
+                },
             )
+            store.view_commits[("s1", "player:1")] = {
+                "schema_version": 1,
+                "commit_seq": 4,
+                "source_event_seq": 3,
+                "viewer": {"role": "seat", "player_id": 1},
+                "runtime": {"status": "waiting_input"},
+                "view_state": {"prompt": {"active": {"request_id": "req_trick"}}},
+            }
 
-            target = await service.latest_view_commit_message_for_viewer("s1", ViewerContext(role="seat", session_id="s1", player_id=1))
+            target = await service.project_message_for_viewer(commit.to_dict(), ViewerContext(role="seat", session_id="s1", player_id=1))
 
             self.assertIsNotNone(target)
-            cached = store.view_commits[("s1", "player:1")]
-            self.assertEqual(cached["view_state"]["prompt"]["active"]["request_id"], "req_trick")
-            self.assertEqual(cached["view_state"]["hand_tray"]["cards"][0]["name"], "재뿌리기")
-            self.assertIn("player:1", store.checkpoints["s1"]["view_commit_viewers"])
+            self.assertEqual(target["payload"]["view_state"]["prompt"]["active"]["request_id"], "req_trick")
 
         asyncio.run(_run())
 
@@ -400,23 +393,100 @@ class StreamServiceTests(unittest.TestCase):
 
         asyncio.run(_run())
 
-    def test_project_message_for_viewer_rebuilds_view_commit_and_updates_cache(self) -> None:
+    def test_latest_view_commit_keeps_cached_commit_even_when_source_stream_advanced(self) -> None:
         store = FakeProjectionStore()
         service = StreamService(game_state_store=store)
 
         async def _run() -> None:
             await service.publish(
                 "s1",
-                "prompt",
-                module_prompt({
-                    "request_id": "req_trick",
-                    "request_type": "trick_to_use",
-                    "player_id": 1,
-                    "legal_choices": [{"choice_id": "card-11", "title": "재뿌리기"}],
-                    "public_context": {
-                        "full_hand": [{"deck_index": 11, "name": "재뿌리기", "is_usable": True}],
-                    },
-                }),
+                "event",
+                {
+                    "event_type": "turn_start",
+                    "round_index": 7,
+                    "turn_index": 14,
+                    "acting_player_id": 1,
+                    "character": "산적",
+                },
+            )
+            stale = {
+                "schema_version": 1,
+                "commit_seq": 2,
+                "source_event_seq": 1,
+                "viewer": {"role": "spectator"},
+                "runtime": {"status": "running"},
+                "view_state": {"turn_stage": {"current_beat_event_code": "turn_start"}},
+            }
+            async with service._lock:  # Deliberately simulate a Redis-direct runtime event.
+                service._append_stream_message_no_lock(
+                    "s1",
+                    "event",
+                    {"event_type": "engine_transition", "status": "finished", "reason": "end_rule"},
+                    server_time_ms=2000,
+                )
+            store.view_commits[("s1", "spectator")] = stale
+
+            latest = await service.latest_view_commit_message_for_viewer("s1", ViewerContext(role="spectator", session_id="s1"))
+
+            self.assertEqual(latest["payload"]["source_event_seq"], 1)
+            self.assertEqual(latest["payload"]["runtime"]["status"], "running")
+            self.assertEqual(latest["payload"]["view_state"]["turn_stage"]["current_beat_event_code"], "turn_start")
+
+        asyncio.run(_run())
+
+    def test_emit_latest_view_commit_broadcasts_cached_commit_only(self) -> None:
+        store = FakeProjectionStore()
+        service = StreamService(game_state_store=store)
+
+        async def _run() -> None:
+            await service.publish(
+                "s1",
+                "event",
+                {
+                    "event_type": "turn_start",
+                    "round_index": 7,
+                    "turn_index": 14,
+                    "acting_player_id": 1,
+                    "character": "산적",
+                },
+            )
+            self.assertIsNone(await service.emit_latest_view_commit("s1"))
+            store.view_commits[("s1", "spectator")] = {
+                "schema_version": 1,
+                "commit_seq": 5,
+                "source_event_seq": 4,
+                "viewer": {"role": "spectator"},
+                "runtime": {"status": "completed"},
+                "view_state": {"turn_stage": {"current_beat_event_code": "game_end"}},
+            }
+
+            emitted = await service.emit_latest_view_commit("s1")
+            snapshot = await service.snapshot("s1")
+
+            self.assertIsNotNone(emitted)
+            self.assertEqual(emitted.type, "view_commit")
+            self.assertEqual(emitted.payload["source_event_seq"], 4)
+            self.assertEqual(emitted.payload["runtime"]["status"], "completed")
+            self.assertEqual(snapshot[-1].type, "view_commit")
+            self.assertEqual(store.view_commits[("s1", "spectator")]["source_event_seq"], 4)
+
+        asyncio.run(_run())
+
+    def test_project_message_for_viewer_does_not_rebuild_view_commit(self) -> None:
+        store = FakeProjectionStore()
+        service = StreamService(game_state_store=store)
+
+        async def _run() -> None:
+            commit = await service.publish_view_commit(
+                "s1",
+                {
+                    "schema_version": 1,
+                    "commit_seq": 2,
+                    "source_event_seq": 1,
+                    "viewer": {"role": "spectator"},
+                    "runtime": {"status": "running"},
+                    "view_state": {"prompt": {"active": {"request_id": "spectator"}}},
+                },
             )
             viewer = ViewerContext(role="seat", session_id="s1", player_id=1)
             store.view_commits[("s1", "player:1")] = {
@@ -427,37 +497,34 @@ class StreamServiceTests(unittest.TestCase):
                 "runtime": {"status": "running"},
                 "view_state": {"prompt": {"last_feedback": {"request_id": "old"}}},
             }
-            commit_record = _view_commit_messages(await service.snapshot("s1"))[-1]
 
-            rebuilt = await service.project_message_for_viewer(commit_record.to_dict(), viewer)
+            rebuilt = await service.project_message_for_viewer(commit.to_dict(), viewer)
 
-            self.assertEqual(rebuilt["payload"]["view_state"]["prompt"]["active"]["request_id"], "req_trick")
-            self.assertEqual(store.view_commits[("s1", "player:1")]["view_state"]["prompt"]["active"]["request_id"], "req_trick")
+            self.assertEqual(rebuilt["payload"]["view_state"]["prompt"]["last_feedback"]["request_id"], "old")
+            self.assertNotIn("active", store.view_commits[("s1", "player:1")]["view_state"]["prompt"])
 
         asyncio.run(_run())
 
-    def test_latest_view_commit_for_viewer_builds_from_latest_commit_record(self) -> None:
+    def test_latest_view_commit_for_viewer_requires_cached_commit(self) -> None:
         service = StreamService()
 
         async def _run() -> None:
-            await service.publish(
+            await service.publish_view_commit(
                 "s1",
-                "event",
                 {
-                    "event_type": "turn_end_snapshot",
-                    "snapshot": {
-                        "players": [{"player_id": 1, "position": 3, "alive": True}],
-                        "board": {"tiles": [{"tile_index": 3}]},
-                    },
+                    "schema_version": 1,
+                    "commit_seq": 4,
+                    "source_event_seq": 3,
+                    "viewer": {"role": "spectator"},
+                    "runtime": {"status": "running"},
+                    "view_state": {"players": {"items": [{"player_id": 1}]}},
                 },
             )
             await service.publish("s1", "event", {"event_type": "turn_start", "acting_player_id": 1})
 
             latest = await service.latest_view_commit_message_for_viewer("s1", ViewerContext(role="spectator", session_id="s1"))
 
-            self.assertEqual(latest["payload"]["commit_seq"], 4)
-            self.assertEqual(latest["payload"]["source_event_seq"], 3)
-            self.assertIn("players", latest["payload"]["view_state"])
+            self.assertIsNone(latest)
 
         asyncio.run(_run())
 
@@ -471,7 +538,7 @@ class StreamServiceTests(unittest.TestCase):
             await service.publish("s1", "event", {"n": 2})
             await service.publish("s1", "event", {"n": 3})
             window = await service.replay_window("s1")
-            self.assertEqual(window, (5, 6))
+            self.assertEqual(window, (2, 3))
 
         asyncio.run(_run())
 
@@ -487,7 +554,7 @@ class StreamServiceTests(unittest.TestCase):
             first = await asyncio.wait_for(queue.get(), timeout=0.5)
             second = await asyncio.wait_for(queue.get(), timeout=0.5)
 
-            self.assertEqual([first["seq"], second["seq"]], [5, 6])
+            self.assertEqual([first["seq"], second["seq"]], [2, 3])
             stats = await service.backpressure_stats("s1")
             self.assertEqual(stats["subscriber_count"], 1)
             self.assertEqual(stats["queue_size"], 2)
@@ -503,9 +570,9 @@ class StreamServiceTests(unittest.TestCase):
             for n in range(1, 301):
                 await service.publish("s1", "event", {"n": n})
             oldest, latest = await service.replay_window("s1")
-            self.assertEqual((oldest, latest), (551, 600))
-            replay = await service.replay_from("s1", 595)
-            self.assertEqual([m.seq for m in replay], [596, 597, 598, 599, 600])
+            self.assertEqual((oldest, latest), (251, 300))
+            replay = await service.replay_from("s1", 295)
+            self.assertEqual([m.seq for m in replay], [296, 297, 298, 299, 300])
 
         asyncio.run(_run())
 

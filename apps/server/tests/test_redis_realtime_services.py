@@ -5,7 +5,8 @@ import threading
 import unittest
 import unittest.mock
 
-from apps.server.src.domain.view_state.projector import project_view_state
+from apps.server.src.domain.visibility import ViewerContext
+from apps.server.src.domain.view_state.projector import project_replay_view_state
 from apps.server.src.infra.redis_client import RedisConnection, RedisConnectionSettings
 from apps.server.src.services.prompt_service import PromptService
 from apps.server.src.services.command_wakeup_worker import CommandStreamWakeupWorker
@@ -15,6 +16,7 @@ from apps.server.src.services.realtime_persistence import (
     RedisPromptStore,
     RedisRuntimeStateStore,
     RedisStreamStore,
+    ViewCommitSequenceConflict,
 )
 from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.session_service import SessionService
@@ -57,20 +59,19 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             )
             first = await queue.get()
             second = await queue.get()
-            self.assertEqual([first["seq"], second["seq"]], [5, 6])
-            self.assertEqual([first["type"], second["type"]], ["event", "view_commit"])
+            self.assertEqual([first["seq"], second["seq"]], [2, 3])
+            self.assertEqual([first["type"], second["type"]], ["event", "event"])
             snapshot = await service.snapshot("s1")
-            self.assertEqual([item.seq for item in snapshot], [5, 6])
-            replay = await service.replay_from("s1", 5)
-            self.assertEqual([item.seq for item in replay], [6])
+            self.assertEqual([item.seq for item in snapshot], [2, 3])
+            replay = await service.replay_from("s1", 2)
+            self.assertEqual([item.seq for item in replay], [3])
             stats = await service.backpressure_stats("s1")
             self.assertGreaterEqual(stats["drop_count"], 1)
             checkpoint = game_state.load_checkpoint("s1")
             self.assertIsNotNone(checkpoint)
-            self.assertEqual(checkpoint["latest_seq"], 6)
-            self.assertEqual(checkpoint["latest_event_type"], "view_commit")
-            self.assertEqual(checkpoint["latest_commit_seq"], 6)
-            self.assertEqual(checkpoint["latest_source_event_seq"], 5)
+            self.assertEqual(checkpoint["latest_seq"], 3)
+            self.assertEqual(checkpoint["latest_event_type"], "turn_end_snapshot")
+            self.assertNotIn("latest_commit_seq", checkpoint)
             self.assertEqual(checkpoint["round_index"], 1)
             self.assertEqual(checkpoint["turn_index"], 3)
             self.assertEqual(game_state.load_current_state("s1")["board"]["f_value"], 7)
@@ -90,6 +91,92 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             commands = command_store.list_commands("s1")
             self.assertEqual(len(commands), 1)
             self.assertEqual(commands[0]["payload"]["request_id"], "req_ai_1")
+
+        asyncio.run(_run())
+
+    def test_stream_service_broadcasts_cached_view_commit_after_direct_runtime_transition(self) -> None:
+        game_state = RedisGameStateStore(self.connection)
+        stream_backend = RedisStreamStore(self.connection)
+        service = StreamService(
+            stream_backend=stream_backend,
+            game_state_store=game_state,
+            queue_size=4,
+            max_buffer=20,
+        )
+
+        async def _run() -> None:
+            await service.publish(
+                "s-direct-terminal",
+                "event",
+                {
+                    "event_type": "turn_start",
+                    "round_index": 7,
+                    "turn_index": 14,
+                    "acting_player_id": 1,
+                    "character": "산적",
+                    "snapshot": {
+                        "players": [{"player_id": 1, "position": 3, "alive": True}],
+                        "board": {"f_value": 30, "tiles": [{"tile_index": 3}]},
+                    },
+                },
+            )
+            game_state.commit_transition(
+                "s-direct-terminal",
+                current_state={"players": [{"player_id": 1}], "board": {"f_value": 30}},
+                checkpoint={
+                    "schema_version": 3,
+                    "session_id": "s-direct-terminal",
+                    "latest_seq": stream_backend.latest_seq("s-direct-terminal"),
+                    "latest_commit_seq": 2,
+                    "latest_source_event_seq": 1,
+                    "latest_event_type": "engine_transition",
+                    "round_index": 7,
+                    "turn_index": 14,
+                    "has_snapshot": True,
+                    "has_view_commit": True,
+                },
+                view_state={"turn_stage": {"current_beat_event_code": "game_end"}},
+                view_commits={
+                    "spectator": {
+                        "schema_version": 1,
+                        "commit_seq": 1,
+                        "source_event_seq": 1,
+                        "viewer": {"role": "spectator"},
+                        "runtime": {
+                            "status": "completed",
+                            "round_index": 7,
+                            "turn_index": 14,
+                            "active_frame_id": "",
+                            "active_module_id": "",
+                            "active_module_type": "",
+                            "module_path": [],
+                        },
+                        "view_state": {"turn_stage": {"current_beat_event_code": "game_end"}},
+                    },
+                },
+                runtime_event_payload={
+                    "event_type": "engine_transition",
+                    "status": "finished",
+                    "reason": "end_rule",
+                },
+                runtime_event_server_time_ms=1234,
+            )
+
+            emitted = await service.emit_latest_view_commit("s-direct-terminal")
+            latest = await service.latest_view_commit_message_for_viewer(
+                "s-direct-terminal",
+                viewer=ViewerContext(
+                    role="spectator",
+                    session_id="s-direct-terminal",
+                ),
+            )
+
+            self.assertIsNotNone(emitted)
+            self.assertEqual(emitted.payload["source_event_seq"], 1)
+            self.assertEqual(emitted.payload["runtime"]["status"], "completed")
+            self.assertEqual(latest["payload"]["source_event_seq"], 1)
+            self.assertEqual(latest["payload"]["runtime"]["status"], "completed")
+            self.assertEqual(game_state.load_view_commit("s-direct-terminal", "spectator")["source_event_seq"], 1)
 
         asyncio.run(_run())
 
@@ -119,6 +206,32 @@ class RedisRealtimeServicesTests(unittest.TestCase):
                 "has_pending_turn_completion": True,
             },
             view_state={"board": {"turn": 3}},
+            view_commits={
+                "spectator": {
+                    "schema_version": 1,
+                    "commit_seq": 1,
+                    "source_event_seq": 1,
+                    "viewer": {"role": "spectator"},
+                    "runtime": {"status": "running", "round_index": 1, "turn_index": 3},
+                    "view_state": {"board": {"turn": 3}},
+                },
+                "admin": {
+                    "schema_version": 1,
+                    "commit_seq": 1,
+                    "source_event_seq": 1,
+                    "viewer": {"role": "admin"},
+                    "runtime": {"status": "running", "round_index": 1, "turn_index": 3},
+                    "view_state": {"debug": True, "board": {"turn": 3}},
+                },
+                "player:1": {
+                    "schema_version": 1,
+                    "commit_seq": 1,
+                    "source_event_seq": 1,
+                    "viewer": {"role": "seat", "player_id": 1},
+                    "runtime": {"status": "running", "round_index": 1, "turn_index": 3},
+                    "view_state": {"prompt": {"active": {"request_id": "req_p1"}}},
+                },
+            },
             command_consumer_name="runtime_wakeup",
             command_seq=9,
             runtime_event_payload={
@@ -138,16 +251,62 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertTrue(game_state.load_checkpoint("s-commit")["has_scheduled_actions"])
         self.assertTrue(game_state.load_checkpoint("s-commit")["has_pending_turn_completion"])
         self.assertEqual(game_state.load_view_state("s-commit")["board"]["turn"], 3)
-        self.assertEqual(game_state.load_projected_view_state("s-commit", "public")["board"]["turn"], 3)
+        self.assertEqual(game_state.load_cached_view_state("s-commit", "public")["board"]["turn"], 3)
+        self.assertEqual(game_state.load_view_commit("s-commit", "spectator")["commit_seq"], 1)
+        self.assertEqual(game_state.load_view_commit("s-commit", "admin")["view_state"]["debug"], True)
+        self.assertEqual(game_state.load_view_commit("s-commit", "player", player_id=1)["view_state"]["prompt"]["active"]["request_id"], "req_p1")
+        self.assertIn("player:1", game_state.load_view_commit_index("s-commit")["view_commit_viewers"])
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", "s-commit"), 9)
         runtime_events = RedisStreamStore(self.connection).snapshot("s-commit")
         self.assertEqual(len(runtime_events), 1)
         self.assertEqual(runtime_events[0]["seq"], 1)
         self.assertEqual(runtime_events[0]["payload"]["event_type"], "engine_transition")
         self.assertIn(
-            ["set", "set", "set", "set", "hset", "hset", "xadd"],
+            ["set", "set", "set", "set", "set", "set", "set", "set", "hset", "hset", "xadd"],
             self.fake_redis.pipeline_executions,
         )
+
+    def test_game_state_store_rejects_non_monotonic_authoritative_view_commit(self) -> None:
+        game_state = RedisGameStateStore(self.connection)
+
+        game_state.commit_transition(
+            "s-conflict",
+            current_state={"turn_index": 1},
+            checkpoint={"schema_version": 1, "session_id": "s-conflict", "turn_index": 1},
+            view_state={"board": {"turn": 1}},
+            view_commits={
+                "spectator": {
+                    "schema_version": 1,
+                    "commit_seq": 1,
+                    "source_event_seq": 0,
+                    "viewer": {"role": "spectator"},
+                    "runtime": {"status": "running", "round_index": 1, "turn_index": 1},
+                    "view_state": {"board": {"turn": 1}},
+                },
+            },
+        )
+
+        with self.assertRaises(ViewCommitSequenceConflict):
+            game_state.commit_transition(
+                "s-conflict",
+                current_state={"turn_index": 3},
+                checkpoint={"schema_version": 1, "session_id": "s-conflict", "turn_index": 3},
+                view_state={"board": {"turn": 3}},
+                view_commits={
+                    "spectator": {
+                        "schema_version": 1,
+                        "commit_seq": 3,
+                        "source_event_seq": 0,
+                        "viewer": {"role": "spectator"},
+                        "runtime": {"status": "running", "round_index": 1, "turn_index": 3},
+                        "view_state": {"board": {"turn": 3}},
+                    },
+                },
+            )
+
+        self.assertEqual(game_state.load_checkpoint("s-conflict")["latest_commit_seq"], 1)
+        self.assertEqual(game_state.load_current_state("s-conflict")["turn_index"], 1)
+        self.assertEqual(game_state.load_view_commit("s-conflict", "spectator")["commit_seq"], 1)
 
     def test_game_state_store_commits_module_prompt_resume_snapshot_atomically(self) -> None:
         game_state = RedisGameStateStore(self.connection)
@@ -221,34 +380,34 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         game_state = RedisGameStateStore(self.connection)
 
         game_state.save_view_state("s-view", {"board": {"turn": 1}})
-        game_state.save_projected_view_state("s-view", "spectator", {"board": {"turn": 2}})
-        game_state.save_projected_view_state("s-view", "player", {"prompt": {"active": {"request_id": "r1"}}}, player_id=1)
-        game_state.save_projected_view_state("s-view", "admin", {"debug": {"hands": 4}})
-        game_state.save_projection_checkpoint(
+        game_state.save_cached_view_state("s-view", "spectator", {"board": {"turn": 2}})
+        game_state.save_cached_view_state("s-view", "player", {"prompt": {"active": {"request_id": "r1"}}}, player_id=1)
+        game_state.save_cached_view_state("s-view", "admin", {"debug": {"hands": 4}})
+        game_state.save_view_commit_index(
             "s-view",
             {
                 "schema_version": 1,
                 "latest_seq": 12,
                 "projection_schema_version": 1,
-                "projected_viewers": ["public", "spectator", "player:1", "admin"],
+                "cached_viewers": ["public", "spectator", "player:1", "admin"],
             },
         )
 
         self.assertEqual(game_state.load_view_state("s-view"), {"board": {"turn": 1}})
-        self.assertEqual(game_state.load_projected_view_state("s-view", "public"), {"board": {"turn": 1}})
-        self.assertEqual(game_state.load_projected_view_state("s-view", "spectator"), {"board": {"turn": 2}})
-        self.assertEqual(game_state.load_projected_view_state("s-view", "player", player_id=1)["prompt"]["active"]["request_id"], "r1")
-        self.assertEqual(game_state.load_projected_view_state("s-view", "admin"), {"debug": {"hands": 4}})
-        self.assertEqual(game_state.load_projection_checkpoint("s-view")["latest_seq"], 12)
+        self.assertEqual(game_state.load_cached_view_state("s-view", "public"), {"board": {"turn": 1}})
+        self.assertEqual(game_state.load_cached_view_state("s-view", "spectator"), {"board": {"turn": 2}})
+        self.assertEqual(game_state.load_cached_view_state("s-view", "player", player_id=1)["prompt"]["active"]["request_id"], "r1")
+        self.assertEqual(game_state.load_cached_view_state("s-view", "admin"), {"debug": {"hands": 4}})
+        self.assertEqual(game_state.load_view_commit_index("s-view")["latest_seq"], 12)
 
         game_state.delete_session_data("s-view")
 
         self.assertIsNone(game_state.load_view_state("s-view"))
-        self.assertIsNone(game_state.load_projected_view_state("s-view", "public"))
-        self.assertIsNone(game_state.load_projected_view_state("s-view", "spectator"))
-        self.assertIsNone(game_state.load_projected_view_state("s-view", "player", player_id=1))
-        self.assertIsNone(game_state.load_projected_view_state("s-view", "admin"))
-        self.assertIsNone(game_state.load_projection_checkpoint("s-view"))
+        self.assertIsNone(game_state.load_cached_view_state("s-view", "public"))
+        self.assertIsNone(game_state.load_cached_view_state("s-view", "spectator"))
+        self.assertIsNone(game_state.load_cached_view_state("s-view", "player", player_id=1))
+        self.assertIsNone(game_state.load_cached_view_state("s-view", "admin"))
+        self.assertIsNone(game_state.load_view_commit_index("s-view"))
 
     def test_game_state_store_persists_authoritative_view_commit_variants(self) -> None:
         game_state = RedisGameStateStore(self.connection)
@@ -353,13 +512,13 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             "type": "event",
             "session_id": "s-state-projection",
             "server_time_ms": 12345,
-            "payload": {**payload, "view_state": project_view_state([{"seq": 12, "type": "event", "payload": payload}])},
+            "payload": {**payload, "view_state": project_replay_view_state([{"seq": 12, "type": "event", "payload": payload}])},
         }
 
         game_state.apply_stream_message(message)
 
         current_state = game_state.load_current_state("s-state-projection")
-        view_state = game_state.load_projected_view_state("s-state-projection", "public")
+        view_state = game_state.load_cached_view_state("s-state-projection", "public")
         self.assertIsNotNone(current_state)
         self.assertEqual(current_state["players"][0]["position"], 7)
         self.assertEqual(current_state["players"][0]["trick_hand"], [101, 202])
@@ -1727,15 +1886,22 @@ class RedisRealtimeServicesTests(unittest.TestCase):
                 "seq": 4,
                 "state": True,
                 "checkpoint": True,
-                "view_state": False,
+                "view_state": True,
+                "view_commit": True,
                 "runtime_event": True,
                 "consumer_offset": True,
             },
         )
-        self.assertEqual(runtime_events[-1]["seq"], saved_checkpoint["latest_seq"])
-        self.assertEqual(runtime_events[-1]["payload"]["event_type"], "engine_transition")
-        self.assertEqual(runtime_events[-1]["payload"]["processed_command_seq"], 4)
-        self.assertEqual(runtime_events[-1]["payload"]["command_commit_envelope"], saved_checkpoint["command_commit_envelope"])
+        self.assertEqual(saved_checkpoint["latest_commit_seq"], 1)
+        self.assertEqual(game_state.load_view_commit(session.session_id, "spectator")["commit_seq"], 1)
+        source_events = [event for event in runtime_events if event.get("type") != "view_commit"]
+        view_commits = [event for event in runtime_events if event.get("type") == "view_commit"]
+        self.assertEqual(source_events[-1]["seq"], saved_checkpoint["latest_seq"])
+        self.assertEqual(source_events[-1]["payload"]["event_type"], "engine_transition")
+        self.assertEqual(source_events[-1]["payload"]["processed_command_seq"], 4)
+        self.assertEqual(source_events[-1]["payload"]["command_commit_envelope"], saved_checkpoint["command_commit_envelope"])
+        self.assertEqual(view_commits[-1]["payload"]["commit_seq"], saved_checkpoint["latest_commit_seq"])
+        self.assertEqual(view_commits[-1]["payload"]["source_event_seq"], saved_checkpoint["latest_source_event_seq"])
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 4)
 
     def test_human_prompt_reentry_consumes_decision_without_duplicate_prompt(self) -> None:

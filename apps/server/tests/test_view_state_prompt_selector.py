@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from apps.server.src.domain.visibility import ViewerContext
+from apps.server.src.domain.view_state import project_replay_view_state
 from apps.server.src.domain.view_state.prompt_selector import build_prompt_feedback_view_state, build_prompt_view_state
 from apps.server.src.services.stream_service import StreamService
 from apps.server.tests.prompt_payloads import module_prompt
@@ -323,10 +324,10 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
 
         self.assertIsNone(view_state)
 
-    def test_stream_service_projects_prompt_view_state_for_target_viewer(self) -> None:
+    def test_stream_service_keeps_prompt_view_state_projection_out_of_live_publish(self) -> None:
         stream = StreamService()
 
-        async def _publish() -> tuple[dict, dict | None]:
+        async def _publish() -> tuple[dict, dict | None, dict]:
             await stream.publish(
                 "sess_1",
                 "prompt",
@@ -340,20 +341,24 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                 }, module_type="MapMoveModule", frame_id="turn:test:p0"),
             )
             snapshot = await stream.snapshot("sess_1")
-            projected = await stream.latest_view_commit_message_for_viewer(
+            latest_commit = await stream.latest_view_commit_message_for_viewer(
                 "sess_1",
                 ViewerContext(role="seat", session_id="sess_1", player_id=1),
             )
-            return [message.to_dict() for message in snapshot][-1], projected
+            messages = [message.to_dict() for message in snapshot]
+            replay_view_state = project_replay_view_state(
+                messages,
+                viewer=ViewerContext(role="seat", session_id="sess_1", player_id=1),
+            )
+            return messages[-1], latest_commit, replay_view_state
 
-        stored_message, projected_message = asyncio.run(_publish())
+        stored_message, latest_commit, replay_view_state = asyncio.run(_publish())
         latest_payload = stored_message["payload"]
 
-        self.assertIn("view_state", latest_payload)
-        self.assertNotIn("prompt", latest_payload["view_state"])
-        self.assertIsNotNone(projected_message)
+        self.assertNotIn("view_state", latest_payload)
+        self.assertIsNone(latest_commit)
         self.assertEqual(
-            projected_message["payload"]["view_state"]["prompt"]["active"]["request_id"],
+            replay_view_state["prompt"]["active"]["request_id"],
             "req_turn7_move",
         )
 

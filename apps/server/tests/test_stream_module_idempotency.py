@@ -85,7 +85,7 @@ def test_request_scoped_prompt_ignores_shared_module_idempotency_key() -> None:
         snapshot = await service.snapshot("s1")
 
         assert first.seq == 1
-        assert second.seq == 3
+        assert second.seq == 2
         assert duplicate.seq == second.seq
         assert [message.payload["request_id"] for message in _source_messages(snapshot)] == ["req:draft", "req:final"]
 
@@ -132,7 +132,7 @@ def test_request_scoped_decision_event_ignores_shared_module_idempotency_key() -
         snapshot = await service.snapshot("s1")
 
         assert first.seq == 1
-        assert second.seq == 3
+        assert second.seq == 2
         assert duplicate.seq == second.seq
         assert [message.payload["request_id"] for message in _source_messages(snapshot)] == ["req:draft", "req:final"]
 

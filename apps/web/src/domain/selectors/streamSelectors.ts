@@ -854,30 +854,18 @@ export function selectTimeline(
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): TimelineItem[] {
   const backendScene = selectBackendScene(messages);
-  if (backendScene) {
-    const safeLimit = Math.max(1, limit);
-    const messageBySeq = selectMessageBySeq(messages);
-    return backendScene.timeline.slice(0, safeLimit).map((item) => {
-      const sourceMessage = messageBySeq.get(item.seq);
-      return {
-        seq: item.seq,
-        label: sourceMessage
-          ? pickMessageLabel(sourceMessage, text)
-          : item.messageType !== "event"
-            ? nonEventLabelForMessageType(item.messageType as InboundMessage["type"], text.eventLabel)
-            : eventLabelForCode(item.eventCode, text.eventLabel),
-        detail: sourceMessage ? pickMessageDetail(sourceMessage, text) : "",
-      };
-    });
+  if (!backendScene) {
+    return [];
   }
-  return messages
-    .slice(-limit)
-    .map((message) => ({
-      seq: message.seq,
-      label: pickMessageLabel(message, text),
-      detail: pickMessageDetail(message, text),
-    }))
-    .reverse();
+  const safeLimit = Math.max(1, limit);
+  return backendScene.timeline.slice(0, safeLimit).map((item) => ({
+    seq: item.seq,
+    label:
+      item.messageType !== "event"
+        ? nonEventLabelForMessageType(item.messageType as InboundMessage["type"], text.eventLabel)
+        : eventLabelForCode(item.eventCode, text.eventLabel),
+    detail: "",
+  }));
 }
 
 function toneFromMessage(message: InboundMessage): TheaterItem["tone"] {
@@ -1000,82 +988,22 @@ export function selectTheaterFeed(
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): TheaterItem[] {
   const backendScene = selectBackendScene(messages);
-  if (backendScene) {
-    const safeLimit = Math.max(1, limit);
-    const messageBySeq = selectMessageBySeq(messages);
-    return backendScene.theaterFeed.slice(0, safeLimit).map((item) => {
-      const sourceMessage = messageBySeq.get(item.seq);
-      return {
-        seq: item.seq,
-        label: sourceMessage
-          ? pickMessageLabel(sourceMessage, text)
-          : item.messageType !== "event"
-            ? nonEventLabelForMessageType(item.messageType as InboundMessage["type"], text.eventLabel)
-            : eventLabelForCode(item.eventCode, text.eventLabel),
-        detail: sourceMessage ? pickMessageDetail(sourceMessage, text) : "",
-        tone: item.tone,
-        lane: item.lane,
-        actor: item.actorPlayerId !== null ? playerLabel(item.actorPlayerId, text) : "-",
-        eventCode: item.eventCode,
-      };
-    });
+  if (!backendScene) {
+    return [];
   }
   const safeLimit = Math.max(1, limit);
-  const coreCap = Math.max(1, Math.floor(safeLimit * 0.5));
-  const promptCap = Math.max(1, Math.floor(safeLimit * 0.3));
-  const systemCap = Math.max(1, safeLimit - coreCap - promptCap);
-  const caps: Record<TheaterItem["lane"], number> = { core: coreCap, prompt: promptCap, system: systemCap };
-  const laneCounts: Record<TheaterItem["lane"], number> = { core: 0, prompt: 0, system: 0 };
-  const feed: TheaterItem[] = [];
-  const pickedSeq = new Set<number>();
-
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    if (message.type === "heartbeat") {
-      continue;
-    }
-    const lane = laneFromMessage(message);
-    if (laneCounts[lane] >= caps[lane]) {
-      continue;
-    }
-    feed.push({
-      seq: message.seq,
-      label: pickMessageLabel(message, text),
-      detail: pickMessageDetail(message, text),
-      tone: toneFromMessage(message),
-      lane,
-      actor: actorFromMessage(message, text),
-      eventCode: theaterCode(message),
-    });
-    pickedSeq.add(message.seq);
-    laneCounts[lane] += 1;
-    if (feed.length >= safeLimit) {
-      break;
-    }
-  }
-
-  if (feed.length < safeLimit) {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const message = messages[i];
-      if (message.type === "heartbeat" || pickedSeq.has(message.seq)) {
-        continue;
-      }
-      feed.push({
-        seq: message.seq,
-        label: pickMessageLabel(message, text),
-        detail: pickMessageDetail(message, text),
-        tone: toneFromMessage(message),
-        lane: laneFromMessage(message),
-        actor: actorFromMessage(message, text),
-        eventCode: theaterCode(message),
-      });
-      pickedSeq.add(message.seq);
-      if (feed.length >= safeLimit) {
-        break;
-      }
-    }
-  }
-  return feed.sort((a, b) => b.seq - a.seq);
+  return backendScene.theaterFeed.slice(0, safeLimit).map((item) => ({
+    seq: item.seq,
+    label:
+      item.messageType !== "event"
+        ? nonEventLabelForMessageType(item.messageType as InboundMessage["type"], text.eventLabel)
+        : eventLabelForCode(item.eventCode, text.eventLabel),
+    detail: "",
+    tone: item.tone,
+    lane: item.lane,
+    actor: item.actorPlayerId !== null ? playerLabel(item.actorPlayerId, text) : "-",
+    eventCode: item.eventCode,
+  }));
 }
 
 function alertFromEvent(message: InboundMessage, text: StreamSelectorTextResources): AlertItem | null {
@@ -1113,45 +1041,22 @@ export function selectCriticalAlerts(
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): AlertItem[] {
   const backendScene = selectBackendScene(messages);
-  if (backendScene) {
-    const safeLimit = Math.max(1, limit);
-    const messageBySeq = selectMessageBySeq(messages);
-    const alerts = backendScene.criticalAlerts.map((item) => {
-      const sourceMessage = messageBySeq.get(item.seq);
-      return {
-        seq: item.seq,
-        severity: item.severity,
-        title: sourceMessage
-          ? pickMessageLabel(sourceMessage, text)
-          : item.messageType !== "event"
-            ? nonEventLabelForMessageType(item.messageType as InboundMessage["type"], text.eventLabel)
-            : eventLabelForCode(item.eventCode, text.eventLabel),
-        detail: sourceMessage ? pickMessageDetail(sourceMessage, text) || "-" : "-",
-      };
-    });
-    const terminalMessage = findLatestTerminalGameEndMessage(messages);
-    if (terminalMessage && !alerts.some((item) => item.seq === terminalMessage.seq)) {
-      alerts.unshift({
-        seq: terminalMessage.seq,
-        severity: "critical",
-        title: eventLabelForCode("game_end", text.eventLabel),
-        detail: pickMessageDetail(terminalMessage, text) || text.stream.gameEndDefault,
-      });
-    }
-    return alerts.sort((a, b) => b.seq - a.seq).slice(0, safeLimit);
+  if (!backendScene) {
+    return [];
   }
-  const alerts: AlertItem[] = [];
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const alert = alertFromEvent(messages[i], text);
-    if (!alert) {
-      continue;
-    }
-    alerts.push(alert);
-    if (alerts.length >= limit) {
-      break;
-    }
-  }
-  return alerts;
+  const safeLimit = Math.max(1, limit);
+  return backendScene.criticalAlerts
+    .map((item) => ({
+      seq: item.seq,
+      severity: item.severity,
+      title:
+        item.messageType !== "event"
+          ? nonEventLabelForMessageType(item.messageType as InboundMessage["type"], text.eventLabel)
+          : eventLabelForCode(item.eventCode, text.eventLabel),
+      detail: "-",
+    }))
+    .sort((a, b) => b.seq - a.seq)
+    .slice(0, safeLimit);
 }
 
 function findLatestField(messages: InboundMessage[], keys: string[]): unknown {
@@ -1222,46 +1127,20 @@ export function selectCoreActionFeed(
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): CoreActionItem[] {
   const backendScene = selectBackendScene(messages);
-  if (backendScene) {
-    const safeLimit = Math.max(1, limit);
-    const messageBySeq = selectMessageBySeq(messages);
-    return backendScene.coreActionFeed.slice(0, safeLimit).map((item) => {
-      const sourceMessage = messageBySeq.get(item.seq);
-      return {
-        seq: item.seq,
-        actor: item.actorPlayerId !== null ? playerLabel(item.actorPlayerId, text) : "-",
-        eventCode: item.eventCode,
-        round: item.roundIndex,
-        turn: item.turnIndex,
-        label: sourceMessage ? pickMessageLabel(sourceMessage, text) : eventLabelForCode(item.eventCode, text.eventLabel),
-        detail: sourceMessage ? pickMessageDetail(sourceMessage, text) : "",
-        isLocalActor: focusPlayerId !== null && item.actorPlayerId === focusPlayerId,
-      };
-    });
+  if (!backendScene) {
+    return [];
   }
   const safeLimit = Math.max(1, limit);
-  const rows: CoreActionItem[] = [];
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    if (!isCoreActionMessage(message)) {
-      continue;
-    }
-    const actor = actorFromMessage(message, text);
-    rows.push({
-      seq: message.seq,
-      actor,
-      eventCode: messageKindFromPayload(message.payload),
-      round: numberOrNull(message.payload["round_index"]),
-      turn: numberOrNull(message.payload["turn_index"]),
-      label: pickMessageLabel(message, text),
-      detail: pickMessageDetail(message, text),
-      isLocalActor: focusPlayerId !== null && actor === playerLabel(focusPlayerId, text),
-    });
-    if (rows.length >= safeLimit) {
-      break;
-    }
-  }
-  return rows;
+  return backendScene.coreActionFeed.slice(0, safeLimit).map((item) => ({
+    seq: item.seq,
+    actor: item.actorPlayerId !== null ? playerLabel(item.actorPlayerId, text) : "-",
+    eventCode: item.eventCode,
+    round: item.roundIndex,
+    turn: item.turnIndex,
+    label: eventLabelForCode(item.eventCode, text.eventLabel),
+    detail: "",
+    isLocalActor: focusPlayerId !== null && item.actorPlayerId === focusPlayerId,
+  }));
 }
 
 function isSituationNoise(message: InboundMessage): boolean {
@@ -1298,12 +1177,8 @@ export function selectSituation(
 ): SituationViewModel {
   const backendScene = selectBackendScene(messages);
   if (backendScene?.situation) {
-    const messageBySeq = selectMessageBySeq(messages);
-    const sourceMessage =
-      backendScene.situation.headlineSeq !== null ? messageBySeq.get(backendScene.situation.headlineSeq) ?? null : null;
-    const eventType = sourceMessage
-      ? pickMessageLabel(sourceMessage, text)
-      : backendScene.situation.headlineMessageType !== "event"
+    const eventType =
+      backendScene.situation.headlineMessageType !== "event"
         ? nonEventLabelForMessageType(backendScene.situation.headlineMessageType as InboundMessage["type"], text.eventLabel)
         : eventLabelForCode(backendScene.situation.headlineEventCode, text.eventLabel);
     return {
@@ -1315,29 +1190,7 @@ export function selectSituation(
       weatherEffect: backendScene.situation.weatherEffect,
     };
   }
-  const last = latestSituationMessage(messages);
-  if (!last) {
-    return { actor: "-", round: "-", turn: "-", eventType: "-", weather: "-", weatherEffect: "-" };
-  }
-  const actorNum = findLatestField(messages, ["acting_player_id", "player_id"]);
-  const actorField = findLatestField(messages, ["actor"]);
-  const actor =
-    typeof actorField === "string" && actorField.trim()
-      ? actorField
-      : typeof actorNum === "number"
-        ? playerLabel(actorNum, text)
-        : "-";
-  const round = asNumberText(findLatestField(messages, ["round_index"]));
-  const turn = asNumberText(findLatestField(messages, ["turn_index"]));
-  const weather = findPersistedWeather(messages, text);
-  return {
-    actor,
-    round,
-    turn,
-    eventType: pickMessageLabel(last, text),
-    weather: weather.name,
-    weatherEffect: weather.effect,
-  };
+  return { actor: "-", round: "-", turn: "-", eventType: "-", weather: "-", weatherEffect: "-" };
 }
 
 function roundTurnOfPayload(payload: Record<string, unknown>): { round: number | null; turn: number | null } {
@@ -1577,7 +1430,6 @@ export function selectTurnStage(
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): TurnStageViewModel {
   const backendTurnStage = selectBackendTurnStage(messages);
-  const weather = findPersistedWeather(messages, text);
   const fallback: TurnStageViewModel = {
     turnStartSeq: null,
     actorPlayerId: null,
@@ -1585,8 +1437,8 @@ export function selectTurnStage(
     round: null,
     turn: null,
     character: "-",
-    weatherName: weather.name,
-    weatherEffect: weather.effect,
+    weatherName: "-",
+    weatherEffect: "-",
     currentBeatKind: "system",
     currentBeatEventCode: "-",
     focusTileIndex: null,
@@ -1604,7 +1456,7 @@ export function selectTurnStage(
     lapRewardSummary: "-",
     markSummary: "-",
     flipSummary: "-",
-    weatherSummary: weather.name === "-" ? "-" : text.stream.weatherDetail(weather.name, weather.effect),
+    weatherSummary: "-",
     effectSummary: "-",
     promptSummary: "-",
     promptRequestType: "-",
@@ -1632,433 +1484,9 @@ export function selectTurnStage(
     progressTrail: [],
   };
 
-  let turnStartIndex = -1;
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    if (message.type !== "event") {
-      continue;
-    }
-    if (messageKindFromPayload(message.payload) === "turn_start") {
-      turnStartIndex = i;
-      break;
-    }
-  }
-  if (turnStartIndex < 0) {
-    const terminalMessage = findLatestTerminalGameEndMessage(messages);
-    if (terminalMessage) {
-      return {
-        ...fallback,
-        currentBeatKind: "system",
-        currentBeatEventCode: "game_end",
-        currentBeatLabel: eventLabelForCode("game_end", text.eventLabel),
-        currentBeatDetail: pickMessageDetail(terminalMessage, text) || text.stream.gameEndDefault,
-        latestActionLabel: eventLabelForCode("game_end", text.eventLabel),
-        latestActionDetail: pickMessageDetail(terminalMessage, text) || text.stream.gameEndDefault,
-        progressTrail: [eventLabelForCode("game_end", text.eventLabel)],
-      };
-    }
-    return fallback;
-  }
-
-  const startMessage = messages[turnStartIndex];
-  if (startMessage.type !== "event") {
-    return fallback;
-  }
-  const actorPlayerId = numberOrNull(startMessage.payload["acting_player_id"] ?? startMessage.payload["player_id"]);
-  const roundTurn = roundTurnOfPayload(startMessage.payload);
-  const model: TurnStageViewModel = {
-    ...fallback,
-    turnStartSeq: startMessage.seq,
-    actorPlayerId,
-    actor: actorPlayerId === null ? "-" : playerLabel(actorPlayerId, text),
-    round: roundTurn.round,
-    turn: roundTurn.turn,
-    character: asString(startMessage.payload["character"] ?? startMessage.payload["actor_name"]),
-    currentBeatKind: "system",
-    currentBeatEventCode: "turn_start",
-    focusTileIndex: null,
-    currentBeatLabel: eventLabelForCode("turn_start", text.eventLabel),
-    currentBeatDetail: actorPlayerId === null ? "-" : text.turnStage.turnStartDetail(playerLabel(actorPlayerId, text)),
-  };
-  const trail: string[] = [eventLabelForCode("turn_start", text.eventLabel)];
-  const runtime = selectRuntimeProjection(messages);
-  const roundOnlyRuntimeStage =
-    runtime !== null &&
-    ["round_setup", "draft", "turn_scheduler", "round_end_card_flip", "round_cleanup"].includes(runtime.roundStage);
-
-  const updateBeat = (
-    eventCode: string,
-    label: string,
-    detail: string,
-    kind: TurnStageViewModel["currentBeatKind"],
-    focusTileIndex: number | null
-  ) => {
-    model.latestActionLabel = label;
-    model.latestActionDetail = detail || "-";
-    model.currentBeatKind = kind;
-    model.currentBeatEventCode = eventCode;
-    if (focusTileIndex !== null) {
-      model.focusTileIndex = focusTileIndex;
-      model.focusTileIndices = [focusTileIndex];
-    }
-    model.currentBeatLabel = label;
-    model.currentBeatDetail = detail || "-";
-    trail.push(label);
-  };
-
-  const updateExternalAiStatus = (payload: Record<string, unknown>) => {
-    const status = externalAiStatusFromPayload(payload);
-    if (status.workerId !== "-") {
-      model.externalAiWorkerId = status.workerId;
-    }
-    if (status.failureCode !== "-") {
-      model.externalAiFailureCode = status.failureCode;
-    }
-    if (status.fallbackMode !== "-") {
-      model.externalAiFallbackMode = status.fallbackMode;
-    }
-    if (status.resolutionStatus !== "-") {
-      model.externalAiResolutionStatus = status.resolutionStatus;
-    }
-    if (status.attemptCount !== null) {
-      model.externalAiAttemptCount = status.attemptCount;
-    }
-    if (status.attemptLimit !== null) {
-      model.externalAiAttemptLimit = status.attemptLimit;
-    }
-    if (status.readyState !== "-") {
-      model.externalAiReadyState = status.readyState;
-    }
-    if (status.policyMode !== "-") {
-      model.externalAiPolicyMode = status.policyMode;
-    }
-    if (status.workerAdapter !== "-") {
-      model.externalAiWorkerAdapter = status.workerAdapter;
-    }
-    if (status.policyClass !== "-") {
-      model.externalAiPolicyClass = status.policyClass;
-    }
-    if (status.decisionStyle !== "-") {
-      model.externalAiDecisionStyle = status.decisionStyle;
-    }
-  };
-
-  for (let i = turnStartIndex + 1; i < messages.length; i += 1) {
-    const message = messages[i];
-    if (message.type === "prompt") {
-      const requestType = asString(message.payload["request_type"]);
-      const promptActor = numberOrNull(message.payload["player_id"]);
-      if (
-        !roundOnlyRuntimeStage &&
-        requestType !== "-" &&
-        (model.actorPlayerId === null ||
-          model.actorPlayerId === promptActor ||
-          isPreCharacterSelectionRequestType(requestType)) &&
-        isTurnScopedPrompt(message.payload, model.round, model.turn)
-      ) {
-        updateActorFromPrompt(model, message.payload, text);
-        updateActorStatusFromContext(model, message.payload);
-        model.promptSummary = text.stream.promptWaiting(promptLabelForType(requestType, text.promptType));
-        model.promptRequestType = requestType;
-        model.currentBeatKind = "decision";
-        model.currentBeatLabel = promptLabelForType(requestType, text.promptType);
-        model.currentBeatDetail = model.promptSummary;
-        const promptTileIndex = promptFocusTileIndex(message.payload);
-        const promptTileIndices = promptFocusTileIndices(message.payload);
-        if (promptTileIndex !== null) {
-          model.focusTileIndex = promptTileIndex;
-        }
-        if (promptTileIndices.length > 0) {
-          model.focusTileIndices = promptTileIndices;
-        }
-      }
-      continue;
-    }
-    if (message.type !== "event") {
-      continue;
-    }
-    const eventCode = messageKindFromPayload(message.payload);
-    if (eventCode === "game_end" && isFinishedEngineTransitionPayload(message.payload)) {
-      updateBeat(
-        eventCode,
-        pickMessageLabel(message, text),
-        detailFromEventCode(message.payload, eventCode, text) || "-",
-        "system",
-        null
-      );
-      model.actorPlayerId = null;
-      model.actor = "-";
-      model.promptSummary = "-";
-      model.promptRequestType = "-";
-      continue;
-    }
-    if (!sameRoundTurn(message.payload, model.round, model.turn)) {
-      continue;
-    }
-    if (eventCode === "turn_start") {
-      continue;
-    }
-    if (CORE_EVENT_CODES.has(eventCode) && eventCode !== "turn_end_snapshot") {
-      updateBeat(
-        eventCode,
-        pickMessageLabel(message, text),
-        detailFromEventCode(message.payload, eventCode, text) || "-",
-        turnBeatKindFromEventCode(eventCode),
-        focusTileIndexFromPayload(message.payload, eventCode)
-      );
-    }
-    if (eventCode === "trick_used") {
-      model.trickSummary = detailFromEventCode(message.payload, eventCode, text);
-      model.effectSummary = model.trickSummary;
-      continue;
-    }
-    if (eventCode === "dice_roll") {
-      model.diceSummary = detailFromEventCode(message.payload, eventCode, text);
-      continue;
-    }
-    if (eventCode === "player_move") {
-      model.moveSummary = detailFromEventCode(message.payload, eventCode, text);
-      continue;
-    }
-    if (eventCode === "landing_resolved") {
-      model.landingSummary = detailFromEventCode(message.payload, eventCode, text);
-      continue;
-    }
-    if (eventCode === "decision_requested") {
-      updateActorFromPrompt(model, message.payload, text);
-      updateExternalAiStatus(message.payload);
-      updateActorStatusFromContext(model, message.payload);
-      const detail = detailFromEventCode(message.payload, eventCode, text);
-      model.promptSummary = detail;
-      model.promptRequestType = asString(message.payload["request_type"]);
-      updateBeat(
-        eventCode,
-        pickMessageLabel(message, text),
-        detail || "-",
-        "decision",
-        promptFocusTileIndex({ public_context: message.payload["public_context"], legal_choices: message.payload["legal_choices"] })
-      );
-      const promptTileIndices = promptFocusTileIndices({
-        public_context: message.payload["public_context"],
-        legal_choices: message.payload["legal_choices"],
-      });
-      if (promptTileIndices.length > 0) {
-        model.focusTileIndices = promptTileIndices;
-      }
-      continue;
-    }
-    if (eventCode === "decision_resolved") {
-      updateActorFromPrompt(model, message.payload, text);
-      updateExternalAiStatus(message.payload);
-      updateActorStatusFromContext(model, message.payload);
-      const detail = detailFromEventCode(message.payload, eventCode, text);
-      model.promptSummary = detail;
-      model.promptRequestType = asString(message.payload["request_type"]);
-      updateBeat(
-        eventCode,
-        pickMessageLabel(message, text),
-        detail || "-",
-        "decision",
-        promptFocusTileIndex({ public_context: message.payload["public_context"], legal_choices: message.payload["legal_choices"] })
-      );
-      const promptTileIndices = promptFocusTileIndices({
-        public_context: message.payload["public_context"],
-        legal_choices: message.payload["legal_choices"],
-      });
-      if (promptTileIndices.length > 0) {
-        model.focusTileIndices = promptTileIndices;
-      }
-      continue;
-    }
-    if (eventCode === "decision_timeout_fallback") {
-      updateActorFromPrompt(model, message.payload, text);
-      updateExternalAiStatus(message.payload);
-      updateActorStatusFromContext(model, message.payload);
-      const detail = detailFromEventCode(message.payload, eventCode, text);
-      model.promptSummary = detail;
-      model.promptRequestType = asString(message.payload["request_type"]);
-      updateBeat(
-        eventCode,
-        pickMessageLabel(message, text),
-        detail || "-",
-        "system",
-        promptFocusTileIndex({ public_context: message.payload["public_context"], legal_choices: message.payload["legal_choices"] })
-      );
-      const promptTileIndices = promptFocusTileIndices({
-        public_context: message.payload["public_context"],
-        legal_choices: message.payload["legal_choices"],
-      });
-      if (promptTileIndices.length > 0) {
-        model.focusTileIndices = promptTileIndices;
-      }
-      continue;
-    }
-    if (eventCode === "tile_purchased") {
-      model.purchaseSummary = detailFromEventCode(message.payload, eventCode, text);
-      continue;
-    }
-    if (eventCode === "rent_paid") {
-      model.rentSummary = detailFromEventCode(message.payload, eventCode, text);
-      continue;
-    }
-    if (eventCode === "turn_end_snapshot") {
-      const detail = detailFromEventCode(message.payload, eventCode, text);
-      model.turnEndSummary = detail;
-      updateBeat(
-        eventCode,
-        pickMessageLabel(message, text),
-        detail || "-",
-        "system",
-        focusTileIndexFromPayload(message.payload, eventCode)
-      );
-      continue;
-    }
-    if (eventCode === "weather_reveal") {
-      const detail = detailFromEventCode(message.payload, eventCode, text);
-      model.weatherSummary = detail;
-      model.effectSummary = detail;
-      continue;
-    }
-    if (eventCode === "fortune_drawn") {
-      const detail = detailFromEventCode(message.payload, eventCode, text);
-      model.fortuneDrawSummary = detail;
-      if (model.fortuneSummary === "-") {
-        model.fortuneSummary = detail;
-      }
-      model.effectSummary = detail;
-      continue;
-    }
-    if (eventCode === "fortune_resolved") {
-      let detail = detailFromEventCode(message.payload, eventCode, text);
-      if (isMissingRenderedDetail(detail)) {
-        detail = detailFromEventCode(
-          {
-            ...message.payload,
-            summary: message.payload["card_name"] ?? message.payload["card"] ?? message.payload["summary"],
-          },
-          eventCode,
-          text
-        );
-      }
-      if (isMissingRenderedDetail(detail) && model.fortuneDrawSummary !== "-") {
-        detail = model.fortuneDrawSummary;
-      }
-      model.fortuneResolvedSummary = detail;
-      model.fortuneSummary = detail;
-      model.effectSummary = detail;
-      continue;
-    }
-    if (eventCode === "lap_reward_chosen") {
-      const detail = detailFromEventCode(message.payload, eventCode, text);
-      model.lapRewardSummary = detail;
-      model.effectSummary = detail;
-      continue;
-    }
-    if (
-      eventCode === "mark_resolved" ||
-      eventCode === "mark_queued" ||
-      eventCode === "mark_target_none" ||
-      eventCode === "mark_target_missing" ||
-      eventCode === "mark_blocked" ||
-      eventCode === "ability_suppressed"
-    ) {
-      const detail = detailFromEventCode(message.payload, eventCode, text);
-      model.markSummary = detail;
-      model.effectSummary = detail;
-      continue;
-    }
-    if (eventCode === "marker_flip") {
-      const detail = detailFromEventCode(message.payload, eventCode, text);
-      model.flipSummary = detail;
-      model.effectSummary = detail;
-      continue;
-    }
-  }
-
-  model.progressTrail = trail.slice(-6);
-
-  if (backendTurnStage && !roundOnlyRuntimeStage) {
-    const messageBySeq = new Map<number, InboundMessage>();
-    for (const message of messages) {
-      messageBySeq.set(message.seq, message);
-    }
-    model.turnStartSeq = backendTurnStage.turnStartSeq;
-    model.actorPlayerId = backendTurnStage.actorPlayerId;
-    model.actor = backendTurnStage.actorPlayerId === null ? "-" : playerLabel(backendTurnStage.actorPlayerId, text);
-    model.round = backendTurnStage.round;
-    model.turn = backendTurnStage.turn;
-    model.character = backendTurnStage.character;
-    model.weatherName = backendTurnStage.weatherName;
-    model.weatherEffect = backendTurnStage.weatherEffect;
-    model.currentBeatKind = backendTurnStage.currentBeatKind;
-    model.currentBeatEventCode = backendTurnStage.currentBeatEventCode;
-    model.focusTileIndex = backendTurnStage.focusTileIndex;
-    model.focusTileIndices = backendTurnStage.focusTileIndices;
-    model.promptRequestType = backendTurnStage.promptRequestType;
-    model.externalAiWorkerId = backendTurnStage.externalAiWorkerId;
-    model.externalAiFailureCode = backendTurnStage.externalAiFailureCode;
-    model.externalAiFallbackMode = backendTurnStage.externalAiFallbackMode;
-    model.externalAiResolutionStatus = backendTurnStage.externalAiResolutionStatus;
-    model.externalAiAttemptCount = backendTurnStage.externalAiAttemptCount;
-    model.externalAiAttemptLimit = backendTurnStage.externalAiAttemptLimit;
-    model.externalAiReadyState = backendTurnStage.externalAiReadyState;
-    model.externalAiPolicyMode = backendTurnStage.externalAiPolicyMode;
-    model.externalAiWorkerAdapter = backendTurnStage.externalAiWorkerAdapter;
-    model.externalAiPolicyClass = backendTurnStage.externalAiPolicyClass;
-    model.externalAiDecisionStyle = backendTurnStage.externalAiDecisionStyle;
-    model.actorCash = backendTurnStage.actorCash;
-    model.actorShards = backendTurnStage.actorShards;
-    model.actorHandCoins = backendTurnStage.actorHandCoins;
-    model.actorPlacedCoins = backendTurnStage.actorPlacedCoins;
-    model.actorTotalScore = backendTurnStage.actorTotalScore;
-    model.actorOwnedTileCount = backendTurnStage.actorOwnedTileCount;
-    model.currentBeatLabel = labelForTurnStageCode(
-      backendTurnStage.currentBeatEventCode,
-      backendTurnStage.currentBeatRequestType,
-      text
-    );
-    const beatSource =
-      backendTurnStage.currentBeatSeq === null ? null : messageBySeq.get(backendTurnStage.currentBeatSeq) ?? null;
-    model.currentBeatDetail =
-      backendTurnStage.currentBeatEventCode === "prompt_active"
-        ? text.stream.promptWaiting(promptLabelForType(backendTurnStage.currentBeatRequestType, text.promptType))
-        : beatSource
-          ? pickMessageDetail(beatSource, text) || "-"
-          : model.currentBeatDetail;
-    if (backendTurnStage.currentBeatEventCode === "prompt_active" && backendTurnStage.promptRequestType !== "-") {
-      model.promptSummary = text.stream.promptWaiting(
-        promptLabelForType(backendTurnStage.promptRequestType, text.promptType)
-      );
-      model.currentBeatDetail = model.promptSummary;
-    }
-    model.latestActionLabel = model.currentBeatLabel;
-    model.latestActionDetail = model.currentBeatDetail;
-    if (backendTurnStage.progressCodes.length > 0) {
-      model.progressTrail = backendTurnStage.progressCodes
-        .map((code) => labelForTurnStageCode(code, backendTurnStage.promptRequestType, text))
-        .filter((label) => label !== "-")
-        .slice(-6);
-    }
-  }
-
-  const terminalMessage = findLatestTerminalGameEndMessage(messages);
-  if (terminalMessage) {
-    const label = eventLabelForCode("game_end", text.eventLabel);
-    const detail = pickMessageDetail(terminalMessage, text) || text.stream.gameEndDefault;
-    model.actorPlayerId = null;
-    model.actor = "-";
-    model.currentBeatKind = "system";
-    model.currentBeatEventCode = "game_end";
-    model.currentBeatLabel = label;
-    model.currentBeatDetail = detail;
-    model.latestActionLabel = label;
-    model.latestActionDetail = detail;
-    model.promptSummary = "-";
-    model.promptRequestType = "-";
-    model.progressTrail = [...model.progressTrail.filter((item) => item !== label), label].slice(-6);
-  }
-
-  return model;
+  return backendTurnStage
+    ? applyBackendTurnStageProjection({ ...fallback }, backendTurnStage, [], text)
+    : fallback;
 }
 
 export function selectCurrentTurnRevealItems(
@@ -2068,73 +1496,8 @@ export function selectCurrentTurnRevealItems(
 ): CurrentTurnRevealItem[] {
   const safeLimit = Math.max(1, limit);
   const backendItems = selectBackendCurrentTurnRevealItems(messages);
-  if (backendItems && backendItems.length > 0) {
-    return backendItems.slice(-safeLimit);
-  }
-  let turnStartIndex = -1;
-  let targetRound: number | null = null;
-  let targetTurn: number | null = null;
-
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    if (message.type !== "event" || messageKindFromPayload(message.payload) !== "turn_start") {
-      continue;
-    }
-    turnStartIndex = i;
-    targetRound = numberOrNull(message.payload["round_index"]);
-    targetTurn = numberOrNull(message.payload["turn_index"]);
-    break;
-  }
-
-  if (turnStartIndex < 0) {
-    return [];
-  }
-
-  const items: CurrentTurnRevealItem[] = [];
-  for (let i = turnStartIndex + 1; i < messages.length; i += 1) {
-    const message = messages[i];
-    if (message.type !== "event") {
-      continue;
-    }
-    if (!sameRoundTurn(message.payload, targetRound, targetTurn)) {
-      continue;
-    }
-    const eventCode = messageKindFromPayload(message.payload);
-    if (!CURRENT_TURN_REVEAL_EVENT_CODES.has(eventCode)) {
-      continue;
-    }
-    items.push({
-      seq: message.seq,
-      eventCode,
-      label: pickMessageLabel(message, text),
-      detail: pickMessageDetail(message, text) || "-",
-      tone:
-        eventCode === "dice_roll" || eventCode === "player_move"
-          ? "move"
-          : eventCode === "tile_purchased" || eventCode === "rent_paid" || eventCode === "lap_reward_chosen"
-            ? "economy"
-            : "effect",
-      focusTileIndex: focusTileIndexFromPayload(message.payload, eventCode),
-      isInterrupt:
-        eventCode === "weather_reveal" ||
-        eventCode === "trick_used" ||
-        eventCode === "fortune_drawn" ||
-        eventCode === "fortune_resolved" ||
-        eventCode === "bankruptcy" ||
-        eventCode === "game_end",
-    });
-  }
-
-  items.sort((left, right) => {
-    const leftOrder = CURRENT_TURN_REVEAL_ORDER[left.eventCode] ?? 999;
-    const rightOrder = CURRENT_TURN_REVEAL_ORDER[right.eventCode] ?? 999;
-    if (leftOrder !== rightOrder) {
-      return leftOrder - rightOrder;
-    }
-    return left.seq - right.seq;
-  });
-
-  return items.slice(-safeLimit);
+  void text;
+  return backendItems ? backendItems.slice(-safeLimit) : [];
 }
 
 export function selectCurrentRoundRevealItems(
@@ -2143,109 +1506,12 @@ export function selectCurrentRoundRevealItems(
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): CurrentTurnRevealItem[] {
   const safeLimit = Math.max(1, limit);
-  let roundStartIndex = -1;
-  let targetRound: number | null = null;
-
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    if (message.type !== "event") {
-      continue;
-    }
-    const eventCode = messageKindFromPayload(message.payload);
-    if (eventCode === "round_start") {
-      roundStartIndex = i;
-      targetRound = numberOrNull(message.payload["round_index"]);
-      break;
-    }
-    if (targetRound === null) {
-      targetRound = numberOrNull(message.payload["round_index"]);
-    }
-  }
-
-  if (targetRound === null) {
-    return [];
-  }
-
-  const startIndex = roundStartIndex >= 0 ? roundStartIndex + 1 : 0;
-  const items: CurrentTurnRevealItem[] = [];
-  for (let i = startIndex; i < messages.length; i += 1) {
-    const message = messages[i];
-    if (message.type !== "event") {
-      continue;
-    }
-    if (numberOrNull(message.payload["round_index"]) !== targetRound) {
-      continue;
-    }
-    const eventCode = messageKindFromPayload(message.payload);
-    if (!CURRENT_TURN_REVEAL_EVENT_CODES.has(eventCode)) {
-      continue;
-    }
-    items.push({
-      seq: message.seq,
-      eventCode,
-      label: pickMessageLabel(message, text),
-      detail: pickMessageDetail(message, text) || "-",
-      tone:
-        eventCode === "dice_roll" || eventCode === "player_move"
-          ? "move"
-          : eventCode === "tile_purchased" ||
-              eventCode === "rent_paid" ||
-              eventCode === "lap_reward_chosen" ||
-              eventCode === "bankruptcy"
-            ? "economy"
-            : "effect",
-      focusTileIndex: focusTileIndexFromPayload(message.payload, eventCode),
-      isInterrupt:
-        eventCode === "weather_reveal" ||
-        eventCode === "fortune_drawn" ||
-        eventCode === "fortune_resolved" ||
-        eventCode === "trick_used",
-    });
-  }
-
-  return items.slice(-safeLimit);
+  void text;
+  const backendItems = selectBackendCurrentTurnRevealItems(messages);
+  return backendItems ? backendItems.slice(-safeLimit) : [];
 }
 
 export function selectLastMove(messages: InboundMessage[]): LastMoveViewModel | null {
-  const latestTurnStartSeq = latestTurnStartSequence(messages);
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    if (message.seq < latestTurnStartSeq) {
-      break;
-    }
-    if (message.type !== "event") {
-      continue;
-    }
-    const eventCode = messageKindFromPayload(message.payload);
-    if (!isMovementBearingEvent(eventCode)) {
-      continue;
-    }
-    const fromTileIndex = numberOrNull(
-      message.payload["from_tile_index"] ?? message.payload["from_tile"] ?? message.payload["from_pos"] ?? message.payload["start_pos"]
-    );
-    const toTileIndex = numberOrNull(
-      message.payload["to_tile_index"] ??
-        message.payload["to_tile"] ??
-        message.payload["to_pos"] ??
-        message.payload["end_pos"] ??
-        message.payload["target_pos"] ??
-        message.payload["position"]
-    );
-    if (fromTileIndex === null || toTileIndex === null || fromTileIndex === toTileIndex) {
-      continue;
-    }
-    const rawPath = Array.isArray(message.payload["path"]) ? message.payload["path"] : [];
-    const pathTileIndices = rawPath.filter((value): value is number => typeof value === "number");
-    return {
-      playerId: numberOrNull(message.payload["acting_player_id"] ?? message.payload["player_id"]),
-      fromTileIndex,
-      toTileIndex,
-      pathTileIndices,
-    };
-  }
-  if (Number.isFinite(latestTurnStartSeq)) {
-    return null;
-  }
   const backendMove = selectBackendLastMove(messages);
   return backendMove && backendMove.fromTileIndex !== backendMove.toTileIndex ? backendMove : null;
 }
@@ -2453,63 +1719,10 @@ function snapshotFromBackendViewStatePayload(payload: Record<string, unknown>): 
 }
 
 function snapshotFromMessage(message: InboundMessage): SnapshotViewModel | null {
-  if (
-    message.type !== "view_commit" &&
-    message.type !== "event" &&
-    message.type !== "prompt" &&
-    message.type !== "decision_ack"
-  ) {
+  if (message.type !== "view_commit") {
     return null;
   }
-  const round = typeof message.payload["round_index"] === "number" ? message.payload["round_index"] : 0;
-  const turn = typeof message.payload["turn_index"] === "number" ? message.payload["turn_index"] : 0;
-  const explicitSnapshot = isRecord(message.payload["snapshot"]) ? message.payload["snapshot"] : null;
-  const snapshotPlayers = explicitSnapshot?.["players"];
-  const snapshotBoard = isRecord(explicitSnapshot?.["board"]) ? explicitSnapshot["board"] : null;
-
-  const rootPlayers = message.payload["players"];
-  const playersSource = Array.isArray(snapshotPlayers) ? snapshotPlayers : Array.isArray(rootPlayers) ? rootPlayers : null;
-  if (!playersSource) {
-    return snapshotFromBackendViewStatePayload(message.payload);
-  }
-
-  const boardTiles = snapshotBoard?.["tiles"];
-  const tilesSource = Array.isArray(boardTiles) ? boardTiles : [];
-  const players = playersSource.map(toPlayerViewModel).filter((item): item is PlayerViewModel => item !== null);
-  if (!explicitSnapshot && players.length === 0) {
-    return null;
-  }
-  const tiles = tilesSource.map((tile, index) => toTileViewModel(tile, index)).filter((item): item is TileViewModel => item !== null);
-
-  const markerOwner = snapshotBoard?.["marker_owner_player_id"];
-  const markerDraftDirection =
-    markerDraftDirectionFromRecord(snapshotBoard) ?? markerDraftDirectionFromRecord(message.payload);
-  const fValue = snapshotBoard?.["f_value"];
-  const currentRoundOrder = Array.from(
-    new Set(
-      integerArray(explicitSnapshot?.["current_round_order"] ?? message.payload["order"]).map((value) =>
-        value >= 1 ? Math.trunc(value) : value
-      )
-    )
-  ).filter((value) => value >= 1);
-  const activeByCardRaw = isRecord(explicitSnapshot?.["active_by_card"])
-    ? explicitSnapshot["active_by_card"]
-    : isRecord(message.payload["active_by_card"])
-      ? message.payload["active_by_card"]
-      : null;
-  const activeByCard: Record<number, string> = {};
-  mergeActiveByCard(activeByCard, activeByCardRaw);
-  return {
-    round,
-    turn,
-    markerOwnerPlayerId: typeof markerOwner === "number" ? markerOwner : null,
-    markerDraftDirection,
-    fValue: typeof fValue === "number" ? fValue : 0,
-    currentRoundOrder,
-    activeByCard,
-    players,
-    tiles,
-  };
+  return snapshotFromBackendViewStatePayload(message.payload);
 }
 
 export function selectLatestSnapshot(messages: InboundMessage[]): SnapshotViewModel | null {
@@ -2768,6 +1981,9 @@ function resolvePublicPrioritySlots(
 
 function selectBackendMarkerOrderedPlayerIds(messages: InboundMessage[]): number[] | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].type !== "view_commit") {
+      continue;
+    }
     const payload = isRecord(messages[i].payload) ? messages[i].payload : null;
     const viewState = isRecord(payload?.["view_state"]) ? payload?.["view_state"] : null;
     const players = isRecord(viewState?.["players"]) ? viewState?.["players"] : null;
@@ -2785,6 +2001,9 @@ function selectBackendMarkerOrderedPlayerIds(messages: InboundMessage[]): number
 
 function selectLatestBackendViewState(messages: InboundMessage[]): Record<string, unknown> | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].type !== "view_commit") {
+      continue;
+    }
     const payload = isRecord(messages[i].payload) ? messages[i].payload : null;
     const viewState = isRecord(payload?.["view_state"]) ? payload["view_state"] : null;
     if (viewState) {
@@ -2796,6 +2015,9 @@ function selectLatestBackendViewState(messages: InboundMessage[]): Record<string
 
 export function selectRuntimeProjection(messages: InboundMessage[]): RuntimeProjectionViewModel | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].type !== "view_commit") {
+      continue;
+    }
     const payload = isRecord(messages[i].payload) ? messages[i].payload : null;
     const viewState = isRecord(payload?.["view_state"]) ? payload["view_state"] : null;
     const runtime = isRecord(viewState?.["runtime"]) ? viewState["runtime"] : null;
@@ -2822,50 +2044,11 @@ export function selectRuntimeProjection(messages: InboundMessage[]): RuntimeProj
       cardFlipLegal: runtime["card_flip_legal"] === true,
     };
   }
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const payload = isRecord(messages[i].payload) ? messages[i].payload : null;
-    const runtimeModule = isRecord(payload?.["runtime_module"]) ? payload["runtime_module"] : null;
-    if (!runtimeModule) {
-      continue;
-    }
-    const moduleType = typeof runtimeModule["module_type"] === "string" ? runtimeModule["module_type"] : "";
-    const modulePath = stringArray(runtimeModule["module_path"]);
-    const activeSequence = modulePath.some((item) => item.startsWith("seq:trick"))
-      ? "trick"
-      : modulePath.some((item) => item.startsWith("seq:fortune"))
-        ? "fortune"
-        : "";
-    return {
-      runnerKind: asString(runtimeModule["runner_kind"]),
-      latestModulePath: modulePath,
-      roundStage:
-        moduleType === "DraftModule"
-          ? "draft"
-          : moduleType === "RoundEndCardFlipModule"
-            ? "round_end_card_flip"
-            : moduleType
-              ? "in_round"
-              : "",
-      turnStage: moduleType.startsWith("Trick") ? "trick" : "",
-      activeSequence,
-      activePromptRequestId: "",
-      activeFrameId: asString(runtimeModule["frame_id"]),
-      activeFrameType: asString(runtimeModule["frame_type"]),
-      activeModuleId: asString(runtimeModule["module_id"]),
-      activeModuleType: moduleType,
-      activeModuleStatus: asString(runtimeModule["module_status"]),
-      activeModuleCursor: asString(runtimeModule["module_cursor"]),
-      activeModuleIdempotencyKey: asString(runtimeModule["idempotency_key"]),
-      draftActive: moduleType === "DraftModule",
-      trickSequenceActive: activeSequence === "trick" || moduleType.startsWith("Trick"),
-      cardFlipLegal: moduleType === "RoundEndCardFlipModule",
-    };
-  }
   return null;
 }
 
 function isStateBearingMessage(message: InboundMessage): boolean {
-  return message.type === "view_commit" || message.type === "event" || message.type === "prompt" || message.type === "decision_ack";
+  return message.type === "view_commit";
 }
 
 function latestStateBearingMessageIndex(messages: InboundMessage[]): number | null {
@@ -2879,6 +2062,9 @@ function latestStateBearingMessageIndex(messages: InboundMessage[]): number | nu
 
 function selectLatestBackendViewStateEntry(messages: InboundMessage[]): { index: number; viewState: Record<string, unknown> } | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].type !== "view_commit") {
+      continue;
+    }
     const payload = isRecord(messages[i].payload) ? messages[i].payload : null;
     const viewState = isRecord(payload?.["view_state"]) ? payload["view_state"] : null;
     if (viewState) {
@@ -2926,7 +2112,7 @@ function selectBackendDerivedPlayers(
   currentLocalPlayerId: number | null
 ): DerivedPlayerViewModel[] | null {
   const entry = selectLatestBackendViewStateEntry(messages);
-  if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
+  if (!entry) {
     return null;
   }
   const backendTurnStage = selectBackendTurnStage(messages);
@@ -2980,7 +2166,7 @@ function selectBackendActiveCharacterSlots(
   currentLocalPlayerId: number | null
 ): ActiveCharacterSlotViewModel[] | null {
   const entry = selectLatestBackendViewStateEntry(messages);
-  if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
+  if (!entry) {
     return null;
   }
   const backendTurnStage = selectBackendTurnStage(messages);
@@ -2998,10 +2184,13 @@ function selectBackendActiveCharacterSlots(
   const seenSlots = new Set<number>();
   const mapped = items
     .map((item) => {
-      if (!isRecord(item) || typeof item["slot"] !== "number") {
+      if (!isRecord(item)) {
         return null;
       }
-      const slot = item["slot"];
+      const slot = numberOrNull(item["slot"] ?? item["priority_slot"]);
+      if (slot === null) {
+        return null;
+      }
       seenSlots.add(slot);
       const playerCard = playerCardsBySlot.get(slot);
       const playerId = typeof item["player_id"] === "number" ? item["player_id"] : playerCard?.player_id ?? null;
@@ -3082,7 +2271,7 @@ function selectFallbackActiveCharacterSlotsFromMap(
 
 function selectBackendMarkTargetCharacterSlots(messages: InboundMessage[]): MarkTargetSlotViewModel[] | null {
   const entry = selectLatestBackendViewStateEntry(messages);
-  if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
+  if (!entry) {
     return null;
   }
   const markTarget = isRecord(entry.viewState["mark_target"]) ? entry.viewState["mark_target"] : null;
@@ -3092,11 +2281,15 @@ function selectBackendMarkTargetCharacterSlots(messages: InboundMessage[]): Mark
   }
   const mapped = candidates
     .map((item) => {
-      if (!isRecord(item) || typeof item["slot"] !== "number" || typeof item["character"] !== "string") {
+      if (!isRecord(item) || typeof item["character"] !== "string") {
+        return null;
+      }
+      const slot = numberOrNull(item["slot"] ?? item["priority_slot"]);
+      if (slot === null) {
         return null;
       }
       return {
-        slot: item["slot"],
+        slot,
         playerId: typeof item["player_id"] === "number" ? item["player_id"] : null,
         label: typeof item["label"] === "string" ? item["label"] : null,
         character: item["character"],
@@ -3218,19 +2411,22 @@ function selectBackendCurrentTurnRevealItems(
   if (!items || items.length === 0) {
     return null;
   }
-  const messageBySeq = selectMessageBySeq(messages);
   return items
     .map((item) => {
       if (!isRecord(item) || typeof item["seq"] !== "number" || typeof item["event_code"] !== "string") {
         return null;
       }
       const eventCode = item["event_code"];
-      const sourceMessage = messageBySeq.get(item["seq"]);
+      const label =
+        typeof item["label"] === "string" && item["label"].trim()
+          ? item["label"].trim()
+          : eventLabelForCode(eventCode, text.eventLabel);
+      const detail = typeof item["detail"] === "string" && item["detail"].trim() ? item["detail"].trim() : "-";
       return {
         seq: item["seq"],
         eventCode,
-        label: sourceMessage ? pickMessageLabel(sourceMessage, text) : eventLabelForCode(eventCode, text.eventLabel),
-        detail: sourceMessage ? pickMessageDetail(sourceMessage, text) || "-" : "-",
+        label,
+        detail,
         tone:
           item["tone"] === "move" || item["tone"] === "economy" || item["tone"] === "effect"
             ? item["tone"]
@@ -3294,7 +2490,7 @@ function selectBackendSnapshotProjection(
   messages: InboundMessage[]
 ): Pick<SnapshotViewModel, "round" | "turn" | "markerOwnerPlayerId" | "fValue"> | null {
   const entry = selectLatestBackendViewStateEntry(messages);
-  if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
+  if (!entry) {
     return null;
   }
 
@@ -3460,6 +2656,82 @@ function labelForTurnStageCode(
   return eventLabelForCode(code, text.eventLabel);
 }
 
+function applyBackendTurnStageProjection(
+  model: TurnStageViewModel,
+  backendTurnStage: BackendTurnStageProjection,
+  messages: InboundMessage[],
+  text: StreamSelectorTextResources
+): TurnStageViewModel {
+  const messageBySeq = new Map<number, InboundMessage>();
+  for (const message of messages) {
+    messageBySeq.set(message.seq, message);
+  }
+  model.turnStartSeq = backendTurnStage.turnStartSeq;
+  model.actorPlayerId = backendTurnStage.currentBeatEventCode === "game_end" ? null : backendTurnStage.actorPlayerId;
+  model.actor =
+    model.actorPlayerId === null ? "-" : playerLabel(model.actorPlayerId, text);
+  model.round = backendTurnStage.round;
+  model.turn = backendTurnStage.turn;
+  model.character = backendTurnStage.character;
+  model.weatherName = backendTurnStage.weatherName;
+  model.weatherEffect = backendTurnStage.weatherEffect;
+  model.currentBeatKind = backendTurnStage.currentBeatKind;
+  model.currentBeatEventCode = backendTurnStage.currentBeatEventCode;
+  model.focusTileIndex = backendTurnStage.focusTileIndex;
+  model.focusTileIndices = backendTurnStage.focusTileIndices;
+  model.promptRequestType = backendTurnStage.currentBeatEventCode === "game_end" ? "-" : backendTurnStage.promptRequestType;
+  model.externalAiWorkerId = backendTurnStage.externalAiWorkerId;
+  model.externalAiFailureCode = backendTurnStage.externalAiFailureCode;
+  model.externalAiFallbackMode = backendTurnStage.externalAiFallbackMode;
+  model.externalAiResolutionStatus = backendTurnStage.externalAiResolutionStatus;
+  model.externalAiAttemptCount = backendTurnStage.externalAiAttemptCount;
+  model.externalAiAttemptLimit = backendTurnStage.externalAiAttemptLimit;
+  model.externalAiReadyState = backendTurnStage.externalAiReadyState;
+  model.externalAiPolicyMode = backendTurnStage.externalAiPolicyMode;
+  model.externalAiWorkerAdapter = backendTurnStage.externalAiWorkerAdapter;
+  model.externalAiPolicyClass = backendTurnStage.externalAiPolicyClass;
+  model.externalAiDecisionStyle = backendTurnStage.externalAiDecisionStyle;
+  model.actorCash = backendTurnStage.actorCash;
+  model.actorShards = backendTurnStage.actorShards;
+  model.actorHandCoins = backendTurnStage.actorHandCoins;
+  model.actorPlacedCoins = backendTurnStage.actorPlacedCoins;
+  model.actorTotalScore = backendTurnStage.actorTotalScore;
+  model.actorOwnedTileCount = backendTurnStage.actorOwnedTileCount;
+  model.currentBeatLabel = labelForTurnStageCode(
+    backendTurnStage.currentBeatEventCode,
+    backendTurnStage.currentBeatRequestType,
+    text
+  );
+  const beatSource =
+    backendTurnStage.currentBeatSeq === null ? null : messageBySeq.get(backendTurnStage.currentBeatSeq) ?? null;
+  model.currentBeatDetail =
+    backendTurnStage.currentBeatEventCode === "prompt_active"
+      ? text.stream.promptWaiting(promptLabelForType(backendTurnStage.currentBeatRequestType, text.promptType))
+      : beatSource
+        ? pickMessageDetail(beatSource, text) || "-"
+        : backendTurnStage.currentBeatEventCode === "game_end"
+          ? text.stream.gameEndDefault
+          : model.currentBeatDetail;
+  if (backendTurnStage.currentBeatEventCode === "prompt_active" && backendTurnStage.promptRequestType !== "-") {
+    model.promptSummary = text.stream.promptWaiting(
+      promptLabelForType(backendTurnStage.promptRequestType, text.promptType)
+    );
+    model.currentBeatDetail = model.promptSummary;
+  }
+  if (backendTurnStage.currentBeatEventCode === "game_end") {
+    model.promptSummary = "-";
+  }
+  model.latestActionLabel = model.currentBeatLabel;
+  model.latestActionDetail = model.currentBeatDetail;
+  if (backendTurnStage.progressCodes.length > 0) {
+    model.progressTrail = backendTurnStage.progressCodes
+      .map((code) => labelForTurnStageCode(code, backendTurnStage.promptRequestType, text))
+      .filter((label) => label !== "-")
+      .slice(-6);
+  }
+  return model;
+}
+
 export function selectLivePlayers(
   messages: InboundMessage[],
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
@@ -3474,17 +2746,10 @@ export function selectLivePlayers(
 
 export function selectCurrentActorPlayerId(messages: InboundMessage[]): number | null {
   const backendTurnStage = selectBackendTurnStage(messages);
-  if (backendTurnStage?.currentBeatEventCode === "game_end" || findLatestTerminalGameEndMessage(messages)) {
+  if (!backendTurnStage || backendTurnStage.currentBeatEventCode === "game_end") {
     return null;
   }
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const payload = messages[i].payload;
-    const acting = payload["acting_player_id"] ?? payload["player_id"];
-    if (typeof acting === "number") {
-      return acting;
-    }
-  }
-  return null;
+  return backendTurnStage.actorPlayerId;
 }
 
 export function selectDerivedPlayers(
@@ -3492,28 +2757,9 @@ export function selectDerivedPlayers(
   currentLocalPlayerId: number | null = null,
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): DerivedPlayerViewModel[] {
+  void text;
   const backendPlayers = selectBackendDerivedPlayers(messages, currentLocalPlayerId);
-  if (backendPlayers && backendPlayers.length > 0) {
-    return backendPlayers;
-  }
-  const snapshot = selectLiveSnapshot(messages, text);
-  if (!snapshot) {
-    return [];
-  }
-  const currentActorPlayerId = selectCurrentActorPlayerId(messages);
-  return snapshot.players.map((player) => {
-    const currentCharacterFace =
-      currentActorPlayerId === player.playerId && player.character && player.character.trim() ? player.character : "-";
-    const prioritySlot = currentCharacterFace !== "-" ? prioritySlotForCharacter(currentCharacterFace) : null;
-    return {
-      ...player,
-      prioritySlot,
-      currentCharacterFace,
-      isMarkerOwner: snapshot.markerOwnerPlayerId === player.playerId,
-      isCurrentActor: currentActorPlayerId === player.playerId,
-      isLocalPlayer: currentLocalPlayerId === player.playerId,
-    };
-  });
+  return backendPlayers ?? [];
 }
 
 export function selectActiveCharacterSlots(
@@ -3522,51 +2768,10 @@ export function selectActiveCharacterSlots(
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT,
   initialActiveByCard: Record<string, string> | Record<number, string> | null = null
 ): ActiveCharacterSlotViewModel[] {
-  const fallbackSlots = selectFallbackActiveCharacterSlotsFromMap(initialActiveByCard);
-  const fallbackKnownCount = fallbackSlots.filter((slot) => Boolean(slot.character)).length;
-  const snapshot = selectLiveSnapshot(messages, text);
-  if (!snapshot) {
-    const backendSlots = selectBackendActiveCharacterSlots(messages, currentLocalPlayerId);
-    if (backendSlots) {
-      return backendSlots;
-    }
-    const rawSlots = selectRawActiveCharacterSlotsWithoutSnapshot(messages);
-    let bestSlots = rawSlots;
-    const bestKnownCount = bestSlots.filter((slot) => Boolean(slot.character)).length;
-    if (fallbackKnownCount > bestKnownCount) {
-      bestSlots = fallbackSlots;
-    }
-    return bestSlots;
-  }
-  const derivedPlayers = selectDerivedPlayers(messages, currentLocalPlayerId, text);
-  const actor = derivedPlayers.find((player) => player.isCurrentActor) ?? null;
-  const rawSlots = Array.from({ length: 8 }, (_, index) => {
-    const slot = index + 1;
-    const owner = actor && actor.prioritySlot === slot ? actor : null;
-    const slotCharacter =
-      typeof snapshot.activeByCard[slot] === "string" &&
-      snapshot.activeByCard[slot].trim().length > 0 &&
-      snapshot.activeByCard[slot] !== "-"
-        ? snapshot.activeByCard[slot]
-        : null;
-    const ownerCharacter =
-      owner?.currentCharacterFace && owner.currentCharacterFace !== "-" ? owner.currentCharacterFace : null;
-    const activeCharacter = slotCharacter ?? ownerCharacter ?? null;
-    return {
-      slot,
-      playerId: owner?.playerId ?? null,
-      label: owner ? `P${owner.playerId}` : null,
-      character: activeCharacter,
-      inactiveCharacter: activeCharacter ? oppositeCharacterForSlot(slot, activeCharacter) : null,
-      isCurrentActor: owner?.isCurrentActor ?? false,
-      isLocalPlayer: owner?.isLocalPlayer ?? false,
-    };
-  });
+  void text;
+  void initialActiveByCard;
   const backendSlots = selectBackendActiveCharacterSlots(messages, currentLocalPlayerId);
-  if (backendSlots && backendSlots.length > 0) {
-    return backendSlots;
-  }
-  return rawSlots;
+  return backendSlots ?? [];
 }
 
 export function selectMarkTargetCharacterSlots(
@@ -3575,22 +2780,11 @@ export function selectMarkTargetCharacterSlots(
   currentLocalPlayerId: number | null = null,
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): MarkTargetSlotViewModel[] {
+  void actorCharacterName;
+  void currentLocalPlayerId;
+  void text;
   const backendCandidates = selectBackendMarkTargetCharacterSlots(messages);
-  if (backendCandidates) {
-    return backendCandidates;
-  }
-  const actorSlot = prioritySlotForCharacter(actorCharacterName);
-  if (actorSlot === null) {
-    return [];
-  }
-  return selectActiveCharacterSlots(messages, currentLocalPlayerId, text)
-    .filter((slot) => slot.slot > actorSlot && typeof slot.character === "string" && slot.character.trim().length > 0)
-    .map((slot) => ({
-      slot: slot.slot,
-      playerId: slot.playerId,
-      label: slot.label,
-      character: slot.character as string,
-    }));
+  return backendCandidates ?? [];
 }
 
 export function selectMarkerOrderedPlayers(
@@ -3613,263 +2807,30 @@ export function selectMarkerOrderedPlayers(
     }
   }
 
-  const snapshot = selectLiveSnapshot(messages, text);
-  if (!snapshot) {
-    return derivedPlayers;
-  }
-
-  if (snapshot.currentRoundOrder.length > 0) {
-    const byId = new Map(derivedPlayers.map((player) => [player.playerId, player]));
-    const orderedPlayers = snapshot.currentRoundOrder
-      .map((playerId) => byId.get(playerId) ?? null)
-      .filter((player): player is DerivedPlayerViewModel => player !== null);
-    if (orderedPlayers.length > 0) {
-      const orderedIds = new Set(orderedPlayers.map((player) => player.playerId));
-      return [
-        ...orderedPlayers,
-        ...derivedPlayers
-          .filter((player) => !orderedIds.has(player.playerId))
-          .sort((left, right) => left.playerId - right.playerId),
-      ];
-    }
-  }
-
-  const sortedIds = derivedPlayers
-    .map((player) => player.playerId)
-    .slice()
-    .sort((left, right) => left - right);
-  const ownerId = snapshot.markerOwnerPlayerId;
-  const ownerIndex = ownerId === null ? -1 : sortedIds.indexOf(ownerId);
-  if (ownerIndex < 0) {
-    return derivedPlayers.slice().sort((left, right) => left.playerId - right.playerId);
-  }
-
-  const direction = snapshot.markerDraftDirection ?? "clockwise";
-  const orderedIds: number[] = [];
-  for (let step = 0; step < sortedIds.length; step += 1) {
-    const index =
-      direction === "clockwise"
-        ? (ownerIndex + step) % sortedIds.length
-        : (ownerIndex - step + sortedIds.length) % sortedIds.length;
-    orderedIds.push(sortedIds[index]);
-  }
-
-  const byId = new Map(derivedPlayers.map((player) => [player.playerId, player]));
-  return orderedIds
-    .map((playerId) => byId.get(playerId) ?? null)
-    .filter((player): player is DerivedPlayerViewModel => player !== null);
+  return derivedPlayers;
 }
 
 export function selectLiveSnapshot(
   messages: InboundMessage[],
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): SnapshotViewModel | null {
+  void text;
   const entry = findLatestSnapshotEntry(messages);
   if (!entry) {
     return null;
   }
-
-  const players = selectLivePlayers(messages, text);
-  const playerMap = new Map<number, PlayerViewModel>(
-    players.map((player) => [player.playerId, { ...player }])
-  );
-  const tiles = entry.snapshot.tiles.map((tile) => ({ ...tile, pawnPlayerIds: [] as number[] }));
-
-  let round = entry.snapshot.round;
-  let turn = entry.snapshot.turn;
-  let markerOwnerPlayerId = entry.snapshot.markerOwnerPlayerId;
-  let markerDraftDirection = entry.snapshot.markerDraftDirection;
-  let fValue = entry.snapshot.fValue;
-  let currentRoundOrder = [...entry.snapshot.currentRoundOrder];
-  const activeByCard = collectActiveByCardUntil(messages, entry.index);
-  for (let i = entry.index + 1; i < messages.length; i += 1) {
-    const message = messages[i];
-    if (message.type === "prompt") {
-      const publicContext = isRecord(message.payload["public_context"]) ? message.payload["public_context"] : null;
-      const contextRound = numberOrNull(publicContext?.["round_index"]);
-      const contextTurn = numberOrNull(publicContext?.["turn_index"]);
-      const contextFValue = numberOrNull(publicContext?.["f_value"]);
-      if (contextRound !== null) {
-        round = contextRound;
-      }
-      if (contextTurn !== null) {
-        turn = contextTurn;
-      }
-      if (contextFValue !== null) {
-        fValue = contextFValue;
-      }
-      mergePromptContextActiveByCard(activeByCard, publicContext);
-      mergeMarkTargetPromptActiveByCard(activeByCard, message.payload);
-      continue;
-    }
-    if (message.type !== "event") {
-      continue;
-    }
-    const eventCode = messageKindFromPayload(message.payload);
-    if (shouldResetActiveByCard(eventCode, message.payload)) {
-      clearActiveByCard(activeByCard);
-    }
-    const eventActorId = numberOrNull(message.payload["acting_player_id"] ?? message.payload["player_id"]);
-    const eventActor = eventActorId !== null ? playerMap.get(eventActorId) : null;
-    const publicContext = isRecord(message.payload["public_context"]) ? message.payload["public_context"] : null;
-    const eventRound = numberOrNull(publicContext?.["round_index"] ?? message.payload["round_index"]);
-    const eventTurn = numberOrNull(publicContext?.["turn_index"] ?? message.payload["turn_index"]);
-    const eventFValue = numberOrNull(publicContext?.["f_value"] ?? message.payload["f_value"]);
-    if (eventRound !== null) {
-      round = eventRound;
-    }
-    if (eventTurn !== null) {
-      turn = eventTurn;
-    }
-    if (eventFValue !== null) {
-      fValue = eventFValue;
-    }
-    const contextMarkerDirection = markerDraftDirectionFromRecord(publicContext);
-    if (contextMarkerDirection) {
-      markerDraftDirection = contextMarkerDirection;
-    }
-    const contextPosition = numberOrNull(publicContext?.["player_position"]);
-    if (eventActor && contextPosition !== null) {
-      eventActor.position = contextPosition;
-    }
-    const contextTileIndex = numberOrNull(publicContext?.["tile_index"]);
-    if (publicContext && contextTileIndex !== null) {
-      const tile = tiles.find((item) => item.tileIndex === contextTileIndex);
-      if (tile) {
-        const contextScoreCoinCount = scoreCoinCountFromRecord(publicContext);
-        if (contextScoreCoinCount > 0 || "tile_score_coins" in publicContext || "score_coin_count" in publicContext || "score_coins" in publicContext) {
-          tile.scoreCoinCount = contextScoreCoinCount;
-        }
-      }
-    }
-    if (eventCode === "player_move" && eventActor) {
-      const toTileIndex = numberOrNull(
-        message.payload["to_tile_index"] ?? message.payload["to_tile"] ?? message.payload["to_pos"]
-      );
-      if (toTileIndex !== null) {
-        eventActor.position = toTileIndex;
-      }
-    }
-    if (eventCode === "tile_purchased") {
-      const tileIndex = numberOrNull(message.payload["tile_index"] ?? message.payload["position"] ?? message.payload["tile"]);
-      const ownerPlayerId = numberOrNull(
-        message.payload["owner_player_id"] ?? message.payload["acting_player_id"] ?? message.payload["player_id"]
-      );
-      if (tileIndex !== null && ownerPlayerId !== null) {
-        const tile = tiles.find((item) => item.tileIndex === tileIndex);
-        if (tile) {
-          tile.ownerPlayerId = ownerPlayerId;
-          const payloadScoreCoinCount = scoreCoinCountFromRecord(message.payload);
-          if (
-            payloadScoreCoinCount > 0 ||
-            "tile_score_coins" in message.payload ||
-            "score_coin_count" in message.payload ||
-            "score_coins" in message.payload
-          ) {
-            tile.scoreCoinCount = payloadScoreCoinCount;
-          }
-        }
-      }
-      continue;
-    }
-    if (eventCode === "marker_transferred") {
-      const nextOwner = numberOrNull(message.payload["to_player_id"] ?? message.payload["to_owner"]);
-      if (nextOwner !== null) {
-        markerOwnerPlayerId = nextOwner;
-      }
-      const nextDirection = markerDraftDirectionFromRecord(message.payload) ?? markerDraftDirectionFromRecord(publicContext);
-      if (nextDirection) {
-        markerDraftDirection = nextDirection;
-      }
-    }
-    mergeActiveByCard(activeByCard, message.payload["active_by_card"]);
-    mergeActiveByCard(activeByCard, publicContext?.["active_by_card"]);
-    if (eventCode === "round_order") {
-      const nextOrder = integerArray(message.payload["order"])
-        .map((value) => Math.trunc(value))
-        .filter((value) => value >= 1);
-      if (nextOrder.length > 0) {
-        currentRoundOrder = Array.from(new Set(nextOrder));
-      }
-      const nextOwner = numberOrNull(message.payload["marker_owner_player_id"] ?? message.payload["marker_owner"] ?? publicContext?.["marker_owner_player_id"]);
-      if (nextOwner !== null) {
-        markerOwnerPlayerId = nextOwner;
-      }
-      const nextDirection = markerDraftDirectionFromRecord(message.payload) ?? markerDraftDirectionFromRecord(publicContext);
-      if (nextDirection) {
-        markerDraftDirection = nextDirection;
-      }
-      continue;
-    }
-    if (eventCode === "round_start") {
-      const nextOwner = numberOrNull(message.payload["marker_owner_player_id"] ?? publicContext?.["marker_owner_player_id"]);
-      if (nextOwner !== null) {
-        markerOwnerPlayerId = nextOwner;
-      }
-      const nextDirection = markerDraftDirectionFromRecord(message.payload) ?? markerDraftDirectionFromRecord(publicContext);
-      if (nextDirection) {
-        markerDraftDirection = nextDirection;
-      }
-    }
-    if (eventCode === "marker_flip") {
-      const cardNo = numberOrNull(message.payload["card_no"]);
-      const toCharacter = message.payload["to_character"];
-      if (cardNo !== null && typeof toCharacter === "string" && toCharacter.trim()) {
-        activeByCard[cardNo] = toCharacter;
-      }
-    }
-  }
-  mergeNormalizedPromptActiveByCard(messages, activeByCard);
-
-  const backendSnapshotProjection = selectBackendSnapshotProjection(messages);
-  const backendBoardTiles = selectBackendBoardTiles(messages);
-
-  for (const tile of tiles) {
-    tile.pawnPlayerIds = [];
-  }
-
-  for (const player of playerMap.values()) {
-    if (!player.alive) {
-      continue;
-    }
-    const targetTile = tiles.find((tile) => tile.tileIndex === player.position);
-    if (targetTile) {
-      targetTile.pawnPlayerIds = [...targetTile.pawnPlayerIds, player.playerId];
-    }
-  }
-
-  for (const tile of tiles) {
-    tile.pawnPlayerIds.sort((a, b) => a - b);
-  }
-
-  if (backendBoardTiles && backendBoardTiles.length > 0) {
-    const backendTileByIndex = new Map(backendBoardTiles.map((tile) => [tile.tileIndex, tile]));
-    for (const tile of tiles) {
-      const projected = backendTileByIndex.get(tile.tileIndex);
-      if (!projected) {
-        continue;
-      }
-      tile.scoreCoinCount = projected.scoreCoinCount;
-      tile.ownerPlayerId = projected.ownerPlayerId;
-      tile.pawnPlayerIds = [...projected.pawnPlayerIds];
-    }
-  }
-
-  const normalizedPlayers = players.map((player) => ({
-    ...(playerMap.get(player.playerId) ?? player),
-  }));
-
   return {
     ...entry.snapshot,
-    round: backendSnapshotProjection?.round ?? round,
-    turn: backendSnapshotProjection?.turn ?? turn,
-    markerOwnerPlayerId: backendSnapshotProjection?.markerOwnerPlayerId ?? markerOwnerPlayerId,
-    markerDraftDirection,
-    fValue: backendSnapshotProjection?.fValue ?? fValue,
-    currentRoundOrder,
-    activeByCard,
-    players: normalizedPlayers,
-    tiles,
+    currentRoundOrder: [...entry.snapshot.currentRoundOrder],
+    activeByCard: { ...entry.snapshot.activeByCard },
+    players: entry.snapshot.players.map((player) => ({
+      ...player,
+      publicTricks: [...player.publicTricks],
+    })),
+    tiles: entry.snapshot.tiles.map((tile) => ({
+      ...tile,
+      pawnPlayerIds: [...tile.pawnPlayerIds],
+    })),
   };
 }
 
@@ -4027,7 +2988,7 @@ function manifestFromPayload(payload: Record<string, unknown>): ParameterManifes
 export function selectLatestManifest(messages: InboundMessage[]): ParameterManifestViewModel | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
-    if (message.type !== "event" && message.type !== "view_commit") {
+    if (message.type !== "view_commit") {
       continue;
     }
     const manifest = manifestFromPayload(message.payload);

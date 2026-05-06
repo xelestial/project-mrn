@@ -28,6 +28,41 @@ class RuntimeProjectionViewStateTests(unittest.TestCase):
         self.assertEqual(view_state["round_stage"], "draft")
         self.assertEqual(view_state["turn_stage"], "")
 
+    def test_finished_engine_transition_clears_active_module(self) -> None:
+        view_state = build_runtime_view_state([
+            {
+                "type": "event",
+                "payload": {
+                    "event_type": "turn_start",
+                    "runtime_module": {
+                        "runner_kind": "module",
+                        "frame_id": "turn:7:p1",
+                        "frame_type": "turn",
+                        "module_id": "mod:turn:7:p1:dice",
+                        "module_type": "DiceRollModule",
+                        "module_path": ["round:7", "turn:7:p1", "mod:turn:7:p1:dice"],
+                    },
+                },
+            },
+            {
+                "type": "event",
+                "payload": {
+                    "event_type": "engine_transition",
+                    "status": "finished",
+                    "reason": "end_rule",
+                },
+            },
+        ])
+
+        self.assertEqual(view_state["round_stage"], "completed")
+        self.assertEqual(view_state["turn_stage"], "completed")
+        self.assertEqual(view_state["active_module_type"], "")
+        self.assertEqual(view_state["active_module_id"], "")
+        self.assertEqual(view_state["latest_module_path"], [])
+        self.assertFalse(view_state["draft_active"])
+        self.assertFalse(view_state["trick_sequence_active"])
+        self.assertFalse(view_state["card_flip_legal"])
+
     def test_draft_active_only_for_draft_module_or_prompt(self) -> None:
         draft = build_runtime_view_state([
             {

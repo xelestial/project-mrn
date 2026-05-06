@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from apps.server.src.domain.visibility import ViewerContext
+from apps.server.src.domain.view_state import project_replay_view_state
 from apps.server.src.domain.view_state.scene_selector import build_scene_view_state
 from apps.server.src.services.stream_service import StreamService
 from apps.server.tests.prompt_payloads import module_prompt
@@ -48,10 +49,11 @@ class ViewStateSceneSelectorTests(unittest.TestCase):
 
         events = asyncio.run(_publish())
         latest_payload = events[-1]["payload"]
+        view_state = project_replay_view_state(events)
 
-        self.assertIn("view_state", latest_payload)
-        self.assertIn("scene", latest_payload["view_state"])
-        self.assertEqual(latest_payload["view_state"]["scene"]["core_action_feed"][0]["event_code"], "player_move")
+        self.assertNotIn("view_state", latest_payload)
+        self.assertIn("scene", view_state)
+        self.assertEqual(view_state["scene"]["core_action_feed"][0]["event_code"], "player_move")
 
     def test_action_move_is_projected_as_move_scene_event(self) -> None:
         view_state = build_scene_view_state(
@@ -108,11 +110,17 @@ class ViewStateSceneSelectorTests(unittest.TestCase):
                     },
                 }),
             )
-            projected = await stream.latest_view_commit_message_for_viewer(
+            latest_commit = await stream.latest_view_commit_message_for_viewer(
                 "sess_scene_weather",
                 ViewerContext(role="seat", session_id="sess_scene_weather", player_id=1),
             )
-            return projected["payload"]["view_state"]["scene"]["situation"]
+            self.assertIsNone(latest_commit)
+            snapshot = await stream.snapshot("sess_scene_weather")
+            view_state = project_replay_view_state(
+                [message.to_dict() for message in snapshot],
+                viewer=ViewerContext(role="seat", session_id="sess_scene_weather", player_id=1),
+            )
+            return view_state["scene"]["situation"]
 
         situation = asyncio.run(_publish())
 
