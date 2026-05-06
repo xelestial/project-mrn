@@ -12201,7 +12201,10 @@ body {
     width: var(--match-side-panel-width);
     max-width: var(--match-side-panel-width);
     height: auto;
-    max-height: calc(100% - (2 * var(--match-player-card-visual-height)) - clamp(26px, 3vh, 42px));
+    max-height: min(
+      var(--board-hud-viewport-height, calc(100% - (2 * var(--match-player-card-visual-height)) - clamp(26px, 3vh, 42px))),
+      calc(100% - (2 * var(--match-player-card-visual-height)) - clamp(26px, 3vh, 42px))
+    );
   }
 
   .page.page-match .match-table-weather-bar {
@@ -12273,8 +12276,8 @@ body {
 @media (min-width: 981px) {
   .page.page-match .match-table-overlay {
     --match-event-panel-width: clamp(268px, 18vw, 360px);
-    --match-decision-prompt-width: 75vw;
-    --match-large-prompt-width: min(80vw, 1280px);
+    --match-decision-prompt-width: min(75vw, var(--board-hud-viewport-width, 75vw));
+    --match-large-prompt-width: min(80vw, var(--board-hud-viewport-width, 1280px), 1280px);
   }
 
   .page.page-match .match-table-overlay-middle-stack,
@@ -12368,7 +12371,10 @@ body {
     top: calc(var(--match-hud-inset-y) + var(--match-player-card-visual-height) + clamp(54px, 5.2vh, 66px));
     width: var(--match-event-panel-width);
     max-width: var(--match-event-panel-width);
-    max-height: calc(100% - (2 * var(--match-player-card-visual-height)) - clamp(74px, 7vh, 92px));
+    max-height: min(
+      var(--board-hud-viewport-height, calc(100% - (2 * var(--match-player-card-visual-height)) - clamp(74px, 7vh, 92px))),
+      calc(100% - (2 * var(--match-player-card-visual-height)) - clamp(74px, 7vh, 92px))
+    );
   }
 }
 
@@ -12401,11 +12407,8 @@ body {
     bottom: var(--match-hud-inset-y);
     top: auto;
     z-index: 1080;
-    width: min(
-      920px,
-      calc(100vw - (2 * var(--match-player-card-visual-width)) - clamp(36px, 4vw, 84px))
-    );
-    min-width: min(520px, calc(100vw - (2 * var(--match-player-card-visual-width)) - clamp(36px, 4vw, 84px)));
+    width: min(920px, var(--board-hud-viewport-width, calc(100vw - (2 * var(--match-player-card-visual-width)) - clamp(36px, 4vw, 84px))));
+    min-width: min(520px, var(--board-hud-viewport-width, calc(100vw - (2 * var(--match-player-card-visual-width)) - clamp(36px, 4vw, 84px))));
     transform: translateX(-50%);
     pointer-events: none;
   }
@@ -12430,7 +12433,7 @@ body {
 
 @media (min-width: 981px) {
   .page.page-match .match-table-overlay {
-    --match-large-prompt-width: min(80vw, 1280px);
+    --match-large-prompt-width: min(80vw, var(--board-hud-viewport-width, 1280px), 1280px);
     --match-desktop-large-prompt-max-height: min(72vh, 760px);
   }
 

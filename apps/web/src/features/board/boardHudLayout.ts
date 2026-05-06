@@ -35,11 +35,17 @@ export type BoardHudLayoutInput = {
   handTrayBottomTileRect?: RectLike | null;
 };
 
+export type BoardHudCssVars = Record<`--${string}`, string>;
+
 function clampToPixels(value: number): number {
   if (!Number.isFinite(value)) {
     return 0;
   }
   return Math.max(0, Math.round(value));
+}
+
+function px(value: number): string {
+  return `${clampToPixels(value)}px`;
 }
 
 export function computeBoardHudFrame({
@@ -109,4 +115,25 @@ export function sameBoardHudFrame(left: BoardHudFrame | null, right: BoardHudFra
     left.handTrayBottomGap === right.handTrayBottomGap &&
     left.handTrayHeight === right.handTrayHeight
   );
+}
+
+export function boardHudFrameToCssVars(frame: BoardHudFrame | null): BoardHudCssVars {
+  if (!frame) {
+    return {};
+  }
+
+  return {
+    "--board-overlay-safe-top": px(frame.safeTop),
+    "--board-overlay-safe-bottom-gap": px(frame.safeBottomGap),
+    "--board-overlay-safe-left": px(frame.safeLeft),
+    "--board-overlay-safe-right-gap": px(frame.safeRightGap),
+    "--board-hud-viewport-left": px(frame.viewportLeft),
+    "--board-hud-viewport-top": px(frame.viewportTop),
+    "--board-hud-viewport-width": px(frame.viewportWidth),
+    "--board-hud-viewport-height": px(frame.viewportHeight),
+    "--board-hud-prompt-top-inset": px(frame.promptTopInset),
+    "--board-hud-hand-tray-top-inset": px(frame.handTrayTopInset),
+    "--board-hud-hand-tray-bottom-gap": px(frame.handTrayBottomGap),
+    "--board-hud-hand-tray-height": px(frame.handTrayHeight),
+  };
 }

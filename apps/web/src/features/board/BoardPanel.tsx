@@ -28,7 +28,7 @@ import {
 import type { QuarterviewFacing } from "./boardProjection";
 import type { QuarterviewTilePolygon } from "./boardProjection";
 import type { QuarterviewPosition } from "./boardProjection";
-import { computeBoardHudFrame, sameBoardHudFrame } from "./boardHudLayout";
+import { boardHudFrameToCssVars, computeBoardHudFrame, sameBoardHudFrame } from "./boardHudLayout";
 import { computeBoardHudScale } from "./boardHudScale";
 
 type BoardPanelProps = {
@@ -283,18 +283,7 @@ export function BoardPanel({
     "--board-qv-tile-angle": `${quarterviewGeometry.tileAngleDeg}deg`,
     "--board-qv-tile-inline": `${quarterviewGeometry.tileInlinePercent}%`,
     "--board-qv-tile-block": `${quarterviewGeometry.tileBlockPercent}%`,
-    ...(hudFrame
-      ? {
-          "--board-overlay-safe-top": `${hudFrame.safeTop}px`,
-          "--board-overlay-safe-bottom-gap": `${hudFrame.safeBottomGap}px`,
-          "--board-overlay-safe-left": `${hudFrame.safeLeft}px`,
-          "--board-overlay-safe-right-gap": `${hudFrame.safeRightGap}px`,
-          "--board-hud-prompt-top-inset": `${hudFrame.promptTopInset}px`,
-          "--board-hud-hand-tray-top-inset": `${hudFrame.handTrayTopInset}px`,
-          "--board-hud-hand-tray-bottom-gap": `${hudFrame.handTrayBottomGap}px`,
-          "--board-hud-hand-tray-height": `${hudFrame.handTrayHeight}px`,
-        }
-      : {}),
+    ...boardHudFrameToCssVars(hudFrame),
     "--board-scene-scale": String(hudScale.sceneScale),
     "--board-hud-gap": `${hudScale.overlayGap}px`,
     "--board-hud-gap-tight": `${hudScale.overlayGapTight}px`,
