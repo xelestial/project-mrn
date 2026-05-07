@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from policy.asset.spec import ArenaPolicyAsset, DEFAULT_ARENA_CHARACTER_LINEUP, HeuristicPolicyAsset
 
 
@@ -104,6 +107,15 @@ class PolicyFactory:
         player_character_policy_modes: dict[int, str] | None = None,
         rng=None,
     ):
+        if policy_mode == "rl_v1":
+            model_dir = os.environ.get("MRN_RL_POLICY_MODEL")
+            if not model_dir:
+                raise ValueError("MRN_RL_POLICY_MODEL is required when policy_mode='rl_v1'")
+            if not (Path(model_dir) / "policy_model.json").exists():
+                raise ValueError(f"MRN_RL_POLICY_MODEL does not contain policy_model.json: {model_dir}")
+            from policy.rl_policy import RlRuntimePolicy
+
+            return RlRuntimePolicy(model_dir=model_dir, rng=rng)
         if policy_mode == "arena":
             return PolicyFactory.create_arena_policy(
                 ArenaPolicyAsset(

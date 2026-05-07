@@ -19,6 +19,7 @@ from engine import GameEngine
 from game_rules_loader import load_ruleset
 from metadata import GAME_VERSION
 from policy.factory import PolicyFactory
+from rl.replay import build_replay_rows_from_game, write_replay_rows
 from stats_utils import compute_basic_stats_from_games
 from text_encoding import configure_utf8_io
 
@@ -413,9 +414,15 @@ def run(
     root_seed: int | None = None,
     chunk_id: int | None = None,
     global_game_index_start: int = 0,
+    emit_rl_replay: bool = False,
+    rl_replay_path: str | None = None,
 ):
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
+    replay_path = Path(rl_replay_path) if rl_replay_path else out / "rl_replay.jsonl"
+    if emit_rl_replay:
+        replay_path.parent.mkdir(parents=True, exist_ok=True)
+        replay_path.write_text("", encoding="utf-8")
     effective_root_seed = seed if root_seed is None else root_seed
     effective_run_id = run_id or f"run_seed{effective_root_seed}_games{simulations}_{policy_mode}"
     player_lap_policy_modes = dict(player_lap_policy_modes or {})
@@ -458,7 +465,7 @@ def run(
                 want_full_log = normalized_log_level == "full" or (
                     normalized_log_level == "sampled" and full_log_every > 0 and ((game_id + 1) % full_log_every == 0)
                 )
-                engine = GameEngine(runtime_config, policy, rng=rng, enable_logging=want_full_log)
+                engine = GameEngine(runtime_config, policy, rng=rng, enable_logging=want_full_log or emit_rl_replay)
                 per_game_log_level = "full" if want_full_log else "summary"
                 raw_result = engine.run()
                 result = result_to_dict(raw_result, log_level=per_game_log_level, integrity=integrity)
@@ -476,6 +483,11 @@ def run(
                 result["player_character_policy_modes"] = {str(k): v for k, v in player_character_policy_modes.items()}
 
                 f.write(json.dumps(result, ensure_ascii=False) + "\n")
+                if emit_rl_replay:
+                    replay_game = dict(result)
+                    replay_game["action_log"] = list(raw_result.action_log)
+                    replay_game["ai_decision_log"] = list(raw_result.ai_decision_log)
+                    write_replay_rows(replay_path, build_replay_rows_from_game(replay_game))
                 for decision_row in raw_result.ai_decision_log:
                     decision_payload = dict(decision_row)
                     decision_payload["game_id"] = game_id
@@ -529,7 +541,7 @@ if __name__ == "__main__":
     ap.add_argument("--flush-every", type=int, default=1)
     ap.add_argument("--log-level", choices=["summary", "full", "sampled", "none"], default="summary")
     ap.add_argument("--full-log-every", type=int, default=0)
-    ap.add_argument("--policy-mode", choices=sorted(HeuristicPolicy.VALID_CHARACTER_POLICIES), default="arena")
+    ap.add_argument("--policy-mode", choices=sorted({*HeuristicPolicy.VALID_CHARACTER_POLICIES, "rl_v1"}), default="arena")
     ap.add_argument("--lap-policy-mode", choices=sorted(HeuristicPolicy.VALID_LAP_POLICIES), default="heuristic_v3_engine")
     ap.add_argument("--player-lap-policies", type=str, default="", help="comma-separated 4-player lap policies, e.g. cash_focus,shard_focus,coin_focus,heuristic_v1")
     ap.add_argument("--player-character-policies", type=str, default="", help="comma-separated 4-player character policies, e.g. heuristic_v1,heuristic_v2_token_opt,heuristic_v2_control,heuristic_v2_balanced")
@@ -538,6 +550,8 @@ if __name__ == "__main__":
     ap.add_argument("--board-layout-meta", type=str, default=None, help="Optional sidecar JSON metadata for CSV board layouts.")
     ap.add_argument("--rule-scripts", type=str, default=None, help="Optional JSON rule script overrides.")
     ap.add_argument("--ruleset", type=str, default=None, help="Optional JSON ruleset overrides for injected GameRules.")
+    ap.add_argument("--emit-rl-replay", action="store_true", help="Write RL-ready JSONL replay rows from AI decisions and turn rewards.")
+    ap.add_argument("--rl-replay-path", type=str, default=None, help="Output path for --emit-rl-replay. Defaults to <output-dir>/rl_replay.jsonl.")
     args = ap.parse_args()
     run(
         args.simulations,
@@ -557,4 +571,6 @@ if __name__ == "__main__":
         rule_scripts_path=args.rule_scripts,
         ruleset_path=args.ruleset,
         emit_summary=True,
+        emit_rl_replay=args.emit_rl_replay,
+        rl_replay_path=args.rl_replay_path,
     )

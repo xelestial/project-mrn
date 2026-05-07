@@ -1,8 +1,11 @@
 # AI Reinforcement Learning Plan
 
-Status: DRAFT  
-Owner: Engine / AI policy  
+Status: DRAFT - superseded by deep RL implementation plan for the next work track
+Owner: Engine / AI policy
 Created: 2026-05-07
+
+Deep RL pivot: 2026-05-07
+Implementation plan: `docs/superpowers/plans/2026-05-07-deep-rl-game-ai.md`
 
 ## Goal
 
@@ -13,7 +16,9 @@ Created: 2026-05-07
 1. 게임에서 가장 크게 돈을 벌 수 있었던 기회
 2. 게임 내에서 가장 크게 돈을 잃었던 사건
 
-여기서 바로 딥 강화학습으로 가는 것은 불필요하다. 현재 코드베이스에는 이미 휴리스틱 정책, decision trace, action log, `engine/log_pipeline.py` 기반 승률 모델 초안이 있다. 먼저 이 구조를 확장해 offline contextual bandit / value model을 만들고, 이후 self-play RL로 넘어간다.
+원래 계획은 여기서 바로 딥 강화학습으로 가지 않는 것이었다. 그러나 사용자 방향이 딥 RL로 바뀌었으므로 이 문서는 하위 진단/보상 설계 문서로 유지한다. 돈 이벤트 ledger는 폐기하지 않는다. 딥 RL의 reward component, replay analysis, 실패 attribution으로 재사용한다.
+
+웹소켓 불안정은 이 문서의 학습 목표가 아니다. 웹소켓/런타임 복원 문제는 서버 신뢰성 트랙에서 계속 막아야 한다. RL은 그 위에서 AI 의사결정 품질을 개선하는 별도 트랙이다.
 
 ## Current Baseline
 
@@ -336,4 +341,6 @@ The first tuning discussion should start from the top 20 entries in:
 
 ## Immediate Next Step
 
-Implement Phase 1 and Phase 2 only. That produces a ranked list of biggest money opportunities and biggest money losses. Do not start model training until those lists are inspected and the event labels look sane.
+Do not implement this cash-only plan as the main track. Start with `docs/superpowers/plans/2026-05-07-deep-rl-game-ai.md`.
+
+The first implementation task is the RL reward contract. It should still include the cash event signals from this document, because large money gain/loss remains the first useful reward component.
