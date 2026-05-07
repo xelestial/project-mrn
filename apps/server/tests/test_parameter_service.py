@@ -25,6 +25,12 @@ class ParameterServiceTests(unittest.TestCase):
         self.assertIn("dice", resolved)
         self.assertIn("economy", resolved)
         self.assertIn("resources", resolved)
+        self.assertEqual(resolved["economy"]["starting_cash"], 20)
+        self.assertEqual(resolved["resources"]["starting_shards"], 2)
+        self.assertEqual(resolved["rules"]["start_reward"]["points_budget"], 20)
+        self.assertEqual(resolved["rules"]["start_reward"]["cash_point_cost"], 2)
+        self.assertEqual(resolved["rules"]["start_reward"]["shards_point_cost"], 3)
+        self.assertEqual(resolved["rules"]["start_reward"]["coins_point_cost"], 3)
         self.assertGreaterEqual(resolved["board"]["tile_count"], 1)
 
     def test_resolve_rejects_invalid_dice_values(self) -> None:

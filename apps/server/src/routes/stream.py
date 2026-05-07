@@ -23,15 +23,16 @@ async def _send_latest_view_commit(
     session_id: str,
     last_commit_seq: int,
     viewer: Any,
+    force: bool = False,
 ) -> int:
     latest = await stream_service.latest_view_commit_message_for_viewer(session_id, viewer)
     if latest is None:
         return last_commit_seq
     commit_seq = _commit_seq(latest) or _stream_seq(latest)
-    if commit_seq <= last_commit_seq:
+    if not force and commit_seq <= last_commit_seq:
         return last_commit_seq
     await websocket.send_json(latest)
-    return commit_seq
+    return max(last_commit_seq, commit_seq)
 
 
 def _stream_seq(message: dict[str, Any]) -> int:
@@ -246,58 +247,80 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
     delivery_lock = asyncio.Lock()
 
     async def _heartbeat() -> None:
-        while not stop_event.is_set():
-            latest = await stream_service.latest_seq(session_id)
-            pressure = await stream_service.backpressure_stats(session_id)
-            runtime_diag = runtime_service.runtime_status(session_id)
-            active_module = None
-            checkpoint = runtime_diag.get("checkpoint") if isinstance(runtime_diag, dict) else None
-            if isinstance(checkpoint, dict):
-                frames = checkpoint.get("runtime_frame_stack")
-                if isinstance(frames, list):
-                    for frame in reversed(frames):
-                        if isinstance(frame, dict) and frame.get("active_module_id"):
-                            active_module = frame.get("active_module_id")
-                            break
-            await websocket.send_json(
-                {
-                    "type": "heartbeat",
-                    "seq": latest,
-                    "session_id": session_id,
-                    "server_time_ms": int(time.time() * 1000),
-                    "payload": {
-                        "interval_ms": heartbeat_interval_ms,
-                        "backpressure": pressure,
-                        "runner_kind": runtime_diag.get("runner_kind") if isinstance(runtime_diag, dict) else None,
-                        "active_module_id": active_module,
-                    },
-                }
-            )
-            try:
-                await asyncio.wait_for(stop_event.wait(), timeout=heartbeat_interval_sec)
-            except asyncio.TimeoutError:
-                pass
+        nonlocal last_commit_seq
+        try:
+            while not stop_event.is_set():
+                latest = await stream_service.latest_seq(session_id)
+                pressure = await stream_service.backpressure_stats(session_id)
+                runtime_diag = runtime_service.runtime_status(session_id)
+                active_module = None
+                checkpoint = runtime_diag.get("checkpoint") if isinstance(runtime_diag, dict) else None
+                if isinstance(checkpoint, dict):
+                    frames = checkpoint.get("runtime_frame_stack")
+                    if isinstance(frames, list):
+                        for frame in reversed(frames):
+                            if isinstance(frame, dict) and frame.get("active_module_id"):
+                                active_module = frame.get("active_module_id")
+                                break
+                async with delivery_lock:
+                    last_commit_seq = await _send_latest_view_commit(
+                        websocket,
+                        stream_service,
+                        session_id=session_id,
+                        last_commit_seq=last_commit_seq,
+                        viewer=viewer,
+                        force=True,
+                    )
+                    await websocket.send_json(
+                        {
+                            "type": "heartbeat",
+                            "seq": latest,
+                            "session_id": session_id,
+                            "server_time_ms": int(time.time() * 1000),
+                            "payload": {
+                                "interval_ms": heartbeat_interval_ms,
+                                "backpressure": pressure,
+                                "runner_kind": runtime_diag.get("runner_kind") if isinstance(runtime_diag, dict) else None,
+                                "active_module_id": active_module,
+                            },
+                        }
+                    )
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=heartbeat_interval_sec)
+                except asyncio.TimeoutError:
+                    pass
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log_event("stream_heartbeat_failed", session_id=session_id, connection_id=conn_id, error=str(exc))
+            stop_event.set()
 
     async def _sender() -> None:
         nonlocal delivered_seq, last_commit_seq
-        while not stop_event.is_set():
-            try:
-                message = await asyncio.wait_for(subscriber_queue.get(), timeout=sender_poll_timeout_sec)
-            except asyncio.TimeoutError:
-                continue
-            seq = _stream_seq(message)
-            async with delivery_lock:
-                if seq > 0 and seq <= delivered_seq:
+        try:
+            while not stop_event.is_set():
+                try:
+                    message = await asyncio.wait_for(subscriber_queue.get(), timeout=sender_poll_timeout_sec)
+                except asyncio.TimeoutError:
                     continue
-                filtered = await stream_service.project_message_for_viewer(message, viewer)
-                delivered_seq = max(delivered_seq, seq)
-                if filtered is not None:
-                    if filtered.get("type") == "view_commit":
-                        commit_seq = _commit_seq(filtered)
-                        if commit_seq <= last_commit_seq:
-                            continue
-                        last_commit_seq = commit_seq
-                    await websocket.send_json(filtered)
+                seq = _stream_seq(message)
+                async with delivery_lock:
+                    if seq > 0 and seq <= delivered_seq:
+                        continue
+                    filtered = await stream_service.project_message_for_viewer(message, viewer)
+                    delivered_seq = max(delivered_seq, seq)
+                    if filtered is not None:
+                        if filtered.get("type") == "view_commit":
+                            commit_seq = _commit_seq(filtered)
+                            if commit_seq <= last_commit_seq:
+                                continue
+                            last_commit_seq = commit_seq
+                        await websocket.send_json(filtered)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log_event("stream_sender_failed", session_id=session_id, connection_id=conn_id, error=str(exc))
+            stop_event.set()
 
     latest_commit = await stream_service.latest_view_commit_message_for_viewer(session_id, viewer)
     if latest_commit is not None:
@@ -322,8 +345,8 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                         session_id=session_id,
                         last_commit_seq=effective_last_commit_seq,
                         viewer=viewer,
+                        force=True,
                     )
-                    delivered_seq = max(delivered_seq, await stream_service.latest_seq(session_id))
                 log_event(
                     "stream_resume_snapshot",
                     session_id=session_id,
@@ -379,7 +402,6 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                             last_commit_seq=-1,
                             viewer=viewer,
                         )
-                        delivered_seq = max(delivered_seq, await stream_service.latest_seq(session_id))
                     log_event(
                         "decision_rejected_by_view_commit",
                         session_id=session_id,

@@ -2374,6 +2374,10 @@ class GameEngine:
 
     def _start_new_round(self, state: GameState, initial: bool) -> None:
         self._prepare_round_start_state(state, initial)
+        if initial:
+            for player in state.players:
+                if player.alive:
+                    self._apply_start_reward(state, player)
         self._reveal_round_weather(state)
         self._run_round_draft_module(state, initial)
         self._schedule_round_turn_order(state, initial)
@@ -4294,7 +4298,7 @@ class GameEngine:
         return build_rent_context(state, payer, pos, owner_player_id, include_waivers=False).final_rent
 
     def _is_trick_phase_usable(self, card: TrickCard) -> bool:
-        return True
+        return not bool(getattr(card, "is_burden", False))
 
     def _trick_hand_context(self, player: PlayerState) -> list[dict[str, object]]:
         hidden_deck_index = getattr(player, "hidden_trick_deck_index", None)
@@ -4854,6 +4858,10 @@ class GameEngine:
 
     def _apply_lap_reward(self, state: GameState, player: PlayerState) -> dict:
         result = self.events.emit_first_non_none("lap.reward.resolve", state, player)
+        return result if result is not None else {"choice": "blocked"}
+
+    def _apply_start_reward(self, state: GameState, player: PlayerState) -> dict:
+        result = self.events.emit_first_non_none("start.reward.resolve", state, player)
         return result if result is not None else {"choice": "blocked"}
 
     def _draw_fortune_card(self, state: GameState) -> FortuneCard:

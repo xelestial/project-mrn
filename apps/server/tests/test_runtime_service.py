@@ -884,6 +884,7 @@ class RuntimeServiceTests(unittest.TestCase):
     def test_decision_request_type_for_method_uses_canonical_mapping(self) -> None:
         self.assertEqual(decision_request_type_for_method("choose_purchase_tile"), "purchase_tile")
         self.assertEqual(decision_request_type_for_method("choose_mark_target"), "mark_target")
+        self.assertEqual(decision_request_type_for_method("choose_start_reward"), "start_reward")
         self.assertEqual(decision_request_type_for_method("choose_pabal_dice_mode"), "pabal_dice_mode")
         self.assertEqual(decision_request_type_for_method("choose_custom_branch"), "custom_branch")
 
@@ -1344,6 +1345,78 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(context["weather_name"], "긴급 피난")
         self.assertEqual(context["weather_effect"], "모든 짐 제거 비용이 2배가 됩니다.")
 
+    def test_authoritative_view_commit_projects_current_weather(self) -> None:
+        weather = type("Weather", (), {"name": "외세의 침략", "effect": "모든 참가자는 2냥을 은행에 지불하세요"})()
+        state = type("State", (), {"current_weather": weather})()
+
+        view_state = self.runtime_service._build_authoritative_view_state(
+            session_id="sess_weather_view",
+            state=state,
+            checkpoint_payload={
+                "players": [],
+                "rounds_completed": 2,
+                "turn_index": 11,
+                "marker_owner_id": 0,
+                "current_round_order": [],
+            },
+            runtime_checkpoint={
+                "round_index": 3,
+                "turn_index": 11,
+            },
+            public_snapshot={
+                "board": {},
+                "players": [],
+            },
+            parameter_manifest={},
+            active_module={},
+            step={"status": "waiting_input"},
+            commit_seq=42,
+            viewer={"role": "seat", "player_id": 1},
+        )
+
+        self.assertEqual(view_state["turn_stage"]["weather_name"], "외세의 침략")
+        self.assertEqual(view_state["turn_stage"]["weather_effect"], "모든 참가자는 2냥을 은행에 지불하세요")
+        self.assertEqual(view_state["scene"]["situation"]["weather_name"], "외세의 침략")
+        self.assertEqual(view_state["scene"]["situation"]["weather_effect"], "모든 참가자는 2냥을 은행에 지불하세요")
+
+    def test_authoritative_view_commit_projects_game_end_beat(self) -> None:
+        state = type("State", (), {})()
+
+        view_state = self.runtime_service._build_authoritative_view_state(
+            session_id="sess_game_end_view",
+            state=state,
+            checkpoint_payload={
+                "players": [],
+                "rounds_completed": 4,
+                "turn_index": 18,
+                "marker_owner_id": 0,
+                "current_round_order": [0, 1, 2, 3],
+                "winner_ids": [0],
+                "end_reason": "ALIVE_THRESHOLD",
+            },
+            runtime_checkpoint={
+                "round_index": 5,
+                "turn_index": 18,
+            },
+            public_snapshot={
+                "board": {},
+                "players": [],
+            },
+            parameter_manifest={},
+            active_module={},
+            step={"status": "completed"},
+            commit_seq=43,
+            viewer={"role": "spectator"},
+        )
+
+        self.assertEqual(view_state["turn_stage"]["current_actor_player_id"], None)
+        self.assertEqual(view_state["turn_stage"]["current_beat_event_code"], "game_end")
+        self.assertEqual(view_state["turn_stage"]["prompt_request_type"], "-")
+        self.assertEqual(view_state["turn_stage"]["current_beat_detail"], "Winner P1 / ALIVE_THRESHOLD")
+        self.assertEqual(view_state["scene"]["situation"]["headline_event_code"], "game_end")
+        self.assertEqual(view_state["board"]["winner_ids"], [1])
+        self.assertEqual(view_state["board"]["end_reason"], "ALIVE_THRESHOLD")
+
     def test_lap_reward_context_exposes_budget_bundles_and_player_status(self) -> None:
         rules = type(
             "LapRules",
@@ -1400,6 +1473,47 @@ class RuntimeServiceTests(unittest.TestCase):
                 "source_name": "lap_reward",
             },
         )
+
+    def test_start_reward_context_reuses_reward_allocation_contract(self) -> None:
+        rules = type(
+            "StartRules",
+            (),
+            {
+                "points_budget": 20,
+                "cash_pool": 30,
+                "shards_pool": 18,
+                "coins_pool": 18,
+                "cash_point_cost": 2,
+                "shards_point_cost": 3,
+                "coins_point_cost": 3,
+            },
+        )()
+        state = type(
+            "State",
+            (),
+            {
+                "rounds_completed": 0,
+                "turn_index": 0,
+                "start_reward_cash_pool_remaining": 27,
+                "start_reward_shards_pool_remaining": 16,
+                "start_reward_coins_pool_remaining": 15,
+                "config": type("Config", (), {"rules": type("Rules", (), {"start_reward": rules})()})(),
+            },
+        )()
+        player = type(
+            "Player",
+            (),
+            {"cash": 20, "position": 0, "shards": 2, "hand_coins": 0, "score_coins_placed": 0, "tiles_owned": 0},
+        )()
+
+        context = build_public_context("choose_start_reward", (state, player), {})
+
+        self.assertEqual(context["description"], "게임 시작 초기 세팅 재화를 선택합니다.")
+        self.assertEqual(context["budget"], 20)
+        self.assertEqual(context["pools"], {"cash": 27, "shards": 16, "coins": 15})
+        self.assertEqual(context["unit_costs"], {"cash": 2, "shards": 3, "coins": 3})
+        self.assertEqual(context["effect_context"]["label"], "초기 보상")
+        self.assertEqual(context["effect_context"]["source_name"], "start_reward")
 
     def test_trick_tile_target_context_exposes_candidates(self) -> None:
         state = type("State", (), {"rounds_completed": 2, "turn_index": 1})()

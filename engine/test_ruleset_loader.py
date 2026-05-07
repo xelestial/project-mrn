@@ -19,12 +19,15 @@ class RulesetLoaderTest(unittest.TestCase):
         raw = {
             'rules': {
                 'lap_reward': {'cash': 7, 'coins': 4, 'shards': 2},
+                'start_reward': {'points_budget': 20, 'cash_point_cost': 2, 'shards_point_cost': 3, 'coins_point_cost': 3},
                 'end': {'f_threshold': 9, 'tiles_to_trigger_end': 7, 'monopolies_to_trigger_end': 2, 'alive_players_at_most': 3},
             }
         }
         rules = rules_from_dict(raw['rules'])
         dumped = rules_to_dict(rules)
         self.assertEqual(dumped['rules']['lap_reward']['cash'], 7)
+        self.assertEqual(dumped['rules']['start_reward']['points_budget'], 20)
+        self.assertEqual(dumped['rules']['start_reward']['coins_point_cost'], 3)
         self.assertEqual(dumped['rules']['end']['tiles_to_trigger_end'], 7)
 
     def test_rules_roundtrip_stage3_sections(self):

@@ -84,7 +84,7 @@ export function buildDecisionMessage(args: {
     ...(continuation?.moduleType ? { module_type: continuation.moduleType } : {}),
     ...(continuation?.moduleCursor ? { module_cursor: continuation.moduleCursor } : {}),
     ...(continuation?.batchId ? { batch_id: continuation.batchId } : {}),
-    ...(typeof continuation?.promptInstanceId === "number" && continuation.promptInstanceId > 0
+    ...(typeof continuation?.promptInstanceId === "number" && Number.isFinite(continuation.promptInstanceId) && continuation.promptInstanceId >= 0
       ? { prompt_instance_id: continuation.promptInstanceId }
       : {}),
     view_commit_seq_seen: Math.max(0, Math.floor(args.viewCommitSeqSeen)),
@@ -159,7 +159,8 @@ export function useGameStream({
 
   useEffect(() => {
     lastCommitSeqRef.current = state.lastCommitSeq;
-  }, [state.lastCommitSeq]);
+    client.updateResumeCommitSeq(state.lastCommitSeq);
+  }, [client, state.lastCommitSeq]);
 
   useEffect(() => {
     const normalized = sessionId.trim();

@@ -91,6 +91,7 @@ class GameParameterResolver:
         board_topology = self._resolve_board_topology(raw=raw)
         participant_defaults = self._resolve_participant_defaults(raw=raw)
         end_rules = self._resolve_end_rules(raw=raw, cfg=cfg)
+        start_reward_rules = self._resolve_start_reward_rules(cfg=cfg)
 
         dice_values = raw.get("dice_values", list(cfg.dice_cards.values))
         if not isinstance(dice_values, list) or not dice_values or not all(isinstance(v, int) and v > 0 for v in dice_values):
@@ -152,6 +153,7 @@ class GameParameterResolver:
             },
             "rules": {
                 "end": end_rules,
+                "start_reward": start_reward_rules,
             },
             "labels": labels,
         }
@@ -368,6 +370,19 @@ class GameParameterResolver:
             "monopolies_to_trigger_end": int(monopolies),
             "tiles_to_trigger_end": tiles,
             "alive_players_at_most": int(alive),
+        }
+
+    @staticmethod
+    def _resolve_start_reward_rules(cfg: Any) -> dict[str, int]:
+        rules = getattr(getattr(cfg, "rules", None), "start_reward", None)
+        return {
+            "points_budget": int(getattr(rules, "points_budget", 20)),
+            "cash_point_cost": int(getattr(rules, "cash_point_cost", 2)),
+            "shards_point_cost": int(getattr(rules, "shards_point_cost", 3)),
+            "coins_point_cost": int(getattr(rules, "coins_point_cost", 3)),
+            "cash_pool": int(getattr(rules, "cash_pool", 30)),
+            "shards_pool": int(getattr(rules, "shards_pool", 18)),
+            "coins_pool": int(getattr(rules, "coins_pool", 18)),
         }
 
     def _resolve_seat_limits(self, raw: dict[str, Any], default_player_count: int) -> dict[str, Any]:

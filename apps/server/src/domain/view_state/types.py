@@ -469,6 +469,40 @@ class CoreActionFeedItemViewState(TypedDict):
     actor_player_id: int | None
     round_index: int | None
     turn_index: int | None
+    payload: NotRequired[dict[str, object]]
+
+
+TurnHistoryTone = Literal["move", "economy", "system", "critical"]
+TurnHistoryRelevance = Literal["mine-critical", "mine", "important", "public"]
+TurnHistoryScope = Literal["common", "player"]
+
+
+class TurnHistoryEventViewState(TypedDict):
+    seq: int
+    event_code: str
+    payload: dict[str, object]
+    tone: TurnHistoryTone
+    scope: TurnHistoryScope
+    relevance: TurnHistoryRelevance
+    participants: dict[str, int]
+    focus_tile_indices: list[int]
+    resource_delta: dict[str, int | float] | None
+    end_time_delta: dict[str, int | float] | None
+
+
+class TurnHistoryTurnViewState(TypedDict):
+    key: str
+    round_index: int
+    turn_index: int
+    actor_player_id: int | None
+    event_count: int
+    important_count: int
+    events: list[TurnHistoryEventViewState]
+
+
+class TurnHistoryViewState(TypedDict):
+    current_key: str
+    turns: list[TurnHistoryTurnViewState]
 
 
 AlertSeverity = Literal["warning", "critical"]
@@ -525,5 +559,6 @@ class ViewStatePayload(TypedDict, total=False):
     hand_tray: HandTrayViewState
     turn_stage: TurnStageViewState
     scene: SceneViewState
+    turn_history: TurnHistoryViewState
     runtime: RuntimeProjectionViewState
     parameter_manifest: dict[str, object]

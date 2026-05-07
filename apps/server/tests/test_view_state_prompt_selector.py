@@ -495,6 +495,63 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         view_state = build_prompt_view_state(fixture["messages"])
         self.assertEqual(view_state["active"]["surface"], fixture["expected"]["prompt"]["active"]["surface"])
 
+    def test_build_prompt_view_state_projects_start_reward_as_reward_allocation_surface(self) -> None:
+        view_state = build_prompt_view_state(
+            [
+                {
+                    "type": "prompt",
+                    "seq": 1,
+                    "session_id": "s1",
+                    "server_time_ms": 1,
+                    "payload": {
+                        "request_id": "req_start_reward_1",
+                        "request_type": "start_reward",
+                        "player_id": 1,
+                        "public_context": {
+                            "budget": 20,
+                            "pools": {"cash": 30, "shards": 18, "coins": 18},
+                            "cash_point_cost": 2,
+                            "shards_point_cost": 3,
+                            "coins_point_cost": 3,
+                        },
+                        "legal_choices": [
+                            {
+                                "choice_id": "cash:10|shards:0|coins:0",
+                                "value": {
+                                    "cash_units": 10,
+                                    "shard_units": 0,
+                                    "coin_units": 0,
+                                    "spent_points": 20,
+                                },
+                            }
+                        ],
+                    },
+                }
+            ]
+        )
+
+        self.assertEqual(
+            view_state["active"]["surface"]["lap_reward"],
+            {
+                "budget": 20,
+                "cash_pool": 30,
+                "shards_pool": 18,
+                "coins_pool": 18,
+                "cash_point_cost": 2,
+                "shards_point_cost": 3,
+                "coins_point_cost": 3,
+                "options": [
+                    {
+                        "choice_id": "cash:10|shards:0|coins:0",
+                        "cash_units": 10,
+                        "shard_units": 0,
+                        "coin_units": 0,
+                        "spent_points": 20,
+                    }
+                ],
+            },
+        )
+
     def test_build_prompt_view_state_matches_shared_burden_exchange_surface_fixture(self) -> None:
         fixture = _load_selector_prompt_fixture("selector.prompt.burden_exchange_surface.json")
         view_state = build_prompt_view_state(fixture["messages"])

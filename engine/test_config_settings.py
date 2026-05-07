@@ -46,11 +46,15 @@ def _first_block_lands(state):
 
 class ConfigSettingsTest(unittest.TestCase):
     def test_default_config_values(self) -> None:
-        self.assertEqual(DEFAULT_CONFIG.shards.starting_shards, 4)
+        self.assertEqual(DEFAULT_CONFIG.shards.starting_shards, 2)
         self.assertEqual(DEFAULT_CONFIG.shards.lap_reward_shards, 3)
         self.assertEqual(DEFAULT_CONFIG.economy.starting_cash, 20)
         self.assertEqual(DEFAULT_CONFIG.coins.lap_reward_cash, 5)
         self.assertEqual(DEFAULT_CONFIG.coins.lap_reward_coins, 3)
+        self.assertEqual(DEFAULT_CONFIG.rules.start_reward.points_budget, 20)
+        self.assertEqual(DEFAULT_CONFIG.rules.start_reward.cash_point_cost, 2)
+        self.assertEqual(DEFAULT_CONFIG.rules.start_reward.shards_point_cost, 3)
+        self.assertEqual(DEFAULT_CONFIG.rules.start_reward.coins_point_cost, 3)
         self.assertTrue(DEFAULT_CONFIG.coins.can_place_on_first_purchase)
         self.assertEqual(DEFAULT_CONFIG.board.f_end_value, 15.0)
         self.assertTrue(DEFAULT_CONFIG.characters.randomize_starting_active_by_card)
@@ -76,7 +80,7 @@ class ConfigSettingsTest(unittest.TestCase):
     def test_players_start_with_updated_shards(self) -> None:
         state = GameState.create(GameConfig())
         self.assertEqual(len(state.players), 4)
-        self.assertTrue(all(p.shards == 4 for p in state.players))
+        self.assertTrue(all(p.shards == 2 for p in state.players))
 
     def test_lap_reward_shards_uses_updated_value(self) -> None:
         config = GameConfig()

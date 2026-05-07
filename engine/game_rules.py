@@ -44,6 +44,17 @@ class LapRewardRules:
 
 
 @dataclass(slots=True)
+class StartRewardRules:
+    points_budget: int = 20
+    cash_point_cost: int = 2
+    shards_point_cost: int = 3
+    coins_point_cost: int = 3
+    cash_pool: int = 30
+    shards_pool: int = 18
+    coins_pool: int = 18
+
+
+@dataclass(slots=True)
 class TakeoverRules:
     blocked_by_monopoly: bool = True
     transfer_tile_coins: bool = True
@@ -121,7 +132,7 @@ class EconomyRules:
 
 @dataclass(slots=True)
 class ResourceRules:
-    starting_shards: int = 4
+    starting_shards: int = 2
 
 
 @dataclass(slots=True)
@@ -153,6 +164,7 @@ class SpecialTileRules:
 class GameRules:
     token: TokenRules = field(default_factory=TokenRules)
     lap_reward: LapRewardRules = field(default_factory=LapRewardRules)
+    start_reward: StartRewardRules = field(default_factory=StartRewardRules)
     takeover: TakeoverRules = field(default_factory=TakeoverRules)
     force_sale: ForceSaleRules = field(default_factory=ForceSaleRules)
     end: EndConditionRules = field(default_factory=EndConditionRules)

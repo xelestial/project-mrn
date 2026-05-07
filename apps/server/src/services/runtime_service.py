@@ -18,6 +18,8 @@ from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.config.runtime_settings import RuntimeSettings
 from apps.server.src.domain.runtime_semantic_guard import validate_checkpoint_payload
 from apps.server.src.domain.session_models import ParticipantClientType, SeatConfig, SeatType, SessionStatus
+from apps.server.src.domain.visibility import ViewerContext
+from apps.server.src.domain.view_state.projector import project_replay_view_state
 from apps.server.src.domain.view_state.prompt_selector import build_prompt_view_state
 from apps.server.src.domain.view_state.runtime_selector import ROUND_STAGE_BY_MODULE, TURN_STAGE_BY_MODULE
 from apps.server.src.infra.game_debug_log import write_game_debug_log
@@ -1093,6 +1095,7 @@ class RuntimeService:
             if latest_event_type == "prompt_required" and prompt_boundary_payload:
                 self._materialize_prompt_boundary_sync(loop, session_id, prompt_boundary_payload, state=state)
             latest_stream_seq = self._latest_stream_seq_sync(loop, session_id)
+            source_messages = self._source_history_sync(loop, session_id, latest_stream_seq)
             commit_seq = self._next_view_commit_seq(session_id)
             source_event_seq = latest_stream_seq
             module_debug_fields = _runtime_module_debug_fields(
@@ -1164,6 +1167,7 @@ class RuntimeService:
                 step=step,
                 commit_seq=commit_seq,
                 source_event_seq=source_event_seq,
+                source_messages=source_messages,
                 server_time_ms=updated_at_ms,
             )
             public_view_state = {}
@@ -1233,6 +1237,21 @@ class RuntimeService:
         future = asyncio.run_coroutine_threadsafe(self._stream_service.latest_seq(session_id), loop)
         return int(future.result(timeout=5))
 
+    def _source_history_sync(
+        self,
+        loop: asyncio.AbstractEventLoop | None,
+        session_id: str,
+        through_seq: int | None = None,
+    ) -> list[dict]:
+        if loop is None or self._stream_service is None:
+            return []
+        source_snapshot = getattr(self._stream_service, "source_snapshot", None)
+        if not callable(source_snapshot):
+            return []
+        future = asyncio.run_coroutine_threadsafe(source_snapshot(session_id, through_seq), loop)
+        result = future.result(timeout=5)
+        return list(result) if isinstance(result, list) else []
+
     def _next_view_commit_seq(self, session_id: str) -> int:
         if self._game_state_store is None:
             return 1
@@ -1286,6 +1305,7 @@ class RuntimeService:
         step: dict,
         commit_seq: int,
         source_event_seq: int,
+        source_messages: list[dict],
         server_time_ms: int,
     ) -> dict[str, dict]:
         commits: dict[str, dict] = {}
@@ -1327,6 +1347,7 @@ class RuntimeService:
                 step=step,
                 commit_seq=commit_seq,
                 viewer=viewer,
+                source_messages=source_messages,
             )
             commits[label] = {
                 "schema_version": _VIEW_COMMIT_SCHEMA_VERSION,
@@ -1362,18 +1383,23 @@ class RuntimeService:
         step: dict,
         commit_seq: int,
         viewer: dict,
+        source_messages: list[dict],
     ) -> dict:
-        del session_id
         players_view = self._build_players_view_state(public_snapshot, checkpoint_payload)
         board_view = self._build_board_view_state(public_snapshot, checkpoint_payload)
         runtime_view = self._runtime_projection_view_state(runtime_checkpoint, active_module, step, checkpoint_payload)
+        weather_view = self._current_weather_view_state(state, public_snapshot, checkpoint_payload)
+        game_ended = self._runtime_status_from_step(step, checkpoint_payload) == "completed"
+        actor_id = None if game_ended else self._current_actor_player_id(checkpoint_payload)
         turn_stage = {
             "round_index": int(runtime_checkpoint.get("round_index", 0) or 0),
             "turn_index": int(runtime_checkpoint.get("turn_index", 0) or 0),
-            "current_actor_player_id": self._current_actor_player_id(checkpoint_payload),
+            "current_actor_player_id": actor_id,
             "ordered_player_ids": list(players_view.get("ordered_player_ids") or []),
+            **weather_view,
         }
-        actor_id = turn_stage["current_actor_player_id"]
+        if game_ended:
+            turn_stage.update(self._game_end_turn_stage_fields(checkpoint_payload))
         situation = {
             "round_index": turn_stage["round_index"],
             "turn_index": turn_stage["turn_index"],
@@ -1383,7 +1409,17 @@ class RuntimeService:
             "actorPlayerId": actor_id,
             "active_module_type": runtime_view.get("active_module_type", ""),
             "activeModuleType": runtime_view.get("active_module_type", ""),
+            **weather_view,
         }
+        if game_ended:
+            situation.update(
+                {
+                    "headline_event_code": "game_end",
+                    "headlineEventCode": "game_end",
+                    "headline_message_type": "event",
+                    "headlineMessageType": "event",
+                }
+            )
         view_state: dict[str, object] = {
             "schema_version": _VIEW_COMMIT_SCHEMA_VERSION,
             "commit_seq": commit_seq,
@@ -1408,7 +1444,87 @@ class RuntimeService:
         hand_tray = self._build_hand_tray_view_state(state, viewer)
         if hand_tray:
             view_state["hand_tray"] = {"items": hand_tray}
+        replay_view_state = self._source_projection_view_state(session_id, source_messages, viewer)
+        replay_scene = replay_view_state.get("scene")
+        if isinstance(replay_scene, dict):
+            merged_scene = dict(replay_scene)
+            replay_situation = merged_scene.get("situation")
+            merged_scene["situation"] = {
+                **situation,
+                **(replay_situation if isinstance(replay_situation, dict) else {}),
+            }
+            view_state["scene"] = merged_scene
+        turn_history = replay_view_state.get("turn_history")
+        if isinstance(turn_history, dict):
+            view_state["turn_history"] = turn_history
         return view_state
+
+    def _source_projection_view_state(self, session_id: str, source_messages: list[dict], viewer: dict) -> dict:
+        if not source_messages:
+            return {}
+        role = str(viewer.get("role") or "spectator")
+        return dict(
+            project_replay_view_state(
+                source_messages,
+                ViewerContext(
+                    role=role,
+                    session_id=session_id,
+                    player_id=self._int_or_none(viewer.get("player_id")),
+                    seat=self._int_or_none(viewer.get("seat")),
+                ),
+            )
+        )
+
+    @staticmethod
+    def _game_end_turn_stage_fields(checkpoint_payload: dict) -> dict[str, object]:
+        winner_ids = []
+        for raw_winner_id in checkpoint_payload.get("winner_ids") or []:
+            try:
+                winner_ids.append(int(raw_winner_id) + 1)
+            except (TypeError, ValueError):
+                continue
+        reason = str(checkpoint_payload.get("end_reason") or "").strip()
+        winners = ", ".join(f"P{player_id}" for player_id in winner_ids)
+        detail = " / ".join(item for item in [f"Winner {winners}" if winners else "", reason] if item)
+        return {
+            "current_beat_kind": "system",
+            "current_beat_event_code": "game_end",
+            "current_beat_request_type": "-",
+            "current_beat_label": "",
+            "current_beat_detail": detail,
+            "current_beat_seq": None,
+            "prompt_request_type": "-",
+            "prompt_summary": "-",
+            "progress_codes": ["game_end"],
+        }
+
+    @staticmethod
+    def _current_weather_view_state(state: object, public_snapshot: dict, checkpoint_payload: dict) -> dict[str, str]:
+        weather = getattr(state, "current_weather", None)
+        name = str(getattr(weather, "name", "") or "")
+        effect = str(getattr(weather, "effect", "") or "")
+
+        snapshot_weather = public_snapshot.get("current_weather") or public_snapshot.get("weather")
+        if isinstance(snapshot_weather, dict):
+            name = name or str(snapshot_weather.get("name") or snapshot_weather.get("weather_name") or "")
+            effect = effect or str(snapshot_weather.get("effect") or snapshot_weather.get("weather_effect") or "")
+
+        checkpoint_weather = checkpoint_payload.get("current_weather") or checkpoint_payload.get("weather")
+        if isinstance(checkpoint_weather, dict):
+            name = name or str(checkpoint_weather.get("name") or checkpoint_weather.get("weather_name") or "")
+            effect = effect or str(checkpoint_weather.get("effect") or checkpoint_weather.get("weather_effect") or "")
+
+        if not effect:
+            effects = checkpoint_payload.get("current_weather_effects")
+            if isinstance(effects, list):
+                effect = " / ".join(str(item) for item in effects if str(item).strip())
+
+        if not name.strip():
+            return {}
+        return {
+            "weather_name": name,
+            "weather_effect": effect if effect.strip() else "-",
+        }
 
     @staticmethod
     def _public_snapshot_from_state(state: object) -> dict:
@@ -3144,6 +3260,7 @@ class _FanoutVisEventStream:
             "tile_purchased",
             "fortune_drawn",
             "fortune_resolved",
+            "start_reward_chosen",
             "lap_reward_chosen",
             "marker_transferred",
             "marker_flip",

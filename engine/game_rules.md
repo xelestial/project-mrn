@@ -12,6 +12,8 @@
   - 토큰 시작 개수, 랩 보상 토큰 수, 구매 시 배치 가능 여부, 타일 최대치
 - `LapRewardRules`
   - 현금/토큰/조각 랩 보상 수치
+- `StartRewardRules`
+  - 게임 시작 시 추가 출발 재화를 고르는 20PTS 예산과 자원별 비용/풀 메타데이터
 - `TakeoverRules`
   - 독점 상태 인수 차단 여부, 토큰 동반 이전 여부
 - `ForceSaleRules`
@@ -43,6 +45,10 @@
 
 ### 0.7.61 economy profiles
 `EconomyRules` now resolves tile purchase/rent through `land_profiles` when a tile is defined structurally with an `economy_profile` key.
+
+## Start Reward Metadata
+
+`GameRules.start_reward` mirrors the LAP reward allocation schema for game start metadata: 20 points budget, cash 2PT, shards 3PT, score tokens 3PT, and shared pools of cash 30, shards 18, tokens 18. The engine still uses `resources.starting_shards` for the fixed base shard count.
 
 ## Snapshot contract
 

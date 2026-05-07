@@ -76,7 +76,13 @@ export function gameStreamReducer(state: GameStreamState, action: GameStreamActi
   }
 
   const commitSeq = Number(action.message.payload.commit_seq);
-  if (!Number.isFinite(commitSeq) || commitSeq <= state.lastCommitSeq) {
+  if (!Number.isFinite(commitSeq) || commitSeq <= 0) {
+    return debugMessages === state.debugMessages ? state : { ...state, debugMessages };
+  }
+  const shouldRepairMissingLiveCommit =
+    commitSeq === state.lastCommitSeq &&
+    (state.latestCommit === null || !state.messages.some((message) => message.type === "view_commit"));
+  if (commitSeq < state.lastCommitSeq || (commitSeq === state.lastCommitSeq && !shouldRepairMissingLiveCommit)) {
     return debugMessages === state.debugMessages ? state : { ...state, debugMessages };
   }
 

@@ -21,6 +21,7 @@ def test_round_frame_order_weather_draft_scheduler_turns_flip_cleanup() -> None:
 
     assert [module.module_type for module in frame.module_queue] == [
         "RoundStartModule",
+        "InitialRewardModule",
         "WeatherModule",
         "DraftModule",
         "TurnSchedulerModule",
@@ -87,7 +88,7 @@ def test_module_runner_session_builds_explicit_round_frame_before_setup_steps() 
     assert round_frame.frame_type == "round"
     assert round_frame.module_queue[0].module_type == "RoundStartModule"
     assert round_frame.module_queue[0].status == "completed"
-    assert round_frame.module_queue[1].module_type == "WeatherModule"
+    assert round_frame.module_queue[1].module_type == "InitialRewardModule"
     assert state.current_round_order == []
 
 

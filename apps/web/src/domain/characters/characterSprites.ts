@@ -38,6 +38,7 @@ export type CharacterSpriteSet = {
   readonly assetKey: string;
   readonly sprites: Record<CharacterSpriteFacing, string>;
   readonly walkSprites?: Partial<Record<CharacterSpriteFacing, CharacterWalkSprite>>;
+  readonly visualScale: number;
 };
 
 const MINSEO_WALK_FRAME = {
@@ -63,6 +64,7 @@ export const CHARACTER_SPRITE_ROSTER: readonly CharacterSpriteSet[] = [
       "back-right": { ...MINSEO_WALK_FRAME, url: minseoWalkBackRightUrl },
       "back-left": { ...MINSEO_WALK_FRAME, url: minseoWalkBackLeftUrl },
     },
+    visualScale: 1.05,
   },
   {
     name: "서연",
@@ -73,6 +75,7 @@ export const CHARACTER_SPRITE_ROSTER: readonly CharacterSpriteSet[] = [
       "back-right": seoyeonBackRightUrl,
       "back-left": seoyeonBackLeftUrl,
     },
+    visualScale: 1.04,
   },
   {
     name: "수아",
@@ -83,6 +86,7 @@ export const CHARACTER_SPRITE_ROSTER: readonly CharacterSpriteSet[] = [
       "back-right": suaBackRightUrl,
       "back-left": suaBackLeftUrl,
     },
+    visualScale: 0.97,
   },
   {
     name: "지아",
@@ -93,6 +97,7 @@ export const CHARACTER_SPRITE_ROSTER: readonly CharacterSpriteSet[] = [
       "back-right": jiaBackRightUrl,
       "back-left": jiaBackLeftUrl,
     },
+    visualScale: 1,
   },
   {
     name: "하윤",
@@ -103,6 +108,7 @@ export const CHARACTER_SPRITE_ROSTER: readonly CharacterSpriteSet[] = [
       "back-right": hayoonBackRightUrl,
       "back-left": hayoonBackLeftUrl,
     },
+    visualScale: 1.04,
   },
 ];
 

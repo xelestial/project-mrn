@@ -158,6 +158,16 @@ def _serialize_lap_reward_choice(result: Any) -> str:
     return f"cash-{cash_units}_shards-{shard_units}_coins-{coin_units}"
 
 
+def _reward_rules_and_pools(state: Any, rule_name: str) -> tuple[Any, dict[str, int]]:
+    rules = getattr(state.config.rules, rule_name)
+    prefix = f"{rule_name}_"
+    return rules, {
+        "cash": int(getattr(state, f"{prefix}cash_pool_remaining", rules.cash_pool)),
+        "shards": int(getattr(state, f"{prefix}shards_pool_remaining", rules.shards_pool)),
+        "coins": int(getattr(state, f"{prefix}coins_pool_remaining", rules.coins_pool)),
+    }
+
+
 def _serialize_yes_no_choice(result: Any) -> str:
     return "yes" if bool(result) else "no"
 
@@ -320,6 +330,18 @@ def _prompt_effect_context(request_type: str, context: dict[str, Any], player: A
             source_player_id=player_id,
             source_family="movement",
             source_name="lap_reward",
+        )
+    if request_type == "start_reward":
+        return _effect_context_payload(
+            label="초기 보상",
+            detail="게임 시작 초기 세팅 보상을 선택합니다.",
+            attribution="Game setup",
+            tone="economy",
+            source="setup",
+            intent="gain",
+            source_player_id=player_id,
+            source_family="setup",
+            source_name="start_reward",
         )
     if request_type == "purchase_tile":
         source = str(context.get("source") or "").strip()
@@ -957,12 +979,11 @@ def _parse_runaway_choice(choice_id: str, args: tuple[Any, ...], kwargs: dict[st
     raise ValueError("invalid_runaway_choice_id")
 
 
-def _build_lap_reward_legal_choices(args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> list[dict[str, Any]]:
-    del args, kwargs, player
-    rules = state.config.rules.lap_reward
-    cash_pool = int(getattr(state, "lap_reward_cash_pool_remaining", rules.cash_pool))
-    shards_pool = int(getattr(state, "lap_reward_shards_pool_remaining", rules.shards_pool))
-    coins_pool = int(getattr(state, "lap_reward_coins_pool_remaining", rules.coins_pool))
+def _build_reward_allocation_legal_choices(state: Any, rule_name: str) -> list[dict[str, Any]]:
+    rules, pools = _reward_rules_and_pools(state, rule_name)
+    cash_pool = pools["cash"]
+    shards_pool = pools["shards"]
+    coins_pool = pools["coins"]
     budget = rules.points_budget
     choices: list[dict[str, Any]] = []
     max_cash = min(cash_pool, budget // max(1, int(rules.cash_point_cost)))
@@ -1021,24 +1042,33 @@ def _build_lap_reward_legal_choices(args: tuple[Any, ...], kwargs: dict[str, Any
     return choices
 
 
-def _build_lap_reward_context(
+def _build_reward_allocation_context(
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
     state: Any,
     player: Any,
+    *,
+    rule_name: str,
+    description: str,
 ) -> dict[str, Any]:
     del args, kwargs
-    rules = state.config.rules.lap_reward
+    rules, pools = _reward_rules_and_pools(state, rule_name)
     return {
+        "description": description,
         "budget": int(rules.points_budget),
         "pools": {
-            "cash": int(getattr(state, "lap_reward_cash_pool_remaining", rules.cash_pool)),
-            "shards": int(getattr(state, "lap_reward_shards_pool_remaining", rules.shards_pool)),
-            "coins": int(getattr(state, "lap_reward_coins_pool_remaining", rules.coins_pool)),
+            "cash": pools["cash"],
+            "shards": pools["shards"],
+            "coins": pools["coins"],
         },
         "cash_point_cost": int(rules.cash_point_cost),
         "shards_point_cost": int(rules.shards_point_cost),
         "coins_point_cost": int(rules.coins_point_cost),
+        "unit_costs": {
+            "cash": int(rules.cash_point_cost),
+            "shards": int(rules.shards_point_cost),
+            "coins": int(rules.coins_point_cost),
+        },
         "player_cash": getattr(player, "cash", None),
         "player_shards": getattr(player, "shards", None),
         "player_hand_coins": getattr(player, "hand_coins", None),
@@ -1048,11 +1078,10 @@ def _build_lap_reward_context(
     }
 
 
-def _parse_lap_reward_choice(choice_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> Any:
-    del args, kwargs, player
+def _parse_reward_allocation_choice(choice_id: str, state: Any, rule_name: str) -> Any:
     from ai_policy import LapRewardDecision
 
-    for choice in _build_lap_reward_legal_choices((), {}, state, None):
+    for choice in _build_reward_allocation_legal_choices(state, rule_name):
         if choice["choice_id"] == choice_id:
             value = dict(choice.get("value") or {})
             return LapRewardDecision(
@@ -1061,7 +1090,59 @@ def _parse_lap_reward_choice(choice_id: str, args: tuple[Any, ...], kwargs: dict
                 shard_units=int(value.get("shard_units", 0)),
                 coin_units=int(value.get("coin_units", 0)),
             )
-    raise ValueError("invalid_lap_reward_choice_id")
+    raise ValueError(f"invalid_{rule_name}_choice_id")
+
+
+def _build_lap_reward_legal_choices(args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> list[dict[str, Any]]:
+    del args, kwargs, player
+    return _build_reward_allocation_legal_choices(state, "lap_reward")
+
+
+def _build_start_reward_legal_choices(args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> list[dict[str, Any]]:
+    del args, kwargs, player
+    return _build_reward_allocation_legal_choices(state, "start_reward")
+
+
+def _build_lap_reward_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    return _build_reward_allocation_context(
+        args,
+        kwargs,
+        state,
+        player,
+        rule_name="lap_reward",
+        description="LAP 보상 재화를 선택합니다.",
+    )
+
+
+def _build_start_reward_context(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    state: Any,
+    player: Any,
+) -> dict[str, Any]:
+    return _build_reward_allocation_context(
+        args,
+        kwargs,
+        state,
+        player,
+        rule_name="start_reward",
+        description="게임 시작 초기 세팅 재화를 선택합니다.",
+    )
+
+
+def _parse_lap_reward_choice(choice_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> Any:
+    del args, kwargs, player
+    return _parse_reward_allocation_choice(choice_id, state, "lap_reward")
+
+
+def _parse_start_reward_choice(choice_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any) -> Any:
+    del args, kwargs, player
+    return _parse_reward_allocation_choice(choice_id, state, "start_reward")
 
 
 def _build_card_index_choices(args: tuple[Any, ...], kwargs: dict[str, Any], state: Any, player: Any, index: int, key: str) -> list[dict[str, Any]]:
@@ -1414,6 +1495,7 @@ METHOD_SPECS: dict[str, DecisionMethodSpec] = {
         _parse_runaway_choice,
     ),
     "choose_lap_reward": DecisionMethodSpec("lap_reward", _serialize_lap_reward_choice, _build_lap_reward_context, legal_choice_builder=_build_lap_reward_legal_choices, choice_parser=_parse_lap_reward_choice),
+    "choose_start_reward": DecisionMethodSpec("start_reward", _serialize_lap_reward_choice, _build_start_reward_context, legal_choice_builder=_build_start_reward_legal_choices, choice_parser=_parse_start_reward_choice),
     "choose_draft_card": DecisionMethodSpec("draft_card", _serialize_string_choice, _build_draft_choice_context, lambda args, kwargs, state, player: _build_card_index_choices(args, kwargs, state, player, 2, "offered_cards"), _parse_draft_choice),
     "choose_final_character": DecisionMethodSpec(
         "final_character",

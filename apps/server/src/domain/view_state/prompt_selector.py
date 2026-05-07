@@ -551,7 +551,7 @@ def _prompt_surface(payload: dict[str, Any], public_context: dict[str, Any]) -> 
         "kind": request_type,
         "blocks_public_events": True,
     }
-    if request_type == "lap_reward":
+    if request_type in {"lap_reward", "start_reward"}:
         lap_reward = _lap_reward_surface(public_context, raw_choices)
         if lap_reward:
             surface["lap_reward"] = lap_reward

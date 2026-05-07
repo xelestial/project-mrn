@@ -82,6 +82,16 @@ describe("StreamClient", () => {
     expect(JSON.parse(socket.sent[0])).toEqual({ type: "resume", last_commit_seq: 7 });
   });
 
+  it("does not send a redundant zero resume on a fresh socket open", () => {
+    const client = new StreamClient();
+    client.connect({ sessionId: "sess_fresh", token: "seat token", onOpenResumeCommitSeq: 0 });
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    const socket = MockWebSocket.instances[0];
+    socket.triggerOpen();
+    expect(socket.sent).toEqual([]);
+  });
+
   it("reconnects after close and replays latest resume seq", () => {
     vi.useFakeTimers();
     vi.spyOn(Math, "random").mockReturnValue(0);
@@ -102,6 +112,29 @@ describe("StreamClient", () => {
     second.triggerOpen();
     expect(second.sent).toHaveLength(1);
     expect(JSON.parse(second.sent[0])).toEqual({ type: "resume", last_commit_seq: 4 });
+  });
+
+  it("uses the updated latest commit seq when reconnecting", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    (window as unknown as { setTimeout: typeof setTimeout; clearTimeout: typeof clearTimeout }).setTimeout =
+      globalThis.setTimeout;
+    (window as unknown as { setTimeout: typeof setTimeout; clearTimeout: typeof clearTimeout }).clearTimeout =
+      globalThis.clearTimeout;
+
+    const client = new StreamClient();
+    client.connect({ sessionId: "sess_recover", onOpenResumeCommitSeq: 2 });
+    const first = MockWebSocket.instances[0];
+    first.triggerOpen();
+    client.updateResumeCommitSeq(11);
+    first.triggerClose();
+
+    vi.advanceTimersByTime(1000);
+    expect(MockWebSocket.instances).toHaveLength(2);
+    const second = MockWebSocket.instances[1];
+    second.triggerOpen();
+    expect(second.sent).toHaveLength(1);
+    expect(JSON.parse(second.sent[0])).toEqual({ type: "resume", last_commit_seq: 11 });
   });
 
   it("does not open a duplicate socket for the same active connection", () => {
@@ -149,6 +182,7 @@ describe("StreamClient", () => {
     client.connect({ sessionId: "sess_missing", token: "session_p1_old", onOpenResumeCommitSeq: 0 });
     const socket = MockWebSocket.instances[0];
     socket.triggerOpen();
+    expect(socket.sent).toEqual([]);
     socket.triggerMessage({
       type: "error",
       seq: 0,

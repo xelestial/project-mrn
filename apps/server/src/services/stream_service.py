@@ -112,6 +112,10 @@ class StreamService:
             buf = self._buffers.get(session_id, [])
             return [item for item in buf if item.seq > last_seq]
 
+    async def source_snapshot(self, session_id: str, through_seq: int | None = None) -> list[dict]:
+        async with self._lock:
+            return self._source_history_records_no_lock(session_id, through_seq=through_seq)
+
     async def replay_window(self, session_id: str) -> tuple[int, int]:
         async with self._lock:
             if self._stream_backend is not None:
@@ -338,6 +342,8 @@ class StreamService:
         return [item.to_dict() for item in self._buffers.get(session_id, [])]
 
     def _source_history_records_no_lock(self, session_id: str, *, through_seq: int | None = None) -> list[dict]:
+        if self._stream_backend is not None and callable(getattr(self._stream_backend, "source_snapshot", None)):
+            return list(self._stream_backend.source_snapshot(session_id, through_seq=through_seq))
         records = [
             record
             for record in self._history_records_no_lock(session_id)

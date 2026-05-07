@@ -79,4 +79,28 @@ describe("useGameStream authoritative commit helpers", () => {
       client_seq: 42,
     });
   });
+
+  it("keeps prompt instance zero in decision messages", () => {
+    expect(
+      buildDecisionMessage({
+        requestId: "req_batch_1",
+        playerId: 1,
+        choiceId: "confirm",
+        continuation: {
+          promptInstanceId: 0,
+          resumeToken: "resume-token-0",
+          frameId: "turn:1:p1",
+          moduleId: "mod:turn:1:p1:burden",
+          moduleType: "BurdenExchangeModule",
+          moduleCursor: "burden:await_choice",
+          batchId: "batch:1",
+        },
+        viewCommitSeqSeen: 7,
+        clientSeq: 8,
+      }),
+    ).toMatchObject({
+      prompt_instance_id: 0,
+      batch_id: "batch:1",
+    });
+  });
 });

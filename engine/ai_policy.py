@@ -52,7 +52,7 @@ from policy.decision.purchase import (
     prepare_v3_purchase_benefit_with_traits,
     would_purchase_trigger_immediate_win,
 )
-from policy.decision.runtime_bridge import choose_active_flip_card_runtime, choose_burden_exchange_on_supply_runtime, choose_coin_placement_tile_runtime, choose_doctrine_relief_target_runtime, choose_draft_card_runtime, choose_final_character_runtime, choose_geo_bonus_runtime, choose_hidden_trick_card_runtime, choose_lap_reward_runtime, choose_mark_target_runtime, choose_movement_runtime, choose_purchase_tile_runtime, choose_specific_trick_reward_runtime, choose_trick_to_use_runtime
+from policy.decision.runtime_bridge import choose_active_flip_card_runtime, choose_burden_exchange_on_supply_runtime, choose_coin_placement_tile_runtime, choose_doctrine_relief_target_runtime, choose_draft_card_runtime, choose_final_character_runtime, choose_geo_bonus_runtime, choose_hidden_trick_card_runtime, choose_lap_reward_runtime, choose_mark_target_runtime, choose_movement_runtime, choose_purchase_tile_runtime, choose_specific_trick_reward_runtime, choose_start_reward_runtime, choose_trick_to_use_runtime
 from policy.character_traits import (
     escape_package_names,
     doctrine_package_names,
@@ -892,6 +892,10 @@ class BasePolicy:
     def choose_lap_reward(self, state: GameState, player: PlayerState) -> LapRewardDecision:
         raise NotImplementedError
 
+    def choose_start_reward(self, state: GameState, player: PlayerState) -> LapRewardDecision:
+        del player
+        return self._start_reward_bundle(state, 1.0, 0.75, 0.75, preferred="cash")
+
     def choose_coin_placement_tile(self, state: GameState, player: PlayerState) -> Optional[int]:
         raise NotImplementedError
 
@@ -902,11 +906,18 @@ class BasePolicy:
         return marker_package_names()
 
     def _lap_reward_bundle(self, state: GameState, cash_unit_score: float, shard_unit_score: float, coin_unit_score: float, preferred: str | None = None) -> LapRewardDecision:
-        rules = state.config.rules.lap_reward
+        return self._resource_reward_bundle(state, "lap_reward", cash_unit_score, shard_unit_score, coin_unit_score, preferred=preferred)
+
+    def _start_reward_bundle(self, state: GameState, cash_unit_score: float, shard_unit_score: float, coin_unit_score: float, preferred: str | None = None) -> LapRewardDecision:
+        return self._resource_reward_bundle(state, "start_reward", cash_unit_score, shard_unit_score, coin_unit_score, preferred=preferred)
+
+    def _resource_reward_bundle(self, state: GameState, rule_name: str, cash_unit_score: float, shard_unit_score: float, coin_unit_score: float, preferred: str | None = None) -> LapRewardDecision:
+        rules = getattr(state.config.rules, rule_name)
+        prefix = f"{rule_name}_"
         choice, cash_units, shard_units, coin_units = resolve_lap_reward_bundle(
-            cash_pool=max(0, int(getattr(state, "lap_reward_cash_pool_remaining", rules.cash_pool))),
-            shards_pool=max(0, int(getattr(state, "lap_reward_shards_pool_remaining", rules.shards_pool))),
-            coins_pool=max(0, int(getattr(state, "lap_reward_coins_pool_remaining", rules.coins_pool))),
+            cash_pool=max(0, int(getattr(state, f"{prefix}cash_pool_remaining", rules.cash_pool))),
+            shards_pool=max(0, int(getattr(state, f"{prefix}shards_pool_remaining", rules.shards_pool))),
+            coins_pool=max(0, int(getattr(state, f"{prefix}coins_pool_remaining", rules.coins_pool))),
             points_budget=rules.points_budget,
             cash_point_cost=rules.cash_point_cost,
             shards_point_cost=rules.shards_point_cost,
@@ -3991,6 +4002,10 @@ class HeuristicPolicy(BasePolicy):
     def choose_lap_reward(self, state: GameState, player: PlayerState) -> LapRewardDecision:
         raise NotImplementedError("module policy path is required")
 
+    def choose_start_reward(self, state: GameState, player: PlayerState) -> LapRewardDecision:
+        del player
+        return self._start_reward_bundle(state, 1.0, 0.75, 0.75, preferred="cash")
+
     def _escape_package_names(self) -> set[str]:
         return escape_package_names()
 
@@ -3998,10 +4013,17 @@ class HeuristicPolicy(BasePolicy):
         return marker_package_names()
 
     def _lap_reward_bundle(self, state: GameState, cash_unit_score: float, shard_unit_score: float, coin_unit_score: float, preferred: str | None = None) -> LapRewardDecision:
-        rules = state.config.rules.lap_reward
-        rem_cash = max(0, int(getattr(state, "lap_reward_cash_pool_remaining", rules.cash_pool)))
-        rem_shards = max(0, int(getattr(state, "lap_reward_shards_pool_remaining", rules.shards_pool)))
-        rem_coins = max(0, int(getattr(state, "lap_reward_coins_pool_remaining", rules.coins_pool)))
+        return self._resource_reward_bundle(state, "lap_reward", cash_unit_score, shard_unit_score, coin_unit_score, preferred=preferred)
+
+    def _start_reward_bundle(self, state: GameState, cash_unit_score: float, shard_unit_score: float, coin_unit_score: float, preferred: str | None = None) -> LapRewardDecision:
+        return self._resource_reward_bundle(state, "start_reward", cash_unit_score, shard_unit_score, coin_unit_score, preferred=preferred)
+
+    def _resource_reward_bundle(self, state: GameState, rule_name: str, cash_unit_score: float, shard_unit_score: float, coin_unit_score: float, preferred: str | None = None) -> LapRewardDecision:
+        rules = getattr(state.config.rules, rule_name)
+        prefix = f"{rule_name}_"
+        rem_cash = max(0, int(getattr(state, f"{prefix}cash_pool_remaining", rules.cash_pool)))
+        rem_shards = max(0, int(getattr(state, f"{prefix}shards_pool_remaining", rules.shards_pool)))
+        rem_coins = max(0, int(getattr(state, f"{prefix}coins_pool_remaining", rules.coins_pool)))
         best: tuple[float, int, int, int, str] | None = None
         preferred_bonus = {preferred: 0.08} if preferred else {}
         for cash_units in range(0, min(rem_cash, rules.points_budget // max(1, rules.cash_point_cost)) + 1):
@@ -4319,6 +4341,9 @@ class HeuristicPolicy(BasePolicy):
     def choose_lap_reward(self, state: GameState, player: PlayerState) -> LapRewardDecision:
         return choose_lap_reward_runtime(self, state, player)
 
+    def choose_start_reward(self, state: GameState, player: PlayerState) -> LapRewardDecision:
+        return choose_start_reward_runtime(self, state, player)
+
     def choose_trick_to_use(self, state: GameState, player: PlayerState, hand: list[TrickCard]) -> TrickCard | None:
         return choose_trick_to_use_runtime(self, state, player, hand)
 
@@ -4458,6 +4483,9 @@ class ArenaPolicy:
 
     def choose_lap_reward(self, state: GameState, player: PlayerState):
         return self._policy_for_player(player).choose_lap_reward(state, player)
+
+    def choose_start_reward(self, state: GameState, player: PlayerState):
+        return self._policy_for_player(player).choose_start_reward(state, player)
 
     def choose_coin_placement_tile(self, state: GameState, player: PlayerState):
         return self._policy_for_player(player).choose_coin_placement_tile(state, player)

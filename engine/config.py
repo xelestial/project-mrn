@@ -315,7 +315,7 @@ class CoinRule:
 
 @dataclass(slots=True)
 class ShardRule:
-    starting_shards: int = 4
+    starting_shards: int = 2
     lap_reward_shards: int = 3
 
 

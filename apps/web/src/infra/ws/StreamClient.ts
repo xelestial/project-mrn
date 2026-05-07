@@ -44,7 +44,7 @@ export class StreamClient {
       }
       this.reconnectAttempt = 0;
       this.emitStatus("connected");
-      if (typeof params.onOpenResumeCommitSeq === "number" && params.onOpenResumeCommitSeq >= 0) {
+      if (typeof params.onOpenResumeCommitSeq === "number" && params.onOpenResumeCommitSeq > 0) {
         this.send({
           type: "resume",
           last_commit_seq: Math.max(0, Math.floor(params.onOpenResumeCommitSeq)),
@@ -111,6 +111,16 @@ export class StreamClient {
       return false;
     }
     return this.send({ type: "resume", last_commit_seq: Math.max(0, Math.floor(lastCommitSeq)) });
+  }
+
+  updateResumeCommitSeq(lastCommitSeq: number): void {
+    if (!this.lastConnectParams) {
+      return;
+    }
+    this.lastConnectParams = {
+      ...this.lastConnectParams,
+      onOpenResumeCommitSeq: Math.max(0, Math.floor(lastCommitSeq)),
+    };
   }
 
   onMessage(handler: (message: InboundMessage) => void): () => void {

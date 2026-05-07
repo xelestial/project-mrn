@@ -39,6 +39,43 @@ export type CoreActionItem = {
   isLocalActor: boolean;
 };
 
+export type TurnHistoryRelevance = "mine-critical" | "mine" | "important" | "public";
+export type TurnHistoryScope = "common" | "player";
+
+export type TurnHistoryEvent = {
+  seq: number;
+  eventCode: string;
+  label: string;
+  detail: string;
+  tone: "move" | "economy" | "system" | "critical";
+  scope: TurnHistoryScope;
+  relevance: TurnHistoryRelevance;
+  participants: Record<string, number>;
+  participantPlayerIds: number[];
+  focusTileIndices: number[];
+  resourceDelta: Record<string, number> | null;
+  endTimeDelta: { before: number; delta: number; after: number } | null;
+  payload: Record<string, unknown>;
+};
+
+export type TurnHistoryTurn = {
+  key: string;
+  label: string;
+  round: number;
+  turn: number;
+  actorPlayerId: number | null;
+  actor: string;
+  eventCount: number;
+  importantCount: number;
+  events: TurnHistoryEvent[];
+};
+
+export type TurnHistoryViewModel = {
+  currentKey: string | null;
+  turns: TurnHistoryTurn[];
+  latestTurn: TurnHistoryTurn | null;
+};
+
 export type AlertItem = {
   seq: number;
   severity: "warning" | "critical";
@@ -283,6 +320,7 @@ type BackendSceneCoreActionItemProjection = {
   roundIndex: number | null;
   turnIndex: number | null;
   detail: string;
+  payload: Record<string, unknown> | null;
 };
 
 type BackendSceneTimelineItemProjection = {
@@ -505,11 +543,15 @@ function summarizeLandingResult(raw: string, streamText: StreamSelectorTextResou
   return raw;
 }
 
+function isMoveEventCode(eventCode: string): boolean {
+  return eventCode === "player_move" || eventCode === "action_move" || eventCode === "fortune_move" || eventCode === "forced_move" || eventCode === "chain_move";
+}
+
 function turnBeatKindFromEventCode(eventCode: string): TurnStageViewModel["currentBeatKind"] {
-  if (eventCode === "dice_roll" || eventCode === "player_move") {
+  if (eventCode === "dice_roll" || isMoveEventCode(eventCode)) {
     return "move";
   }
-  if (eventCode === "tile_purchased" || eventCode === "rent_paid" || eventCode === "lap_reward_chosen") {
+  if (eventCode === "tile_purchased" || eventCode === "rent_paid" || eventCode === "lap_reward_chosen" || eventCode === "start_reward_chosen") {
     return "economy";
   }
   if (
@@ -521,7 +563,8 @@ function turnBeatKindFromEventCode(eventCode: string): TurnStageViewModel["curre
     eventCode === "marker_transferred" ||
     eventCode === "mark_queued" ||
     eventCode === "mark_resolved" ||
-    eventCode === "landing_resolved"
+    eventCode === "landing_resolved" ||
+    eventCode === "f_value_change"
   ) {
     return "effect";
   }
@@ -538,7 +581,7 @@ function turnBeatKindFromEventCode(eventCode: string): TurnStageViewModel["curre
 }
 
 function focusTileIndexFromPayload(payload: Record<string, unknown>, eventCode: string): number | null {
-  if (eventCode === "player_move") {
+  if (isMoveEventCode(eventCode)) {
     return numberOrNull(payload["to_tile_index"] ?? payload["to_tile"] ?? payload["to_pos"]);
   }
   if (eventCode === "landing_resolved") {
@@ -593,7 +636,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
   if (eventType === "turn_start") {
     return text.turnStage.turnStartDetail(actorFromPayload(payload));
   }
-  if (eventType === "player_move") {
+  if (isMoveEventCode(eventType)) {
     return summarizePlayerMove(payload, text.stream);
   }
   if (eventType === "dice_roll") {
@@ -694,7 +737,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
     const reason = asString(payload["summary"] ?? payload["reason"] ?? payload["end_reason"]);
     return reason === "-" ? text.stream.gameEndDefault : reason;
   }
-  if (eventType === "lap_reward_chosen") {
+  if (eventType === "lap_reward_chosen" || eventType === "start_reward_chosen") {
     const explicitSummary = asString(
       payload["breakdown"] ?? payload["bonus_breakdown"] ?? payload["effect_text"] ?? payload["summary"] ?? payload["resolution"]
     );
@@ -816,6 +859,11 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
     }
     return text.stream.markerFlip;
   }
+  if (eventType === "turn_end_snapshot") {
+    const label = eventLabelForCode("turn_end_snapshot", text.eventLabel);
+    const actor = actorFromPayload(payload, text);
+    return actor === "-" ? label : text.stream.actorDetail(actor, label);
+  }
   if (eventType === "f_value_change") {
     const before = payload["before"];
     const delta = payload["delta"];
@@ -893,12 +941,17 @@ const CORE_EVENT_CODES = new Set<string>([
   "dice_roll",
   "trick_used",
   "player_move",
+  "action_move",
+  "fortune_move",
+  "forced_move",
+  "chain_move",
   "landing_resolved",
   "rent_paid",
   "tile_purchased",
   "marker_transferred",
   "marker_flip",
   "lap_reward_chosen",
+  "start_reward_chosen",
   "fortune_drawn",
   "fortune_resolved",
   "mark_resolved",
@@ -907,6 +960,7 @@ const CORE_EVENT_CODES = new Set<string>([
   "mark_target_missing",
   "mark_blocked",
   "ability_suppressed",
+  "f_value_change",
   "bankruptcy",
   "game_end",
   "turn_end_snapshot",
@@ -917,15 +971,21 @@ const CURRENT_TURN_REVEAL_EVENT_CODES = new Set<string>([
   "dice_roll",
   "trick_used",
   "player_move",
+  "action_move",
+  "fortune_move",
+  "forced_move",
+  "chain_move",
   "landing_resolved",
   "tile_purchased",
   "rent_paid",
   "lap_reward_chosen",
+  "start_reward_chosen",
   "fortune_drawn",
   "fortune_resolved",
   "mark_queued",
   "mark_resolved",
   "ability_suppressed",
+  "f_value_change",
   "marker_flip",
   "marker_transferred",
   "bankruptcy",
@@ -937,15 +997,21 @@ const CURRENT_TURN_REVEAL_ORDER: Record<string, number> = {
   dice_roll: 20,
   trick_used: 25,
   player_move: 30,
+  action_move: 30,
+  fortune_move: 32,
+  forced_move: 32,
+  chain_move: 32,
   landing_resolved: 40,
   rent_paid: 50,
   tile_purchased: 50,
   lap_reward_chosen: 58,
+  start_reward_chosen: 58,
   fortune_drawn: 60,
   fortune_resolved: 70,
   mark_queued: 76,
   mark_resolved: 78,
   ability_suppressed: 79,
+  f_value_change: 84,
   marker_transferred: 80,
   marker_flip: 82,
   bankruptcy: 90,
@@ -1140,9 +1206,373 @@ export function selectCoreActionFeed(
     round: item.roundIndex,
     turn: item.turnIndex,
     label: eventLabelForCode(item.eventCode, text.eventLabel),
-    detail: item.detail,
+    detail:
+      isMissingRenderedDetail(item.detail) && item.payload
+        ? detailFromEventCode(item.payload, item.eventCode, text) || "-"
+        : item.detail,
     isLocalActor: focusPlayerId !== null && item.actorPlayerId === focusPlayerId,
   }));
+}
+
+const TURN_HISTORY_IMPORTANT_EVENT_CODES = new Set<string>([
+  "dice_roll",
+  "player_move",
+  "action_move",
+  "fortune_move",
+  "forced_move",
+  "chain_move",
+  "landing_resolved",
+  "rent_paid",
+  "tile_purchased",
+  "start_reward_chosen",
+  "lap_reward_chosen",
+  "fortune_drawn",
+  "fortune_resolved",
+  "mark_queued",
+  "mark_resolved",
+  "f_value_change",
+  "resource_gain",
+  "cash_gain",
+  "coin_gain",
+  "score_gain",
+  "shard_gain",
+]);
+
+function selectBackendTurnHistory(messages: InboundMessage[]): Record<string, unknown> | null {
+  const viewState = selectLatestBackendViewState(messages);
+  const turnHistory = isRecord(viewState?.["turn_history"]) ? viewState["turn_history"] : null;
+  return turnHistory;
+}
+
+function turnHistoryTone(value: unknown, eventCode: string): TurnHistoryEvent["tone"] {
+  if (value === "move" || value === "economy" || value === "system" || value === "critical") {
+    return value;
+  }
+  return toneForEventCode(eventCode);
+}
+
+function turnHistoryRelevance(value: unknown): TurnHistoryRelevance {
+  if (value === "mine-critical" || value === "mine" || value === "important" || value === "public") {
+    return value;
+  }
+  return "public";
+}
+
+const COMMON_TURN_HISTORY_EVENT_CODES = new Set([
+  "f_value_change",
+  "game_completed",
+  "game_end",
+  "parameter_manifest",
+  "round_start",
+  "session_created",
+  "session_start",
+  "session_started",
+  "weather_reveal",
+]);
+
+function turnHistoryScope(value: unknown, eventCode: string): TurnHistoryScope {
+  if (value === "common" || value === "player") {
+    return value;
+  }
+  return COMMON_TURN_HISTORY_EVENT_CODES.has(eventCode) ? "common" : "player";
+}
+
+function numericRecord(value: unknown): Record<string, number> | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const result: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      result[key] = raw;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+function endTimeDeltaRecord(value: unknown): TurnHistoryEvent["endTimeDelta"] {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const before = numberOrNull(value["before"]);
+  const delta = numberOrNull(value["delta"]);
+  const after = numberOrNull(value["after"]);
+  return before !== null && delta !== null && after !== null ? { before, delta, after } : null;
+}
+
+function addParticipant(participants: Record<string, number>, key: string, value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    participants[key] = value;
+  }
+}
+
+function participantsFromEvent(raw: Record<string, unknown>, payload: Record<string, unknown>): Record<string, number> {
+  const participants: Record<string, number> = {};
+  const source = isRecord(raw["participants"]) ? raw["participants"] : null;
+  if (source) {
+    for (const [key, value] of Object.entries(source)) {
+      addParticipant(participants, key, value);
+    }
+  }
+  addParticipant(participants, "actor", payload["actor_player_id"] ?? payload["acting_player_id"] ?? payload["player_id"]);
+  addParticipant(participants, "source", payload["source_player_id"]);
+  addParticipant(participants, "target", payload["target_player_id"]);
+  addParticipant(participants, "payer", payload["payer_player_id"] ?? payload["payer"]);
+  addParticipant(participants, "owner", payload["owner_player_id"] ?? payload["owner"]);
+  addParticipant(participants, "from", payload["from_player_id"] ?? payload["from_owner"]);
+  addParticipant(participants, "to", payload["to_player_id"] ?? payload["to_owner"]);
+  return participants;
+}
+
+function uniqueParticipantIds(participants: Record<string, number>): number[] {
+  return [...new Set(Object.values(participants).filter((value) => Number.isFinite(value)))].sort((a, b) => a - b);
+}
+
+function focusIndicesFromEvent(raw: Record<string, unknown>, payload: Record<string, unknown>, eventCode: string): number[] {
+  const explicit = integerArray(raw["focus_tile_indices"]);
+  if (explicit.length > 0) {
+    return [...new Set(explicit)];
+  }
+  const focus = focusTileIndexFromPayload(payload, eventCode);
+  const path = integerArray(payload["path"]);
+  return [...new Set([focus, ...path].filter((value): value is number => value !== null))];
+}
+
+function localRelevanceForTurnHistory(
+  eventCode: string,
+  backendRelevance: TurnHistoryRelevance,
+  participants: Record<string, number>,
+  resourceDelta: Record<string, number> | null,
+  focusPlayerId: number | null
+): TurnHistoryRelevance {
+  if (focusPlayerId !== null) {
+    if (
+      eventCode === "rent_paid" &&
+      (participants.payer === focusPlayerId || participants.owner === focusPlayerId)
+    ) {
+      return "mine-critical";
+    }
+    if (
+      (eventCode === "mark_queued" || eventCode === "mark_resolved") &&
+      (participants.source === focusPlayerId || participants.target === focusPlayerId)
+    ) {
+      return "mine-critical";
+    }
+    if (uniqueParticipantIds(participants).includes(focusPlayerId) && resourceDelta !== null) {
+      return "mine";
+    }
+  }
+  if (backendRelevance === "mine-critical" || backendRelevance === "mine") {
+    return backendRelevance;
+  }
+  if (TURN_HISTORY_IMPORTANT_EVENT_CODES.has(eventCode)) {
+    return "important";
+  }
+  return backendRelevance;
+}
+
+function turnHistoryLabel(round: number, turn: number): string {
+  return `R${round}-T${turn}`;
+}
+
+function turnHistoryToneFromReveal(tone: CurrentTurnRevealItem["tone"], eventCode: string): TurnHistoryEvent["tone"] {
+  if (tone === "move" || tone === "economy") {
+    return tone;
+  }
+  return turnHistoryTone(null, eventCode);
+}
+
+function turnHistoryImportantCount(events: TurnHistoryEvent[]): number {
+  return events.filter((event) => event.relevance !== "public" && event.eventCode !== "turn_start").length;
+}
+
+function turnHistoryEventFromReveal(
+  reveal: CurrentTurnRevealItem,
+  turn: TurnHistoryTurn,
+  focusPlayerId: number | null,
+  text: StreamSelectorTextResources
+): TurnHistoryEvent {
+  const payload: Record<string, unknown> = {
+    event_type: reveal.eventCode,
+    round_index: turn.round,
+    turn_index: turn.turn,
+  };
+  if (turn.actorPlayerId !== null) {
+    payload["acting_player_id"] = turn.actorPlayerId;
+  }
+  if (reveal.focusTileIndex !== null) {
+    const tileField = reveal.eventCode === "landing_resolved" ? "position" : "tile_index";
+    payload[tileField] = reveal.focusTileIndex;
+  }
+  const participants: Record<string, number> = {};
+  if (turn.actorPlayerId !== null) {
+    participants["actor"] = turn.actorPlayerId;
+  }
+  const backendRelevance: TurnHistoryRelevance = TURN_HISTORY_IMPORTANT_EVENT_CODES.has(reveal.eventCode)
+    ? "important"
+    : "public";
+  const fallbackDetail = detailFromEventCode(payload, reveal.eventCode, text) || "-";
+  const detail = isMissingRenderedDetail(reveal.detail) ? fallbackDetail : reveal.detail;
+  const focusTileIndices = reveal.focusTileIndex === null ? [] : [reveal.focusTileIndex];
+  return {
+    seq: reveal.seq,
+    eventCode: reveal.eventCode,
+    label: reveal.label || eventLabelForCode(reveal.eventCode, text.eventLabel),
+    detail,
+    tone: turnHistoryToneFromReveal(reveal.tone, reveal.eventCode),
+    scope: "player",
+    relevance: localRelevanceForTurnHistory(reveal.eventCode, backendRelevance, participants, null, focusPlayerId),
+    participants,
+    participantPlayerIds: uniqueParticipantIds(participants),
+    focusTileIndices,
+    resourceDelta: null,
+    endTimeDelta: null,
+    payload,
+  };
+}
+
+function turnIndexForRevealSeq(turns: TurnHistoryTurn[], revealSeq: number): number {
+  let candidateIndex = -1;
+  let candidateStartSeq = Number.NEGATIVE_INFINITY;
+  turns.forEach((turn, index) => {
+    const seqs = turn.events.map((event) => event.seq);
+    if (seqs.length === 0) {
+      return;
+    }
+    const minSeq = Math.min(...seqs);
+    const maxSeq = Math.max(...seqs);
+    if (revealSeq >= minSeq && revealSeq <= maxSeq) {
+      candidateIndex = index;
+      candidateStartSeq = minSeq;
+      return;
+    }
+    if (revealSeq >= minSeq && minSeq >= candidateStartSeq) {
+      candidateIndex = index;
+      candidateStartSeq = minSeq;
+    }
+  });
+  if (candidateIndex >= 0) {
+    return candidateIndex;
+  }
+  return -1;
+}
+
+function mergeRevealItemsIntoTurnHistory(
+  turns: TurnHistoryTurn[],
+  revealItems: CurrentTurnRevealItem[],
+  focusPlayerId: number | null,
+  text: StreamSelectorTextResources
+): TurnHistoryTurn[] {
+  if (turns.length === 0 || revealItems.length === 0) {
+    return turns;
+  }
+  const existingSeqs = new Set<number>();
+  turns.forEach((turn) => turn.events.forEach((event) => existingSeqs.add(event.seq)));
+  const nextTurns = turns.map((turn) => ({ ...turn, events: [...turn.events] }));
+  const changedTurnIndices = new Set<number>();
+  revealItems.forEach((reveal) => {
+    if (existingSeqs.has(reveal.seq)) {
+      return;
+    }
+    const turnIndex = turnIndexForRevealSeq(nextTurns, reveal.seq);
+    if (turnIndex < 0) {
+      return;
+    }
+    const event = turnHistoryEventFromReveal(reveal, nextTurns[turnIndex], focusPlayerId, text);
+    nextTurns[turnIndex].events.push(event);
+    changedTurnIndices.add(turnIndex);
+    existingSeqs.add(reveal.seq);
+  });
+  return nextTurns.map((turn, index) => {
+    const events = [...turn.events].sort((a, b) => a.seq - b.seq);
+    if (!changedTurnIndices.has(index)) {
+      return { ...turn, events };
+    }
+    return {
+      ...turn,
+      eventCount: events.length,
+      importantCount: turnHistoryImportantCount(events),
+      events,
+    };
+  });
+}
+
+export function selectTurnHistory(
+  messages: InboundMessage[],
+  focusPlayerId: number | null = null,
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): TurnHistoryViewModel {
+  const raw = selectBackendTurnHistory(messages);
+  const rawTurns = Array.isArray(raw?.["turns"]) ? raw["turns"] : [];
+  const revealItems = selectBackendCurrentTurnRevealItems(messages, text) ?? [];
+  const revealBySeq = new Map(revealItems.map((item) => [item.seq, item]));
+  const turns = rawTurns
+    .map((rawTurn): TurnHistoryTurn | null => {
+      if (!isRecord(rawTurn)) {
+        return null;
+      }
+      const key = typeof rawTurn["key"] === "string" && rawTurn["key"].trim() ? rawTurn["key"] : "";
+      const round = numberOrNull(rawTurn["round_index"]);
+      const turn = numberOrNull(rawTurn["turn_index"]);
+      if (!key || round === null || turn === null) {
+        return null;
+      }
+      const actorPlayerId = numberOrNull(rawTurn["actor_player_id"]);
+      const eventsRaw = Array.isArray(rawTurn["events"]) ? rawTurn["events"] : [];
+      const events = eventsRaw
+        .map((rawEvent): TurnHistoryEvent | null => {
+          if (!isRecord(rawEvent) || typeof rawEvent["seq"] !== "number" || typeof rawEvent["event_code"] !== "string") {
+            return null;
+          }
+          const eventCode = rawEvent["event_code"];
+          const payload = isRecord(rawEvent["payload"]) ? rawEvent["payload"] : {};
+          const reveal = revealBySeq.get(rawEvent["seq"]);
+          const participants = participantsFromEvent(rawEvent, payload);
+          const resourceDelta = numericRecord(rawEvent["resource_delta"]);
+          const backendRelevance = turnHistoryRelevance(rawEvent["relevance"]);
+          const payloadDetail = detailFromEventCode(payload, eventCode, text) || "-";
+          const detail = reveal && !isMissingRenderedDetail(reveal.detail) ? reveal.detail : payloadDetail;
+          const focusTileIndices = focusIndicesFromEvent(rawEvent, payload, eventCode);
+          if (reveal?.focusTileIndex !== null && reveal?.focusTileIndex !== undefined && !focusTileIndices.includes(reveal.focusTileIndex)) {
+            focusTileIndices.push(reveal.focusTileIndex);
+          }
+          return {
+            seq: rawEvent["seq"],
+            eventCode,
+            label: reveal?.label || eventLabelForCode(eventCode, text.eventLabel),
+            detail,
+            tone: reveal ? turnHistoryToneFromReveal(reveal.tone, eventCode) : turnHistoryTone(rawEvent["tone"], eventCode),
+            scope: turnHistoryScope(rawEvent["scope"], eventCode),
+            relevance: localRelevanceForTurnHistory(eventCode, backendRelevance, participants, resourceDelta, focusPlayerId),
+            participants,
+            participantPlayerIds: uniqueParticipantIds(participants),
+            focusTileIndices,
+            resourceDelta,
+            endTimeDelta: endTimeDeltaRecord(rawEvent["end_time_delta"]),
+            payload,
+          };
+        })
+        .filter((event): event is TurnHistoryEvent => event !== null);
+      return {
+        key,
+        label: turnHistoryLabel(round, turn),
+        round,
+        turn,
+        actorPlayerId,
+        actor: actorPlayerId !== null ? playerLabel(actorPlayerId, text) : "-",
+        eventCount: typeof rawTurn["event_count"] === "number" ? rawTurn["event_count"] : events.length,
+        importantCount:
+          typeof rawTurn["important_count"] === "number" ? rawTurn["important_count"] : turnHistoryImportantCount(events),
+        events,
+      };
+    })
+    .filter((turn): turn is TurnHistoryTurn => turn !== null);
+  const rawCurrentKey = typeof raw?.["current_key"] === "string" && raw["current_key"].trim() ? raw["current_key"] : null;
+  const preliminaryLatestTurn = turns.length > 0 ? turns[turns.length - 1] : null;
+  const currentKey = rawCurrentKey ?? preliminaryLatestTurn?.key ?? null;
+  const mergedTurns = mergeRevealItemsIntoTurnHistory(turns, revealItems, focusPlayerId, text);
+  const latestTurn = mergedTurns.length > 0 ? mergedTurns[mergedTurns.length - 1] : null;
+  return { currentKey, turns: mergedTurns, latestTurn };
 }
 
 function isSituationNoise(message: InboundMessage): boolean {
@@ -1530,7 +1960,7 @@ function latestTurnStartSequence(messages: InboundMessage[]): number {
 
 function isMovementBearingEvent(eventCode: string): boolean {
   return (
-    eventCode === "player_move" ||
+    isMoveEventCode(eventCode) ||
     eventCode === "fortune_resolved" ||
     eventCode === "trick_used" ||
     eventCode === "mark_queued" ||
@@ -2372,6 +2802,7 @@ function selectBackendScene(messages: InboundMessage[]): BackendSceneProjection 
           roundIndex: typeof item["round_index"] === "number" ? item["round_index"] : null,
           turnIndex: typeof item["turn_index"] === "number" ? item["turn_index"] : null,
           detail: typeof item["detail"] === "string" && item["detail"].trim() ? item["detail"].trim() : "-",
+          payload: isRecord(item["payload"]) ? item["payload"] : null,
         } satisfies BackendSceneCoreActionItemProjection;
       })
       .filter((item): item is BackendSceneCoreActionItemProjection => item !== null),

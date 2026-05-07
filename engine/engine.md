@@ -40,6 +40,8 @@ Rule data flows through `GameRules`, tile metadata, modifier registries, and mod
 
 Hidden trick selection is also routed through the engine decision boundary so a persisted runtime can resume the round setup step from the same canonical state instead of asking policy code directly.
 
+Start resource metadata is owned by `GameRules.start_reward`. At game start, the engine runs the same allocation-style decision boundary as LAP reward before weather reveal and draft, then consumes the start reward pools.
+
 ## Observability
 
 The engine emits semantic events and action-log entries so backend stream guards and debug-log audits can verify module ownership.

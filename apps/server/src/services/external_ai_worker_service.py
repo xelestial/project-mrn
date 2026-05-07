@@ -114,6 +114,7 @@ class ReferenceHeuristicDecisionAdapter:
         "movement",
         "runaway_step_choice",
         "lap_reward",
+        "start_reward",
         "draft_card",
         "final_character",
         "trick_to_use",
@@ -186,7 +187,7 @@ class ReferenceHeuristicDecisionAdapter:
                 return "no"
             return _first_non_secondary_choice_id(by_id, ids)
 
-        if request_type == "lap_reward":
+        if request_type in {"lap_reward", "start_reward"}:
             scored = _best_scored_usable_non_secondary_choice_id(by_id, ids)
             if scored is not None:
                 return scored
@@ -339,7 +340,7 @@ class PriorityScoredDecisionAdapter:
                 return "dice"
             return scored_choice or _first_non_secondary_choice_id(by_id, ids)
 
-        if request_type in {"lap_reward", "geo_bonus", "draft_card", "final_character", "hidden_trick_card", "trick_to_use"}:
+        if request_type in {"lap_reward", "start_reward", "geo_bonus", "draft_card", "final_character", "hidden_trick_card", "trick_to_use"}:
             return scored_choice or _first_usable_non_secondary_choice_id(by_id, ids)
 
         if request_type in {"specific_trick_reward", "doctrine_relief", "mark_target", "coin_placement", "active_flip"}:

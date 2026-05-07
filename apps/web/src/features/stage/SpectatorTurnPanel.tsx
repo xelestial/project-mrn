@@ -55,7 +55,7 @@ type SpectatorTrainItem = {
 };
 
 function payoffToneForEventCode(eventCode: string): PayoffTone {
-  if (eventCode === "tile_purchased" || eventCode === "rent_paid" || eventCode === "lap_reward_chosen") {
+  if (eventCode === "tile_purchased" || eventCode === "rent_paid" || eventCode === "lap_reward_chosen" || eventCode === "start_reward_chosen") {
     return "economy";
   }
   if (eventCode === "fortune_drawn" || eventCode === "fortune_resolved" || eventCode === "trick_used") {

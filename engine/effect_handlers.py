@@ -77,6 +77,7 @@ class EngineEffectHandlers:
         dispatcher.register('tile.character.effect', self.handle_tile_character_effect)
         dispatcher.register('marker.management.apply', self.handle_marker_management)
         dispatcher.register('marker.flip.resolve', self.handle_marker_flip)
+        dispatcher.register('start.reward.resolve', self.handle_start_reward)
         dispatcher.register('lap.reward.resolve', self.handle_lap_reward)
         dispatcher.register('payment.resolve', self.handle_payment)
         dispatcher.register('bankruptcy.resolve', self.handle_bankruptcy)
@@ -538,33 +539,33 @@ class EngineEffectHandlers:
             "cards": [row["card_no"] for row in flipped_events],
         }
 
-    def handle_lap_reward(self, state: GameState, player: PlayerState) -> dict:
+    def _grant_reward_allocation(
+        self,
+        state: GameState,
+        player: PlayerState,
+        decision,
+        *,
+        rule_name: str,
+        debug_category: str,
+        event_name: str,
+        phase,
+        weather_bonus_shards: int = 0,
+    ) -> dict:
         engine = self.engine
-        if player.block_start_reward_this_turn or has_weather_id(state.current_weather_effects, WEATHER_COLD_WINTER_DAY_ID):
-            if has_weather_id(state.current_weather_effects, WEATHER_COLD_WINTER_DAY_ID):
-                outcome = engine._pay_or_bankrupt(state, player, 2, None)
-                return {"choice": "blocked_by_weather", "cash_penalty": 2, **outcome}
-            return {"choice": "blocked"}
-        decision = engine._request_decision("choose_lap_reward", state, player)
-        lap_debug = engine.policy.pop_debug("lap_reward", player.player_id) if hasattr(engine.policy, "pop_debug") else None
-        stats = engine._strategy_stats[player.player_id]
-        rules = state.config.rules.lap_reward
-        shard_bonus = 0
-        if has_weather_id(state.current_weather_effects, WEATHER_HARVEST_AUTUMN_ID):
-            shard_bonus += 1
-        if has_weather_id(state.current_weather_effects, WEATHER_HOLY_RELIC_DAY_ID):
-            shard_bonus += 1
+        reward_debug = engine.policy.pop_debug(debug_category, player.player_id) if hasattr(engine.policy, "pop_debug") else None
+        rules = getattr(state.config.rules, rule_name)
+        pool_prefix = f"{rule_name}_"
 
         cash_units = max(0, int(getattr(decision, "cash_units", 0)))
         shard_units = max(0, int(getattr(decision, "shard_units", 0)))
         coin_units = max(0, int(getattr(decision, "coin_units", 0)))
         if cash_units == shard_units == coin_units == 0:
             if decision.choice == "cash":
-                cash_units = min(getattr(state, "lap_reward_cash_pool_remaining", rules.cash_pool), rules.cash)
+                cash_units = min(getattr(state, f"{pool_prefix}cash_pool_remaining", rules.cash_pool), getattr(rules, "cash", rules.cash_pool))
             elif decision.choice == "shards":
-                shard_units = min(getattr(state, "lap_reward_shards_pool_remaining", rules.shards_pool), rules.shards)
+                shard_units = min(getattr(state, f"{pool_prefix}shards_pool_remaining", rules.shards_pool), getattr(rules, "shards", rules.shards_pool))
             elif decision.choice == "coins":
-                coin_units = min(getattr(state, "lap_reward_coins_pool_remaining", rules.coins_pool), rules.coins)
+                coin_units = min(getattr(state, f"{pool_prefix}coins_pool_remaining", rules.coins_pool), getattr(rules, "coins", rules.coins_pool))
         requested_points = (
             cash_units * max(1, int(rules.cash_point_cost))
             + shard_units * max(1, int(rules.shards_point_cost))
@@ -597,32 +598,38 @@ class EngineEffectHandlers:
             shard_units = unit_map["shards"]
             coin_units = unit_map["coins"]
 
-        granted_cash = cash_units if cash_units <= state.lap_reward_cash_pool_remaining else 0
-        granted_shards = shard_units if shard_units <= state.lap_reward_shards_pool_remaining else 0
-        granted_coins = coin_units if coin_units <= state.lap_reward_coins_pool_remaining else 0
+        cash_pool_remaining = getattr(state, f"{pool_prefix}cash_pool_remaining")
+        shards_pool_remaining = getattr(state, f"{pool_prefix}shards_pool_remaining")
+        coins_pool_remaining = getattr(state, f"{pool_prefix}coins_pool_remaining")
+        granted_cash = cash_units if cash_units <= cash_pool_remaining else 0
+        granted_shards = shard_units if shard_units <= shards_pool_remaining else 0
+        granted_coins = coin_units if coin_units <= coins_pool_remaining else 0
         granted_points = (
             granted_cash * max(1, int(rules.cash_point_cost))
             + granted_shards * max(1, int(rules.shards_point_cost))
             + granted_coins * max(1, int(rules.coins_point_cost))
         )
 
-        state.lap_reward_cash_pool_remaining -= granted_cash
-        state.lap_reward_shards_pool_remaining -= granted_shards
-        state.lap_reward_coins_pool_remaining -= granted_coins
+        setattr(state, f"{pool_prefix}cash_pool_remaining", cash_pool_remaining - granted_cash)
+        setattr(state, f"{pool_prefix}shards_pool_remaining", shards_pool_remaining - granted_shards)
+        setattr(state, f"{pool_prefix}coins_pool_remaining", coins_pool_remaining - granted_coins)
 
         total_shards = granted_shards
-        bonus_shards = min(shard_bonus, state.lap_reward_shards_pool_remaining) if granted_shards > 0 else 0
+        shards_after_grant = getattr(state, f"{pool_prefix}shards_pool_remaining")
+        bonus_shards = min(weather_bonus_shards, shards_after_grant) if granted_shards > 0 else 0
         if bonus_shards > 0:
-            state.lap_reward_shards_pool_remaining -= bonus_shards
+            setattr(state, f"{pool_prefix}shards_pool_remaining", shards_after_grant - bonus_shards)
             total_shards += bonus_shards
 
         player.cash += granted_cash
         player.shards += total_shards
         player.hand_coins += granted_coins
-        stats["lap_cash_choices"] += 1 if granted_cash > 0 else 0
-        stats["lap_shard_choices"] += 1 if granted_shards > 0 else 0
-        stats["lap_coin_choices"] += 1 if granted_coins > 0 else 0
-        stats["shards_gained_lap"] += total_shards
+        if debug_category == "lap_reward":
+            stats = engine._strategy_stats[player.player_id]
+            stats["lap_cash_choices"] += 1 if granted_cash > 0 else 0
+            stats["lap_shard_choices"] += 1 if granted_shards > 0 else 0
+            stats["lap_coin_choices"] += 1 if granted_coins > 0 else 0
+            stats["shards_gained_lap"] += total_shards
         choice = decision.choice if decision.choice != "blocked" else "blocked"
         result = {
             "choice": choice,
@@ -633,23 +640,23 @@ class EngineEffectHandlers:
             "requested_points": requested_points,
             "granted_points": granted_points,
             "remaining_pool": {
-                "cash": state.lap_reward_cash_pool_remaining,
-                "shards": state.lap_reward_shards_pool_remaining,
-                "coins": state.lap_reward_coins_pool_remaining,
+                "cash": getattr(state, f"{pool_prefix}cash_pool_remaining"),
+                "shards": getattr(state, f"{pool_prefix}shards_pool_remaining"),
+                "coins": getattr(state, f"{pool_prefix}coins_pool_remaining"),
             },
             "requested": {"cash": cash_units, "shards": shard_units, "coins": coin_units},
         }
         engine._record_ai_decision(
             state,
             player,
-            "lap_reward",
-            lap_debug,
+            debug_category,
+            reward_debug,
             result=result,
-            source_event="lap_reward",
+            source_event=event_name,
         )
         engine._emit_vis(
-            "lap_reward_chosen",
-            Phase.LAP_REWARD,
+            event_name,
+            phase,
             player.player_id + 1,
             state,
             choice=choice,
@@ -657,6 +664,42 @@ class EngineEffectHandlers:
             resource_delta=result,
         )
         return result
+
+    def handle_start_reward(self, state: GameState, player: PlayerState) -> dict:
+        decision = self.engine._request_decision("choose_start_reward", state, player)
+        return self._grant_reward_allocation(
+            state,
+            player,
+            decision,
+            rule_name="start_reward",
+            debug_category="start_reward",
+            event_name="start_reward_chosen",
+            phase=Phase.SESSION_START,
+        )
+
+    def handle_lap_reward(self, state: GameState, player: PlayerState) -> dict:
+        engine = self.engine
+        if player.block_start_reward_this_turn or has_weather_id(state.current_weather_effects, WEATHER_COLD_WINTER_DAY_ID):
+            if has_weather_id(state.current_weather_effects, WEATHER_COLD_WINTER_DAY_ID):
+                outcome = engine._pay_or_bankrupt(state, player, 2, None)
+                return {"choice": "blocked_by_weather", "cash_penalty": 2, **outcome}
+            return {"choice": "blocked"}
+        decision = engine._request_decision("choose_lap_reward", state, player)
+        shard_bonus = 0
+        if has_weather_id(state.current_weather_effects, WEATHER_HARVEST_AUTUMN_ID):
+            shard_bonus += 1
+        if has_weather_id(state.current_weather_effects, WEATHER_HOLY_RELIC_DAY_ID):
+            shard_bonus += 1
+        return self._grant_reward_allocation(
+            state,
+            player,
+            decision,
+            rule_name="lap_reward",
+            debug_category="lap_reward",
+            event_name="lap_reward_chosen",
+            phase=Phase.LAP_REWARD,
+            weather_bonus_shards=shard_bonus,
+        )
 
     def handle_payment(self, state: GameState, player: PlayerState, cost: int, receiver: int | None) -> dict:
         engine = self.engine

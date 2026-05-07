@@ -14,6 +14,7 @@ from .prompt_selector import build_prompt_view_state
 from .reveal_selector import build_reveals_view_state
 from .runtime_selector import build_runtime_view_state
 from .scene_selector import build_scene_view_state
+from .turn_history_selector import build_turn_history_view_state
 from .turn_selector import build_turn_stage_view_state
 from .types import ViewStatePayload
 
@@ -52,6 +53,12 @@ def project_replay_view_state(messages: list[dict], viewer: ViewerContext | None
     scene = build_scene_view_state(messages)
     if scene:
         payload["scene"] = scene
+    turn_history = build_turn_history_view_state(
+        messages,
+        local_player_id=viewer.player_id if viewer is not None and viewer.is_seat else None,
+    )
+    if turn_history:
+        payload["turn_history"] = turn_history
     runtime = build_runtime_view_state(messages)
     if runtime:
         payload["runtime"] = runtime

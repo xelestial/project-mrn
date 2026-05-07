@@ -228,6 +228,32 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(heartbeat.get("type"), "heartbeat")
         self.assertEqual(calls, [])
 
+    def test_heartbeat_sends_new_cached_view_commit_when_subscriber_misses_event(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 71, "visibility": "public"})
+        path = f"/api/v1/sessions/{session.session_id}/stream"
+        with self.client.websocket_connect(path) as ws:
+            _save_cached_view_commit(
+                session.session_id,
+                commit_seq=3,
+                source_event_seq=2,
+                view_state={"turn_stage": {"round_index": 1, "turn_index": 1}},
+            )
+
+            messages: list[dict] = []
+            commit: dict | None = None
+            for _ in range(8):
+                msg = ws.receive_json()
+                messages.append(msg)
+                if msg.get("type") == "view_commit":
+                    commit = msg
+                    break
+
+        self.assertIsNotNone(commit, messages)
+        self.assertEqual(commit.get("payload", {}).get("commit_seq"), 3)
+        self.assertEqual(commit.get("payload", {}).get("source_event_seq"), 2)
+
     def test_resume_sends_only_latest_view_commit_snapshot(self) -> None:
         from apps.server.src import state
 
@@ -278,7 +304,7 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(projected_seqs, [])
         self.assertIn("view_state", commits[-1].get("payload", {}))
 
-    def test_resume_does_not_duplicate_initial_latest_view_commit(self) -> None:
+    def test_resume_resends_latest_view_commit_for_client_repair(self) -> None:
         from apps.server.src import state
 
         session = state.session_service.create_session(_all_ai_seats(), config={"seed": 3031, "visibility": "public"})
@@ -298,7 +324,35 @@ class StreamApiTests(unittest.TestCase):
             ws.send_json({"type": "resume", "last_commit_seq": 0})
             after_resume = ws.receive_json()
 
-        self.assertNotEqual(after_resume.get("type"), "view_commit")
+        self.assertEqual(after_resume.get("type"), "view_commit")
+        self.assertEqual(after_resume.get("payload", {}).get("commit_seq"), 9)
+
+    def test_heartbeat_periodically_resends_latest_view_commit_for_client_repair(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_all_ai_seats(), config={"seed": 30311, "visibility": "public"})
+        _save_cached_view_commit(
+            session.session_id,
+            commit_seq=11,
+            source_event_seq=10,
+            view_state={"turn_stage": {"round_index": 4, "turn_index": 2}},
+        )
+
+        path = f"/api/v1/sessions/{session.session_id}/stream"
+        with self.client.websocket_connect(path) as ws:
+            initial = ws.receive_json()
+            self.assertEqual(initial.get("type"), "view_commit")
+            self.assertEqual(initial.get("payload", {}).get("commit_seq"), 11)
+
+            repair: dict | None = None
+            for _ in range(8):
+                msg = ws.receive_json()
+                if msg.get("type") == "view_commit":
+                    repair = msg
+                    break
+
+        self.assertIsNotNone(repair)
+        self.assertEqual(repair.get("payload", {}).get("commit_seq"), 11)
 
     def test_sender_suppresses_stale_view_commit_after_latest_snapshot(self) -> None:
         from apps.server.src import state
@@ -320,9 +374,14 @@ class StreamApiTests(unittest.TestCase):
             stale = dict(cached)
             stale["commit_seq"] = 4
             asyncio.run(state.stream_service.publish_view_commit(session.session_id, stale))
-            next_message = ws.receive_json()
+            messages = [ws.receive_json() for _ in range(4)]
 
-        self.assertNotEqual(next_message.get("type"), "view_commit")
+        delivered_commit_seqs = [
+            int(message.get("payload", {}).get("commit_seq", 0) or 0)
+            for message in messages
+            if message.get("type") == "view_commit"
+        ]
+        self.assertNotIn(4, delivered_commit_seqs)
 
     def test_resume_snapshot_without_runtime_transition(self) -> None:
         from apps.server.src import state

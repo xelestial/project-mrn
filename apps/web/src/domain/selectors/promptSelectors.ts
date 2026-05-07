@@ -826,7 +826,7 @@ export function selectLatestDecisionAck(messages: InboundMessage[], requestId: s
   if (!requestId.trim()) {
     return null;
   }
-  return selectBackendLatestPromptFeedback(messages, requestId);
+  return selectBackendLatestPromptFeedback(messages, requestId) ?? selectLatestRawDecisionAck(messages, requestId);
 }
 
 function selectBackendLatestPromptFeedback(messages: InboundMessage[], requestId: string): DecisionAckViewModel | null {
@@ -847,6 +847,28 @@ function selectBackendLatestPromptFeedback(messages: InboundMessage[], requestId
     status,
     reason: typeof feedback["reason"] === "string" ? feedback["reason"] : "",
   };
+}
+
+function selectLatestRawDecisionAck(messages: InboundMessage[], requestId: string): DecisionAckViewModel | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.type !== "decision_ack") {
+      continue;
+    }
+    const payload = message.payload;
+    if (payload["request_id"] !== requestId) {
+      continue;
+    }
+    const status = payload["status"];
+    if (status !== "accepted" && status !== "rejected" && status !== "stale") {
+      continue;
+    }
+    return {
+      status,
+      reason: typeof payload["reason"] === "string" ? payload["reason"] : "",
+    };
+  }
+  return null;
 }
 
 function selectBackendHandTrayCards(messages: InboundMessage[]): HandTrayCardViewModel[] | null {

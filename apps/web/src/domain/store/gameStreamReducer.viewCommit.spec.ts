@@ -72,4 +72,44 @@ describe("gameStreamReducer authoritative view commits", () => {
     expect((stale as any).lastCommitSeq).toBe(20);
     expect((stale as any).latestCommit?.view_state).toEqual({ turn_stage: { round_index: 2 } });
   });
+
+  it("accepts the same latest view_commit when live state is missing", () => {
+    const damaged = {
+      ...initialGameStreamState,
+      lastCommitSeq: 12,
+      messages: [],
+      latestCommit: null,
+    };
+
+    const repaired = gameStreamReducer(damaged, {
+      type: "message",
+      message: viewCommit(12, { turn_stage: { round_index: 3 }, board: { tile_count: 40 } }),
+    });
+
+    expect(repaired.messages).toHaveLength(1);
+    expect(repaired.messages[0].type).toBe("view_commit");
+    expect((repaired as any).lastCommitSeq).toBe(12);
+    expect((repaired as any).latestCommit?.view_state).toEqual({
+      turn_stage: { round_index: 3 },
+      board: { tile_count: 40 },
+    });
+  });
+
+  it("does not let older repair commits overwrite a newer known commit sequence", () => {
+    const damaged = {
+      ...initialGameStreamState,
+      lastCommitSeq: 12,
+      messages: [],
+      latestCommit: null,
+    };
+
+    const staleRepair = gameStreamReducer(damaged, {
+      type: "message",
+      message: viewCommit(11, { turn_stage: { round_index: 2 } }),
+    });
+
+    expect(staleRepair.messages).toHaveLength(0);
+    expect((staleRepair as any).lastCommitSeq).toBe(12);
+    expect((staleRepair as any).latestCommit).toBeNull();
+  });
 });

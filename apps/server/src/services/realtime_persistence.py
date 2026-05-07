@@ -40,6 +40,13 @@ class RedisStreamStore:
             "payload": _json_dump(payload),
         }
         stream_id = client.xadd(self._stream_key(session_id), fields, maxlen=max(1, int(max_buffer)), approximate=False)
+        if msg_type != "view_commit":
+            client.xadd(
+                self._source_stream_key(session_id),
+                fields,
+                maxlen=max(1, int(max_buffer)),
+                approximate=False,
+            )
         return {
             "stream_id": str(stream_id),
             "seq": seq,
@@ -51,6 +58,22 @@ class RedisStreamStore:
 
     def snapshot(self, session_id: str) -> list[dict[str, Any]]:
         return [self._decode_stream_entry(entry_id, fields) for entry_id, fields in self._connection.client().xrange(self._stream_key(session_id))]
+
+    def source_snapshot(self, session_id: str, through_seq: int | None = None) -> list[dict[str, Any]]:
+        client = self._connection.client()
+        source_entries = client.xrange(self._source_stream_key(session_id))
+        if source_entries:
+            return [
+                self._decode_stream_entry(entry_id, fields)
+                for entry_id, fields in source_entries
+                if through_seq is None or self._entry_seq(fields) <= int(through_seq)
+            ]
+        return [
+            self._decode_stream_entry(entry_id, fields)
+            for entry_id, fields in client.xrange(self._stream_key(session_id))
+            if str(fields.get("type") or "") != "view_commit"
+            and (through_seq is None or self._entry_seq(fields) <= int(through_seq))
+        ]
 
     def replay_from(self, session_id: str, last_seq: int) -> list[dict[str, Any]]:
         return [message for message in self.snapshot(session_id) if int(message.get("seq", 0)) > int(last_seq)]
@@ -78,17 +101,27 @@ class RedisStreamStore:
 
     def delete_session_data(self, session_id: str) -> None:
         client = self._connection.client()
-        client.delete(self._stream_key(session_id), self._seq_key(session_id))
+        client.delete(self._stream_key(session_id), self._source_stream_key(session_id), self._seq_key(session_id))
         client.hdel(self._drop_count_key(), session_id)
 
     def _stream_key(self, session_id: str) -> str:
         return self._connection.key("stream", session_id, "events")
+
+    def _source_stream_key(self, session_id: str) -> str:
+        return self._connection.key("stream", session_id, "source_events")
 
     def _seq_key(self, session_id: str) -> str:
         return self._connection.key("stream", session_id, "seq")
 
     def _drop_count_key(self) -> str:
         return self._connection.key("stream", "drop_counts")
+
+    @staticmethod
+    def _entry_seq(fields: dict[str, Any]) -> int:
+        try:
+            return int(fields.get("seq", 0))
+        except (TypeError, ValueError):
+            return 0
 
     @staticmethod
     def _decode_stream_entry(entry_id: str, fields: dict[str, Any]) -> dict[str, Any]:

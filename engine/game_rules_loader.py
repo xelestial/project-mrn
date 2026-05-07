@@ -5,7 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from game_rules import DiceRules, EconomyRules, EndConditionRules, ForceSaleRules, GameRules, LapRewardRules, ResourceRules, SpecialTileRules, TakeoverRules, TokenRules
+from game_rules import DiceRules, EconomyRules, EndConditionRules, ForceSaleRules, GameRules, LapRewardRules, ResourceRules, SpecialTileRules, StartRewardRules, TakeoverRules, TokenRules
 
 
 _MODULE_DIR = Path(__file__).resolve().parent
@@ -32,6 +32,7 @@ def rules_from_dict(raw: dict[str, Any] | None) -> GameRules:
     raw = dict(raw or {})
     token_raw = dict(raw.get('token') or {})
     lap_raw = dict(raw.get('lap_reward') or raw.get('lap') or {})
+    start_reward_raw = dict(raw.get('start_reward') or raw.get('start') or raw.get('initial_reward') or {})
     takeover_raw = dict(raw.get('takeover') or {})
     force_sale_raw = dict(raw.get('force_sale') or {})
     end_raw = dict(raw.get('end') or {})
@@ -61,6 +62,15 @@ def rules_from_dict(raw: dict[str, Any] | None) -> GameRules:
             shards_pool=int(_pick(lap_raw, 'shards_pool', default=18)),
             coins_pool=int(_pick(lap_raw, 'coins_pool', default=18)),
         ),
+        start_reward=StartRewardRules(
+            points_budget=int(_pick(start_reward_raw, 'points_budget', 'budget', default=20)),
+            cash_point_cost=int(_pick(start_reward_raw, 'cash_point_cost', default=2)),
+            shards_point_cost=int(_pick(start_reward_raw, 'shards_point_cost', default=3)),
+            coins_point_cost=int(_pick(start_reward_raw, 'coins_point_cost', default=3)),
+            cash_pool=int(_pick(start_reward_raw, 'cash_pool', default=30)),
+            shards_pool=int(_pick(start_reward_raw, 'shards_pool', default=18)),
+            coins_pool=int(_pick(start_reward_raw, 'coins_pool', default=18)),
+        ),
         takeover=TakeoverRules(
             blocked_by_monopoly=bool(_pick(takeover_raw, 'blocked_by_monopoly', default=True)),
             transfer_tile_coins=bool(_pick(takeover_raw, 'transfer_tile_coins', default=True)),
@@ -84,7 +94,7 @@ def rules_from_dict(raw: dict[str, Any] | None) -> GameRules:
             },
         ),
         resources=ResourceRules(
-            starting_shards=int(_pick(resources_raw, 'starting_shards', default=4)),
+            starting_shards=int(_pick(resources_raw, 'starting_shards', default=2)),
         ),
         dice=DiceRules(
             enabled=bool(_pick(dice_raw, 'enabled', default=True)),
@@ -122,6 +132,7 @@ def rules_to_dict(rules: GameRules) -> dict[str, Any]:
         'rules': {
             'token': asdict(rules.token),
             'lap_reward': asdict(rules.lap_reward),
+            'start_reward': asdict(rules.start_reward),
             'takeover': asdict(rules.takeover),
             'force_sale': asdict(rules.force_sale),
             'end': asdict(rules.end),

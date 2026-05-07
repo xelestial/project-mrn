@@ -21,3 +21,6 @@ Default config assertions now cover lap reward values 5/3/3 and purchase-time to
 
 - Added summary reliability coverage for missing final characters, null numeric fields, and character-choice-count based aggregation.
 Bootstrap note: tests pin the engine directory on import so runtime modules resolve consistently.
+
+## Start Resource Regression
+Default config assertions now pin start cash at 20, base shards at 2, and start allocation metadata at 20PTS with cash 2PT, shard 3PT, and score-token 3PT costs.

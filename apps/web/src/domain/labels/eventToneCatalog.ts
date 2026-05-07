@@ -6,6 +6,7 @@ const ECONOMY_EVENT_CODES = new Set<string>([
   "landing_resolved",
   "rent_paid",
   "marker_transferred",
+  "start_reward_chosen",
   "lap_reward_chosen",
   "fortune_drawn",
   "fortune_resolved",

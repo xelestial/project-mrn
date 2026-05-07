@@ -12,6 +12,7 @@ The checkpoint includes:
 - prompt continuation metadata
 - queued `ActionEnvelope` records
 - scheduled phase actions
+- LAP/start reward shared pool remnants
 - in-progress turn-log aggregation
 - runtime bridge fields needed by active module frames
 

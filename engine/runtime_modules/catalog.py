@@ -15,6 +15,7 @@ class ModuleRule:
 
 MODULE_RULES: dict[str, ModuleRule] = {
     "RoundStartModule": ModuleRule("RoundStartModule", frozenset({"round"})),
+    "InitialRewardModule": ModuleRule("InitialRewardModule", frozenset({"round"})),
     "WeatherModule": ModuleRule("WeatherModule", frozenset({"round"})),
     "DraftModule": ModuleRule("DraftModule", frozenset({"round"})),
     "TurnSchedulerModule": ModuleRule("TurnSchedulerModule", frozenset({"round"})),

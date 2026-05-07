@@ -249,6 +249,9 @@ class GameState:
     lap_reward_cash_pool_remaining: int = 30
     lap_reward_shards_pool_remaining: int = 18
     lap_reward_coins_pool_remaining: int = 18
+    start_reward_cash_pool_remaining: int = 30
+    start_reward_shards_pool_remaining: int = 18
+    start_reward_coins_pool_remaining: int = 18
     prompt_sequence: int = 0
     pending_prompt_request_id: str = ""
     pending_prompt_type: str = ""
@@ -302,6 +305,9 @@ class GameState:
             lap_reward_cash_pool_remaining=config.rules.lap_reward.cash_pool,
             lap_reward_shards_pool_remaining=config.rules.lap_reward.shards_pool,
             lap_reward_coins_pool_remaining=config.rules.lap_reward.coins_pool,
+            start_reward_cash_pool_remaining=config.rules.start_reward.cash_pool,
+            start_reward_shards_pool_remaining=config.rules.start_reward.shards_pool,
+            start_reward_coins_pool_remaining=config.rules.start_reward.coins_pool,
         )
 
     def alive_player_ids(self) -> List[int]:
@@ -416,6 +422,9 @@ class GameState:
             "lap_reward_cash_pool_remaining": self.lap_reward_cash_pool_remaining,
             "lap_reward_shards_pool_remaining": self.lap_reward_shards_pool_remaining,
             "lap_reward_coins_pool_remaining": self.lap_reward_coins_pool_remaining,
+            "start_reward_cash_pool_remaining": self.start_reward_cash_pool_remaining,
+            "start_reward_shards_pool_remaining": self.start_reward_shards_pool_remaining,
+            "start_reward_coins_pool_remaining": self.start_reward_coins_pool_remaining,
             "prompt_sequence": self.prompt_sequence,
             "pending_prompt_request_id": self.pending_prompt_request_id,
             "pending_prompt_type": self.pending_prompt_type,
@@ -486,6 +495,9 @@ class GameState:
         state.lap_reward_cash_pool_remaining = int(payload.get("lap_reward_cash_pool_remaining", state.lap_reward_cash_pool_remaining))
         state.lap_reward_shards_pool_remaining = int(payload.get("lap_reward_shards_pool_remaining", state.lap_reward_shards_pool_remaining))
         state.lap_reward_coins_pool_remaining = int(payload.get("lap_reward_coins_pool_remaining", state.lap_reward_coins_pool_remaining))
+        state.start_reward_cash_pool_remaining = int(payload.get("start_reward_cash_pool_remaining", state.start_reward_cash_pool_remaining))
+        state.start_reward_shards_pool_remaining = int(payload.get("start_reward_shards_pool_remaining", state.start_reward_shards_pool_remaining))
+        state.start_reward_coins_pool_remaining = int(payload.get("start_reward_coins_pool_remaining", state.start_reward_coins_pool_remaining))
         state.prompt_sequence = int(payload.get("prompt_sequence", state.prompt_sequence))
         state.pending_prompt_request_id = str(payload.get("pending_prompt_request_id", state.pending_prompt_request_id))
         state.pending_prompt_type = str(payload.get("pending_prompt_type", state.pending_prompt_type))

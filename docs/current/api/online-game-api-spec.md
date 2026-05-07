@@ -104,13 +104,22 @@ Response `data`:
     "manifest_hash": "hash_x",
     "board": { "topology": "ring", "tile_count": 40 },
     "economy": { "starting_cash": 20 },
-    "resources": { "starting_shards": 4 },
+    "resources": { "starting_shards": 2 },
     "rules": {
       "end": {
         "f_threshold": 15,
         "monopolies_to_trigger_end": 3,
         "tiles_to_trigger_end": 9,
         "alive_players_at_most": 2
+      },
+      "start_reward": {
+        "points_budget": 20,
+        "cash_point_cost": 2,
+        "shards_point_cost": 3,
+        "coins_point_cost": 3,
+        "cash_pool": 30,
+        "shards_pool": 18,
+        "coins_pool": 18
       }
     }
   },
@@ -175,13 +184,22 @@ Response `data`:
     "manifest_hash": "hash_x",
     "board": { "topology": "ring", "tile_count": 40 },
     "economy": { "starting_cash": 20 },
-    "resources": { "starting_shards": 4 },
+    "resources": { "starting_shards": 2 },
     "rules": {
       "end": {
         "f_threshold": 15,
         "monopolies_to_trigger_end": 3,
         "tiles_to_trigger_end": 9,
         "alive_players_at_most": 2
+      },
+      "start_reward": {
+        "points_budget": 20,
+        "cash_point_cost": 2,
+        "shards_point_cost": 3,
+        "coins_point_cost": 3,
+        "cash_pool": 30,
+        "shards_pool": 18,
+        "coins_pool": 18
       }
     }
   },
@@ -247,13 +265,22 @@ Response `data`:
     "manifest_hash": "hash_x",
     "board": { "topology": "ring", "tile_count": 40 },
     "economy": { "starting_cash": 20 },
-    "resources": { "starting_shards": 4 },
+    "resources": { "starting_shards": 2 },
     "rules": {
       "end": {
         "f_threshold": 15,
         "monopolies_to_trigger_end": 3,
         "tiles_to_trigger_end": 9,
         "alive_players_at_most": 2
+      },
+      "start_reward": {
+        "points_budget": 20,
+        "cash_point_cost": 2,
+        "shards_point_cost": 3,
+        "coins_point_cost": 3,
+        "cash_pool": 30,
+        "shards_pool": 18,
+        "coins_pool": 18
       }
     }
   },

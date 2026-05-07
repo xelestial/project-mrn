@@ -8,6 +8,7 @@ from .ids import idempotency_key, round_frame_id, round_module_id
 
 ROUND_MODULE_TYPES = (
     "RoundStartModule",
+    "InitialRewardModule",
     "WeatherModule",
     "DraftModule",
     "TurnSchedulerModule",
@@ -75,6 +76,7 @@ def build_round_frame(
 ) -> FrameState:
     setup = [
         build_round_module(round_index, "RoundStartModule", session_id=session_id, payload={"initial": bool(initial)}),
+        build_round_module(round_index, "InitialRewardModule", session_id=session_id, payload={"initial": bool(initial)}),
         build_round_module(round_index, "WeatherModule", session_id=session_id, payload={"initial": bool(initial)}),
         build_round_module(round_index, "DraftModule", session_id=session_id, payload={"initial": bool(initial)}),
         build_round_module(round_index, "TurnSchedulerModule", session_id=session_id, payload={"initial": bool(initial)}),

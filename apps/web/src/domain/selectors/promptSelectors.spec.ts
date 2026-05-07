@@ -246,7 +246,7 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
     expect(selectActivePrompt([complete])?.continuation.moduleCursor).toBe("movement:await_choice");
   });
 
-  it("reads prompt feedback and hand tray only from ViewCommit.view_state", () => {
+  it("prefers ViewCommit prompt feedback while falling back to raw decision_ack", () => {
     const messages = [
       {
         type: "decision_ack",
@@ -280,6 +280,10 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
     expect(selectLatestDecisionAck(messages, "req_hand")).toEqual({
       status: "stale",
       reason: "stale commit",
+    });
+    expect(selectLatestDecisionAck([messages[0]], "req_hand")).toEqual({
+      status: "accepted",
+      reason: "raw ack",
     });
     expect(selectCurrentHandTrayCards(messages, "ko", 2)).toEqual([
       {
@@ -327,6 +331,44 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
       requestId: "req_move",
       shouldReleaseSubmission: true,
       feedback: { kind: "rejected", reason: "invalid choice" },
+    });
+  });
+
+  it("releases prompt submission when raw decision_ack reports stale", () => {
+    const messages = [
+      viewCommit(3, {
+        prompt: {
+          active: {
+            request_id: "req_stale",
+            request_type: "draft_card",
+            player_id: 1,
+            choices: [{ choice_id: "3", title: "탈출 노비" }],
+          },
+        },
+      }),
+      {
+        type: "decision_ack",
+        seq: 4,
+        session_id: "s1",
+        payload: { request_id: "req_stale", status: "stale", reason: "request_not_pending" },
+      } satisfies InboundMessage,
+    ];
+
+    expect(
+      selectPromptInteractionState({
+        messages,
+        activePrompt: selectActivePrompt(messages),
+        trackedRequestId: "req_stale",
+        submitting: true,
+        expiresAtMs: 10_000,
+        nowMs: 5_000,
+        streamStatus: "connected",
+      })
+    ).toMatchObject({
+      requestId: "req_stale",
+      busy: false,
+      shouldReleaseSubmission: true,
+      feedback: { kind: "stale", reason: "request_not_pending" },
     });
   });
 });
