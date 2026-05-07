@@ -80,7 +80,27 @@ def validate_checkpoint_payload(payload: dict[str, Any]) -> None:
         for module in frame.get("module_queue") or []:
             if isinstance(module, dict):
                 _validate_runtime_module({**module, "frame_type": frame_type, "frame_id": frame.get("frame_id")})
+        _validate_active_module_reference(frame)
         _validate_card_flip_not_before_turns_complete(frame)
+
+
+def _validate_active_module_reference(frame: dict[str, Any]) -> None:
+    active_module_id = str(frame.get("active_module_id") or "").strip()
+    if not active_module_id:
+        return
+    modules = [module for module in frame.get("module_queue") or [] if isinstance(module, dict)]
+    active = next(
+        (module for module in modules if str(module.get("module_id") or "").strip() == active_module_id),
+        None,
+    )
+    frame_id = str(frame.get("frame_id") or "").strip()
+    if active is None:
+        raise RuntimeSemanticViolation(f"active_module_id {active_module_id} not found in frame {frame_id}")
+    status = str(active.get("status") or "").strip()
+    if status not in {"running", "suspended"}:
+        raise RuntimeSemanticViolation(
+            f"active_module_id {active_module_id} points to {status or 'unknown'} module in frame {frame_id}"
+        )
 
 
 def _validate_runtime_module(module: dict[str, Any]) -> None:

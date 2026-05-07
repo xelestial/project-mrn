@@ -385,6 +385,54 @@ def test_checkpoint_rejects_round_card_flip_with_suspended_player_turn() -> None
         )
 
 
+def test_checkpoint_rejects_active_module_id_pointing_to_queued_module() -> None:
+    with pytest.raises(RuntimeSemanticViolation, match="active_module_id.*queued"):
+        validate_checkpoint_payload(
+            {
+                "runtime_runner_kind": "module",
+                "runtime_frame_stack": [
+                    {
+                        "frame_id": "turn:4:p3",
+                        "frame_type": "turn",
+                        "status": "running",
+                        "active_module_id": "mod:turn:4:p3:trickwindow",
+                        "module_queue": [
+                            {
+                                "module_id": "mod:turn:4:p3:trickwindow",
+                                "module_type": "TrickWindowModule",
+                                "status": "queued",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_checkpoint_rejects_missing_active_module_reference() -> None:
+    with pytest.raises(RuntimeSemanticViolation, match="active_module_id.*not found"):
+        validate_checkpoint_payload(
+            {
+                "runtime_runner_kind": "module",
+                "runtime_frame_stack": [
+                    {
+                        "frame_id": "turn:4:p3",
+                        "frame_type": "turn",
+                        "status": "running",
+                        "active_module_id": "mod:turn:4:p3:missing",
+                        "module_queue": [
+                            {
+                                "module_id": "mod:turn:4:p3:targetjudicator",
+                                "module_type": "TargetJudicatorModule",
+                                "status": "completed",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
 def test_checkpoint_rejects_action_payload_owned_by_wrong_sequence_module() -> None:
     with pytest.raises(RuntimeSemanticViolation, match="resolve_purchase_tile.*PurchaseCommitModule.*MapMoveModule"):
         validate_checkpoint_payload(

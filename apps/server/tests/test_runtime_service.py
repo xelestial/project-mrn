@@ -28,6 +28,7 @@ from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.runtime_service import _LocalHumanDecisionClient
 from apps.server.src.services.runtime_service import (
     _FanoutVisEventStream,
+    _runtime_failure_diagnostics,
     _runtime_continuation_debug_fields,
     _runtime_module_debug_fields,
     resolve_runtime_runner_kind,
@@ -378,6 +379,89 @@ class RuntimeServiceTests(unittest.TestCase):
                 "idempotency_key": "idem:movement",
             },
         )
+
+    def test_active_module_from_checkpoint_does_not_promote_queued_module(self) -> None:
+        checkpoint = {
+            "runtime_runner_kind": "module",
+            "runtime_frame_stack": [
+                {
+                    "frame_id": "round:4",
+                    "frame_type": "round",
+                    "status": "suspended",
+                    "active_module_id": "mod:round:4:p3",
+                    "module_queue": [
+                        {
+                            "module_id": "mod:round:4:p3",
+                            "module_type": "PlayerTurnModule",
+                            "status": "suspended",
+                            "cursor": "child_turn_running",
+                        }
+                    ],
+                },
+                {
+                    "frame_id": "turn:4:p3",
+                    "frame_type": "turn",
+                    "status": "running",
+                    "active_module_id": "",
+                    "module_queue": [
+                        {
+                            "module_id": "mod:turn:4:p3:targetjudicator",
+                            "module_type": "TargetJudicatorModule",
+                            "status": "completed",
+                        },
+                        {
+                            "module_id": "mod:turn:4:p3:trickwindow",
+                            "module_type": "TrickWindowModule",
+                            "status": "queued",
+                        },
+                    ],
+                },
+            ],
+        }
+
+        active = self.runtime_service._active_runtime_module_from_checkpoint(checkpoint, {})
+
+        self.assertEqual(active["frame_id"], "round:4")
+        self.assertEqual(active["module_type"], "PlayerTurnModule")
+        self.assertEqual(active["module_status"], "suspended")
+        self.assertNotEqual(active["module_type"], "TrickWindowModule")
+
+    def test_runtime_failure_diagnostics_fill_empty_exception_message(self) -> None:
+        try:
+            raise RuntimeError()
+        except RuntimeError as exc:
+            diagnostics = _runtime_failure_diagnostics("sess_empty_error", exc)
+
+        self.assertEqual(diagnostics["session_id"], "sess_empty_error")
+        self.assertEqual(diagnostics["error"], "Runtime execution failed")
+        self.assertEqual(diagnostics["exception_type"], "RuntimeError")
+        self.assertEqual(diagnostics["exception_repr"], "RuntimeError()")
+        self.assertIn("RuntimeError", diagnostics["traceback"])
+
+    def test_current_actor_prefers_active_turn_frame_owner(self) -> None:
+        checkpoint = {
+            "turn_index": 14,
+            "current_round_order": [1, 2, 3, 0],
+            "runtime_frame_stack": [
+                {
+                    "frame_id": "round:4",
+                    "frame_type": "round",
+                    "status": "suspended",
+                    "active_module_id": "mod:round:4:p3",
+                    "module_queue": [],
+                },
+                {
+                    "frame_id": "turn:4:p3",
+                    "frame_type": "turn",
+                    "owner_player_id": 3,
+                    "status": "running",
+                    "active_module_id": "",
+                    "module_queue": [],
+                },
+            ],
+        }
+
+        self.assertEqual(self.runtime_service._current_actor_player_id(checkpoint), 4)
 
     def test_runtime_continuation_debug_fields_trace_ids_without_resume_token(self) -> None:
         resume = type(

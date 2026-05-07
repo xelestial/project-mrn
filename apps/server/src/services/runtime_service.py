@@ -7,6 +7,7 @@ import os
 import random
 import sys
 import time
+import traceback
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -161,6 +162,56 @@ def _runtime_continuation_debug_fields(payload: dict | None, decision_resume: ob
             }
         )
     return {key: value for key, value in candidates.items() if value not in (None, "")}
+
+
+def _runtime_failure_diagnostics(
+    session_id: str,
+    exc: BaseException,
+    *,
+    status: dict | None = None,
+) -> dict[str, object]:
+    message = str(exc).strip() or "Runtime execution failed"
+    diagnostics: dict[str, object] = {
+        "session_id": session_id,
+        "error": message,
+        "exception_type": exc.__class__.__name__,
+        "exception_repr": repr(exc),
+        "traceback": "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+    }
+    if isinstance(status, dict):
+        last_transition = status.get("last_transition")
+        if isinstance(last_transition, dict):
+            for key in (
+                "latest_seq",
+                "latest_source_event_seq",
+                "latest_commit_seq",
+                "active_frame_id",
+                "active_module_id",
+                "active_module_type",
+                "active_module_cursor",
+                "pending_action_count",
+                "scheduled_action_count",
+                "next_scheduled_action_type",
+            ):
+                value = last_transition.get(key)
+                if value not in (None, ""):
+                    diagnostics[key] = value
+        recovery = status.get("recovery_checkpoint")
+        if isinstance(recovery, dict):
+            for key in (
+                "latest_seq",
+                "latest_source_event_seq",
+                "latest_commit_seq",
+                "active_frame_id",
+                "active_module_id",
+                "active_module_type",
+                "scheduled_action_count",
+                "pending_action_count",
+            ):
+                value = recovery.get(key)
+                if value not in (None, ""):
+                    diagnostics.setdefault(key, value)
+    return diagnostics
 
 
 def _active_runtime_module_debug_fields(state: object | None) -> dict[str, str]:
@@ -518,17 +569,27 @@ class RuntimeService:
             self._release_runtime_lease(session_id)
             log_event("runtime_completed", session_id=session_id)
         except Exception as exc:
-            self._status[session_id] = {"status": "failed", "error": str(exc)}
+            diagnostics = _runtime_failure_diagnostics(
+                session_id,
+                exc,
+                status=self._status.get(session_id),
+            )
+            self._status[session_id] = {
+                "status": "failed",
+                "error": diagnostics["error"],
+                "exception_type": diagnostics["exception_type"],
+                "exception_repr": diagnostics["exception_repr"],
+            }
             self._touch_activity(session_id)
             self._persist_runtime_state(session_id)
             self._release_runtime_lease(session_id)
-            log_event("runtime_failed", session_id=session_id, error=str(exc))
+            log_event("runtime_failed", **diagnostics)
             await self._stream_service.publish(
                 session_id,
                 "error",
                 build_error_payload(
                     code="RUNTIME_EXECUTION_FAILED",
-                    message=str(exc),
+                    message=str(diagnostics["error"]),
                     retryable=False,
                 ),
             )
@@ -1383,7 +1444,7 @@ class RuntimeService:
         step: dict,
         commit_seq: int,
         viewer: dict,
-        source_messages: list[dict],
+        source_messages: list[dict] | None = None,
     ) -> dict:
         players_view = self._build_players_view_state(public_snapshot, checkpoint_payload)
         board_view = self._build_board_view_state(public_snapshot, checkpoint_payload)
@@ -1444,7 +1505,7 @@ class RuntimeService:
         hand_tray = self._build_hand_tray_view_state(state, viewer)
         if hand_tray:
             view_state["hand_tray"] = {"items": hand_tray}
-        replay_view_state = self._source_projection_view_state(session_id, source_messages, viewer)
+        replay_view_state = self._source_projection_view_state(session_id, list(source_messages or []), viewer)
         replay_scene = replay_view_state.get("scene")
         if isinstance(replay_scene, dict):
             merged_scene = dict(replay_scene)
@@ -1870,14 +1931,17 @@ class RuntimeService:
         active_module_id = str(frame.get("active_module_id") or "")
         if active_module_id:
             for module in queue:
-                if isinstance(module, dict) and str(module.get("module_id") or "") == active_module_id:
+                if (
+                    isinstance(module, dict)
+                    and str(module.get("module_id") or "") == active_module_id
+                    and str(module.get("status") or "") in {"running", "suspended"}
+                ):
                     return module
         for module in queue:
             if not isinstance(module, dict):
                 continue
-            if str(module.get("status") or "") in {"completed", "skipped", "failed"}:
-                continue
-            return module
+            if str(module.get("status") or "") in {"running", "suspended"}:
+                return module
         return None
 
     def _runtime_projection_view_state(
@@ -1935,6 +1999,9 @@ class RuntimeService:
 
     @staticmethod
     def _current_actor_player_id(checkpoint_payload: dict) -> int | None:
+        frame_actor = RuntimeService._active_turn_frame_actor_player_id(checkpoint_payload)
+        if frame_actor is not None:
+            return frame_actor
         ordered = checkpoint_payload.get("current_round_order")
         turn_index = int(checkpoint_payload.get("turn_index", 0) or 0)
         if isinstance(ordered, list) and ordered:
@@ -1943,6 +2010,32 @@ class RuntimeService:
                 return int(raw_actor) + 1
             except (TypeError, ValueError):
                 return None
+        return None
+
+    @staticmethod
+    def _active_turn_frame_actor_player_id(checkpoint_payload: dict) -> int | None:
+        frames = checkpoint_payload.get("runtime_frame_stack")
+        if not isinstance(frames, list):
+            runtime_state = checkpoint_payload.get("runtime_state")
+            if isinstance(runtime_state, dict):
+                frames = runtime_state.get("frame_stack")
+        if not isinstance(frames, list):
+            return None
+        for frame in reversed(frames):
+            if not isinstance(frame, dict):
+                continue
+            if str(frame.get("frame_type") or "") != "turn":
+                continue
+            if str(frame.get("status") or "") in {"completed", "skipped", "failed"}:
+                continue
+            owner = RuntimeService._int_or_none(frame.get("owner_player_id"))
+            if owner is not None:
+                return owner + 1
+            frame_id = str(frame.get("frame_id") or "")
+            if ":p" in frame_id:
+                suffix = frame_id.rsplit(":p", 1)[1]
+                if suffix.isdigit():
+                    return int(suffix) + 1
         return None
 
     def _parameter_manifest_for_session(self, session_id: str) -> dict:

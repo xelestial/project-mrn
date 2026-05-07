@@ -2802,21 +2802,60 @@ class GameEngine:
         player.pending_marks = remaining
 
     def _remove_pending_mark(self, target: PlayerState, mark: dict) -> None:
+        index = self._pending_mark_index(target, mark)
+        if index is not None:
+            del target.pending_marks[index]
+
+    def _pending_mark_index(self, target: PlayerState, mark: dict) -> int | None:
+        mark_payload = dict(mark or {})
+        mark_idempotency_key = str(mark_payload.get("idempotency_key") or "")
         for index, current in enumerate(list(target.pending_marks)):
-            if dict(current) == dict(mark):
-                del target.pending_marks[index]
-                return
+            current_payload = dict(current)
+            if current_payload == mark_payload:
+                return index
+            if mark_idempotency_key and str(current_payload.get("idempotency_key") or "") == mark_idempotency_key:
+                return index
+        return None
 
     def _resolve_mark_action(self, state: GameState, action: ActionEnvelope, *, queue_followups: bool = False) -> dict:
-        target_id = action.target_player_id if action.target_player_id is not None else int(action.payload.get("target_player_id", action.actor_player_id))
+        target_id = (
+            action.target_player_id
+            if action.target_player_id is not None
+            else action.payload.get("target_player_id", action.actor_player_id)
+        )
+        try:
+            target_id = int(target_id)
+        except (TypeError, ValueError):
+            return {"type": "MARK_SKIPPED", "reason": "invalid_target", "target_player_id": None}
+        if target_id < 0 or target_id >= len(state.players):
+            return {"type": "MARK_SKIPPED", "reason": "invalid_target", "target_player_id": target_id + 1}
         target = state.players[int(target_id)]
         mark = dict(action.payload.get("mark") or {})
+        pending_mark_index = self._pending_mark_index(target, mark)
+        if pending_mark_index is None:
+            return {"type": "MARK_SKIPPED", "reason": "mark_not_pending", "target_player_id": target.player_id + 1}
+        pending_mark = dict(target.pending_marks[pending_mark_index])
+        source_id = pending_mark.get("source_pid", mark.get("source_pid", action.actor_player_id))
+        try:
+            source_id = int(source_id)
+        except (TypeError, ValueError):
+            self._remove_pending_mark(target, pending_mark)
+            return {"type": "MARK_SKIPPED", "reason": "invalid_source", "target_player_id": target.player_id + 1}
+        if source_id < 0 or source_id >= len(state.players):
+            self._remove_pending_mark(target, pending_mark)
+            return {"type": "MARK_SKIPPED", "reason": "invalid_source", "target_player_id": target.player_id + 1}
+        if not target.alive:
+            self._remove_pending_mark(target, pending_mark)
+            return {"type": "MARK_SKIPPED", "reason": "target_not_alive", "target_player_id": target.player_id + 1}
+        if not state.players[source_id].alive:
+            self._remove_pending_mark(target, pending_mark)
+            return {"type": "MARK_SKIPPED", "reason": "source_not_alive", "target_player_id": target.player_id + 1}
         if target.immune_to_marks_this_round:
-            self._remove_pending_mark(target, mark)
+            self._remove_pending_mark(target, pending_mark)
             return {"type": "MARK_SKIPPED", "reason": "immune_to_marks", "target_player_id": target.player_id + 1}
-        result = self._resolve_mark_effect(state, target, mark, queue_followups=queue_followups)
+        result = self._resolve_mark_effect(state, target, pending_mark, queue_followups=queue_followups)
         if result.get("type") != "UNKNOWN_MARK":
-            self._remove_pending_mark(target, mark)
+            self._remove_pending_mark(target, pending_mark)
         return result
 
     def _resolve_mark_effect(self, state: GameState, player: PlayerState, eff: dict, *, queue_followups: bool = False) -> dict:

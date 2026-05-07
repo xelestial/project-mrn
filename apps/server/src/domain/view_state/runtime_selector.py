@@ -203,12 +203,16 @@ def _active_module_from_frame(frame: dict[str, Any]) -> dict[str, Any] | None:
     active_module_id = str(frame.get("active_module_id") or "")
     if active_module_id:
         for module in queue:
-            if isinstance(module, dict) and module.get("module_id") == active_module_id:
+            if (
+                isinstance(module, dict)
+                and module.get("module_id") == active_module_id
+                and str(module.get("status") or "") in {"running", "suspended"}
+            ):
                 return module
     for module in queue:
         if not isinstance(module, dict):
             continue
-        if module.get("status") in {None, "queued", "running", "suspended"}:
+        if str(module.get("status") or "") in {"running", "suspended"}:
             return module
     return None
 
