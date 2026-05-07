@@ -16,6 +16,15 @@ from apps.server.src.services.session_service import SessionNotFoundError, Sessi
 router = APIRouter(prefix="/api/v1/sessions", tags=["stream"])
 
 
+async def _send_json_or_disconnect(websocket: WebSocket, payload: dict[str, Any]) -> None:
+    try:
+        await websocket.send_json(payload)
+    except RuntimeError as exc:
+        if 'Cannot call "send" once a close message has been sent' in str(exc):
+            raise WebSocketDisconnect(code=1000) from exc
+        raise
+
+
 async def _send_latest_view_commit(
     websocket: WebSocket,
     stream_service: Any,
@@ -31,7 +40,7 @@ async def _send_latest_view_commit(
     commit_seq = _commit_seq(latest) or _stream_seq(latest)
     if not force and commit_seq <= last_commit_seq:
         return last_commit_seq
-    await websocket.send_json(latest)
+    await _send_json_or_disconnect(websocket, latest)
     return max(last_commit_seq, commit_seq)
 
 
@@ -271,7 +280,8 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                         viewer=viewer,
                         force=True,
                     )
-                    await websocket.send_json(
+                    await _send_json_or_disconnect(
+                        websocket,
                         {
                             "type": "heartbeat",
                             "seq": latest,
@@ -289,6 +299,8 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                     await asyncio.wait_for(stop_event.wait(), timeout=heartbeat_interval_sec)
                 except asyncio.TimeoutError:
                     pass
+        except WebSocketDisconnect:
+            stop_event.set()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -315,22 +327,26 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                             if commit_seq <= last_commit_seq:
                                 continue
                             last_commit_seq = commit_seq
-                        await websocket.send_json(filtered)
+                        await _send_json_or_disconnect(websocket, filtered)
+        except WebSocketDisconnect:
+            stop_event.set()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             log_event("stream_sender_failed", session_id=session_id, connection_id=conn_id, error=str(exc))
             stop_event.set()
 
-    latest_commit = await stream_service.latest_view_commit_message_for_viewer(session_id, viewer)
-    if latest_commit is not None:
-        last_commit_seq = _commit_seq(latest_commit)
-        delivered_seq = _stream_seq(latest_commit)
-        await websocket.send_json(latest_commit)
-
-    heart = asyncio.create_task(_heartbeat())
-    sender = asyncio.create_task(_sender())
+    heart: asyncio.Task | None = None
+    sender: asyncio.Task | None = None
     try:
+        latest_commit = await stream_service.latest_view_commit_message_for_viewer(session_id, viewer)
+        if latest_commit is not None:
+            last_commit_seq = _commit_seq(latest_commit)
+            delivered_seq = _stream_seq(latest_commit)
+            await _send_json_or_disconnect(websocket, latest_commit)
+
+        heart = asyncio.create_task(_heartbeat())
+        sender = asyncio.create_task(_sender())
         while True:
             message: dict[str, Any] = await websocket.receive_json()
             msg_type = str(message.get("type", "")).strip().lower()
@@ -445,15 +461,19 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
         pass
     finally:
         stop_event.set()
-        heart.cancel()
-        sender.cancel()
+        if heart is not None:
+            heart.cancel()
+        if sender is not None:
+            sender.cancel()
         with contextlib.suppress(Exception):
             await stream_service.unsubscribe(session_id, conn_id)
         if auth_ctx["role"] == "seat" and auth_ctx["seat"] is not None:
             with contextlib.suppress(Exception):
                 session_service.mark_connected(session_id, auth_ctx["seat"], False)
         with contextlib.suppress(asyncio.CancelledError, Exception):
-            await heart
+            if heart is not None:
+                await heart
         with contextlib.suppress(asyncio.CancelledError, Exception):
-            await sender
+            if sender is not None:
+                await sender
         log_event("stream_disconnected", session_id=session_id, connection_id=conn_id)

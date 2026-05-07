@@ -103,7 +103,7 @@ def _latest_runtime_module(messages: list[dict]) -> dict[str, Any] | None:
 def _latest_source_is_completed(messages: list[dict]) -> bool:
     for message in reversed(messages):
         message_type = str(message.get("type") or "")
-        if message_type == "view_commit":
+        if message_type in {"view_commit", "snapshot_pulse"}:
             continue
         payload = message.get("payload")
         if not isinstance(payload, dict):

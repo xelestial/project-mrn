@@ -119,7 +119,7 @@ class LocalJsonArchiveService:
             for message in stream_messages
             if message.get("type") not in {"command", "analysis"}
         ]
-        source_events = [entry for entry in events if entry.get("type") != "view_commit"]
+        source_events = [entry for entry in events if entry.get("type") not in {"view_commit", "snapshot_pulse"}]
         view_commits = [entry for entry in events if entry.get("type") == "view_commit"]
         final_view_state = self._load_final_view_state(session.session_id, stream_messages)
         final_state = self._load_final_state(session.session_id)

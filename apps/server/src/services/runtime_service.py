@@ -237,6 +237,39 @@ def _active_runtime_module_debug_fields(state: object | None) -> dict[str, str]:
     return {key: str(value) for key, value in fields.items() if value not in (None, "")}
 
 
+def _optional_int(value: object) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _snapshot_pulse_specs_from_source_messages(source_messages: list[dict], *, after_seq: int = 0) -> list[dict[str, int | str | None]]:
+    specs: list[dict[str, int | str | None]] = []
+    for message in source_messages:
+        if str(message.get("type") or "") != "event":
+            continue
+        seq = _optional_int(message.get("seq")) or 0
+        if seq <= int(after_seq or 0):
+            continue
+        payload = message.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        event_type = str(payload.get("event_type") or "").strip()
+        if event_type == "round_start":
+            specs.append({"reason": "round_start_guardrail", "target_player_id": None})
+            continue
+        if event_type != "turn_start":
+            continue
+        player_id = _optional_int(payload.get("acting_player_id") or payload.get("player_id"))
+        if player_id is None:
+            continue
+        specs.append({"reason": "turn_start_guardrail", "target_player_id": player_id})
+    return specs
+
+
 class RuntimeService:
     """Background runtime orchestration for mixed-seat (human + AI) sessions."""
 
@@ -1155,8 +1188,13 @@ class RuntimeService:
             runtime_active_prompt_batch = runtime_active_prompt_batch if isinstance(runtime_active_prompt_batch, dict) else {}
             if latest_event_type == "prompt_required" and prompt_boundary_payload:
                 self._materialize_prompt_boundary_sync(loop, session_id, prompt_boundary_payload, state=state)
+            previous_source_event_seq = self._latest_committed_source_event_seq(session_id)
             latest_stream_seq = self._latest_stream_seq_sync(loop, session_id)
             source_messages = self._source_history_sync(loop, session_id, latest_stream_seq)
+            snapshot_pulse_specs = _snapshot_pulse_specs_from_source_messages(
+                source_messages,
+                after_seq=previous_source_event_seq,
+            )
             commit_seq = self._next_view_commit_seq(session_id)
             source_event_seq = latest_stream_seq
             module_debug_fields = _runtime_module_debug_fields(
@@ -1261,6 +1299,7 @@ class RuntimeService:
                 runtime_event_server_time_ms=updated_at_ms,
             )
             self._emit_latest_view_commit_sync(loop, session_id)
+            self._emit_snapshot_pulses_sync(loop, session_id, snapshot_pulse_specs)
             write_game_debug_log(
                 "engine",
                 latest_event_type,
@@ -1291,6 +1330,43 @@ class RuntimeService:
             return
         future = asyncio.run_coroutine_threadsafe(emit(session_id), loop)
         future.result(timeout=5)
+
+    def _emit_snapshot_pulses_sync(
+        self,
+        loop: asyncio.AbstractEventLoop | None,
+        session_id: str,
+        specs: list[dict[str, int | str | None]],
+    ) -> None:
+        if loop is None or self._stream_service is None or not specs:
+            return
+        emit = getattr(self._stream_service, "emit_snapshot_pulse", None)
+        if not callable(emit):
+            return
+        for spec in specs:
+            reason = str(spec.get("reason") or "snapshot_guardrail")
+            target_player_id = self._int_or_none(spec.get("target_player_id"))
+            future = asyncio.run_coroutine_threadsafe(
+                emit(session_id, reason=reason, target_player_id=target_player_id),
+                loop,
+            )
+            future.result(timeout=5)
+
+    def _latest_committed_source_event_seq(self, session_id: str) -> int:
+        if self._game_state_store is None:
+            return 0
+        if callable(getattr(self._game_state_store, "load_view_commit_index", None)):
+            index = self._game_state_store.load_view_commit_index(session_id)
+            if isinstance(index, dict):
+                value = self._int_or_none(index.get("latest_source_event_seq"))
+                if value is not None:
+                    return value
+        if callable(getattr(self._game_state_store, "load_checkpoint", None)):
+            checkpoint = self._game_state_store.load_checkpoint(session_id)
+            if isinstance(checkpoint, dict):
+                value = self._int_or_none(checkpoint.get("latest_source_event_seq") or checkpoint.get("latest_seq"))
+                if value is not None:
+                    return value
+        return 0
 
     def _latest_stream_seq_sync(self, loop: asyncio.AbstractEventLoop | None, session_id: str) -> int:
         if loop is None or self._stream_service is None:

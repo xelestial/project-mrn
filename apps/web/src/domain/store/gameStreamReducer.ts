@@ -59,6 +59,12 @@ function withDebugMessage(messages: InboundMessage[], message: InboundMessage): 
   return withCappedMessages(nextMessages);
 }
 
+function isViewCommitCarrier(
+  message: InboundMessage,
+): message is Extract<InboundMessage, { type: "view_commit" | "snapshot_pulse" }> {
+  return message.type === "view_commit" || message.type === "snapshot_pulse";
+}
+
 export function gameStreamReducer(state: GameStreamState, action: GameStreamAction): GameStreamState {
   if (action.type === "reset") {
     return initialGameStreamState;
@@ -71,7 +77,7 @@ export function gameStreamReducer(state: GameStreamState, action: GameStreamActi
   }
 
   const debugMessages = withDebugMessage(state.debugMessages, action.message);
-  if (action.message.type !== "view_commit") {
+  if (!isViewCommitCarrier(action.message)) {
     return debugMessages === state.debugMessages ? state : { ...state, debugMessages };
   }
 
@@ -79,19 +85,26 @@ export function gameStreamReducer(state: GameStreamState, action: GameStreamActi
   if (!Number.isFinite(commitSeq) || commitSeq <= 0) {
     return debugMessages === state.debugMessages ? state : { ...state, debugMessages };
   }
-  const shouldRepairMissingLiveCommit =
+  const currentLiveCommit = state.messages.find((message) => message.type === "view_commit");
+  const shouldRepairSameCommit =
     commitSeq === state.lastCommitSeq &&
-    (state.latestCommit === null || !state.messages.some((message) => message.type === "view_commit"));
-  if (commitSeq < state.lastCommitSeq || (commitSeq === state.lastCommitSeq && !shouldRepairMissingLiveCommit)) {
+    (state.latestCommit === null ||
+      currentLiveCommit === undefined ||
+      action.message.seq > currentLiveCommit.seq);
+  if (commitSeq < state.lastCommitSeq || (commitSeq === state.lastCommitSeq && !shouldRepairSameCommit)) {
     return debugMessages === state.debugMessages ? state : { ...state, debugMessages };
   }
 
+  const liveMessage =
+    action.message.type === "snapshot_pulse"
+      ? ({ ...action.message, type: "view_commit" } as Extract<InboundMessage, { type: "view_commit" }>)
+      : action.message;
   return {
     ...state,
     latestCommit: action.message.payload,
     lastCommitSeq: commitSeq,
     lastSeq: commitSeq,
-    messages: [action.message],
+    messages: [liveMessage],
     debugMessages,
     pendingBySeq: {},
     manifestHash: null,

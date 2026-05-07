@@ -159,6 +159,85 @@ class ViewStateRevealSelectorTests(unittest.TestCase):
         self.assertTrue(view_state["items"][1]["is_interrupt"])
         self.assertTrue(view_state["items"][-1]["is_interrupt"])
 
+    def test_build_reveals_view_state_includes_all_mark_outcomes(self) -> None:
+        messages = [
+            {
+                "type": "event",
+                "seq": 10,
+                "session_id": "s1",
+                "server_time_ms": 1,
+                "payload": {
+                    "event_type": "turn_start",
+                    "round_index": 1,
+                    "turn_index": 4,
+                    "acting_player_id": 4,
+                    "character": "박수",
+                },
+            },
+            {
+                "type": "event",
+                "seq": 11,
+                "session_id": "s1",
+                "server_time_ms": 2,
+                "payload": {
+                    "event_type": "mark_queued",
+                    "round_index": 1,
+                    "turn_index": 4,
+                    "source_player_id": 4,
+                    "target_player_id": 2,
+                    "target_character": "교리 연구관",
+                },
+            },
+            {
+                "type": "event",
+                "seq": 12,
+                "session_id": "s1",
+                "server_time_ms": 3,
+                "payload": {
+                    "event_type": "mark_target_missing",
+                    "round_index": 1,
+                    "turn_index": 4,
+                    "source_player_id": 4,
+                    "target_character": "건설업자",
+                },
+            },
+            {
+                "type": "event",
+                "seq": 13,
+                "session_id": "s1",
+                "server_time_ms": 4,
+                "payload": {
+                    "event_type": "mark_target_none",
+                    "round_index": 1,
+                    "turn_index": 4,
+                    "source_player_id": 4,
+                },
+            },
+            {
+                "type": "event",
+                "seq": 14,
+                "session_id": "s1",
+                "server_time_ms": 5,
+                "payload": {
+                    "event_type": "mark_blocked",
+                    "round_index": 1,
+                    "turn_index": 4,
+                    "source_player_id": 4,
+                    "target_player_id": 3,
+                    "target_character": "중매꾼",
+                },
+            },
+        ]
+
+        view_state = build_reveals_view_state(messages, limit=6)
+
+        self.assertIsNotNone(view_state)
+        self.assertEqual(
+            [item["event_code"] for item in view_state["items"]],
+            ["mark_queued", "mark_target_missing", "mark_target_none", "mark_blocked"],
+        )
+        self.assertEqual([item["tone"] for item in view_state["items"]], ["effect", "effect", "effect", "effect"])
+
     def test_build_board_view_state_projects_latest_move(self) -> None:
         view_state = build_board_view_state(
             [

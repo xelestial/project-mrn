@@ -31,6 +31,7 @@ from apps.server.src.services.runtime_service import (
     _runtime_failure_diagnostics,
     _runtime_continuation_debug_fields,
     _runtime_module_debug_fields,
+    _snapshot_pulse_specs_from_source_messages,
     resolve_runtime_runner_kind,
     runtime_checkpoint_schema_version_for_runner,
 )
@@ -59,6 +60,57 @@ warnings.filterwarnings(
     message=WEBSOCKETS_DEPRECATION_MESSAGE,
     category=DeprecationWarning,
 )
+
+
+class SnapshotPulseSpecTests(unittest.TestCase):
+    def test_round_and_turn_start_events_create_guardrail_pulses(self) -> None:
+        specs = _snapshot_pulse_specs_from_source_messages(
+            [
+                {
+                    "type": "event",
+                    "seq": 1,
+                    "payload": {"event_type": "round_start", "round_index": 2},
+                },
+                {
+                    "type": "event",
+                    "seq": 2,
+                    "payload": {"event_type": "turn_start", "acting_player_id": 3},
+                },
+            ],
+            after_seq=0,
+        )
+
+        self.assertEqual(
+            specs,
+            [
+                {"reason": "round_start_guardrail", "target_player_id": None},
+                {"reason": "turn_start_guardrail", "target_player_id": 3},
+            ],
+        )
+
+    def test_snapshot_pulse_specs_ignore_old_source_events_and_non_events(self) -> None:
+        specs = _snapshot_pulse_specs_from_source_messages(
+            [
+                {
+                    "type": "event",
+                    "seq": 3,
+                    "payload": {"event_type": "round_start", "round_index": 2},
+                },
+                {
+                    "type": "snapshot_pulse",
+                    "seq": 4,
+                    "payload": {"reason": "round_start_guardrail"},
+                },
+                {
+                    "type": "event",
+                    "seq": 5,
+                    "payload": {"event_type": "turn_start", "player_id": 2},
+                },
+            ],
+            after_seq=3,
+        )
+
+        self.assertEqual(specs, [{"reason": "turn_start_guardrail", "target_player_id": 2}])
 warnings.filterwarnings(
     "ignore",
     message="websockets\\.server\\.WebSocketServerProtocol is deprecated",

@@ -31,6 +31,20 @@ export type InboundMessage =
       payload: ViewCommitPayload;
     }
   | {
+      type: "snapshot_pulse";
+      seq: number;
+      session_id: string;
+      server_time_ms?: number;
+      payload: ViewCommitPayload & {
+        snapshot_pulse?: {
+          reason?: string;
+          scope?: "all" | "player";
+          target_player_id?: number;
+          [key: string]: unknown;
+        };
+      };
+    }
+  | {
       type: "event";
       seq: number;
       session_id: string;

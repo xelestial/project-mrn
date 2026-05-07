@@ -75,7 +75,7 @@ export function TurnStagePanel({ model, characterAbilityText, isMyTurn }: TurnSt
   const rentEventLabel = eventLabel.events.rent_paid ?? turnStage.fields.rent;
   const fortuneDrawEventLabel = eventLabel.events.fortune_drawn ?? turnStage.fields.fortune;
   const fortuneResolvedEventLabel = eventLabel.events.fortune_resolved ?? turnStage.cardEffectTitle;
-  const markEventCode = model.currentBeatEventCode === "mark_queued" ? "mark_queued" : "mark_resolved";
+  const markEventCode = model.currentBeatEventCode.startsWith("mark_") ? model.currentBeatEventCode : "mark_resolved";
   const markEventLabel =
     (eventLabel.events as Record<string, string>)[markEventCode] ??
     turnStage.fields.beat;

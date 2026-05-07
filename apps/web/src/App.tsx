@@ -475,7 +475,7 @@ function eventEffectForReveal(args: {
     }
     return { effectIntent: "loss", effectSource: "economy", effectEnhanced: false };
   }
-  if (args.eventCode === "mark_resolved" || args.eventCode === "mark_queued") {
+  if (args.eventCode.startsWith("mark_")) {
     return { effectIntent: "mystic", effectSource: "mark", effectEnhanced: true };
   }
   if (args.eventCode === "ability_suppressed") {
@@ -508,6 +508,9 @@ function eventOverlayKindForFeedItem(eventCode: string): EventOverlayEffectKind 
       return "trick";
     case "mark_resolved":
     case "mark_queued":
+    case "mark_target_none":
+    case "mark_target_missing":
+    case "mark_blocked":
       return "mark_success";
     case "ability_suppressed":
       return "economy";
@@ -881,6 +884,10 @@ export function App() {
         "landing_resolved",
         "trick_used",
         "mark_resolved",
+        "mark_queued",
+        "mark_target_none",
+        "mark_target_missing",
+        "mark_blocked",
         "marker_flip",
         "marker_transferred",
       ].includes(item.eventCode)
@@ -1698,7 +1705,7 @@ export function App() {
           eventQueue.enqueue({ kind: "move", label: locale === "ko" ? "잔꾀 이동" : "Trick move", detail: moveDetail });
         }
         eventQueue.enqueue({ kind: "trick", label, detail, ...effect("trick") });
-      } else if (eventCode === "mark_resolved" || eventCode === "mark_queued") {
+      } else if (eventCode.startsWith("mark_")) {
         const moveDetail = sourcePayload ? movementOverlayDetail(sourcePayload, locale) : null;
         if (moveDetail) {
           eventQueue.enqueue({ kind: "move", label: locale === "ko" ? "지목 이동" : "Mark move", detail: moveDetail });

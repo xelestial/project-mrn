@@ -99,6 +99,38 @@ class StreamService:
                 self._persist_stream_state()
             return item
 
+    async def emit_snapshot_pulse(
+        self,
+        session_id: str,
+        *,
+        reason: str,
+        target_player_id: int | None = None,
+    ) -> StreamMessage | None:
+        async with self._lock:
+            viewer = (
+                ViewerContext(role="seat", session_id=session_id, player_id=target_player_id)
+                if target_player_id is not None
+                else ViewerContext(role="spectator", session_id=session_id)
+            )
+            if self._load_cached_view_commit_no_lock(session_id, viewer) is None:
+                return None
+            payload = {
+                "reason": str(reason or "snapshot_guardrail"),
+                "scope": "player" if target_player_id is not None else "all",
+            }
+            if target_player_id is not None:
+                payload["target_player_id"] = int(target_player_id)
+            item = self._append_stream_message_no_lock(
+                session_id,
+                "snapshot_pulse",
+                payload,
+                server_time_ms=int(time.time() * 1000),
+            )
+            self._broadcast_no_lock(session_id, item)
+            if self._stream_backend is None:
+                self._persist_stream_state()
+            return item
+
     async def snapshot(self, session_id: str) -> list[StreamMessage]:
         async with self._lock:
             if self._stream_backend is not None:
@@ -127,8 +159,11 @@ class StreamService:
 
     async def project_message_for_viewer(self, message: dict, viewer: ViewerContext) -> dict | None:
         async with self._lock:
-            if str(message.get("type") or "") == "view_commit":
+            msg_type = str(message.get("type") or "")
+            if msg_type == "view_commit":
                 return self._view_commit_message_for_viewer_no_lock(message, viewer)
+            if msg_type == "snapshot_pulse":
+                return self._snapshot_pulse_message_for_viewer_no_lock(message, viewer)
             filtered = project_stream_message_for_viewer(message, viewer)
             if filtered is None:
                 return None
@@ -347,7 +382,7 @@ class StreamService:
         records = [
             record
             for record in self._history_records_no_lock(session_id)
-            if str(record.get("type") or "") != "view_commit"
+            if str(record.get("type") or "") not in {"view_commit", "snapshot_pulse"}
         ]
         if through_seq is None:
             return records
@@ -489,6 +524,26 @@ class StreamService:
         except Exception:
             return 0
 
+    @staticmethod
+    def _commit_seq_from_payload(payload: dict) -> int:
+        try:
+            return int(payload.get("commit_seq", 0) or 0)
+        except Exception:
+            return 0
+
+    def _latest_view_commit_record_no_lock(self, session_id: str, *, commit_seq: int) -> dict | None:
+        if commit_seq <= 0:
+            return None
+        for message in reversed(self._history_records_no_lock(session_id)):
+            if str(message.get("type") or "") != "view_commit":
+                continue
+            payload = message.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            if self._commit_seq_from_payload(payload) == commit_seq:
+                return message
+        return None
+
     def _view_commit_message_for_viewer_no_lock(self, message: dict, viewer: ViewerContext) -> dict | None:
         session_id = str(message.get("session_id") or viewer.session_id or "").strip()
         payload = message.get("payload")
@@ -502,17 +557,84 @@ class StreamService:
         return None
 
     def _latest_view_commit_message_for_viewer_no_lock(self, session_id: str, viewer: ViewerContext) -> dict | None:
-        return self._load_cached_view_commit_no_lock(session_id, viewer)
+        cached = self._load_cached_view_commit_no_lock(session_id, viewer)
+        if cached is None:
+            return None
+        payload = cached.get("payload")
+        payload = payload if isinstance(payload, dict) else {}
+        emitted = self._latest_view_commit_record_no_lock(
+            session_id,
+            commit_seq=self._commit_seq_from_payload(payload),
+        )
+        if emitted is not None:
+            cached["seq"] = self._message_seq(emitted)
+            cached["server_time_ms"] = int(emitted.get("server_time_ms", 0) or cached.get("server_time_ms") or 0)
+        return cached
+
+    def _snapshot_pulse_message_for_viewer_no_lock(self, message: dict, viewer: ViewerContext) -> dict | None:
+        session_id = str(message.get("session_id") or viewer.session_id or "").strip()
+        pulse_payload = message.get("payload")
+        if not session_id or not isinstance(pulse_payload, dict):
+            return None
+        target_player_id = self._optional_int(pulse_payload.get("target_player_id"))
+        if target_player_id is not None and not (
+            viewer.is_admin or viewer.is_backend or (viewer.is_seat and viewer.player_id == target_player_id)
+        ):
+            return None
+        cached = self._load_cached_view_commit_no_lock(session_id, viewer)
+        if cached is None:
+            return None
+        payload = cached.get("payload")
+        if not isinstance(payload, dict):
+            return None
+        payload = dict(payload)
+        pulse = {
+            "reason": str(pulse_payload.get("reason") or "snapshot_guardrail"),
+            "scope": "player" if target_player_id is not None else "all",
+        }
+        if target_player_id is not None:
+            pulse["target_player_id"] = target_player_id
+        payload["snapshot_pulse"] = pulse
+        return {
+            "type": "snapshot_pulse",
+            "seq": self._message_seq(message),
+            "session_id": session_id,
+            "server_time_ms": int(message.get("server_time_ms", 0) or cached.get("server_time_ms") or 0),
+            "payload": payload,
+        }
 
     def _load_cached_view_commit_no_lock(self, session_id: str, viewer: ViewerContext) -> dict | None:
         if self._game_state_store is None or not callable(getattr(self._game_state_store, "load_view_commit", None)):
             return None
+        expected_commit_seq = 0
+        if callable(getattr(self._game_state_store, "load_view_commit_index", None)):
+            index = self._game_state_store.load_view_commit_index(session_id)
+            if isinstance(index, dict):
+                expected_commit_seq = self._commit_seq_from_payload({"commit_seq": index.get("latest_commit_seq")})
+        candidates: list[tuple[str, int | None]] = []
         if viewer.is_seat and viewer.player_id is not None:
-            payload = self._game_state_store.load_view_commit(session_id, "player", player_id=viewer.player_id)
+            candidates.append(("player", viewer.player_id))
+            candidates.append(("spectator", None))
         elif viewer.is_admin:
-            payload = self._game_state_store.load_view_commit(session_id, "admin")
+            candidates.append(("admin", None))
+            candidates.append(("spectator", None))
         else:
-            payload = self._game_state_store.load_view_commit(session_id, "spectator")
+            candidates.append(("spectator", None))
+            candidates.append(("public", None))
+        payload = None
+        for candidate_viewer, candidate_player_id in candidates:
+            candidate = self._game_state_store.load_view_commit(
+                session_id,
+                candidate_viewer,
+                player_id=candidate_player_id,
+            )
+            if not isinstance(candidate, dict):
+                continue
+            candidate_commit_seq = self._commit_seq_from_payload(candidate)
+            if expected_commit_seq > 0 and candidate_commit_seq < expected_commit_seq:
+                continue
+            payload = candidate
+            break
         if not isinstance(payload, dict):
             return None
         return {
@@ -522,6 +644,15 @@ class StreamService:
             "server_time_ms": int(time.time() * 1000),
             "payload": payload,
         }
+
+    @staticmethod
+    def _optional_int(value: object) -> int | None:
+        try:
+            if value is None or value == "":
+                return None
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     def _maybe_append_command(self, item: StreamMessage) -> None:
         payload = item.payload

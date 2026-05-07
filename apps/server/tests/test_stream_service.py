@@ -62,6 +62,15 @@ class FakeProjectionStore:
         viewers = set(str(item) for item in checkpoint.get("view_commit_viewers", []))
         viewers.add(label)
         checkpoint["view_commit_viewers"] = sorted(viewers)
+        checkpoint["latest_commit_seq"] = max(
+            int(checkpoint.get("latest_commit_seq") or 0),
+            int(payload.get("commit_seq") or 0),
+        )
+        checkpoint["latest_source_event_seq"] = max(
+            int(checkpoint.get("latest_source_event_seq") or 0),
+            int(payload.get("source_event_seq") or 0),
+        )
+        checkpoint["has_view_commit"] = True
 
     def load_view_commit(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict | None:
         label = f"player:{player_id}" if viewer in {"player", "seat"} and player_id is not None else viewer
@@ -302,6 +311,82 @@ class StreamServiceTests(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_latest_view_commit_for_target_falls_back_to_public_snapshot_when_player_commit_missing(self) -> None:
+        store = FakeProjectionStore()
+        service = StreamService(game_state_store=store)
+
+        async def _run() -> None:
+            store.save_view_commit(
+                "s1",
+                {
+                    "schema_version": 1,
+                    "commit_seq": 8,
+                    "source_event_seq": 7,
+                    "viewer": {"role": "spectator"},
+                    "runtime": {"status": "running"},
+                    "view_state": {"turn_stage": {"current_beat_event_code": "turn_start"}},
+                },
+                viewer="spectator",
+            )
+
+            latest = await service.latest_view_commit_message_for_viewer(
+                "s1",
+                ViewerContext(role="seat", session_id="s1", player_id=2),
+            )
+
+            self.assertIsNotNone(latest)
+            self.assertEqual(latest["payload"]["viewer"]["role"], "spectator")
+            self.assertEqual(latest["payload"]["commit_seq"], 8)
+            self.assertEqual(latest["payload"]["view_state"]["turn_stage"]["current_beat_event_code"], "turn_start")
+
+        asyncio.run(_run())
+
+    def test_latest_view_commit_for_target_ignores_stale_player_commit_when_public_is_newer(self) -> None:
+        store = FakeProjectionStore()
+        service = StreamService(game_state_store=store)
+
+        async def _run() -> None:
+            store.save_view_commit(
+                "s1",
+                {
+                    "schema_version": 1,
+                    "commit_seq": 8,
+                    "source_event_seq": 7,
+                    "viewer": {"role": "seat", "player_id": 1},
+                    "runtime": {"status": "waiting_input"},
+                    "view_state": {
+                        "prompt": {"active": {"request_id": "stale_req"}},
+                        "hand_tray": {"cards": [{"name": "낡은 패"}]},
+                    },
+                },
+                viewer="player",
+                player_id=1,
+            )
+            store.save_view_commit(
+                "s1",
+                {
+                    "schema_version": 1,
+                    "commit_seq": 9,
+                    "source_event_seq": 8,
+                    "viewer": {"role": "spectator"},
+                    "runtime": {"status": "running"},
+                    "view_state": {"prompt": {"active": None}, "board": {"tile_count": 40}},
+                },
+                viewer="spectator",
+            )
+
+            latest = await service.latest_view_commit_message_for_viewer(
+                "s1",
+                ViewerContext(role="seat", session_id="s1", player_id=1),
+            )
+
+            self.assertIsNotNone(latest)
+            self.assertEqual(latest["payload"]["viewer"]["role"], "spectator")
+            self.assertEqual(latest["payload"]["commit_seq"], 9)
+            self.assertEqual(latest["payload"]["view_state"], {"prompt": {"active": None}, "board": {"tile_count": 40}})
+
+        asyncio.run(_run())
+
     def test_publish_does_not_write_live_game_state(self) -> None:
         store = FakeProjectionStore()
         service = StreamService(game_state_store=store)
@@ -393,6 +478,42 @@ class StreamServiceTests(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_latest_view_commit_uses_emitted_stream_seq_when_available(self) -> None:
+        store = FakeProjectionStore()
+        service = StreamService(game_state_store=store)
+
+        async def _run() -> None:
+            await service.publish(
+                "s1",
+                "event",
+                {
+                    "event_type": "turn_start",
+                    "round_index": 1,
+                    "turn_index": 1,
+                    "acting_player_id": 1,
+                },
+            )
+            store.view_commits[("s1", "spectator")] = {
+                "schema_version": 1,
+                "commit_seq": 7,
+                "source_event_seq": 1,
+                "viewer": {"role": "spectator"},
+                "runtime": {"status": "running"},
+                "view_state": {"cached": True},
+            }
+            emitted = await service.emit_latest_view_commit("s1")
+
+            latest = await service.latest_view_commit_message_for_viewer(
+                "s1",
+                ViewerContext(role="spectator", session_id="s1"),
+            )
+
+            self.assertIsNotNone(emitted)
+            self.assertEqual(latest["seq"], emitted.seq)
+            self.assertNotEqual(latest["seq"], latest["payload"]["commit_seq"])
+
+        asyncio.run(_run())
+
     def test_latest_view_commit_keeps_cached_commit_even_when_source_stream_advanced(self) -> None:
         store = FakeProjectionStore()
         service = StreamService(game_state_store=store)
@@ -469,6 +590,127 @@ class StreamServiceTests(unittest.TestCase):
             self.assertEqual(emitted.payload["runtime"]["status"], "completed")
             self.assertEqual(snapshot[-1].type, "view_commit")
             self.assertEqual(store.view_commits[("s1", "spectator")]["source_event_seq"], 4)
+
+        asyncio.run(_run())
+
+    def test_emit_snapshot_pulse_broadcasts_pointer_without_raw_commit_payload(self) -> None:
+        store = FakeProjectionStore()
+        service = StreamService(game_state_store=store)
+
+        async def _run() -> None:
+            store.save_view_commit(
+                "s1",
+                {
+                    "schema_version": 1,
+                    "commit_seq": 12,
+                    "source_event_seq": 9,
+                    "viewer": {"role": "spectator"},
+                    "runtime": {"status": "running"},
+                    "view_state": {"turn_stage": {"round_index": 2}},
+                },
+                viewer="spectator",
+            )
+
+            emitted = await service.emit_snapshot_pulse("s1", reason="round_start_guardrail")
+            snapshot = await service.snapshot("s1")
+
+            self.assertIsNotNone(emitted)
+            self.assertEqual(emitted.type, "snapshot_pulse")
+            self.assertEqual(emitted.payload["reason"], "round_start_guardrail")
+            self.assertNotIn("view_state", emitted.payload)
+            self.assertNotIn("commit_seq", emitted.payload)
+            self.assertEqual(snapshot[-1].type, "snapshot_pulse")
+
+        asyncio.run(_run())
+
+    def test_snapshot_pulse_projects_latest_cached_commit_for_viewer(self) -> None:
+        store = FakeProjectionStore()
+        service = StreamService(game_state_store=store)
+
+        async def _run() -> None:
+            store.save_view_commit(
+                "s1",
+                {
+                    "schema_version": 1,
+                    "commit_seq": 12,
+                    "source_event_seq": 9,
+                    "viewer": {"role": "seat", "player_id": 1},
+                    "runtime": {"status": "waiting_input"},
+                    "view_state": {"prompt": {"active": {"request_id": "req_turn_start"}}},
+                },
+                viewer="player",
+                player_id=1,
+            )
+
+            emitted = await service.emit_snapshot_pulse(
+                "s1",
+                reason="turn_start_guardrail",
+                target_player_id=1,
+            )
+            self.assertIsNotNone(emitted)
+            projected = await service.project_message_for_viewer(
+                emitted.to_dict(),
+                ViewerContext(role="seat", session_id="s1", player_id=1),
+            )
+
+            self.assertIsNotNone(projected)
+            self.assertEqual(projected["type"], "snapshot_pulse")
+            self.assertEqual(projected["seq"], emitted.seq)
+            self.assertEqual(projected["payload"]["commit_seq"], 12)
+            self.assertEqual(projected["payload"]["snapshot_pulse"]["reason"], "turn_start_guardrail")
+            self.assertEqual(projected["payload"]["view_state"]["prompt"]["active"]["request_id"], "req_turn_start")
+
+        asyncio.run(_run())
+
+    def test_targeted_snapshot_pulse_is_hidden_from_other_players_and_spectators(self) -> None:
+        store = FakeProjectionStore()
+        service = StreamService(game_state_store=store)
+
+        async def _run() -> None:
+            store.save_view_commit(
+                "s1",
+                {
+                    "schema_version": 1,
+                    "commit_seq": 12,
+                    "source_event_seq": 9,
+                    "viewer": {"role": "seat", "player_id": 1},
+                    "runtime": {"status": "waiting_input"},
+                    "view_state": {"prompt": {"active": {"request_id": "req_turn_start"}}},
+                },
+                viewer="player",
+                player_id=1,
+            )
+            store.save_view_commit(
+                "s1",
+                {
+                    "schema_version": 1,
+                    "commit_seq": 12,
+                    "source_event_seq": 9,
+                    "viewer": {"role": "spectator"},
+                    "runtime": {"status": "running"},
+                    "view_state": {"prompt": {"active": None}},
+                },
+                viewer="spectator",
+            )
+
+            emitted = await service.emit_snapshot_pulse(
+                "s1",
+                reason="turn_start_guardrail",
+                target_player_id=1,
+            )
+            self.assertIsNotNone(emitted)
+
+            other = await service.project_message_for_viewer(
+                emitted.to_dict(),
+                ViewerContext(role="seat", session_id="s1", player_id=2),
+            )
+            spectator = await service.project_message_for_viewer(
+                emitted.to_dict(),
+                ViewerContext(role="spectator", session_id="s1"),
+            )
+
+            self.assertIsNone(other)
+            self.assertIsNone(spectator)
 
         asyncio.run(_run())
 

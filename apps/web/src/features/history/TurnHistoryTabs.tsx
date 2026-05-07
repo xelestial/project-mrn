@@ -46,7 +46,7 @@ function primaryEventPlayerId(event: TurnHistoryEvent, turn: TurnHistoryTurn): n
   if (event.eventCode === "rent_paid") {
     return participantPlayerId(event, ["payer", "payer_player_id", "owner", "owner_player_id"]) ?? turn.actorPlayerId;
   }
-  if (event.eventCode === "mark_queued" || event.eventCode === "mark_resolved") {
+  if (event.eventCode.startsWith("mark_")) {
     return participantPlayerId(event, ["source", "source_player_id", "target", "target_player_id"]) ?? turn.actorPlayerId;
   }
   return participantPlayerId(event, ["source", "payer", "target", "owner", "from", "to"]) ?? turn.actorPlayerId;

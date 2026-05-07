@@ -738,7 +738,8 @@ export const enLocale = {
     weatherSummaryLine: (weatherName: string, weatherEffect: string) =>
       weatherEffect && weatherEffect !== "-" ? `${weatherName} / ${weatherEffect}` : weatherName,
     roundTurnLabel: (round: number | null, turn: number | null) => `R${round ?? "-"} / T${turn ?? "-"}`,
-    turnStartDetail: (actor: string) => `${actor} / turn start`,
+    turnStartDetail: (actor: string, character?: string) =>
+      character && character !== "-" ? `${actor} / ${character} / turn start` : `${actor} / turn start`,
     sequenceIndex: (index: number, total: number) => `${index}/${total}`,
     sequenceBeat: {
       weather: "Apply the weather for this turn",

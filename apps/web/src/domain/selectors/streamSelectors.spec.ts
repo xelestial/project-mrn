@@ -517,6 +517,53 @@ describe("streamSelectors authoritative ViewCommit contract", () => {
     });
   });
 
+  it("renders unresolved mark outcomes in the current reveal layer", () => {
+    const viewState = JSON.parse(JSON.stringify(authoritativeViewState)) as Record<string, unknown>;
+    viewState["reveals"] = {
+      items: [
+        {
+          seq: 81,
+          event_code: "mark_target_missing",
+          label: "지목 대상 불일치",
+          detail: "P4 / 지목 대상 건설업자을(를) 현재 차례 순서에서 찾지 못함",
+          tone: "effect",
+          focus_tile_index: null,
+          is_interrupt: false,
+        },
+        {
+          seq: 82,
+          event_code: "mark_blocked",
+          label: "지목 차단",
+          detail: "P4 / P3 (중매꾼) 지목이 공개 상태라 차단됨",
+          tone: "effect",
+          focus_tile_index: null,
+          is_interrupt: false,
+        },
+      ],
+    };
+
+    expect(selectCurrentTurnRevealItems([viewCommit(14, viewState)])).toEqual([
+      {
+        seq: 81,
+        eventCode: "mark_target_missing",
+        label: "지목 대상 불일치",
+        detail: "P4 / 지목 대상 건설업자을(를) 현재 차례 순서에서 찾지 못함",
+        tone: "effect",
+        focusTileIndex: null,
+        isInterrupt: false,
+      },
+      {
+        seq: 82,
+        eventCode: "mark_blocked",
+        label: "지목 차단",
+        detail: "P4 / P3 (중매꾼) 지목이 공개 상태라 차단됨",
+        tone: "effect",
+        focusTileIndex: null,
+        isInterrupt: false,
+      },
+    ]);
+  });
+
   it("projects turn history tabs and local relevance from ViewCommit only", () => {
     const viewState = JSON.parse(JSON.stringify(authoritativeViewState)) as Record<string, unknown>;
     viewState["turn_history"] = {
@@ -751,6 +798,95 @@ describe("streamSelectors authoritative ViewCommit contract", () => {
       detail: "도착 결과 / 6번 칸",
       relevance: "important",
       focusTileIndices: [5],
+    });
+  });
+
+  it("renders turn-start character names and mark attempts in turn history", () => {
+    const viewState = JSON.parse(JSON.stringify(authoritativeViewState)) as Record<string, unknown>;
+    viewState["turn_history"] = {
+      current_key: "r1:t3",
+      turns: [
+        {
+          key: "r1:t3",
+          round_index: 1,
+          turn_index: 3,
+          actor_player_id: 4,
+          event_count: 3,
+          important_count: 2,
+          events: [
+            {
+              seq: 10,
+              event_code: "turn_start",
+              payload: {
+                event_type: "turn_start",
+                round_index: 1,
+                turn_index: 3,
+                acting_player_id: 4,
+                character: "어사",
+              },
+              tone: "system",
+              relevance: "public",
+              participants: { actor_player_id: 4 },
+              focus_tile_indices: [],
+              resource_delta: null,
+              end_time_delta: null,
+            },
+            {
+              seq: 11,
+              event_code: "mark_queued",
+              payload: {
+                event_type: "mark_queued",
+                round_index: 1,
+                turn_index: 3,
+                source_player_id: 4,
+                target_player_id: 2,
+                target_character: "교리 연구관",
+                effect_type: "baksu_transfer",
+              },
+              tone: "critical",
+              relevance: "important",
+              participants: { source: 4, target: 2 },
+              focus_tile_indices: [],
+              resource_delta: null,
+              end_time_delta: null,
+            },
+            {
+              seq: 12,
+              event_code: "mark_target_missing",
+              payload: {
+                event_type: "mark_target_missing",
+                round_index: 1,
+                turn_index: 3,
+                source_player_id: 4,
+                target_character: "건설업자",
+              },
+              tone: "critical",
+              relevance: "important",
+              participants: { source: 4 },
+              focus_tile_indices: [],
+              resource_delta: null,
+              end_time_delta: null,
+            },
+          ],
+        },
+      ],
+    };
+
+    const history = selectTurnHistory([viewCommit(13, viewState)], 4);
+
+    expect(history.latestTurn?.events[0]).toMatchObject({
+      eventCode: "turn_start",
+      detail: "P4 / 어사 / 턴 시작",
+    });
+    expect(history.latestTurn?.events[1]).toMatchObject({
+      eventCode: "mark_queued",
+      detail: "[박수] P4 -> P2 / 교리 연구관 / 대상 턴 시작 최우선 처리 예약",
+      relevance: "mine-critical",
+    });
+    expect(history.latestTurn?.events[2]).toMatchObject({
+      eventCode: "mark_target_missing",
+      detail: "P4 / 지목 대상 건설업자을(를) 현재 차례 순서에서 찾지 못함",
+      relevance: "mine-critical",
     });
   });
 });

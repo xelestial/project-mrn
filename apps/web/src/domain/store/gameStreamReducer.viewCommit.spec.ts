@@ -3,12 +3,17 @@ import { describe, expect, it } from "vitest";
 import type { InboundMessage } from "../../core/contracts/stream";
 import { gameStreamReducer, initialGameStreamState } from "./gameStreamReducer";
 
-function viewCommit(commitSeq: number, viewState: Record<string, unknown>): InboundMessage {
+function viewCommit(
+  commitSeq: number,
+  viewState: Record<string, unknown>,
+  options: { seq?: number; serverTimeMs?: number } = {},
+): InboundMessage {
+  const seq = options.seq ?? commitSeq;
   return {
     type: "view_commit",
-    seq: commitSeq,
+    seq,
     session_id: "sess_view_commit_1",
-    server_time_ms: 1000 + commitSeq,
+    server_time_ms: options.serverTimeMs ?? 1000 + seq,
     payload: {
       schema_version: 1,
       commit_seq: commitSeq,
@@ -24,6 +29,28 @@ function viewCommit(commitSeq: number, viewState: Record<string, unknown>): Inbo
         module_path: ["frame-1", "module-1"],
       },
       view_state: viewState,
+    },
+  } as InboundMessage;
+}
+
+function snapshotPulse(
+  commitSeq: number,
+  viewState: Record<string, unknown>,
+  options: { seq?: number; serverTimeMs?: number } = {},
+): InboundMessage {
+  const seq = options.seq ?? commitSeq;
+  return {
+    ...viewCommit(commitSeq, viewState, options),
+    type: "snapshot_pulse",
+    seq,
+    server_time_ms: options.serverTimeMs ?? 1000 + seq,
+    payload: {
+      ...viewCommit(commitSeq, viewState, options).payload,
+      snapshot_pulse: {
+        reason: "turn_start_guardrail",
+        scope: "player",
+        target_player_id: 1,
+      },
     },
   } as InboundMessage;
 }
@@ -93,6 +120,80 @@ describe("gameStreamReducer authoritative view commits", () => {
       turn_stage: { round_index: 3 },
       board: { tile_count: 40 },
     });
+  });
+
+  it("accepts same-commit repair when the server sends a later stream message", () => {
+    const committed = gameStreamReducer(initialGameStreamState, {
+      type: "message",
+      message: viewCommit(12, { prompt: { active: { request_id: "old" } } }, { seq: 40 }),
+    });
+
+    const repaired = gameStreamReducer(committed, {
+      type: "message",
+      message: viewCommit(12, { prompt: { active: null }, board: { tile_count: 40 } }, { seq: 42 }),
+    });
+
+    expect(repaired.messages.map((message) => message.seq)).toEqual([42]);
+    expect((repaired as any).lastCommitSeq).toBe(12);
+    expect((repaired as any).latestCommit?.view_state).toEqual({
+      prompt: { active: null },
+      board: { tile_count: 40 },
+    });
+  });
+
+  it("accepts snapshot_pulse as same-commit live repair", () => {
+    const committed = gameStreamReducer(initialGameStreamState, {
+      type: "message",
+      message: viewCommit(12, { prompt: { active: { request_id: "old" } } }, { seq: 40 }),
+    });
+
+    const repaired = gameStreamReducer(committed, {
+      type: "message",
+      message: snapshotPulse(12, { prompt: { active: null }, board: { tile_count: 40 } }, { seq: 42 }),
+    });
+
+    expect(repaired.messages.map((message) => message.seq)).toEqual([42]);
+    expect(repaired.messages[0].type).toBe("view_commit");
+    expect(repaired.debugMessages.at(-1)?.type).toBe("snapshot_pulse");
+    expect((repaired as any).lastCommitSeq).toBe(12);
+    expect((repaired as any).latestCommit?.view_state).toEqual({
+      prompt: { active: null },
+      board: { tile_count: 40 },
+    });
+  });
+
+  it("ignores same-commit repair when it has a lower stream seq even with a newer timestamp", () => {
+    const committed = gameStreamReducer(initialGameStreamState, {
+      type: "message",
+      message: viewCommit(12, { prompt: { active: { request_id: "old" } } }, { seq: 40, serverTimeMs: 5000 }),
+    });
+
+    const stale = gameStreamReducer(committed, {
+      type: "message",
+      message: viewCommit(12, { prompt: { active: null } }, { seq: 12, serverTimeMs: 6000 }),
+    });
+
+    expect(stale.messages.map((message) => message.seq)).toEqual([40]);
+    expect((stale as any).latestCommit?.view_state).toEqual({ prompt: { active: { request_id: "old" } } });
+  });
+
+  it("ignores older same-commit payloads", () => {
+    const committed = gameStreamReducer(initialGameStreamState, {
+      type: "message",
+      message: viewCommit(12, { prompt: { active: null } }, { seq: 40, serverTimeMs: 5000 }),
+    });
+
+    const stale = gameStreamReducer(committed, {
+      type: "message",
+      message: viewCommit(
+        12,
+        { prompt: { active: { request_id: "stale" } } },
+        { seq: 12, serverTimeMs: 4000 },
+      ),
+    });
+
+    expect(stale.messages.map((message) => message.seq)).toEqual([40]);
+    expect((stale as any).latestCommit?.view_state).toEqual({ prompt: { active: null } });
   });
 
   it("does not let older repair commits overwrite a newer known commit sequence", () => {

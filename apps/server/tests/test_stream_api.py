@@ -166,6 +166,18 @@ class StreamApiTests(unittest.TestCase):
         _reset_state(max_buffer=256, heartbeat_interval_ms=250)
         self.client = TestClient(app)
 
+    def test_send_json_or_disconnect_treats_closed_socket_as_disconnect(self) -> None:
+        from starlette.websockets import WebSocketDisconnect
+
+        from apps.server.src.routes.stream import _send_json_or_disconnect
+
+        class ClosedWebSocket:
+            async def send_json(self, _payload: dict) -> None:
+                raise RuntimeError('Cannot call "send" once a close message has been sent.')
+
+        with self.assertRaises(WebSocketDisconnect):
+            asyncio.run(_send_json_or_disconnect(ClosedWebSocket(), {"type": "heartbeat"}))  # type: ignore[arg-type]
+
     def test_resume_uses_latest_view_commit_without_gap_replay(self) -> None:
         from apps.server.src import state
 

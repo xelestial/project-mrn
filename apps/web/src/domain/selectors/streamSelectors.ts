@@ -547,6 +547,10 @@ function isMoveEventCode(eventCode: string): boolean {
   return eventCode === "player_move" || eventCode === "action_move" || eventCode === "fortune_move" || eventCode === "forced_move" || eventCode === "chain_move";
 }
 
+function isMarkEventCode(eventCode: string): boolean {
+  return eventCode.startsWith("mark_");
+}
+
 function turnBeatKindFromEventCode(eventCode: string): TurnStageViewModel["currentBeatKind"] {
   if (eventCode === "dice_roll" || isMoveEventCode(eventCode)) {
     return "move";
@@ -561,8 +565,7 @@ function turnBeatKindFromEventCode(eventCode: string): TurnStageViewModel["curre
     eventCode === "trick_used" ||
     eventCode === "marker_flip" ||
     eventCode === "marker_transferred" ||
-    eventCode === "mark_queued" ||
-    eventCode === "mark_resolved" ||
+    isMarkEventCode(eventCode) ||
     eventCode === "landing_resolved" ||
     eventCode === "f_value_change"
   ) {
@@ -634,7 +637,8 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
   const payload = message.payload;
   const eventType = messageKindFromPayload(payload);
   if (eventType === "turn_start") {
-    return text.turnStage.turnStartDetail(actorFromPayload(payload));
+    const character = asString(payload["character"] ?? payload["actor_name"] ?? payload["current_character"]);
+    return text.turnStage.turnStartDetail(actorFromPayload(payload), character !== "-" ? character : undefined);
   }
   if (isMoveEventCode(eventType)) {
     return summarizePlayerMove(payload, text.stream);
@@ -984,6 +988,9 @@ const CURRENT_TURN_REVEAL_EVENT_CODES = new Set<string>([
   "fortune_resolved",
   "mark_queued",
   "mark_resolved",
+  "mark_target_none",
+  "mark_target_missing",
+  "mark_blocked",
   "ability_suppressed",
   "f_value_change",
   "marker_flip",
@@ -1010,6 +1017,9 @@ const CURRENT_TURN_REVEAL_ORDER: Record<string, number> = {
   fortune_resolved: 70,
   mark_queued: 76,
   mark_resolved: 78,
+  mark_target_none: 78,
+  mark_target_missing: 78,
+  mark_blocked: 78,
   ability_suppressed: 79,
   f_value_change: 84,
   marker_transferred: 80,
@@ -1230,6 +1240,9 @@ const TURN_HISTORY_IMPORTANT_EVENT_CODES = new Set<string>([
   "fortune_resolved",
   "mark_queued",
   "mark_resolved",
+  "mark_target_none",
+  "mark_target_missing",
+  "mark_blocked",
   "f_value_change",
   "resource_gain",
   "cash_gain",
@@ -1353,7 +1366,7 @@ function localRelevanceForTurnHistory(
       return "mine-critical";
     }
     if (
-      (eventCode === "mark_queued" || eventCode === "mark_resolved") &&
+      eventCode.startsWith("mark_") &&
       (participants.source === focusPlayerId || participants.target === focusPlayerId)
     ) {
       return "mine-critical";
@@ -1963,8 +1976,7 @@ function isMovementBearingEvent(eventCode: string): boolean {
     isMoveEventCode(eventCode) ||
     eventCode === "fortune_resolved" ||
     eventCode === "trick_used" ||
-    eventCode === "mark_queued" ||
-    eventCode === "mark_resolved"
+    isMarkEventCode(eventCode)
   );
 }
 

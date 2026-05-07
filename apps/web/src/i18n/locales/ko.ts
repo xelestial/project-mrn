@@ -743,7 +743,8 @@ export const koLocale = {
     weatherSummaryLine: (weatherName: string, weatherEffect: string) =>
       weatherEffect && weatherEffect !== "-" ? `${weatherName} / ${weatherEffect}` : weatherName,
     roundTurnLabel: (round: number | null, turn: number | null) => `R${round ?? "-"} / T${turn ?? "-"}`,
-    turnStartDetail: (actor: string) => `${actor} / 턴 시작`,
+    turnStartDetail: (actor: string, character?: string) =>
+      character && character !== "-" ? `${actor} / ${character} / 턴 시작` : `${actor} / 턴 시작`,
     sequenceIndex: (index: number, total: number) => `${index}/${total}`,
     sequenceBeat: {
       weather: "이번 턴 날씨 효과 반영",

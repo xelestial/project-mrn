@@ -47,6 +47,9 @@ function journeyPriority(item: CoreActionItem): number {
     case "marker_flip":
     case "mark_queued":
     case "mark_resolved":
+    case "mark_target_none":
+    case "mark_target_missing":
+    case "mark_blocked":
     case "marker_transferred":
       return 3;
     case "fortune_drawn":

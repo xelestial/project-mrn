@@ -40,7 +40,7 @@ class RedisStreamStore:
             "payload": _json_dump(payload),
         }
         stream_id = client.xadd(self._stream_key(session_id), fields, maxlen=max(1, int(max_buffer)), approximate=False)
-        if msg_type != "view_commit":
+        if msg_type not in {"view_commit", "snapshot_pulse"}:
             client.xadd(
                 self._source_stream_key(session_id),
                 fields,
@@ -71,7 +71,7 @@ class RedisStreamStore:
         return [
             self._decode_stream_entry(entry_id, fields)
             for entry_id, fields in client.xrange(self._stream_key(session_id))
-            if str(fields.get("type") or "") != "view_commit"
+            if str(fields.get("type") or "") not in {"view_commit", "snapshot_pulse"}
             and (through_seq is None or self._entry_seq(fields) <= int(through_seq))
         ]
 
@@ -487,6 +487,8 @@ class RedisGameStateStore:
         server_time_ms = int(message.get("server_time_ms", 0))
         message_type = str(message.get("type") or "").strip()
         previous = self.load_checkpoint(session_id) or {}
+        if message_type == "snapshot_pulse":
+            return
         if message_type == "view_commit":
             self._apply_view_commit_message(
                 session_id,
