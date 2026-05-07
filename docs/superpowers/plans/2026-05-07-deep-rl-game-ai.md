@@ -358,7 +358,7 @@ git commit -m "Gate RL policy behind explicit mode"
 
 Add a comparison path that runs `heuristic_v3_engine` vs `rl_v1` over the same seeds and records win rate, average rank, bankruptcy rate, average cash delta, illegal-action count, timeout count, and runtime failure count.
 
-Current implementation starts with a lightweight seed-matrix runner instead of modifying `compare_policies.py`: `engine/rl/seed_matrix.py` runs `rl_v1` across deterministic seeds and counts `errors.jsonl` runtime failures. `engine/rl/evaluation_report.py` compares numeric summary artifacts and attaches policy evaluation/seed-matrix output.
+Current implementation uses `engine/compare_policies.py` as the release gate. It runs baseline and candidate policies over the same seed stream, emits `comparison.json`, and keeps the earlier seed matrix as a broader smoke/regression helper.
 
 - [x] **Step 2: Add acceptance thresholds**
 
@@ -377,7 +377,7 @@ Run:
 
 ```bash
 cd engine
-../.venv/bin/python compare_policies.py --simulations 200 --seed 20260507 --candidate-policy rl_v1 --baseline-policy heuristic_v3_engine
+../.venv/bin/python compare_policies.py --simulations 200 --seed 20260507 --candidate-policy rl_v1 --baseline-policy heuristic_v3_engine --candidate-model-dir ../tmp/rl/model --compact
 ```
 
 Expected: report is written even if candidate fails thresholds.

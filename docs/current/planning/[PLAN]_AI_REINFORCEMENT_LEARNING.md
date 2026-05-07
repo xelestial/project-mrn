@@ -284,6 +284,12 @@ Files:
 - Modify: `engine/simulate_with_logs.py`
 - Create: `docs/current/ai/`
 
+Current deep-RL implementation note:
+
+- `engine/compare_policies.py` now provides the active RL gate for `heuristic_v3_engine` vs `rl_v1`.
+- `docs/current/ai/rl-evaluation-gate.md` is the current command/threshold contract.
+- The original cashlearn-specific metrics below remain useful future reward analysis, but they are no longer the only acceptance path.
+
 Work:
 
 1. Compare baseline vs cashlearn over fixed seeds.
