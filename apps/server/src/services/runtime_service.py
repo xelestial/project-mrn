@@ -49,6 +49,10 @@ _PROMPT_BOUNDARY_PUBLISH_TIMEOUT_SECONDS = 5.0
 _PROMPT_BOUNDARY_PUBLISH_ATTEMPTS = 3
 
 
+def _duration_ms(started: float) -> int:
+    return int((time.perf_counter() - started) * 1000)
+
+
 def resolve_runtime_runner_kind(runtime: dict | None, settings: RuntimeSettings | None = None) -> str:
     del runtime, settings
     return "module"
@@ -1120,6 +1124,7 @@ class RuntimeService:
         seed: int = 42,
         policy_mode: str | None = None,
     ) -> dict:
+        process_started = time.perf_counter()
         command_seq = int(command_seq)
         task_guard = self._runtime_task_processing_guard(
             session_id=session_id,
@@ -1190,6 +1195,16 @@ class RuntimeService:
                 first_command_seq=command_seq,
             )
             status = str(result.get("status", ""))
+            log_event(
+                "runtime_command_process_timing",
+                session_id=session_id,
+                command_seq=command_seq,
+                consumer_name=consumer_name,
+                result_status=status,
+                reason=result.get("reason"),
+                transitions=result.get("transitions"),
+                total_ms=_duration_ms(process_started),
+            )
             if status == "waiting_input":
                 self._status[session_id] = {"status": "waiting_input", "watchdog_state": "waiting_input", "last_transition": result}
             elif status == "completed":
@@ -1840,6 +1855,15 @@ class RuntimeService:
         from policy.factory import PolicyFactory
         from state import GameState
 
+        transition_started = time.perf_counter()
+        phase_started = transition_started
+        phase_timings: dict[str, int] = {}
+
+        def _mark_phase(name: str) -> None:
+            nonlocal phase_started
+            phase_timings[f"{name}_ms"] = _duration_ms(phase_started)
+            phase_started = time.perf_counter()
+
         session = self._session_service.get_session(session_id)
         resolved = dict(session.resolved_parameters or {})
         runtime = dict(resolved.get("runtime", {}))
@@ -1941,6 +1965,7 @@ class RuntimeService:
             if loop is not None and self._stream_service is not None
             else None
         )
+        _mark_phase("hydrate_and_prepare_policy")
         engine = GameEngine(
             config=config,
             policy=policy,
@@ -1995,6 +2020,7 @@ class RuntimeService:
             state.pending_prompt_player_id = 0
             state.pending_prompt_instance_id = 0
             _clear_resolved_runtime_prompt_continuation(state, step)
+        _mark_phase("engine_transition")
         current_prompt_sequence = getattr(policy, "current_prompt_sequence", None)
         if state is not None and callable(current_prompt_sequence):
             state.prompt_sequence = max(
@@ -2010,9 +2036,11 @@ class RuntimeService:
         current_status["checkpoint_schema_version"] = effective_checkpoint_schema_version
         self._status[session_id] = current_status
         self._persist_runtime_state(session_id)
+        _mark_phase("status_persist")
         if self._game_state_store is not None:
             payload = state.to_checkpoint_payload()
             validate_checkpoint_payload(payload)
+            _mark_phase("checkpoint_payload")
             pending_action_types = [
                 str(action.get("type") or "")
                 for action in payload.get("pending_actions") or []
@@ -2038,13 +2066,16 @@ class RuntimeService:
                     state=state,
                     publish=False,
                 )
+            _mark_phase("prompt_materialize")
             previous_source_event_seq = self._latest_committed_source_event_seq(session_id)
             latest_stream_seq = self._latest_stream_seq_sync(loop, session_id)
             source_messages = self._source_history_sync(loop, session_id, latest_stream_seq)
+            _mark_phase("source_history")
             snapshot_pulse_specs = _snapshot_pulse_specs_from_source_messages(
                 source_messages,
                 after_seq=previous_source_event_seq,
             )
+            _mark_phase("snapshot_pulse_plan")
             commit_seq = base_commit_seq + 1
             source_event_seq = latest_stream_seq
             module_debug_fields = _runtime_module_debug_fields(
@@ -2117,6 +2148,7 @@ class RuntimeService:
                 "offset_seq": offset_command_seq,
             }
             runtime_checkpoint["command_commit_envelope"] = command_commit_envelope
+            _mark_phase("runtime_checkpoint_build")
             view_commits = self._build_authoritative_view_commits(
                 session_id=session_id,
                 state=state,
@@ -2129,11 +2161,13 @@ class RuntimeService:
                 source_messages=source_messages,
                 server_time_ms=updated_at_ms,
             )
+            _mark_phase("view_commit_build")
             public_view_state = {}
             spectator_commit = view_commits.get("spectator") or view_commits.get("public") or {}
             if isinstance(spectator_commit, dict) and isinstance(spectator_commit.get("view_state"), dict):
                 public_view_state = dict(spectator_commit["view_state"])
             latest_commit_seq_before_write = self._latest_view_commit_seq(session_id)
+            _mark_phase("precommit_validation")
             if latest_commit_seq_before_write != base_commit_seq:
                 log_event(
                     "runtime_transition_stale_before_commit",
@@ -2215,10 +2249,14 @@ class RuntimeService:
                 runtime_event_server_time_ms=updated_at_ms,
                 expected_previous_commit_seq=base_commit_seq,
             )
+            _mark_phase("redis_commit")
             self._emit_latest_view_commit_sync(loop, session_id)
+            _mark_phase("view_commit_emit")
             if prompt_publish_payload:
                 self._publish_prompt_boundary_sync(loop, session_id, prompt_publish_payload)
+            _mark_phase("prompt_publish")
             self._emit_snapshot_pulses_sync(loop, session_id, snapshot_pulse_specs)
+            _mark_phase("snapshot_pulse_emit")
             write_game_debug_log(
                 "engine",
                 latest_event_type,
@@ -2239,8 +2277,29 @@ class RuntimeService:
                 **module_debug_fields,
                 **continuation_debug_fields,
             )
+            _mark_phase("debug_log")
         if step.get("status") == "waiting_input":
             self._publish_active_module_prompt_batch_sync(loop, session_id, state)
+            _mark_phase("active_prompt_batch_publish")
+        if self._game_state_store is not None:
+            log_event(
+                "runtime_transition_phase_timing",
+                session_id=session_id,
+                processed_command_seq=processed_command_seq,
+                processed_command_consumer=processed_command_consumer,
+                base_commit_seq=base_commit_seq,
+                commit_seq=commit_seq,
+                source_event_seq=source_event_seq,
+                result_status=step.get("status"),
+                reason=step.get("reason"),
+                request_id=step.get("request_id"),
+                request_type=step.get("request_type"),
+                player_id=step.get("player_id"),
+                total_ms=_duration_ms(transition_started),
+                **phase_timings,
+                **module_debug_fields,
+                **continuation_debug_fields,
+            )
         return step
 
     def _emit_latest_view_commit_sync(self, loop: asyncio.AbstractEventLoop | None, session_id: str) -> None:

@@ -1644,6 +1644,48 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(calls, [("runtime_wakeup", 7), (None, None)])
         self.assertEqual(self.runtime_service.runtime_status(session.session_id)["status"], "waiting_input")
 
+    def test_process_command_once_logs_processing_timing(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 73},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.start_session(session.session_id, session.host_token)
+        events: list[tuple[str, dict]] = []
+
+        def _transition_loop(*_args, **_kwargs) -> dict:
+            time.sleep(0.002)
+            return {"status": "waiting_input", "request_type": "purchase_tile", "player_id": 1}
+
+        def _capture_event(event: str, **fields) -> None:
+            events.append((event, fields))
+
+        with (
+            patch.object(self.runtime_service, "_run_engine_transition_loop_sync", side_effect=_transition_loop),
+            patch("apps.server.src.services.runtime_service.log_event", side_effect=_capture_event),
+        ):
+            result = asyncio.run(
+                self.runtime_service.process_command_once(
+                    session_id=session.session_id,
+                    command_seq=7,
+                    consumer_name="runtime_wakeup",
+                    seed=73,
+                )
+            )
+
+        self.assertEqual(result["status"], "waiting_input")
+        timing_events = [fields for event, fields in events if event == "runtime_command_process_timing"]
+        self.assertEqual(len(timing_events), 1)
+        timing = timing_events[0]
+        self.assertEqual(timing["session_id"], session.session_id)
+        self.assertEqual(timing["command_seq"], 7)
+        self.assertEqual(timing["consumer_name"], "runtime_wakeup")
+        self.assertEqual(timing["result_status"], "waiting_input")
+        self.assertGreaterEqual(timing["total_ms"], 1)
+
     def test_process_command_once_refreshes_runtime_lease_while_transition_runs(self) -> None:
         session = self.session_service.create_session(
             seats=[

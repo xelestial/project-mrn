@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
+import traceback
 import uuid
 from typing import Any
 
@@ -14,6 +15,8 @@ from apps.server.src.services.decision_gateway import build_decision_ack_payload
 from apps.server.src.services.session_service import SessionNotFoundError, SessionStateError
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["stream"])
+
+_RUNTIME_WAKEUP_TASKS: dict[tuple[str, int], asyncio.Task[None]] = {}
 
 
 async def _send_json_or_disconnect(websocket: WebSocket, payload: dict[str, Any]) -> None:
@@ -185,22 +188,57 @@ async def _wake_runtime_after_accepted_decision(
             reason="session_mismatch",
         )
         return
-    try:
-        await _process_pending_runtime_command(
-            session_id=session_id,
-            command_seq=command_seq,
-            session_service=session_service,
-            runtime_service=runtime_service,
-            trigger="accepted_decision",
-        )
-    except Exception as exc:  # pragma: no cover - defensive wakeup path
+    task_key = (session_id, int(command_seq))
+    existing_task = _RUNTIME_WAKEUP_TASKS.get(task_key)
+    if existing_task is not None and not existing_task.done():
         log_event(
-            "runtime_wakeup_after_decision_failed",
+            "runtime_wakeup_after_decision_deduped",
             session_id=session_id,
             command_seq=command_seq,
-            error_type=exc.__class__.__name__,
-            error=repr(exc),
+            reason="wakeup_already_scheduled",
         )
+        return
+
+    async def _run_wakeup() -> None:
+        started = time.perf_counter()
+        try:
+            await _process_pending_runtime_command(
+                session_id=session_id,
+                command_seq=command_seq,
+                session_service=session_service,
+                runtime_service=runtime_service,
+                trigger="accepted_decision",
+            )
+        except Exception as exc:  # pragma: no cover - defensive wakeup path
+            log_event(
+                "runtime_wakeup_after_decision_failed",
+                session_id=session_id,
+                command_seq=command_seq,
+                error_type=exc.__class__.__name__,
+                error=repr(exc),
+                traceback=traceback.format_exc(),
+            )
+        finally:
+            log_event(
+                "runtime_wakeup_after_decision_finished",
+                session_id=session_id,
+                command_seq=command_seq,
+                duration_ms=int((time.perf_counter() - started) * 1000),
+            )
+
+    task = asyncio.create_task(_run_wakeup(), name=f"runtime-wakeup:{session_id}:{command_seq}")
+    _RUNTIME_WAKEUP_TASKS[task_key] = task
+
+    def _drop_completed_task(done_task: asyncio.Task[None]) -> None:
+        if _RUNTIME_WAKEUP_TASKS.get(task_key) is done_task:
+            _RUNTIME_WAKEUP_TASKS.pop(task_key, None)
+
+    task.add_done_callback(_drop_completed_task)
+    log_event(
+        "runtime_wakeup_after_decision_scheduled",
+        session_id=session_id,
+        command_seq=command_seq,
+    )
 
 
 @router.get("/{session_id}/stream-capability")

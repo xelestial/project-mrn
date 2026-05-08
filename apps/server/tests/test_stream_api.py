@@ -678,6 +678,60 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(acks[-1].get("payload", {}).get("status"), "accepted")
         self.assertEqual(process_calls, [(session.session_id, 42, "runtime_wakeup", 23, None)])
 
+    def test_accepted_decision_schedules_runtime_wakeup_without_awaiting_processing(self) -> None:
+        from apps.server.src.routes import stream
+
+        started = asyncio.Event()
+        release = asyncio.Event()
+        finished = asyncio.Event()
+        calls: list[tuple[str, int, str, int, str | None]] = []
+
+        class _Session:
+            config = {"seed": 31}
+            resolved_parameters = {"runtime": {}}
+
+        class _SessionService:
+            def get_session(self, _session_id: str) -> _Session:
+                return _Session()
+
+        class _RuntimeService:
+            async def process_command_once(
+                self,
+                *,
+                session_id: str,
+                command_seq: int,
+                consumer_name: str,
+                seed: int,
+                policy_mode: str | None = None,
+            ) -> dict:
+                started.set()
+                await release.wait()
+                calls.append((session_id, command_seq, consumer_name, seed, policy_mode))
+                finished.set()
+                return {"status": "committed"}
+
+        async def _scenario() -> None:
+            schedule_task = asyncio.create_task(
+                stream._wake_runtime_after_accepted_decision(
+                    decision_state={
+                        "status": "accepted",
+                        "session_id": "sess_async_wakeup",
+                        "command_seq": 77,
+                    },
+                    session_id="sess_async_wakeup",
+                    session_service=_SessionService(),
+                    runtime_service=_RuntimeService(),
+                )
+            )
+            await asyncio.wait_for(schedule_task, timeout=0.05)
+            await asyncio.wait_for(started.wait(), timeout=0.05)
+            self.assertFalse(finished.is_set())
+            release.set()
+            await asyncio.wait_for(finished.wait(), timeout=0.2)
+
+        asyncio.run(_scenario())
+        self.assertEqual(calls, [("sess_async_wakeup", 77, "runtime_wakeup", 31, None)])
+
     def test_spectator_does_not_receive_prompt_or_decision_ack_for_seat(self) -> None:
         from apps.server.src import state
 
