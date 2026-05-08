@@ -286,6 +286,35 @@ The runner should emit:
 - protocol trace path
 - browser screenshot path when applicable
 
+## Implementation Entry Points
+
+Implemented runner:
+
+```text
+tools/checks/workflow_gate.py
+```
+
+Implemented command targets:
+
+```text
+make test-workflow-runtime
+make test-workflow-prompt
+make test-workflow-protocol
+make test-workflow-protocol-live
+make test-workflow-redis
+make test-workflow-rl
+make test-workflow-browser
+make test-workflow-all
+make test-workflow-all-browser
+```
+
+Default behavior:
+
+- `test-workflow-all` runs deterministic local workflow gates: runtime, prompt, Redis, headless protocol, and engine RL smoke.
+- Browser and live WebSocket protocol gates are explicit because they require running local services.
+- Every stage writes stdout/stderr logs plus `workflow_report.json` under `tmp/workflow-gate/` unless `--output-dir` is supplied.
+- The runner returns non-zero when any workflow stage fails, so it is suitable for CI and local pre-push checks.
+
 ## Migration Plan
 
 1. Inventory existing tests and tag each one with one workflow owner.
