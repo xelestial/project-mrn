@@ -17,7 +17,7 @@ class LocalJsonArchiveService:
         session_service,
         stream_service,
         archive_dir: str,
-        hot_retention_seconds: int = 300,
+        hot_retention_seconds: int = 3600,
         room_service=None,
         prompt_service=None,
         runtime_service=None,
@@ -34,7 +34,7 @@ class LocalJsonArchiveService:
         self._game_state_store = game_state_store
         self._command_store = command_store
         self._archive_dir = Path(archive_dir)
-        self._hot_retention_seconds = max(0, int(hot_retention_seconds))
+        self._hot_retention_seconds = min(max(0, int(hot_retention_seconds)), 3600)
         self._redis_key_prefix = str(redis_key_prefix or "")
         self._service_version = str(service_version or "dev")
         self._cleanup_tasks: dict[str, asyncio.Task] = {}

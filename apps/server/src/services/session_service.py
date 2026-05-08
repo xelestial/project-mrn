@@ -4,6 +4,8 @@ import secrets
 from dataclasses import asdict
 import random
 
+from apps.server.src.domain.protocol_identity import seat_protocol_fields
+from apps.server.src.domain.protocol_ids import new_public_player_id, new_seat_id, new_viewer_id
 from apps.server.src.domain.session_models import (
     ParticipantClientType,
     SeatConfig,
@@ -121,6 +123,7 @@ class SessionService:
             raise SessionStateError("seat_already_joined")
 
         seat_cfg.player_id = seat
+        self._ensure_join_identity(seat_cfg)
         seat_cfg.display_name = (
             str(display_name).strip()[:24]
             if isinstance(display_name, str) and display_name.strip()
@@ -130,7 +133,7 @@ class SessionService:
         session_token = self._new_token(f"session_p{seat}")
         session.session_tokens[seat] = session_token
         self._persist_sessions()
-        return {
+        result = {
             "session_id": session.session_id,
             "seat": seat,
             "player_id": seat_cfg.player_id,
@@ -138,6 +141,8 @@ class SessionService:
             "session_token": session_token,
             "role": "seat",
         }
+        result.update(seat_protocol_fields(seat_cfg))
+        return result
 
     def start_session(self, session_id: str, host_token: str) -> Session:
         session = self.get_session(session_id)
@@ -185,7 +190,9 @@ class SessionService:
         for seat, issued in session.session_tokens.items():
             if issued == token:
                 seat_cfg = self._find_seat(session, seat)
-                return {"role": "seat", "seat": seat, "player_id": seat_cfg.player_id}
+                auth = {"role": "seat", "seat": seat, "player_id": seat_cfg.player_id}
+                auth.update(seat_protocol_fields(seat_cfg))
+                return auth
         raise SessionStateError("invalid_session_token")
 
     def player_display_names(self, session_id: str) -> dict[int, str]:
@@ -271,7 +278,17 @@ class SessionService:
     def _seat_public(seat: SeatConfig) -> dict:
         payload = asdict(seat)
         payload["seat_type"] = seat.seat_type.value
+        payload.update(seat_protocol_fields(seat))
         return payload
+
+    @staticmethod
+    def _ensure_join_identity(seat: SeatConfig) -> None:
+        if not seat.seat_id:
+            seat.seat_id = new_seat_id()
+        if not seat.public_player_id:
+            seat.public_player_id = new_public_player_id()
+        if not seat.viewer_id:
+            seat.viewer_id = new_viewer_id()
 
     @staticmethod
     def _new_token(prefix: str) -> str:
@@ -394,6 +411,9 @@ class SessionService:
                     "ai_profile": seat.ai_profile,
                     "participant_client": seat.participant_client.value if seat.participant_client is not None else None,
                     "participant_config": dict(seat.participant_config),
+                    "seat_id": seat.seat_id,
+                    "public_player_id": seat.public_player_id,
+                    "viewer_id": seat.viewer_id,
                     "player_id": seat.player_id,
                     "display_name": seat.display_name,
                     "connected": seat.connected,
@@ -421,14 +441,27 @@ class SessionService:
             if not isinstance(item, dict):
                 continue
             seat_type = SeatType(str(item.get("seat_type", SeatType.AI.value)))
+            player_id = int(item["player_id"]) if item.get("player_id") is not None else None
             seats.append(
                 SeatConfig(
                     seat=int(item.get("seat", 0)),
                     seat_type=seat_type,
                     ai_profile=item.get("ai_profile"),
-                    participant_client=ParticipantClientType(str(item.get("participant_client", ParticipantClientType.HUMAN_HTTP.value if seat_type == SeatType.HUMAN else ParticipantClientType.LOCAL_AI.value))),
+                    participant_client=ParticipantClientType(
+                        str(
+                            item.get(
+                                "participant_client",
+                                ParticipantClientType.HUMAN_HTTP.value
+                                if seat_type == SeatType.HUMAN
+                                else ParticipantClientType.LOCAL_AI.value,
+                            )
+                        )
+                    ),
                     participant_config=dict(item.get("participant_config", {})),
-                    player_id=int(item["player_id"]) if item.get("player_id") is not None else None,
+                    seat_id=str(item.get("seat_id") or new_seat_id()),
+                    public_player_id=str(item.get("public_player_id") or new_public_player_id()),
+                    viewer_id=str(item.get("viewer_id") or new_viewer_id()),
+                    player_id=player_id,
                     display_name=item.get("display_name"),
                     connected=bool(item.get("connected", False)),
                 )

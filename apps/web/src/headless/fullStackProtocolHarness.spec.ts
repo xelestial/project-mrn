@@ -185,6 +185,35 @@ describe("fullStackProtocolHarness", () => {
     expect(result.failures).toContain("seat:1 answered raw prompt before active view_commit 1 time(s)");
   });
 
+  it("fails the gate when spectator receives private prompt or decision ack messages", () => {
+    const result = evaluateProtocolGate({
+      timedOut: false,
+      completed: true,
+      runtimeStatus: "completed",
+      clients: [
+        clientRuntime("seat:1", {
+          metrics: { ...emptyHeadlessMetrics(), acceptedAckCount: 1 },
+        }),
+        clientRuntime("spectator", {
+          metrics: {
+            ...emptyHeadlessMetrics(),
+            runtimeCompletedCount: 1,
+            spectatorPromptLeakCount: 1,
+            spectatorDecisionAckLeakCount: 1,
+          },
+        }),
+      ],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.failures).toEqual(
+      expect.arrayContaining([
+        "spectator received private prompt 1 time(s)",
+        "spectator received private decision ack 1 time(s)",
+      ]),
+    );
+  });
+
   it("fails the gate when the protocol stops making observable progress", () => {
     const result = evaluateProtocolGate({
       timedOut: false,

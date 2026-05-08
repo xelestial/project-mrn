@@ -28,12 +28,21 @@ def test_parse_protocol_gate_summary_uses_last_json_object():
     assert summary["runtime_status"] == "completed"
 
 
-def test_smoke_profile_uses_short_turn_limit_by_default():
+def test_smoke_profile_uses_short_end_rule_by_default():
     from tools.checks.full_stack_protocol_rl_gate import resolve_profile_config
 
     config = resolve_profile_config("smoke", None)
 
-    assert config == {"runtime": {"max_turns": 4}}
+    assert config == {
+        "rules": {
+            "end": {
+                "alive_players_at_most": 1,
+                "f_threshold": 4,
+                "monopolies_to_trigger_end": 1,
+                "tiles_to_trigger_end": 4,
+            }
+        }
+    }
 
 
 def test_explicit_profile_config_disables_smoke_defaults():
@@ -62,6 +71,8 @@ def test_protocol_gate_command_forwards_reconnect_scenarios(tmp_path: Path):
 
     reconnect_index = command.index("--reconnect")
     assert command[reconnect_index + 1] == "after_start,turn_boundary"
+    raw_fallback_index = command.index("--raw-prompt-fallback-delay-ms")
+    assert command[raw_fallback_index + 1] == "off"
 
 
 def test_parse_reconnect_arg_accepts_off_and_rejects_unknown():

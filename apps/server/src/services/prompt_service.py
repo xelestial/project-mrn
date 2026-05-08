@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 import threading
 from dataclasses import dataclass
+from typing import Any
 
 from apps.server.src.services.prompt_fingerprint import (
     PROMPT_FINGERPRINT_VERSION,
@@ -26,11 +27,12 @@ class PromptService:
 
     def __init__(self, prompt_store=None, command_store=None) -> None:
         self._pending: dict[str, PendingPrompt] = {}
-        self._resolved: dict[str, tuple[int, str]] = {}
+        self._resolved: dict[str, tuple[int, str, str]] = {}
         self._decisions: dict[str, dict] = {}
+        self._lifecycle: dict[str, dict[str, Any]] = {}
         self._waiters: dict[str, threading.Event] = {}
         self._lock = threading.RLock()
-        self._resolved_ttl_ms = 5 * 60 * 1000
+        self._resolved_ttl_ms = 60 * 60 * 1000
         self._prompt_store = prompt_store
         self._command_store = command_store
 
@@ -47,7 +49,7 @@ class PromptService:
                 if prompt_fingerprint_mismatch(existing.payload, prompt):
                     raise ValueError("prompt_fingerprint_mismatch")
                 raise ValueError("duplicate_pending_request_id")
-            if self._has_recently_resolved_request(request_id):
+            if self._has_recently_resolved_request(request_id, session_id=session_id):
                 raise ValueError("duplicate_recent_request_id")
             if _is_module_prompt(prompt):
                 _require_module_continuation(prompt)
@@ -67,6 +69,14 @@ class PromptService:
                 payload=prompt,
             )
             self._set_pending(item)
+            self._record_lifecycle(
+                request_id=request_id,
+                state="created",
+                session_id=session_id,
+                player_id=player_id,
+                prompt=prompt,
+                now_ms=item.created_at_ms,
+            )
             self._waiters[request_id] = threading.Event()
         for waiter in superseded_waiters:
             waiter.set()
@@ -95,28 +105,62 @@ class PromptService:
                 return {"status": "rejected", "reason": "missing_request_id"}
             choice_id = str(payload.get("choice_id", "")).strip()
             if not choice_id:
+                self._record_lifecycle(request_id=request_id, state="rejected", decision=payload, reason="missing_choice_id")
                 return {"status": "rejected", "reason": "missing_choice_id"}
 
             pending = self._get_pending(request_id)
             if pending is None:
-                if self._has_recently_resolved_request(request_id):
+                decision_session_id = str(payload.get("session_id") or "").strip()
+                if self._has_recently_resolved_request(request_id, session_id=decision_session_id or None):
+                    self._record_lifecycle(request_id=request_id, state="stale", decision=payload, reason="already_resolved")
                     return {"status": "stale", "reason": "already_resolved"}
+                self._record_lifecycle(request_id=request_id, state="stale", decision=payload, reason="request_not_pending")
                 return {"status": "stale", "reason": "request_not_pending"}
 
             now = self._now_ms()
             if now > (pending.created_at_ms + pending.timeout_ms):
                 self._delete_pending(request_id)
-                self._record_resolved(request_id=request_id, reason="prompt_timeout")
+                self._record_resolved(request_id=request_id, reason="prompt_timeout", session_id=pending.session_id)
+                self._record_lifecycle(
+                    request_id=request_id,
+                    state="expired",
+                    session_id=pending.session_id,
+                    player_id=pending.player_id,
+                    prompt=pending.payload,
+                    decision=payload,
+                    reason="prompt_timeout",
+                    now_ms=now,
+                )
                 waiter = self._waiters.pop(request_id, None)
                 self._delete_decision(request_id)
                 result = {"status": "stale", "reason": "prompt_timeout"}
             else:
                 player_id = int(payload.get("player_id", 0))
                 if player_id != pending.player_id:
+                    self._record_lifecycle(
+                        request_id=request_id,
+                        state="rejected",
+                        session_id=pending.session_id,
+                        player_id=pending.player_id,
+                        prompt=pending.payload,
+                        decision=payload,
+                        reason="player_mismatch",
+                        now_ms=now,
+                    )
                     return {"status": "rejected", "reason": "player_mismatch"}
                 expected_fingerprint = str(pending.payload.get("prompt_fingerprint") or "").strip()
                 submitted_fingerprint = str(payload.get("prompt_fingerprint") or "").strip()
                 if submitted_fingerprint and expected_fingerprint and submitted_fingerprint != expected_fingerprint:
+                    self._record_lifecycle(
+                        request_id=request_id,
+                        state="rejected",
+                        session_id=pending.session_id,
+                        player_id=pending.player_id,
+                        prompt=pending.payload,
+                        decision=payload,
+                        reason="prompt_fingerprint_mismatch",
+                        now_ms=now,
+                    )
                     return {"status": "rejected", "reason": "prompt_fingerprint_mismatch"}
                 legal = {
                     str(choice.get("choice_id") or "").strip()
@@ -124,10 +168,30 @@ class PromptService:
                     if isinstance(choice, dict)
                 }
                 if legal and choice_id not in legal:
+                    self._record_lifecycle(
+                        request_id=request_id,
+                        state="rejected",
+                        session_id=pending.session_id,
+                        player_id=pending.player_id,
+                        prompt=pending.payload,
+                        decision=payload,
+                        reason="choice_not_legal",
+                        now_ms=now,
+                    )
                     return {"status": "rejected", "reason": "choice_not_legal"}
                 if _is_module_prompt(pending.payload):
                     mismatch = _module_decision_mismatch(pending.payload, payload)
                     if mismatch:
+                        self._record_lifecycle(
+                            request_id=request_id,
+                            state="rejected",
+                            session_id=pending.session_id,
+                            player_id=pending.player_id,
+                            prompt=pending.payload,
+                            decision=payload,
+                            reason=mismatch,
+                            now_ms=now,
+                        )
                         return {"status": "rejected", "reason": mismatch}
 
                 decision_payload = dict(payload)
@@ -143,7 +207,7 @@ class PromptService:
                     "submitted_at_ms": now,
                 }
                 command_payload.update(_module_command_continuation_fields(pending.payload, decision_payload))
-                resolved_payload = {"resolved_at_ms": now, "reason": "accepted"}
+                resolved_payload = {"resolved_at_ms": now, "reason": "accepted", "session_id": pending.session_id}
                 atomic_accept = getattr(self._prompt_store, "accept_decision_with_command", None)
                 accepted_command: dict | None = None
                 if callable(atomic_accept) and self._command_store is not None:
@@ -158,6 +222,16 @@ class PromptService:
                         server_time_ms=now,
                     )
                     if accepted_command is None:
+                        self._record_lifecycle(
+                            request_id=request_id,
+                            state="stale",
+                            session_id=pending.session_id,
+                            player_id=pending.player_id,
+                            prompt=pending.payload,
+                            decision=decision_payload,
+                            reason="request_not_pending",
+                            now_ms=now,
+                        )
                         return {"status": "stale", "reason": "request_not_pending"}
                 else:
                     self._delete_pending(request_id)
@@ -170,7 +244,22 @@ class PromptService:
                             request_id=request_id,
                             server_time_ms=now,
                         )
-                    self._record_resolved(request_id=request_id, reason="accepted", now_ms=now)
+                    self._record_resolved(
+                        request_id=request_id,
+                        reason="accepted",
+                        now_ms=now,
+                        session_id=pending.session_id,
+                    )
+                self._record_lifecycle(
+                    request_id=request_id,
+                    state="accepted",
+                    session_id=pending.session_id,
+                    player_id=pending.player_id,
+                    prompt=pending.payload,
+                    decision=decision_payload,
+                    reason="accepted",
+                    now_ms=now,
+                )
                 waiter = self._waiters.get(request_id)
                 result = {
                     "status": "accepted",
@@ -193,7 +282,21 @@ class PromptService:
                 if now > (pending.created_at_ms + pending.timeout_ms):
                     timed_out.append(pending)
                     self._delete_pending(request_id)
-                    self._record_resolved(request_id=request_id, reason="prompt_timeout", now_ms=now)
+                    self._record_resolved(
+                        request_id=request_id,
+                        reason="prompt_timeout",
+                        now_ms=now,
+                        session_id=pending.session_id,
+                    )
+                    self._record_lifecycle(
+                        request_id=request_id,
+                        state="expired",
+                        session_id=pending.session_id,
+                        player_id=pending.player_id,
+                        prompt=pending.payload,
+                        reason="prompt_timeout",
+                        now_ms=now,
+                    )
                     waiter = self._waiters.pop(request_id, None)
                     self._delete_decision(request_id)
                     if waiter is not None:
@@ -244,6 +347,16 @@ class PromptService:
         command_payload.update(_module_command_continuation_fields(pending.payload, decision_payload))
         with self._lock:
             self._set_decision(request_id, decision_payload)
+            self._record_lifecycle(
+                request_id=request_id,
+                state="accepted",
+                session_id=pending.session_id,
+                player_id=pending.player_id,
+                prompt=pending.payload,
+                decision=decision_payload,
+                reason="timeout_fallback",
+                now_ms=now,
+            )
             if self._command_store is not None:
                 self._command_store.append_command(
                     pending.session_id,
@@ -289,7 +402,15 @@ class PromptService:
             if pending is None:
                 return None
             self._delete_pending(request_id)
-            self._record_resolved(request_id=request_id, reason=reason)
+            self._record_resolved(request_id=request_id, reason=reason, session_id=pending.session_id)
+            self._record_lifecycle(
+                request_id=request_id,
+                state="expired",
+                session_id=pending.session_id,
+                player_id=pending.player_id,
+                prompt=pending.payload,
+                reason=reason,
+            )
             self._delete_decision(request_id)
             waiter = self._waiters.pop(request_id, None)
         if waiter is not None:
@@ -310,14 +431,82 @@ class PromptService:
                     continue
                 self._delete_pending(request_id)
                 self._delete_decision(request_id)
+                self._delete_lifecycle(request_id)
                 self._waiters.pop(request_id, None)
 
-    def _record_resolved(self, request_id: str, reason: str, now_ms: int | None = None) -> None:
+    def mark_prompt_delivered(
+        self,
+        request_id: str,
+        *,
+        stream_seq: int | None = None,
+        commit_seq: int | None = None,
+    ) -> dict[str, Any] | None:
+        with self._lock:
+            pending = self._get_pending(str(request_id).strip())
+            current = self._get_lifecycle(str(request_id).strip())
+            if pending is None and current is None:
+                return None
+            return self._record_lifecycle(
+                request_id=str(request_id).strip(),
+                state="delivered",
+                session_id=pending.session_id if pending is not None else None,
+                player_id=pending.player_id if pending is not None else None,
+                prompt=pending.payload if pending is not None else None,
+                stream_seq=stream_seq,
+                commit_seq=commit_seq,
+            )
+
+    def record_external_decision_result(
+        self,
+        payload: dict,
+        *,
+        status: str,
+        reason: str | None = None,
+    ) -> dict[str, Any] | None:
+        request_id = str(payload.get("request_id") or "").strip()
+        if not request_id:
+            return None
+        with self._lock:
+            pending = self._get_pending(request_id)
+            return self._record_lifecycle(
+                request_id=request_id,
+                state=str(status or "rejected"),
+                session_id=pending.session_id if pending is not None else None,
+                player_id=pending.player_id if pending is not None else None,
+                prompt=pending.payload if pending is not None else None,
+                decision=payload,
+                reason=reason,
+            )
+
+    def get_prompt_lifecycle(self, request_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            lifecycle = self._get_lifecycle(str(request_id).strip())
+            return dict(lifecycle) if lifecycle is not None else None
+
+    def list_prompt_lifecycle(self, session_id: str | None = None) -> list[dict[str, Any]]:
+        with self._lock:
+            if self._prompt_store is not None and callable(getattr(self._prompt_store, "list_lifecycle", None)):
+                return [dict(item) for item in self._prompt_store.list_lifecycle(session_id)]
+            items = [dict(item) for item in self._lifecycle.values()]
+            if session_id is not None:
+                items = [item for item in items if str(item.get("session_id") or "") == str(session_id)]
+            return sorted(items, key=lambda item: (int(item.get("updated_at_ms") or 0), str(item.get("request_id") or "")))
+
+    def _record_resolved(
+        self,
+        request_id: str,
+        reason: str,
+        now_ms: int | None = None,
+        session_id: str | None = None,
+    ) -> None:
         now = now_ms if now_ms is not None else self._now_ms()
+        payload = {"resolved_at_ms": now, "reason": reason}
+        if session_id is not None:
+            payload["session_id"] = str(session_id)
         if self._prompt_store is not None:
-            self._prompt_store.save_resolved(request_id, {"resolved_at_ms": now, "reason": reason})
+            self._prompt_store.save_resolved(request_id, payload)
         else:
-            self._resolved[request_id] = (now, reason)
+            self._resolved[request_id] = (now, reason, str(session_id or ""))
         self._prune_resolved(now)
 
     def _prune_resolved(self, now_ms: int | None = None) -> None:
@@ -329,11 +518,13 @@ class PromptService:
                 if resolved_at < cutoff:
                     self._prompt_store.delete_resolved(request_id)
                     self._prompt_store.delete_decision(request_id)
+                    self._delete_lifecycle(request_id)
             return
-        for request_id, (resolved_at, _) in list(self._resolved.items()):
+        for request_id, (resolved_at, _, _) in list(self._resolved.items()):
             if resolved_at < cutoff:
                 self._resolved.pop(request_id, None)
                 self._decisions.pop(request_id, None)
+                self._lifecycle.pop(request_id, None)
 
     def _supersede_pending_for_player(
         self,
@@ -355,6 +546,16 @@ class PromptService:
                 request_id=existing_request_id,
                 reason="superseded",
                 now_ms=now,
+                session_id=pending.session_id,
+            )
+            self._record_lifecycle(
+                request_id=existing_request_id,
+                state="expired",
+                session_id=pending.session_id,
+                player_id=pending.player_id,
+                prompt=pending.payload,
+                reason="superseded",
+                now_ms=now,
             )
             waiter = self._waiters.pop(existing_request_id, None)
             if waiter is not None:
@@ -366,10 +567,21 @@ class PromptService:
             return self._prompt_store.get_pending(request_id) is not None
         return request_id in self._pending
 
-    def _has_recently_resolved_request(self, request_id: str) -> bool:
+    def _has_recently_resolved_request(self, request_id: str, session_id: str | None = None) -> bool:
+        normalized_session_id = str(session_id or "").strip()
         if self._prompt_store is not None:
-            return self._prompt_store.get_resolved(request_id) is not None
-        return request_id in self._resolved
+            resolved = self._prompt_store.get_resolved(request_id)
+            if resolved is None:
+                return False
+            if not normalized_session_id:
+                return True
+            return str(resolved.get("session_id") or "").strip() == normalized_session_id
+        resolved = self._resolved.get(request_id)
+        if resolved is None:
+            return False
+        if not normalized_session_id:
+            return True
+        return str(resolved[2] or "").strip() == normalized_session_id
 
     def _set_pending(self, pending: PendingPrompt) -> None:
         if self._prompt_store is not None:
@@ -449,6 +661,72 @@ class PromptService:
             self._prompt_store.delete_decision(request_id)
             return
         self._decisions.pop(request_id, None)
+
+    def _record_lifecycle(
+        self,
+        *,
+        request_id: str,
+        state: str,
+        session_id: str | None = None,
+        player_id: int | None = None,
+        prompt: dict | None = None,
+        decision: dict | None = None,
+        reason: str | None = None,
+        stream_seq: int | None = None,
+        commit_seq: int | None = None,
+        now_ms: int | None = None,
+    ) -> dict[str, Any]:
+        normalized_request_id = str(request_id or "").strip()
+        now = now_ms if now_ms is not None else self._now_ms()
+        current = self._get_lifecycle(normalized_request_id) or {}
+        record: dict[str, Any] = dict(current)
+        record.setdefault("schema_version", 1)
+        record["request_id"] = normalized_request_id
+        record["state"] = str(state or "unknown")
+        record["updated_at_ms"] = int(now)
+        if "created_at_ms" not in record or state == "created":
+            record["created_at_ms"] = int(now)
+        if session_id is not None:
+            record["session_id"] = str(session_id)
+        if player_id is not None:
+            record["player_id"] = int(player_id)
+        if prompt is not None:
+            record["request_type"] = str(prompt.get("request_type") or record.get("request_type") or "")
+            record["prompt"] = _compact_prompt_lifecycle_payload(prompt)
+        if decision is not None:
+            record["decision"] = _compact_decision_lifecycle_payload(decision)
+        if reason is not None:
+            record["reason"] = str(reason)
+        elif state in {"accepted", "delivered", "created"}:
+            record.pop("reason", None)
+        if stream_seq is not None:
+            record["stream_seq"] = int(stream_seq)
+        if commit_seq is not None:
+            record["commit_seq"] = int(commit_seq)
+        if state == "delivered":
+            record["delivered_at_ms"] = int(now)
+        if state in {"accepted", "rejected", "stale", "expired", "resolved"}:
+            record["terminal_at_ms"] = int(now)
+        self._set_lifecycle(normalized_request_id, record)
+        return dict(record)
+
+    def _set_lifecycle(self, request_id: str, payload: dict[str, Any]) -> None:
+        if self._prompt_store is not None and callable(getattr(self._prompt_store, "save_lifecycle", None)):
+            self._prompt_store.save_lifecycle(request_id, payload)
+            return
+        self._lifecycle[request_id] = dict(payload)
+
+    def _get_lifecycle(self, request_id: str) -> dict[str, Any] | None:
+        if self._prompt_store is not None and callable(getattr(self._prompt_store, "get_lifecycle", None)):
+            return self._prompt_store.get_lifecycle(request_id)
+        lifecycle = self._lifecycle.get(request_id)
+        return dict(lifecycle) if lifecycle is not None else None
+
+    def _delete_lifecycle(self, request_id: str) -> None:
+        if self._prompt_store is not None and callable(getattr(self._prompt_store, "delete_lifecycle", None)):
+            self._prompt_store.delete_lifecycle(request_id)
+            return
+        self._lifecycle.pop(request_id, None)
 
     @staticmethod
     def _now_ms() -> int:
@@ -542,3 +820,42 @@ def _derive_batch_id_from_request_id(request_id: str) -> str:
     if not player_suffix.isdigit():
         return ""
     return batch_id
+
+
+def _compact_prompt_lifecycle_payload(prompt: dict) -> dict[str, Any]:
+    legal_choice_ids = [
+        str(choice.get("choice_id") or "").strip()
+        for choice in prompt.get("legal_choices", [])
+        if isinstance(choice, dict) and str(choice.get("choice_id") or "").strip()
+    ]
+    result: dict[str, Any] = {
+        "request_id": str(prompt.get("request_id") or ""),
+        "request_type": str(prompt.get("request_type") or ""),
+        "prompt_instance_id": str(prompt.get("prompt_instance_id") or ""),
+        "resume_token": str(prompt.get("resume_token") or ""),
+        "frame_id": str(prompt.get("frame_id") or ""),
+        "module_id": str(prompt.get("module_id") or ""),
+        "module_type": str(prompt.get("module_type") or ""),
+        "module_cursor": str(prompt.get("module_cursor") or ""),
+        "timeout_ms": int(prompt.get("timeout_ms") or 0),
+        "legal_choice_ids": legal_choice_ids,
+        "prompt_fingerprint": str(prompt.get("prompt_fingerprint") or ""),
+        "prompt_fingerprint_version": prompt.get("prompt_fingerprint_version"),
+        "public_context": dict(prompt.get("public_context") or {}),
+    }
+    return {key: value for key, value in result.items() if value not in ("", None, [], {})}
+
+
+def _compact_decision_lifecycle_payload(decision: dict) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "request_id": str(decision.get("request_id") or ""),
+        "player_id": decision.get("player_id"),
+        "choice_id": str(decision.get("choice_id") or ""),
+        "view_commit_seq_seen": decision.get("view_commit_seq_seen"),
+        "client_seq": decision.get("client_seq"),
+        "provider": str(decision.get("provider") or ""),
+        "prompt_instance_id": str(decision.get("prompt_instance_id") or ""),
+        "resume_token": str(decision.get("resume_token") or ""),
+        "prompt_fingerprint": str(decision.get("prompt_fingerprint") or ""),
+    }
+    return {key: value for key, value in result.items() if value not in ("", None, [], {})}

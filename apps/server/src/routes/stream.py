@@ -479,6 +479,11 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                 latest_commit = await stream_service.latest_view_commit_message_for_viewer(session_id, viewer)
                 rejection_reason = _decision_view_commit_rejection_reason(message, latest_commit)
                 if rejection_reason is not None:
+                    prompt_service.record_external_decision_result(
+                        message,
+                        status="stale",
+                        reason=rejection_reason,
+                    )
                     await stream_service.publish(
                         session_id,
                         "decision_ack",
@@ -507,6 +512,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                         view_commit_seq_seen=message.get("view_commit_seq_seen"),
                     )
                     continue
+                message["session_id"] = session_id
                 decision_state = prompt_service.submit_decision(message)
                 await stream_service.publish(
                     session_id,

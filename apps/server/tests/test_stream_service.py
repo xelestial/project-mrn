@@ -103,6 +103,20 @@ class StreamServiceTests(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_publish_adds_source_event_id(self) -> None:
+        service = StreamService()
+
+        async def _run() -> None:
+            event = await service.publish("s1", "event", {"event_type": "round_start"})
+            prompt = await service.publish("s1", "prompt", module_prompt({"request_id": "r1"}))
+            commit = await service.publish_view_commit("s1", {"commit_seq": 1, "source_event_seq": event.seq})
+
+            self.assertRegex(event.payload["event_id"], r"^evt_[0-9a-f-]{36}$")
+            self.assertRegex(prompt.payload["event_id"], r"^evt_[0-9a-f-]{36}$")
+            self.assertNotIn("event_id", commit.payload)
+
+        asyncio.run(_run())
+
     def test_replay_from_returns_tail(self) -> None:
         service = StreamService()
 

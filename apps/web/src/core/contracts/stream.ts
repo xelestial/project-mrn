@@ -5,15 +5,26 @@ export type ViewCommitPayload = {
   schema_version: 1;
   commit_seq: number;
   source_event_seq: number;
+  round_index: number;
+  turn_index: number;
+  turn_label: string;
   viewer: {
     role: "spectator" | "seat" | "admin";
     player_id?: number;
+    legacy_player_id?: number;
+    public_player_id?: string;
     seat?: number;
+    seat_id?: string;
+    viewer_id?: string;
+    seat_index?: number;
+    turn_order_index?: number;
+    player_label?: string;
   };
   runtime: {
     status: ViewCommitRuntimeStatus;
     round_index: number;
     turn_index: number;
+    turn_label: string;
     active_frame_id: string;
     active_module_id: string;
     active_module_type: string;

@@ -2010,6 +2010,7 @@ class DecisionGateway:
                 pending = self._prompt_service.get_pending_prompt(request_id)
                 prompt_payload = dict(pending.payload) if pending is not None else envelope
                 self.publish("prompt", {**prompt_payload, "provider": "human"})
+                self._prompt_service.mark_prompt_delivered(request_id)
                 self._publish_decision_requested(
                     request_id=request_id,
                     player_id=player_id,
@@ -2028,6 +2029,7 @@ class DecisionGateway:
             self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
 
         self.publish("prompt", {**envelope, "provider": "human"})
+        self._prompt_service.mark_prompt_delivered(request_id)
         self._publish_decision_requested(
             request_id=request_id,
             player_id=player_id,

@@ -11,7 +11,7 @@ Policy guardrails:
 - `PYTHONPATH=engine .venv/bin/python tools/checks/rl_gate.py --profile smoke`
 - `PYTHONPATH=engine .venv/bin/python tools/checks/rl_gate.py --profile local`
 
-`full_stack_protocol_rl_gate.py` is the authoritative REST/WebSocket learning gate. It creates real sessions, joins all seats as headless frontend clients, collects compact protocol traces, trains a PyTorch policy, serves it through HTTP, and evaluates the candidate over the same WebSocket decision path. Its smoke profile uses a short `runtime.max_turns` override by default; pass `--config-json` to replace that config.
+`full_stack_protocol_rl_gate.py` is the authoritative REST/WebSocket learning gate. It creates real sessions, joins all seats as headless frontend clients, collects compact protocol traces, trains a PyTorch policy, serves it through HTTP, and evaluates the candidate over the same WebSocket decision path. Its smoke profile uses a short official `rules.end` override by default; pass `--config-json` to replace that config.
 
 `rl_gate.py` is engine-only and remains useful for fast policy iteration. It does not validate WebSocket reconnect/resume, frontend selectors, prompt ledgers, or decision acknowledgements.
 

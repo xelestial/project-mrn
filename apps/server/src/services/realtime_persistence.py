@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Any
 
 from apps.server.src.infra.redis_client import RedisConnection
+
+DEBUG_REDIS_RETENTION_SECONDS = 3600
 
 
 @dataclass(frozen=True)
@@ -47,6 +50,20 @@ class RedisStreamStore:
                 maxlen=max(1, int(max_buffer)),
                 approximate=False,
             )
+            self._remember_event_mapping(
+                session_id,
+                seq=seq,
+                msg_type=msg_type,
+                payload=payload,
+                server_time_ms=server_time_ms,
+            )
+        self._remember_viewer_outbox(
+            session_id,
+            seq=seq,
+            msg_type=msg_type,
+            payload=payload,
+            server_time_ms=server_time_ms,
+        )
         return {
             "stream_id": str(stream_id),
             "seq": seq,
@@ -92,6 +109,19 @@ class RedisStreamStore:
         raw = self._connection.client().get(self._seq_key(session_id))
         return int(raw) if isinstance(raw, str) and raw.isdigit() else 0
 
+    def load_event_index(self, session_id: str, event_id: str) -> dict[str, Any] | None:
+        raw = self._connection.client().hget(self._event_index_key(session_id), str(event_id))
+        return _json_load_dict(str(raw)) if raw is not None else None
+
+    def load_viewer_outbox_index(self, session_id: str) -> list[dict[str, Any]]:
+        payloads = self._connection.client().hgetall(self._viewer_outbox_index_key(session_id))
+        rows: list[dict[str, Any]] = []
+        for key in sorted(payloads, key=lambda item: str(item)):
+            parsed = _json_load_dict(str(payloads[key]))
+            if parsed is not None:
+                rows.append(parsed)
+        return rows
+
     def increment_drop_count(self, session_id: str, amount: int = 1) -> None:
         self._connection.client().hincrby(self._drop_count_key(), session_id, max(0, int(amount)))
 
@@ -101,8 +131,73 @@ class RedisStreamStore:
 
     def delete_session_data(self, session_id: str) -> None:
         client = self._connection.client()
-        client.delete(self._stream_key(session_id), self._source_stream_key(session_id), self._seq_key(session_id))
+        client.delete(
+            self._stream_key(session_id),
+            self._source_stream_key(session_id),
+            self._seq_key(session_id),
+            self._event_index_key(session_id),
+            self._viewer_outbox_index_key(session_id),
+        )
         client.hdel(self._drop_count_key(), session_id)
+
+    def _remember_event_mapping(
+        self,
+        session_id: str,
+        *,
+        seq: int,
+        msg_type: str,
+        payload: dict[str, Any],
+        server_time_ms: int,
+    ) -> None:
+        event_id = str(payload.get("event_id") or "").strip()
+        if not event_id:
+            return
+        mapping = {
+            "session_id": session_id,
+            "event_id": event_id,
+            "stream_seq": int(seq),
+            "message_type": str(msg_type),
+            "event_type": str(payload.get("event_type") or payload.get("type") or ""),
+            "request_id": str(payload.get("request_id") or ""),
+            "player_id": payload.get("player_id"),
+            "target_player_id": payload.get("target_player_id"),
+            "commit_seq": payload.get("commit_seq"),
+            "server_time_ms": int(server_time_ms),
+        }
+        client = self._connection.client()
+        key = self._event_index_key(session_id)
+        client.hset(key, event_id, _json_dump(mapping))
+        _expire_key(client, key, DEBUG_REDIS_RETENTION_SECONDS)
+
+    def _remember_viewer_outbox(
+        self,
+        session_id: str,
+        *,
+        seq: int,
+        msg_type: str,
+        payload: dict[str, Any],
+        server_time_ms: int,
+    ) -> None:
+        scopes = _viewer_outbox_scopes(str(msg_type), payload)
+        if not scopes:
+            return
+        client = self._connection.client()
+        key = self._viewer_outbox_index_key(session_id)
+        for scope in sorted(set(scopes)):
+            record = {
+                "session_id": session_id,
+                "viewer_scope": scope,
+                "stream_seq": int(seq),
+                "message_type": str(msg_type),
+                "event_id": str(payload.get("event_id") or ""),
+                "request_id": str(payload.get("request_id") or ""),
+                "player_id": payload.get("player_id"),
+                "target_player_id": payload.get("target_player_id"),
+                "commit_seq": payload.get("commit_seq"),
+                "server_time_ms": int(server_time_ms),
+            }
+            client.hset(key, f"{int(seq):020d}:{scope}", _json_dump(record))
+        _expire_key(client, key, DEBUG_REDIS_RETENTION_SECONDS)
 
     def _stream_key(self, session_id: str) -> str:
         return self._connection.key("stream", session_id, "events")
@@ -112,6 +207,12 @@ class RedisStreamStore:
 
     def _seq_key(self, session_id: str) -> str:
         return self._connection.key("stream", session_id, "seq")
+
+    def _event_index_key(self, session_id: str) -> str:
+        return self._connection.key("stream", session_id, "event_index")
+
+    def _viewer_outbox_index_key(self, session_id: str) -> str:
+        return self._connection.key("stream", session_id, "viewer_outbox")
 
     def _drop_count_key(self) -> str:
         return self._connection.key("stream", "drop_counts")
@@ -196,6 +297,28 @@ class RedisPromptStore:
     def delete_decision(self, request_id: str) -> None:
         self._connection.client().hdel(self._decisions_key(), request_id)
 
+    def get_lifecycle(self, request_id: str) -> dict[str, Any] | None:
+        raw = self._connection.client().hget(self._lifecycle_key(), request_id)
+        return _json_load_dict(str(raw)) if raw is not None else None
+
+    def list_lifecycle(self, session_id: str | None = None) -> list[dict[str, Any]]:
+        payloads = self._connection.client().hgetall(self._lifecycle_key())
+        items: list[dict[str, Any]] = []
+        for request_id in sorted(payloads):
+            parsed = _json_load_dict(payloads[request_id])
+            if parsed is None:
+                continue
+            if session_id is not None and str(parsed.get("session_id") or "") != str(session_id):
+                continue
+            items.append(parsed)
+        return items
+
+    def save_lifecycle(self, request_id: str, payload: dict[str, Any]) -> None:
+        self._connection.client().hset(self._lifecycle_key(), request_id, _json_dump(payload))
+
+    def delete_lifecycle(self, request_id: str) -> None:
+        self._connection.client().hdel(self._lifecycle_key(), request_id)
+
     def accept_decision_with_command(
         self,
         *,
@@ -279,6 +402,10 @@ class RedisPromptStore:
             if request_id:
                 self.delete_pending(request_id)
                 self.delete_decision(request_id)
+        for lifecycle in self.list_lifecycle(session_id):
+            request_id = str(lifecycle.get("request_id", "")).strip()
+            if request_id:
+                self.delete_lifecycle(request_id)
 
     def _pending_key(self) -> str:
         return self._connection.key("prompts", "pending")
@@ -288,6 +415,9 @@ class RedisPromptStore:
 
     def _decisions_key(self) -> str:
         return self._connection.key("prompts", "decisions")
+
+    def _lifecycle_key(self) -> str:
+        return self._connection.key("prompts", "lifecycle")
 
 
 class RedisCommandStore:
@@ -616,6 +746,7 @@ class RedisGameStateStore:
 
     def save_checkpoint(self, session_id: str, payload: dict[str, Any]) -> None:
         self._connection.client().set(self._checkpoint_key(session_id), _json_dump(payload))
+        self._refresh_debug_snapshot(session_id, checkpoint=payload)
 
     def load_checkpoint(self, session_id: str) -> dict[str, Any] | None:
         raw = self._connection.client().get(self._checkpoint_key(session_id))
@@ -692,6 +823,17 @@ class RedisGameStateStore:
 
     def load_view_commit_index(self, session_id: str) -> dict[str, Any] | None:
         raw = self._connection.client().get(self._view_commit_index_key(session_id))
+        return _json_load_dict(str(raw)) if raw is not None else None
+
+    def save_debug_snapshot(self, session_id: str, payload: dict[str, Any]) -> None:
+        self._connection.client().set(
+            self._debug_snapshot_key(session_id),
+            _json_dump(payload),
+            px=DEBUG_REDIS_RETENTION_SECONDS * 1000,
+        )
+
+    def load_debug_snapshot(self, session_id: str) -> dict[str, Any] | None:
+        raw = self._connection.client().get(self._debug_snapshot_key(session_id))
         return _json_load_dict(str(raw)) if raw is not None else None
 
     def commit_transition(
@@ -804,6 +946,7 @@ class RedisGameStateStore:
                 if "view_commit_seq_conflict" in str(exc) or "invalid_view_commit_seq" in str(exc):
                     raise ViewCommitSequenceConflict(str(exc)) from exc
                 raise
+            self._refresh_debug_snapshot(session_id)
             return
         if use_lua_commit:
             client.eval(
@@ -827,6 +970,7 @@ class RedisGameStateStore:
                 event_fields_payload,
                 str(event_max_buffer),
             )
+            self._refresh_debug_snapshot(session_id)
             return
         pipeline = client.pipeline(transaction=True)
         pipeline.set(self._current_state_key(session_id), current_payload)
@@ -859,6 +1003,279 @@ class RedisGameStateStore:
             kwargs = {"maxlen": event_max_buffer, "approximate": False} if event_max_buffer else {}
             pipeline.xadd(event_stream_key, fields, **kwargs)
         pipeline.execute()
+        self._refresh_debug_snapshot(session_id)
+
+    def _refresh_debug_snapshot(
+        self,
+        session_id: str,
+        *,
+        checkpoint: dict[str, Any] | None = None,
+    ) -> None:
+        try:
+            self.save_debug_snapshot(
+                session_id,
+                self._build_debug_snapshot(session_id, checkpoint=checkpoint),
+            )
+        except Exception:
+            return
+
+    def _build_debug_snapshot(
+        self,
+        session_id: str,
+        *,
+        checkpoint: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        checkpoint_payload = checkpoint if isinstance(checkpoint, dict) else self.load_checkpoint(session_id) or {}
+        current_state = self.load_current_state(session_id) or {}
+        view_state = self.load_view_state(session_id) or {}
+        view_commit_index = self.load_view_commit_index(session_id) or {}
+        runtime = self._latest_runtime_payload(view_commit_index, session_id)
+        frame_stack = self._list_from(current_state.get("runtime_frame_stack"))
+        active_prompt = self._dict_from(
+            current_state.get("runtime_active_prompt")
+            or checkpoint_payload.get("runtime_active_prompt")
+            or runtime.get("active_prompt")
+        )
+        summary = {
+            "status": runtime.get("status") or checkpoint_payload.get("runtime_status") or checkpoint_payload.get("latest_event_type"),
+            "round_index": _int_or_default(
+                runtime.get("round_index"),
+                _int_or_default(checkpoint_payload.get("round_index"), _int_or_default(current_state.get("round_index"), 0)),
+            ),
+            "turn_index": _int_or_default(
+                runtime.get("turn_index"),
+                _int_or_default(checkpoint_payload.get("turn_index"), _int_or_default(current_state.get("turn_index"), 0)),
+            ),
+            "current_player_id": _int_or_none(
+                runtime.get("current_player_id")
+                or current_state.get("current_player_id")
+                or current_state.get("acting_player_id")
+                or active_prompt.get("player_id")
+            ),
+            "latest_seq": _int_or_default(checkpoint_payload.get("latest_seq"), 0),
+            "latest_commit_seq": _int_or_default(
+                checkpoint_payload.get("latest_commit_seq"),
+                _int_or_default(view_commit_index.get("latest_commit_seq"), 0),
+            ),
+            "latest_source_event_seq": _int_or_default(
+                checkpoint_payload.get("latest_source_event_seq"),
+                _int_or_default(view_commit_index.get("latest_source_event_seq"), 0),
+            ),
+            "latest_event_type": checkpoint_payload.get("latest_event_type"),
+            "active_frame_id": checkpoint_payload.get("frame_id") or runtime.get("active_frame_id"),
+            "active_module_id": checkpoint_payload.get("module_id") or runtime.get("active_module_id"),
+            "active_module_type": checkpoint_payload.get("module_type") or runtime.get("active_module_type"),
+            "active_module_cursor": checkpoint_payload.get("module_cursor") or runtime.get("active_module_cursor"),
+            "waiting_prompt_request_id": checkpoint_payload.get("waiting_prompt_request_id") or active_prompt.get("request_id"),
+        }
+        players = self._compact_players(current_state, view_state)
+        pending_actions = self._compact_actions(self._list_from(current_state.get("pending_actions")), limit=20)
+        scheduled_actions = self._compact_actions(self._list_from(current_state.get("scheduled_actions")), limit=20)
+        return {
+            "schema_version": 1,
+            "session_id": session_id,
+            "updated_at_ms": int(time.time() * 1000),
+            "purpose": "redis_debug_snapshot",
+            "summary": summary,
+            "redis_keys": self._debug_key_map(session_id),
+            "checkpoint_flags": {
+                "has_snapshot": bool(checkpoint_payload.get("has_snapshot")),
+                "has_view_state": bool(checkpoint_payload.get("has_view_state")),
+                "has_view_commit": bool(checkpoint_payload.get("has_view_commit")),
+                "has_pending_actions": bool(checkpoint_payload.get("has_pending_actions")),
+                "has_scheduled_actions": bool(checkpoint_payload.get("has_scheduled_actions")),
+                "has_pending_turn_completion": bool(checkpoint_payload.get("has_pending_turn_completion")),
+            },
+            "runtime": {
+                "runner_kind": checkpoint_payload.get("runner_kind") or current_state.get("runtime_runner_kind"),
+                "active_prompt": self._compact_prompt(active_prompt),
+                "frame_stack": self._compact_frame_stack(frame_stack),
+                "module_path": runtime.get("module_path") if isinstance(runtime.get("module_path"), list) else [],
+            },
+            "players": players,
+            "board": self._compact_board(current_state, view_state),
+            "pending": {
+                "pending_action_count": len(pending_actions),
+                "pending_actions": pending_actions,
+                "scheduled_action_count": len(scheduled_actions),
+                "scheduled_actions": scheduled_actions,
+                "pending_turn_completion": self._compact_mapping(
+                    self._dict_from(current_state.get("pending_turn_completion")),
+                    ("player_id", "round_index", "turn_index", "reason", "module_id", "status"),
+                ),
+            },
+            "view_commits": {
+                "latest_commit_seq": view_commit_index.get("latest_commit_seq"),
+                "latest_source_event_seq": view_commit_index.get("latest_source_event_seq"),
+                "viewers": sorted(str(item) for item in self._list_from(view_commit_index.get("view_commit_viewers"))),
+                "cached_viewers": sorted(str(item) for item in self._list_from(view_commit_index.get("cached_viewers"))),
+            },
+            "checkpoint": checkpoint_payload,
+        }
+
+    def _latest_runtime_payload(self, view_commit_index: dict[str, Any], session_id: str) -> dict[str, Any]:
+        viewers = self._list_from(view_commit_index.get("view_commit_viewers"))
+        for label in ("spectator", "public", "admin", *[str(item) for item in viewers]):
+            key = self._view_commit_key_from_label(session_id, str(label))
+            if not key:
+                continue
+            raw = self._connection.client().get(key)
+            payload = _json_load_dict(str(raw)) if raw is not None else None
+            if isinstance(payload, dict):
+                runtime = payload.get("runtime")
+                if isinstance(runtime, dict):
+                    return runtime
+        return {}
+
+    def _debug_key_map(self, session_id: str) -> dict[str, str]:
+        return {
+            "checkpoint": self._checkpoint_key(session_id),
+            "current_state": self._current_state_key(session_id),
+            "view_state_public": self._view_state_key(session_id),
+            "view_commit_index": self._view_commit_index_key(session_id),
+            "debug_snapshot": self._debug_snapshot_key(session_id),
+            "stream_events": self._runtime_stream_key(session_id),
+            "stream_source_events": self._connection.key("stream", session_id, "source_events"),
+            "stream_seq": self._runtime_stream_seq_key(session_id),
+            "stream_event_index": self._connection.key("stream", session_id, "event_index"),
+            "stream_viewer_outbox": self._connection.key("stream", session_id, "viewer_outbox"),
+            "commands_stream": self._connection.key("commands", session_id, "stream"),
+            "commands_seq": self._connection.key("commands", session_id, "seq"),
+            "prompts_pending_hash": self._connection.key("prompts", "pending"),
+            "prompts_lifecycle_hash": self._connection.key("prompts", "lifecycle"),
+            "runtime_status_hash": self._connection.key("runtime", "status"),
+            "runtime_fallbacks": self._connection.key("runtime", session_id, "fallbacks"),
+            "runtime_lease": self._connection.key("runtime", session_id, "lease"),
+        }
+
+    def _compact_players(self, current_state: dict[str, Any], view_state: dict[str, Any]) -> list[dict[str, Any]]:
+        players = self._list_from(current_state.get("players"))
+        if not players:
+            players = self._list_from(view_state.get("players"))
+        return [
+            self._compact_mapping(
+                self._dict_from(player),
+                (
+                    "player_id",
+                    "id",
+                    "seat",
+                    "name",
+                    "character",
+                    "character_id",
+                    "alive",
+                    "position",
+                    "tile_index",
+                    "money",
+                    "cash",
+                    "coins",
+                    "points",
+                    "score",
+                    "shards",
+                    "lap_count",
+                    "rank",
+                    "bankrupt",
+                ),
+            )
+            for player in players
+            if isinstance(player, dict)
+        ]
+
+    def _compact_board(self, current_state: dict[str, Any], view_state: dict[str, Any]) -> dict[str, Any]:
+        board = self._dict_from(current_state.get("board") or view_state.get("board"))
+        compact = self._compact_mapping(
+            board,
+            ("round_index", "turn_index", "f_value", "end_time", "weather", "lap", "tile_count"),
+        )
+        tiles = self._list_from(board.get("tiles"))
+        if tiles:
+            compact["tile_count"] = len(tiles)
+        return compact
+
+    def _compact_prompt(self, prompt: dict[str, Any]) -> dict[str, Any]:
+        compact = self._compact_mapping(
+            prompt,
+            (
+                "request_id",
+                "prompt_instance_id",
+                "player_id",
+                "request_type",
+                "frame_id",
+                "module_id",
+                "module_type",
+                "module_cursor",
+                "resume_token",
+                "timeout_ms",
+            ),
+        )
+        legal_choices = self._list_from(prompt.get("legal_choices"))
+        if legal_choices:
+            compact["legal_choice_count"] = len(legal_choices)
+            compact["legal_choice_ids"] = [
+                str(self._dict_from(choice).get("choice_id") or self._dict_from(choice).get("id") or "")
+                for choice in legal_choices[:20]
+            ]
+        return compact
+
+    def _compact_frame_stack(self, frames: list[Any]) -> list[dict[str, Any]]:
+        return [
+            self._compact_mapping(
+                self._dict_from(frame),
+                (
+                    "frame_id",
+                    "frame_type",
+                    "status",
+                    "player_id",
+                    "round_index",
+                    "turn_index",
+                    "active_module_id",
+                    "active_module_type",
+                    "active_module_cursor",
+                    "parent_frame_id",
+                ),
+            )
+            for frame in frames[-12:]
+            if isinstance(frame, dict)
+        ]
+
+    def _compact_actions(self, actions: list[Any], *, limit: int) -> list[dict[str, Any]]:
+        return [
+            self._compact_mapping(
+                self._dict_from(action),
+                (
+                    "action_id",
+                    "id",
+                    "type",
+                    "action_type",
+                    "status",
+                    "player_id",
+                    "source_player_id",
+                    "target_player_id",
+                    "owner_player_id",
+                    "payer_player_id",
+                    "round_index",
+                    "turn_index",
+                    "tile_index",
+                    "module_id",
+                    "request_id",
+                    "created_at_seq",
+                    "resolve_at_turn_start_player_id",
+                ),
+            )
+            for action in actions[:limit]
+            if isinstance(action, dict)
+        ]
+
+    @staticmethod
+    def _compact_mapping(payload: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+        return {key: payload[key] for key in keys if key in payload and payload[key] is not None}
+
+    @staticmethod
+    def _dict_from(value: Any) -> dict[str, Any]:
+        return value if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _list_from(value: Any) -> list[Any]:
+        return value if isinstance(value, list) else []
 
     def _view_commit_sequence(self, view_commit_entries: list[tuple[str, str, dict[str, Any]]]) -> int | None:
         if not view_commit_entries:
@@ -985,6 +1402,7 @@ class RedisGameStateStore:
             self._checkpoint_key(session_id),
             self._current_state_key(session_id),
             self._view_state_key(session_id),
+            self._debug_snapshot_key(session_id),
             *cached_view_state_keys,
             *view_commit_keys,
         )
@@ -1022,6 +1440,9 @@ class RedisGameStateStore:
 
     def _view_commit_index_key(self, session_id: str) -> str:
         return self._connection.key("game", session_id, "view_commit_index")
+
+    def _debug_snapshot_key(self, session_id: str) -> str:
+        return self._connection.key("game", session_id, "debug_snapshot")
 
     def _cached_view_state_key_from_label(self, session_id: str, label: str) -> str | None:
         normalized = str(label or "").strip().lower()
@@ -1125,6 +1546,25 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
+def _viewer_outbox_scopes(msg_type: str, payload: dict[str, Any]) -> list[str]:
+    if msg_type in {"prompt", "decision_ack"}:
+        player_id = _int_or_default(payload.get("player_id") or payload.get("target_player_id"), 0)
+        return [f"player:{player_id}"] if player_id > 0 else []
+    if msg_type == "view_commit":
+        viewer = payload.get("viewer") if isinstance(payload.get("viewer"), dict) else {}
+        role = str(viewer.get("role") or payload.get("viewer_role") or "").strip().lower()
+        if role in {"seat", "player"}:
+            player_id = _int_or_default(viewer.get("player_id") or payload.get("player_id"), 0)
+            return [f"player:{player_id}"] if player_id > 0 else []
+        if role in {"spectator", "admin", "public"}:
+            return [role]
+        return ["public"]
+    if msg_type == "snapshot_pulse":
+        target_player_id = _int_or_default(payload.get("target_player_id"), 0)
+        return [f"player:{target_player_id}"] if target_player_id > 0 else ["public"]
+    return ["public"]
+
+
 def _int_or_default(value: Any, default: int = 0) -> int:
     try:
         return int(value)
@@ -1141,6 +1581,16 @@ def _redis_text(value: Any) -> str | None:
         except Exception:
             return None
     return str(value)
+
+
+def _expire_key(client: Any, key: str, seconds: int) -> None:
+    expire = getattr(client, "expire", None)
+    if not callable(expire):
+        return
+    try:
+        expire(key, max(1, int(seconds)))
+    except Exception:
+        return
 
 
 def _positive_or_previous(value: Any, previous: Any) -> int:

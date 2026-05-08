@@ -15,6 +15,10 @@ def _env_int(name: str, default: int, minimum: int) -> int:
     return parsed if parsed >= minimum else default
 
 
+def _env_int_capped(name: str, default: int, minimum: int, maximum: int) -> int:
+    return min(_env_int(name, default, minimum), maximum)
+
+
 def _env_str(name: str, default: str) -> str:
     raw = os.getenv(name, "").strip()
     return raw or default
@@ -49,7 +53,7 @@ class RuntimeSettings:
     redis_key_prefix: str = "mrn"
     redis_socket_timeout_ms: int = 1000
     game_log_archive_path: str = "data/game_logs"
-    archive_hot_retention_seconds: int = 300
+    archive_hot_retention_seconds: int = 3600
     prompt_timeout_worker_poll_interval_ms: int = 250
     command_wakeup_worker_poll_interval_ms: int = 250
     admin_token: str = ""
@@ -84,7 +88,7 @@ def load_runtime_settings() -> RuntimeSettings:
         redis_key_prefix=_env_str("MRN_REDIS_KEY_PREFIX", "mrn"),
         redis_socket_timeout_ms=_env_int("MRN_REDIS_SOCKET_TIMEOUT_MS", 1000, 50),
         game_log_archive_path=_env_str("MRN_GAME_LOG_ARCHIVE_PATH", "data/game_logs"),
-        archive_hot_retention_seconds=_env_int("MRN_ARCHIVE_HOT_RETENTION_SECONDS", 300, 0),
+        archive_hot_retention_seconds=_env_int_capped("MRN_ARCHIVE_HOT_RETENTION_SECONDS", 3600, 0, 3600),
         prompt_timeout_worker_poll_interval_ms=_env_int("MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS", 250, 50),
         command_wakeup_worker_poll_interval_ms=_env_int("MRN_COMMAND_WAKEUP_WORKER_POLL_INTERVAL_MS", 250, 50),
         admin_token=_env_str("MRN_ADMIN_TOKEN", ""),

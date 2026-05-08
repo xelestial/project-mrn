@@ -6,6 +6,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 
+from apps.server.src.domain.protocol_ids import new_event_id
 from apps.server.src.domain.runtime_semantic_guard import validate_stream_payload
 from apps.server.src.domain.visibility import ViewerContext, project_stream_message_for_viewer
 from apps.server.src.services.persistence import StreamStore
@@ -71,6 +72,7 @@ class StreamService:
                 duplicate = self._duplicate_round_setup_event_no_lock(history, msg_type, enriched_payload)
             if duplicate is not None:
                 return duplicate
+            enriched_payload = self._with_source_event_id(msg_type, enriched_payload)
             server_time_ms = int(time.time() * 1000)
             item = self._append_stream_message_no_lock(
                 session_id,
@@ -319,6 +321,16 @@ class StreamService:
                         continue
                 restored.sort(key=lambda msg: msg.seq)
                 self._buffers[str(session_id)] = restored[-self._max_buffer :]
+
+    @staticmethod
+    def _with_source_event_id(msg_type: str, payload: dict) -> dict:
+        if msg_type in {"view_commit", "snapshot_pulse"}:
+            return payload
+        if payload.get("event_id"):
+            return payload
+        next_payload = dict(payload)
+        next_payload["event_id"] = new_event_id()
+        return next_payload
 
     @staticmethod
     def _message_from_payload(message: dict) -> StreamMessage:

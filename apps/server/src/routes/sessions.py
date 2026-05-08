@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from apps.server.src.core.error_payload import build_error_payload
-from apps.server.src.domain.visibility import ViewerContext, project_stream_message_for_viewer
+from apps.server.src.domain.visibility import ViewerContext, project_stream_message_for_viewer, viewer_from_auth_context
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
 from apps.server.src.services.session_service import SessionNotFoundError, SessionService, SessionStateError
@@ -412,12 +412,7 @@ async def latest_view_commit(
         _error("SESSION_NOT_FOUND", "Session not found.", status.HTTP_404_NOT_FOUND)
     except SessionStateError as exc:
         _session_auth_error(exc)
-    viewer = ViewerContext(
-        role=str(auth_ctx.get("role") or "spectator"),
-        session_id=session_id,
-        seat=auth_ctx.get("seat"),
-        player_id=auth_ctx.get("player_id"),
-    )
+    viewer = viewer_from_auth_context(auth_ctx, session_id=session_id)
     message = await stream.latest_view_commit_message_for_viewer(session_id, viewer)
     payload = message.get("payload") if isinstance(message, dict) else None
     if not isinstance(payload, dict):
@@ -443,12 +438,7 @@ async def replay_export(
         _error("SESSION_NOT_FOUND", "Session not found.", status.HTTP_404_NOT_FOUND)
     except SessionStateError as exc:
         _session_auth_error(exc)
-    viewer = ViewerContext(
-        role=str(auth_ctx.get("role") or "spectator"),
-        session_id=session_id,
-        seat=auth_ctx.get("seat"),
-        player_id=auth_ctx.get("player_id"),
-    )
+    viewer = viewer_from_auth_context(auth_ctx, session_id=session_id)
     events = []
     for message in await stream.snapshot(session_id):
         projected = project_stream_message_for_viewer(message.to_dict(), viewer)
@@ -464,6 +454,13 @@ async def replay_export(
             "role": viewer.role,
             "seat": viewer.seat,
             "player_id": viewer.player_id,
+            "legacy_player_id": viewer.legacy_player_id,
+            "public_player_id": viewer.public_player_id,
+            "seat_id": viewer.seat_id,
+            "viewer_id": viewer.viewer_id,
+            "seat_index": viewer.seat_index,
+            "turn_order_index": viewer.turn_order_index,
+            "player_label": viewer.player_label,
         },
         "event_count": len(events),
         "events": events,

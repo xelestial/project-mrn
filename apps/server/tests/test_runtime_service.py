@@ -132,6 +132,55 @@ class RuntimeServiceTests(unittest.TestCase):
             prompt_service=self.prompt_service,
         )
 
+    def test_builds_recoverable_batch_prompt_view_state_from_checkpoint(self) -> None:
+        checkpoint_payload = {
+            "players": [{"player_id": 1}, {"player_id": 2}],
+            "runtime_active_prompt_batch": {
+                "batch_id": "batch:simul:resupply:1:13:mod:resupply:1",
+                "request_type": "burden_exchange",
+                "missing_player_ids": [0, 1],
+                "resume_tokens_by_player_id": {"0": "resume_p1", "1": "resume_p2"},
+                "prompts_by_player_id": {
+                    "0": {
+                        "request_id": "batch:simul:resupply:1:13:mod:resupply:1:p0",
+                        "request_type": "burden_exchange",
+                        "prompt_instance_id": 31,
+                        "resume_token": "resume_p1",
+                        "frame_id": "simul:resupply:1:13",
+                        "module_id": "mod:resupply",
+                        "module_type": "ResupplyModule",
+                        "module_cursor": "await_resupply_batch:1",
+                        "legal_choices": [{"choice_id": "no", "title": "교환 안 함"}],
+                        "public_context": {"card_name": "무거운 짐"},
+                    }
+                },
+            },
+        }
+        active_module = {
+            "runner_kind": "module",
+            "frame_id": "simul:resupply:1:13",
+            "frame_type": "simultaneous",
+            "module_id": "mod:resupply",
+            "module_type": "ResupplyModule",
+            "module_cursor": "await_resupply_batch:1",
+        }
+
+        prompt_view = self.runtime_service._build_prompt_view_state_for_viewer(
+            checkpoint_payload=checkpoint_payload,
+            viewer={"role": "seat", "player_id": 1},
+            active_module=active_module,
+            commit_seq=77,
+        )
+
+        active = prompt_view["active"]
+        self.assertEqual(active["player_id"], 1)
+        self.assertEqual(active["commit_seq"], 77)
+        self.assertEqual(active["runner_kind"], "module")
+        self.assertEqual(active["prompt_instance_id"], 31)
+        self.assertEqual(active["batch_id"], "batch:simul:resupply:1:13:mod:resupply:1")
+        self.assertEqual(active["missing_player_ids"], [1, 2])
+        self.assertEqual(active["resume_tokens_by_player_id"], {"1": "resume_p1", "2": "resume_p2"})
+
     @staticmethod
     def _module_prompt(
         payload: dict,
@@ -2677,6 +2726,42 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(view_state["turn_stage"]["weather_effect"], "모든 참가자는 2냥을 은행에 지불하세요")
         self.assertEqual(view_state["scene"]["situation"]["weather_name"], "외세의 침략")
         self.assertEqual(view_state["scene"]["situation"]["weather_effect"], "모든 참가자는 2냥을 은행에 지불하세요")
+
+    def test_authoritative_view_commit_includes_turn_label_and_viewer_display_identity(self) -> None:
+        commits = self.runtime_service._build_authoritative_view_commits(
+            session_id="sess_commit_identity",
+            state=type("State", (), {})(),
+            checkpoint_payload={
+                "players": [{"player_id": 0}],
+                "rounds_completed": 1,
+                "turn_index": 5,
+                "marker_owner_id": 0,
+                "current_round_order": [0],
+            },
+            runtime_checkpoint={
+                "round_index": 2,
+                "turn_index": 5,
+            },
+            module_debug_fields={},
+            step={"status": "running"},
+            commit_seq=9,
+            source_event_seq=42,
+            source_messages=[],
+            server_time_ms=123456,
+        )
+
+        spectator = commits["spectator"]
+        player = commits["player:1"]
+
+        self.assertEqual(spectator["round_index"], 2)
+        self.assertEqual(spectator["turn_index"], 5)
+        self.assertEqual(spectator["turn_label"], "R2-T5")
+        self.assertEqual(spectator["runtime"]["turn_label"], "R2-T5")
+        self.assertEqual(player["viewer"]["player_id"], 1)
+        self.assertEqual(player["viewer"]["legacy_player_id"], 1)
+        self.assertEqual(player["viewer"]["seat_index"], 1)
+        self.assertEqual(player["viewer"]["turn_order_index"], 1)
+        self.assertEqual(player["viewer"]["player_label"], "P1")
 
     def test_authoritative_view_commit_projects_game_end_beat(self) -> None:
         state = type("State", (), {})()

@@ -263,6 +263,15 @@ export function evaluateProtocolGate(input: ProtocolGateInput): ProtocolGateResu
         `${client.label} answered raw prompt before active view_commit ${metrics.rawPromptFallbackWithoutActiveCommitCount} time(s)`,
       );
     }
+    if (metrics.spectatorPromptLeakCount > 0) {
+      failures.push(`${client.label} received private prompt ${metrics.spectatorPromptLeakCount} time(s)`);
+    }
+    if (metrics.spectatorDecisionAckLeakCount > 0) {
+      failures.push(`${client.label} received private decision ack ${metrics.spectatorDecisionAckLeakCount} time(s)`);
+    }
+    if (metrics.identityViolationCount > 0) {
+      failures.push(`${client.label} saw malformed protocol identity ${metrics.identityViolationCount} time(s)`);
+    }
     if (metrics.errorMessageCount > 0) {
       failures.push(`${client.label} saw stream/client error ${metrics.errorMessageCount} time(s)`);
     }

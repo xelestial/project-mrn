@@ -178,7 +178,7 @@ function parseArgs(args: string[]): CliOptions {
           "  --progress-interval-ms 30000",
           "  --raw-prompt-fallback-delay-ms 25|off",
           "  --reconnect after_start,after_first_decision,round_boundary",
-          "  --config-json '{\"runtime\":{\"max_turns\":4}}'",
+          "  --config-json '{\"rules\":{\"end\":{\"f_threshold\":4,\"monopolies_to_trigger_end\":1,\"tiles_to_trigger_end\":4,\"alive_players_at_most\":1}}}'",
           "  --policy baseline|conservative|cash|shard|score|http",
           "  --seat-profiles '1=baseline,2=cash,3=shard,4=score'",
           "  --policy-http-url http://127.0.0.1:7777/decide",

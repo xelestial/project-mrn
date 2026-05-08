@@ -150,12 +150,15 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                         "player_id": 1,
                         "timeout_ms": 30000,
                         "runner_kind": "module",
+                        "prompt_instance_id": 42,
                         "resume_token": "tok_move_1",
                         "frame_id": "turn:1:p1",
                         "module_id": "mod:move",
                         "module_type": "MapMoveModule",
                         "module_cursor": "movement:await_choice",
                         "batch_id": "batch_move_1",
+                        "missing_player_ids": [1, 3],
+                        "resume_tokens_by_player_id": {"1": "tok_p1", "3": "tok_p3"},
                         "legal_choices": [{"choice_id": "roll", "title": "Roll"}],
                         "public_context": {"round_index": 1},
                     },
@@ -164,12 +167,16 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         )
 
         active = view_state["active"]
+        self.assertEqual(active["runner_kind"], "module")
+        self.assertEqual(active["prompt_instance_id"], 42)
         self.assertEqual(active["resume_token"], "tok_move_1")
         self.assertEqual(active["frame_id"], "turn:1:p1")
         self.assertEqual(active["module_id"], "mod:move")
         self.assertEqual(active["module_type"], "MapMoveModule")
         self.assertEqual(active["module_cursor"], "movement:await_choice")
         self.assertEqual(active["batch_id"], "batch_move_1")
+        self.assertEqual(active["missing_player_ids"], [1, 3])
+        self.assertEqual(active["resume_tokens_by_player_id"], {"1": "tok_p1", "3": "tok_p3"})
 
     def test_build_prompt_view_state_projects_effect_context(self) -> None:
         view_state = build_prompt_view_state(

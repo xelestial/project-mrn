@@ -793,10 +793,28 @@ def build_prompt_view_state(messages: list[dict[str, Any]]) -> PromptViewState |
         effect_context = _prompt_effect_context(public_context)
         if effect_context:
             active["effect_context"] = effect_context
-        for field in ("resume_token", "frame_id", "module_id", "module_type", "module_cursor", "batch_id"):
+        for field in ("runner_kind", "resume_token", "frame_id", "module_id", "module_type", "module_cursor", "batch_id"):
             value = _string(active_prompt.get(field))
             if value:
                 active[field] = value
+        prompt_instance_id = _number(active_prompt.get("prompt_instance_id"))
+        if prompt_instance_id is not None:
+            active["prompt_instance_id"] = prompt_instance_id
+        missing_player_ids = [
+            int(raw)
+            for raw in active_prompt.get("missing_player_ids") or []
+            if _number(raw) is not None
+        ]
+        if missing_player_ids:
+            active["missing_player_ids"] = missing_player_ids
+        raw_resume_tokens = _record(active_prompt.get("resume_tokens_by_player_id")) or {}
+        resume_tokens_by_player_id = {
+            str(raw_player_id): str(token)
+            for raw_player_id, token in raw_resume_tokens.items()
+            if str(raw_player_id).strip() and str(token).strip()
+        }
+        if resume_tokens_by_player_id:
+            active["resume_tokens_by_player_id"] = resume_tokens_by_player_id
         payload["active"] = active
     if last_feedback:
         payload["last_feedback"] = last_feedback

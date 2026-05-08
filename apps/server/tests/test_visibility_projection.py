@@ -6,10 +6,35 @@ from apps.server.src.domain.visibility import (
     ViewerContext,
     can_view,
     project_stream_message_for_viewer,
+    viewer_from_auth_context,
 )
 
 
 class VisibilityProjectionTests(unittest.TestCase):
+    def test_viewer_from_auth_context_preserves_protocol_identity(self) -> None:
+        viewer = viewer_from_auth_context(
+            {
+                "role": "seat",
+                "seat": 2,
+                "player_id": 2,
+                "legacy_player_id": 2,
+                "public_player_id": "ply_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "seat_id": "seat_bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                "viewer_id": "view_cccccccc-cccc-cccc-cccc-cccccccccccc",
+                "seat_index": 2,
+                "turn_order_index": 2,
+                "player_label": "P2",
+            },
+            session_id="sess_identity",
+        )
+
+        self.assertEqual(viewer.session_id, "sess_identity")
+        self.assertEqual(viewer.player_id, 2)
+        self.assertEqual(viewer.public_player_id, "ply_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        self.assertEqual(viewer.seat_id, "seat_bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+        self.assertEqual(viewer.viewer_id, "view_cccccccc-cccc-cccc-cccc-cccccccccccc")
+        self.assertEqual(viewer.player_label, "P2")
+
     def test_can_view_visibility_scopes(self) -> None:
         seat1 = ViewerContext(role="seat", player_id=1)
         seat2 = ViewerContext(role="seat", player_id=2)

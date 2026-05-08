@@ -373,6 +373,10 @@ class ActivePromptViewState(TypedDict):
     module_type: NotRequired[str]
     module_cursor: NotRequired[str]
     batch_id: NotRequired[str]
+    prompt_instance_id: NotRequired[int]
+    runner_kind: NotRequired[str]
+    missing_player_ids: NotRequired[list[int]]
+    resume_tokens_by_player_id: NotRequired[dict[str, str]]
 
 
 class PromptFeedbackViewState(TypedDict):

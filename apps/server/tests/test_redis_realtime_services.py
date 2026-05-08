@@ -88,6 +88,102 @@ class RedisRealtimeServicesTests(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_stream_event_index_maps_event_id_to_source_sequence(self) -> None:
+        stream_store = RedisStreamStore(self.connection)
+        service = StreamService(stream_backend=stream_store)
+
+        async def _run() -> None:
+            event = await service.publish(
+                "s-event-index",
+                "event",
+                {"event_type": "decision_requested", "request_id": "req_1", "player_id": 2},
+            )
+            indexed = stream_store.load_event_index("s-event-index", event.payload["event_id"])
+
+            self.assertIsNotNone(indexed)
+            self.assertEqual(indexed["event_id"], event.payload["event_id"])
+            self.assertEqual(indexed["stream_seq"], event.seq)
+            self.assertEqual(indexed["message_type"], "event")
+            self.assertEqual(indexed["event_type"], "decision_requested")
+            self.assertEqual(indexed["request_id"], "req_1")
+            self.assertEqual(indexed["player_id"], 2)
+
+        asyncio.run(_run())
+        self.assertEqual(self.fake_redis._expires_at_ms[stream_store._event_index_key("s-event-index")], 3600)
+
+    def test_stream_viewer_outbox_records_projected_delivery_scope(self) -> None:
+        stream_store = RedisStreamStore(self.connection)
+
+        prompt = stream_store.publish(
+            "s-outbox",
+            "prompt",
+            {"request_id": "req_prompt_1", "player_id": 2},
+            server_time_ms=100,
+            max_buffer=20,
+        )
+        public = stream_store.publish(
+            "s-outbox",
+            "event",
+            {"event_type": "weather_changed"},
+            server_time_ms=101,
+            max_buffer=20,
+        )
+        commit = stream_store.publish(
+            "s-outbox",
+            "view_commit",
+            {
+                "commit_seq": 3,
+                "viewer": {"role": "seat", "player_id": 4},
+                "runtime": {"status": "waiting_input"},
+            },
+            server_time_ms=102,
+            max_buffer=20,
+        )
+
+        rows = stream_store.load_viewer_outbox_index("s-outbox")
+        self.assertEqual(
+            [(row["stream_seq"], row["viewer_scope"], row["message_type"]) for row in rows],
+            [
+                (prompt["seq"], "player:2", "prompt"),
+                (public["seq"], "public", "event"),
+                (commit["seq"], "player:4", "view_commit"),
+            ],
+        )
+        self.assertEqual(rows[0]["request_id"], "req_prompt_1")
+        self.assertEqual(rows[2]["commit_seq"], 3)
+        self.assertEqual(self.fake_redis._expires_at_ms[stream_store._viewer_outbox_index_key("s-outbox")], 3600)
+
+    def test_game_state_debug_snapshot_uses_one_hour_ttl(self) -> None:
+        game_state = RedisGameStateStore(self.connection)
+
+        game_state.save_debug_snapshot("s-debug-ttl", {"schema_version": 1})
+
+        self.assertEqual(self.fake_redis._expires_at_ms[game_state._debug_snapshot_key("s-debug-ttl")], 3600000)
+
+    def test_prompt_lifecycle_store_is_session_scoped_and_cleaned(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+
+        prompt_store.save_lifecycle(
+            "req_lifecycle_1",
+            {"request_id": "req_lifecycle_1", "session_id": "s-lifecycle", "state": "created"},
+        )
+        prompt_store.save_lifecycle(
+            "req_lifecycle_2",
+            {"request_id": "req_lifecycle_2", "session_id": "other", "state": "created"},
+        )
+
+        self.assertEqual(prompt_store.get_lifecycle("req_lifecycle_1")["state"], "created")
+        self.assertEqual(
+            [item["request_id"] for item in prompt_store.list_lifecycle("s-lifecycle")],
+            ["req_lifecycle_1"],
+        )
+
+        prompt_store.delete_session_data("s-lifecycle")
+
+        self.assertIsNone(prompt_store.get_lifecycle("req_lifecycle_1"))
+        self.assertIsNotNone(prompt_store.get_lifecycle("req_lifecycle_2"))
+
+
     def test_stream_service_broadcasts_cached_view_commit_after_direct_runtime_transition(self) -> None:
         game_state = RedisGameStateStore(self.connection)
         stream_backend = RedisStreamStore(self.connection)
@@ -255,6 +351,17 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(len(runtime_events), 1)
         self.assertEqual(runtime_events[0]["seq"], 1)
         self.assertEqual(runtime_events[0]["payload"]["event_type"], "engine_transition")
+        debug_snapshot = game_state.load_debug_snapshot("s-commit")
+        self.assertIsNotNone(debug_snapshot)
+        self.assertEqual(debug_snapshot["summary"]["turn_index"], 3)
+        self.assertEqual(debug_snapshot["summary"]["latest_seq"], 1)
+        self.assertEqual(debug_snapshot["summary"]["latest_commit_seq"], 1)
+        self.assertEqual(debug_snapshot["pending"]["pending_action_count"], 1)
+        self.assertEqual(debug_snapshot["pending"]["scheduled_action_count"], 1)
+        self.assertEqual(debug_snapshot["pending"]["pending_actions"][0]["action_id"], "a1")
+        self.assertEqual(debug_snapshot["pending"]["scheduled_actions"][0]["action_id"], "s1")
+        self.assertEqual(debug_snapshot["redis_keys"]["current_state"], "mrn-rt:game:s-commit:current_state")
+        self.assertIn("spectator", debug_snapshot["view_commits"]["viewers"])
         self.assertIn(
             ["set", "set", "set", "set", "set", "set", "set", "set", "hset", "hset", "xadd"],
             self.fake_redis.pipeline_executions,
@@ -469,6 +576,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertIsNone(game_state.load_cached_view_state("s-view", "player", player_id=1))
         self.assertIsNone(game_state.load_cached_view_state("s-view", "admin"))
         self.assertIsNone(game_state.load_view_commit_index("s-view"))
+        self.assertIsNone(game_state.load_debug_snapshot("s-view"))
 
     def test_game_state_store_persists_authoritative_view_commit_variants(self) -> None:
         game_state = RedisGameStateStore(self.connection)
@@ -754,6 +862,42 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             ],
             self.fake_redis.pipeline_executions,
         )
+
+    def test_prompt_service_scopes_resolved_request_ids_by_session(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        command_store = RedisCommandStore(self.connection)
+        service = PromptService(prompt_store=prompt_store, command_store=command_store)
+        payload = {
+            "request_id": "shared-redis-batch:p0",
+            "request_type": "burden_exchange",
+            "player_id": 1,
+            "timeout_ms": 30000,
+            "legal_choices": [{"choice_id": "yes"}],
+        }
+        service.create_prompt("s-redis-a", payload)
+        first = service.submit_decision(
+            {
+                "session_id": "s-redis-a",
+                "request_id": "shared-redis-batch:p0",
+                "player_id": 1,
+                "choice_id": "yes",
+            }
+        )
+        self.assertEqual(first["status"], "accepted")
+        self.assertEqual(prompt_store.get_resolved("shared-redis-batch:p0")["session_id"], "s-redis-a")
+
+        recreated = service.create_prompt("s-redis-b", payload)
+        self.assertEqual(recreated.session_id, "s-redis-b")
+        second = service.submit_decision(
+            {
+                "session_id": "s-redis-b",
+                "request_id": "shared-redis-batch:p0",
+                "player_id": 1,
+                "choice_id": "yes",
+            }
+        )
+        self.assertEqual(second["status"], "accepted")
+        self.assertEqual(prompt_store.get_resolved("shared-redis-batch:p0")["session_id"], "s-redis-b")
 
     def test_command_store_recovers_seq_after_seq_key_eviction(self) -> None:
         command_store = RedisCommandStore(self.connection)
@@ -2425,6 +2569,10 @@ class _FakeRedis:
 
     def get(self, name: str) -> str | None:
         return self._strings.get(name)
+
+    def expire(self, name: str, seconds: int) -> bool:
+        self._expires_at_ms[name] = int(seconds)
+        return True
 
     def xadd(self, name: str, fields: dict[str, str], maxlen: int | None = None, approximate: bool = False) -> str:
         bucket = self._streams.setdefault(name, [])

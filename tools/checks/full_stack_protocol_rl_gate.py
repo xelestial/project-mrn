@@ -56,7 +56,14 @@ PROFILES: dict[str, dict[str, int]] = {
 
 PROFILE_DEFAULT_CONFIGS: dict[str, dict[str, Any]] = {
     "smoke": {
-        "runtime": {"max_turns": 4}
+        "rules": {
+            "end": {
+                "f_threshold": 4,
+                "monopolies_to_trigger_end": 1,
+                "tiles_to_trigger_end": 4,
+                "alive_players_at_most": 1,
+            }
+        }
     }
 }
 
@@ -234,8 +241,8 @@ def run_protocol_gate_once(
     reconnect_scenarios: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     run_dir.mkdir(parents=True, exist_ok=True)
-    trace_path = run_dir / "protocol_trace.jsonl"
-    replay_path = run_dir / "rl_replay.jsonl"
+    trace_path = (run_dir / "protocol_trace.jsonl").resolve()
+    replay_path = (run_dir / "rl_replay.jsonl").resolve()
     stdout_path = run_dir / "stdout.log"
     stderr_path = run_dir / "stderr.log"
     summary_path = run_dir / "summary.json"
@@ -324,6 +331,8 @@ def protocol_gate_command(
             str(replay_path),
             "--progress-interval-ms",
             str(progress_interval_ms),
+            "--raw-prompt-fallback-delay-ms",
+            "off",
             "--policy",
             policy,
         ]

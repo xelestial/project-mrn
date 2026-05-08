@@ -19,6 +19,8 @@ from urllib import request as urllib_request
 
 from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.config.runtime_settings import RuntimeSettings
+from apps.server.src.domain.protocol_identity import display_identity_fields
+from apps.server.src.domain.protocol_ids import int_or_default, turn_label as protocol_turn_label
 from apps.server.src.domain.runtime_semantic_guard import validate_checkpoint_payload
 from apps.server.src.domain.session_models import ParticipantClientType, SeatConfig, SeatType, SessionStatus
 from apps.server.src.domain.visibility import ViewerContext
@@ -1894,7 +1896,11 @@ class RuntimeService:
                 prior_prompt_seed = _prior_same_module_resume_prompt_seed(runtime_recovery_checkpoint, decision_resume)
                 if prior_prompt_seed is not None:
                     prompt_sequence = prior_prompt_seed
-                elif decision_resume is None and pending_prompt_instance_id > 0:
+                elif pending_prompt_instance_id > 0 and (
+                    decision_resume is None
+                    or str(getattr(state, "pending_prompt_request_id", "") or "").strip()
+                    == str(decision_resume.request_id or "").strip()
+                ):
                     prompt_sequence = max(0, pending_prompt_instance_id - 1)
                 policy.set_prompt_sequence(prompt_sequence)
             if decision_resume is not None:
@@ -2463,6 +2469,9 @@ class RuntimeService:
         public_snapshot = self._public_snapshot_from_state(state)
         parameter_manifest = self._parameter_manifest_for_session(session_id)
         active_module = self._active_runtime_module_from_checkpoint(checkpoint_payload, module_debug_fields)
+        round_index = int_or_default(runtime_checkpoint.get("round_index"), 0)
+        turn_index = int_or_default(runtime_checkpoint.get("turn_index"), 0)
+        commit_turn_label = protocol_turn_label(round_index, turn_index)
         viewer_specs: list[tuple[str, dict]] = [
             ("spectator", {"role": "spectator"}),
             ("public", {"role": "spectator"}),
@@ -2482,6 +2491,7 @@ class RuntimeService:
                         "role": "seat",
                         "player_id": external_player_id,
                         "seat": external_player_id,
+                        **display_identity_fields(external_player_id, legacy_player_id=external_player_id),
                     },
                 )
             )
@@ -2504,11 +2514,15 @@ class RuntimeService:
                 "schema_version": _VIEW_COMMIT_SCHEMA_VERSION,
                 "commit_seq": commit_seq,
                 "source_event_seq": source_event_seq,
+                "round_index": round_index,
+                "turn_index": turn_index,
+                "turn_label": commit_turn_label,
                 "viewer": dict(viewer),
                 "runtime": {
                     "status": self._runtime_status_from_step(step, checkpoint_payload),
-                    "round_index": int(runtime_checkpoint.get("round_index", 0) or 0),
-                    "turn_index": int(runtime_checkpoint.get("turn_index", 0) or 0),
+                    "round_index": round_index,
+                    "turn_index": turn_index,
+                    "turn_label": commit_turn_label,
                     "active_frame_id": str(active_module.get("frame_id") or runtime_checkpoint.get("active_frame_id") or ""),
                     "active_module_id": str(active_module.get("module_id") or runtime_checkpoint.get("active_module_id") or ""),
                     "active_module_type": str(
@@ -2921,6 +2935,11 @@ class RuntimeService:
         prompt.setdefault("provider", "human")
         prompt.setdefault("legal_choices", [])
         prompt.setdefault("public_context", {})
+        prompt.setdefault("runner_kind", active_module.get("runner_kind") or "module")
+        prompt.setdefault("frame_id", active_module.get("frame_id"))
+        prompt.setdefault("module_id", active_module.get("module_id"))
+        prompt.setdefault("module_type", active_module.get("module_type"))
+        prompt.setdefault("module_cursor", active_module.get("module_cursor"))
         prompt["batch_id"] = str(batch.get("batch_id") or "")
         prompt["missing_player_ids"] = [
             int(raw) + 1
@@ -3227,6 +3246,8 @@ class RuntimeService:
                 request_type=request_type,
                 player_id=player_id,
             )
+        if self._prompt_service is not None:
+            self._prompt_service.mark_prompt_delivered(request_id)
 
         public_context = dict(payload.get("public_context") or {})
         requested = build_decision_requested_payload(
@@ -3495,7 +3516,10 @@ class _ServerDecisionPolicyBridge:
         parsed_instance_id = self._prompt_instance_id_from_resume_request_id(resume)
         if parsed_instance_id <= 0 or self._human_client is None:
             return True
-        return int(self._human_client.prompt_seq) + 1 == parsed_instance_id
+        current_prompt_seq = int(self._human_client.prompt_seq)
+        if current_prompt_seq <= 0:
+            return True
+        return current_prompt_seq + 1 == parsed_instance_id
 
     def _consume_decision_resume(self, call):
         resume = self._decision_resume

@@ -26,7 +26,7 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.redis_key_prefix, "mrn")
         self.assertEqual(settings.redis_socket_timeout_ms, 1000)
         self.assertEqual(settings.game_log_archive_path, "data/game_logs")
-        self.assertEqual(settings.archive_hot_retention_seconds, 300)
+        self.assertEqual(settings.archive_hot_retention_seconds, 3600)
         self.assertEqual(settings.prompt_timeout_worker_poll_interval_ms, 250)
         self.assertEqual(settings.command_wakeup_worker_poll_interval_ms, 250)
         self.assertEqual(settings.admin_token, "")
@@ -164,7 +164,7 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.redis_key_prefix, "mrn")
         self.assertEqual(settings.redis_socket_timeout_ms, 1000)
         self.assertEqual(settings.game_log_archive_path, "data/game_logs")
-        self.assertEqual(settings.archive_hot_retention_seconds, 300)
+        self.assertEqual(settings.archive_hot_retention_seconds, 3600)
         self.assertEqual(settings.prompt_timeout_worker_poll_interval_ms, 250)
         self.assertEqual(settings.command_wakeup_worker_poll_interval_ms, 250)
         self.assertEqual(settings.admin_token, "")
@@ -179,6 +179,11 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.runtime_module_runner_sequence_v1, False)
         self.assertEqual(settings.runtime_stream_idempotency_v1, False)
         self.assertEqual(settings.runtime_frontend_projection_v1, False)
+
+    def test_archive_hot_retention_is_capped_to_one_hour(self) -> None:
+        with _temporary_env({"MRN_ARCHIVE_HOT_RETENTION_SECONDS": "7200"}):
+            settings = load_runtime_settings()
+        self.assertEqual(settings.archive_hot_retention_seconds, 3600)
 
 
 class _temporary_env:

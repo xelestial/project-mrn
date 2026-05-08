@@ -64,6 +64,9 @@ export type HeadlessMetrics = {
   staleDecisionRetryCount: number;
   decisionTimeoutFallbackCount: number;
   rawPromptFallbackWithoutActiveCommitCount: number;
+  spectatorPromptLeakCount: number;
+  spectatorDecisionAckLeakCount: number;
+  identityViolationCount: number;
   reconnectCount: number;
   resumeRequestCount: number;
 };
@@ -233,6 +236,9 @@ export function emptyHeadlessMetrics(): HeadlessMetrics {
     staleDecisionRetryCount: 0,
     decisionTimeoutFallbackCount: 0,
     rawPromptFallbackWithoutActiveCommitCount: 0,
+    spectatorPromptLeakCount: 0,
+    spectatorDecisionAckLeakCount: 0,
+    identityViolationCount: 0,
     reconnectCount: 0,
     resumeRequestCount: 0,
   };
@@ -853,6 +859,26 @@ export class HeadlessGameClient {
 
   private recordInbound(message: InboundMessage): void {
     this.metrics.inboundMessageCount += 1;
+    if (this.playerId === 0 && message.type === "prompt") {
+      this.metrics.spectatorPromptLeakCount += 1;
+      this.trace.push({
+        event: "spectator_private_prompt_leak",
+        session_id: this.sessionId,
+        player_id: this.playerId,
+        seq: message.seq,
+        request_id: String(message.payload?.request_id ?? ""),
+      });
+    }
+    if (this.playerId === 0 && message.type === "decision_ack") {
+      this.metrics.spectatorDecisionAckLeakCount += 1;
+      this.trace.push({
+        event: "spectator_private_decision_ack_leak",
+        session_id: this.sessionId,
+        player_id: this.playerId,
+        seq: message.seq,
+        request_id: String(message.payload?.request_id ?? ""),
+      });
+    }
     if (message.type === "heartbeat") {
       this.metrics.heartbeatCount += 1;
       return;
@@ -875,6 +901,7 @@ export class HeadlessGameClient {
 
     if (message.type === "view_commit") {
       this.metrics.viewCommitCount += 1;
+      this.recordViewerIdentityViolations(message);
     } else {
       this.metrics.snapshotPulseCount += 1;
     }
@@ -930,6 +957,36 @@ export class HeadlessGameClient {
       commit_seq: commitSeq,
       payload: compactViewCommitTracePayload(message),
     });
+  }
+
+  private recordViewerIdentityViolations(message: Extract<InboundMessage, { type: "view_commit" }>): void {
+    const viewer = message.payload.viewer;
+    if (!viewer || typeof viewer !== "object") {
+      return;
+    }
+    const checks: Array<[string, unknown, string]> = [
+      ["viewer_id", viewer.viewer_id, "string"],
+      ["seat_id", viewer.seat_id, "string"],
+      ["public_player_id", viewer.public_player_id, "string"],
+      ["seat_index", viewer.seat_index, "number"],
+    ];
+    for (const [field, value, expectedType] of checks) {
+      if (value === undefined || value === null) {
+        continue;
+      }
+      if (typeof value !== expectedType) {
+        this.metrics.identityViolationCount += 1;
+        this.trace.push({
+          event: "viewer_identity_violation",
+          session_id: this.sessionId,
+          player_id: this.playerId,
+          seq: message.seq,
+          commit_seq: Number(message.payload.commit_seq),
+          reason: `${field}_type`,
+          payload: { field, expected_type: expectedType, actual_type: typeof value },
+        });
+      }
+    }
   }
 
   private sendResumeIfNeeded(): void {
