@@ -366,6 +366,34 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(debug_index["counts"]["pending"], 0)
         self.assertEqual(debug_index["counts"]["lifecycle"], 1)
 
+    def test_prompt_pending_records_three_hour_orphan_expiry_without_redis_ttl(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        service = PromptService(prompt_store=prompt_store)
+        created_at_ms = 1_000
+        orphan_retention_ms = 3 * 60 * 60 * 1000
+
+        with unittest.mock.patch.object(service, "_now_ms", return_value=created_at_ms):
+            pending = service.create_prompt(
+                "s-prompt-retention",
+                {
+                    "request_id": "req_prompt_retention",
+                    "request_type": "movement",
+                    "player_id": 1,
+                    "timeout_ms": 30_000,
+                    "legal_choices": [{"choice_id": "dice"}],
+                },
+            )
+
+        stored = prompt_store.get_pending("req_prompt_retention", session_id="s-prompt-retention")
+
+        self.assertIsNotNone(stored)
+        self.assertEqual(pending.created_at_ms, created_at_ms)
+        self.assertEqual(pending.payload["created_at_ms"], created_at_ms)
+        self.assertEqual(pending.payload["expires_at_ms"], created_at_ms + orphan_retention_ms)
+        self.assertEqual(stored["payload"]["created_at_ms"], created_at_ms)
+        self.assertEqual(stored["payload"]["expires_at_ms"], created_at_ms + orphan_retention_ms)
+        self.assertNotIn(prompt_store._pending_key(), self.fake_redis._expires_at_ms)
+
     def test_game_debug_snapshot_includes_prompt_and_command_reconstruction_summaries(self) -> None:
         prompt_store = RedisPromptStore(self.connection)
         command_store = RedisCommandStore(self.connection)
@@ -1327,6 +1355,73 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             self.assertIsNotNone(decision)
             self.assertEqual(decision["choice_id"], "dice")
             self.assertEqual(decision["provider"], "timeout_fallback")
+
+        asyncio.run(_run())
+
+    def test_prompt_timeout_worker_cleans_only_expired_orphan_pending_prompts(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        prompt_service = PromptService(prompt_store=prompt_store)
+        runtime_state_store = RedisRuntimeStateStore(self.connection)
+        stream_service = StreamService(stream_backend=RedisStreamStore(self.connection))
+        orphan_retention_ms = 3 * 60 * 60 * 1000
+        created_at_ms = 2_000
+        cleanup_now_ms = created_at_ms + orphan_retention_ms + 1
+
+        class _NoopRuntime:
+            def __init__(self, store) -> None:
+                self._runtime_state_store = store
+
+            async def execute_prompt_fallback(self, **kwargs):
+                raise AssertionError("orphan cleanup must not execute timeout fallback")
+
+        with unittest.mock.patch.object(prompt_service, "_now_ms", return_value=created_at_ms):
+            prompt_service.create_prompt(
+                "s-active-pending",
+                {
+                    "request_id": "req_active_pending",
+                    "request_type": "movement",
+                    "player_id": 1,
+                    "timeout_ms": orphan_retention_ms + 60_000,
+                    "legal_choices": [{"choice_id": "dice"}],
+                },
+            )
+            prompt_service.create_prompt(
+                "s-orphan-pending",
+                {
+                    "request_id": "req_orphan_pending",
+                    "request_type": "movement",
+                    "player_id": 1,
+                    "timeout_ms": orphan_retention_ms + 60_000,
+                    "legal_choices": [{"choice_id": "dice"}],
+                },
+            )
+
+        runtime_state_store.save_status(
+            "s-active-pending",
+            {
+                "status": "running",
+                "last_activity_ms": cleanup_now_ms,
+                "lease_expires_at_ms": cleanup_now_ms + 60_000,
+            },
+        )
+        runtime_state_store.acquire_lease("s-active-pending", "runtime_worker", 60_000)
+        worker = PromptTimeoutWorker(
+            prompt_service=prompt_service,
+            runtime_service=_NoopRuntime(runtime_state_store),
+            stream_service=stream_service,
+        )
+
+        async def _run() -> None:
+            results = await worker.run_once(now_ms=cleanup_now_ms)
+
+            self.assertEqual(results, [])
+            self.assertIsNotNone(prompt_store.get_pending("req_active_pending", session_id="s-active-pending"))
+            self.assertIsNone(prompt_store.get_pending("req_orphan_pending", session_id="s-orphan-pending"))
+            resolved = prompt_store.get_resolved("req_orphan_pending", session_id="s-orphan-pending")
+            lifecycle = prompt_store.get_lifecycle("req_orphan_pending", session_id="s-orphan-pending")
+            self.assertEqual(resolved["reason"], "orphan_pending_cleanup")
+            self.assertEqual(lifecycle["state"], "expired")
+            self.assertEqual(lifecycle["reason"], "orphan_pending_cleanup")
 
         asyncio.run(_run())
 

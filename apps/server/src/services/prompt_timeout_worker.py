@@ -87,7 +87,24 @@ class PromptTimeoutWorker:
                     "fallback_choice_id": choice_id,
                 }
             )
+        self._cleanup_orphaned_pending(now_ms=now_ms, session_id=session_id)
         return results
+
+    def _cleanup_orphaned_pending(self, *, now_ms: int | None, session_id: str | None) -> None:
+        cleanup = getattr(self._prompt_service, "cleanup_orphaned_pending", None)
+        if not callable(cleanup):
+            return
+        runtime_state_store = getattr(self._runtime_service, "_runtime_state_store", None)
+        if runtime_state_store is None:
+            return
+        load_status = getattr(runtime_state_store, "load_status", None)
+        lease_owner = getattr(runtime_state_store, "lease_owner", None)
+        cleanup(
+            now_ms=now_ms,
+            session_id=session_id,
+            runtime_status_lookup=load_status if callable(load_status) else None,
+            lease_owner_lookup=lease_owner if callable(lease_owner) else None,
+        )
 
 
 class PromptTimeoutWorkerLoop:

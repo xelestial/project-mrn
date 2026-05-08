@@ -3,13 +3,27 @@ from __future__ import annotations
 import time
 import threading
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from apps.server.src.services.prompt_fingerprint import (
     PROMPT_FINGERPRINT_VERSION,
     ensure_prompt_fingerprint,
     prompt_fingerprint_mismatch,
 )
+
+
+PENDING_PROMPT_ORPHAN_RETENTION_MS = 3 * 60 * 60 * 1000
+_TERMINAL_RUNTIME_STATUSES = {
+    "abandoned",
+    "archived",
+    "cancelled",
+    "canceled",
+    "completed",
+    "deleted",
+    "expired",
+    "failed",
+    "stopped",
+}
 
 
 @dataclass(slots=True)
@@ -56,6 +70,9 @@ class PromptService:
                 _require_module_continuation(prompt)
             player_id = int(prompt.get("player_id", 0))
             timeout_ms = int(prompt.get("timeout_ms", 30000))
+            created_at_ms = self._now_ms()
+            prompt["created_at_ms"] = created_at_ms
+            prompt["expires_at_ms"] = created_at_ms + PENDING_PROMPT_ORPHAN_RETENTION_MS
             superseded_waiters = self._supersede_pending_for_player(
                 session_id=session_id,
                 player_id=player_id,
@@ -66,7 +83,7 @@ class PromptService:
                 request_id=request_id,
                 player_id=player_id,
                 timeout_ms=timeout_ms,
-                created_at_ms=self._now_ms(),
+                created_at_ms=created_at_ms,
                 payload=prompt,
             )
             self._set_pending(item)
@@ -312,6 +329,56 @@ class PromptService:
         for waiter in to_notify:
             waiter.set()
         return timed_out
+
+    def cleanup_orphaned_pending(
+        self,
+        *,
+        now_ms: int | None = None,
+        session_id: str | None = None,
+        runtime_status_lookup: Callable[[str], dict[str, Any] | None] | None = None,
+        lease_owner_lookup: Callable[[str], str | None] | None = None,
+    ) -> list[PendingPrompt]:
+        now = now_ms if now_ms is not None else self._now_ms()
+        cleaned: list[PendingPrompt] = []
+        to_notify: list[threading.Event] = []
+        with self._lock:
+            for storage_key, pending in list(self._iter_pending_items()):
+                if session_id is not None and pending.session_id != session_id:
+                    continue
+                if now <= self._pending_orphan_expires_at_ms(pending):
+                    continue
+                runtime_status = runtime_status_lookup(pending.session_id) if runtime_status_lookup is not None else None
+                lease_owner = lease_owner_lookup(pending.session_id) if lease_owner_lookup is not None else None
+                if not self._pending_session_is_orphaned(
+                    runtime_status=runtime_status,
+                    lease_owner=lease_owner,
+                    now_ms=now,
+                ):
+                    continue
+                cleaned.append(pending)
+                self._delete_pending(pending.request_id, session_id=pending.session_id)
+                self._delete_decision(pending.request_id, session_id=pending.session_id)
+                self._record_resolved(
+                    request_id=pending.request_id,
+                    reason="orphan_pending_cleanup",
+                    now_ms=now,
+                    session_id=pending.session_id,
+                )
+                self._record_lifecycle(
+                    request_id=pending.request_id,
+                    state="expired",
+                    session_id=pending.session_id,
+                    player_id=pending.player_id,
+                    prompt=pending.payload,
+                    reason="orphan_pending_cleanup",
+                    now_ms=now,
+                )
+                waiter = self._waiters.pop(storage_key, None)
+                if waiter is not None:
+                    to_notify.append(waiter)
+        for waiter in to_notify:
+            waiter.set()
+        return cleaned
 
     def record_timeout_fallback_decision(
         self,
@@ -631,6 +698,44 @@ class PromptService:
             )
         key = self._pending_key(request_id, session_id=session_id)
         return self._pending.get(key) if key is not None else None
+
+    @staticmethod
+    def _pending_orphan_expires_at_ms(pending: PendingPrompt) -> int:
+        try:
+            expires_at_ms = int(pending.payload.get("expires_at_ms") or 0)
+        except (TypeError, ValueError):
+            expires_at_ms = 0
+        if expires_at_ms > 0:
+            return expires_at_ms
+        return pending.created_at_ms + PENDING_PROMPT_ORPHAN_RETENTION_MS
+
+    @staticmethod
+    def _pending_session_is_orphaned(
+        *,
+        runtime_status: dict[str, Any] | None,
+        lease_owner: str | None,
+        now_ms: int,
+    ) -> bool:
+        status = str((runtime_status or {}).get("status") or "").strip()
+        if status in _TERMINAL_RUNTIME_STATUSES:
+            return True
+        if str(lease_owner or "").strip():
+            return False
+        if not runtime_status:
+            return True
+        try:
+            lease_expires_at_ms = int(runtime_status.get("lease_expires_at_ms") or 0)
+        except (TypeError, ValueError):
+            lease_expires_at_ms = 0
+        if lease_expires_at_ms > now_ms:
+            return False
+        try:
+            last_activity_ms = int(runtime_status.get("last_activity_ms") or 0)
+        except (TypeError, ValueError):
+            last_activity_ms = 0
+        if last_activity_ms > 0 and now_ms <= last_activity_ms + PENDING_PROMPT_ORPHAN_RETENTION_MS:
+            return False
+        return True
 
     def _delete_pending(self, request_id: str, session_id: str | None = None) -> None:
         if self._prompt_store is not None:
