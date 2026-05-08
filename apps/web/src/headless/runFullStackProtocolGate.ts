@@ -48,7 +48,7 @@ const RECONNECT_SCENARIOS = new Set<ReconnectScenario>([
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
-  const progressIntervalMs = Math.max(1_000, Math.floor(options.progressIntervalMs ?? 30_000));
+  const progressIntervalMs = Math.max(1_000, Math.floor(options.progressIntervalMs ?? 5_000));
   const policyMode = options.policy ?? "baseline";
   const policy = buildPolicy(options);
   const policiesByPlayerId = buildSeatPolicies(options);
@@ -185,7 +185,7 @@ function parseArgs(args: string[]): CliOptions {
           "  --idle-timeout-ms 60000",
           "  --out ./protocol_trace.jsonl",
           "  --replay-out ./rl_replay.jsonl",
-          "  --progress-interval-ms 30000",
+          "  --progress-interval-ms 5000",
           "  --cpu-diagnostic-idle-ms 30000",
           "  --cpu-low-load-percent 10",
           "  --raw-prompt-fallback-delay-ms 25|off",
@@ -240,10 +240,14 @@ function writeProgressLine(snapshot: FullStackProtocolProgressSnapshot): void {
   process.stderr.write(
     `${JSON.stringify({
       event: "protocol_gate_progress",
+      reason: snapshot.reason,
       session_id: snapshot.sessionId,
       elapsed_ms: snapshot.elapsedMs,
       idle_ms: snapshot.idleMs,
       runtime_status: snapshot.runtimeStatus,
+      completed: snapshot.completed,
+      timed_out: snapshot.timedOut,
+      idle_timed_out: snapshot.idleTimedOut,
       trace_count: snapshot.traceCount,
       cpu: snapshot.cpu,
       seats: seatMetrics,

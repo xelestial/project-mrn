@@ -80,7 +80,7 @@ def run_full_stack_protocol_rl_gate(
     timeout_ms: int = 1_800_000,
     idle_timeout_ms: int = 120_000,
     policy_http_timeout_ms: int = 2_000,
-    progress_interval_ms: int = 30_000,
+    progress_interval_ms: int = 5_000,
     cpu_diagnostic_idle_ms: int = 30_000,
     cpu_low_load_percent: float = 10.0,
     epochs: int | None = None,
@@ -737,7 +737,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeout-ms", type=int, default=1_800_000)
     parser.add_argument("--idle-timeout-ms", type=int, default=120_000)
     parser.add_argument("--policy-http-timeout-ms", type=int, default=2_000)
-    parser.add_argument("--progress-interval-ms", type=int, default=30_000)
+    parser.add_argument("--progress-interval-ms", type=int, default=5_000)
     parser.add_argument("--cpu-diagnostic-idle-ms", type=int, default=30_000)
     parser.add_argument("--cpu-low-load-percent", type=float, default=10.0)
     parser.add_argument("--epochs", type=int)

@@ -35,12 +35,13 @@ class RedisStreamStore:
     ) -> dict[str, Any]:
         client = self._connection.client()
         seq = int(client.incr(self._seq_key(session_id)))
+        persisted_payload = self._persisted_stream_payload(msg_type, payload)
         fields = {
             "seq": str(seq),
             "type": msg_type,
             "session_id": session_id,
             "server_time_ms": str(server_time_ms),
-            "payload": _json_dump(payload),
+            "payload": _json_dump(persisted_payload),
         }
         stream_id = client.xadd(self._stream_key(session_id), fields, maxlen=max(1, int(max_buffer)), approximate=False)
         if msg_type not in {"view_commit", "snapshot_pulse"}:
@@ -71,6 +72,58 @@ class RedisStreamStore:
             "session_id": session_id,
             "server_time_ms": server_time_ms,
             "payload": dict(payload),
+        }
+
+    @staticmethod
+    def _persisted_stream_payload(msg_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if msg_type != "view_commit":
+            return payload
+        viewer = payload.get("viewer") if isinstance(payload.get("viewer"), dict) else {}
+        runtime = payload.get("runtime") if isinstance(payload.get("runtime"), dict) else {}
+        prompt = runtime.get("active_prompt") if isinstance(runtime.get("active_prompt"), dict) else {}
+        compact_runtime = {
+            key: runtime.get(key)
+            for key in (
+                "status",
+                "round_index",
+                "turn_index",
+                "turn_label",
+                "current_player_id",
+                "active_frame_id",
+                "active_module_id",
+                "active_module_type",
+                "active_module_cursor",
+            )
+            if runtime.get(key) is not None
+        }
+        if prompt:
+            compact_runtime["active_prompt"] = {
+                key: prompt.get(key)
+                for key in (
+                    "request_id",
+                    "prompt_instance_id",
+                    "player_id",
+                    "request_type",
+                    "view_commit_seq",
+                    "resume_token",
+                )
+                if prompt.get(key) is not None
+            }
+        return {
+            "schema_version": 1,
+            "compact": True,
+            "storage": "view_commit_pointer",
+            "commit_seq": payload.get("commit_seq"),
+            "source_event_seq": payload.get("source_event_seq"),
+            "round_index": payload.get("round_index") or runtime.get("round_index"),
+            "turn_index": payload.get("turn_index") or runtime.get("turn_index"),
+            "turn_label": payload.get("turn_label") or runtime.get("turn_label"),
+            "viewer": {
+                key: viewer.get(key)
+                for key in ("role", "player_id", "seat", "viewer_id")
+                if viewer.get(key) is not None
+            },
+            "runtime": compact_runtime,
         }
 
     def snapshot(self, session_id: str) -> list[dict[str, Any]]:

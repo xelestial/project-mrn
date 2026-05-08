@@ -153,6 +153,48 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(rows[2]["commit_seq"], 3)
         self.assertEqual(self.fake_redis._expires_at_ms[stream_store._viewer_outbox_index_key("s-outbox")], 3600)
 
+    def test_stream_store_persists_compact_view_commit_pointer_only(self) -> None:
+        stream_store = RedisStreamStore(self.connection)
+        full_payload = {
+            "commit_seq": 7,
+            "source_event_seq": 42,
+            "viewer": {"role": "seat", "player_id": 3, "viewer_id": "viewer_3"},
+            "runtime": {
+                "status": "waiting_input",
+                "round_index": 2,
+                "turn_index": 5,
+                "turn_label": "R2-T5",
+                "active_module_id": "module_1",
+                "active_prompt": {
+                    "request_id": "req_1",
+                    "prompt_instance_id": "prompt_1",
+                    "player_id": 3,
+                    "request_type": "movement",
+                    "view_commit_seq": 7,
+                    "legal_choices": [{"choice_id": "roll"}],
+                },
+            },
+            "view_state": {"large": "x" * 1024},
+        }
+
+        returned = stream_store.publish(
+            "s-compact-view-commit",
+            "view_commit",
+            full_payload,
+            server_time_ms=123,
+            max_buffer=20,
+        )
+        persisted = stream_store.snapshot("s-compact-view-commit")
+
+        self.assertEqual(returned["payload"]["view_state"], full_payload["view_state"])
+        self.assertEqual(persisted[0]["payload"]["commit_seq"], 7)
+        self.assertEqual(persisted[0]["payload"]["source_event_seq"], 42)
+        self.assertEqual(persisted[0]["payload"]["viewer"]["player_id"], 3)
+        self.assertEqual(persisted[0]["payload"]["runtime"]["active_prompt"]["request_id"], "req_1")
+        self.assertTrue(persisted[0]["payload"]["compact"])
+        self.assertNotIn("view_state", persisted[0]["payload"])
+        self.assertNotIn("legal_choices", persisted[0]["payload"]["runtime"]["active_prompt"])
+
     def test_game_state_debug_snapshot_uses_one_hour_ttl(self) -> None:
         game_state = RedisGameStateStore(self.connection)
 

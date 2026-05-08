@@ -6,6 +6,7 @@ import {
   evaluateProtocolGate,
   fetchRuntimeStatus,
   policyForProtocolPlayer,
+  shouldEmitProtocolProgress,
   summarizeProtocolClients,
   type ProtocolClientRuntime,
 } from "./fullStackProtocolHarness";
@@ -304,6 +305,68 @@ describe("fullStackProtocolHarness", () => {
         }),
       ], "waiting_input"),
     ).not.toBe(base);
+  });
+
+  it("emits progress logs immediately on startup, periodically, and on observable progress changes", () => {
+    expect(
+      shouldEmitProtocolProgress({
+        enabled: false,
+        nowMs: 1_000,
+        lastCallbackAtMs: 0,
+        progressIntervalMs: 5_000,
+        progressKeyChanged: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldEmitProtocolProgress({
+        enabled: true,
+        nowMs: 1_000,
+        lastCallbackAtMs: 0,
+        progressIntervalMs: 5_000,
+        progressKeyChanged: false,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldEmitProtocolProgress({
+        enabled: true,
+        nowMs: 1_500,
+        lastCallbackAtMs: 1_000,
+        progressIntervalMs: 5_000,
+        progressKeyChanged: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldEmitProtocolProgress({
+        enabled: true,
+        nowMs: 2_000,
+        lastCallbackAtMs: 1_000,
+        progressIntervalMs: 5_000,
+        progressKeyChanged: true,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldEmitProtocolProgress({
+        enabled: true,
+        nowMs: 5_999,
+        lastCallbackAtMs: 1_000,
+        progressIntervalMs: 5_000,
+        progressKeyChanged: false,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldEmitProtocolProgress({
+        enabled: true,
+        nowMs: 6_000,
+        lastCallbackAtMs: 1_000,
+        progressIntervalMs: 5_000,
+        progressKeyChanged: false,
+      }),
+    ).toBe(true);
   });
 
   it("reports a missing runtime session as not_found instead of throwing", async () => {

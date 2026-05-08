@@ -40,6 +40,7 @@ export type FullStackProtocolProgressSnapshot = {
   profile: ProtocolProfile;
   elapsedMs: number;
   idleMs: number;
+  reason: ProtocolProgressReason;
   runtimeStatus: string | null;
   clients: ProtocolClientRuntime[];
   clientSummary: ProtocolClientSummary;
@@ -50,6 +51,8 @@ export type FullStackProtocolProgressSnapshot = {
   cpu: ProtocolCpuDiagnostic;
   traces: HeadlessTraceEvent[];
 };
+
+export type ProtocolProgressReason = "progress" | "interval" | "final";
 
 export type ProtocolCpuDiagnostic = {
   sampled: boolean;
@@ -176,6 +179,8 @@ const DEFAULT_FETCH_RETRY_COUNT = 5;
 const DEFAULT_FETCH_RETRY_DELAY_MS = 150;
 const DEFAULT_CPU_DIAGNOSTIC_IDLE_MS = 30_000;
 const DEFAULT_CPU_LOW_LOAD_PERCENT = 10;
+const DEFAULT_PROGRESS_INTERVAL_MS = 5_000;
+const PROGRESS_CHANGE_MIN_INTERVAL_MS = 1_000;
 
 class ProtocolApiError extends Error {
   readonly status: number;
@@ -419,7 +424,9 @@ export async function runFullStackProtocolGame(
   const progressIntervalMs =
     options.onProgress && Number.isFinite(options.progressIntervalMs)
       ? Math.max(250, Math.floor(options.progressIntervalMs ?? 0))
-      : 0;
+      : options.onProgress
+        ? DEFAULT_PROGRESS_INTERVAL_MS
+        : 0;
 
   try {
     const session = await createProtocolSession(baseUrl, payload);
@@ -478,9 +485,11 @@ export async function runFullStackProtocolGame(
       previousTurn = latestRuntime.turnIndex ?? previousTurn;
       runtimeStatus = await fetchRuntimeStatus(baseUrl, session.sessionId, joinedSeats[0]?.token);
       const progressKey = buildProtocolProgressKey(clients, runtimeStatus);
+      let progressKeyChanged = false;
       if (progressKey !== lastProgressKey) {
         lastProgressKey = progressKey;
         lastProgressAt = Date.now();
+        progressKeyChanged = true;
       } else if (Date.now() - lastProgressAt >= idleTimeoutMs) {
         idleTimedOut = true;
         break;
@@ -499,16 +508,23 @@ export async function runFullStackProtocolGame(
       if (completed || runtimeStatus === "failed") {
         break;
       }
+      const progressCheckAt = Date.now();
+      const progressReason = progressKeyChanged ? "progress" : "interval";
       if (
-        options.onProgress &&
-        progressIntervalMs > 0 &&
-        Date.now() - lastProgressCallbackAt >= progressIntervalMs
+        shouldEmitProtocolProgress({
+          enabled: Boolean(options.onProgress),
+          nowMs: progressCheckAt,
+          lastCallbackAtMs: lastProgressCallbackAt,
+          progressIntervalMs,
+          progressKeyChanged,
+        })
       ) {
-        lastProgressCallbackAt = Date.now();
+        lastProgressCallbackAt = progressCheckAt;
         await options.onProgress(
           buildProgressSnapshot({
             sessionId,
             profile,
+            reason: progressReason,
             startedAt,
             runtimeStatus,
             clients,
@@ -540,6 +556,7 @@ export async function runFullStackProtocolGame(
           buildProgressSnapshot({
             sessionId,
             profile,
+            reason: "final",
             startedAt,
             runtimeStatus,
             clients,
@@ -589,6 +606,7 @@ export async function runFullStackProtocolGame(
 function buildProgressSnapshot(args: {
   sessionId: string;
   profile: ProtocolProfile;
+  reason: ProtocolProgressReason;
   startedAt: number;
   runtimeStatus: string | null;
   clients: HeadlessGameClient[];
@@ -607,6 +625,7 @@ function buildProgressSnapshot(args: {
   return {
     sessionId: args.sessionId,
     profile: args.profile,
+    reason: args.reason,
     elapsedMs: Date.now() - args.startedAt,
     idleMs,
     runtimeStatus: args.runtimeStatus,
@@ -625,6 +644,27 @@ function buildProgressSnapshot(args: {
     }),
     traces,
   };
+}
+
+export function shouldEmitProtocolProgress(args: {
+  enabled: boolean;
+  nowMs: number;
+  lastCallbackAtMs: number;
+  progressIntervalMs: number;
+  progressKeyChanged: boolean;
+}): boolean {
+  if (!args.enabled || args.progressIntervalMs <= 0) {
+    return false;
+  }
+  if (args.lastCallbackAtMs <= 0) {
+    return true;
+  }
+  const elapsedMs = args.nowMs - args.lastCallbackAtMs;
+  if (elapsedMs >= args.progressIntervalMs) {
+    return true;
+  }
+  const changeMinIntervalMs = Math.min(PROGRESS_CHANGE_MIN_INTERVAL_MS, args.progressIntervalMs);
+  return args.progressKeyChanged && elapsedMs >= changeMinIntervalMs;
 }
 
 function buildCpuDiagnostic(args: {
