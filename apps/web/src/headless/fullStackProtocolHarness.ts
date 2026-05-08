@@ -109,6 +109,7 @@ export type ProtocolSessionInfo = {
 export type ReconnectScenario =
   | "after_start"
   | "after_first_commit"
+  | "after_first_prompt"
   | "after_first_decision"
   | "round_boundary"
   | "turn_boundary";
@@ -260,6 +261,14 @@ export function evaluateProtocolGate(input: ProtocolGateInput): ProtocolGateResu
     }
     if (metrics.runtimeRecoveryRequiredCount > 0) {
       failures.push(`${client.label} entered recovery_required ${metrics.runtimeRecoveryRequiredCount} time(s)`);
+    }
+    if (metrics.reconnectRecoveryPendingCount > 0) {
+      failures.push(`${client.label} has unresolved reconnect recovery ${metrics.reconnectRecoveryPendingCount} time(s)`);
+    }
+    if (metrics.reconnectRecoveryCount < metrics.forcedReconnectCount) {
+      failures.push(
+        `${client.label} recovered ${metrics.reconnectRecoveryCount}/${metrics.forcedReconnectCount} forced reconnect(s)`,
+      );
     }
     if (metrics.nonMonotonicCommitCount > 0) {
       failures.push(`${client.label} saw non-monotonic commit seq ${metrics.nonMonotonicCommitCount} time(s)`);
@@ -479,6 +488,7 @@ export async function runFullStackProtocolGame(
         firedReconnectScenarios,
         previousRound,
         previousTurn,
+        runtimeStatus,
       });
       const latestRuntime = latestRuntimePosition(clients);
       previousRound = latestRuntime.roundIndex ?? previousRound;
@@ -776,6 +786,7 @@ export function buildProtocolProgressKey(
         client.playerId,
         client.status,
         client.state.lastCommitSeq,
+        metrics.promptMessageCount,
         metrics.outboundDecisionCount,
         metrics.acceptedAckCount,
         metrics.rejectedAckCount,
@@ -788,6 +799,9 @@ export function buildProtocolProgressKey(
         metrics.nonMonotonicCommitCount,
         metrics.semanticCommitRegressionCount,
         metrics.decisionTimeoutFallbackCount,
+        metrics.forcedReconnectCount,
+        metrics.reconnectRecoveryCount,
+        metrics.reconnectRecoveryPendingCount,
       ].join(":");
     }),
   ].join("|");
@@ -827,9 +841,16 @@ function fireReconnectTriggers(args: {
   firedReconnectScenarios: Set<ReconnectScenario>;
   previousRound: number | null;
   previousTurn: number | null;
+  runtimeStatus: string | null;
 }): void {
+  if (args.runtimeStatus === "completed" || args.runtimeStatus === "failed") {
+    return;
+  }
   if (args.reconnectScenarios.has("after_first_commit") && args.clients.some((client) => client.state.lastCommitSeq > 0)) {
     forceReconnectOnce(args.clients, args.firedReconnectScenarios, "after_first_commit");
+  }
+  if (args.reconnectScenarios.has("after_first_prompt") && args.clients.some((client) => client.metrics.promptMessageCount > 0)) {
+    forceReconnectOnce(args.clients, args.firedReconnectScenarios, "after_first_prompt");
   }
   if (args.reconnectScenarios.has("after_first_decision") && args.clients.some((client) => client.metrics.outboundDecisionCount > 0)) {
     forceReconnectOnce(args.clients, args.firedReconnectScenarios, "after_first_decision");

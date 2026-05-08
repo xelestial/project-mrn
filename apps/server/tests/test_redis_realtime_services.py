@@ -4,6 +4,7 @@ import asyncio
 import threading
 import unittest
 import unittest.mock
+from types import SimpleNamespace
 
 from apps.server.src.domain.visibility import ViewerContext
 from apps.server.src.domain.view_state.projector import project_replay_view_state
@@ -18,7 +19,7 @@ from apps.server.src.services.realtime_persistence import (
     RedisStreamStore,
     ViewCommitSequenceConflict,
 )
-from apps.server.src.services.runtime_service import RuntimeService
+from apps.server.src.services.runtime_service import RuntimeDecisionResume, RuntimeService, _runtime_prompt_sequence_seed
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
 from apps.server.src.services.prompt_timeout_worker import PromptTimeoutWorker
@@ -31,6 +32,36 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             RedisConnectionSettings(url="redis://127.0.0.1:6379/10", key_prefix="mrn-rt", socket_timeout_ms=250),
             client_factory=lambda: self.fake_redis,
         )
+
+    def test_runtime_prompt_sequence_seed_prefers_current_pending_prompt_over_prior_resume_debug(self) -> None:
+        state = SimpleNamespace(
+            prompt_sequence=19,
+            pending_prompt_instance_id=19,
+            pending_prompt_request_id="sess_1:r3:t9:p1:trick_tile_target:19",
+        )
+        checkpoint = {
+            "decision_resume_request_id": "sess_1:r3:t9:p1:trick_tile_target:18",
+            "decision_resume_request_type": "trick_tile_target",
+            "decision_resume_player_id": 1,
+            "decision_resume_frame_id": "turn:r3:p1",
+            "decision_resume_module_id": "mod:trick",
+            "decision_resume_module_type": "TrickWindowModule",
+            "decision_resume_module_cursor": "await_trick_prompt",
+        }
+        resume = RuntimeDecisionResume(
+            request_id="sess_1:r3:t9:p1:trick_tile_target:19",
+            player_id=1,
+            request_type="trick_tile_target",
+            choice_id="4",
+            choice_payload={},
+            resume_token="resume_19",
+            frame_id="turn:r3:p1",
+            module_id="mod:trick",
+            module_type="TrickWindowModule",
+            module_cursor="await_trick_prompt",
+        )
+
+        self.assertEqual(_runtime_prompt_sequence_seed(state, checkpoint, resume), 18)
 
     def test_stream_service_uses_redis_backend_for_replay_and_drop_counts(self) -> None:
         game_state = RedisGameStateStore(self.connection)
@@ -201,6 +232,71 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         game_state.save_debug_snapshot("s-debug-ttl", {"schema_version": 1})
 
         self.assertEqual(self.fake_redis._expires_at_ms[game_state._debug_snapshot_key("s-debug-ttl")], 3600000)
+
+    def test_game_state_debug_snapshot_includes_stream_index_summary(self) -> None:
+        game_state = RedisGameStateStore(self.connection)
+        stream_store = RedisStreamStore(self.connection)
+        stream_service = StreamService(stream_backend=stream_store)
+
+        async def _run() -> None:
+            decision_event = await stream_service.publish(
+                "s-debug-stream",
+                "event",
+                {
+                    "event_type": "decision_requested",
+                    "request_id": "req_debug_1",
+                    "player_id": 2,
+                    "target_player_id": 3,
+                },
+            )
+            prompt_event = await stream_service.publish(
+                "s-debug-stream",
+                "prompt",
+                {
+                    "request_id": "req_prompt_1",
+                    "player_id": 2,
+                    "resume_token": "resume_debug_1",
+                    "frame_id": "turn:1:2",
+                    "module_id": "module_debug_1",
+                    "module_type": "DebugPromptModule",
+                    "module_cursor": "await_debug_choice",
+                },
+            )
+            game_state.save_checkpoint(
+                "s-debug-stream",
+                {
+                    "schema_version": 1,
+                    "session_id": "s-debug-stream",
+                    "latest_seq": prompt_event.seq,
+                    "latest_source_event_seq": decision_event.seq,
+                    "latest_event_type": "prompt",
+                },
+            )
+
+        asyncio.run(_run())
+
+        debug_snapshot = game_state.load_debug_snapshot("s-debug-stream")
+        self.assertIsNotNone(debug_snapshot)
+        stream = debug_snapshot["stream"]
+        self.assertEqual(stream["stream_seq"], 2)
+        self.assertEqual(stream["event_index_count"], 2)
+        self.assertEqual(stream["viewer_outbox_count"], 2)
+        self.assertEqual(stream["event_index_ttl_seconds"], 3600)
+        self.assertEqual(stream["viewer_outbox_ttl_seconds"], 3600)
+        self.assertEqual(
+            [(item["message_type"], item.get("event_type"), item.get("request_id")) for item in stream["latest_event_index"]],
+            [
+                ("event", "decision_requested", "req_debug_1"),
+                ("prompt", "", "req_prompt_1"),
+            ],
+        )
+        self.assertEqual(
+            [(item["message_type"], item["viewer_scope"], item.get("request_id")) for item in stream["latest_viewer_outbox"]],
+            [
+                ("event", "public", "req_debug_1"),
+                ("prompt", "player:2", "req_prompt_1"),
+            ],
+        )
 
     def test_prompt_lifecycle_store_is_session_scoped_and_cleaned(self) -> None:
         prompt_store = RedisPromptStore(self.connection)

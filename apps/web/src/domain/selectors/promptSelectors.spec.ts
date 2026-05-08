@@ -102,6 +102,8 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
             module_cursor: "mark:await_target",
             batch_id: "batch_1",
             prompt_instance_id: 17,
+            prompt_fingerprint: "sha256:mark-17",
+            prompt_fingerprint_version: "prompt-fingerprint-v1",
             choices: [
               {
                 choice_id: "target_p1",
@@ -178,6 +180,8 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
     expect(prompt?.choices.map((choice) => choice.choiceId)).toEqual(["target_p1", "none"]);
     expect(prompt?.continuation).toEqual({
       promptInstanceId: 17,
+      promptFingerprint: "sha256:mark-17",
+      promptFingerprintVersion: "prompt-fingerprint-v1",
       resumeToken: "resume_1",
       frameId: "turn:3:p2",
       moduleId: "mod:turn:3:p2:mark",
@@ -344,6 +348,8 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
       player_id: 3,
       runner_kind: "module",
       prompt_instance_id: 0,
+      prompt_fingerprint: "sha256:batch-0",
+      prompt_fingerprint_version: "prompt-fingerprint-v1",
       resume_token: "resume_p3",
       frame_id: "simul:resupply:1:95",
       module_id: "mod:simul:resupply:1:95",
@@ -364,6 +370,8 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
     expect(prompt?.choices.map((choice) => choice.choiceId)).toEqual(["no"]);
     expect(prompt?.continuation).toMatchObject({
       promptInstanceId: 0,
+      promptFingerprint: "sha256:batch-0",
+      promptFingerprintVersion: "prompt-fingerprint-v1",
       batchId: "batch:simul:resupply:1:95:mod:simul:resupply:1:95:resupply:1",
       missingPlayerIds: [1, 2, 3, 4],
       resumeTokensByPlayerId: {

@@ -302,6 +302,7 @@ export const koLocale = {
       mark_target_none: "지목 대상 없음",
       mark_target_missing: "지목 대상 불일치",
       mark_blocked: "지목 차단",
+      mark_resolved: "지목 처리",
       ability_suppressed: "인물 능력 차단",
       active_flip_resolved: "카드 뒤집기 처리",
       f_value_change: "종료시간 변경",

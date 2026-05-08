@@ -28,6 +28,7 @@ from rl.train_policy import train_behavior_clone  # noqa: E402
 VALID_RECONNECT_SCENARIOS = {
     "after_start",
     "after_first_commit",
+    "after_first_prompt",
     "after_first_decision",
     "round_boundary",
     "turn_boundary",

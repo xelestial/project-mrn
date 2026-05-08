@@ -181,6 +181,34 @@ describe("HeadlessGameClient", () => {
     expect(client.metrics.illegalActionCount).toBe(0);
   });
 
+  it("tracks forced reconnect recovery only after a view_commit is observed", async () => {
+    const client = new HeadlessGameClient({
+      sessionId: "sess_headless_reconnect",
+      token: "seat-1",
+      playerId: 1,
+      policy: baselineDecisionPolicy,
+    });
+    (client as unknown as { socket: { close: () => void } | null }).socket = { close: vi.fn() };
+
+    client.forceReconnect("after_first_prompt");
+
+    expect(client.metrics.forcedReconnectCount).toBe(1);
+    expect(client.metrics.reconnectCount).toBe(0);
+    expect(client.metrics.reconnectRecoveryCount).toBe(0);
+    expect(client.metrics.reconnectRecoveryPendingCount).toBe(1);
+
+    await client.ingestMessage(
+      viewCommitWithoutPromptMessage({
+        commitSeq: 4,
+        playerId: 1,
+      }),
+    );
+
+    expect(client.metrics.reconnectRecoveryCount).toBe(1);
+    expect(client.metrics.reconnectRecoveryPendingCount).toBe(0);
+    expect(client.trace.some((item) => item.event === "forced_reconnect_recovered")).toBe(true);
+  });
+
   it("supports deterministic resource profile policies for headless seats", async () => {
     const cash = createResourceFocusedDecisionPolicy("cash");
     const shard = createResourceFocusedDecisionPolicy("shard");
@@ -200,6 +228,8 @@ describe("HeadlessGameClient", () => {
         publicContext: {},
         continuation: {
           promptInstanceId: null,
+          promptFingerprint: null,
+          promptFingerprintVersion: null,
           resumeToken: null,
           frameId: null,
           moduleId: null,
@@ -257,6 +287,8 @@ describe("HeadlessGameClient", () => {
         publicContext: {},
         continuation: {
           promptInstanceId: null,
+          promptFingerprint: null,
+          promptFingerprintVersion: null,
           resumeToken: null,
           frameId: null,
           moduleId: null,

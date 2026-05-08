@@ -70,6 +70,8 @@ function context(): HeadlessDecisionContext {
       publicContext: {},
       continuation: {
         promptInstanceId: 7,
+        promptFingerprint: null,
+        promptFingerprintVersion: null,
         resumeToken: "resume:req_buy",
         frameId: "frame:2",
         moduleId: "module:2",

@@ -152,6 +152,27 @@ def _prior_same_module_resume_prompt_seed(checkpoint: dict | None, resume: Runti
     return max(0, previous_instance_id - 1)
 
 
+def _runtime_prompt_sequence_seed(
+    state: object,
+    checkpoint: dict | None,
+    decision_resume: RuntimeDecisionResume | None,
+) -> int:
+    prompt_sequence = int(getattr(state, "prompt_sequence", 0) or 0)
+    pending_prompt_instance_id = int(getattr(state, "pending_prompt_instance_id", 0) or 0)
+    pending_prompt_request_id = str(getattr(state, "pending_prompt_request_id", "") or "").strip()
+    resume_request_id = str(getattr(decision_resume, "request_id", "") or "").strip() if decision_resume is not None else ""
+    if pending_prompt_instance_id > 0 and (
+        decision_resume is None
+        or (pending_prompt_request_id and pending_prompt_request_id == resume_request_id)
+    ):
+        return max(0, pending_prompt_instance_id - 1)
+
+    prior_prompt_seed = _prior_same_module_resume_prompt_seed(checkpoint, decision_resume)
+    if prior_prompt_seed is not None:
+        return prior_prompt_seed
+    return prompt_sequence
+
+
 def _normalize_decision_choice_payload(value: object) -> dict:
     return dict(value) if isinstance(value, dict) else {}
 
@@ -177,12 +198,29 @@ def _runtime_module_debug_fields(source: dict | None, state: object | None = Non
     return {key: str(value) for key, value in candidates.items() if value not in (None, "")}
 
 
+def _runtime_prompt_external_player_id(prompt: dict, payload: dict) -> int | None:
+    raw_player_id = _optional_int(prompt.get("player_id"))
+    pending_player_id = _optional_int(payload.get("pending_prompt_player_id"))
+    player_count = len([item for item in payload.get("players") or [] if isinstance(item, dict)])
+    if raw_player_id is None:
+        return pending_player_id
+    if pending_player_id is not None and raw_player_id == pending_player_id:
+        return raw_player_id
+    if pending_player_id is not None and raw_player_id + 1 == pending_player_id:
+        return pending_player_id
+    if 0 <= raw_player_id < player_count:
+        return raw_player_id + 1
+    return raw_player_id
+
+
 def _runtime_continuation_debug_fields(payload: dict | None, decision_resume: object | None = None) -> dict[str, object]:
     payload = dict(payload or {})
     active_prompt = payload.get("runtime_active_prompt")
     active_prompt = dict(active_prompt) if isinstance(active_prompt, dict) else {}
     active_batch = payload.get("runtime_active_prompt_batch")
     active_batch = dict(active_batch) if isinstance(active_batch, dict) else {}
+    active_prompt_internal_player_id = _optional_int(active_prompt.get("player_id"))
+    active_prompt_external_player_id = _runtime_prompt_external_player_id(active_prompt, payload) if active_prompt else None
     candidates: dict[str, object] = {
         "waiting_prompt_request_id": payload.get("pending_prompt_request_id"),
         "waiting_prompt_type": payload.get("pending_prompt_type"),
@@ -191,7 +229,8 @@ def _runtime_continuation_debug_fields(payload: dict | None, decision_resume: ob
         "prompt_sequence": payload.get("prompt_sequence"),
         "runtime_active_prompt_request_id": active_prompt.get("request_id"),
         "runtime_active_prompt_request_type": active_prompt.get("request_type"),
-        "runtime_active_prompt_player_id": active_prompt.get("player_id"),
+        "runtime_active_prompt_player_id": active_prompt_external_player_id,
+        "runtime_active_prompt_internal_player_id": active_prompt_internal_player_id,
         "runtime_active_prompt_frame_id": active_prompt.get("frame_id"),
         "runtime_active_prompt_module_id": active_prompt.get("module_id"),
         "runtime_active_prompt_module_type": active_prompt.get("module_type"),
@@ -496,6 +535,19 @@ class RuntimeService:
     async def start_runtime(self, session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
         existing = self._runtime_tasks.get(session_id)
         if existing is not None and not existing.done():
+            return
+        if self._command_processing_active(session_id):
+            self._status[session_id] = {
+                "status": "running_elsewhere",
+                "reason": "command_processing_already_active",
+                "worker_id": self._worker_id,
+            }
+            self._persist_runtime_state(session_id)
+            log_event(
+                "runtime_start_skipped_command_processing_active",
+                session_id=session_id,
+                worker_id=self._worker_id,
+            )
             return
         recovery = self.recovery_checkpoint(session_id)
         if self.recovery_state_has_waiting_input({"recovery_checkpoint": recovery}):
@@ -909,6 +961,10 @@ class RuntimeService:
             self._active_command_sessions.add(session_id)
             return True
 
+    def _command_processing_active(self, session_id: str) -> bool:
+        with self._command_processing_lock:
+            return session_id in self._active_command_sessions
+
     def _end_command_processing(self, session_id: str) -> None:
         with self._command_processing_lock:
             self._active_command_sessions.discard(session_id)
@@ -953,8 +1009,25 @@ class RuntimeService:
             session = None
         recovery = self.recovery_checkpoint(session_id)
         checkpoint_waiting_input = self.recovery_state_has_waiting_input({"recovery_checkpoint": recovery})
+        if session is not None and session.status == SessionStatus.IN_PROGRESS and self._command_processing_active(session_id):
+            base = dict(base)
+            base["status"] = "running_elsewhere"
+            base["watchdog_state"] = "running"
+            base["reason"] = "command_processing_active"
+            base["worker_id"] = self._worker_id
+            base["last_activity_ms"] = self._last_activity_ms.get(session_id, base.get("last_activity_ms"))
+            base["recent_fallbacks"] = self._recent_fallbacks(session_id)
+            if recovery.get("available"):
+                base["recovery_checkpoint"] = recovery
+            return base
         if session is not None and session.status == SessionStatus.IN_PROGRESS and checkpoint_waiting_input:
             base = self._mark_checkpoint_waiting_input(session_id, base=base, reason="checkpoint_waiting_input")
+        elif session is not None and session.status == SessionStatus.IN_PROGRESS and base.get("status") == "waiting_input":
+            base["status"] = "recovery_required"
+            base["watchdog_state"] = "recovery_required"
+            base["reason"] = "stale_waiting_input_checkpoint"
+            self._status[session_id] = dict(base)
+            self._persist_runtime_state(session_id)
         lease_expires_at_ms = int(base.get("lease_expires_at_ms", 0) or 0)
         if session is not None and session.status == SessionStatus.IN_PROGRESS and not checkpoint_waiting_input and (
             base.get("status") in {None, "idle", "running", "stop_requested"} and lease_expires_at_ms <= self._now_ms()
@@ -1636,6 +1709,13 @@ class RuntimeService:
         return False
 
     def _acquire_runtime_lease(self, session_id: str) -> bool:
+        if self._runtime_lease_held_by_this_process(session_id):
+            log_event(
+                "runtime_lease_reentrant_acquire_blocked",
+                session_id=session_id,
+                worker_id=self._worker_id,
+            )
+            return False
         if self._runtime_state_store is None:
             return True
         acquired = bool(self._runtime_state_store.acquire_lease(session_id, self._worker_id, self._lease_ttl_ms))
@@ -1915,18 +1995,9 @@ class RuntimeService:
             self._apply_runner_kind(state, runner_kind, checkpoint_schema_version)
             decision_resume = self._decision_resume_from_command(session_id, command_seq)
             if callable(getattr(policy, "set_prompt_sequence", None)):
-                prompt_sequence = int(getattr(state, "prompt_sequence", 0) or 0)
-                pending_prompt_instance_id = int(getattr(state, "pending_prompt_instance_id", 0) or 0)
-                prior_prompt_seed = _prior_same_module_resume_prompt_seed(runtime_recovery_checkpoint, decision_resume)
-                if prior_prompt_seed is not None:
-                    prompt_sequence = prior_prompt_seed
-                elif pending_prompt_instance_id > 0 and (
-                    decision_resume is None
-                    or str(getattr(state, "pending_prompt_request_id", "") or "").strip()
-                    == str(decision_resume.request_id or "").strip()
-                ):
-                    prompt_sequence = max(0, pending_prompt_instance_id - 1)
-                policy.set_prompt_sequence(prompt_sequence)
+                policy.set_prompt_sequence(
+                    _runtime_prompt_sequence_seed(state, runtime_recovery_checkpoint, decision_resume)
+                )
             if decision_resume is not None:
                 try:
                     self._validate_decision_resume_against_checkpoint(state, decision_resume)
@@ -2107,6 +2178,12 @@ class RuntimeService:
                 "waiting_prompt_instance_id": payload.get("pending_prompt_instance_id"),
                 "prompt_sequence": payload.get("prompt_sequence"),
                 "runtime_active_prompt": runtime_active_prompt,
+                "runtime_active_prompt_external_player_id": _runtime_prompt_external_player_id(runtime_active_prompt, payload)
+                if runtime_active_prompt
+                else None,
+                "runtime_active_prompt_internal_player_id": _optional_int(runtime_active_prompt.get("player_id"))
+                if runtime_active_prompt
+                else None,
                 "runtime_active_prompt_batch": runtime_active_prompt_batch,
                 "active_frame_id": module_debug_fields.get("frame_id", ""),
                 "active_module_id": module_debug_fields.get("module_id", ""),

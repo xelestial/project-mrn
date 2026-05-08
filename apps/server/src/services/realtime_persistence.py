@@ -1242,6 +1242,7 @@ class RedisGameStateStore:
                 "viewers": sorted(str(item) for item in self._list_from(view_commit_index.get("view_commit_viewers"))),
                 "cached_viewers": sorted(str(item) for item in self._list_from(view_commit_index.get("cached_viewers"))),
             },
+            "stream": self._debug_stream_summary(session_id),
             "checkpoint": checkpoint_payload,
         }
 
@@ -1279,6 +1280,57 @@ class RedisGameStateStore:
             "runtime_fallbacks": self._connection.key("runtime", session_id, "fallbacks"),
             "runtime_lease": self._connection.key("runtime", session_id, "lease"),
         }
+
+    def _debug_stream_summary(self, session_id: str) -> dict[str, Any]:
+        client = self._connection.client()
+        event_index_key = self._connection.key("stream", session_id, "event_index")
+        viewer_outbox_key = self._connection.key("stream", session_id, "viewer_outbox")
+        event_index_rows = self._latest_hash_records(event_index_key, limit=20)
+        viewer_outbox_rows = self._latest_hash_records(viewer_outbox_key, limit=40)
+        return {
+            "stream_seq": _int_or_default(client.get(self._runtime_stream_seq_key(session_id)), 0),
+            "event_index_count": len(client.hgetall(event_index_key)),
+            "viewer_outbox_count": len(client.hgetall(viewer_outbox_key)),
+            "event_index_ttl_seconds": DEBUG_REDIS_RETENTION_SECONDS,
+            "viewer_outbox_ttl_seconds": DEBUG_REDIS_RETENTION_SECONDS,
+            "latest_event_index": event_index_rows,
+            "latest_viewer_outbox": viewer_outbox_rows,
+        }
+
+    def _latest_hash_records(self, key: str, *, limit: int) -> list[dict[str, Any]]:
+        rows = []
+        for field, raw in self._connection.client().hgetall(key).items():
+            parsed = _json_load_dict(str(raw))
+            if not isinstance(parsed, dict):
+                continue
+            parsed["_field"] = str(field)
+            rows.append(parsed)
+        rows.sort(
+            key=lambda item: (
+                _int_or_default(item.get("stream_seq"), 0),
+                str(item.get("_field") or ""),
+            )
+        )
+        return [self._compact_stream_record(item) for item in rows[-max(1, int(limit)):]]
+
+    def _compact_stream_record(self, item: dict[str, Any]) -> dict[str, Any]:
+        return self._compact_mapping(
+            item,
+            (
+                "_field",
+                "session_id",
+                "viewer_scope",
+                "stream_seq",
+                "message_type",
+                "event_type",
+                "event_id",
+                "request_id",
+                "player_id",
+                "target_player_id",
+                "commit_seq",
+                "server_time_ms",
+            ),
+        )
 
     def _compact_players(self, current_state: dict[str, Any], view_state: dict[str, Any]) -> list[dict[str, Any]]:
         players = self._list_from(current_state.get("players"))

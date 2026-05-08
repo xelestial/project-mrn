@@ -232,6 +232,56 @@ describe("fullStackProtocolHarness", () => {
     expect(result.failures).toContain("protocol run made no websocket/runtime progress before completion");
   });
 
+  it("fails the gate when a forced reconnect never receives a recovery view_commit", () => {
+    const result = evaluateProtocolGate({
+      timedOut: false,
+      completed: true,
+      runtimeStatus: "completed",
+      clients: [
+        clientRuntime("seat:1", {
+          metrics: {
+            ...emptyHeadlessMetrics(),
+            acceptedAckCount: 1,
+            reconnectCount: 2,
+            forcedReconnectCount: 2,
+            reconnectRecoveryCount: 1,
+            reconnectRecoveryPendingCount: 1,
+          },
+        }),
+        clientRuntime("spectator", {
+          metrics: { ...emptyHeadlessMetrics(), runtimeCompletedCount: 1 },
+        }),
+      ],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.failures).toEqual(
+      expect.arrayContaining([
+        "seat:1 has unresolved reconnect recovery 1 time(s)",
+        "seat:1 recovered 1/2 forced reconnect(s)",
+      ]),
+    );
+  });
+
+  it("treats prompt delivery and reconnect recovery as protocol progress", () => {
+    const base = buildProtocolProgressKey([progressClient(1)], "waiting_input");
+
+    expect(
+      buildProtocolProgressKey([
+        progressClient(1, {
+          metrics: { ...emptyHeadlessMetrics(), promptMessageCount: 1 },
+        }),
+      ], "waiting_input"),
+    ).not.toBe(base);
+    expect(
+      buildProtocolProgressKey([
+        progressClient(1, {
+          metrics: { ...emptyHeadlessMetrics(), reconnectRecoveryCount: 1 },
+        }),
+      ], "waiting_input"),
+    ).not.toBe(base);
+  });
+
   it("fails the gate when the server used decision timeout fallback", () => {
     const result = evaluateProtocolGate({
       timedOut: false,

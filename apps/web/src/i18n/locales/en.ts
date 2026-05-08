@@ -297,6 +297,7 @@ export const enLocale = {
       mark_target_none: "No legal mark target",
       mark_target_missing: "Missing mark target",
       mark_blocked: "Mark blocked",
+      mark_resolved: "Mark resolved",
       ability_suppressed: "Character ability blocked",
       active_flip_resolved: "Active flip resolved",
       f_value_change: "End time changed",

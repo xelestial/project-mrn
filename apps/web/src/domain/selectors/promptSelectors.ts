@@ -10,6 +10,8 @@ export type PromptChoiceViewModel = {
 
 export type PromptContinuationViewModel = {
   promptInstanceId: number | null;
+  promptFingerprint: string | null;
+  promptFingerprintVersion: string | null;
   resumeToken: string | null;
   frameId: string | null;
   moduleId: string | null;
@@ -382,6 +384,8 @@ function parsePromptContinuation(raw: Record<string, unknown>): PromptContinuati
     : null;
   return {
     promptInstanceId: numberOrNull(raw["prompt_instance_id"]),
+    promptFingerprint: stringOrEmpty(raw["prompt_fingerprint"]) || null,
+    promptFingerprintVersion: stringOrEmpty(raw["prompt_fingerprint_version"]) || null,
     resumeToken: stringOrEmpty(raw["resume_token"]) || null,
     frameId: stringOrEmpty(raw["frame_id"]) || null,
     moduleId: stringOrEmpty(raw["module_id"]) || null,

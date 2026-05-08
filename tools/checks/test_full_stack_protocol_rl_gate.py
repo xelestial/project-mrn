@@ -68,11 +68,11 @@ def test_protocol_gate_command_forwards_reconnect_scenarios(tmp_path: Path):
         progress_interval_ms=1_000,
         cpu_diagnostic_idle_ms=30_000,
         cpu_low_load_percent=10.0,
-        reconnect_scenarios=["after_start", "turn_boundary"],
+        reconnect_scenarios=["after_start", "after_first_prompt", "turn_boundary"],
     )
 
     reconnect_index = command.index("--reconnect")
-    assert command[reconnect_index + 1] == "after_start,turn_boundary"
+    assert command[reconnect_index + 1] == "after_start,after_first_prompt,turn_boundary"
     raw_fallback_index = command.index("--raw-prompt-fallback-delay-ms")
     assert command[raw_fallback_index + 1] == "off"
     cpu_idle_index = command.index("--cpu-diagnostic-idle-ms")
@@ -85,7 +85,11 @@ def test_parse_reconnect_arg_accepts_off_and_rejects_unknown():
     from tools.checks.full_stack_protocol_rl_gate import parse_reconnect_arg
 
     assert parse_reconnect_arg("off") == []
-    assert parse_reconnect_arg("after_start,round_boundary") == ["after_start", "round_boundary"]
+    assert parse_reconnect_arg("after_start,after_first_prompt,round_boundary") == [
+        "after_start",
+        "after_first_prompt",
+        "round_boundary",
+    ]
 
     with pytest.raises(ValueError, match="invalid reconnect scenario"):
         parse_reconnect_arg("after_start,unknown")

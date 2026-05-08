@@ -1059,6 +1059,28 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertTrue(fields["decision_resume_token_present"])
         self.assertNotIn("secret-resume-token", json.dumps(fields, ensure_ascii=False))
 
+    def test_runtime_continuation_debug_fields_separates_internal_and_external_player_ids(self) -> None:
+        payload = {
+            "pending_prompt_request_id": "req:hidden:1",
+            "pending_prompt_type": "hidden_trick_card",
+            "pending_prompt_player_id": 1,
+            "pending_prompt_instance_id": 1,
+            "players": [{"player_id": 0}, {"player_id": 1}, {"player_id": 2}, {"player_id": 3}],
+            "runtime_active_prompt": {
+                "request_id": "req:hidden:1",
+                "request_type": "hidden_trick_card",
+                "player_id": 0,
+                "frame_id": "turn:1:p0",
+                "module_id": "mod:hidden:p0",
+            },
+        }
+
+        fields = _runtime_continuation_debug_fields(payload)
+
+        self.assertEqual(fields["waiting_prompt_player_id"], 1)
+        self.assertEqual(fields["runtime_active_prompt_player_id"], 1)
+        self.assertEqual(fields["runtime_active_prompt_internal_player_id"], 0)
+
     def test_fanout_debug_log_writes_only_committed_events_with_module_fields(self) -> None:
         loop = asyncio.new_event_loop()
         loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
@@ -1458,6 +1480,104 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(runtime_state_store.statuses[session.session_id].get("status"), "waiting_input")
         self.assertIn("recovery_checkpoint", status)
 
+    def test_runtime_status_clears_stale_waiting_input_when_checkpoint_has_no_prompt(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "human"},
+            ],
+            config={"seed": 42},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.join_session(session.session_id, 2, session.join_tokens[2], "P2")
+        self.session_service.start_session(session.session_id, session.host_token)
+        runtime_state_store = _RuntimeStateStoreStub()
+        game_state_store = _MutableGameStateStoreStub()
+        game_state_store.checkpoint = {
+            "session_id": session.session_id,
+            "latest_seq": 86,
+            "latest_commit_seq": 212,
+            "waiting_prompt_request_id": "",
+            "runtime_active_prompt_request_id": "",
+        }
+        game_state_store.current_state = {
+            "session_id": session.session_id,
+            "tiles": [],
+            "players": [],
+            "runtime_active_prompt": {},
+        }
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            runtime_state_store=runtime_state_store,
+            game_state_store=game_state_store,
+        )
+        runtime_state_store.statuses[session.session_id] = {
+            "status": "waiting_input",
+            "watchdog_state": "waiting_input",
+            "reason": "checkpoint_waiting_input",
+            "lease_expires_at_ms": 1,
+        }
+
+        status = runtime.runtime_status(session.session_id)
+
+        self.assertEqual(status.get("status"), "recovery_required")
+        self.assertEqual(status.get("watchdog_state"), "recovery_required")
+        self.assertEqual(status.get("reason"), "stale_waiting_input_checkpoint")
+        self.assertEqual(runtime_state_store.statuses[session.session_id].get("status"), "recovery_required")
+        self.assertIn("recovery_checkpoint", status)
+
+    def test_runtime_status_reports_command_processing_active_without_stale_recovery(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "human"},
+            ],
+            config={"seed": 42},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.join_session(session.session_id, 2, session.join_tokens[2], "P2")
+        self.session_service.start_session(session.session_id, session.host_token)
+        runtime_state_store = _RuntimeStateStoreStub()
+        game_state_store = _MutableGameStateStoreStub()
+        game_state_store.checkpoint = {
+            "session_id": session.session_id,
+            "latest_seq": 86,
+            "latest_commit_seq": 212,
+            "waiting_prompt_request_id": "",
+            "runtime_active_prompt_request_id": "",
+        }
+        game_state_store.current_state = {
+            "session_id": session.session_id,
+            "tiles": [],
+            "players": [],
+            "runtime_active_prompt": {},
+        }
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            runtime_state_store=runtime_state_store,
+            game_state_store=game_state_store,
+        )
+        runtime_state_store.statuses[session.session_id] = {
+            "status": "waiting_input",
+            "watchdog_state": "waiting_input",
+            "reason": "checkpoint_waiting_input",
+            "lease_expires_at_ms": 1,
+        }
+        self.assertTrue(runtime._begin_command_processing(session.session_id))  # type: ignore[attr-defined]
+        try:
+            status = runtime.runtime_status(session.session_id)
+        finally:
+            runtime._end_command_processing(session.session_id)  # type: ignore[attr-defined]
+
+        self.assertEqual(status.get("status"), "running_elsewhere")
+        self.assertEqual(status.get("watchdog_state"), "running")
+        self.assertEqual(status.get("reason"), "command_processing_active")
+        self.assertEqual(runtime_state_store.statuses[session.session_id].get("status"), "waiting_input")
+
     def test_start_runtime_defers_waiting_checkpoint_without_engine_task(self) -> None:
         session = self.session_service.create_session(
             seats=[
@@ -1493,6 +1613,53 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertNotIn(session.session_id, runtime._runtime_tasks)  # type: ignore[attr-defined]
         self.assertEqual(runtime.runtime_status(session.session_id).get("status"), "waiting_input")
+
+    def test_start_runtime_defers_while_command_processing_is_active(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "human"},
+            ],
+            config={"seed": 42},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.join_session(session.session_id, 2, session.join_tokens[2], "P2")
+        self.session_service.start_session(session.session_id, session.host_token)
+        runtime_state_store = _RuntimeStateStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            runtime_state_store=runtime_state_store,
+        )
+        self.assertTrue(runtime._begin_command_processing(session.session_id))  # type: ignore[attr-defined]
+        try:
+            asyncio.run(runtime.start_runtime(session.session_id, seed=42, policy_mode=None))
+        finally:
+            runtime._end_command_processing(session.session_id)  # type: ignore[attr-defined]
+
+        self.assertNotIn(session.session_id, runtime._runtime_tasks)  # type: ignore[attr-defined]
+        status = runtime_state_store.statuses[session.session_id]
+        self.assertEqual(status.get("status"), "running_elsewhere")
+        self.assertEqual(status.get("reason"), "command_processing_already_active")
+        self.assertIsNone(runtime_state_store.lease_owner(session.session_id))
+
+    def test_runtime_lease_is_not_reentrant_in_same_process(self) -> None:
+        runtime_state_store = _RuntimeStateStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            runtime_state_store=runtime_state_store,
+        )
+        session_id = "sess_reentrant"
+
+        self.assertTrue(runtime._acquire_runtime_lease(session_id))  # type: ignore[attr-defined]
+        try:
+            self.assertFalse(runtime._acquire_runtime_lease(session_id))  # type: ignore[attr-defined]
+            self.assertEqual(runtime_state_store.lease_owner(session_id), runtime._worker_id)  # type: ignore[attr-defined]
+        finally:
+            runtime._release_runtime_lease(session_id)  # type: ignore[attr-defined]
 
     def test_execute_prompt_fallback_records_recent_history(self) -> None:
         session = self.session_service.create_session(

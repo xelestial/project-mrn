@@ -81,6 +81,10 @@ export function buildDecisionMessage(args: {
     continuation.promptInstanceId >= 0
       ? { prompt_instance_id: continuation.promptInstanceId }
       : {}),
+    ...(continuation?.promptFingerprint ? { prompt_fingerprint: continuation.promptFingerprint } : {}),
+    ...(continuation?.promptFingerprintVersion
+      ? { prompt_fingerprint_version: continuation.promptFingerprintVersion }
+      : {}),
     view_commit_seq_seen: Math.max(0, Math.floor(args.viewCommitSeqSeen)),
     client_seq: args.clientSeq,
   };

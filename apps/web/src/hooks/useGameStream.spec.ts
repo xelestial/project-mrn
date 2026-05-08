@@ -65,6 +65,8 @@ describe("useGameStream authoritative commit helpers", () => {
         choicePayload: { dice: 4 },
         continuation: {
           promptInstanceId: 31,
+          promptFingerprint: "sha256:prompt-31",
+          promptFingerprintVersion: "prompt-fingerprint-v1",
           resumeToken: "resume-token-1",
           frameId: "turn:1:p1",
           moduleId: "mod:turn:1:p1:dice",
@@ -82,6 +84,8 @@ describe("useGameStream authoritative commit helpers", () => {
       choice_id: "roll",
       choice_payload: { dice: 4 },
       resume_token: "resume-token-1",
+      prompt_fingerprint: "sha256:prompt-31",
+      prompt_fingerprint_version: "prompt-fingerprint-v1",
       frame_id: "turn:1:p1",
       module_id: "mod:turn:1:p1:dice",
       module_type: "DiceRollModule",
@@ -100,6 +104,8 @@ describe("useGameStream authoritative commit helpers", () => {
         choiceId: "confirm",
         continuation: {
           promptInstanceId: 0,
+          promptFingerprint: null,
+          promptFingerprintVersion: null,
           resumeToken: "resume-token-0",
           frameId: "turn:1:p1",
           moduleId: "mod:turn:1:p1:burden",

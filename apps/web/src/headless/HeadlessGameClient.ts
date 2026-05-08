@@ -46,6 +46,7 @@ export type ResourceFocus = "cash" | "shard" | "score";
 
 export type HeadlessMetrics = {
   inboundMessageCount: number;
+  promptMessageCount: number;
   viewCommitCount: number;
   snapshotPulseCount: number;
   heartbeatCount: number;
@@ -68,6 +69,9 @@ export type HeadlessMetrics = {
   spectatorDecisionAckLeakCount: number;
   identityViolationCount: number;
   reconnectCount: number;
+  forcedReconnectCount: number;
+  reconnectRecoveryCount: number;
+  reconnectRecoveryPendingCount: number;
   resumeRequestCount: number;
 };
 
@@ -89,6 +93,12 @@ type PendingDecision = {
   decision: OutboundMessage;
   needsRetry: boolean;
   retryConsumed: boolean;
+};
+
+type PendingReconnectRecovery = {
+  id: number;
+  reason: string;
+  minCommitSeq: number;
 };
 
 const DEFAULT_RAW_PROMPT_FALLBACK_DELAY_MS: number | null = null;
@@ -218,6 +228,7 @@ function choiceSearchText(choice: PromptChoiceViewModel): string {
 export function emptyHeadlessMetrics(): HeadlessMetrics {
   return {
     inboundMessageCount: 0,
+    promptMessageCount: 0,
     viewCommitCount: 0,
     snapshotPulseCount: 0,
     heartbeatCount: 0,
@@ -240,6 +251,9 @@ export function emptyHeadlessMetrics(): HeadlessMetrics {
     spectatorDecisionAckLeakCount: 0,
     identityViolationCount: 0,
     reconnectCount: 0,
+    forcedReconnectCount: 0,
+    reconnectRecoveryCount: 0,
+    reconnectRecoveryPendingCount: 0,
     resumeRequestCount: 0,
   };
 }
@@ -266,6 +280,7 @@ export class HeadlessGameClient {
   private readonly inFlightDecisionRequestIds = new Set<string>();
   private readonly seenDecisionTimeoutFallbacks = new Set<string>();
   private readonly deferredRawPromptRequestIds = new Set<string>();
+  private readonly pendingReconnectRecoveries: PendingReconnectRecovery[] = [];
   private readonly rawPromptFallbackTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly activeFlipSelectionsByPhase = new Map<string, Set<string>>();
   private stateValue: GameStreamState = initialGameStreamState;
@@ -273,6 +288,7 @@ export class HeadlessGameClient {
   private statusValue: ConnectionStatus = "idle";
   private closedByUser = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private nextReconnectRecoveryId = 1;
 
   constructor(args: HeadlessGameClientArgs) {
     this.sessionId = args.sessionId.trim();
@@ -373,13 +389,26 @@ export class HeadlessGameClient {
   }
 
   forceReconnect(reason: string): void {
-    this.metrics.reconnectCount += 1;
+    const minCommitSeq = Math.max(0, Math.floor(this.stateValue.lastCommitSeq));
+    const recoveryId = this.nextReconnectRecoveryId;
+    this.nextReconnectRecoveryId += 1;
+    this.pendingReconnectRecoveries.push({
+      id: recoveryId,
+      reason,
+      minCommitSeq,
+    });
+    this.metrics.forcedReconnectCount += 1;
+    this.metrics.reconnectRecoveryPendingCount = this.pendingReconnectRecoveries.length;
     this.trace.push({
       event: "forced_reconnect",
       session_id: this.sessionId,
       player_id: this.playerId,
       commit_seq: this.stateValue.lastCommitSeq,
       reason,
+      payload: {
+        reconnect_recovery_id: recoveryId,
+        min_commit_seq: minCommitSeq,
+      },
     });
     if (!this.socket) {
       this.connect();
@@ -859,6 +888,9 @@ export class HeadlessGameClient {
 
   private recordInbound(message: InboundMessage): void {
     this.metrics.inboundMessageCount += 1;
+    if (message.type === "prompt") {
+      this.metrics.promptMessageCount += 1;
+    }
     if (this.playerId === 0 && message.type === "prompt") {
       this.metrics.spectatorPromptLeakCount += 1;
       this.trace.push({
@@ -949,6 +981,7 @@ export class HeadlessGameClient {
     if (message.payload.runtime.status === "completed") {
       this.metrics.runtimeCompletedCount += 1;
     }
+    this.recordReconnectRecovery(message, commitSeq);
     this.trace.push({
       event: "view_commit_seen",
       session_id: this.sessionId,
@@ -957,6 +990,45 @@ export class HeadlessGameClient {
       commit_seq: commitSeq,
       payload: compactViewCommitTracePayload(message),
     });
+  }
+
+  private recordReconnectRecovery(
+    message: Extract<InboundMessage, { type: "view_commit" | "snapshot_pulse" }>,
+    commitSeq: number,
+  ): void {
+    if (message.type !== "view_commit" || this.pendingReconnectRecoveries.length <= 0 || !Number.isFinite(commitSeq)) {
+      return;
+    }
+    const recovered: PendingReconnectRecovery[] = [];
+    const pending: PendingReconnectRecovery[] = [];
+    for (const item of this.pendingReconnectRecoveries) {
+      if (commitSeq >= item.minCommitSeq) {
+        recovered.push(item);
+      } else {
+        pending.push(item);
+      }
+    }
+    if (recovered.length <= 0) {
+      return;
+    }
+    this.pendingReconnectRecoveries.length = 0;
+    this.pendingReconnectRecoveries.push(...pending);
+    this.metrics.reconnectRecoveryCount += recovered.length;
+    this.metrics.reconnectRecoveryPendingCount = this.pendingReconnectRecoveries.length;
+    for (const item of recovered) {
+      this.trace.push({
+        event: "forced_reconnect_recovered",
+        session_id: this.sessionId,
+        player_id: this.playerId,
+        seq: message.seq,
+        commit_seq: commitSeq,
+        reason: item.reason,
+        payload: {
+          reconnect_recovery_id: item.id,
+          min_commit_seq: item.minCommitSeq,
+        },
+      });
+    }
   }
 
   private recordViewerIdentityViolations(message: Extract<InboundMessage, { type: "view_commit" }>): void {
