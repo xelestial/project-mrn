@@ -1162,9 +1162,17 @@ class RuntimeServiceTests(unittest.TestCase):
 
             self.runtime_service._publish_active_module_prompt_batch_sync(loop, "sess_batch_prompt", state)
 
-            pending_ids = set(self.prompt_service._pending.keys())  # type: ignore[attr-defined]
-            self.assertEqual(pending_ids, {batch.prompts_by_player_id[0].request_id, batch.prompts_by_player_id[1].request_id})
-            first_pending = self.prompt_service._pending[batch.prompts_by_player_id[0].request_id]  # type: ignore[attr-defined]
+            first_pending = self.prompt_service.get_pending_prompt(
+                batch.prompts_by_player_id[0].request_id,
+                session_id="sess_batch_prompt",
+            )
+            second_pending = self.prompt_service.get_pending_prompt(
+                batch.prompts_by_player_id[1].request_id,
+                session_id="sess_batch_prompt",
+            )
+            self.assertIsNotNone(first_pending)
+            self.assertIsNotNone(second_pending)
+            assert first_pending is not None
             self.assertEqual(first_pending.payload["batch_id"], "batch:simul:resupply:1")
             self.assertEqual(first_pending.payload["module_type"], "ResupplyModule")
             self.assertEqual(first_pending.payload["module_cursor"], "await_resupply_batch:1")
@@ -1243,7 +1251,12 @@ class RuntimeServiceTests(unittest.TestCase):
                 state=state,
             )
 
-            pending = self.prompt_service._pending[continuation.request_id]  # type: ignore[attr-defined]
+            pending = self.prompt_service.get_pending_prompt(
+                continuation.request_id,
+                session_id="sess_batch_boundary_prompt",
+            )
+            self.assertIsNotNone(pending)
+            assert pending is not None
             self.assertEqual(pending.payload["batch_id"], batch.batch_id)
             self.assertEqual(pending.payload["missing_player_ids"], [1, 2])
             self.assertEqual(
@@ -1315,7 +1328,12 @@ class RuntimeServiceTests(unittest.TestCase):
                 state=state,
             )
 
-            pending = self.prompt_service._pending[continuation.request_id]  # type: ignore[attr-defined]
+            pending = self.prompt_service.get_pending_prompt(
+                continuation.request_id,
+                session_id="sess_batch_boundary_checkpoint_prompt",
+            )
+            self.assertIsNotNone(pending)
+            assert pending is not None
             self.assertEqual(pending.payload["batch_id"], batch.batch_id)
             self.assertEqual(pending.payload["missing_player_ids"], [1, 2])
             self.assertEqual(
@@ -5216,8 +5234,10 @@ class RuntimeServiceTests(unittest.TestCase):
 
             pending_prompt = None
             for _ in range(100):
-                with self.prompt_service._lock:  # type: ignore[attr-defined]
-                    pending_prompt = self.prompt_service._pending.get("bridge_req_1")  # type: ignore[attr-defined]
+                pending_prompt = self.prompt_service.get_pending_prompt(
+                    "bridge_req_1",
+                    session_id="sess_bridge_test",
+                )
                 if pending_prompt is not None:
                     break
                 time.sleep(0.01)
@@ -5397,12 +5417,27 @@ class RuntimeServiceTests(unittest.TestCase):
             },
         )
 
-        with self.prompt_service._lock:  # type: ignore[attr-defined]
-            pending_ids = set(self.prompt_service._pending)  # type: ignore[attr-defined]
-            resolved_ids = set(self.prompt_service._resolved)  # type: ignore[attr-defined]
-        self.assertNotIn(first.request_id, pending_ids)
-        self.assertIn(first.request_id, resolved_ids)
-        self.assertIn(second.request_id, pending_ids)
+        self.assertIsNone(
+            self.prompt_service.get_pending_prompt(
+                first.request_id,
+                session_id="sess_prompt_supersede",
+            )
+        )
+        self.assertIsNotNone(
+            self.prompt_service.get_pending_prompt(
+                second.request_id,
+                session_id="sess_prompt_supersede",
+            )
+        )
+        stale_result = self.prompt_service.submit_decision(
+            {
+                "session_id": "sess_prompt_supersede",
+                "request_id": first.request_id,
+                "player_id": 1,
+                "choice_id": "none",
+            }
+        )
+        self.assertEqual(stale_result, {"status": "stale", "reason": "already_resolved"})
 
     def test_first_human_draft_resume_auto_resolves_forced_draft_before_final_character(self) -> None:
         store = _MutableGameStateStoreStub()
@@ -8409,8 +8444,10 @@ class RuntimeServiceTests(unittest.TestCase):
 
             pending_prompt = None
             for _ in range(100):
-                with self.prompt_service._lock:  # type: ignore[attr-defined]
-                    pending_prompt = self.prompt_service._pending.get("bridge_parser_1")  # type: ignore[attr-defined]
+                pending_prompt = self.prompt_service.get_pending_prompt(
+                    "bridge_parser_1",
+                    session_id="sess_bridge_parser_fallback",
+                )
                 if pending_prompt is not None:
                     break
                 time.sleep(0.01)
