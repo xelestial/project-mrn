@@ -6,6 +6,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -270,15 +271,13 @@ def run_protocol_gate_once(
         config=config,
         reconnect_scenarios=reconnect_scenarios,
     )
-    completed = subprocess.run(
+    completed = run_protocol_gate_process(
         command,
         cwd=WEB_DIR,
-        text=True,
-        capture_output=True,
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
         timeout=max(60, int(timeout_ms / 1000) + 60),
     )
-    stdout_path.write_text(completed.stdout, encoding="utf-8")
-    stderr_path.write_text(completed.stderr, encoding="utf-8")
     try:
         summary = parse_protocol_gate_summary(completed.stdout)
     except ValueError:
@@ -302,6 +301,78 @@ def run_protocol_gate_once(
         summary.setdefault("failures", []).append(f"protocol gate exited with {completed.returncode}")
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
     return summary
+
+
+def run_protocol_gate_process(
+    command: list[str],
+    *,
+    cwd: Path,
+    stdout_path: Path,
+    stderr_path: Path,
+    timeout: int,
+) -> subprocess.CompletedProcess[str]:
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=1,
+    )
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+
+    def pump(
+        pipe: Any,
+        destination: Path,
+        buffer: list[str],
+        *,
+        mirror_to_stderr: bool,
+    ) -> None:
+        with destination.open("w", encoding="utf-8") as handle:
+            for line in pipe:
+                buffer.append(line)
+                handle.write(line)
+                handle.flush()
+                if mirror_to_stderr:
+                    sys.stderr.write(line)
+                    sys.stderr.flush()
+
+    assert process.stdout is not None
+    assert process.stderr is not None
+    stdout_thread = threading.Thread(
+        target=pump,
+        args=(process.stdout, stdout_path, stdout_lines),
+        kwargs={"mirror_to_stderr": False},
+        daemon=True,
+    )
+    stderr_thread = threading.Thread(
+        target=pump,
+        args=(process.stderr, stderr_path, stderr_lines),
+        kwargs={"mirror_to_stderr": True},
+        daemon=True,
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+    try:
+        returncode = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        returncode = process.wait()
+        message = f"protocol gate process timed out after {timeout}s\n"
+        stderr_lines.append(message)
+        with stderr_path.open("a", encoding="utf-8") as handle:
+            handle.write(message)
+        sys.stderr.write(message)
+        sys.stderr.flush()
+    stdout_thread.join(timeout=5)
+    stderr_thread.join(timeout=5)
+    return subprocess.CompletedProcess(
+        command,
+        returncode,
+        "".join(stdout_lines),
+        "".join(stderr_lines),
+    )
 
 
 def protocol_gate_command(

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { cpus } from "node:os";
 import type { ConnectionStatus } from "../core/contracts/stream";
 import {
   baselineDecisionPolicy,
@@ -54,6 +55,8 @@ export type ProtocolCpuDiagnostic = {
   sampled: boolean;
   idleMs: number;
   processCpuPercent: number | null;
+  hostCpuRawPercent: number | null;
+  hostLogicalCpuCount: number | null;
   hostCpuPercent: number | null;
   suspiciousIdle: boolean;
   error?: string;
@@ -636,6 +639,8 @@ function buildCpuDiagnostic(args: {
       sampled: false,
       idleMs: args.idleMs,
       processCpuPercent: null,
+      hostCpuRawPercent: null,
+      hostLogicalCpuCount: null,
       hostCpuPercent: null,
       suspiciousIdle: false,
     };
@@ -644,14 +649,14 @@ function buildCpuDiagnostic(args: {
     const elapsedMs = Math.max(1, Date.now() - args.previousCpuWallMs);
     const cpu = process.cpuUsage(args.previousCpuUsage);
     const processCpuPercent = roundPercent(((cpu.user + cpu.system) / 1000 / elapsedMs) * 100);
-    const hostCpuPercent = sampleHostCpuPercent();
-    const hostLow = hostCpuPercent === null || hostCpuPercent <= args.lowLoadPercent;
+    const hostCpu = sampleHostCpuLoad();
+    const hostLow = hostCpu.hostCpuPercent !== null && hostCpu.hostCpuPercent <= args.lowLoadPercent;
     const processLow = processCpuPercent <= args.lowLoadPercent;
     return {
       sampled: true,
       idleMs: args.idleMs,
       processCpuPercent,
-      hostCpuPercent,
+      ...hostCpu,
       suspiciousIdle: processLow && hostLow,
     };
   } catch (error) {
@@ -659,6 +664,8 @@ function buildCpuDiagnostic(args: {
       sampled: true,
       idleMs: args.idleMs,
       processCpuPercent: null,
+      hostCpuRawPercent: null,
+      hostLogicalCpuCount: null,
       hostCpuPercent: null,
       suspiciousIdle: false,
       error: error instanceof Error ? error.message : String(error),
@@ -666,7 +673,10 @@ function buildCpuDiagnostic(args: {
   }
 }
 
-function sampleHostCpuPercent(): number | null {
+function sampleHostCpuLoad(): Pick<
+  ProtocolCpuDiagnostic,
+  "hostCpuRawPercent" | "hostLogicalCpuCount" | "hostCpuPercent"
+> {
   try {
     const output = execFileSync("ps", ["-A", "-o", "%cpu="], {
       encoding: "utf8",
@@ -678,10 +688,36 @@ function sampleHostCpuPercent(): number | null {
       .map((value) => Number(value))
       .filter((value) => Number.isFinite(value))
       .reduce((sum, value) => sum + value, 0);
-    return roundPercent(total);
+    const logicalCpuCount = sampleLogicalCpuCount();
+    return {
+      hostCpuRawPercent: roundPercent(total),
+      hostLogicalCpuCount: logicalCpuCount,
+      hostCpuPercent: roundPercent(total / logicalCpuCount),
+    };
   } catch {
-    return null;
+    return {
+      hostCpuRawPercent: null,
+      hostLogicalCpuCount: null,
+      hostCpuPercent: null,
+    };
   }
+}
+
+function sampleLogicalCpuCount(): number {
+  try {
+    const output = execFileSync("sysctl", ["-n", "hw.logicalcpu"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 1_000,
+    });
+    const value = Number(output.trim());
+    if (Number.isFinite(value) && value > 0) {
+      return value;
+    }
+  } catch {
+    // Fall through to Node's cross-platform CPU list.
+  }
+  return Math.max(1, cpus().length);
 }
 
 function roundPercent(value: number): number {
