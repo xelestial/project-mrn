@@ -618,6 +618,69 @@ class StreamApiTests(unittest.TestCase):
         self.assertIsNone(acks[-1].get("payload", {}).get("reason"))
         self.assertEqual(acks[-1].get("payload", {}).get("provider"), "human")
 
+    def test_seat_decision_repairs_missing_pending_prompt_from_latest_view_commit(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 19})
+        joined = state.session_service.join_session(session.session_id, seat=1, join_token=session.join_tokens[1])
+        session_token = joined["session_token"]
+        view_commit = _save_cached_view_commit(
+            session.session_id,
+            commit_seq=7,
+            source_event_seq=11,
+            viewer="player",
+            player_id=1,
+            seat=1,
+            view_state={
+                "turn_stage": {"round_index": 1, "turn_index": 2},
+                "prompt": {
+                    "active": {
+                        "request_id": "r_repair_from_commit_1",
+                        "request_type": "movement",
+                        "player_id": 1,
+                        "timeout_ms": 5000,
+                        "prompt_instance_id": 3,
+                        "choices": [{"choice_id": "roll", "label": "Roll"}],
+                        "public_context": {"round_index": 1, "turn_index": 2},
+                    }
+                },
+            },
+        )
+        asyncio.run(state.stream_service.publish_view_commit(session.session_id, view_commit))
+
+        path = f"/api/v1/sessions/{session.session_id}/stream?token={session_token}"
+        with self.client.websocket_connect(path) as ws:
+            ws.send_json(
+                {
+                    "type": "decision",
+                    "request_id": "r_repair_from_commit_1",
+                    "player_id": 1,
+                    "choice_id": "roll",
+                    "choice_payload": {},
+                    "prompt_instance_id": 3,
+                    "view_commit_seq_seen": 7,
+                }
+            )
+
+            messages: list[dict] = []
+            for _ in range(10):
+                msg = ws.receive_json()
+                messages.append(msg)
+                if (
+                    msg.get("type") == "decision_ack"
+                    and msg.get("payload", {}).get("request_id") == "r_repair_from_commit_1"
+                ):
+                    break
+
+        acks = [
+            m
+            for m in messages
+            if m.get("type") == "decision_ack" and m.get("payload", {}).get("request_id") == "r_repair_from_commit_1"
+        ]
+        self.assertGreaterEqual(len(acks), 1)
+        self.assertEqual(acks[-1].get("payload", {}).get("status"), "accepted")
+        self.assertIsNone(acks[-1].get("payload", {}).get("reason"))
+
     def test_seat_decision_wakes_runtime_after_accepted_ack(self) -> None:
         from apps.server.src import state
 

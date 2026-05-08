@@ -128,6 +128,72 @@ def _active_prompt_from_commit(latest_commit: dict[str, Any] | None) -> dict[str
     return active_prompt if isinstance(active_prompt, dict) and active_prompt else None
 
 
+def _prompt_payload_from_active_view_prompt(active_prompt: dict[str, Any], session_id: str) -> dict[str, Any]:
+    payload = dict(active_prompt)
+    payload["session_id"] = session_id
+    if "legal_choices" not in payload and isinstance(payload.get("choices"), list):
+        payload["legal_choices"] = [dict(choice) for choice in payload.get("choices") or [] if isinstance(choice, dict)]
+    payload.pop("choices", None)
+    return payload
+
+
+def _repair_missing_pending_prompt_from_view_commit(
+    *,
+    prompt_service: Any,
+    session_id: str,
+    message: dict[str, Any],
+    latest_commit: dict[str, Any] | None,
+) -> bool:
+    active_prompt = _active_prompt_from_commit(latest_commit)
+    if active_prompt is None:
+        return False
+    if str(active_prompt.get("request_id") or "").strip() != str(message.get("request_id") or "").strip():
+        return False
+    active_player_id = _optional_int(active_prompt.get("player_id"))
+    message_player_id = _optional_int(message.get("player_id"))
+    if active_player_id is None or message_player_id is None or active_player_id != message_player_id:
+        return False
+    active_prompt_instance_id = _optional_int(active_prompt.get("prompt_instance_id"))
+    message_prompt_instance_id = _optional_int(message.get("prompt_instance_id"))
+    if active_prompt_instance_id is not None and message_prompt_instance_id is not None and active_prompt_instance_id != message_prompt_instance_id:
+        return False
+    active_resume_token = str(active_prompt.get("resume_token") or "").strip()
+    message_resume_token = str(message.get("resume_token") or "").strip()
+    if active_resume_token and message_resume_token and active_resume_token != message_resume_token:
+        return False
+    try:
+        prompt_service.create_prompt(
+            session_id=session_id,
+            prompt=_prompt_payload_from_active_view_prompt(active_prompt, session_id),
+        )
+    except ValueError as exc:
+        if str(exc) not in {"duplicate_pending_request_id", "duplicate_recent_request_id"}:
+            log_event(
+                "decision_pending_prompt_repair_failed",
+                session_id=session_id,
+                request_id=message.get("request_id"),
+                player_id=message.get("player_id"),
+                error=str(exc),
+            )
+            return False
+    except Exception as exc:
+        log_event(
+            "decision_pending_prompt_repair_failed",
+            session_id=session_id,
+            request_id=message.get("request_id"),
+            player_id=message.get("player_id"),
+            error=repr(exc),
+        )
+        return False
+    log_event(
+        "decision_pending_prompt_repaired",
+        session_id=session_id,
+        request_id=message.get("request_id"),
+        player_id=message.get("player_id"),
+    )
+    return True
+
+
 def _optional_int(value: Any) -> int | None:
     try:
         return int(value)
@@ -552,6 +618,17 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                     continue
                 message["session_id"] = session_id
                 decision_state = prompt_service.submit_decision(message)
+                if (
+                    decision_state.get("status") == "stale"
+                    and decision_state.get("reason") == "request_not_pending"
+                    and _repair_missing_pending_prompt_from_view_commit(
+                        prompt_service=prompt_service,
+                        session_id=session_id,
+                        message=message,
+                        latest_commit=latest_commit,
+                    )
+                ):
+                    decision_state = prompt_service.submit_decision(message)
                 await stream_service.publish(
                     session_id,
                     "decision_ack",
