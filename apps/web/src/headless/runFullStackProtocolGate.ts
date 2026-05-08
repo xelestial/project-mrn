@@ -250,6 +250,7 @@ function writeProgressLine(snapshot: FullStackProtocolProgressSnapshot): void {
       elapsed_ms: snapshot.elapsedMs,
       idle_ms: snapshot.idleMs,
       runtime_status: snapshot.runtimeStatus,
+      pace: snapshot.pace,
       completed: snapshot.completed,
       timed_out: snapshot.timedOut,
       idle_timed_out: snapshot.idleTimedOut,

@@ -542,6 +542,60 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         self.assertEqual(second[0]["command_seq"], 1)
         self.assertEqual(runtime.processed, [(session.session_id, 1, "runtime_wakeup", 62, None)])
 
+    def test_wakeup_worker_processes_running_status_when_checkpoint_waits_for_same_prompt(self) -> None:
+        connection = RedisConnection(
+            RedisConnectionSettings(
+                url="redis://127.0.0.1:6379/10",
+                key_prefix="mrn-wakeup-running-checkpoint-waiting",
+                socket_timeout_ms=250,
+            ),
+            client_factory=_FakeRedis,
+        )
+        command_store = RedisCommandStore(connection)
+        sessions = SessionService(restart_recovery_policy="keep")
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 64},
+        )
+        sessions.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = _RuntimeProcessStub(
+            status="running",
+            waiting_request_id="req_running_waiting",
+            active_frame_id="turn:2:p0",
+            active_module_id="mod:turn:2:p0:movement",
+            active_module_type="MapMoveModule",
+            active_module_cursor="move:await_choice",
+        )
+        worker = CommandStreamWakeupWorker(
+            command_store=command_store,
+            session_service=sessions,
+            runtime_service=runtime,
+            poll_interval_ms=50,
+        )
+        command_store.append_command(
+            session.session_id,
+            "decision_submitted",
+            {
+                "request_id": "req_running_waiting",
+                "choice_id": "roll",
+                "frame_id": "turn:2:p0",
+                "module_id": "mod:turn:2:p0:movement",
+                "module_type": "MapMoveModule",
+                "module_cursor": "move:await_choice",
+            },
+            request_id="req_running_waiting",
+        )
+
+        wakeups = asyncio.run(worker.run_once(session_id=session.session_id))
+
+        self.assertEqual(len(wakeups), 1)
+        self.assertEqual(wakeups[0]["runtime_status"], "running")
+        self.assertEqual(runtime.processed, [(session.session_id, 1, "runtime_wakeup", 64, None)])
+
     def test_wakeup_worker_skips_waiting_input_commands_for_non_active_prompt(self) -> None:
         connection = RedisConnection(
             RedisConnectionSettings(

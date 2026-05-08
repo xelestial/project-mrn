@@ -56,7 +56,7 @@ class CommandStreamWakeupWorker:
                             break
                     continue
                 status = self._runtime_service.runtime_status(current_session_id)
-                if status.get("status") in {"recovery_required", "idle", "running_elsewhere", "waiting_input"}:
+                if self._should_process_resume_command(status, command):
                     if self._is_stale_waiting_command(status, command):
                         self._save_offset(current_session_id, seq)
                         last_seq = seq
@@ -158,6 +158,17 @@ class CommandStreamWakeupWorker:
         return str(command.get("type") or "").strip() == "decision_submitted"
 
     @staticmethod
+    def _should_process_resume_command(status: dict, command: dict) -> bool:
+        status_value = str(status.get("status") or "")
+        if status_value in {"recovery_required", "idle", "running_elsewhere", "waiting_input"}:
+            return True
+        if status_value != "running":
+            return False
+        if not CommandStreamWakeupWorker._is_runtime_resume_command(command):
+            return False
+        return CommandStreamWakeupWorker._is_waiting_for_resume_command(status, command)
+
+    @staticmethod
     def _is_stale_waiting_command(status: dict, command: dict) -> bool:
         if status.get("status") != "waiting_input":
             return False
@@ -167,7 +178,7 @@ class CommandStreamWakeupWorker:
 
     @staticmethod
     def _is_waiting_for_resume_command(status: dict, command: dict) -> bool:
-        if status.get("status") != "waiting_input":
+        if status.get("status") not in {"waiting_input", "running"}:
             return False
         waiting_request_ids = CommandStreamWakeupWorker._waiting_prompt_request_ids(status)
         command_request_id = CommandStreamWakeupWorker._command_request_id(command)

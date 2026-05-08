@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { emptyHeadlessMetrics } from "./HeadlessGameClient";
 import {
   buildProtocolProgressKey,
+  buildProtocolPaceDiagnostic,
   buildHeadlessHumanSessionPayload,
   evaluateProtocolGate,
   fetchRuntimeStatus,
@@ -300,6 +301,110 @@ describe("fullStackProtocolHarness", () => {
         }),
       ], "waiting_input"),
     ).not.toBe(base);
+  });
+
+  it("summarizes protocol pace and the active prompt in progress diagnostics", () => {
+    const pace = buildProtocolPaceDiagnostic({
+      runtimeStatus: "waiting_input",
+      elapsedMs: 30_000,
+      clients: [
+        clientRuntime("seat:1", {
+          lastCommitSeq: 12,
+          metrics: {
+            ...emptyHeadlessMetrics(),
+            outboundDecisionCount: 2,
+            acceptedAckCount: 1,
+          },
+        }),
+        clientRuntime("seat:2", {
+          lastCommitSeq: 14,
+          metrics: {
+            ...emptyHeadlessMetrics(),
+            outboundDecisionCount: 1,
+            acceptedAckCount: 1,
+          },
+        }),
+      ],
+      traces: [
+        {
+          event: "view_commit_seen",
+          session_id: "sess_1",
+          player_id: 1,
+          commit_seq: 14,
+          payload: {
+            runtime_status: "waiting_input",
+            round_index: 2,
+            turn_index: 5,
+            active_prompt_request_id: "req_purchase",
+            active_prompt_player_id: 2,
+            active_prompt_request_type: "purchase_tile",
+          },
+        },
+        {
+          event: "decision_sent",
+          session_id: "sess_1",
+          player_id: 1,
+          request_id: "req_roll",
+        },
+        {
+          event: "decision_ack",
+          session_id: "sess_1",
+          player_id: 1,
+          request_id: "req_roll",
+          status: "accepted",
+        },
+      ],
+    });
+
+    expect(pace).toMatchObject({
+      maxCommitSeq: 14,
+      latestRoundIndex: 2,
+      latestTurnIndex: 5,
+      activePromptRequestId: "req_purchase",
+      activePromptPlayerId: 2,
+      activePromptRequestType: "purchase_tile",
+      waitingOnActivePrompt: true,
+      latestTraceEvent: "decision_ack",
+      latestDecisionRequestId: "req_roll",
+      latestAckRequestId: "req_roll",
+      latestAckStatus: "accepted",
+      commitSeqPerMinute: 28,
+      decisionsPerMinute: 6,
+      acceptedAcksPerMinute: 4,
+    });
+  });
+
+  it("keeps missing active prompt fields null in progress diagnostics", () => {
+    const pace = buildProtocolPaceDiagnostic({
+      runtimeStatus: "running",
+      elapsedMs: 15_000,
+      clients: [clientRuntime("seat:1", { lastCommitSeq: 3 })],
+      traces: [
+        {
+          event: "view_commit_seen",
+          session_id: "sess_1",
+          player_id: 1,
+          commit_seq: 3,
+          payload: {
+            runtime_status: "running",
+            round_index: null,
+            turn_index: undefined,
+            active_prompt_request_id: null,
+            active_prompt_player_id: null,
+            active_prompt_request_type: "",
+          },
+        },
+      ],
+    });
+
+    expect(pace).toMatchObject({
+      latestRoundIndex: null,
+      latestTurnIndex: null,
+      activePromptRequestId: null,
+      activePromptPlayerId: null,
+      activePromptRequestType: null,
+      waitingOnActivePrompt: false,
+    });
   });
 
   it("fails the gate when the server used decision timeout fallback", () => {

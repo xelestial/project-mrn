@@ -42,6 +42,7 @@ export type FullStackProtocolProgressSnapshot = {
   idleMs: number;
   reason: ProtocolProgressReason;
   runtimeStatus: string | null;
+  pace: ProtocolPaceDiagnostic;
   clients: ProtocolClientRuntime[];
   clientSummary: ProtocolClientSummary;
   traceCount: number;
@@ -53,6 +54,24 @@ export type FullStackProtocolProgressSnapshot = {
 };
 
 export type ProtocolProgressReason = "progress" | "interval" | "final";
+
+export type ProtocolPaceDiagnostic = {
+  maxCommitSeq: number;
+  latestRoundIndex: number | null;
+  latestTurnIndex: number | null;
+  latestRuntimeStatus: string | null;
+  activePromptRequestId: string | null;
+  activePromptPlayerId: number | null;
+  activePromptRequestType: string | null;
+  waitingOnActivePrompt: boolean;
+  latestTraceEvent: string | null;
+  latestDecisionRequestId: string | null;
+  latestAckRequestId: string | null;
+  latestAckStatus: string | null;
+  commitSeqPerMinute: number;
+  decisionsPerMinute: number;
+  acceptedAcksPerMinute: number;
+};
 
 export type ProtocolCpuDiagnostic = {
   sampled: boolean;
@@ -643,6 +662,12 @@ function buildProgressSnapshot(args: {
     elapsedMs: Date.now() - args.startedAt,
     idleMs,
     runtimeStatus: args.runtimeStatus,
+    pace: buildProtocolPaceDiagnostic({
+      runtimeStatus: args.runtimeStatus,
+      elapsedMs: Date.now() - args.startedAt,
+      clients: clientRuntimes,
+      traces,
+    }),
     clients: clientRuntimes,
     clientSummary: summarizeProtocolClients(clientRuntimes),
     traceCount: traces.length,
@@ -657,6 +682,49 @@ function buildProgressSnapshot(args: {
       previousCpuWallMs: args.previousCpuWallMs,
     }),
     traces,
+  };
+}
+
+export function buildProtocolPaceDiagnostic(args: {
+  runtimeStatus: string | null;
+  elapsedMs: number;
+  clients: ProtocolClientRuntime[];
+  traces: HeadlessTraceEvent[];
+}): ProtocolPaceDiagnostic {
+  const elapsedMinutes = Math.max(1 / 60, args.elapsedMs / 60_000);
+  const maxCommitSeq = Math.max(0, ...args.clients.map((client) => client.lastCommitSeq));
+  const seatMetrics = args.clients.filter((client) => client.role === "seat").map((client) => client.metrics);
+  const outboundDecisionCount = seatMetrics.reduce((sum, metrics) => sum + metrics.outboundDecisionCount, 0);
+  const acceptedAckCount = seatMetrics.reduce((sum, metrics) => sum + metrics.acceptedAckCount, 0);
+  const latestTrace = args.traces.at(-1) ?? null;
+  const latestViewCommit = [...args.traces]
+    .reverse()
+    .find((trace) => trace.event === "view_commit_seen" && isRecord(trace.payload));
+  const latestDecision = [...args.traces]
+    .reverse()
+    .find((trace) => trace.event === "decision_sent" || trace.event === "decision_retry_sent");
+  const latestAck = [...args.traces].reverse().find((trace) => trace.event === "decision_ack");
+  const payload = isRecord(latestViewCommit?.payload) ? latestViewCommit.payload : {};
+  const activePromptRequestId = stringValue(payload["active_prompt_request_id"]);
+  const activePromptPlayerId = numberValue(payload["active_prompt_player_id"]);
+  const activePromptRequestType = stringValue(payload["active_prompt_request_type"]);
+  const latestRuntimeStatus = stringValue(payload["runtime_status"]) ?? args.runtimeStatus;
+  return {
+    maxCommitSeq,
+    latestRoundIndex: numberValue(payload["round_index"]),
+    latestTurnIndex: numberValue(payload["turn_index"]),
+    latestRuntimeStatus,
+    activePromptRequestId,
+    activePromptPlayerId,
+    activePromptRequestType,
+    waitingOnActivePrompt: args.runtimeStatus === "waiting_input" && activePromptRequestId !== null,
+    latestTraceEvent: latestTrace?.event ?? null,
+    latestDecisionRequestId: latestDecision?.request_id ?? null,
+    latestAckRequestId: latestAck?.request_id ?? null,
+    latestAckStatus: latestAck?.status ?? null,
+    commitSeqPerMinute: roundPercent(maxCommitSeq / elapsedMinutes),
+    decisionsPerMinute: roundPercent(outboundDecisionCount / elapsedMinutes),
+    acceptedAcksPerMinute: roundPercent(acceptedAckCount / elapsedMinutes),
   };
 }
 
@@ -981,6 +1049,18 @@ function requireString(value: unknown, message: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function numberValue(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function sleep(ms: number): Promise<void> {
