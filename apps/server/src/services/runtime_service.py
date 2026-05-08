@@ -3247,7 +3247,7 @@ class RuntimeService:
                 player_id=player_id,
             )
         if self._prompt_service is not None:
-            self._prompt_service.mark_prompt_delivered(request_id)
+            self._prompt_service.mark_prompt_delivered(request_id, session_id=session_id)
 
         public_context = dict(payload.get("public_context") or {})
         requested = build_decision_requested_payload(

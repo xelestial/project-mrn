@@ -480,7 +480,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                 rejection_reason = _decision_view_commit_rejection_reason(message, latest_commit)
                 if rejection_reason is not None:
                     prompt_service.record_external_decision_result(
-                        message,
+                        {**message, "session_id": session_id},
                         status="stale",
                         reason=rejection_reason,
                     )

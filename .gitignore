@@ -4,6 +4,7 @@ pytest-cache-files-*/
 /.log/
 replay_output/
 /replay_output/
+tmp/
 
 # Python bytecode
 __pycache__/

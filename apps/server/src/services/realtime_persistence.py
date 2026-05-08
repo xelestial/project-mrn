@@ -241,8 +241,11 @@ class RedisPromptStore:
     def __init__(self, connection: RedisConnection) -> None:
         self._connection = connection
 
-    def get_pending(self, request_id: str) -> dict[str, Any] | None:
-        raw = self._connection.client().hget(self._pending_key(), request_id)
+    def get_pending(self, request_id: str, session_id: str | None = None) -> dict[str, Any] | None:
+        field = self._resolve_prompt_field(self._pending_key(), request_id, session_id=session_id)
+        if field is None:
+            return None
+        raw = self._connection.client().hget(self._pending_key(), field)
         return _json_load_dict(str(raw)) if raw is not None else None
 
     def list_pending(self) -> list[dict[str, Any]]:
@@ -254,14 +257,23 @@ class RedisPromptStore:
                 items.append(parsed)
         return items
 
-    def save_pending(self, request_id: str, payload: dict[str, Any]) -> None:
-        self._connection.client().hset(self._pending_key(), request_id, _json_dump(payload))
+    def save_pending(self, request_id: str, payload: dict[str, Any], session_id: str | None = None) -> None:
+        self._connection.client().hset(
+            self._pending_key(),
+            self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or "")),
+            _json_dump(payload),
+        )
 
-    def delete_pending(self, request_id: str) -> None:
-        self._connection.client().hdel(self._pending_key(), request_id)
+    def delete_pending(self, request_id: str, session_id: str | None = None) -> None:
+        field = self._resolve_prompt_field(self._pending_key(), request_id, session_id=session_id)
+        if field is not None:
+            self._connection.client().hdel(self._pending_key(), field)
 
-    def get_resolved(self, request_id: str) -> dict[str, Any] | None:
-        raw = self._connection.client().hget(self._resolved_key(), request_id)
+    def get_resolved(self, request_id: str, session_id: str | None = None) -> dict[str, Any] | None:
+        field = self._resolve_prompt_field(self._resolved_key(), request_id, session_id=session_id)
+        if field is None:
+            return None
+        raw = self._connection.client().hget(self._resolved_key(), field)
         return _json_load_dict(str(raw)) if raw is not None else None
 
     def list_resolved(self) -> dict[str, dict[str, Any]]:
@@ -273,32 +285,53 @@ class RedisPromptStore:
                 result[str(request_id)] = parsed
         return result
 
-    def save_resolved(self, request_id: str, payload: dict[str, Any]) -> None:
-        self._connection.client().hset(self._resolved_key(), request_id, _json_dump(payload))
+    def save_resolved(self, request_id: str, payload: dict[str, Any], session_id: str | None = None) -> None:
+        self._connection.client().hset(
+            self._resolved_key(),
+            self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or "")),
+            _json_dump(payload),
+        )
 
-    def delete_resolved(self, request_id: str) -> None:
-        self._connection.client().hdel(self._resolved_key(), request_id)
+    def delete_resolved(self, request_id: str, session_id: str | None = None) -> None:
+        field = self._resolve_prompt_field(self._resolved_key(), request_id, session_id=session_id)
+        if field is not None:
+            self._connection.client().hdel(self._resolved_key(), field)
 
-    def save_decision(self, request_id: str, payload: dict[str, Any]) -> None:
-        self._connection.client().hset(self._decisions_key(), request_id, _json_dump(payload))
+    def save_decision(self, request_id: str, payload: dict[str, Any], session_id: str | None = None) -> None:
+        self._connection.client().hset(
+            self._decisions_key(),
+            self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or "")),
+            _json_dump(payload),
+        )
 
-    def get_decision(self, request_id: str) -> dict[str, Any] | None:
-        raw = self._connection.client().hget(self._decisions_key(), request_id)
+    def get_decision(self, request_id: str, session_id: str | None = None) -> dict[str, Any] | None:
+        field = self._resolve_prompt_field(self._decisions_key(), request_id, session_id=session_id)
+        if field is None:
+            return None
+        raw = self._connection.client().hget(self._decisions_key(), field)
         return _json_load_dict(str(raw)) if raw is not None else None
 
-    def pop_decision(self, request_id: str) -> dict[str, Any] | None:
+    def pop_decision(self, request_id: str, session_id: str | None = None) -> dict[str, Any] | None:
         client = self._connection.client()
-        raw = client.hget(self._decisions_key(), request_id)
+        field = self._resolve_prompt_field(self._decisions_key(), request_id, session_id=session_id)
+        if field is None:
+            return None
+        raw = client.hget(self._decisions_key(), field)
         if raw is None:
             return None
-        client.hdel(self._decisions_key(), request_id)
+        client.hdel(self._decisions_key(), field)
         return _json_load_dict(str(raw))
 
-    def delete_decision(self, request_id: str) -> None:
-        self._connection.client().hdel(self._decisions_key(), request_id)
+    def delete_decision(self, request_id: str, session_id: str | None = None) -> None:
+        field = self._resolve_prompt_field(self._decisions_key(), request_id, session_id=session_id)
+        if field is not None:
+            self._connection.client().hdel(self._decisions_key(), field)
 
-    def get_lifecycle(self, request_id: str) -> dict[str, Any] | None:
-        raw = self._connection.client().hget(self._lifecycle_key(), request_id)
+    def get_lifecycle(self, request_id: str, session_id: str | None = None) -> dict[str, Any] | None:
+        field = self._resolve_prompt_field(self._lifecycle_key(), request_id, session_id=session_id)
+        if field is None:
+            return None
+        raw = self._connection.client().hget(self._lifecycle_key(), field)
         return _json_load_dict(str(raw)) if raw is not None else None
 
     def list_lifecycle(self, session_id: str | None = None) -> list[dict[str, Any]]:
@@ -313,11 +346,17 @@ class RedisPromptStore:
             items.append(parsed)
         return items
 
-    def save_lifecycle(self, request_id: str, payload: dict[str, Any]) -> None:
-        self._connection.client().hset(self._lifecycle_key(), request_id, _json_dump(payload))
+    def save_lifecycle(self, request_id: str, payload: dict[str, Any], session_id: str | None = None) -> None:
+        self._connection.client().hset(
+            self._lifecycle_key(),
+            self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or "")),
+            _json_dump(payload),
+        )
 
-    def delete_lifecycle(self, request_id: str) -> None:
-        self._connection.client().hdel(self._lifecycle_key(), request_id)
+    def delete_lifecycle(self, request_id: str, session_id: str | None = None) -> None:
+        field = self._resolve_prompt_field(self._lifecycle_key(), request_id, session_id=session_id)
+        if field is not None:
+            self._connection.client().hdel(self._lifecycle_key(), field)
 
     def accept_decision_with_command(
         self,
@@ -334,6 +373,7 @@ class RedisPromptStore:
         normalized_request_id = str(request_id).strip()
         if not normalized_request_id:
             return None
+        storage_request_id = self._prompt_field(normalized_request_id, session_id=session_id)
         client = self._connection.client()
         decision_json = _json_dump(decision_payload)
         resolved_json = _json_dump(resolved_payload)
@@ -349,7 +389,7 @@ class RedisPromptStore:
                 command_store._seen_key(),
                 command_store._seq_key(session_id),
                 command_store._stream_key(session_id),
-                normalized_request_id,
+                storage_request_id,
                 decision_json,
                 resolved_json,
                 seen_key,
@@ -368,6 +408,8 @@ class RedisPromptStore:
                 "server_time_ms": int(server_time_ms or 0),
                 "payload": dict(command_payload),
             }
+        if client.hget(self._pending_key(), storage_request_id) is None:
+            return None
         if not bool(client.hsetnx(command_store._seen_key(), seen_key, "1")):
             return None
         seq = command_store._next_seq(session_id)
@@ -379,9 +421,9 @@ class RedisPromptStore:
             "payload": command_json,
         }
         pipeline = client.pipeline(transaction=True)
-        pipeline.hdel(self._pending_key(), normalized_request_id)
-        pipeline.hset(self._decisions_key(), normalized_request_id, decision_json)
-        pipeline.hset(self._resolved_key(), normalized_request_id, resolved_json)
+        pipeline.hdel(self._pending_key(), storage_request_id)
+        pipeline.hset(self._decisions_key(), storage_request_id, decision_json)
+        pipeline.hset(self._resolved_key(), storage_request_id, resolved_json)
         pipeline.xadd(command_store._stream_key(session_id), fields)
         results = pipeline.execute()
         stream_id = str(results[-1]) if results else ""
@@ -400,12 +442,49 @@ class RedisPromptStore:
                 continue
             request_id = str(pending.get("request_id", "")).strip()
             if request_id:
-                self.delete_pending(request_id)
-                self.delete_decision(request_id)
+                self.delete_pending(request_id, session_id=session_id)
+                self.delete_decision(request_id, session_id=session_id)
+                self.delete_resolved(request_id, session_id=session_id)
         for lifecycle in self.list_lifecycle(session_id):
             request_id = str(lifecycle.get("request_id", "")).strip()
             if request_id:
-                self.delete_lifecycle(request_id)
+                self.delete_lifecycle(request_id, session_id=session_id)
+
+    @staticmethod
+    def _prompt_field(request_id: str, session_id: str | None = None) -> str:
+        normalized_request_id = str(request_id or "").strip()
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id or "\x1f" in normalized_request_id:
+            return normalized_request_id
+        return f"{normalized_session_id}\x1f{normalized_request_id}"
+
+    def _resolve_prompt_field(self, hash_key: str, request_id: str, *, session_id: str | None = None) -> str | None:
+        normalized_request_id = str(request_id or "").strip()
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_request_id:
+            return None
+        client = self._connection.client()
+        if "\x1f" in normalized_request_id and client.hget(hash_key, normalized_request_id) is not None:
+            return normalized_request_id
+        if normalized_session_id:
+            scoped = self._prompt_field(normalized_request_id, session_id=normalized_session_id)
+            if client.hget(hash_key, scoped) is not None:
+                return scoped
+        if client.hget(hash_key, normalized_request_id) is not None:
+            return normalized_request_id
+        matches: list[str] = []
+        for field, raw in client.hgetall(hash_key).items():
+            parsed = _json_load_dict(raw)
+            if parsed is None:
+                continue
+            if str(parsed.get("request_id") or "").strip() != normalized_request_id:
+                continue
+            if normalized_session_id and str(parsed.get("session_id") or "").strip() != normalized_session_id:
+                continue
+            matches.append(str(field))
+        if len(matches) == 1:
+            return matches[0]
+        return None
 
     def _pending_key(self) -> str:
         return self._connection.key("prompts", "pending")

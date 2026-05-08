@@ -44,7 +44,8 @@ class PromptService:
             request_id = str(prompt.get("request_id", "")).strip()
             if not request_id:
                 raise ValueError("missing_request_id")
-            existing = self._get_pending(request_id)
+            storage_key = _scoped_request_key(session_id, request_id)
+            existing = self._get_pending(request_id, session_id=session_id)
             if existing is not None:
                 if prompt_fingerprint_mismatch(existing.payload, prompt):
                     raise ValueError("prompt_fingerprint_mismatch")
@@ -77,14 +78,14 @@ class PromptService:
                 prompt=prompt,
                 now_ms=item.created_at_ms,
             )
-            self._waiters[request_id] = threading.Event()
+            self._waiters[storage_key] = threading.Event()
         for waiter in superseded_waiters:
             waiter.set()
         return item
 
-    def get_pending_prompt(self, request_id: str) -> PendingPrompt | None:
+    def get_pending_prompt(self, request_id: str, session_id: str | None = None) -> PendingPrompt | None:
         with self._lock:
-            pending = self._get_pending(request_id)
+            pending = self._get_pending(request_id, session_id=session_id)
             if pending is None:
                 return None
             return PendingPrompt(
@@ -108,9 +109,10 @@ class PromptService:
                 self._record_lifecycle(request_id=request_id, state="rejected", decision=payload, reason="missing_choice_id")
                 return {"status": "rejected", "reason": "missing_choice_id"}
 
-            pending = self._get_pending(request_id)
+            decision_session_id = str(payload.get("session_id") or "").strip()
+            pending = self._get_pending(request_id, session_id=decision_session_id or None)
+            storage_key = _scoped_request_key(pending.session_id, pending.request_id) if pending is not None else _scoped_request_key(decision_session_id, request_id)
             if pending is None:
-                decision_session_id = str(payload.get("session_id") or "").strip()
                 if self._has_recently_resolved_request(request_id, session_id=decision_session_id or None):
                     self._record_lifecycle(request_id=request_id, state="stale", decision=payload, reason="already_resolved")
                     return {"status": "stale", "reason": "already_resolved"}
@@ -119,7 +121,7 @@ class PromptService:
 
             now = self._now_ms()
             if now > (pending.created_at_ms + pending.timeout_ms):
-                self._delete_pending(request_id)
+                self._delete_pending(request_id, session_id=pending.session_id)
                 self._record_resolved(request_id=request_id, reason="prompt_timeout", session_id=pending.session_id)
                 self._record_lifecycle(
                     request_id=request_id,
@@ -131,8 +133,8 @@ class PromptService:
                     reason="prompt_timeout",
                     now_ms=now,
                 )
-                waiter = self._waiters.pop(request_id, None)
-                self._delete_decision(request_id)
+                waiter = self._waiters.pop(storage_key, None)
+                self._delete_decision(request_id, session_id=pending.session_id)
                 result = {"status": "stale", "reason": "prompt_timeout"}
             else:
                 player_id = int(payload.get("player_id", 0))
@@ -207,7 +209,12 @@ class PromptService:
                     "submitted_at_ms": now,
                 }
                 command_payload.update(_module_command_continuation_fields(pending.payload, decision_payload))
-                resolved_payload = {"resolved_at_ms": now, "reason": "accepted", "session_id": pending.session_id}
+                resolved_payload = {
+                    "request_id": request_id,
+                    "resolved_at_ms": now,
+                    "reason": "accepted",
+                    "session_id": pending.session_id,
+                }
                 atomic_accept = getattr(self._prompt_store, "accept_decision_with_command", None)
                 accepted_command: dict | None = None
                 if callable(atomic_accept) and self._command_store is not None:
@@ -234,8 +241,8 @@ class PromptService:
                         )
                         return {"status": "stale", "reason": "request_not_pending"}
                 else:
-                    self._delete_pending(request_id)
-                    self._set_decision(request_id, decision_payload)
+                    self._delete_pending(request_id, session_id=pending.session_id)
+                    self._set_decision(request_id, decision_payload, session_id=pending.session_id)
                     if self._command_store is not None:
                         accepted_command = self._command_store.append_command(
                             pending.session_id,
@@ -260,7 +267,7 @@ class PromptService:
                     reason="accepted",
                     now_ms=now,
                 )
-                waiter = self._waiters.get(request_id)
+                waiter = self._waiters.get(storage_key)
                 result = {
                     "status": "accepted",
                     "reason": None,
@@ -276,12 +283,13 @@ class PromptService:
         timed_out: list[PendingPrompt] = []
         to_notify: list[threading.Event] = []
         with self._lock:
-            for request_id, pending in list(self._iter_pending_items()):
+            for storage_key, pending in list(self._iter_pending_items()):
+                request_id = pending.request_id
                 if session_id is not None and pending.session_id != session_id:
                     continue
                 if now > (pending.created_at_ms + pending.timeout_ms):
                     timed_out.append(pending)
-                    self._delete_pending(request_id)
+                    self._delete_pending(storage_key)
                     self._record_resolved(
                         request_id=request_id,
                         reason="prompt_timeout",
@@ -297,8 +305,8 @@ class PromptService:
                         reason="prompt_timeout",
                         now_ms=now,
                     )
-                    waiter = self._waiters.pop(request_id, None)
-                    self._delete_decision(request_id)
+                    waiter = self._waiters.pop(storage_key, None)
+                    self._delete_decision(request_id, session_id=pending.session_id)
                     if waiter is not None:
                         to_notify.append(waiter)
         for waiter in to_notify:
@@ -346,7 +354,7 @@ class PromptService:
         }
         command_payload.update(_module_command_continuation_fields(pending.payload, decision_payload))
         with self._lock:
-            self._set_decision(request_id, decision_payload)
+            self._set_decision(request_id, decision_payload, session_id=pending.session_id)
             self._record_lifecycle(
                 request_id=request_id,
                 state="accepted",
@@ -367,41 +375,46 @@ class PromptService:
                 )
         return decision_payload
 
-    def wait_for_decision(self, request_id: str, timeout_ms: int) -> dict | None:
+    def wait_for_decision(self, request_id: str, timeout_ms: int, session_id: str | None = None) -> dict | None:
         if timeout_ms <= 0:
             timeout_ms = 1
         with self._lock:
             self._prune_resolved()
-            decision = self._get_decision(request_id)
+            decision = self._get_decision(request_id, session_id=session_id)
             if decision is not None:
                 return decision
-            waiter = self._waiters.get(request_id)
+            waiter_key = self._waiter_key(request_id, session_id=session_id)
+            waiter = self._waiters.get(waiter_key) if waiter_key is not None else None
             if waiter is None:
-                pending = self._get_pending(request_id)
+                pending = self._get_pending(request_id, session_id=session_id)
                 if pending is None:
                     return None
+                waiter_key = _scoped_request_key(pending.session_id, pending.request_id)
                 waiter = threading.Event()
-                self._waiters[request_id] = waiter
+                self._waiters[waiter_key] = waiter
         deadline = self._now_ms() + timeout_ms
         while self._now_ms() < deadline:
             waiter.wait(min(50, max(1, deadline - self._now_ms())) / 1000.0)
             with self._lock:
-                decision = self._get_decision(request_id)
+                decision = self._get_decision(request_id, session_id=session_id)
                 if decision is not None:
-                    self._waiters.pop(request_id, None)
+                    if waiter_key is not None:
+                        self._waiters.pop(waiter_key, None)
                     return decision
         with self._lock:
-            decision = self._get_decision(request_id)
-            self._waiters.pop(request_id, None)
+            decision = self._get_decision(request_id, session_id=session_id)
+            if waiter_key is not None:
+                self._waiters.pop(waiter_key, None)
             return decision
 
-    def expire_prompt(self, request_id: str, reason: str = "prompt_timeout") -> PendingPrompt | None:
+    def expire_prompt(self, request_id: str, reason: str = "prompt_timeout", session_id: str | None = None) -> PendingPrompt | None:
         waiter: threading.Event | None = None
         with self._lock:
-            pending = self._get_pending(request_id)
+            pending = self._get_pending(request_id, session_id=session_id)
             if pending is None:
                 return None
-            self._delete_pending(request_id)
+            storage_key = _scoped_request_key(pending.session_id, pending.request_id)
+            self._delete_pending(request_id, session_id=pending.session_id)
             self._record_resolved(request_id=request_id, reason=reason, session_id=pending.session_id)
             self._record_lifecycle(
                 request_id=request_id,
@@ -411,8 +424,8 @@ class PromptService:
                 prompt=pending.payload,
                 reason=reason,
             )
-            self._delete_decision(request_id)
-            waiter = self._waiters.pop(request_id, None)
+            self._delete_decision(request_id, session_id=pending.session_id)
+            waiter = self._waiters.pop(storage_key, None)
         if waiter is not None:
             waiter.set()
         return pending
@@ -426,30 +439,31 @@ class PromptService:
 
     def delete_session_data(self, session_id: str) -> None:
         with self._lock:
-            for request_id, pending in list(self._iter_pending_items()):
+            for storage_key, pending in list(self._iter_pending_items()):
                 if pending.session_id != session_id:
                     continue
-                self._delete_pending(request_id)
-                self._delete_decision(request_id)
-                self._delete_lifecycle(request_id)
-                self._waiters.pop(request_id, None)
+                self._delete_pending(storage_key)
+                self._delete_decision(pending.request_id, session_id=pending.session_id)
+                self._delete_lifecycle(pending.request_id, session_id=pending.session_id)
+                self._waiters.pop(storage_key, None)
 
     def mark_prompt_delivered(
         self,
         request_id: str,
         *,
+        session_id: str | None = None,
         stream_seq: int | None = None,
         commit_seq: int | None = None,
     ) -> dict[str, Any] | None:
         with self._lock:
-            pending = self._get_pending(str(request_id).strip())
-            current = self._get_lifecycle(str(request_id).strip())
+            pending = self._get_pending(str(request_id).strip(), session_id=session_id)
+            current = self._get_lifecycle(str(request_id).strip(), session_id=session_id)
             if pending is None and current is None:
                 return None
             return self._record_lifecycle(
                 request_id=str(request_id).strip(),
                 state="delivered",
-                session_id=pending.session_id if pending is not None else None,
+                session_id=pending.session_id if pending is not None else session_id,
                 player_id=pending.player_id if pending is not None else None,
                 prompt=pending.payload if pending is not None else None,
                 stream_seq=stream_seq,
@@ -466,21 +480,22 @@ class PromptService:
         request_id = str(payload.get("request_id") or "").strip()
         if not request_id:
             return None
+        session_id = str(payload.get("session_id") or "").strip() or None
         with self._lock:
-            pending = self._get_pending(request_id)
+            pending = self._get_pending(request_id, session_id=session_id)
             return self._record_lifecycle(
                 request_id=request_id,
                 state=str(status or "rejected"),
-                session_id=pending.session_id if pending is not None else None,
+                session_id=pending.session_id if pending is not None else session_id,
                 player_id=pending.player_id if pending is not None else None,
                 prompt=pending.payload if pending is not None else None,
                 decision=payload,
                 reason=reason,
             )
 
-    def get_prompt_lifecycle(self, request_id: str) -> dict[str, Any] | None:
+    def get_prompt_lifecycle(self, request_id: str, session_id: str | None = None) -> dict[str, Any] | None:
         with self._lock:
-            lifecycle = self._get_lifecycle(str(request_id).strip())
+            lifecycle = self._get_lifecycle(str(request_id).strip(), session_id=session_id)
             return dict(lifecycle) if lifecycle is not None else None
 
     def list_prompt_lifecycle(self, session_id: str | None = None) -> list[dict[str, Any]]:
@@ -500,31 +515,31 @@ class PromptService:
         session_id: str | None = None,
     ) -> None:
         now = now_ms if now_ms is not None else self._now_ms()
-        payload = {"resolved_at_ms": now, "reason": reason}
+        payload = {"request_id": str(request_id), "resolved_at_ms": now, "reason": reason}
         if session_id is not None:
             payload["session_id"] = str(session_id)
         if self._prompt_store is not None:
-            self._prompt_store.save_resolved(request_id, payload)
+            self._prompt_store.save_resolved(request_id, payload, session_id=session_id)
         else:
-            self._resolved[request_id] = (now, reason, str(session_id or ""))
+            self._resolved[_scoped_request_key(session_id, request_id)] = (now, reason, str(session_id or ""))
         self._prune_resolved(now)
 
     def _prune_resolved(self, now_ms: int | None = None) -> None:
         now = now_ms if now_ms is not None else self._now_ms()
         cutoff = now - self._resolved_ttl_ms
         if self._prompt_store is not None:
-            for request_id, payload in self._prompt_store.list_resolved().items():
+            for storage_key, payload in self._prompt_store.list_resolved().items():
                 resolved_at = int(payload.get("resolved_at_ms", 0))
                 if resolved_at < cutoff:
-                    self._prompt_store.delete_resolved(request_id)
-                    self._prompt_store.delete_decision(request_id)
-                    self._delete_lifecycle(request_id)
+                    self._prompt_store.delete_resolved(storage_key)
+                    self._prompt_store.delete_decision(storage_key)
+                    self._delete_lifecycle(storage_key)
             return
-        for request_id, (resolved_at, _, _) in list(self._resolved.items()):
+        for storage_key, (resolved_at, _, _) in list(self._resolved.items()):
             if resolved_at < cutoff:
-                self._resolved.pop(request_id, None)
-                self._decisions.pop(request_id, None)
-                self._lifecycle.pop(request_id, None)
+                self._resolved.pop(storage_key, None)
+                self._decisions.pop(storage_key, None)
+                self._lifecycle.pop(storage_key, None)
 
     def _supersede_pending_for_player(
         self,
@@ -535,21 +550,21 @@ class PromptService:
     ) -> list[threading.Event]:
         waiters: list[threading.Event] = []
         now = self._now_ms()
-        for existing_request_id, pending in list(self._iter_pending_items()):
-            if existing_request_id == keep_request_id:
+        for existing_key, pending in list(self._iter_pending_items()):
+            if pending.session_id == session_id and pending.request_id == keep_request_id:
                 continue
             if pending.session_id != session_id or pending.player_id != player_id:
                 continue
-            self._delete_pending(existing_request_id)
-            self._delete_decision(existing_request_id)
+            self._delete_pending(existing_key)
+            self._delete_decision(pending.request_id, session_id=pending.session_id)
             self._record_resolved(
-                request_id=existing_request_id,
+                request_id=pending.request_id,
                 reason="superseded",
                 now_ms=now,
                 session_id=pending.session_id,
             )
             self._record_lifecycle(
-                request_id=existing_request_id,
+                request_id=pending.request_id,
                 state="expired",
                 session_id=pending.session_id,
                 player_id=pending.player_id,
@@ -557,26 +572,27 @@ class PromptService:
                 reason="superseded",
                 now_ms=now,
             )
-            waiter = self._waiters.pop(existing_request_id, None)
+            waiter = self._waiters.pop(existing_key, None)
             if waiter is not None:
                 waiters.append(waiter)
         return waiters
 
-    def _has_pending_request(self, request_id: str) -> bool:
+    def _has_pending_request(self, request_id: str, session_id: str | None = None) -> bool:
         if self._prompt_store is not None:
-            return self._prompt_store.get_pending(request_id) is not None
-        return request_id in self._pending
+            return self._prompt_store.get_pending(request_id, session_id=session_id) is not None
+        return self._pending_key(request_id, session_id=session_id) is not None
 
     def _has_recently_resolved_request(self, request_id: str, session_id: str | None = None) -> bool:
         normalized_session_id = str(session_id or "").strip()
         if self._prompt_store is not None:
-            resolved = self._prompt_store.get_resolved(request_id)
+            resolved = self._prompt_store.get_resolved(request_id, session_id=normalized_session_id or None)
             if resolved is None:
                 return False
             if not normalized_session_id:
                 return True
             return str(resolved.get("session_id") or "").strip() == normalized_session_id
-        resolved = self._resolved.get(request_id)
+        resolved_key = self._pending_key(request_id, session_id=normalized_session_id or None, collection=self._resolved)
+        resolved = self._resolved.get(resolved_key) if resolved_key is not None else None
         if resolved is None:
             return False
         if not normalized_session_id:
@@ -595,13 +611,14 @@ class PromptService:
                     "created_at_ms": pending.created_at_ms,
                     "payload": dict(pending.payload),
                 },
+                session_id=pending.session_id,
             )
             return
-        self._pending[pending.request_id] = pending
+        self._pending[_scoped_request_key(pending.session_id, pending.request_id)] = pending
 
-    def _get_pending(self, request_id: str) -> PendingPrompt | None:
+    def _get_pending(self, request_id: str, session_id: str | None = None) -> PendingPrompt | None:
         if self._prompt_store is not None:
-            raw = self._prompt_store.get_pending(request_id)
+            raw = self._prompt_store.get_pending(request_id, session_id=session_id)
             if raw is None:
                 return None
             return PendingPrompt(
@@ -612,17 +629,27 @@ class PromptService:
                 created_at_ms=int(raw.get("created_at_ms", 0)),
                 payload=dict(raw.get("payload", {})),
             )
-        return self._pending.get(request_id)
+        key = self._pending_key(request_id, session_id=session_id)
+        return self._pending.get(key) if key is not None else None
 
-    def _delete_pending(self, request_id: str) -> None:
+    def _delete_pending(self, request_id: str, session_id: str | None = None) -> None:
         if self._prompt_store is not None:
-            self._prompt_store.delete_pending(request_id)
+            self._prompt_store.delete_pending(request_id, session_id=session_id)
             return
-        self._pending.pop(request_id, None)
+        key = self._pending_key(request_id, session_id=session_id)
+        if key is not None:
+            self._pending.pop(key, None)
 
     def _iter_pending_values(self) -> list[PendingPrompt]:
         if self._prompt_store is not None:
-            return [self._get_pending(str(item.get("request_id", ""))) for item in self._prompt_store.list_pending() if self._get_pending(str(item.get("request_id", ""))) is not None]  # type: ignore[list-item]
+            values: list[PendingPrompt] = []
+            for item in self._prompt_store.list_pending():
+                request_id = str(item.get("request_id", "")).strip()
+                session_id = str(item.get("session_id") or "").strip() or None
+                pending = self._get_pending(request_id, session_id=session_id)
+                if pending is not None:
+                    values.append(pending)
+            return values
         return list(self._pending.values())
 
     def _iter_pending_items(self) -> list[tuple[str, PendingPrompt]]:
@@ -630,37 +657,42 @@ class PromptService:
         if self._prompt_store is not None:
             for raw in self._prompt_store.list_pending():
                 request_id = str(raw.get("request_id", "")).strip()
-                pending = self._get_pending(request_id)
+                session_id = str(raw.get("session_id") or "").strip()
+                pending = self._get_pending(request_id, session_id=session_id or None)
                 if pending is not None:
-                    items.append((request_id, pending))
+                    items.append((_scoped_request_key(session_id, request_id), pending))
             return items
         return list(self._pending.items())
 
-    def _set_decision(self, request_id: str, payload: dict) -> None:
+    def _set_decision(self, request_id: str, payload: dict, session_id: str | None = None) -> None:
         if self._prompt_store is not None:
-            self._prompt_store.save_decision(request_id, payload)
+            self._prompt_store.save_decision(request_id, payload, session_id=session_id)
             return
-        self._decisions[request_id] = payload
+        self._decisions[_scoped_request_key(session_id, request_id)] = payload
 
-    def _get_decision(self, request_id: str) -> dict | None:
+    def _get_decision(self, request_id: str, session_id: str | None = None) -> dict | None:
         if self._prompt_store is not None:
             getter = getattr(self._prompt_store, "get_decision", None)
             if callable(getter):
-                return getter(request_id)
-            return self._prompt_store.pop_decision(request_id)
-        decision = self._decisions.get(request_id)
+                return getter(request_id, session_id=session_id)
+            return self._prompt_store.pop_decision(request_id, session_id=session_id)
+        key = self._pending_key(request_id, session_id=session_id, collection=self._decisions)
+        decision = self._decisions.get(key) if key is not None else None
         return dict(decision) if decision is not None else None
 
-    def _pop_decision(self, request_id: str) -> dict | None:
+    def _pop_decision(self, request_id: str, session_id: str | None = None) -> dict | None:
         if self._prompt_store is not None:
-            return self._prompt_store.pop_decision(request_id)
-        return self._decisions.pop(request_id, None)
+            return self._prompt_store.pop_decision(request_id, session_id=session_id)
+        key = self._pending_key(request_id, session_id=session_id, collection=self._decisions)
+        return self._decisions.pop(key, None) if key is not None else None
 
-    def _delete_decision(self, request_id: str) -> None:
+    def _delete_decision(self, request_id: str, session_id: str | None = None) -> None:
         if self._prompt_store is not None:
-            self._prompt_store.delete_decision(request_id)
+            self._prompt_store.delete_decision(request_id, session_id=session_id)
             return
-        self._decisions.pop(request_id, None)
+        key = self._pending_key(request_id, session_id=session_id, collection=self._decisions)
+        if key is not None:
+            self._decisions.pop(key, None)
 
     def _record_lifecycle(
         self,
@@ -678,7 +710,7 @@ class PromptService:
     ) -> dict[str, Any]:
         normalized_request_id = str(request_id or "").strip()
         now = now_ms if now_ms is not None else self._now_ms()
-        current = self._get_lifecycle(normalized_request_id) or {}
+        current = self._get_lifecycle(normalized_request_id, session_id=session_id) or {}
         record: dict[str, Any] = dict(current)
         record.setdefault("schema_version", 1)
         record["request_id"] = normalized_request_id
@@ -707,26 +739,79 @@ class PromptService:
             record["delivered_at_ms"] = int(now)
         if state in {"accepted", "rejected", "stale", "expired", "resolved"}:
             record["terminal_at_ms"] = int(now)
-        self._set_lifecycle(normalized_request_id, record)
+        self._set_lifecycle(normalized_request_id, record, session_id=session_id)
         return dict(record)
 
-    def _set_lifecycle(self, request_id: str, payload: dict[str, Any]) -> None:
+    def _set_lifecycle(self, request_id: str, payload: dict[str, Any], session_id: str | None = None) -> None:
         if self._prompt_store is not None and callable(getattr(self._prompt_store, "save_lifecycle", None)):
-            self._prompt_store.save_lifecycle(request_id, payload)
+            self._prompt_store.save_lifecycle(request_id, payload, session_id=session_id)
             return
-        self._lifecycle[request_id] = dict(payload)
+        self._lifecycle[_scoped_request_key(session_id, request_id)] = dict(payload)
 
-    def _get_lifecycle(self, request_id: str) -> dict[str, Any] | None:
+    def _get_lifecycle(self, request_id: str, session_id: str | None = None) -> dict[str, Any] | None:
         if self._prompt_store is not None and callable(getattr(self._prompt_store, "get_lifecycle", None)):
-            return self._prompt_store.get_lifecycle(request_id)
-        lifecycle = self._lifecycle.get(request_id)
+            return self._prompt_store.get_lifecycle(request_id, session_id=session_id)
+        key = self._pending_key(request_id, session_id=session_id, collection=self._lifecycle)
+        lifecycle = self._lifecycle.get(key) if key is not None else None
         return dict(lifecycle) if lifecycle is not None else None
 
-    def _delete_lifecycle(self, request_id: str) -> None:
+    def _delete_lifecycle(self, request_id: str, session_id: str | None = None) -> None:
         if self._prompt_store is not None and callable(getattr(self._prompt_store, "delete_lifecycle", None)):
-            self._prompt_store.delete_lifecycle(request_id)
+            self._prompt_store.delete_lifecycle(request_id, session_id=session_id)
             return
-        self._lifecycle.pop(request_id, None)
+        key = self._pending_key(request_id, session_id=session_id, collection=self._lifecycle)
+        if key is not None:
+            self._lifecycle.pop(key, None)
+
+    def _pending_key(
+        self,
+        request_id: str,
+        *,
+        session_id: str | None = None,
+        collection: dict[str, Any] | None = None,
+    ) -> str | None:
+        normalized_request_id = str(request_id or "").strip()
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_request_id:
+            return None
+        if "\x1f" in normalized_request_id:
+            return normalized_request_id
+        items = self._pending if collection is None else collection
+        if normalized_session_id:
+            return _scoped_request_key(normalized_session_id, normalized_request_id)
+        if normalized_request_id in items:
+            return normalized_request_id
+        matches: list[str] = []
+        for key, value in items.items():
+            raw_request_id = ""
+            raw_session_id = ""
+            if isinstance(value, PendingPrompt):
+                raw_request_id = value.request_id
+                raw_session_id = value.session_id
+            elif isinstance(value, dict):
+                raw_request_id = str(value.get("request_id") or value.get("prompt", {}).get("request_id") or "")
+                raw_session_id = str(value.get("session_id") or "")
+            elif isinstance(value, tuple):
+                raw_request_id = _request_id_from_scoped_key(key)
+                raw_session_id = str(value[2] or "") if len(value) > 2 else ""
+            if raw_request_id == normalized_request_id and (not normalized_session_id or raw_session_id == normalized_session_id):
+                matches.append(key)
+        if len(matches) == 1:
+            return matches[0]
+        return None
+
+    def _waiter_key(self, request_id: str, session_id: str | None = None) -> str | None:
+        normalized_session_id = str(session_id or "").strip()
+        normalized_request_id = str(request_id or "").strip()
+        if normalized_session_id:
+            return _scoped_request_key(normalized_session_id, normalized_request_id)
+        key = self._pending_key(normalized_request_id)
+        if key is not None:
+            return key
+        matches = [key for key in self._waiters if _request_id_from_scoped_key(key) == normalized_request_id]
+        if len(matches) == 1:
+            return matches[0]
+        return None
 
     @staticmethod
     def _now_ms() -> int:
@@ -740,6 +825,18 @@ def _command_seq(command: dict | None) -> int | None:
         return int(command.get("seq", 0) or 0)
     except (TypeError, ValueError):
         return None
+
+
+def _scoped_request_key(session_id: str | None, request_id: str) -> str:
+    normalized_request_id = str(request_id or "").strip()
+    normalized_session_id = str(session_id or "").strip()
+    if not normalized_session_id or "\x1f" in normalized_request_id:
+        return normalized_request_id
+    return f"{normalized_session_id}\x1f{normalized_request_id}"
+
+
+def _request_id_from_scoped_key(key: str) -> str:
+    return str(key or "").split("\x1f", 1)[1] if "\x1f" in str(key or "") else str(key or "")
 
 
 def _is_module_prompt(prompt: dict) -> bool:

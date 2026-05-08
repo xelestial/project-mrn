@@ -884,7 +884,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             }
         )
         self.assertEqual(first["status"], "accepted")
-        self.assertEqual(prompt_store.get_resolved("shared-redis-batch:p0")["session_id"], "s-redis-a")
+        self.assertEqual(prompt_store.get_resolved("shared-redis-batch:p0", session_id="s-redis-a")["session_id"], "s-redis-a")
 
         recreated = service.create_prompt("s-redis-b", payload)
         self.assertEqual(recreated.session_id, "s-redis-b")
@@ -897,7 +897,44 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             }
         )
         self.assertEqual(second["status"], "accepted")
-        self.assertEqual(prompt_store.get_resolved("shared-redis-batch:p0")["session_id"], "s-redis-b")
+        self.assertEqual(prompt_store.get_resolved("shared-redis-batch:p0", session_id="s-redis-b")["session_id"], "s-redis-b")
+
+    def test_prompt_service_scopes_pending_request_ids_by_session(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        command_store = RedisCommandStore(self.connection)
+        service = PromptService(prompt_store=prompt_store, command_store=command_store)
+        payload = {
+            "request_id": "shared-redis-pending:p0",
+            "request_type": "burden_exchange",
+            "player_id": 1,
+            "timeout_ms": 30000,
+            "legal_choices": [{"choice_id": "yes"}],
+        }
+
+        first = service.create_prompt("s-redis-a", payload)
+        second = service.create_prompt("s-redis-b", payload)
+
+        self.assertEqual(first.session_id, "s-redis-a")
+        self.assertEqual(second.session_id, "s-redis-b")
+        self.assertEqual(
+            sorted(item["session_id"] for item in prompt_store.list_pending() if item["request_id"] == "shared-redis-pending:p0"),
+            ["s-redis-a", "s-redis-b"],
+        )
+
+        accepted = service.submit_decision(
+            {
+                "session_id": "s-redis-a",
+                "request_id": "shared-redis-pending:p0",
+                "player_id": 1,
+                "choice_id": "yes",
+            }
+        )
+
+        self.assertEqual(accepted["status"], "accepted")
+        self.assertFalse(service.has_pending_for_session("s-redis-a"))
+        self.assertTrue(service.has_pending_for_session("s-redis-b"))
+        self.assertIsNone(prompt_store.get_pending("shared-redis-pending:p0", session_id="s-redis-a"))
+        self.assertIsNotNone(prompt_store.get_pending("shared-redis-pending:p0", session_id="s-redis-b"))
 
     def test_command_store_recovers_seq_after_seq_key_eviction(self) -> None:
         command_store = RedisCommandStore(self.connection)

@@ -217,6 +217,42 @@ class PromptServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.service.create_prompt("s1", payload)
 
+    def test_allows_same_pending_request_id_across_sessions(self) -> None:
+        payload = {
+            "request_id": "shared_pending_batch:p0",
+            "request_type": "burden_exchange",
+            "player_id": 1,
+            "timeout_ms": 30000,
+            "legal_choices": [{"choice_id": "yes"}],
+        }
+        first = self.service.create_prompt("s1", payload)
+        second = self.service.create_prompt("s2", payload)
+
+        self.assertEqual(first.session_id, "s1")
+        self.assertEqual(second.session_id, "s2")
+
+        accepted = self.service.submit_decision(
+            {
+                "session_id": "s1",
+                "request_id": "shared_pending_batch:p0",
+                "player_id": 1,
+                "choice_id": "yes",
+            }
+        )
+
+        self.assertEqual(accepted["status"], "accepted")
+        self.assertFalse(self.service.has_pending_for_session("s1"))
+        self.assertTrue(self.service.has_pending_for_session("s2"))
+        remaining = self.service.submit_decision(
+            {
+                "session_id": "s2",
+                "request_id": "shared_pending_batch:p0",
+                "player_id": 1,
+                "choice_id": "yes",
+            }
+        )
+        self.assertEqual(remaining["status"], "accepted")
+
     def test_get_pending_prompt_returns_copy(self) -> None:
         self.service.create_prompt(
             "s1",

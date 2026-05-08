@@ -108,7 +108,7 @@ async def create_debug_prompt(
             "error": build_error_payload(code="PROMPT_REJECTED", message=str(exc), retryable=False),
         }
     msg = await stream.publish(session_id, "prompt", prompt_payload)
-    prompts.mark_prompt_delivered(pending.request_id, stream_seq=msg.seq)
+    prompts.mark_prompt_delivered(pending.request_id, session_id=session_id, stream_seq=msg.seq)
     log_event(
         "prompt_sent",
         session_id=session_id,

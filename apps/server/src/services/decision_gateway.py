@@ -1981,7 +1981,11 @@ class DecisionGateway:
         envelope["timeout_ms"] = timeout_ms
         envelope = ensure_prompt_fingerprint(envelope)
 
-        replayed_response = self._prompt_service.wait_for_decision(request_id=request_id, timeout_ms=1)
+        replayed_response = self._prompt_service.wait_for_decision(
+            request_id=request_id,
+            timeout_ms=1,
+            session_id=self._session_id,
+        )
         if replayed_response is not None:
             self._require_matching_prompt_fingerprint(
                 request_id=request_id,
@@ -2007,10 +2011,10 @@ class DecisionGateway:
             if str(exc) == "prompt_fingerprint_mismatch":
                 raise PromptFingerprintMismatch(request_id=request_id) from exc
             if str(exc) == "duplicate_pending_request_id" and not self._blocking_human_prompts:
-                pending = self._prompt_service.get_pending_prompt(request_id)
+                pending = self._prompt_service.get_pending_prompt(request_id, session_id=self._session_id)
                 prompt_payload = dict(pending.payload) if pending is not None else envelope
                 self.publish("prompt", {**prompt_payload, "provider": "human"})
-                self._prompt_service.mark_prompt_delivered(request_id)
+                self._prompt_service.mark_prompt_delivered(request_id, session_id=self._session_id)
                 self._publish_decision_requested(
                     request_id=request_id,
                     player_id=player_id,
@@ -2029,7 +2033,7 @@ class DecisionGateway:
             self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
 
         self.publish("prompt", {**envelope, "provider": "human"})
-        self._prompt_service.mark_prompt_delivered(request_id)
+        self._prompt_service.mark_prompt_delivered(request_id, session_id=self._session_id)
         self._publish_decision_requested(
             request_id=request_id,
             player_id=player_id,
@@ -2041,10 +2045,18 @@ class DecisionGateway:
         self._touch_activity(self._session_id)
         if not self._blocking_human_prompts:
             raise PromptRequired(envelope)
-        response = self._prompt_service.wait_for_decision(request_id=request_id, timeout_ms=timeout_ms)
+        response = self._prompt_service.wait_for_decision(
+            request_id=request_id,
+            timeout_ms=timeout_ms,
+            session_id=self._session_id,
+        )
 
         if response is None:
-            expired = self._prompt_service.expire_prompt(request_id=request_id, reason="prompt_timeout")
+            expired = self._prompt_service.expire_prompt(
+                request_id=request_id,
+                reason="prompt_timeout",
+                session_id=self._session_id,
+            )
             if expired is None:
                 return fallback_fn()
             fallback_result = asyncio.run_coroutine_threadsafe(
