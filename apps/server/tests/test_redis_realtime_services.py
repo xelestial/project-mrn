@@ -321,6 +321,104 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertIsNone(prompt_store.get_lifecycle("req_lifecycle_1"))
         self.assertIsNotNone(prompt_store.get_lifecycle("req_lifecycle_2"))
 
+    def test_prompt_debug_index_tracks_session_prompt_state_with_one_hour_ttl(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+
+        prompt_store.save_pending(
+            "req_debug_prompt_1",
+            {
+                "request_id": "req_debug_prompt_1",
+                "session_id": "s-prompt-debug",
+                "player_id": 2,
+                "request_type": "trick_choice",
+                "resume_token": "resume_prompt_debug",
+                "legal_choices": [{"choice_id": "a"}, {"choice_id": "b"}],
+                "created_at_ms": 100,
+            },
+        )
+        prompt_store.save_lifecycle(
+            "req_debug_prompt_1",
+            {
+                "request_id": "req_debug_prompt_1",
+                "session_id": "s-prompt-debug",
+                "state": "delivered",
+                "updated_at_ms": 110,
+            },
+        )
+
+        debug_index = prompt_store.load_debug_index("s-prompt-debug")
+
+        self.assertIsNotNone(debug_index)
+        self.assertEqual(debug_index["counts"]["pending"], 1)
+        self.assertEqual(debug_index["counts"]["lifecycle"], 1)
+        self.assertEqual(debug_index["active_prompt"]["request_id"], "req_debug_prompt_1")
+        self.assertEqual(debug_index["active_prompt"]["legal_choice_count"], 2)
+        self.assertTrue(debug_index["active_prompt"]["resume_token_present"])
+        self.assertEqual(
+            self.fake_redis._expires_at_ms[prompt_store._debug_index_key("s-prompt-debug")],
+            3600000,
+        )
+        self.assertNotIn(prompt_store._pending_key(), self.fake_redis._expires_at_ms)
+
+        prompt_store.delete_pending("req_debug_prompt_1", session_id="s-prompt-debug")
+
+        debug_index = prompt_store.load_debug_index("s-prompt-debug")
+        self.assertEqual(debug_index["counts"]["pending"], 0)
+        self.assertEqual(debug_index["counts"]["lifecycle"], 1)
+
+    def test_game_debug_snapshot_includes_prompt_and_command_reconstruction_summaries(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        command_store = RedisCommandStore(self.connection)
+        game_state = RedisGameStateStore(self.connection)
+
+        prompt_store.save_pending(
+            "req_debug_reconstruct",
+            {
+                "request_id": "req_debug_reconstruct",
+                "session_id": "s-reconstruct",
+                "player_id": 3,
+                "request_type": "buy_tile",
+                "created_at_ms": 1000,
+            },
+        )
+        command_store.append_command(
+            "s-reconstruct",
+            "decision",
+            {
+                "request_id": "req_debug_reconstruct",
+                "player_id": 3,
+                "choice_id": "buy",
+                "view_commit_seq_seen": 9,
+            },
+            request_id="req_debug_reconstruct",
+            server_time_ms=1200,
+        )
+        command_store.save_consumer_offset("runtime_wakeup", "s-reconstruct", 1)
+
+        game_state.save_checkpoint(
+            "s-reconstruct",
+            {
+                "schema_version": 1,
+                "session_id": "s-reconstruct",
+                "latest_seq": 4,
+                "latest_event_type": "checkpoint",
+                "round_index": 2,
+                "turn_index": 7,
+            },
+        )
+
+        debug_snapshot = game_state.load_debug_snapshot("s-reconstruct")
+
+        self.assertIsNotNone(debug_snapshot)
+        self.assertEqual(debug_snapshot["prompts"]["counts"]["pending"], 1)
+        self.assertEqual(debug_snapshot["prompts"]["active_prompt"]["request_id"], "req_debug_reconstruct")
+        self.assertEqual(debug_snapshot["commands"]["command_seq"], 1)
+        self.assertEqual(debug_snapshot["commands"]["command_count"], 1)
+        self.assertEqual(debug_snapshot["commands"]["seen_count"], 1)
+        self.assertEqual(debug_snapshot["commands"]["latest_commands"][0]["choice_id"], "buy")
+        self.assertEqual(debug_snapshot["commands"]["latest_commands"][0]["view_commit_seq_seen"], 9)
+        self.assertEqual(debug_snapshot["commands"]["consumer_offsets"][0]["consumer"], "runtime_wakeup")
+        self.assertEqual(debug_snapshot["commands"]["consumer_offsets"][0]["seq"], 1)
 
     def test_stream_service_broadcasts_cached_view_commit_after_direct_runtime_transition(self) -> None:
         game_state = RedisGameStateStore(self.connection)

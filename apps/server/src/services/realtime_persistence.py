@@ -8,6 +8,7 @@ from typing import Any
 from apps.server.src.infra.redis_client import RedisConnection
 
 DEBUG_REDIS_RETENTION_SECONDS = 3600
+DEBUG_REDIS_RECORD_LIMIT = 20
 
 
 @dataclass(frozen=True)
@@ -316,11 +317,14 @@ class RedisPromptStore:
             self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or "")),
             _json_dump(payload),
         )
+        self._refresh_debug_index_for_payload(payload, session_id=session_id)
 
     def delete_pending(self, request_id: str, session_id: str | None = None) -> None:
         field = self._resolve_prompt_field(self._pending_key(), request_id, session_id=session_id)
         if field is not None:
+            raw = self._connection.client().hget(self._pending_key(), field)
             self._connection.client().hdel(self._pending_key(), field)
+            self._refresh_debug_index_for_field(field, raw, session_id=session_id)
 
     def get_resolved(self, request_id: str, session_id: str | None = None) -> dict[str, Any] | None:
         field = self._resolve_prompt_field(self._resolved_key(), request_id, session_id=session_id)
@@ -344,11 +348,14 @@ class RedisPromptStore:
             self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or "")),
             _json_dump(payload),
         )
+        self._refresh_debug_index_for_payload(payload, session_id=session_id)
 
     def delete_resolved(self, request_id: str, session_id: str | None = None) -> None:
         field = self._resolve_prompt_field(self._resolved_key(), request_id, session_id=session_id)
         if field is not None:
+            raw = self._connection.client().hget(self._resolved_key(), field)
             self._connection.client().hdel(self._resolved_key(), field)
+            self._refresh_debug_index_for_field(field, raw, session_id=session_id)
 
     def save_decision(self, request_id: str, payload: dict[str, Any], session_id: str | None = None) -> None:
         self._connection.client().hset(
@@ -356,6 +363,7 @@ class RedisPromptStore:
             self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or "")),
             _json_dump(payload),
         )
+        self._refresh_debug_index_for_payload(payload, session_id=session_id)
 
     def get_decision(self, request_id: str, session_id: str | None = None) -> dict[str, Any] | None:
         field = self._resolve_prompt_field(self._decisions_key(), request_id, session_id=session_id)
@@ -373,12 +381,15 @@ class RedisPromptStore:
         if raw is None:
             return None
         client.hdel(self._decisions_key(), field)
+        self._refresh_debug_index_for_field(field, raw, session_id=session_id)
         return _json_load_dict(str(raw))
 
     def delete_decision(self, request_id: str, session_id: str | None = None) -> None:
         field = self._resolve_prompt_field(self._decisions_key(), request_id, session_id=session_id)
         if field is not None:
+            raw = self._connection.client().hget(self._decisions_key(), field)
             self._connection.client().hdel(self._decisions_key(), field)
+            self._refresh_debug_index_for_field(field, raw, session_id=session_id)
 
     def get_lifecycle(self, request_id: str, session_id: str | None = None) -> dict[str, Any] | None:
         field = self._resolve_prompt_field(self._lifecycle_key(), request_id, session_id=session_id)
@@ -405,11 +416,14 @@ class RedisPromptStore:
             self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or "")),
             _json_dump(payload),
         )
+        self._refresh_debug_index_for_payload(payload, session_id=session_id)
 
     def delete_lifecycle(self, request_id: str, session_id: str | None = None) -> None:
         field = self._resolve_prompt_field(self._lifecycle_key(), request_id, session_id=session_id)
         if field is not None:
+            raw = self._connection.client().hget(self._lifecycle_key(), field)
             self._connection.client().hdel(self._lifecycle_key(), field)
+            self._refresh_debug_index_for_field(field, raw, session_id=session_id)
 
     def accept_decision_with_command(
         self,
@@ -453,6 +467,7 @@ class RedisPromptStore:
             )
             if not result:
                 return None
+            self._refresh_debug_index(session_id)
             return {
                 "stream_id": str(result[0]),
                 "seq": int(result[1]),
@@ -479,6 +494,7 @@ class RedisPromptStore:
         pipeline.hset(self._resolved_key(), storage_request_id, resolved_json)
         pipeline.xadd(command_store._stream_key(session_id), fields)
         results = pipeline.execute()
+        self._refresh_debug_index(session_id)
         stream_id = str(results[-1]) if results else ""
         return {
             "stream_id": stream_id,
@@ -502,6 +518,35 @@ class RedisPromptStore:
             request_id = str(lifecycle.get("request_id", "")).strip()
             if request_id:
                 self.delete_lifecycle(request_id, session_id=session_id)
+        self._connection.client().delete(self._debug_index_key(session_id))
+
+    def load_debug_index(self, session_id: str) -> dict[str, Any] | None:
+        raw = self._connection.client().get(self._debug_index_key(session_id))
+        return _json_load_dict(str(raw)) if raw is not None else None
+
+    def _refresh_debug_index_for_payload(self, payload: dict[str, Any], *, session_id: str | None = None) -> None:
+        resolved_session_id = str(session_id or payload.get("session_id") or "").strip()
+        if resolved_session_id:
+            self._refresh_debug_index(resolved_session_id)
+
+    def _refresh_debug_index_for_field(self, field: str, raw: str | None, *, session_id: str | None = None) -> None:
+        payload = _json_load_dict(str(raw)) if raw is not None else None
+        resolved_session_id = _prompt_session_id_from_field_or_payload(field, payload, session_id=session_id)
+        if resolved_session_id:
+            self._refresh_debug_index(resolved_session_id)
+
+    def _refresh_debug_index(self, session_id: str) -> None:
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            return
+        try:
+            self._connection.client().set(
+                self._debug_index_key(normalized_session_id),
+                _json_dump(_build_prompt_debug_summary(self._connection, normalized_session_id)),
+                px=DEBUG_REDIS_RETENTION_SECONDS * 1000,
+            )
+        except Exception:
+            return
 
     @staticmethod
     def _prompt_field(request_id: str, session_id: str | None = None) -> str:
@@ -550,6 +595,9 @@ class RedisPromptStore:
 
     def _lifecycle_key(self) -> str:
         return self._connection.key("prompts", "lifecycle")
+
+    def _debug_index_key(self, session_id: str) -> str:
+        return self._connection.key("prompts", session_id, "debug_index")
 
 
 class RedisCommandStore:
@@ -1242,6 +1290,8 @@ class RedisGameStateStore:
                 "viewers": sorted(str(item) for item in self._list_from(view_commit_index.get("view_commit_viewers"))),
                 "cached_viewers": sorted(str(item) for item in self._list_from(view_commit_index.get("cached_viewers"))),
             },
+            "prompts": _build_prompt_debug_summary(self._connection, session_id),
+            "commands": self._debug_command_summary(session_id),
             "stream": self._debug_stream_summary(session_id),
             "checkpoint": checkpoint_payload,
         }
@@ -1274,8 +1324,13 @@ class RedisGameStateStore:
             "stream_viewer_outbox": self._connection.key("stream", session_id, "viewer_outbox"),
             "commands_stream": self._connection.key("commands", session_id, "stream"),
             "commands_seq": self._connection.key("commands", session_id, "seq"),
+            "commands_seen": self._connection.key("commands", "seen"),
+            "commands_offset_indexes": self._connection.key("commands", "offset_indexes"),
             "prompts_pending_hash": self._connection.key("prompts", "pending"),
+            "prompts_resolved_hash": self._connection.key("prompts", "resolved"),
+            "prompts_decisions_hash": self._connection.key("prompts", "decisions"),
             "prompts_lifecycle_hash": self._connection.key("prompts", "lifecycle"),
+            "prompts_debug_index": self._connection.key("prompts", session_id, "debug_index"),
             "runtime_status_hash": self._connection.key("runtime", "status"),
             "runtime_fallbacks": self._connection.key("runtime", session_id, "fallbacks"),
             "runtime_lease": self._connection.key("runtime", session_id, "lease"),
@@ -1296,6 +1351,57 @@ class RedisGameStateStore:
             "latest_event_index": event_index_rows,
             "latest_viewer_outbox": viewer_outbox_rows,
         }
+
+    def _debug_command_summary(self, session_id: str) -> dict[str, Any]:
+        client = self._connection.client()
+        stream_key = self._connection.key("commands", session_id, "stream")
+        command_rows = [
+            self._compact_command_record(entry_id, fields)
+            for entry_id, fields in client.xrange(stream_key)
+            if isinstance(fields, dict)
+        ]
+        offset_rows = []
+        for offset_key in sorted(str(key) for key in client.hgetall(self._command_offset_index_key()).keys()):
+            raw_offset = client.hget(offset_key, session_id)
+            if raw_offset is None:
+                continue
+            offset_rows.append(
+                {
+                    "consumer": self._consumer_name_from_offset_key(offset_key),
+                    "offset_key": offset_key,
+                    "seq": _int_or_default(raw_offset, 0),
+                }
+            )
+        seen_prefix = f"{session_id}:"
+        return {
+            "command_seq": _int_or_default(client.get(self._connection.key("commands", session_id, "seq")), 0),
+            "command_count": len(command_rows),
+            "seen_count": len(
+                [key for key in client.hgetall(self._connection.key("commands", "seen")).keys() if str(key).startswith(seen_prefix)]
+            ),
+            "consumer_offsets": offset_rows,
+            "latest_commands": command_rows[-DEBUG_REDIS_RECORD_LIMIT:],
+        }
+
+    def _compact_command_record(self, entry_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+        payload = _json_load_dict(str(fields.get("payload", "{}"))) or {}
+        return {
+            "stream_id": str(entry_id),
+            "seq": _int_or_default(fields.get("seq"), 0),
+            "type": str(fields.get("type") or ""),
+            "session_id": str(fields.get("session_id") or ""),
+            "server_time_ms": _int_or_default(fields.get("server_time_ms"), 0),
+            "request_id": str(payload.get("request_id") or ""),
+            "player_id": payload.get("player_id"),
+            "choice_id": payload.get("choice_id"),
+            "view_commit_seq_seen": payload.get("view_commit_seq_seen"),
+        }
+
+    def _consumer_name_from_offset_key(self, key: str) -> str:
+        marker = f"{self._connection.key('commands', 'offsets')}:"
+        if str(key).startswith(marker):
+            return str(key)[len(marker) :]
+        return str(key).rsplit(":", 1)[-1]
 
     def _latest_hash_records(self, key: str, *, limit: int) -> list[dict[str, Any]]:
         rows = []
@@ -1714,6 +1820,133 @@ class RedisGameStateStore:
 
     def _runtime_stream_seq_key(self, session_id: str) -> str:
         return self._connection.key("stream", session_id, "seq")
+
+
+def _build_prompt_debug_summary(connection: RedisConnection, session_id: str) -> dict[str, Any]:
+    normalized_session_id = str(session_id or "").strip()
+    buckets: dict[str, dict[str, Any]] = {}
+    all_rows: list[dict[str, Any]] = []
+    for bucket_name, hash_key in (
+        ("pending", connection.key("prompts", "pending")),
+        ("resolved", connection.key("prompts", "resolved")),
+        ("decisions", connection.key("prompts", "decisions")),
+        ("lifecycle", connection.key("prompts", "lifecycle")),
+    ):
+        rows: list[dict[str, Any]] = []
+        for field, raw in connection.client().hgetall(hash_key).items():
+            payload = _json_load_dict(str(raw))
+            if payload is None:
+                continue
+            if _prompt_session_id_from_field_or_payload(str(field), payload) != normalized_session_id:
+                continue
+            rows.append(_compact_prompt_debug_record(bucket_name, str(field), payload))
+        rows.sort(key=_prompt_debug_sort_key)
+        buckets[bucket_name] = {
+            "count": len(rows),
+            "latest": rows[-DEBUG_REDIS_RECORD_LIMIT:],
+        }
+        all_rows.extend(rows)
+    all_rows.sort(key=_prompt_debug_sort_key)
+    active_prompts = buckets.get("pending", {}).get("latest", [])
+    return {
+        "schema_version": 1,
+        "session_id": normalized_session_id,
+        "retention_seconds": DEBUG_REDIS_RETENTION_SECONDS,
+        "redis_keys": {
+            "pending": connection.key("prompts", "pending"),
+            "resolved": connection.key("prompts", "resolved"),
+            "decisions": connection.key("prompts", "decisions"),
+            "lifecycle": connection.key("prompts", "lifecycle"),
+            "debug_index": connection.key("prompts", normalized_session_id, "debug_index"),
+        },
+        "counts": {name: int(summary.get("count") or 0) for name, summary in buckets.items()},
+        "active_prompt": active_prompts[-1] if active_prompts else {},
+        "latest": all_rows[-DEBUG_REDIS_RECORD_LIMIT:],
+        "buckets": buckets,
+    }
+
+
+def _compact_prompt_debug_record(bucket_name: str, field: str, payload: dict[str, Any]) -> dict[str, Any]:
+    compact = {
+        key: payload[key]
+        for key in (
+            "request_id",
+            "prompt_instance_id",
+            "state",
+            "status",
+            "player_id",
+            "request_type",
+            "choice_id",
+            "accepted",
+            "reason",
+            "error_code",
+            "view_commit_seq",
+            "view_commit_seq_seen",
+            "commit_seq",
+            "round_index",
+            "turn_index",
+            "frame_id",
+            "module_id",
+            "module_type",
+            "module_cursor",
+            "created_at_ms",
+            "updated_at_ms",
+            "server_time_ms",
+            "expires_at_ms",
+        )
+        if key in payload and payload[key] is not None
+    }
+    compact["bucket"] = bucket_name
+    compact["field"] = field
+    compact["session_id"] = _prompt_session_id_from_field_or_payload(field, payload)
+    if "request_id" not in compact:
+        compact["request_id"] = _prompt_request_id_from_field(field)
+    if payload.get("resume_token") is not None:
+        compact["resume_token_present"] = True
+    legal_choices = payload.get("legal_choices")
+    if isinstance(legal_choices, list):
+        compact["legal_choice_count"] = len(legal_choices)
+    return compact
+
+
+def _prompt_debug_sort_key(record: dict[str, Any]) -> tuple[int, str, str]:
+    return (
+        max(
+            _int_or_default(record.get("updated_at_ms"), 0),
+            _int_or_default(record.get("server_time_ms"), 0),
+            _int_or_default(record.get("created_at_ms"), 0),
+            _int_or_default(record.get("view_commit_seq"), 0),
+            _int_or_default(record.get("commit_seq"), 0),
+        ),
+        str(record.get("field") or ""),
+        str(record.get("bucket") or ""),
+    )
+
+
+def _prompt_session_id_from_field_or_payload(
+    field: str,
+    payload: dict[str, Any] | None,
+    *,
+    session_id: str | None = None,
+) -> str:
+    explicit = str(session_id or "").strip()
+    if explicit:
+        return explicit
+    if isinstance(payload, dict):
+        payload_session_id = str(payload.get("session_id") or "").strip()
+        if payload_session_id:
+            return payload_session_id
+    normalized_field = str(field or "")
+    if "\x1f" in normalized_field:
+        return normalized_field.split("\x1f", 1)[0]
+    return ""
+
+
+def _prompt_request_id_from_field(field: str) -> str:
+    normalized_field = str(field or "")
+    if "\x1f" in normalized_field:
+        return normalized_field.split("\x1f", 1)[1]
+    return normalized_field
 
 
 def _json_dump(payload: dict[str, Any]) -> str:
