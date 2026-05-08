@@ -80,6 +80,8 @@ def run_full_stack_protocol_rl_gate(
     idle_timeout_ms: int = 120_000,
     policy_http_timeout_ms: int = 2_000,
     progress_interval_ms: int = 30_000,
+    cpu_diagnostic_idle_ms: int = 30_000,
+    cpu_low_load_percent: float = 10.0,
     epochs: int | None = None,
     hidden_size: int | None = None,
     config: Mapping[str, Any] | None = None,
@@ -112,6 +114,8 @@ def run_full_stack_protocol_rl_gate(
             idle_timeout_ms=idle_timeout_ms,
             policy_http_timeout_ms=policy_http_timeout_ms,
             progress_interval_ms=progress_interval_ms,
+            cpu_diagnostic_idle_ms=cpu_diagnostic_idle_ms,
+            cpu_low_load_percent=cpu_low_load_percent,
             config=effective_config,
             reconnect_scenarios=effective_reconnect_scenarios,
         )
@@ -149,6 +153,8 @@ def run_full_stack_protocol_rl_gate(
                     idle_timeout_ms=idle_timeout_ms,
                     policy_http_timeout_ms=policy_http_timeout_ms,
                     progress_interval_ms=progress_interval_ms,
+                    cpu_diagnostic_idle_ms=cpu_diagnostic_idle_ms,
+                    cpu_low_load_percent=cpu_low_load_percent,
                     config=effective_config,
                     reconnect_scenarios=effective_reconnect_scenarios,
                 )
@@ -236,6 +242,8 @@ def run_protocol_gate_once(
     idle_timeout_ms: int,
     policy_http_timeout_ms: int,
     progress_interval_ms: int,
+    cpu_diagnostic_idle_ms: int,
+    cpu_low_load_percent: float,
     policy_http_url: str | None = None,
     config: Mapping[str, Any] | None = None,
     reconnect_scenarios: Iterable[str] | None = None,
@@ -256,6 +264,8 @@ def run_protocol_gate_once(
         idle_timeout_ms=idle_timeout_ms,
         policy_http_timeout_ms=policy_http_timeout_ms,
         progress_interval_ms=progress_interval_ms,
+        cpu_diagnostic_idle_ms=cpu_diagnostic_idle_ms,
+        cpu_low_load_percent=cpu_low_load_percent,
         policy_http_url=policy_http_url,
         config=config,
         reconnect_scenarios=reconnect_scenarios,
@@ -305,6 +315,8 @@ def protocol_gate_command(
     idle_timeout_ms: int,
     policy_http_timeout_ms: int,
     progress_interval_ms: int,
+    cpu_diagnostic_idle_ms: int,
+    cpu_low_load_percent: float,
     policy_http_url: str | None = None,
     config: Mapping[str, Any] | None = None,
     reconnect_scenarios: Iterable[str] | None = None,
@@ -331,6 +343,10 @@ def protocol_gate_command(
             str(replay_path),
             "--progress-interval-ms",
             str(progress_interval_ms),
+            "--cpu-diagnostic-idle-ms",
+            str(cpu_diagnostic_idle_ms),
+            "--cpu-low-load-percent",
+            str(cpu_low_load_percent),
             "--raw-prompt-fallback-delay-ms",
             "off",
             "--policy",
@@ -651,6 +667,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--idle-timeout-ms", type=int, default=120_000)
     parser.add_argument("--policy-http-timeout-ms", type=int, default=2_000)
     parser.add_argument("--progress-interval-ms", type=int, default=30_000)
+    parser.add_argument("--cpu-diagnostic-idle-ms", type=int, default=30_000)
+    parser.add_argument("--cpu-low-load-percent", type=float, default=10.0)
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--hidden-size", type=int)
     parser.add_argument("--config-json")
@@ -676,6 +694,8 @@ def main(argv: list[str] | None = None) -> int:
         idle_timeout_ms=args.idle_timeout_ms,
         policy_http_timeout_ms=args.policy_http_timeout_ms,
         progress_interval_ms=args.progress_interval_ms,
+        cpu_diagnostic_idle_ms=args.cpu_diagnostic_idle_ms,
+        cpu_low_load_percent=args.cpu_low_load_percent,
         epochs=args.epochs,
         hidden_size=args.hidden_size,
         config=parse_json_object(args.config_json, "--config-json") if args.config_json else None,

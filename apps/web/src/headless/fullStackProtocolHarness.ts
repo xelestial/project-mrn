@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import type { ConnectionStatus } from "../core/contracts/stream";
 import {
   baselineDecisionPolicy,
@@ -37,6 +38,7 @@ export type FullStackProtocolProgressSnapshot = {
   sessionId: string;
   profile: ProtocolProfile;
   elapsedMs: number;
+  idleMs: number;
   runtimeStatus: string | null;
   clients: ProtocolClientRuntime[];
   clientSummary: ProtocolClientSummary;
@@ -44,7 +46,17 @@ export type FullStackProtocolProgressSnapshot = {
   completed: boolean;
   timedOut: boolean;
   idleTimedOut: boolean;
+  cpu: ProtocolCpuDiagnostic;
   traces: HeadlessTraceEvent[];
+};
+
+export type ProtocolCpuDiagnostic = {
+  sampled: boolean;
+  idleMs: number;
+  processCpuPercent: number | null;
+  hostCpuPercent: number | null;
+  suspiciousIdle: boolean;
+  error?: string;
 };
 
 export type HeadlessHumanSessionPayload = {
@@ -110,6 +122,8 @@ export type RunFullStackProtocolGameOptions = {
   rawPromptFallbackDelayMs?: number | null;
   reconnectScenarios?: ReconnectScenario[];
   progressIntervalMs?: number;
+  cpuDiagnosticIdleMs?: number;
+  cpuLowLoadPercent?: number;
   onProgress?: (snapshot: FullStackProtocolProgressSnapshot) => void | Promise<void>;
 };
 
@@ -157,6 +171,8 @@ const COMPLETED_COMMIT_GRACE_POLLS = 20;
 const DEFAULT_PROTOCOL_RAW_PROMPT_FALLBACK_DELAY_MS: number | null = null;
 const DEFAULT_FETCH_RETRY_COUNT = 5;
 const DEFAULT_FETCH_RETRY_DELAY_MS = 150;
+const DEFAULT_CPU_DIAGNOSTIC_IDLE_MS = 30_000;
+const DEFAULT_CPU_LOW_LOAD_PERCENT = 10;
 
 class ProtocolApiError extends Error {
   readonly status: number;
@@ -393,6 +409,10 @@ export async function runFullStackProtocolGame(
   let lastProgressAt = Date.now();
   let lastProgressKey = "";
   let lastProgressCallbackAt = 0;
+  let previousCpuUsage = process.cpuUsage();
+  let previousCpuWallMs = Date.now();
+  const cpuDiagnosticIdleMs = Math.max(1_000, Math.floor(options.cpuDiagnosticIdleMs ?? DEFAULT_CPU_DIAGNOSTIC_IDLE_MS));
+  const cpuLowLoadPercent = Math.max(0, Number(options.cpuLowLoadPercent ?? DEFAULT_CPU_LOW_LOAD_PERCENT));
   const progressIntervalMs =
     options.onProgress && Number.isFinite(options.progressIntervalMs)
       ? Math.max(250, Math.floor(options.progressIntervalMs ?? 0))
@@ -492,8 +512,15 @@ export async function runFullStackProtocolGame(
             completed,
             timedOut,
             idleTimedOut,
+            lastProgressAt,
+            cpuDiagnosticIdleMs,
+            cpuLowLoadPercent,
+            previousCpuUsage,
+            previousCpuWallMs,
           }),
         );
+        previousCpuUsage = process.cpuUsage();
+        previousCpuWallMs = Date.now();
       }
     }
     timedOut = !completed && runtimeStatus !== "failed" && Date.now() - startedAt >= timeoutMs;
@@ -516,8 +543,15 @@ export async function runFullStackProtocolGame(
             completed,
             timedOut,
             idleTimedOut,
+            lastProgressAt,
+            cpuDiagnosticIdleMs,
+            cpuLowLoadPercent,
+            previousCpuUsage,
+            previousCpuWallMs,
           }),
         );
+        previousCpuUsage = process.cpuUsage();
+        previousCpuWallMs = Date.now();
       }
     }
     for (const client of clients) {
@@ -558,13 +592,20 @@ function buildProgressSnapshot(args: {
   completed: boolean;
   timedOut: boolean;
   idleTimedOut: boolean;
+  lastProgressAt: number;
+  cpuDiagnosticIdleMs: number;
+  cpuLowLoadPercent: number;
+  previousCpuUsage: NodeJS.CpuUsage;
+  previousCpuWallMs: number;
 }): FullStackProtocolProgressSnapshot {
   const clientRuntimes = args.clients.map(toProtocolClientRuntime);
   const traces = args.clients.flatMap((client) => client.trace);
+  const idleMs = Date.now() - args.lastProgressAt;
   return {
     sessionId: args.sessionId,
     profile: args.profile,
     elapsedMs: Date.now() - args.startedAt,
+    idleMs,
     runtimeStatus: args.runtimeStatus,
     clients: clientRuntimes,
     clientSummary: summarizeProtocolClients(clientRuntimes),
@@ -572,8 +613,79 @@ function buildProgressSnapshot(args: {
     completed: args.completed,
     timedOut: args.timedOut,
     idleTimedOut: args.idleTimedOut,
+    cpu: buildCpuDiagnostic({
+      idleMs,
+      thresholdMs: args.cpuDiagnosticIdleMs,
+      lowLoadPercent: args.cpuLowLoadPercent,
+      previousCpuUsage: args.previousCpuUsage,
+      previousCpuWallMs: args.previousCpuWallMs,
+    }),
     traces,
   };
+}
+
+function buildCpuDiagnostic(args: {
+  idleMs: number;
+  thresholdMs: number;
+  lowLoadPercent: number;
+  previousCpuUsage: NodeJS.CpuUsage;
+  previousCpuWallMs: number;
+}): ProtocolCpuDiagnostic {
+  if (args.idleMs < args.thresholdMs) {
+    return {
+      sampled: false,
+      idleMs: args.idleMs,
+      processCpuPercent: null,
+      hostCpuPercent: null,
+      suspiciousIdle: false,
+    };
+  }
+  try {
+    const elapsedMs = Math.max(1, Date.now() - args.previousCpuWallMs);
+    const cpu = process.cpuUsage(args.previousCpuUsage);
+    const processCpuPercent = roundPercent(((cpu.user + cpu.system) / 1000 / elapsedMs) * 100);
+    const hostCpuPercent = sampleHostCpuPercent();
+    const hostLow = hostCpuPercent === null || hostCpuPercent <= args.lowLoadPercent;
+    const processLow = processCpuPercent <= args.lowLoadPercent;
+    return {
+      sampled: true,
+      idleMs: args.idleMs,
+      processCpuPercent,
+      hostCpuPercent,
+      suspiciousIdle: processLow && hostLow,
+    };
+  } catch (error) {
+    return {
+      sampled: true,
+      idleMs: args.idleMs,
+      processCpuPercent: null,
+      hostCpuPercent: null,
+      suspiciousIdle: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function sampleHostCpuPercent(): number | null {
+  try {
+    const output = execFileSync("ps", ["-A", "-o", "%cpu="], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 1_000,
+    });
+    const total = output
+      .split(/\s+/)
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value))
+      .reduce((sum, value) => sum + value, 0);
+    return roundPercent(total);
+  } catch {
+    return null;
+  }
+}
+
+function roundPercent(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 export function buildProtocolProgressKey(

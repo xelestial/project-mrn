@@ -66,6 +66,8 @@ def test_protocol_gate_command_forwards_reconnect_scenarios(tmp_path: Path):
         idle_timeout_ms=1_000,
         policy_http_timeout_ms=500,
         progress_interval_ms=1_000,
+        cpu_diagnostic_idle_ms=30_000,
+        cpu_low_load_percent=10.0,
         reconnect_scenarios=["after_start", "turn_boundary"],
     )
 
@@ -73,6 +75,10 @@ def test_protocol_gate_command_forwards_reconnect_scenarios(tmp_path: Path):
     assert command[reconnect_index + 1] == "after_start,turn_boundary"
     raw_fallback_index = command.index("--raw-prompt-fallback-delay-ms")
     assert command[raw_fallback_index + 1] == "off"
+    cpu_idle_index = command.index("--cpu-diagnostic-idle-ms")
+    assert command[cpu_idle_index + 1] == "30000"
+    cpu_low_load_index = command.index("--cpu-low-load-percent")
+    assert command[cpu_low_load_index + 1] == "10.0"
 
 
 def test_parse_reconnect_arg_accepts_off_and_rejects_unknown():

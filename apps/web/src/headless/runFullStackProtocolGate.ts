@@ -27,6 +27,8 @@ type CliOptions = {
   out?: string;
   replayOut?: string;
   progressIntervalMs?: number;
+  cpuDiagnosticIdleMs?: number;
+  cpuLowLoadPercent?: number;
   rawPromptFallbackDelayMs?: number | null;
   reconnectScenarios?: ReconnectScenario[];
   config?: Record<string, unknown>;
@@ -62,6 +64,8 @@ async function main(): Promise<void> {
     reconnectScenarios: options.reconnectScenarios,
     rawPromptFallbackDelayMs: options.rawPromptFallbackDelayMs,
     progressIntervalMs,
+    cpuDiagnosticIdleMs: options.cpuDiagnosticIdleMs,
+    cpuLowLoadPercent: options.cpuLowLoadPercent,
     onProgress: async (snapshot) => {
       await writeProgressArtifacts(snapshot, options);
       writeProgressLine(snapshot);
@@ -135,6 +139,12 @@ function parseArgs(args: string[]): CliOptions {
     } else if (arg === "--progress-interval-ms" && next) {
       options.progressIntervalMs = Number(next);
       index += 1;
+    } else if (arg === "--cpu-diagnostic-idle-ms" && next) {
+      options.cpuDiagnosticIdleMs = Number(next);
+      index += 1;
+    } else if (arg === "--cpu-low-load-percent" && next) {
+      options.cpuLowLoadPercent = Number(next);
+      index += 1;
     } else if (arg === "--raw-prompt-fallback-delay-ms" && next) {
       options.rawPromptFallbackDelayMs = next === "off" ? null : Number(next);
       index += 1;
@@ -176,6 +186,8 @@ function parseArgs(args: string[]): CliOptions {
           "  --out ./protocol_trace.jsonl",
           "  --replay-out ./rl_replay.jsonl",
           "  --progress-interval-ms 30000",
+          "  --cpu-diagnostic-idle-ms 30000",
+          "  --cpu-low-load-percent 10",
           "  --raw-prompt-fallback-delay-ms 25|off",
           "  --reconnect after_start,after_first_decision,round_boundary",
           "  --config-json '{\"rules\":{\"end\":{\"f_threshold\":4,\"monopolies_to_trigger_end\":1,\"tiles_to_trigger_end\":4,\"alive_players_at_most\":1}}}'",
@@ -230,8 +242,10 @@ function writeProgressLine(snapshot: FullStackProtocolProgressSnapshot): void {
       event: "protocol_gate_progress",
       session_id: snapshot.sessionId,
       elapsed_ms: snapshot.elapsedMs,
+      idle_ms: snapshot.idleMs,
       runtime_status: snapshot.runtimeStatus,
       trace_count: snapshot.traceCount,
+      cpu: snapshot.cpu,
       seats: seatMetrics,
     })}\n`,
   );
