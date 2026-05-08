@@ -342,6 +342,11 @@ class GameParameterResolver:
             end_raw = {}
         if not isinstance(end_raw, dict):
             raise ParameterValidationError("invalid_end_rules")
+        runtime_raw = raw.get("runtime")
+        if runtime_raw is None:
+            runtime_raw = {}
+        if not isinstance(runtime_raw, dict):
+            raise ParameterValidationError("invalid_runtime_config")
 
         default_end = cfg.rules.end
 
@@ -365,11 +370,25 @@ class GameParameterResolver:
         if isinstance(alive, bool) or not isinstance(alive, int) or alive < 1:
             raise ParameterValidationError("invalid_end_alive_players_at_most")
 
+        max_rounds = end_raw.get("max_rounds", runtime_raw.get("max_rounds", default_end.max_rounds))
+        if max_rounds is not None:
+            if isinstance(max_rounds, bool) or not isinstance(max_rounds, int) or max_rounds < 1:
+                raise ParameterValidationError("invalid_end_max_rounds")
+            max_rounds = int(max_rounds)
+
+        max_turns = end_raw.get("max_turns", runtime_raw.get("max_turns", default_end.max_turns))
+        if max_turns is not None:
+            if isinstance(max_turns, bool) or not isinstance(max_turns, int) or max_turns < 1:
+                raise ParameterValidationError("invalid_end_max_turns")
+            max_turns = int(max_turns)
+
         return {
             "f_threshold": f_threshold,
             "monopolies_to_trigger_end": int(monopolies),
             "tiles_to_trigger_end": tiles,
             "alive_players_at_most": int(alive),
+            "max_rounds": max_rounds,
+            "max_turns": max_turns,
         }
 
     @staticmethod

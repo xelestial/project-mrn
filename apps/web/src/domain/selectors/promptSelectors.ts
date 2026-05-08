@@ -16,6 +16,8 @@ export type PromptContinuationViewModel = {
   moduleType: string | null;
   moduleCursor: string | null;
   batchId: string | null;
+  missingPlayerIds?: number[];
+  resumeTokensByPlayerId?: Record<string, string>;
 };
 
 export type PromptEffectContextViewModel = {
@@ -367,6 +369,17 @@ function parsePromptBehavior(raw: unknown, requestType: string, publicContext: R
 }
 
 function parsePromptContinuation(raw: Record<string, unknown>): PromptContinuationViewModel {
+  const missingPlayerIds = Array.isArray(raw["missing_player_ids"])
+    ? raw["missing_player_ids"].map((item) => numberOrNull(item)).filter((item): item is number => item !== null)
+    : null;
+  const rawResumeTokens = isRecord(raw["resume_tokens_by_player_id"]) ? raw["resume_tokens_by_player_id"] : null;
+  const resumeTokensByPlayerId = rawResumeTokens
+    ? Object.fromEntries(
+        Object.entries(rawResumeTokens)
+          .map(([playerId, token]) => [String(playerId), stringOrEmpty(token)] as const)
+          .filter(([, token]) => token.length > 0),
+      )
+    : null;
   return {
     promptInstanceId: numberOrNull(raw["prompt_instance_id"]),
     resumeToken: stringOrEmpty(raw["resume_token"]) || null,
@@ -375,6 +388,8 @@ function parsePromptContinuation(raw: Record<string, unknown>): PromptContinuati
     moduleType: stringOrEmpty(raw["module_type"]) || null,
     moduleCursor: stringOrEmpty(raw["module_cursor"]) || null,
     batchId: stringOrEmpty(raw["batch_id"]) || null,
+    ...(missingPlayerIds ? { missingPlayerIds } : {}),
+    ...(resumeTokensByPlayerId ? { resumeTokensByPlayerId } : {}),
   };
 }
 
@@ -398,11 +413,15 @@ function hasCompleteModuleContinuation(raw: Record<string, unknown>): boolean {
   if (!REQUIRED_MODULE_CONTINUATION_FIELDS.every((field) => stringOrEmpty(raw[field]).length > 0)) {
     return false;
   }
-  const frameId = stringOrEmpty(raw["frame_id"]);
   const moduleType = stringOrEmpty(raw["module_type"]);
-  const requiresBatch =
-    frameId.startsWith("simul:") || moduleType === "ResupplyModule" || moduleType === "SimultaneousPromptBatchModule";
-  if (!requiresBatch) {
+  const requestType = stringOrEmpty(raw["request_type"]);
+  const moduleCursor = stringOrEmpty(raw["module_cursor"]);
+  const isBatchPrompt =
+    moduleType === "SimultaneousPromptBatchModule" ||
+    (moduleType === "ResupplyModule" &&
+      (requestType === "burden_exchange" || requestType === "resupply_choice") &&
+      moduleCursor.startsWith("await_resupply_batch"));
+  if (!isBatchPrompt) {
     return true;
   }
   return (
@@ -778,13 +797,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
   };
 }
 
-function selectBackendActivePrompt(messages: InboundMessage[]): PromptViewModel | null {
-  const entry = latestBackendViewStateEntry(messages);
-  if (!entry) {
-    return null;
-  }
-  const prompt = isRecord(entry.viewState["prompt"]) ? entry.viewState["prompt"] : null;
-  const active = isRecord(prompt?.["active"]) ? prompt["active"] : null;
+export function promptViewModelFromActivePromptPayload(active: Record<string, unknown>): PromptViewModel | null {
   if (!active) {
     return null;
   }
@@ -816,6 +829,19 @@ function selectBackendActivePrompt(messages: InboundMessage[]): PromptViewModel 
       choicesRaw
     ),
   };
+}
+
+function selectBackendActivePrompt(messages: InboundMessage[]): PromptViewModel | null {
+  const entry = latestBackendViewStateEntry(messages);
+  if (!entry) {
+    return null;
+  }
+  const prompt = isRecord(entry.viewState["prompt"]) ? entry.viewState["prompt"] : null;
+  const active = isRecord(prompt?.["active"]) ? prompt["active"] : null;
+  if (!active) {
+    return null;
+  }
+  return promptViewModelFromActivePromptPayload(active);
 }
 
 export function selectActivePrompt(messages: InboundMessage[]): PromptViewModel | null {

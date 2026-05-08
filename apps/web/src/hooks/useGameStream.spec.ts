@@ -3,7 +3,7 @@ import {
   buildDecisionMessage,
   buildGameStreamKey,
   createDecisionRequestLedger,
-} from "./useGameStream";
+} from "../domain/stream/decisionProtocol";
 
 describe("useGameStream authoritative commit helpers", () => {
   it("builds the active stream key from the normalized session and token", () => {
@@ -42,6 +42,18 @@ describe("useGameStream authoritative commit helpers", () => {
 
     expect(secondLedger.shouldSend(streamKey, "req_burden_3")).toBe(false);
     expect(secondLedger.shouldSend(streamKey, "req_burden_4")).toBe(true);
+  });
+
+  it("can release one request id for a controlled stale-prompt retry", () => {
+    const ledger = createDecisionRequestLedger();
+    const streamKey = buildGameStreamKey("sess_retry", "seat-1");
+
+    ledger.recordSent(streamKey, "req_retry_1");
+    expect(ledger.shouldSend(streamKey, "req_retry_1")).toBe(false);
+
+    ledger.forget(streamKey, "req_retry_1");
+
+    expect(ledger.shouldSend(streamKey, "req_retry_1")).toBe(true);
   });
 
   it("builds decision messages with the backend-issued module continuation", () => {
@@ -94,6 +106,11 @@ describe("useGameStream authoritative commit helpers", () => {
           moduleType: "BurdenExchangeModule",
           moduleCursor: "burden:await_choice",
           batchId: "batch:1",
+          missingPlayerIds: [1, 3],
+          resumeTokensByPlayerId: {
+            "1": "resume-token-0",
+            "3": "resume-token-3",
+          },
         },
         viewCommitSeqSeen: 7,
         clientSeq: 8,
@@ -101,6 +118,11 @@ describe("useGameStream authoritative commit helpers", () => {
     ).toMatchObject({
       prompt_instance_id: 0,
       batch_id: "batch:1",
+      missing_player_ids: [1, 3],
+      resume_tokens_by_player_id: {
+        "1": "resume-token-0",
+        "3": "resume-token-3",
+      },
     });
   });
 });

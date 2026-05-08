@@ -24,10 +24,12 @@ from apps.server.src.services.decision_gateway import (
     decision_request_type_for_method,
     serialize_ai_choice_id,
 )
-from apps.server.src.services.runtime_service import RuntimeService
+from apps.server.src.services.runtime_service import RuntimeDecisionResume, RuntimeService
 from apps.server.src.services.runtime_service import _LocalHumanDecisionClient
 from apps.server.src.services.runtime_service import (
     _FanoutVisEventStream,
+    _run_runtime_stream_task_sync,
+    _schedule_runtime_stream_task,
     _runtime_failure_diagnostics,
     _runtime_continuation_debug_fields,
     _runtime_module_debug_fields,
@@ -40,6 +42,7 @@ from apps.server.src.infra.game_debug_log import debug_game_log_run_dir
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
 from apps.server.src.services.prompt_service import PromptService
+from apps.server.src.services.realtime_persistence import ViewCommitSequenceConflict
 from runtime_modules.contracts import FrameState, ModuleRef
 from runtime_modules.prompts import PromptApi
 from runtime_modules.simultaneous import build_resupply_frame
@@ -342,6 +345,248 @@ class RuntimeServiceTests(unittest.TestCase):
         assert command is not None
         self.assertEqual(command["seq"], 7)
 
+    def test_pending_resume_command_returns_unconsumed_matching_batch_command(self) -> None:
+        request_id = "batch:simul:resupply:1:95:mod:simul:resupply:1:95:resupply:1:p0"
+        command_store = _CommandStoreStub(
+            offset=6,
+            commands=[
+                {
+                    "seq": 7,
+                    "type": "decision_submitted",
+                    "payload": {
+                        "request_id": request_id,
+                        "player_id": 1,
+                        "choice_id": "yes",
+                        "frame_id": "simul:resupply:1:95",
+                        "module_id": "mod:simul:resupply:1:95:resupply",
+                        "module_type": "ResupplyModule",
+                        "module_cursor": "await_resupply_batch:1",
+                    },
+                }
+            ],
+        )
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=command_store,
+        )
+        runtime.recovery_checkpoint = lambda _session_id: {  # type: ignore[method-assign]
+            "available": True,
+            "checkpoint": {
+                "waiting_prompt_request_id": "",
+                "active_frame_id": "simul:resupply:1:95",
+                "active_module_id": "mod:simul:resupply:1:95:resupply",
+                "active_module_type": "ResupplyModule",
+                "active_module_cursor": "await_resupply_batch:1",
+                "runtime_active_prompt_batch": {
+                    "batch_id": "batch:simul:resupply:1:95:mod:simul:resupply:1:95:resupply:1",
+                    "missing_player_ids": [0, 1],
+                    "prompts_by_player_id": {
+                        "0": {
+                            "request_id": request_id,
+                            "frame_id": "simul:resupply:1:95",
+                            "module_id": "mod:simul:resupply:1:95:resupply",
+                            "module_type": "ResupplyModule",
+                            "module_cursor": "await_resupply_batch:1",
+                        },
+                        "1": {
+                            "request_id": (
+                                "batch:simul:resupply:1:95:mod:simul:resupply:1:95:resupply:1:p1"
+                            ),
+                            "frame_id": "simul:resupply:1:95",
+                            "module_id": "mod:simul:resupply:1:95:resupply",
+                            "module_type": "ResupplyModule",
+                            "module_cursor": "await_resupply_batch:1",
+                        },
+                    },
+                },
+            },
+            "current_state": {},
+        }
+
+        command = runtime.pending_resume_command("sess_1")
+
+        self.assertIsNotNone(command)
+        assert command is not None
+        self.assertEqual(command["seq"], 7)
+
+    def test_pending_resume_command_ignores_resolved_batch_request(self) -> None:
+        request_id = "batch:simul:resupply:1:95:mod:simul:resupply:1:95:resupply:1:p0"
+        command_store = _CommandStoreStub(
+            offset=6,
+            commands=[
+                {
+                    "seq": 7,
+                    "type": "decision_submitted",
+                    "payload": {
+                        "request_id": request_id,
+                        "player_id": 1,
+                        "choice_id": "yes",
+                        "frame_id": "simul:resupply:1:95",
+                        "module_id": "mod:simul:resupply:1:95:resupply",
+                        "module_type": "ResupplyModule",
+                        "module_cursor": "await_resupply_batch:1",
+                    },
+                },
+                {
+                    "seq": 8,
+                    "type": "decision_resolved",
+                    "payload": {"request_id": request_id},
+                },
+            ],
+        )
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=command_store,
+        )
+        runtime.recovery_checkpoint = lambda _session_id: {  # type: ignore[method-assign]
+            "available": True,
+            "checkpoint": {
+                "runtime_active_prompt_batch": {
+                    "missing_player_ids": [0],
+                    "prompts_by_player_id": {
+                        "0": {
+                            "request_id": request_id,
+                            "frame_id": "simul:resupply:1:95",
+                            "module_id": "mod:simul:resupply:1:95:resupply",
+                            "module_type": "ResupplyModule",
+                            "module_cursor": "await_resupply_batch:1",
+                        }
+                    },
+                },
+                "active_frame_id": "simul:resupply:1:95",
+                "active_module_id": "mod:simul:resupply:1:95:resupply",
+                "active_module_type": "ResupplyModule",
+                "active_module_cursor": "await_resupply_batch:1",
+            },
+            "current_state": {},
+        }
+
+        command = runtime.pending_resume_command("sess_1")
+
+        self.assertIsNone(command)
+
+    def test_pending_resume_command_uses_runtime_active_prompt_request_id(self) -> None:
+        request_id = "sess_1:r2:t9:p4:active_flip:120"
+        command_store = _CommandStoreStub(
+            offset=61,
+            commands=[
+                {
+                    "seq": 62,
+                    "type": "decision_submitted",
+                    "payload": {
+                        "request_id": request_id,
+                        "player_id": 3,
+                        "choice_id": "none",
+                        "frame_id": "round:2",
+                        "module_id": "mod:round:2:roundendcardflip",
+                        "module_type": "RoundEndCardFlipModule",
+                        "module_cursor": "start",
+                    },
+                }
+            ],
+        )
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=command_store,
+        )
+        runtime.recovery_checkpoint = lambda _session_id: {  # type: ignore[method-assign]
+            "available": True,
+            "checkpoint": {
+                "waiting_prompt_request_id": "",
+                "runtime_active_prompt": {
+                    "request_id": request_id,
+                    "player_id": 3,
+                    "frame_id": "round:2",
+                    "module_id": "mod:round:2:roundendcardflip",
+                    "module_type": "RoundEndCardFlipModule",
+                    "module_cursor": "start",
+                },
+                "active_frame_id": "round:2",
+                "active_module_id": "mod:round:2:roundendcardflip",
+                "active_module_type": "RoundEndCardFlipModule",
+                "active_module_cursor": "start",
+            },
+            "current_state": {},
+        }
+
+        command = runtime.pending_resume_command("sess_1")
+
+        self.assertIsNotNone(command)
+        assert command is not None
+        self.assertEqual(command["seq"], 62)
+
+    def test_resolved_timeout_fallback_command_can_resume_waiting_checkpoint(self) -> None:
+        request_id = "sess_1:r2:t9:p4:active_flip:120"
+        command_store = _CommandStoreStub(
+            offset=61,
+            commands=[
+                {
+                    "seq": 62,
+                    "type": "decision_submitted",
+                    "payload": {
+                        "request_id": request_id,
+                        "player_id": 3,
+                        "choice_id": "none",
+                        "source": "timeout_fallback",
+                        "decision": {
+                            "request_id": request_id,
+                            "choice_id": "none",
+                            "provider": "timeout_fallback",
+                            "frame_id": "round:2",
+                            "module_id": "mod:round:2:roundendcardflip",
+                            "module_type": "RoundEndCardFlipModule",
+                            "module_cursor": "start",
+                        },
+                    },
+                },
+                {
+                    "seq": 63,
+                    "type": "decision_resolved",
+                    "payload": {"request_id": request_id},
+                },
+            ],
+        )
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=command_store,
+        )
+        runtime.recovery_checkpoint = lambda _session_id: {  # type: ignore[method-assign]
+            "available": True,
+            "checkpoint": {
+                "runtime_active_prompt": {
+                    "request_id": request_id,
+                    "player_id": 3,
+                    "frame_id": "round:2",
+                    "module_id": "mod:round:2:roundendcardflip",
+                    "module_type": "RoundEndCardFlipModule",
+                    "module_cursor": "start",
+                },
+                "active_frame_id": "round:2",
+                "active_module_id": "mod:round:2:roundendcardflip",
+                "active_module_type": "RoundEndCardFlipModule",
+                "active_module_cursor": "start",
+            },
+            "current_state": {},
+        }
+
+        pending = runtime.pending_resume_command("sess_1")
+        matching = runtime._matching_resume_command_for_seq("sess_1", 62)
+
+        self.assertIsNotNone(pending)
+        self.assertIsNotNone(matching)
+        assert pending is not None
+        assert matching is not None
+        self.assertEqual(pending["seq"], 62)
+        self.assertEqual(matching["seq"], 62)
+
     def test_runtime_runner_ignores_classic_override_after_cutover(self) -> None:
         self.assertEqual(resolve_runtime_runner_kind({"runner_kind": "module"}, RuntimeSettings()), "module")
         self.assertEqual(resolve_runtime_runner_kind({"runner_kind": "classic"}, RuntimeSettings()), "module")
@@ -489,6 +734,213 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(diagnostics["exception_type"], "RuntimeError")
         self.assertEqual(diagnostics["exception_repr"], "RuntimeError()")
         self.assertIn("RuntimeError", diagnostics["traceback"])
+
+    def test_runtime_stream_side_effect_scheduler_does_not_block_on_future_result(self) -> None:
+        callbacks = []
+
+        class FutureStub:
+            def add_done_callback(self, callback) -> None:
+                callbacks.append(callback)
+
+            def result(self, timeout=None):  # pragma: no cover - called only if the scheduler regresses.
+                raise AssertionError("stream side-effect scheduler must not block on result")
+
+        async def publish_later():
+            return None
+
+        def fake_run_coroutine_threadsafe(coro, loop):
+            coro.close()
+            return FutureStub()
+
+        with patch(
+            "apps.server.src.services.runtime_service.asyncio.run_coroutine_threadsafe",
+            side_effect=fake_run_coroutine_threadsafe,
+        ):
+            _schedule_runtime_stream_task(
+                object(),
+                "sess_side_effect",
+                "runtime_view_commit_emit_failed",
+                publish_later,
+            )
+
+        self.assertEqual(len(callbacks), 1)
+
+    def test_runtime_stream_sync_task_cancels_on_timeout(self) -> None:
+        cancelled = False
+
+        class FutureStub:
+            def result(self, timeout=None):
+                raise TimeoutError()
+
+            def cancel(self) -> None:
+                nonlocal cancelled
+                cancelled = True
+
+        async def publish_later():
+            return None
+
+        def fake_run_coroutine_threadsafe(coro, loop):
+            coro.close()
+            return FutureStub()
+
+        with patch(
+            "apps.server.src.services.runtime_service.asyncio.run_coroutine_threadsafe",
+            side_effect=fake_run_coroutine_threadsafe,
+        ):
+            ok = _run_runtime_stream_task_sync(
+                object(),
+                "sess_timeout",
+                "runtime_view_commit_emit_failed",
+                publish_later,
+                timeout=0.1,
+            )
+
+        self.assertFalse(ok)
+        self.assertTrue(cancelled)
+
+    def test_runtime_stream_sync_task_retries_transient_timeout(self) -> None:
+        attempts = 0
+        cancelled = 0
+
+        class FutureStub:
+            def __init__(self, attempt: int) -> None:
+                self._attempt = attempt
+
+            def result(self, timeout=None):
+                if self._attempt == 1:
+                    raise TimeoutError()
+                return None
+
+            def cancel(self) -> None:
+                nonlocal cancelled
+                cancelled += 1
+
+        async def publish_later():
+            return None
+
+        def fake_run_coroutine_threadsafe(coro, loop):
+            nonlocal attempts
+            attempts += 1
+            coro.close()
+            return FutureStub(attempts)
+
+        with patch(
+            "apps.server.src.services.runtime_service.asyncio.run_coroutine_threadsafe",
+            side_effect=fake_run_coroutine_threadsafe,
+        ), patch("apps.server.src.services.runtime_service.log_event") as log_event:
+            ok = _run_runtime_stream_task_sync(
+                object(),
+                "sess_retry_timeout",
+                "runtime_prompt_publish_failed",
+                publish_later,
+                timeout=0.1,
+                attempts=2,
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(attempts, 2)
+        self.assertEqual(cancelled, 1)
+        log_event.assert_not_called()
+
+    def test_redis_backed_view_commit_emit_is_scheduled_without_blocking_runtime(self) -> None:
+        callbacks = []
+
+        class BackendStub:
+            pass
+
+        class StreamStub:
+            _stream_backend = BackendStub()
+
+            async def emit_latest_view_commit(self, session_id: str):
+                return None
+
+        class FutureStub:
+            def add_done_callback(self, callback) -> None:
+                callbacks.append(callback)
+
+            def result(self, timeout=None):  # pragma: no cover - called only if scheduling regresses.
+                raise AssertionError("redis-backed view_commit emit must not block runtime progress")
+
+        def fake_run_coroutine_threadsafe(coro, loop):
+            coro.close()
+            return FutureStub()
+
+        self.runtime_service._stream_service = StreamStub()
+        with patch(
+            "apps.server.src.services.runtime_service.asyncio.run_coroutine_threadsafe",
+            side_effect=fake_run_coroutine_threadsafe,
+        ):
+            self.runtime_service._emit_latest_view_commit_sync(object(), "sess_stream_backend")
+
+        self.assertEqual(len(callbacks), 1)
+
+    def test_redis_backed_prompt_boundary_publish_is_scheduled_without_blocking_runtime(self) -> None:
+        callbacks = []
+
+        class BackendStub:
+            pass
+
+        class StreamStub:
+            _stream_backend = BackendStub()
+
+            async def publish(self, session_id: str, message_type: str, payload: dict):
+                return {"seq": 1, "type": message_type, "payload": payload}
+
+        class FutureStub:
+            def add_done_callback(self, callback) -> None:
+                callbacks.append(callback)
+
+            def result(self, timeout=None):  # pragma: no cover - called only if scheduling regresses.
+                raise AssertionError("redis-backed prompt publish must not block runtime progress")
+
+        def fake_run_coroutine_threadsafe(coro, loop):
+            coro.close()
+            return FutureStub()
+
+        self.runtime_service._stream_service = StreamStub()
+        with patch(
+            "apps.server.src.services.runtime_service.asyncio.run_coroutine_threadsafe",
+            side_effect=fake_run_coroutine_threadsafe,
+        ):
+            self.runtime_service._materialize_prompt_boundary_sync(
+                object(),
+                "sess_prompt_backend",
+                {
+                    "request_id": "req_prompt_backend",
+                    "request_type": "roll",
+                    "player_id": 1,
+                    "timeout_ms": 30000,
+                    "legal_choices": [{"choice_id": "roll"}],
+                },
+            )
+
+        self.assertEqual(len(callbacks), 2)
+
+    def test_redis_backed_stream_history_reads_do_not_require_event_loop(self) -> None:
+        class BackendStub:
+            def latest_seq(self, session_id: str) -> int:
+                self.latest_session_id = session_id
+                return 42
+
+            def source_snapshot(self, session_id: str, through_seq: int | None = None) -> list[dict]:
+                self.source_args = (session_id, through_seq)
+                return [{"seq": 41, "type": "event", "payload": {"event_type": "turn_start"}}]
+
+        class StreamStub:
+            def __init__(self) -> None:
+                self._stream_backend = BackendStub()
+
+        service = RuntimeService(
+            session_service=self.session_service,
+            stream_service=StreamStub(),
+            prompt_service=self.prompt_service,
+        )
+
+        self.assertEqual(service._latest_stream_seq_sync(None, "sess_backend"), 42)  # type: ignore[attr-defined]
+        self.assertEqual(
+            service._source_history_sync(None, "sess_backend", 42),  # type: ignore[attr-defined]
+            [{"seq": 41, "type": "event", "payload": {"event_type": "turn_start"}}],
+        )
 
     def test_current_actor_prefers_active_turn_frame_owner(self) -> None:
         checkpoint = {
@@ -849,6 +1301,132 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(status["status"], "idle")
         self.assertNotIn("request_id", status)
 
+    def test_checkpointed_runtime_status_does_not_complete_from_stale_done_task(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "human"},
+            ],
+            config={"seed": 42},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.join_session(session.session_id, 2, session.join_tokens[2], "P2")
+        self.session_service.start_session(session.session_id, session.host_token)
+        runtime_state_store = _RuntimeStateStoreStub()
+        game_state_store = _MutableGameStateStoreStub()
+        game_state_store.checkpoint = {
+            "session_id": session.session_id,
+            "latest_seq": 43,
+            "waiting_prompt_request_id": "req_waiting_movement",
+        }
+        game_state_store.current_state = {
+            "session_id": session.session_id,
+            "tiles": [],
+            "players": [],
+        }
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            runtime_state_store=runtime_state_store,
+            game_state_store=game_state_store,
+        )
+        runtime._status[session.session_id] = {"status": "running", "watchdog_state": "ok"}  # type: ignore[attr-defined]
+        runtime._last_activity_ms[session.session_id] = runtime._now_ms()  # type: ignore[attr-defined]
+        runtime._runtime_tasks[session.session_id] = _DoneRuntimeTaskStub()  # type: ignore[attr-defined]
+        runtime._persist_runtime_state(session.session_id)  # type: ignore[attr-defined]
+
+        status = runtime.runtime_status(session.session_id)
+
+        self.assertEqual(status.get("status"), "waiting_input")
+        self.assertNotEqual(runtime_state_store.statuses[session.session_id].get("status"), "completed")
+
+    def test_runtime_status_normalizes_waiting_checkpoint_after_restart(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "human"},
+            ],
+            config={"seed": 42},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.join_session(session.session_id, 2, session.join_tokens[2], "P2")
+        self.session_service.start_session(session.session_id, session.host_token)
+        runtime_state_store = _RuntimeStateStoreStub()
+        runtime_state_store.statuses[session.session_id] = {
+            "status": "running",
+            "watchdog_state": "ok",
+            "lease_expires_at_ms": 1,
+        }
+        game_state_store = _MutableGameStateStoreStub()
+        game_state_store.checkpoint = {
+            "session_id": session.session_id,
+            "latest_seq": 85,
+            "waiting_prompt_request_id": "req_hidden_trick",
+            "waiting_prompt_player_id": 1,
+            "runtime_active_prompt": {
+                "request_id": "req_hidden_trick",
+                "request_type": "hidden_trick_card",
+                "player_id": 1,
+                "legal_choices": [{"choice_id": "skip"}],
+            },
+        }
+        game_state_store.current_state = {
+            "session_id": session.session_id,
+            "tiles": [],
+            "players": [],
+        }
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            runtime_state_store=runtime_state_store,
+            game_state_store=game_state_store,
+        )
+
+        status = runtime.runtime_status(session.session_id)
+
+        self.assertEqual(status.get("status"), "waiting_input")
+        self.assertEqual(status.get("watchdog_state"), "waiting_input")
+        self.assertEqual(runtime_state_store.statuses[session.session_id].get("status"), "waiting_input")
+        self.assertIn("recovery_checkpoint", status)
+
+    def test_start_runtime_defers_waiting_checkpoint_without_engine_task(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "human"},
+            ],
+            config={"seed": 42},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.join_session(session.session_id, 2, session.join_tokens[2], "P2")
+        self.session_service.start_session(session.session_id, session.host_token)
+        runtime_state_store = _RuntimeStateStoreStub()
+        game_state_store = _MutableGameStateStoreStub()
+        game_state_store.checkpoint = {
+            "session_id": session.session_id,
+            "latest_seq": 85,
+            "waiting_prompt_request_id": "req_hidden_trick",
+        }
+        game_state_store.current_state = {
+            "session_id": session.session_id,
+            "tiles": [],
+            "players": [],
+        }
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            runtime_state_store=runtime_state_store,
+            game_state_store=game_state_store,
+        )
+
+        asyncio.run(runtime.start_runtime(session.session_id, seed=42, policy_mode=None))
+
+        self.assertNotIn(session.session_id, runtime._runtime_tasks)  # type: ignore[attr-defined]
+        self.assertEqual(runtime.runtime_status(session.session_id).get("status"), "waiting_input")
+
     def test_execute_prompt_fallback_records_recent_history(self) -> None:
         session = self.session_service.create_session(
             seats=[
@@ -1016,6 +1594,591 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(result["transitions"], 2)
         self.assertEqual(calls, [("runtime_wakeup", 7), (None, None)])
         self.assertEqual(self.runtime_service.runtime_status(session.session_id)["status"], "waiting_input")
+
+    def test_process_command_once_refreshes_runtime_lease_while_transition_runs(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 73},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.start_session(session.session_id, session.host_token)
+        runtime_state_store = _RuntimeStateStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            runtime_state_store=runtime_state_store,
+        )
+
+        def _transition_loop(*_args, **_kwargs) -> dict:
+            deadline = time.monotonic() + 0.3
+            while len(runtime_state_store.refresh_calls) < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            return {"status": "waiting_input", "request_type": "purchase_tile", "player_id": 1}
+
+        with (
+            patch.object(runtime, "_runtime_lease_refresh_interval_seconds", return_value=0.01),
+            patch.object(runtime, "_run_engine_transition_loop_sync", side_effect=_transition_loop),
+        ):
+            result = asyncio.run(
+                runtime.process_command_once(
+                    session_id=session.session_id,
+                    command_seq=7,
+                    consumer_name="runtime_wakeup",
+                    seed=73,
+                )
+            )
+
+        self.assertEqual(result["status"], "waiting_input")
+        self.assertGreaterEqual(len(runtime_state_store.refresh_calls), 2)
+        self.assertIsNone(runtime_state_store.lease_owner(session.session_id))
+
+    def test_process_command_once_defers_when_runtime_task_is_active(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 73},
+        )
+        self.runtime_service._runtime_tasks[session.session_id] = _PendingRuntimeTaskStub()
+
+        with patch.object(self.runtime_service, "_run_engine_transition_loop_sync", side_effect=AssertionError("must not run")):
+            result = asyncio.run(
+                self.runtime_service.process_command_once(
+                    session_id=session.session_id,
+                    command_seq=7,
+                    consumer_name="runtime_wakeup",
+                    seed=73,
+                )
+            )
+
+        self.assertEqual(result["status"], "running_elsewhere")
+        self.assertEqual(result["reason"], "runtime_task_already_active")
+        self.assertEqual(result["processed_command_seq"], 7)
+
+    def test_process_command_once_skips_already_consumed_command(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 73},
+        )
+        command_store = _CommandStoreStub(offset=7, commands=[{"seq": 7, "type": "decision_submitted"}])
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=command_store,
+        )
+
+        with patch.object(runtime, "_run_engine_transition_loop_sync", side_effect=AssertionError("must not run")):
+            result = asyncio.run(
+                runtime.process_command_once(
+                    session_id=session.session_id,
+                    command_seq=7,
+                    consumer_name="runtime_wakeup",
+                    seed=73,
+                )
+            )
+
+        self.assertEqual(result["status"], "already_processed")
+        self.assertEqual(result["processed_command_seq"], 7)
+
+    def test_process_command_once_reprocesses_offset_conflict_when_checkpoint_still_waits_for_command(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 73},
+        )
+        command_store = _CommandStoreStub(
+            offset=7,
+            commands=[
+                {
+                    "seq": 7,
+                    "type": "decision_submitted",
+                    "payload": {
+                        "request_id": "sess_1:r1:t1:p1:final_character:1",
+                        "choice_id": "mansin",
+                        "frame_id": "turn:1:p0",
+                        "module_id": "mod:turn:1:p0:draft",
+                        "module_type": "DraftModule",
+                        "module_cursor": "final_character:1",
+                    },
+                }
+            ],
+        )
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=command_store,
+        )
+        runtime.recovery_checkpoint = lambda _session_id: {  # type: ignore[method-assign]
+            "available": True,
+            "checkpoint": {
+                "waiting_prompt_request_id": "sess_1:r1:t1:p1:final_character:1",
+                "active_frame_id": "turn:1:p0",
+                "active_module_id": "mod:turn:1:p0:draft",
+                "active_module_type": "DraftModule",
+                "active_module_cursor": "final_character:1",
+            },
+            "current_state": {},
+        }
+
+        with patch.object(runtime, "_run_engine_transition_loop_sync", return_value={"status": "waiting_input"}) as run_loop:
+            result = asyncio.run(
+                runtime.process_command_once(
+                    session_id=session.session_id,
+                    command_seq=7,
+                    consumer_name="runtime_wakeup",
+                    seed=73,
+                )
+            )
+
+        self.assertEqual(result["status"], "waiting_input")
+        run_loop.assert_called_once()
+
+    def test_process_command_once_reprocesses_offset_conflict_for_batch_prompt(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 73},
+        )
+        request_id = "batch:simul:resupply:1:95:mod:simul:resupply:1:95:resupply:1:p0"
+        command_store = _CommandStoreStub(
+            offset=7,
+            commands=[
+                {
+                    "seq": 7,
+                    "type": "decision_submitted",
+                    "payload": {
+                        "request_id": request_id,
+                        "player_id": 1,
+                        "choice_id": "yes",
+                        "frame_id": "simul:resupply:1:95",
+                        "module_id": "mod:simul:resupply:1:95:resupply",
+                        "module_type": "ResupplyModule",
+                        "module_cursor": "await_resupply_batch:1",
+                    },
+                }
+            ],
+        )
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=command_store,
+        )
+        runtime.recovery_checkpoint = lambda _session_id: {  # type: ignore[method-assign]
+            "available": True,
+            "checkpoint": {
+                "runtime_active_prompt_batch": {
+                    "missing_player_ids": [0],
+                    "prompts_by_player_id": {
+                        "0": {
+                            "request_id": request_id,
+                            "frame_id": "simul:resupply:1:95",
+                            "module_id": "mod:simul:resupply:1:95:resupply",
+                            "module_type": "ResupplyModule",
+                            "module_cursor": "await_resupply_batch:1",
+                        }
+                    },
+                },
+                "active_frame_id": "simul:resupply:1:95",
+                "active_module_id": "mod:simul:resupply:1:95:resupply",
+                "active_module_type": "ResupplyModule",
+                "active_module_cursor": "await_resupply_batch:1",
+            },
+            "current_state": {},
+        }
+
+        with patch.object(runtime, "_run_engine_transition_loop_sync", return_value={"status": "waiting_input"}) as run_loop:
+            result = asyncio.run(
+                runtime.process_command_once(
+                    session_id=session.session_id,
+                    command_seq=7,
+                    consumer_name="runtime_wakeup",
+                    seed=73,
+                )
+            )
+
+        self.assertEqual(result["status"], "waiting_input")
+        run_loop.assert_called_once()
+
+    def test_process_command_once_reprocesses_checkpoint_match_when_pending_lookup_races(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 73},
+        )
+        request_id = "sess_1:r2:t9:p4:active_flip:120"
+        command_store = _CommandStoreStub(
+            offset=61,
+            commands=[
+                {
+                    "seq": 62,
+                    "type": "decision_submitted",
+                    "payload": {
+                        "request_id": request_id,
+                        "player_id": 4,
+                        "request_type": "active_flip",
+                        "choice_id": "none",
+                        "frame_id": "round:2",
+                        "module_id": "mod:round:2:roundendcardflip",
+                        "module_type": "RoundEndCardFlipModule",
+                        "module_cursor": "start",
+                    },
+                }
+            ],
+        )
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=command_store,
+        )
+        runtime.recovery_checkpoint = lambda _session_id: {  # type: ignore[method-assign]
+            "available": True,
+            "checkpoint": {
+                "waiting_prompt_request_id": request_id,
+                "active_frame_id": "round:2",
+                "active_module_id": "mod:round:2:roundendcardflip",
+                "active_module_type": "RoundEndCardFlipModule",
+                "active_module_cursor": "start",
+            },
+            "current_state": {},
+        }
+        runtime.pending_resume_command = lambda _session_id, consumer_name="runtime_wakeup": None  # type: ignore[method-assign]
+
+        with patch.object(runtime, "_run_engine_transition_loop_sync", return_value={"status": "waiting_input"}) as run_loop:
+            result = asyncio.run(
+                runtime.process_command_once(
+                    session_id=session.session_id,
+                    command_seq=62,
+                    consumer_name="runtime_wakeup",
+                    seed=73,
+                )
+            )
+
+        self.assertEqual(result["status"], "waiting_input")
+        run_loop.assert_called_once()
+
+    def test_command_offset_commit_deferred_when_resume_still_waits_on_same_prompt(self) -> None:
+        resume = RuntimeDecisionResume(
+            request_id="req_active_flip_120",
+            player_id=4,
+            request_type="active_flip",
+            choice_id="none",
+            choice_payload={},
+            resume_token="resume_active_flip_120",
+            frame_id="round:2",
+            module_id="mod:round:2:roundendcardflip",
+            module_type="RoundEndCardFlipModule",
+            module_cursor="start",
+        )
+        checkpoint = {
+            "waiting_prompt_request_id": "req_active_flip_120",
+            "active_frame_id": "round:2",
+            "active_module_id": "mod:round:2:roundendcardflip",
+            "active_module_type": "RoundEndCardFlipModule",
+            "active_module_cursor": "start",
+        }
+
+        consumer_name, command_seq = self.runtime_service._command_offset_args_for_commit(
+            session_id="sess_1",
+            checkpoint=checkpoint,
+            command_consumer_name="runtime_wakeup",
+            command_seq=62,
+            decision_resume=resume,
+        )
+
+        self.assertIsNone(consumer_name)
+        self.assertIsNone(command_seq)
+
+    def test_command_offset_commit_advances_when_resume_changes_waiting_prompt(self) -> None:
+        resume = RuntimeDecisionResume(
+            request_id="req_active_flip_120",
+            player_id=4,
+            request_type="active_flip",
+            choice_id="none",
+            choice_payload={},
+            resume_token="resume_active_flip_120",
+            frame_id="round:2",
+            module_id="mod:round:2:roundendcardflip",
+            module_type="RoundEndCardFlipModule",
+            module_cursor="start",
+        )
+        checkpoint = {
+            "waiting_prompt_request_id": "req_purchase_121",
+            "active_frame_id": "turn:2:p0",
+            "active_module_id": "mod:turn:2:p0:purchase",
+            "active_module_type": "PurchaseModule",
+            "active_module_cursor": "await_purchase",
+        }
+
+        consumer_name, command_seq = self.runtime_service._command_offset_args_for_commit(
+            session_id="sess_1",
+            checkpoint=checkpoint,
+            command_consumer_name="runtime_wakeup",
+            command_seq=62,
+            decision_resume=resume,
+        )
+
+        self.assertEqual(consumer_name, "runtime_wakeup")
+        self.assertEqual(command_seq, 62)
+
+    def test_process_command_once_skips_command_that_no_longer_matches_waiting_prompt(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 73},
+        )
+        command_store = _CommandStoreStub(
+            offset=6,
+            commands=[
+                {
+                    "seq": 7,
+                    "type": "decision_submitted",
+                    "payload": {"request_id": "old_request"},
+                }
+            ],
+        )
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=command_store,
+        )
+        runtime.recovery_checkpoint = lambda _session_id: {  # type: ignore[method-assign]
+            "available": True,
+            "checkpoint": {"waiting_prompt_request_id": "new_request"},
+            "current_state": {},
+        }
+
+        with patch.object(runtime, "_run_engine_transition_loop_sync", side_effect=AssertionError("must not run")):
+            result = asyncio.run(
+                runtime.process_command_once(
+                    session_id=session.session_id,
+                    command_seq=7,
+                    consumer_name="runtime_wakeup",
+                    seed=73,
+                )
+            )
+
+        self.assertEqual(result["status"], "stale")
+        self.assertEqual(result["reason"], "command_no_longer_matches_waiting_prompt")
+        self.assertEqual(result["consumer_offset"], 7)
+        self.assertEqual(command_store.offset, 7)
+
+    def test_process_command_once_advances_offset_when_older_command_precedes_active_prompt(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 73},
+        )
+        command_store = _CommandStoreStub(
+            offset=6,
+            commands=[
+                {
+                    "seq": 7,
+                    "type": "decision_submitted",
+                    "payload": {"request_id": "old_request"},
+                },
+                {
+                    "seq": 8,
+                    "type": "decision_submitted",
+                    "payload": {"request_id": "active_request"},
+                },
+            ],
+        )
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=command_store,
+        )
+        runtime.recovery_checkpoint = lambda _session_id: {  # type: ignore[method-assign]
+            "available": True,
+            "checkpoint": {"waiting_prompt_request_id": "active_request"},
+            "current_state": {},
+        }
+
+        with patch.object(runtime, "_run_engine_transition_loop_sync", side_effect=AssertionError("must not run")):
+            result = asyncio.run(
+                runtime.process_command_once(
+                    session_id=session.session_id,
+                    command_seq=7,
+                    consumer_name="runtime_wakeup",
+                    seed=73,
+                )
+            )
+
+        self.assertEqual(result["status"], "stale")
+        self.assertEqual(result["reason"], "pending_command_seq_changed")
+        self.assertEqual(result["consumer_offset"], 7)
+        self.assertEqual(command_store.offset, 7)
+
+    def test_process_command_once_defers_newer_command_until_earlier_pending_is_consumed(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 73},
+        )
+        command_store = _CommandStoreStub(
+            offset=6,
+            commands=[
+                {
+                    "seq": 7,
+                    "type": "decision_submitted",
+                    "payload": {"request_id": "current_request"},
+                },
+                {
+                    "seq": 8,
+                    "type": "decision_submitted",
+                    "payload": {"request_id": "next_request"},
+                },
+            ],
+        )
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=command_store,
+        )
+        runtime.recovery_checkpoint = lambda _session_id: {  # type: ignore[method-assign]
+            "available": True,
+            "checkpoint": {"waiting_prompt_request_id": "current_request"},
+            "current_state": {},
+        }
+
+        with patch.object(runtime, "_run_engine_transition_loop_sync", side_effect=AssertionError("must not run")):
+            result = asyncio.run(
+                runtime.process_command_once(
+                    session_id=session.session_id,
+                    command_seq=8,
+                    consumer_name="runtime_wakeup",
+                    seed=73,
+                )
+            )
+
+        self.assertEqual(result["status"], "running_elsewhere")
+        self.assertEqual(result["reason"], "pending_command_seq_precedes_target")
+        self.assertEqual(result["pending_command_seq"], 7)
+        self.assertEqual(command_store.offset, 6)
+
+    def test_process_command_once_checks_active_command_before_stale_guard(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 73},
+        )
+        command_store = _CommandStoreStub(
+            offset=6,
+            commands=[
+                {
+                    "seq": 7,
+                    "type": "decision_submitted",
+                    "payload": {"request_id": "next_request"},
+                }
+            ],
+        )
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=command_store,
+        )
+        runtime.recovery_checkpoint = lambda _session_id: {  # type: ignore[method-assign]
+            "available": True,
+            "checkpoint": {"waiting_prompt_request_id": "current_request"},
+            "current_state": {},
+        }
+        runtime._active_command_sessions.add(session.session_id)
+
+        try:
+            with patch.object(runtime, "_run_engine_transition_loop_sync", side_effect=AssertionError("must not run")):
+                result = asyncio.run(
+                    runtime.process_command_once(
+                        session_id=session.session_id,
+                        command_seq=7,
+                        consumer_name="runtime_wakeup",
+                        seed=73,
+                    )
+                )
+        finally:
+            runtime._active_command_sessions.discard(session.session_id)
+
+        self.assertEqual(result["status"], "running_elsewhere")
+        self.assertEqual(result["reason"], "command_processing_already_active")
+        self.assertEqual(command_store.offset, 6)
+
+    def test_process_command_once_treats_view_commit_conflict_as_recoverable_duplicate(self) -> None:
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 73},
+        )
+        runtime_state_store = _RuntimeStateStoreStub()
+        game_state_store = _MutableGameStateStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            runtime_state_store=runtime_state_store,
+            game_state_store=game_state_store,
+        )
+        runtime.recovery_checkpoint = lambda _session_id: {  # type: ignore[method-assign]
+            "available": True,
+            "checkpoint": {
+                "waiting_prompt_request_id": "req_after_duplicate_commit",
+                "runtime_active_prompt": {
+                    "request_id": "req_after_duplicate_commit",
+                    "legal_choices": [{"choice_id": "yes"}],
+                },
+            },
+            "current_state": {},
+        }
+
+        with patch.object(
+            runtime,
+            "_run_engine_transition_loop_sync",
+            side_effect=ViewCommitSequenceConflict("view_commit_seq_conflict"),
+        ):
+            result = asyncio.run(
+                runtime.process_command_once(
+                    session_id=session.session_id,
+                    command_seq=7,
+                    consumer_name="runtime_wakeup",
+                    seed=73,
+                )
+            )
+
+        self.assertEqual(result["status"], "commit_conflict")
+        self.assertEqual(result["reason"], "view_commit_seq_conflict")
+        self.assertEqual(result["processed_command_seq"], 7)
+        self.assertEqual(runtime.runtime_status(session.session_id)["status"], "waiting_input")
+        self.assertNotEqual(runtime_state_store.statuses[session.session_id].get("status"), "failed")
 
     def test_decision_request_type_for_method_uses_canonical_mapping(self) -> None:
         self.assertEqual(decision_request_type_for_method("choose_purchase_tile"), "purchase_tile")
@@ -4383,6 +5546,7 @@ class RuntimeServiceTests(unittest.TestCase):
             "session_id": session.session_id,
             "runner_kind": "module",
             "has_snapshot": True,
+            "latest_commit_seq": 4,
         }
         command_store.commands.append(
             {
@@ -4483,6 +5647,7 @@ class RuntimeServiceTests(unittest.TestCase):
             "session_id": session.session_id,
             "runner_kind": "module",
             "has_snapshot": True,
+            "latest_commit_seq": 4,
         }
         command_store.commands.append(
             {
@@ -4583,6 +5748,7 @@ class RuntimeServiceTests(unittest.TestCase):
             "session_id": session.session_id,
             "runner_kind": "module",
             "has_snapshot": True,
+            "latest_commit_seq": 4,
         }
         command_store.commands.append(
             {
@@ -4628,6 +5794,318 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(getattr(seen[0], "request_id"), "req_1")
         self.assertEqual(getattr(seen[0], "request_type"), "movement")
         self.assertEqual(getattr(seen[0], "module_cursor"), "move:await_choice")
+        self.assertIsNone(store.current_state.get("runtime_active_prompt"))
+        self.assertIsNone(store.current_state.get("runtime_active_prompt_batch"))
+        self.assertEqual(store.commits[0]["expected_previous_commit_seq"], 4)
+        self.assertEqual(store.commits[0]["checkpoint"]["base_commit_seq"], 4)
+        self.assertEqual(store.commits[0]["checkpoint"]["latest_commit_seq"], 5)
+        self.assertEqual(store.commits[0]["runtime_event_payload"]["base_commit_seq"], 4)
+        self.assertNotIn("runtime_active_prompt_request_id", store.commits[0]["runtime_event_payload"])
+
+    def test_module_resume_seeds_prompt_sequence_from_previous_same_module_decision(self) -> None:
+        RuntimeService._ensure_engine_import_path()
+        import engine
+        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+        from runtime_modules.contracts import PromptContinuation
+        from state import GameState
+
+        class _CommandStoreStub:
+            def __init__(self) -> None:
+                self.commands: list[dict] = []
+                self.offsets: list[tuple[str, str, int]] = []
+
+            def list_commands(self, session_id: str) -> list[dict]:
+                return [copy.deepcopy(command) for command in self.commands if command["session_id"] == session_id]
+
+            def save_consumer_offset(self, consumer_name: str, session_id: str, seq: int) -> None:
+                self.offsets.append((consumer_name, session_id, int(seq)))
+
+        store = _MutableGameStateStoreStub()
+        command_store = _CommandStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            game_state_store=store,
+            command_store=command_store,
+        )
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42, "runtime": {"runner_kind": "module", "ai_decision_delay_ms": 0}},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.start_session(session.session_id, session.host_token)
+
+        config = runtime._config_factory.create(session.resolved_parameters)  # type: ignore[attr-defined]
+        state = GameState.create(config)
+        state.runtime_runner_kind = "module"
+        state.runtime_checkpoint_schema_version = 3
+        state.prompt_sequence = 60
+        state.pending_prompt_request_id = f"{session.session_id}:r1:t3:p1:trick_tile_target:60"
+        state.pending_prompt_type = "trick_tile_target"
+        state.pending_prompt_player_id = 1
+        state.pending_prompt_instance_id = 60
+        state.runtime_active_prompt = PromptContinuation(
+            request_id=state.pending_prompt_request_id,
+            prompt_instance_id=60,
+            resume_token="resume_current",
+            frame_id="seq:action:1:p0:89",
+            module_id="mod:seq:action:1:p0:89:fortuneresolve",
+            module_type="FortuneResolveModule",
+            module_cursor="await_action_prompt",
+            player_id=0,
+            request_type="trick_tile_target",
+            legal_choices=[{"choice_id": "8"}, {"choice_id": "12"}],
+        )
+        store.current_state = state.to_checkpoint_payload()
+        store.checkpoint = {
+            "schema_version": 3,
+            "session_id": session.session_id,
+            "runner_kind": "module",
+            "has_snapshot": True,
+            "latest_commit_seq": 104,
+            "decision_resume_request_id": f"{session.session_id}:r1:t3:p1:trick_tile_target:58",
+            "decision_resume_request_type": "trick_tile_target",
+            "decision_resume_player_id": 1,
+            "decision_resume_choice_id": "6",
+            "decision_resume_frame_id": "seq:action:1:p0:89",
+            "decision_resume_module_id": "mod:seq:action:1:p0:89:fortuneresolve",
+            "decision_resume_module_type": "FortuneResolveModule",
+            "decision_resume_module_cursor": "await_action_prompt",
+        }
+        command_store.commands.append(
+            {
+                "seq": 32,
+                "type": "decision_submitted",
+                "session_id": session.session_id,
+                "payload": {
+                    "request_id": state.pending_prompt_request_id,
+                    "player_id": 1,
+                    "request_type": "trick_tile_target",
+                    "choice_id": "8",
+                    "choice_payload": {"tile_index": 8},
+                    "resume_token": "resume_current",
+                    "frame_id": "seq:action:1:p0:89",
+                    "module_id": "mod:seq:action:1:p0:89:fortuneresolve",
+                    "module_type": "FortuneResolveModule",
+                    "module_cursor": "await_action_prompt",
+                    "decision": {},
+                },
+            }
+        )
+        seen_prompt_sequences: list[int] = []
+        original_set_prompt_sequence = _ServerDecisionPolicyBridge.set_prompt_sequence
+
+        def _capture_prompt_sequence(self, value: int) -> None:  # noqa: ANN001
+            seen_prompt_sequences.append(int(value))
+            original_set_prompt_sequence(self, value)
+
+        def _fake_run_next_transition(self, state, decision_resume=None):  # noqa: ANN001
+            del self, state, decision_resume
+            return {"status": "committed", "runner_kind": "module", "module_type": "FortuneResolveModule"}
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            with (
+                patch.object(_ServerDecisionPolicyBridge, "set_prompt_sequence", _capture_prompt_sequence),
+                patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition),
+            ):
+                result = runtime._run_engine_transition_once_sync(
+                    loop,
+                    session.session_id,
+                    42,
+                    None,
+                    True,
+                    "runtime-worker",
+                    32,
+                )
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+        self.assertEqual(result["status"], "committed")
+        self.assertEqual(seen_prompt_sequences[:1], [57])
+
+    def test_module_transition_discards_when_commit_seq_changes_before_write(self) -> None:
+        RuntimeService._ensure_engine_import_path()
+        import engine
+        from runtime_modules.contracts import PromptContinuation
+        from state import GameState
+
+        class _CommandStoreStub:
+            def __init__(self) -> None:
+                self.commands: list[dict] = []
+                self.offsets: list[tuple[str, str, int]] = []
+
+            def list_commands(self, session_id: str) -> list[dict]:
+                return [copy.deepcopy(command) for command in self.commands if command["session_id"] == session_id]
+
+            def save_consumer_offset(self, consumer_name: str, session_id: str, seq: int) -> None:
+                self.offsets.append((consumer_name, session_id, int(seq)))
+
+        store = _MutableGameStateStoreStub()
+        command_store = _CommandStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            game_state_store=store,
+            command_store=command_store,
+        )
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42, "runtime": {"runner_kind": "module", "ai_decision_delay_ms": 0}},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.start_session(session.session_id, session.host_token)
+        config = runtime._config_factory.create(session.resolved_parameters)  # type: ignore[attr-defined]
+        state = GameState.create(config)
+        state.runtime_runner_kind = "module"
+        state.runtime_checkpoint_schema_version = 3
+        state.runtime_active_prompt = PromptContinuation(
+            request_id="req_1",
+            prompt_instance_id=1,
+            resume_token="token_1",
+            frame_id="turn:1:p0",
+            module_id="mod:turn:1:p0:movement",
+            module_type="MapMoveModule",
+            module_cursor="move:await_choice",
+            player_id=0,
+            request_type="movement",
+            legal_choices=[{"choice_id": "roll"}],
+        )
+        store.current_state = state.to_checkpoint_payload()
+        store.checkpoint = {
+            "schema_version": 3,
+            "session_id": session.session_id,
+            "runner_kind": "module",
+            "has_snapshot": True,
+            "latest_commit_seq": 4,
+        }
+        command_store.commands.append(
+            {
+                "seq": 1,
+                "type": "decision_submitted",
+                "session_id": session.session_id,
+                "payload": {
+                    "request_id": "req_1",
+                    "player_id": 1,
+                    "request_type": "movement",
+                    "choice_id": "roll",
+                    "resume_token": "token_1",
+                    "frame_id": "turn:1:p0",
+                    "module_id": "mod:turn:1:p0:movement",
+                    "module_type": "MapMoveModule",
+                    "module_cursor": "move:await_choice",
+                    "decision": {},
+                },
+            }
+        )
+        seen: list[object] = []
+
+        def _fake_run_next_transition(self, state, decision_resume=None):  # noqa: ANN001
+            del self, state
+            seen.append(decision_resume)
+            return {"status": "committed", "runner_kind": "module", "module_type": "MapMoveModule"}
+
+        with (
+            patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition),
+            patch.object(runtime, "_latest_view_commit_seq", side_effect=[4, 5]),
+        ):
+            result = runtime._run_engine_transition_once_sync(
+                None,
+                session.session_id,
+                42,
+                None,
+                True,
+                "runtime-worker",
+                1,
+            )
+
+        self.assertEqual(result["status"], "stale")
+        self.assertEqual(result["reason"], "view_commit_seq_changed_before_commit")
+        self.assertEqual(result["base_commit_seq"], 4)
+        self.assertEqual(result["latest_commit_seq"], 5)
+        self.assertEqual(result["attempted_commit_seq"], 5)
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(command_store.offsets, [])
+        self.assertEqual(store.commits, [])
+
+    def test_module_transition_discards_when_runtime_lease_is_lost_before_write(self) -> None:
+        RuntimeService._ensure_engine_import_path()
+        import engine
+        from state import GameState
+
+        store = _MutableGameStateStoreStub()
+        runtime_state_store = _RuntimeStateStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            game_state_store=store,
+            runtime_state_store=runtime_state_store,
+        )
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42, "runtime": {"runner_kind": "module", "ai_decision_delay_ms": 0}},
+        )
+        self.session_service.start_session(session.session_id, session.host_token)
+        config = runtime._config_factory.create(session.resolved_parameters)  # type: ignore[attr-defined]
+        state = GameState.create(config)
+        state.runtime_runner_kind = "module"
+        state.runtime_checkpoint_schema_version = 3
+        store.current_state = state.to_checkpoint_payload()
+        store.checkpoint = {
+            "schema_version": 3,
+            "session_id": session.session_id,
+            "runner_kind": "module",
+            "has_snapshot": True,
+            "latest_commit_seq": 4,
+        }
+        runtime_state_store.leases[session.session_id] = "other-runtime-worker"
+
+        def _fake_run_next_transition(self, state, decision_resume=None):  # noqa: ANN001
+            del self, state, decision_resume
+            return {"status": "committed", "runner_kind": "module", "module_type": "MapMoveModule"}
+
+        with (
+            patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition),
+            patch.object(runtime, "_latest_view_commit_seq", return_value=4),
+        ):
+            result = runtime._run_engine_transition_once_sync(
+                None,
+                session.session_id,
+                42,
+                None,
+                True,
+                None,
+                None,
+            )
+
+        self.assertEqual(result["status"], "stale")
+        self.assertEqual(result["reason"], "runtime_lease_lost_before_commit")
+        self.assertEqual(result["lease_owner"], "other-runtime-worker")
+        self.assertEqual(result["base_commit_seq"], 4)
+        self.assertEqual(result["attempted_commit_seq"], 5)
+        self.assertEqual(store.commits, [])
 
     def test_simultaneous_batch_continuation_survives_service_reconstruction(self) -> None:
         RuntimeService._ensure_engine_import_path()
@@ -5934,6 +7412,76 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_bridge_consumes_active_flip_batch_resume_payload(self) -> None:
+        from apps.server.src.services.runtime_service import RuntimeDecisionResume, _ServerDecisionPolicyBridge
+
+        class _DummyAi:
+            def choose_active_flip_card(self, state, player, flippable_cards):
+                del state, player, flippable_cards
+                return None
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            bridge = _ServerDecisionPolicyBridge(
+                session_id="sess_active_flip_batch_resume_test",
+                session_seats=[],
+                human_seats=[0],
+                ai_fallback=_DummyAi(),
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+                blocking_human_prompts=False,
+            )
+            state = type(
+                "State",
+                (),
+                {
+                    "rounds_completed": 0,
+                    "turn_index": 0,
+                    "active_by_card": {
+                        1: "박수",
+                        7: "아전",
+                        8: "교리 연구관",
+                    },
+                },
+            )()
+            player = type("Player", (), {"player_id": 0, "cash": 10, "position": 0, "shards": 0})()
+            bridge.set_decision_resume(
+                RuntimeDecisionResume(
+                    request_id="sess_active_flip_batch_resume_test:r1:t0:p1:active_flip:5",
+                    player_id=1,
+                    request_type="active_flip",
+                    choice_id="none",
+                    choice_payload={
+                        "selected_choice_ids": ["1", "7", "none"],
+                        "finish_after_selection": True,
+                    },
+                    resume_token="resume_active_flip",
+                    frame_id="turn:1:p0",
+                    module_id="mod:turn:1:p0:active_flip",
+                    module_type="RoundEndCardFlipModule",
+                    module_cursor="active_flip:await_choice",
+                )
+            )
+
+            with patch.object(
+                bridge._gateway,
+                "resolve_human_prompt",
+                side_effect=AssertionError("active flip resume must not create a new prompt"),
+            ):
+                result = bridge.choose_active_flip_card(state, player, [1, 7, 8])
+
+            self.assertEqual(result, [1, 7])
+            self.assertIsNone(bridge._decision_resume)
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
     def test_bridge_defers_decision_resume_until_matching_replayed_prompt(self) -> None:
         RuntimeService._ensure_engine_import_path()
         from engine import DecisionRequest
@@ -6199,6 +7747,61 @@ class RuntimeServiceTests(unittest.TestCase):
             )
             self.assertEqual(len(requested_events), 1)
             self.assertEqual(requested_events[0].payload["request_id"], "runtime_boundary_req_1")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_runtime_prompt_boundary_can_publish_after_view_commit_guardrail(self) -> None:
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            prompt = self._module_prompt(
+                {
+                    "request_id": "runtime_boundary_delayed_req_1",
+                    "request_type": "dice_roll",
+                    "player_id": 2,
+                    "prompt_instance_id": 12,
+                    "timeout_ms": 30000,
+                    "legal_choices": [{"choice_id": "roll"}],
+                    "fallback_policy": "required",
+                    "public_context": {"round_index": 1, "turn_index": 4},
+                },
+                frame_id="turn:1:p1",
+                module_type="DiceRollModule",
+                module_cursor="await_roll",
+            )
+
+            payload = self.runtime_service._materialize_prompt_boundary_sync(  # type: ignore[attr-defined]
+                loop,
+                "sess_runtime_boundary_delayed_prompt",
+                prompt,
+                publish=False,
+            )
+
+            self.assertIsNotNone(payload)
+            self.assertIsNotNone(self.prompt_service.get_pending_prompt("runtime_boundary_delayed_req_1"))
+            messages_before_publish = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot("sess_runtime_boundary_delayed_prompt"),
+                loop,
+            ).result(timeout=2.0)
+            self.assertEqual(messages_before_publish, [])
+
+            self.runtime_service._publish_prompt_boundary_sync(  # type: ignore[attr-defined]
+                loop,
+                "sess_runtime_boundary_delayed_prompt",
+                payload,
+            )
+            messages_after_publish = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot("sess_runtime_boundary_delayed_prompt"),
+                loop,
+            ).result(timeout=2.0)
+
+            self.assertEqual([msg.type for msg in messages_after_publish], ["prompt", "event"])
+            self.assertEqual(messages_after_publish[0].payload["request_id"], "runtime_boundary_delayed_req_1")
+            self.assertEqual(messages_after_publish[1].payload["event_type"], "decision_requested")
+            self.assertEqual(messages_after_publish[1].payload["request_id"], "runtime_boundary_delayed_req_1")
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -6785,6 +8388,7 @@ class _MutableGameStateStoreStub:
         command_seq: int | None = None,
         runtime_event_payload: dict | None = None,
         runtime_event_server_time_ms: int | None = None,
+        expected_previous_commit_seq: int | None = None,
     ) -> None:
         self.current_state = copy.deepcopy(current_state)
         self.checkpoint = copy.deepcopy(checkpoint)
@@ -6801,6 +8405,7 @@ class _MutableGameStateStoreStub:
                 "command_seq": command_seq,
                 "runtime_event_payload": copy.deepcopy(runtime_event_payload or {}),
                 "runtime_event_server_time_ms": runtime_event_server_time_ms,
+                "expected_previous_commit_seq": expected_previous_commit_seq,
             }
         )
 
@@ -6808,6 +8413,8 @@ class _MutableGameStateStoreStub:
 class _RuntimeStateStoreStub:
     def __init__(self) -> None:
         self.statuses: dict[str, dict] = {}
+        self.leases: dict[str, str] = {}
+        self.refresh_calls: list[tuple[str, str, int]] = []
 
     def save_status(self, session_id: str, payload: dict) -> None:
         self.statuses[session_id] = dict(payload)
@@ -6817,19 +8424,27 @@ class _RuntimeStateStoreStub:
         return dict(payload) if payload is not None else None
 
     def lease_owner(self, session_id: str) -> str | None:
-        del session_id
-        return None
+        return self.leases.get(session_id)
 
     def acquire_lease(self, session_id: str, worker_id: str, ttl_ms: int) -> bool:
-        del session_id, worker_id, ttl_ms
+        del ttl_ms
+        owner = self.leases.get(session_id)
+        if owner is not None and owner != worker_id:
+            return False
+        self.leases[session_id] = worker_id
         return True
 
     def refresh_lease(self, session_id: str, worker_id: str, ttl_ms: int) -> bool:
-        del session_id, worker_id, ttl_ms
+        self.refresh_calls.append((session_id, worker_id, int(ttl_ms)))
+        if self.leases.get(session_id) != worker_id:
+            return False
+        self.leases[session_id] = worker_id
         return True
 
     def release_lease(self, session_id: str, worker_id: str) -> bool:
-        del session_id, worker_id
+        if self.leases.get(session_id) != worker_id:
+            return False
+        self.leases.pop(session_id, None)
         return True
 
     def append_fallback(self, session_id: str, record: dict, *, max_items: int = 20) -> None:
@@ -6841,6 +8456,16 @@ class _RuntimeStateStoreStub:
 
     def delete_session_data(self, session_id: str) -> None:
         self.statuses.pop(session_id, None)
+
+
+class _DoneRuntimeTaskStub:
+    def done(self) -> bool:
+        return True
+
+
+class _PendingRuntimeTaskStub:
+    def done(self) -> bool:
+        return False
 
 
 class _CommandStoreStub:
@@ -6855,6 +8480,10 @@ class _CommandStoreStub:
     def list_commands(self, session_id: str) -> list[dict]:
         del session_id
         return list(self.commands)
+
+    def save_consumer_offset(self, consumer_name: str, session_id: str, seq: int) -> None:
+        del consumer_name, session_id
+        self.offset = max(self.offset, int(seq))
 
 
 class _DebugEventStub:

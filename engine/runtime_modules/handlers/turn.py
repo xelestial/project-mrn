@@ -515,11 +515,10 @@ def handle_turn_end_snapshot(ctx: TurnFrameHandlerContext) -> dict[str, Any]:
         snapshot=build_turn_end_snapshot(state),
     )
     runner._complete_module(state, frame, module)
-    if engine._check_end(state):
-        runner._complete_turn_frame_and_parent(state, frame)
-        return {"status": "completed", "reason": "end_rule", "player_id": player_id + 1}
     state.turn_index += 1
     runner._complete_turn_frame_and_parent(state, frame)
+    if engine._check_end(state):
+        return {"status": "completed", "reason": "end_rule", "player_id": player_id + 1}
     return {
         "status": "committed",
         "module_type": module.module_type,

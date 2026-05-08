@@ -25,6 +25,20 @@ async def _send_json_or_disconnect(websocket: WebSocket, payload: dict[str, Any]
         raise
 
 
+async def _receive_json_or_disconnect(websocket: WebSocket) -> dict[str, Any]:
+    try:
+        message = await websocket.receive_json()
+    except RuntimeError as exc:
+        text = str(exc)
+        if (
+            "WebSocket is not connected" in text
+            or 'Cannot call "receive" once a disconnect message has been received' in text
+        ):
+            raise WebSocketDisconnect(code=1000) from exc
+        raise
+    return dict(message) if isinstance(message, dict) else {}
+
+
 async def _send_latest_view_commit(
     websocket: WebSocket,
     stream_service: Any,
@@ -92,13 +106,6 @@ def _decision_view_commit_rejection_reason(message: dict[str, Any], latest_commi
     message_resume_token = str(message.get("resume_token") or "").strip()
     if active_resume_token and message_resume_token != active_resume_token:
         return "stale_prompt_resume_token"
-    prompt_commit_seq = _optional_int(
-        active_prompt.get("view_commit_seq")
-        or active_prompt.get("prompt_commit_seq")
-        or active_prompt.get("commit_seq")
-    )
-    if prompt_commit_seq is not None and seen_commit_seq < prompt_commit_seq:
-        return "stale_view_commit_seq"
     return None
 
 
@@ -123,6 +130,77 @@ def _optional_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+async def _process_pending_runtime_command(
+    *,
+    session_id: str,
+    command_seq: int,
+    session_service: Any,
+    runtime_service: Any,
+    trigger: str,
+) -> None:
+    if command_seq <= 0:
+        return
+    session = session_service.get_session(session_id)
+    runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
+    result = await runtime_service.process_command_once(
+        session_id=session_id,
+        command_seq=int(command_seq),
+        consumer_name="runtime_wakeup",
+        seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
+        policy_mode=runtime_cfg.get("policy_mode"),
+    )
+    result_status = str((result or {}).get("status") or "").strip()
+    event_name = "runtime_wakeup_deferred_command" if result_status == "running_elsewhere" else "runtime_wakeup_processed_command"
+    log_event(
+        event_name,
+        session_id=session_id,
+        command_seq=int(command_seq),
+        trigger=trigger,
+        result_status=result_status,
+        reason=(result or {}).get("reason"),
+    )
+
+
+async def _wake_runtime_after_accepted_decision(
+    *,
+    decision_state: dict[str, Any],
+    session_id: str,
+    session_service: Any,
+    runtime_service: Any,
+) -> None:
+    if str(decision_state.get("status") or "") != "accepted":
+        return
+    command_seq = _optional_int(decision_state.get("command_seq"))
+    if command_seq is None or command_seq <= 0:
+        return
+    decision_session_id = str(decision_state.get("session_id") or session_id).strip()
+    if decision_session_id != session_id:
+        log_event(
+            "runtime_wakeup_after_decision_skipped",
+            session_id=session_id,
+            decision_session_id=decision_session_id,
+            command_seq=command_seq,
+            reason="session_mismatch",
+        )
+        return
+    try:
+        await _process_pending_runtime_command(
+            session_id=session_id,
+            command_seq=command_seq,
+            session_service=session_service,
+            runtime_service=runtime_service,
+            trigger="accepted_decision",
+        )
+    except Exception as exc:  # pragma: no cover - defensive wakeup path
+        log_event(
+            "runtime_wakeup_after_decision_failed",
+            session_id=session_id,
+            command_seq=command_seq,
+            error_type=exc.__class__.__name__,
+            error=repr(exc),
+        )
 
 
 @router.get("/{session_id}/stream-capability")
@@ -194,32 +272,34 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
     await websocket.accept()
     try:
         runtime_state = runtime_service.runtime_status(session_id)
-        if auth_ctx.get("role") == "seat" and runtime_state.get("status") == "recovery_required":
+        runtime_status = str(runtime_state.get("status") or "")
+        if auth_ctx.get("role") == "seat" and runtime_status in {"recovery_required", "waiting_input"}:
             session = session_service.get_session(session_id)
             runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
             pending_command = runtime_service.pending_resume_command(session_id)
             if pending_command is not None:
                 command_seq = int(pending_command.get("seq", 0) or 0)
-                await runtime_service.process_command_once(
+                await _process_pending_runtime_command(
                     session_id=session_id,
                     command_seq=command_seq,
-                    consumer_name="runtime_wakeup",
-                    seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
-                    policy_mode=runtime_cfg.get("policy_mode"),
+                    session_service=session_service,
+                    runtime_service=runtime_service,
+                    trigger="stream_connect",
                 )
                 log_event(
                     "runtime_recovery_resumed_pending_command",
                     session_id=session_id,
                     reason=runtime_state.get("reason"),
                     command_seq=command_seq,
+                    status=runtime_status,
                 )
-            elif runtime_service.has_unprocessed_runtime_commands(session_id):
+            elif runtime_status == "recovery_required" and runtime_service.has_unprocessed_runtime_commands(session_id):
                 log_event(
                     "runtime_recovery_deferred_pending_commands",
                     session_id=session_id,
                     reason=runtime_state.get("reason"),
                 )
-            else:
+            elif runtime_status == "recovery_required":
                 await runtime_service.start_runtime(
                     session_id=session_id,
                     seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
@@ -348,7 +428,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
         heart = asyncio.create_task(_heartbeat())
         sender = asyncio.create_task(_sender())
         while True:
-            message: dict[str, Any] = await websocket.receive_json()
+            message = await _receive_json_or_disconnect(websocket)
             msg_type = str(message.get("type", "")).strip().lower()
             if msg_type == "resume":
                 requested_last_commit_seq = int(message.get("last_commit_seq", 0) or 0)
@@ -446,6 +526,13 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                     player_id=message.get("player_id"),
                     status=decision_state.get("status", "rejected"),
                     reason=decision_state.get("reason"),
+                    command_seq=decision_state.get("command_seq"),
+                )
+                await _wake_runtime_after_accepted_decision(
+                    decision_state=decision_state,
+                    session_id=session_id,
+                    session_service=session_service,
+                    runtime_service=runtime_service,
                 )
                 continue
             await stream_service.publish(

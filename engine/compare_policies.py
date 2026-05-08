@@ -119,6 +119,7 @@ def run_policy_comparison(
     lap_policy_mode: str = DEFAULT_BASELINE_POLICY,
     policy_eval_replay: str | Path | None = None,
     bankruptcy_tolerance: float = DEFAULT_BANKRUPTCY_TOLERANCE,
+    mixed_seat_simulations: int = 0,
 ) -> dict[str, Any]:
     _validate_model_config(policy=baseline_policy, model_dir=baseline_model_dir)
     _validate_model_config(policy=candidate_policy, model_dir=candidate_model_dir)
@@ -161,8 +162,123 @@ def run_policy_comparison(
         "baseline": baseline_run,
         "candidate": candidate_run,
     }
+    if mixed_seat_simulations > 0:
+        mixed_seat = run_mixed_seat_comparison(
+            simulations_per_seat=mixed_seat_simulations,
+            seed=seed,
+            output_dir=out / "mixed_seat",
+            baseline_policy=baseline_policy,
+            candidate_policy=candidate_policy,
+            baseline_model_dir=baseline_model_dir,
+            candidate_model_dir=candidate_model_dir,
+            bankruptcy_tolerance=bankruptcy_tolerance,
+        )
+        comparison["mixed_seat"] = mixed_seat
+        checks = comparison["acceptance"]["checks"]
+        checks["mixed_seat_accepted"] = bool(mixed_seat["acceptance"]["accepted"])
+        comparison["acceptance"]["accepted"] = all(checks.values())
     (out / "comparison.json").write_text(json.dumps(comparison, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
     return comparison
+
+
+def run_mixed_seat_comparison(
+    *,
+    simulations_per_seat: int,
+    seed: int,
+    output_dir: str | Path,
+    baseline_policy: str,
+    candidate_policy: str,
+    baseline_model_dir: str | Path | None = None,
+    candidate_model_dir: str | Path | None = None,
+    bankruptcy_tolerance: float = DEFAULT_BANKRUPTCY_TOLERANCE,
+) -> dict[str, Any]:
+    _validate_model_config(policy=baseline_policy, model_dir=baseline_model_dir)
+    _validate_model_config(policy=candidate_policy, model_dir=candidate_model_dir)
+
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    rotations: list[dict[str, Any]] = []
+    for seat in range(1, 5):
+        seat_seed = seed + (seat - 1) * max(1, simulations_per_seat)
+        baseline_run = _run_policy(
+            simulations=simulations_per_seat,
+            seed=seat_seed,
+            output_dir=out / f"seat_{seat}" / "baseline",
+            policy_mode="arena",
+            lap_policy_mode=DEFAULT_BASELINE_POLICY,
+            model_dir=baseline_model_dir,
+            player_character_policy_modes=_player_modes(baseline_policy),
+        )
+        candidate_run = _run_policy(
+            simulations=simulations_per_seat,
+            seed=seat_seed,
+            output_dir=out / f"seat_{seat}" / "candidate",
+            policy_mode="arena",
+            lap_policy_mode=DEFAULT_BASELINE_POLICY,
+            model_dir=candidate_model_dir,
+            player_character_policy_modes=_mixed_player_modes(candidate_policy=candidate_policy, baseline_policy=baseline_policy, seat=seat),
+        )
+        baseline_games = load_jsonl(Path(baseline_run["output_dir"]) / "games.jsonl")
+        candidate_games = load_jsonl(Path(candidate_run["output_dir"]) / "games.jsonl")
+        baseline_seat = _seat_metrics_from_games(baseline_games, seat=seat)
+        candidate_seat = _seat_metrics_from_games(candidate_games, seat=seat)
+        checks = {
+            "baseline_runtime_failed_zero": baseline_run["runtime_failed_count"] == 0,
+            "candidate_runtime_failed_zero": candidate_run["runtime_failed_count"] == 0,
+            "seat_bankruptcy_rate_not_regressed": candidate_seat["bankruptcy_rate"]
+            <= baseline_seat["bankruptcy_rate"] + bankruptcy_tolerance,
+            "seat_average_rank_not_regressed": candidate_seat["average_rank"] <= baseline_seat["average_rank"],
+        }
+        rotations.append(
+            {
+                "seat": seat,
+                "seed": seat_seed,
+                "games": simulations_per_seat,
+                "runs": {
+                    "baseline": baseline_run,
+                    "candidate": candidate_run,
+                },
+                "metrics": {
+                    "baseline": baseline_seat,
+                    "candidate": candidate_seat,
+                },
+                "deltas": {
+                    key: candidate_seat[key] - baseline_seat[key]
+                    for key in sorted(set(baseline_seat) & set(candidate_seat))
+                    if isinstance(baseline_seat[key], (int, float)) and isinstance(candidate_seat[key], (int, float))
+                },
+                "checks": checks,
+                "accepted": all(checks.values()),
+            }
+        )
+
+    aggregate = _aggregate_mixed_seat_rotations(rotations)
+    checks = {
+        "all_rotations_runtime_failed_zero": all(
+            rotation["checks"]["baseline_runtime_failed_zero"] and rotation["checks"]["candidate_runtime_failed_zero"]
+            for rotation in rotations
+        ),
+        "aggregate_seat_bankruptcy_rate_not_regressed": aggregate["candidate"]["bankruptcy_rate"]
+        <= aggregate["baseline"]["bankruptcy_rate"] + bankruptcy_tolerance,
+        "aggregate_seat_average_rank_not_regressed": aggregate["candidate"]["average_rank"]
+        <= aggregate["baseline"]["average_rank"],
+    }
+    return {
+        "mode": "mixed-seat",
+        "baseline_policy": baseline_policy,
+        "candidate_policy": candidate_policy,
+        "simulations_per_seat": simulations_per_seat,
+        "rotations": rotations,
+        "aggregate": aggregate,
+        "acceptance": {
+            "thresholds": {
+                "bankruptcy_rate_max_delta": bankruptcy_tolerance,
+                "average_rank_max_delta": 0.0,
+            },
+            "checks": checks,
+            "accepted": all(checks.values()),
+        },
+    }
 
 
 def _run_policy(
@@ -173,6 +289,8 @@ def _run_policy(
     policy_mode: str,
     lap_policy_mode: str,
     model_dir: str | Path | None,
+    player_character_policy_modes: dict[int, str] | None = None,
+    player_lap_policy_modes: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     error: str | None = None
@@ -185,6 +303,8 @@ def _run_policy(
                 log_level="none",
                 policy_mode=policy_mode,
                 lap_policy_mode=lap_policy_mode,
+                player_character_policy_modes=dict(player_character_policy_modes or {}),
+                player_lap_policy_modes=dict(player_lap_policy_modes or {}),
                 emit_summary=False,
             )
         except Exception as exc:  # The comparison report must survive failed candidates.
@@ -195,6 +315,8 @@ def _run_policy(
         runtime_failed_count = 1
     return {
         "policy_mode": policy_mode,
+        "player_character_policy_modes": {str(k): v for k, v in dict(player_character_policy_modes or {}).items()},
+        "player_lap_policy_modes": {str(k): v for k, v in dict(player_lap_policy_modes or {}).items()},
         "output_dir": str(output_dir),
         "summary": summary or {},
         "runtime_failed_count": runtime_failed_count,
@@ -230,21 +352,83 @@ def _summary_metrics(
 def _average_rank_from_games(games: list[dict[str, Any]]) -> float:
     ranks: list[float] = []
     for game in games:
-        players = list(game.get("player_summary") or [])
-        if not players:
-            continue
-        ordered = sorted(
-            players,
-            key=lambda p: (
-                _number(p.get("score")),
-                _number(p.get("placed_score_coins")),
-                _number(p.get("cash")),
-                _number(p.get("tiles_owned")),
-            ),
-            reverse=True,
-        )
+        ordered = _ranked_players(game)
         ranks.extend(float(index) for index, _ in enumerate(ordered, start=1))
     return _mean(ranks)
+
+
+def _seat_metrics_from_games(games: list[dict[str, Any]], *, seat: int) -> dict[str, float | int]:
+    ranks: list[float] = []
+    wins: list[float] = []
+    bankruptcies: list[float] = []
+    cash: list[float] = []
+    score: list[float] = []
+    placed: list[float] = []
+    shards: list[float] = []
+    tiles: list[float] = []
+    target_player_id = seat - 1
+    for game in games:
+        players = list(game.get("player_summary") or [])
+        by_id = {int(player.get("player_id")): player for player in players if player.get("player_id") is not None}
+        player = by_id.get(target_player_id)
+        if player is None:
+            continue
+        ordered = _ranked_players(game)
+        rank_by_id = {int(p.get("player_id")): index for index, p in enumerate(ordered, start=1) if p.get("player_id") is not None}
+        ranks.append(float(rank_by_id.get(target_player_id, 0) or 0))
+        wins.append(1.0 if seat in list(game.get("winner_ids") or []) else 0.0)
+        bankruptcies.append(1.0 if player.get("alive") is False or player.get("bankruptcy_info") else 0.0)
+        cash.append(_number(player.get("cash")))
+        score.append(_number(player.get("score")))
+        placed.append(_number(player.get("placed_score_coins")))
+        shards.append(_number(player.get("shards")))
+        tiles.append(_number(player.get("tiles_owned")))
+    return {
+        "games": len(ranks),
+        "average_rank": _mean(ranks),
+        "win_rate": _mean(wins),
+        "bankruptcy_rate": _mean(bankruptcies),
+        "avg_cash": _mean(cash),
+        "avg_score": _mean(score),
+        "avg_placed": _mean(placed),
+        "avg_shards": _mean(shards),
+        "avg_tiles_owned": _mean(tiles),
+    }
+
+
+def _aggregate_mixed_seat_rotations(rotations: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+    result: dict[str, dict[str, float]] = {}
+    for side in ("baseline", "candidate"):
+        metrics = [rotation["metrics"][side] for rotation in rotations]
+        keys = sorted({key for metric in metrics for key, value in metric.items() if isinstance(value, (int, float))})
+        result[side] = {key: _mean(metric[key] for metric in metrics if key in metric) for key in keys}
+    return result
+
+
+def _ranked_players(game: dict[str, Any]) -> list[dict[str, Any]]:
+    players = list(game.get("player_summary") or [])
+    if not players:
+        return []
+    return sorted(
+        players,
+        key=lambda p: (
+            _number(p.get("score")),
+            _number(p.get("placed_score_coins")),
+            _number(p.get("cash")),
+            _number(p.get("tiles_owned")),
+        ),
+        reverse=True,
+    )
+
+
+def _player_modes(policy: str) -> dict[int, str]:
+    return {seat: policy for seat in range(1, 5)}
+
+
+def _mixed_player_modes(*, candidate_policy: str, baseline_policy: str, seat: int) -> dict[int, str]:
+    modes = _player_modes(baseline_policy)
+    modes[seat] = candidate_policy
+    return modes
 
 
 def _count_jsonl(path: Path) -> int:
@@ -315,6 +499,7 @@ def main() -> None:
     parser.add_argument("--lap-policy-mode", choices=sorted(HeuristicPolicy.VALID_LAP_POLICIES), default=DEFAULT_BASELINE_POLICY)
     parser.add_argument("--policy-eval-replay", type=str, default=None)
     parser.add_argument("--bankruptcy-tolerance", type=float, default=DEFAULT_BANKRUPTCY_TOLERANCE)
+    parser.add_argument("--mixed-seat-simulations", type=int, default=0)
     parser.add_argument("--compact", action="store_true", help="Print only metrics and acceptance instead of full summaries.")
     args = parser.parse_args()
     comparison = run_policy_comparison(
@@ -328,6 +513,7 @@ def main() -> None:
         lap_policy_mode=args.lap_policy_mode,
         policy_eval_replay=args.policy_eval_replay,
         bankruptcy_tolerance=args.bankruptcy_tolerance,
+        mixed_seat_simulations=args.mixed_seat_simulations,
     )
     if args.compact:
         comparison = {
@@ -335,6 +521,7 @@ def main() -> None:
             "candidate_policy": comparison["candidate_policy"],
             "metrics": comparison["metrics"],
             "deltas": comparison["deltas"],
+            "mixed_seat": comparison.get("mixed_seat"),
             "acceptance": comparison["acceptance"],
             "report_path": str(Path(args.output_dir) / "comparison.json"),
         }

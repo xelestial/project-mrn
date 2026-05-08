@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -75,6 +76,39 @@ def test_behavior_clone_trains_torch_model_and_predicts_legal_action(tmp_path: P
     assert evaluation["rows"] == 6
     assert evaluation["illegal_predictions"] == 0
     assert 0.0 <= evaluation["action_accuracy"] <= 1.0
+
+
+def test_behavior_clone_weights_protocol_final_rank_and_high_impact_rewards(tmp_path: Path):
+    from rl.train_policy import train_behavior_clone
+
+    replay = tmp_path / "replay.jsonl"
+    write_replay_row(
+        replay,
+        {
+            "game_id": "protocol",
+            "step": 1,
+            "player_id": 4,
+            "decision_key": "lap_reward",
+            "observation": {"cash": 3, "shards": 1, "score": 2, "round_index": 4, "turn_index": 15},
+            "legal_actions": [
+                {"action_id": "cash", "legal": True, "label": "돈"},
+                {"action_id": "shards", "legal": True, "label": "조각"},
+                {"action_id": "score", "legal": True, "label": "승점"},
+            ],
+            "chosen_action_id": "cash",
+            "reward": {
+                "total": -2.0,
+                "components": {"cash_delta": -4, "rent_paid": -3, "f_value_change": -1},
+            },
+            "outcome": {"final_rank": 4, "alive": False},
+            "done": True,
+        },
+    )
+
+    result = train_behavior_clone(replay_path=replay, output_dir=tmp_path / "model", seed=20260508, epochs=1, hidden_size=16)
+
+    assert result["feature_schema"]["version"] == 2
+    assert result["sample_weight"]["max"] > 1.5
 
 
 def test_runtime_adapter_builds_purchase_row_and_predicts_legal_action(tmp_path: Path):
@@ -187,6 +221,29 @@ def test_policy_factory_requires_rl_model_path(monkeypatch):
 
     with pytest.raises(ValueError, match="MRN_RL_POLICY_MODEL"):
         PolicyFactory.create_runtime_policy(policy_mode="rl_v1")
+
+
+def test_policy_factory_supports_mixed_arena_rl_seat(tmp_path: Path, monkeypatch):
+    from policy.factory import PolicyFactory
+    from policy.rl_policy import RlRuntimePolicy
+
+    (tmp_path / "policy_model.json").write_text('{"model_type":"empty"}', encoding="utf-8")
+    monkeypatch.setenv("MRN_RL_POLICY_MODEL", str(tmp_path))
+
+    policy = PolicyFactory.create_runtime_policy(
+        policy_mode="arena",
+        player_character_policy_modes={
+            1: "heuristic_v3_engine",
+            2: "rl_v1",
+            3: "heuristic_v3_engine",
+            4: "heuristic_v3_engine",
+        },
+    )
+
+    assert policy.runtime_policy_mode == "mixed"
+    assert policy.character_mode_for_player(1) == "rl_v1"
+    assert isinstance(policy._policy_for_player(SimpleNamespace(player_id=1)), RlRuntimePolicy)
+    assert policy.character_mode_for_player(0) == "heuristic_v3_engine"
 
 
 def test_rl_runtime_policy_uses_model_for_supported_decisions(tmp_path: Path, monkeypatch):
@@ -345,3 +402,77 @@ def test_seed_matrix_runs_rl_v1_without_runtime_failures(tmp_path: Path):
     assert matrix["total_games"] == 2
     assert matrix["total_failed_games"] == 0
     assert (tmp_path / "matrix" / "seed_matrix.json").exists()
+
+
+def test_gate_pipeline_writes_summary_and_learning_diagnostics(tmp_path: Path, monkeypatch):
+    import rl.gate_pipeline as gate_pipeline
+
+    def fake_simulate_run(**kwargs):
+        replay_path = Path(kwargs["rl_replay_path"])
+        write_replay_row(
+            replay_path,
+            {
+                "game_id": 1,
+                "seed": kwargs["seed"],
+                "step": 1,
+                "player_id": 1,
+                "decision_key": "purchase_decision",
+                "observation": {"cash": 2, "round_index": 1, "turn_index": 1},
+                "legal_actions": [{"action_id": "buy", "legal": True}, {"action_id": "skip", "legal": True}],
+                "chosen_action_id": "buy",
+                "reward": {"total": -1.5, "components": {"low_cash_risk": -0.6}},
+                "sample_weight": 2.0,
+                "outcome": {"rank": 4, "won": False},
+                "done": True,
+            },
+        )
+        return {"games": kwargs["simulations"], "runtime_failed_count": 0}
+
+    def fake_train_behavior_clone(**kwargs):
+        output_dir = Path(kwargs["output_dir"])
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "policy_model.json").write_text('{"model_type":"empty"}', encoding="utf-8")
+        return {"model_type": "empty", "rows": 1, "validation_accuracy": 0.0}
+
+    def fake_run_policy_comparison(**kwargs):
+        output_dir = Path(kwargs["output_dir"])
+        output_dir.mkdir(parents=True, exist_ok=True)
+        comparison = {
+            "acceptance": {"accepted": False, "checks": {"mixed_seat_accepted": False}},
+            "metrics": {"candidate": {"runtime_failed_count": 0}},
+            "mixed_seat": {
+                "rotations": [
+                    {
+                        "seat": 1,
+                        "seed": kwargs["seed"],
+                        "accepted": False,
+                        "deltas": {"average_rank": 0.7, "bankruptcy_rate": 0.25, "win_rate": -0.1},
+                    }
+                ]
+            },
+        }
+        (output_dir / "comparison.json").write_text(json.dumps(comparison, ensure_ascii=False), encoding="utf-8")
+        return comparison
+
+    monkeypatch.setattr(gate_pipeline, "simulate_run", fake_simulate_run)
+    monkeypatch.setattr(gate_pipeline, "train_behavior_clone", fake_train_behavior_clone)
+    monkeypatch.setattr(gate_pipeline, "run_policy_comparison", fake_run_policy_comparison)
+
+    summary = gate_pipeline.run_gate_pipeline(
+        output_dir=tmp_path / "gate",
+        train_games=1,
+        eval_games=1,
+        mixed_seat_games=1,
+        seed=20260508,
+        epochs=1,
+        hidden_size=16,
+    )
+
+    assert summary["comparison"]["accepted"] is False
+    assert summary["diagnostics"]["rows"] == 1
+    assert summary["diagnostics"]["negative_reward_rate"] == 1.0
+    assert summary["diagnostics"]["comparison_findings"]["failing_checks"] == [
+        "acceptance.checks.mixed_seat_accepted"
+    ]
+    assert (tmp_path / "gate" / "pipeline_summary.json").exists()
+    assert (tmp_path / "gate" / "learning_diagnostics.json").exists()

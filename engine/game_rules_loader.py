@@ -85,6 +85,8 @@ def rules_from_dict(raw: dict[str, Any] | None) -> GameRules:
             monopolies_to_trigger_end=int(_pick(end_raw, 'monopolies_to_trigger_end', default=3)),
             tiles_to_trigger_end=None if _pick(end_raw, 'tiles_to_trigger_end', default=9) is None else int(_pick(end_raw, 'tiles_to_trigger_end', default=9)),
             alive_players_at_most=int(_pick(end_raw, 'alive_players_at_most', default=2)),
+            max_rounds=None if _pick(end_raw, 'max_rounds', default=None) is None else int(_pick(end_raw, 'max_rounds', default=None)),
+            max_turns=None if _pick(end_raw, 'max_turns', default=None) is None else int(_pick(end_raw, 'max_turns', default=None)),
         ),
         economy=EconomyRules(
             starting_cash=int(_pick(economy_raw, 'starting_cash', default=20)),

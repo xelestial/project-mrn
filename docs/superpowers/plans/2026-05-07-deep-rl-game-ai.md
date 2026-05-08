@@ -360,6 +360,8 @@ Add a comparison path that runs `heuristic_v3_engine` vs `rl_v1` over the same s
 
 Current implementation uses `engine/compare_policies.py` as the release gate. It runs baseline and candidate policies over the same seed stream, emits `comparison.json`, and keeps the earlier seed matrix as a broader smoke/regression helper.
 
+Follow-up implementation adds mixed-seat evaluation with `--mixed-seat-simulations`. It rotates the candidate through seats 1-4 against three baseline players, then requires aggregate mixed-seat rank and bankruptcy not to regress.
+
 - [x] **Step 2: Add acceptance thresholds**
 
 Require:
@@ -369,6 +371,7 @@ runtime_failed_count == 0
 illegal_action_count == 0
 bankruptcy_rate <= baseline_bankruptcy_rate + 0.02
 average_rank <= baseline_average_rank
+mixed_seat accepted when requested
 ```
 
 - [x] **Step 3: Run fixed-seed evaluation**
@@ -388,6 +391,32 @@ Expected: report is written even if candidate fails thresholds.
 git add engine/compare_policies.py docs/current/ai/rl-evaluation-gate.md
 git commit -m "Add RL evaluation gate"
 ```
+
+## Task 7: Learning Diagnostics and One-Command Gate Pipeline
+
+**Files:**
+- Create: `engine/rl/diagnostics.py`
+- Create: `engine/rl/gate_pipeline.py`
+- Modify: `engine/rl/reward.py`
+- Modify: `engine/test_rl_replay.py`
+- Modify: `engine/test_rl_policy_gate.py`
+- Modify: `docs/current/ai/rl-evaluation-gate.md`
+
+- [x] **Step 1: Add loss-focused diagnostics**
+
+`rl.diagnostics` groups replay rows by decision/action, reports worst and best action buckets, highlights high-weight negative samples, and extracts failed acceptance checks from `comparison.json`.
+
+- [x] **Step 2: Strengthen reward shaping for survival and board progress**
+
+Reward components now include placed score, tile count, low-cash risk, cash-death risk, and bankruptcy penalties. This keeps the initial cash-focused plan but stops treating short-term cash as the only learning signal.
+
+- [x] **Step 3: Add a one-command gate runner**
+
+`rl.gate_pipeline` generates training replay, trains the behavior-clone model, runs the mixed-seat comparison gate, writes diagnostics, and emits `pipeline_summary.json`.
+
+- [x] **Step 4: Test diagnostics and pipeline wiring**
+
+Unit tests cover reward penalties, diagnostic aggregation, failed comparison extraction, and pipeline artifact creation through monkeypatched engine calls.
 
 ## Self-Review
 

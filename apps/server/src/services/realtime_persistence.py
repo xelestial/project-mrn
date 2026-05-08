@@ -247,7 +247,7 @@ class RedisPromptStore:
             }
         if not bool(client.hsetnx(command_store._seen_key(), seen_key, "1")):
             return None
-        seq = int(client.incr(command_store._seq_key(session_id)))
+        seq = command_store._next_seq(session_id)
         fields = {
             "seq": str(seq),
             "type": str(command_type),
@@ -334,7 +334,7 @@ class RedisCommandStore:
             }
         if normalized_request_id and not bool(client.hsetnx(self._seen_key(), seen_key, "1")):
             return None
-        seq = int(client.incr(self._seq_key(session_id)))
+        seq = self._next_seq(session_id)
         fields = {
             "seq": str(seq),
             "type": str(command_type),
@@ -360,7 +360,22 @@ class RedisCommandStore:
         return int(raw) if isinstance(raw, str) and raw.lstrip("-").isdigit() else 0
 
     def save_consumer_offset(self, consumer_name: str, session_id: str, seq: int) -> None:
-        self._connection.client().hset(self._offset_key(consumer_name), session_id, str(max(0, int(seq))))
+        client = self._connection.client()
+        offset_key = self._offset_key(consumer_name)
+        offset_seq = max(0, int(seq))
+        if callable(getattr(client, "eval", None)):
+            client.eval(
+                _SAVE_CONSUMER_OFFSET_LUA,
+                2,
+                offset_key,
+                self._offset_index_key(),
+                str(session_id),
+                str(offset_seq),
+            )
+            return
+        current = self.load_consumer_offset(consumer_name, session_id)
+        if offset_seq > current:
+            client.hset(offset_key, session_id, str(offset_seq))
 
     def delete_session_data(self, session_id: str) -> None:
         client = self._connection.client()
@@ -387,6 +402,24 @@ class RedisCommandStore:
 
     def _offset_index_key(self) -> str:
         return self._connection.key("commands", "offset_indexes")
+
+    def _next_seq(self, session_id: str) -> int:
+        client = self._connection.client()
+        seq_key = self._seq_key(session_id)
+        current_seq = _int_or_default(_redis_text(client.get(seq_key)), 0)
+        latest_stream_seq = self._latest_stream_seq(session_id)
+        if current_seq < latest_stream_seq:
+            client.set(seq_key, str(latest_stream_seq))
+        return int(client.incr(seq_key))
+
+    def _latest_stream_seq(self, session_id: str) -> int:
+        entries = self._connection.client().xrevrange(self._stream_key(session_id), count=1)
+        if not entries:
+            return 0
+        fields = entries[0][1]
+        if not isinstance(fields, dict):
+            return 0
+        return _int_or_default(_redis_text(fields.get("seq")), 0)
 
     @staticmethod
     def _decode_stream_entry(entry_id: str, fields: dict[str, Any]) -> dict[str, Any]:
@@ -675,6 +708,7 @@ class RedisGameStateStore:
         runtime_event_type: str = "event",
         runtime_event_server_time_ms: int | None = None,
         runtime_event_max_buffer: int | None = None,
+        expected_previous_commit_seq: int | None = None,
     ) -> None:
         client = self._connection.client()
         event_payload = dict(runtime_event_payload) if isinstance(runtime_event_payload, dict) else None
@@ -686,6 +720,11 @@ class RedisGameStateStore:
         event_seq_key = self._runtime_stream_seq_key(session_id) if event_payload is not None else ""
         view_commit_entries = self._view_commit_entries(session_id, view_commits)
         view_commit_seq = self._view_commit_sequence(view_commit_entries)
+        expected_previous_seq = (
+            max(0, int(expected_previous_commit_seq))
+            if expected_previous_commit_seq is not None
+            else max(0, int(view_commit_seq or 0) - 1)
+        )
         if view_commit_entries:
             checkpoint_payload_source["has_view_commit"] = True
             checkpoint_payload_source["latest_commit_seq"] = max(
@@ -700,7 +739,11 @@ class RedisGameStateStore:
                 checkpoint_payload_source["processed_command_consumer"] = str(command_consumer_name)
         use_lua_commit = callable(getattr(client, "eval", None))
         if view_commit_entries and not use_lua_commit:
-            self._assert_expected_previous_view_commit_seq(session_id, view_commit_seq)
+            self._assert_expected_previous_view_commit_seq(
+                session_id,
+                view_commit_seq,
+                expected_previous_commit_seq=expected_previous_seq,
+            )
         if event_payload is not None and not use_lua_commit:
             event_seq = int(client.incr(event_seq_key))
             checkpoint_payload_source["latest_seq"] = event_seq
@@ -712,6 +755,10 @@ class RedisGameStateStore:
         offset_key = self._command_offset_key(command_consumer_name) if command_consumer_name else ""
         offset_index_key = self._command_offset_index_key() if command_consumer_name else ""
         offset_seq = str(max(0, int(command_seq))) if command_seq is not None else ""
+        if offset_key and offset_seq and not use_lua_commit:
+            current_offset_raw = client.hget(offset_key, session_id)
+            current_offset = _int_or_default(current_offset_raw, 0)
+            offset_seq = str(max(current_offset, int(offset_seq)))
         if use_lua_commit and view_commit_entries:
             view_commit_index_payload = self._view_commit_index_payload_for_entries(
                 session_id,
@@ -740,7 +787,7 @@ class RedisGameStateStore:
                 str(event_server_time_ms),
                 event_fields_payload,
                 str(event_max_buffer),
-                str(max(0, int(view_commit_seq or 0) - 1)),
+                str(expected_previous_seq),
                 str(view_commit_seq or 0),
                 view_commit_index_payload,
                 str(len(view_commit_entries)),
@@ -824,10 +871,20 @@ class RedisGameStateStore:
             raise ViewCommitSequenceConflict("view commits must have positive commit_seq")
         return commit_seq
 
-    def _assert_expected_previous_view_commit_seq(self, session_id: str, view_commit_seq: int | None) -> None:
+    def _assert_expected_previous_view_commit_seq(
+        self,
+        session_id: str,
+        view_commit_seq: int | None,
+        *,
+        expected_previous_commit_seq: int | None = None,
+    ) -> None:
         if view_commit_seq is None:
             return
-        expected_previous = max(0, int(view_commit_seq) - 1)
+        expected_previous = (
+            max(0, int(expected_previous_commit_seq))
+            if expected_previous_commit_seq is not None
+            else max(0, int(view_commit_seq) - 1)
+        )
         current_checkpoint = self.load_checkpoint(session_id) or {}
         current_index = self.load_view_commit_index(session_id) or {}
         current_seq = max(
@@ -1075,6 +1132,17 @@ def _int_or_default(value: Any, default: int = 0) -> int:
         return int(default or 0)
 
 
+def _redis_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        try:
+            return value.decode()
+        except Exception:
+            return None
+    return str(value)
+
+
 def _positive_or_previous(value: Any, previous: Any) -> int:
     parsed = _int_or_default(value, 0)
     previous_parsed = _int_or_default(previous, 0)
@@ -1103,6 +1171,21 @@ def _json_load_dict(raw: str) -> dict[str, Any] | None:
 
 
 _APPEND_COMMAND_LUA = """
+local current_seq = tonumber(redis.call("GET", KEYS[2]) or "0") or 0
+local latest_stream_seq = 0
+local latest_entries = redis.call("XREVRANGE", KEYS[3], "+", "-", "COUNT", 1)
+if latest_entries and latest_entries[1] then
+  local fields = latest_entries[1][2]
+  for i = 1, #fields, 2 do
+    if fields[i] == "seq" then
+      latest_stream_seq = tonumber(fields[i + 1]) or 0
+      break
+    end
+  end
+end
+if current_seq < latest_stream_seq then
+  redis.call("SET", KEYS[2], tostring(latest_stream_seq))
+end
 local seen_key = ARGV[1]
 if seen_key ~= "" then
   if redis.call("HSETNX", KEYS[1], seen_key, "1") == 0 then
@@ -1199,7 +1282,11 @@ if ARGV[3] ~= "" then
 end
 if ARGV[5] ~= "" then
   redis.call("HSET", KEYS[6], KEYS[5], "1")
-  redis.call("HSET", KEYS[5], ARGV[4], ARGV[5])
+  local next_offset = tonumber(ARGV[5]) or 0
+  local current_offset = tonumber(redis.call("HGET", KEYS[5], ARGV[4]) or "0") or 0
+  if next_offset > current_offset then
+    redis.call("HSET", KEYS[5], ARGV[4], tostring(next_offset))
+  end
 end
 return 1
 """
@@ -1287,7 +1374,11 @@ if ARGV[3] ~= "" then
 end
 if ARGV[5] ~= "" then
   redis.call("HSET", KEYS[6], KEYS[5], "1")
-  redis.call("HSET", KEYS[5], ARGV[4], ARGV[5])
+  local next_offset = tonumber(ARGV[5]) or 0
+  local current_offset = tonumber(redis.call("HGET", KEYS[5], ARGV[4]) or "0") or 0
+  if next_offset > current_offset then
+    redis.call("HSET", KEYS[5], ARGV[4], tostring(next_offset))
+  end
 end
 if ARGV[12] ~= "" then
   redis.call("SET", KEYS[9], ARGV[12])
@@ -1299,12 +1390,38 @@ end
 return 1
 """
 
+_SAVE_CONSUMER_OFFSET_LUA = """
+local next_offset = tonumber(ARGV[2]) or 0
+redis.call("HSET", KEYS[2], KEYS[1], "1")
+local current_offset = tonumber(redis.call("HGET", KEYS[1], ARGV[1]) or "0") or 0
+if next_offset > current_offset then
+  redis.call("HSET", KEYS[1], ARGV[1], tostring(next_offset))
+  return next_offset
+end
+return current_offset
+"""
+
 _ACCEPT_PROMPT_DECISION_LUA = """
 if redis.call("HEXISTS", KEYS[1], ARGV[1]) == 0 then
   return nil
 end
 if redis.call("HSETNX", KEYS[4], ARGV[4], "1") == 0 then
   return nil
+end
+local current_seq = tonumber(redis.call("GET", KEYS[5]) or "0") or 0
+local latest_stream_seq = 0
+local latest_entries = redis.call("XREVRANGE", KEYS[6], "+", "-", "COUNT", 1)
+if latest_entries and latest_entries[1] then
+  local fields = latest_entries[1][2]
+  for i = 1, #fields, 2 do
+    if fields[i] == "seq" then
+      latest_stream_seq = tonumber(fields[i + 1]) or 0
+      break
+    end
+  end
+end
+if current_seq < latest_stream_seq then
+  redis.call("SET", KEYS[5], tostring(latest_stream_seq))
 end
 redis.call("HDEL", KEYS[1], ARGV[1])
 redis.call("HSET", KEYS[2], ARGV[1], ARGV[2])

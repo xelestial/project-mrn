@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import inspect
 import json
 import os
 import random
 import sys
+import threading
 import time
 import traceback
 import uuid
@@ -38,8 +40,11 @@ from apps.server.src.services.decision_gateway import (
 )
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
 from apps.server.src.services.parameter_service import DEFAULT_EXTERNAL_AI_TIMEOUT_MS
+from apps.server.src.services.realtime_persistence import ViewCommitSequenceConflict
 
 _VIEW_COMMIT_SCHEMA_VERSION = 1
+_PROMPT_BOUNDARY_PUBLISH_TIMEOUT_SECONDS = 5.0
+_PROMPT_BOUNDARY_PUBLISH_ATTEMPTS = 3
 
 
 def resolve_runtime_runner_kind(runtime: dict | None, settings: RuntimeSettings | None = None) -> str:
@@ -91,8 +96,61 @@ def _derive_internal_player_id_from_batch_request_id(request_id: str) -> int | N
     return int(player_suffix)
 
 
+def _request_prompt_instance_id(request_id: str, request_type: str) -> int:
+    request_type = str(request_type or "").strip()
+    request_id = str(request_id or "").strip()
+    if not request_type or not request_id:
+        return 0
+    marker = f":{request_type}:"
+    if marker not in request_id:
+        return 0
+    raw_instance_id = request_id.rsplit(marker, 1)[-1]
+    try:
+        return max(0, int(raw_instance_id))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _prior_same_module_resume_prompt_seed(checkpoint: dict | None, resume: RuntimeDecisionResume | None) -> int | None:
+    if not isinstance(checkpoint, dict) or resume is None:
+        return None
+    previous_request_id = str(checkpoint.get("decision_resume_request_id") or "").strip()
+    if not previous_request_id or previous_request_id == str(resume.request_id or "").strip():
+        return None
+    previous_request_type = str(checkpoint.get("decision_resume_request_type") or "").strip()
+    if previous_request_type and previous_request_type != str(resume.request_type or "").strip():
+        return None
+    previous_player_id = checkpoint.get("decision_resume_player_id")
+    if previous_player_id not in (None, ""):
+        try:
+            if int(previous_player_id) != int(resume.player_id):
+                return None
+        except (TypeError, ValueError):
+            return None
+    identity_fields = (
+        ("decision_resume_frame_id", "frame_id"),
+        ("decision_resume_module_id", "module_id"),
+        ("decision_resume_module_type", "module_type"),
+        ("decision_resume_module_cursor", "module_cursor"),
+    )
+    for checkpoint_field, resume_field in identity_fields:
+        checkpoint_value = str(checkpoint.get(checkpoint_field) or "").strip()
+        resume_value = str(getattr(resume, resume_field, "") or "").strip()
+        if checkpoint_value and resume_value and checkpoint_value != resume_value:
+            return None
+    request_type = previous_request_type or str(resume.request_type or "").strip()
+    previous_instance_id = _request_prompt_instance_id(previous_request_id, request_type)
+    current_instance_id = _request_prompt_instance_id(str(resume.request_id or ""), str(resume.request_type or ""))
+    if previous_instance_id <= 0 or current_instance_id <= previous_instance_id:
+        return None
+    return max(0, previous_instance_id - 1)
+
+
 def _normalize_decision_choice_payload(value: object) -> dict:
     return dict(value) if isinstance(value, dict) else {}
+
+
+_ACTIVE_FLIP_BATCH_NOT_APPLICABLE = object()
 
 
 def _runtime_module_debug_fields(source: dict | None, state: object | None = None) -> dict[str, str]:
@@ -214,6 +272,122 @@ def _runtime_failure_diagnostics(
     return diagnostics
 
 
+def _stream_backend_of(stream_service: object | None) -> object | None:
+    if stream_service is None:
+        return None
+    return getattr(stream_service, "_stream_backend", None)
+
+
+def _schedule_runtime_stream_task(
+    loop: asyncio.AbstractEventLoop | None,
+    session_id: str,
+    failure_event: str,
+    coroutine_factory,
+    **log_fields: object,
+) -> None:
+    if loop is None:
+        return
+    coro = None
+    try:
+        coro = coroutine_factory()
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+    except Exception as exc:
+        if inspect.iscoroutine(coro):
+            coro.close()
+        log_event(
+            failure_event,
+            session_id=session_id,
+            error=str(exc).strip() or exc.__class__.__name__,
+            exception_type=exc.__class__.__name__,
+            exception_repr=repr(exc),
+            **log_fields,
+        )
+        return
+
+    def _log_stream_task_failure(done_future) -> None:
+        try:
+            done_future.result()
+        except Exception as exc:
+            log_event(
+                failure_event,
+                session_id=session_id,
+                error=str(exc).strip() or exc.__class__.__name__,
+                exception_type=exc.__class__.__name__,
+                exception_repr=repr(exc),
+                **log_fields,
+            )
+
+    future.add_done_callback(_log_stream_task_failure)
+
+
+def _run_runtime_stream_task_sync(
+    loop: asyncio.AbstractEventLoop | None,
+    session_id: str,
+    failure_event: str,
+    coroutine_factory,
+    *,
+    timeout: float = 5.0,
+    attempts: int = 1,
+    retry_delay: float = 0.0,
+    **log_fields: object,
+) -> bool:
+    if loop is None:
+        return False
+    max_attempts = max(1, int(attempts or 1))
+    last_exc: Exception | None = None
+    for attempt_index in range(1, max_attempts + 1):
+        coro = None
+        future: concurrent.futures.Future | None = None
+        try:
+            coro = coroutine_factory()
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+            future.result(timeout=max(0.1, float(timeout)))
+            return True
+        except Exception as exc:
+            last_exc = exc
+            if future is not None and isinstance(exc, concurrent.futures.TimeoutError):
+                future.cancel()
+            if future is None and inspect.iscoroutine(coro):
+                coro.close()
+            if attempt_index < max_attempts:
+                if retry_delay > 0:
+                    time.sleep(max(0.0, float(retry_delay)))
+                continue
+            log_event(
+                failure_event,
+                session_id=session_id,
+                error=str(exc).strip() or exc.__class__.__name__,
+                exception_type=exc.__class__.__name__,
+                exception_repr=repr(exc),
+                attempts=max_attempts,
+                **log_fields,
+            )
+            return False
+    if last_exc is not None:
+        log_event(
+            failure_event,
+            session_id=session_id,
+            error=str(last_exc).strip() or last_exc.__class__.__name__,
+            exception_type=last_exc.__class__.__name__,
+            exception_repr=repr(last_exc),
+            attempts=max_attempts,
+            **log_fields,
+        )
+    return False
+
+
+def _clear_resolved_runtime_prompt_continuation(state: object | None, step: dict | None) -> None:
+    if state is None:
+        return
+    status = str((step or {}).get("status") or "").strip()
+    if status == "waiting_input":
+        return
+    if hasattr(state, "runtime_active_prompt"):
+        state.runtime_active_prompt = None
+    if hasattr(state, "runtime_active_prompt_batch"):
+        state.runtime_active_prompt_batch = None
+
+
 def _active_runtime_module_debug_fields(state: object | None) -> dict[str, str]:
     if state is None:
         return {}
@@ -302,6 +476,10 @@ class RuntimeService:
         self._command_store = command_store
         self._worker_id = f"runtime_{uuid.uuid4().hex[:12]}"
         self._lease_ttl_ms = max(5000, self._watchdog_timeout_ms * 2)
+        self._active_command_sessions: set[str] = set()
+        self._command_processing_lock = threading.Lock()
+        self._held_runtime_leases: set[str] = set()
+        self._runtime_lease_tracking_lock = threading.Lock()
         self._initialize_recovery_state()
 
     def add_session_completed_callback(self, callback) -> None:
@@ -312,6 +490,16 @@ class RuntimeService:
     async def start_runtime(self, session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
         existing = self._runtime_tasks.get(session_id)
         if existing is not None and not existing.done():
+            return
+        recovery = self.recovery_checkpoint(session_id)
+        if self.recovery_state_has_waiting_input({"recovery_checkpoint": recovery}):
+            self._mark_checkpoint_waiting_input(session_id, reason="checkpoint_waiting_input")
+            log_event(
+                "runtime_start_deferred_waiting_input_checkpoint",
+                session_id=session_id,
+                seed=seed,
+                policy_mode=policy_mode or "default",
+            )
             return
         if not self._acquire_runtime_lease(session_id):
             owner = self._runtime_state_store.lease_owner(session_id) if self._runtime_state_store is not None else None
@@ -365,6 +553,107 @@ class RuntimeService:
                 return True
         return False
 
+    @staticmethod
+    def _checkpoint_waiting_prompt_request_ids(checkpoint: dict) -> set[str]:
+        request_ids: set[str] = set()
+        single_request_id = str(checkpoint.get("waiting_prompt_request_id") or "").strip()
+        if single_request_id:
+            request_ids.add(single_request_id)
+
+        active_prompt = checkpoint.get("runtime_active_prompt")
+        if isinstance(active_prompt, dict):
+            active_request_id = str(active_prompt.get("request_id") or "").strip()
+            if active_request_id:
+                request_ids.add(active_request_id)
+
+        batch = checkpoint.get("runtime_active_prompt_batch")
+        if not isinstance(batch, dict):
+            return request_ids
+        prompts_by_player_id = batch.get("prompts_by_player_id")
+        if not isinstance(prompts_by_player_id, dict):
+            return request_ids
+
+        missing_filter: set[int] | None = None
+        missing_player_ids = batch.get("missing_player_ids")
+        if isinstance(missing_player_ids, list):
+            missing_filter = set()
+            for raw_player_id in missing_player_ids:
+                try:
+                    missing_filter.add(int(raw_player_id))
+                except (TypeError, ValueError):
+                    continue
+
+        for raw_player_id, prompt in prompts_by_player_id.items():
+            if missing_filter is not None:
+                try:
+                    internal_player_id = int(raw_player_id)
+                except (TypeError, ValueError):
+                    continue
+                if internal_player_id not in missing_filter:
+                    continue
+            if isinstance(prompt, dict):
+                request_id = str(prompt.get("request_id") or "").strip()
+            else:
+                request_id = str(getattr(prompt, "request_id", "") or "").strip()
+            if request_id:
+                request_ids.add(request_id)
+        return request_ids
+
+    @staticmethod
+    def _resume_module_identity_mismatch(checkpoint: dict, resume: RuntimeDecisionResume) -> bool:
+        field_pairs = (
+            ("frame_id", "active_frame_id"),
+            ("module_id", "active_module_id"),
+            ("module_type", "active_module_type"),
+            ("module_cursor", "active_module_cursor"),
+        )
+        for resume_field, checkpoint_field in field_pairs:
+            resume_value = str(getattr(resume, resume_field, "") or "").strip()
+            checkpoint_value = str(checkpoint.get(checkpoint_field) or "").strip()
+            if resume_value and checkpoint_value and resume_value != checkpoint_value:
+                return True
+        return False
+
+    def _checkpoint_still_waits_for_resume(
+        self,
+        checkpoint: dict,
+        decision_resume: RuntimeDecisionResume | None,
+    ) -> bool:
+        if decision_resume is None:
+            return False
+        request_id = str(decision_resume.request_id or "").strip()
+        if not request_id:
+            return False
+        if request_id not in self._checkpoint_waiting_prompt_request_ids(checkpoint):
+            return False
+        return not self._resume_module_identity_mismatch(checkpoint, decision_resume)
+
+    def _command_offset_args_for_commit(
+        self,
+        *,
+        session_id: str,
+        checkpoint: dict,
+        command_consumer_name: str | None,
+        command_seq: int | None,
+        decision_resume: RuntimeDecisionResume | None,
+    ) -> tuple[str | None, int | None]:
+        if not command_consumer_name or command_seq is None:
+            return None, None
+        if self._checkpoint_still_waits_for_resume(checkpoint, decision_resume):
+            log_event(
+                "runtime_command_offset_deferred_waiting_prompt",
+                session_id=session_id,
+                consumer_name=command_consumer_name,
+                command_seq=int(command_seq),
+                request_id=str(getattr(decision_resume, "request_id", "") or ""),
+                player_id=int(getattr(decision_resume, "player_id", 0) or 0),
+                module_id=str(getattr(decision_resume, "module_id", "") or ""),
+                module_type=str(getattr(decision_resume, "module_type", "") or ""),
+                module_cursor=str(getattr(decision_resume, "module_cursor", "") or ""),
+            )
+            return None, None
+        return command_consumer_name, int(command_seq)
+
     def pending_resume_command(self, session_id: str, consumer_name: str = "runtime_wakeup") -> dict | None:
         if self._command_store is None:
             return None
@@ -377,8 +666,8 @@ class RuntimeService:
         checkpoint = recovery.get("checkpoint") if isinstance(recovery, dict) else None
         if not isinstance(checkpoint, dict):
             return None
-        waiting_request_id = str(checkpoint.get("waiting_prompt_request_id") or "").strip()
-        if not waiting_request_id:
+        waiting_request_ids = self._checkpoint_waiting_prompt_request_ids(checkpoint)
+        if not waiting_request_ids:
             return None
         commands = sorted(list_commands(session_id), key=lambda command: int(command.get("seq", 0) or 0))
         resolved_request_ids = {
@@ -391,17 +680,257 @@ class RuntimeService:
                 continue
             if int(command.get("seq", 0) or 0) <= last_consumed_seq:
                 continue
-            if self._command_payload_field(command, "request_id") != waiting_request_id:
+            request_id = self._command_payload_field(command, "request_id")
+            if request_id not in waiting_request_ids:
                 continue
-            if waiting_request_id in resolved_request_ids:
+            if request_id in resolved_request_ids and not self._command_is_timeout_fallback(command):
                 continue
             if self._command_module_identity_mismatch(checkpoint, command):
                 continue
             return dict(command)
         return None
 
+    def _command_for_seq(self, session_id: str, command_seq: int) -> dict | None:
+        if self._command_store is None:
+            return None
+        list_commands = getattr(self._command_store, "list_commands", None)
+        if not callable(list_commands):
+            return None
+        target_seq = int(command_seq)
+        for command in list_commands(session_id):
+            if int(command.get("seq", 0) or 0) == target_seq:
+                return dict(command)
+        return None
+
+    def _matching_resume_command_for_seq(
+        self,
+        session_id: str,
+        command_seq: int,
+        *,
+        include_resolved: bool = False,
+    ) -> dict | None:
+        if self._command_store is None:
+            return None
+        list_commands = getattr(self._command_store, "list_commands", None)
+        if not callable(list_commands):
+            return None
+        recovery = self.recovery_checkpoint(session_id)
+        checkpoint = recovery.get("checkpoint") if isinstance(recovery, dict) else None
+        if not isinstance(checkpoint, dict):
+            return None
+        waiting_request_ids = self._checkpoint_waiting_prompt_request_ids(checkpoint)
+        if not waiting_request_ids:
+            return None
+        target_seq = int(command_seq)
+        commands = sorted(list_commands(session_id), key=lambda command: int(command.get("seq", 0) or 0))
+        resolved_request_ids = {
+            self._command_payload_field(command, "request_id")
+            for command in commands
+            if str(command.get("type") or "").strip() == "decision_resolved"
+        }
+        for command in commands:
+            if int(command.get("seq", 0) or 0) != target_seq:
+                continue
+            if str(command.get("type") or "").strip() != "decision_submitted":
+                return None
+            request_id = self._command_payload_field(command, "request_id")
+            if request_id not in waiting_request_ids:
+                return None
+            if not include_resolved and request_id in resolved_request_ids and not self._command_is_timeout_fallback(command):
+                return None
+            if self._command_module_identity_mismatch(checkpoint, command):
+                return None
+            return dict(command)
+        return None
+
     def has_pending_resume_command(self, session_id: str, consumer_name: str = "runtime_wakeup") -> bool:
         return self.pending_resume_command(session_id, consumer_name=consumer_name) is not None
+
+    def _load_command_consumer_offset(self, session_id: str, consumer_name: str) -> int | None:
+        if self._command_store is None:
+            return None
+        load_offset = getattr(self._command_store, "load_consumer_offset", None)
+        if not callable(load_offset):
+            return None
+        try:
+            return int(load_offset(consumer_name, session_id))
+        except Exception as exc:
+            log_event(
+                "runtime_command_offset_load_failed",
+                session_id=session_id,
+                consumer_name=consumer_name,
+                exception_type=exc.__class__.__name__,
+                exception_repr=repr(exc),
+            )
+            return None
+
+    def _command_processing_guard(
+        self,
+        *,
+        session_id: str,
+        consumer_name: str,
+        command_seq: int,
+        stage: str,
+    ) -> dict | None:
+        if self._command_store is None:
+            return None
+        target_seq = int(command_seq)
+        offset = self._load_command_consumer_offset(session_id, consumer_name)
+        if offset is not None and offset >= target_seq:
+            matching_waiting_command = self._matching_resume_command_for_seq(session_id, target_seq, include_resolved=True)
+            if matching_waiting_command is not None:
+                log_event(
+                    "runtime_command_offset_conflict_reprocessing",
+                    session_id=session_id,
+                    consumer_name=consumer_name,
+                    command_seq=target_seq,
+                    consumer_offset=offset,
+                    stage=stage,
+                    request_id=self._command_payload_field(matching_waiting_command, "request_id"),
+                )
+                return None
+            log_event(
+                "runtime_command_already_consumed",
+                session_id=session_id,
+                consumer_name=consumer_name,
+                command_seq=target_seq,
+                consumer_offset=offset,
+                stage=stage,
+            )
+            return {
+                "status": "already_processed",
+                "reason": "consumer_offset_already_advanced",
+                "processed_command_seq": target_seq,
+                "processed_command_consumer": consumer_name,
+                "consumer_offset": offset,
+            }
+        pending = self.pending_resume_command(session_id, consumer_name=consumer_name)
+        target_command = self._command_for_seq(session_id, target_seq)
+        target_command_type = str((target_command or {}).get("type") or "").strip()
+        if pending is None:
+            matching_waiting_command = self._matching_resume_command_for_seq(session_id, target_seq, include_resolved=True)
+            if matching_waiting_command is not None:
+                log_event(
+                    "runtime_command_checkpoint_waiting_reprocessing",
+                    session_id=session_id,
+                    consumer_name=consumer_name,
+                    command_seq=target_seq,
+                    consumer_offset=offset,
+                    stage=stage,
+                    request_id=self._command_payload_field(matching_waiting_command, "request_id"),
+                    request_type=self._command_payload_field(matching_waiting_command, "request_type"),
+                    module_id=self._command_payload_field(matching_waiting_command, "module_id"),
+                )
+                return None
+            if target_command is None or target_command_type != "decision_submitted":
+                return None
+            log_event(
+                "runtime_command_no_longer_pending",
+                session_id=session_id,
+                consumer_name=consumer_name,
+                command_seq=target_seq,
+                consumer_offset=offset,
+                stage=stage,
+            )
+            self._save_rejected_command_offset(consumer_name, session_id, target_seq)
+            return {
+                "status": "stale",
+                "reason": "command_no_longer_matches_waiting_prompt",
+                "processed_command_seq": target_seq,
+                "processed_command_consumer": consumer_name,
+                "consumer_offset": target_seq,
+            }
+        pending_seq = _optional_int(pending.get("seq")) or 0
+        if pending_seq != target_seq:
+            matching_waiting_command = self._matching_resume_command_for_seq(session_id, target_seq, include_resolved=True)
+            if matching_waiting_command is not None:
+                log_event(
+                    "runtime_command_checkpoint_waiting_reprocessing",
+                    session_id=session_id,
+                    consumer_name=consumer_name,
+                    command_seq=target_seq,
+                    consumer_offset=offset,
+                    stage=stage,
+                    request_id=self._command_payload_field(matching_waiting_command, "request_id"),
+                    request_type=self._command_payload_field(matching_waiting_command, "request_type"),
+                    module_id=self._command_payload_field(matching_waiting_command, "module_id"),
+                )
+                return None
+            if target_command is None or target_command_type != "decision_submitted":
+                return None
+            if target_seq > pending_seq:
+                log_event(
+                    "runtime_command_deferred_pending_precedes_target",
+                    session_id=session_id,
+                    consumer_name=consumer_name,
+                    command_seq=target_seq,
+                    pending_command_seq=pending_seq,
+                    consumer_offset=offset,
+                    stage=stage,
+                )
+                return {
+                    "status": "running_elsewhere",
+                    "reason": "pending_command_seq_precedes_target",
+                    "processed_command_seq": target_seq,
+                    "pending_command_seq": pending_seq,
+                    "processed_command_consumer": consumer_name,
+                    "consumer_offset": offset,
+                }
+            log_event(
+                "runtime_command_pending_changed",
+                session_id=session_id,
+                consumer_name=consumer_name,
+                command_seq=target_seq,
+                pending_command_seq=pending_seq,
+                consumer_offset=offset,
+                stage=stage,
+            )
+            self._save_rejected_command_offset(consumer_name, session_id, target_seq)
+            return {
+                "status": "stale",
+                "reason": "pending_command_seq_changed",
+                "processed_command_seq": target_seq,
+                "pending_command_seq": pending_seq,
+                "processed_command_consumer": consumer_name,
+                "consumer_offset": target_seq,
+            }
+        return None
+
+    def _begin_command_processing(self, session_id: str) -> bool:
+        with self._command_processing_lock:
+            if session_id in self._active_command_sessions:
+                return False
+            self._active_command_sessions.add(session_id)
+            return True
+
+    def _end_command_processing(self, session_id: str) -> None:
+        with self._command_processing_lock:
+            self._active_command_sessions.discard(session_id)
+
+    def _runtime_task_processing_guard(
+        self,
+        *,
+        session_id: str,
+        command_seq: int,
+        consumer_name: str,
+        stage: str,
+    ) -> dict | None:
+        task = self._runtime_tasks.get(session_id)
+        if task is None or task.done():
+            return None
+        log_event(
+            "runtime_command_deferred_active_runtime_task",
+            session_id=session_id,
+            command_seq=int(command_seq),
+            consumer_name=consumer_name,
+            stage=stage,
+        )
+        return {
+            "status": "running_elsewhere",
+            "reason": "runtime_task_already_active",
+            "processed_command_seq": int(command_seq),
+            "processed_command_consumer": consumer_name,
+        }
 
     def runtime_status(self, session_id: str) -> dict:
         self._refresh_status(session_id)
@@ -416,8 +945,12 @@ class RuntimeService:
             session = self._session_service.get_session(session_id)
         except Exception:
             session = None
+        recovery = self.recovery_checkpoint(session_id)
+        checkpoint_waiting_input = self.recovery_state_has_waiting_input({"recovery_checkpoint": recovery})
+        if session is not None and session.status == SessionStatus.IN_PROGRESS and checkpoint_waiting_input:
+            base = self._mark_checkpoint_waiting_input(session_id, base=base, reason="checkpoint_waiting_input")
         lease_expires_at_ms = int(base.get("lease_expires_at_ms", 0) or 0)
-        if session is not None and session.status == SessionStatus.IN_PROGRESS and (
+        if session is not None and session.status == SessionStatus.IN_PROGRESS and not checkpoint_waiting_input and (
             base.get("status") in {None, "idle", "running", "stop_requested"} and lease_expires_at_ms <= self._now_ms()
         ):
             base["status"] = "recovery_required"
@@ -425,10 +958,67 @@ class RuntimeService:
             self._status[session_id] = dict(base)
             self._persist_runtime_state(session_id)
         base["recent_fallbacks"] = self._recent_fallbacks(session_id)
-        recovery = self.recovery_checkpoint(session_id)
         if recovery.get("available"):
             base["recovery_checkpoint"] = recovery
         return base
+
+    @staticmethod
+    def _payload_has_waiting_prompt(payload: dict | None) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        for key in (
+            "waiting_prompt_request_id",
+            "pending_prompt_request_id",
+            "runtime_active_prompt_request_id",
+        ):
+            if str(payload.get(key) or "").strip():
+                return True
+        active_prompt = payload.get("runtime_active_prompt")
+        if isinstance(active_prompt, dict):
+            if str(active_prompt.get("request_id") or "").strip():
+                return True
+            if active_prompt.get("legal_choices"):
+                return True
+        active_batch = payload.get("runtime_active_prompt_batch")
+        if isinstance(active_batch, dict):
+            if str(active_batch.get("batch_id") or "").strip():
+                return True
+            if active_batch.get("missing_player_ids"):
+                return True
+            prompts_by_player_id = active_batch.get("prompts_by_player_id")
+            if isinstance(prompts_by_player_id, dict) and prompts_by_player_id:
+                return True
+        return False
+
+    @classmethod
+    def recovery_state_has_waiting_input(cls, runtime_state: dict | None) -> bool:
+        if not isinstance(runtime_state, dict):
+            return False
+        recovery = runtime_state.get("recovery_checkpoint")
+        if not isinstance(recovery, dict) or not recovery.get("available"):
+            return False
+        return cls._payload_has_waiting_prompt(recovery.get("checkpoint")) or cls._payload_has_waiting_prompt(
+            recovery.get("current_state")
+        )
+
+    def _mark_checkpoint_waiting_input(
+        self,
+        session_id: str,
+        *,
+        base: dict | None = None,
+        reason: str,
+    ) -> dict:
+        status_payload = {
+            key: value
+            for key, value in dict(base or self._load_runtime_state(session_id)).items()
+            if key != "recovery_checkpoint"
+        }
+        status_payload["status"] = "waiting_input"
+        status_payload["watchdog_state"] = "waiting_input"
+        status_payload["reason"] = reason
+        self._status[session_id] = dict(status_payload)
+        self._persist_runtime_state(session_id)
+        return dict(status_payload)
 
     def public_runtime_status(self, session_id: str) -> dict:
         status = dict(self.runtime_status(session_id))
@@ -528,17 +1118,66 @@ class RuntimeService:
         seed: int = 42,
         policy_mode: str | None = None,
     ) -> dict:
+        command_seq = int(command_seq)
+        task_guard = self._runtime_task_processing_guard(
+            session_id=session_id,
+            consumer_name=consumer_name,
+            command_seq=command_seq,
+            stage="before_begin",
+        )
+        if task_guard is not None:
+            return task_guard
+        if not self._begin_command_processing(session_id):
+            return {
+                "status": "running_elsewhere",
+                "reason": "command_processing_already_active",
+                "processed_command_seq": command_seq,
+                "processed_command_consumer": consumer_name,
+            }
+        task_guard = self._runtime_task_processing_guard(
+            session_id=session_id,
+            consumer_name=consumer_name,
+            command_seq=command_seq,
+            stage="after_begin",
+        )
+        if task_guard is not None:
+            self._end_command_processing(session_id)
+            return task_guard
+        pre_guard = self._command_processing_guard(
+            session_id=session_id,
+            consumer_name=consumer_name,
+            command_seq=command_seq,
+            stage="before_lease",
+        )
+        if pre_guard is not None:
+            self._end_command_processing(session_id)
+            return pre_guard
         if not self._acquire_runtime_lease(session_id):
+            self._end_command_processing(session_id)
             return {
                 "status": "running_elsewhere",
                 "lease_owner": self._runtime_state_store.lease_owner(session_id) if self._runtime_state_store is not None else None,
             }
-        now_ms = self._now_ms()
-        self._last_activity_ms[session_id] = now_ms
-        self._status[session_id] = {"status": "running", "watchdog_state": "ok", "started_at_ms": now_ms}
-        self._persist_runtime_state(session_id)
-        loop = asyncio.get_running_loop()
+        lease_renewer = self._start_runtime_lease_renewer(
+            session_id,
+            reason="process_command_once",
+            command_seq=command_seq,
+            consumer_name=consumer_name,
+        )
         try:
+            post_guard = self._command_processing_guard(
+                session_id=session_id,
+                consumer_name=consumer_name,
+                command_seq=command_seq,
+                stage="after_lease",
+            )
+            if post_guard is not None:
+                return post_guard
+            now_ms = self._now_ms()
+            self._last_activity_ms[session_id] = now_ms
+            self._status[session_id] = {"status": "running", "watchdog_state": "ok", "started_at_ms": now_ms}
+            self._persist_runtime_state(session_id)
+            loop = asyncio.get_running_loop()
             result = await asyncio.to_thread(
                 self._run_engine_transition_loop_sync,
                 loop,
@@ -546,7 +1185,7 @@ class RuntimeService:
                 seed,
                 policy_mode,
                 first_command_consumer_name=consumer_name,
-                first_command_seq=int(command_seq),
+                first_command_seq=command_seq,
             )
             status = str(result.get("status", ""))
             if status == "waiting_input":
@@ -555,18 +1194,94 @@ class RuntimeService:
                 self._session_service.finish_session(session_id)
                 await self._notify_session_completed(session_id)
                 self._status[session_id] = {"status": "completed"}
+            elif status == "stale":
+                persisted_status = self._load_runtime_state(session_id)
+                if isinstance(persisted_status, dict) and persisted_status:
+                    status_payload = dict(persisted_status)
+                    status_payload["last_transition"] = result
+                    self._status[session_id] = status_payload
+                else:
+                    self._status[session_id] = {"status": "idle", "last_transition": result}
             else:
                 self._status[session_id] = {"status": "idle", "last_transition": result}
             self._touch_activity(session_id)
             self._persist_runtime_state(session_id)
             return result
+        except ViewCommitSequenceConflict as exc:
+            diagnostics = _runtime_failure_diagnostics(
+                session_id,
+                exc,
+                status=self._status.get(session_id),
+            )
+            persisted_status = self._load_runtime_state(session_id)
+            persisted_status_value = str(persisted_status.get("status") or "")
+            recovery = self.recovery_checkpoint(session_id)
+            if persisted_status_value in {"waiting_input", "completed"}:
+                status_payload = dict(persisted_status)
+                status_payload["last_transition"] = {
+                    "status": "commit_conflict",
+                    "reason": "view_commit_seq_conflict",
+                    "processed_command_seq": command_seq,
+                    "processed_command_consumer": consumer_name,
+                }
+                self._status[session_id] = status_payload
+                self._persist_runtime_state(session_id)
+            else:
+                status_payload = {
+                    "status": "recovery_required",
+                    "watchdog_state": "recovery_required",
+                    "reason": "view_commit_seq_conflict_recovered",
+                    "exception_type": diagnostics["exception_type"],
+                    "exception_repr": diagnostics["exception_repr"],
+                    "last_transition": {
+                        "status": "commit_conflict",
+                        "reason": "view_commit_seq_conflict",
+                        "processed_command_seq": command_seq,
+                        "processed_command_consumer": consumer_name,
+                    },
+                }
+                if self.recovery_state_has_waiting_input({"recovery_checkpoint": recovery}):
+                    self._mark_checkpoint_waiting_input(
+                        session_id,
+                        base=status_payload,
+                        reason="view_commit_seq_conflict_recovered",
+                    )
+                else:
+                    self._status[session_id] = status_payload
+                    self._persist_runtime_state(session_id)
+            self._touch_activity(session_id)
+            log_event(
+                "runtime_transition_commit_conflict",
+                **diagnostics,
+                command_seq=command_seq,
+                consumer_name=consumer_name,
+            )
+            return {
+                "status": "commit_conflict",
+                "reason": "view_commit_seq_conflict",
+                "processed_command_seq": command_seq,
+                "processed_command_consumer": consumer_name,
+            }
         except Exception as exc:
-            self._status[session_id] = {"status": "failed", "error": str(exc)}
+            diagnostics = _runtime_failure_diagnostics(
+                session_id,
+                exc,
+                status=self._status.get(session_id),
+            )
+            self._status[session_id] = {
+                "status": "failed",
+                "error": diagnostics["error"],
+                "exception_type": diagnostics["exception_type"],
+                "exception_repr": diagnostics["exception_repr"],
+            }
             self._touch_activity(session_id)
             self._persist_runtime_state(session_id)
+            log_event("runtime_failed", **diagnostics)
             raise
         finally:
+            self._stop_runtime_lease_renewer(lease_renewer)
             self._release_runtime_lease(session_id)
+            self._end_command_processing(session_id)
 
     async def _run_engine_async(
         self,
@@ -593,6 +1308,7 @@ class RuntimeService:
                 self._persist_runtime_state(session_id)
                 self._release_runtime_lease(session_id)
                 log_event("runtime_waiting_input", session_id=session_id)
+                self._clear_runtime_task_if_current(session_id)
                 return
             self._session_service.finish_session(session_id)
             await self._notify_session_completed(session_id)
@@ -601,6 +1317,7 @@ class RuntimeService:
             self._persist_runtime_state(session_id)
             self._release_runtime_lease(session_id)
             log_event("runtime_completed", session_id=session_id)
+            self._clear_runtime_task_if_current(session_id)
         except Exception as exc:
             diagnostics = _runtime_failure_diagnostics(
                 session_id,
@@ -626,6 +1343,7 @@ class RuntimeService:
                     retryable=False,
                 ),
             )
+            self._clear_runtime_task_if_current(session_id)
 
     async def _notify_session_completed(self, session_id: str) -> None:
         for callback in list(self._session_completed_callbacks):
@@ -644,7 +1362,6 @@ class RuntimeService:
                         retryable=True,
                     ),
                 )
-
     def _run_engine_sync(
         self,
         loop: asyncio.AbstractEventLoop,
@@ -687,7 +1404,7 @@ class RuntimeService:
             )
             transitions += 1
             status = str(last_step.get("status", ""))
-            if status in {"completed", "unavailable", "waiting_input", "rejected"}:
+            if status in {"completed", "unavailable", "waiting_input", "rejected", "stale"}:
                 return {**last_step, "transitions": transitions}
             if self._prompt_service is not None and self._prompt_service.has_pending_for_session(session_id):
                 current = dict(self._status.get(session_id, {"status": "running"}))
@@ -764,11 +1481,25 @@ class RuntimeService:
         task = self._runtime_tasks.get(session_id)
         if not task:
             return
+        if not task.done():
+            return
         current = self._status.get(session_id, {})
         status = current.get("status")
-        if status == "running" and task.done():
+        if self._game_state_store is not None:
+            self._runtime_tasks.pop(session_id, None)
+            return
+        if status == "running":
             self._status[session_id] = {"status": "completed"}
             self._persist_runtime_state(session_id)
+        self._runtime_tasks.pop(session_id, None)
+
+    def _clear_runtime_task_if_current(self, session_id: str) -> None:
+        try:
+            current_task = asyncio.current_task()
+        except RuntimeError:
+            current_task = None
+        if current_task is not None and self._runtime_tasks.get(session_id) is current_task:
+            self._runtime_tasks.pop(session_id, None)
 
     @staticmethod
     def _now_ms() -> int:
@@ -864,6 +1595,15 @@ class RuntimeService:
         return str(payload.get(name) or decision.get(name) or "").strip()
 
     @staticmethod
+    def _command_is_timeout_fallback(command: dict) -> bool:
+        payload = RuntimeService._command_payload(command)
+        decision = payload.get("decision")
+        decision = decision if isinstance(decision, dict) else {}
+        source = str(payload.get("source") or "").strip()
+        provider = str(payload.get("provider") or decision.get("provider") or "").strip()
+        return source == "timeout_fallback" or provider == "timeout_fallback"
+
+    @staticmethod
     def _command_module_identity_mismatch(checkpoint: dict, command: dict) -> bool:
         field_pairs = (
             ("frame_id", "active_frame_id"),
@@ -881,7 +1621,10 @@ class RuntimeService:
     def _acquire_runtime_lease(self, session_id: str) -> bool:
         if self._runtime_state_store is None:
             return True
-        return bool(self._runtime_state_store.acquire_lease(session_id, self._worker_id, self._lease_ttl_ms))
+        acquired = bool(self._runtime_state_store.acquire_lease(session_id, self._worker_id, self._lease_ttl_ms))
+        if acquired:
+            self._track_runtime_lease(session_id)
+        return acquired
 
     def _refresh_runtime_lease(self, session_id: str) -> bool:
         if self._runtime_state_store is None:
@@ -891,7 +1634,80 @@ class RuntimeService:
     def _release_runtime_lease(self, session_id: str) -> bool:
         if self._runtime_state_store is None:
             return True
-        return bool(self._runtime_state_store.release_lease(session_id, self._worker_id))
+        try:
+            return bool(self._runtime_state_store.release_lease(session_id, self._worker_id))
+        finally:
+            self._untrack_runtime_lease(session_id)
+
+    def _track_runtime_lease(self, session_id: str) -> None:
+        with self._runtime_lease_tracking_lock:
+            self._held_runtime_leases.add(session_id)
+
+    def _untrack_runtime_lease(self, session_id: str) -> None:
+        with self._runtime_lease_tracking_lock:
+            self._held_runtime_leases.discard(session_id)
+
+    def _runtime_lease_held_by_this_process(self, session_id: str) -> bool:
+        with self._runtime_lease_tracking_lock:
+            return session_id in self._held_runtime_leases
+
+    def _runtime_lease_owner(self, session_id: str) -> str | None:
+        if self._runtime_state_store is None:
+            return self._worker_id
+        owner = getattr(self._runtime_state_store, "lease_owner", None)
+        if not callable(owner):
+            return None
+        return owner(session_id)
+
+    def _runtime_lease_refresh_interval_seconds(self) -> float:
+        return min(2.0, max(0.5, self._lease_ttl_ms / 3000.0))
+
+    def _start_runtime_lease_renewer(
+        self,
+        session_id: str,
+        *,
+        reason: str,
+        command_seq: int | None = None,
+        consumer_name: str | None = None,
+    ) -> tuple[threading.Event, threading.Thread] | None:
+        if self._runtime_state_store is None:
+            return None
+        stop_event = threading.Event()
+
+        def _renew_loop() -> None:
+            interval = self._runtime_lease_refresh_interval_seconds()
+            while not stop_event.wait(interval):
+                if self._refresh_runtime_lease(session_id):
+                    continue
+                lease_owner = self._runtime_lease_owner(session_id)
+                log_event(
+                    "runtime_lease_refresh_failed",
+                    session_id=session_id,
+                    worker_id=self._worker_id,
+                    lease_owner=lease_owner,
+                    reason=reason,
+                    command_seq=command_seq,
+                    consumer_name=consumer_name,
+                )
+                stop_event.set()
+                return
+
+        thread = threading.Thread(
+            target=_renew_loop,
+            name=f"runtime-lease-renew:{session_id}",
+            daemon=True,
+        )
+        thread.start()
+        return stop_event, thread
+
+    @staticmethod
+    def _stop_runtime_lease_renewer(handle: tuple[threading.Event, threading.Thread] | None) -> None:
+        if handle is None:
+            return
+        stop_event, thread = handle
+        stop_event.set()
+        if thread.is_alive():
+            thread.join(timeout=1.0)
 
     def _hydrate_engine_state(self, session_id: str, config, game_state_cls, runner_kind: str | None = None):
         del runner_kind
@@ -906,15 +1722,26 @@ class RuntimeService:
         return game_state_cls.from_checkpoint_payload(config, current_state)
 
     def _run_engine_transition_once_for_recovery(self, session_id: str, seed: int = 42, policy_mode: str | None = None) -> dict:
-        return self._run_engine_transition_once_sync(
-            None,
-            session_id,
-            seed,
-            policy_mode,
-            True,
-            None,
-            None,
-        )
+        if not self._acquire_runtime_lease(session_id):
+            return {
+                "status": "running_elsewhere",
+                "reason": "runtime_lease_held",
+                "lease_owner": self._runtime_lease_owner(session_id),
+            }
+        lease_renewer = self._start_runtime_lease_renewer(session_id, reason="recovery_transition")
+        try:
+            return self._run_engine_transition_once_sync(
+                None,
+                session_id,
+                seed,
+                policy_mode,
+                True,
+                None,
+                None,
+            )
+        finally:
+            self._stop_runtime_lease_renewer(lease_renewer)
+            self._release_runtime_lease(session_id)
 
     def _decision_resume_from_command(self, session_id: str, command_seq: int | None) -> RuntimeDecisionResume | None:
         if command_seq is None or self._command_store is None:
@@ -1019,6 +1846,7 @@ class RuntimeService:
         selected_policy_mode = policy_mode or runtime.get("policy_mode") or "heuristic_v3_engine"
         ai_policy = PolicyFactory.create_runtime_policy(policy_mode=selected_policy_mode, lap_policy_mode=selected_policy_mode)
         policy = ai_policy
+        base_commit_seq = self._latest_view_commit_seq(session_id)
         human_seats = [
             max(0, int(seat.seat) - 1)
             for seat in session.seats
@@ -1049,6 +1877,11 @@ class RuntimeService:
         config = self._config_factory.create(resolved)
         state = self._hydrate_engine_state(session_id, config, GameState, runner_kind)
         decision_resume = None
+        runtime_recovery_checkpoint: dict | None = None
+        if self._game_state_store is not None and callable(getattr(self._game_state_store, "load_checkpoint", None)):
+            loaded_checkpoint = self._game_state_store.load_checkpoint(session_id)
+            if isinstance(loaded_checkpoint, dict):
+                runtime_recovery_checkpoint = loaded_checkpoint
         if state is None:
             if require_checkpoint:
                 return {"status": "unavailable", "reason": "checkpoint_missing"}
@@ -1058,7 +1891,10 @@ class RuntimeService:
             if callable(getattr(policy, "set_prompt_sequence", None)):
                 prompt_sequence = int(getattr(state, "prompt_sequence", 0) or 0)
                 pending_prompt_instance_id = int(getattr(state, "pending_prompt_instance_id", 0) or 0)
-                if decision_resume is None and pending_prompt_instance_id > 0:
+                prior_prompt_seed = _prior_same_module_resume_prompt_seed(runtime_recovery_checkpoint, decision_resume)
+                if prior_prompt_seed is not None:
+                    prompt_sequence = prior_prompt_seed
+                elif decision_resume is None and pending_prompt_instance_id > 0:
                     prompt_sequence = max(0, pending_prompt_instance_id - 1)
                 policy.set_prompt_sequence(prompt_sequence)
             if decision_resume is not None:
@@ -1152,6 +1988,7 @@ class RuntimeService:
             state.pending_prompt_type = ""
             state.pending_prompt_player_id = 0
             state.pending_prompt_instance_id = 0
+            _clear_resolved_runtime_prompt_continuation(state, step)
         current_prompt_sequence = getattr(policy, "current_prompt_sequence", None)
         if state is not None and callable(current_prompt_sequence):
             state.prompt_sequence = max(
@@ -1186,8 +2023,15 @@ class RuntimeService:
             runtime_active_prompt = runtime_active_prompt if isinstance(runtime_active_prompt, dict) else {}
             runtime_active_prompt_batch = payload.get("runtime_active_prompt_batch")
             runtime_active_prompt_batch = runtime_active_prompt_batch if isinstance(runtime_active_prompt_batch, dict) else {}
+            prompt_publish_payload: dict | None = None
             if latest_event_type == "prompt_required" and prompt_boundary_payload:
-                self._materialize_prompt_boundary_sync(loop, session_id, prompt_boundary_payload, state=state)
+                prompt_publish_payload = self._materialize_prompt_boundary_sync(
+                    loop,
+                    session_id,
+                    prompt_boundary_payload,
+                    state=state,
+                    publish=False,
+                )
             previous_source_event_seq = self._latest_committed_source_event_seq(session_id)
             latest_stream_seq = self._latest_stream_seq_sync(loop, session_id)
             source_messages = self._source_history_sync(loop, session_id, latest_stream_seq)
@@ -1195,7 +2039,7 @@ class RuntimeService:
                 source_messages,
                 after_seq=previous_source_event_seq,
             )
-            commit_seq = self._next_view_commit_seq(session_id)
+            commit_seq = base_commit_seq + 1
             source_event_seq = latest_stream_seq
             module_debug_fields = _runtime_module_debug_fields(
                 {
@@ -1207,24 +2051,13 @@ class RuntimeService:
             continuation_debug_fields = _runtime_continuation_debug_fields(payload, decision_resume)
             processed_command_consumer = command_consumer_name or checkpoint_command_consumer_name
             processed_command_seq = command_seq if command_seq is not None else checkpoint_command_seq
-            command_commit_envelope = {
-                "version": 1,
-                "atomic_commit": "redis_transition_state_checkpoint_event_offset",
-                "consumer": str(processed_command_consumer or ""),
-                "seq": processed_command_seq,
-                "state": True,
-                "checkpoint": True,
-                "view_state": True,
-                "view_commit": True,
-                "runtime_event": True,
-                "consumer_offset": bool(command_consumer_name and command_seq is not None),
-            }
             runtime_checkpoint = {
                 "schema_version": effective_checkpoint_schema_version,
                 "session_id": session_id,
                 "runner_kind": effective_runner_kind,
                 "latest_seq": latest_stream_seq,
                 "latest_event_type": latest_event_type,
+                "base_commit_seq": base_commit_seq,
                 "latest_commit_seq": commit_seq,
                 "latest_source_event_seq": source_event_seq,
                 "has_snapshot": True,
@@ -1253,10 +2086,31 @@ class RuntimeService:
                 "has_pending_turn_completion": bool(payload.get("pending_turn_completion")),
                 "processed_command_seq": processed_command_seq,
                 "processed_command_consumer": processed_command_consumer,
-                "command_commit_envelope": command_commit_envelope,
                 **continuation_debug_fields,
                 "updated_at_ms": updated_at_ms,
             }
+            offset_consumer_name, offset_command_seq = self._command_offset_args_for_commit(
+                session_id=session_id,
+                checkpoint=runtime_checkpoint,
+                command_consumer_name=command_consumer_name,
+                command_seq=command_seq,
+                decision_resume=decision_resume,
+            )
+            command_commit_envelope = {
+                "version": 1,
+                "atomic_commit": "redis_transition_state_checkpoint_event_offset",
+                "consumer": str(processed_command_consumer or ""),
+                "seq": processed_command_seq,
+                "state": True,
+                "checkpoint": True,
+                "view_state": True,
+                "view_commit": True,
+                "runtime_event": True,
+                "consumer_offset": bool(offset_consumer_name and offset_command_seq is not None),
+                "offset_consumer": str(offset_consumer_name or ""),
+                "offset_seq": offset_command_seq,
+            }
+            runtime_checkpoint["command_commit_envelope"] = command_commit_envelope
             view_commits = self._build_authoritative_view_commits(
                 session_id=session_id,
                 state=state,
@@ -1273,14 +2127,69 @@ class RuntimeService:
             spectator_commit = view_commits.get("spectator") or view_commits.get("public") or {}
             if isinstance(spectator_commit, dict) and isinstance(spectator_commit.get("view_state"), dict):
                 public_view_state = dict(spectator_commit["view_state"])
+            latest_commit_seq_before_write = self._latest_view_commit_seq(session_id)
+            if latest_commit_seq_before_write != base_commit_seq:
+                log_event(
+                    "runtime_transition_stale_before_commit",
+                    session_id=session_id,
+                    base_commit_seq=base_commit_seq,
+                    latest_commit_seq=latest_commit_seq_before_write,
+                    attempted_commit_seq=commit_seq,
+                    processed_command_seq=processed_command_seq,
+                    processed_command_consumer=processed_command_consumer,
+                    **module_debug_fields,
+                    **continuation_debug_fields,
+                )
+                return {
+                    "status": "stale",
+                    "reason": "view_commit_seq_changed_before_commit",
+                    "base_commit_seq": base_commit_seq,
+                    "latest_commit_seq": latest_commit_seq_before_write,
+                    "attempted_commit_seq": commit_seq,
+                    "processed_command_seq": processed_command_seq,
+                    "processed_command_consumer": processed_command_consumer,
+                    "runner_kind": effective_runner_kind,
+                    **module_debug_fields,
+                    **continuation_debug_fields,
+                }
+            lease_owner_before_write = self._runtime_lease_owner(session_id)
+            lease_check_required = self._runtime_state_store is not None and (
+                self._runtime_lease_held_by_this_process(session_id)
+                or lease_owner_before_write is not None
+            )
+            if lease_check_required and lease_owner_before_write != self._worker_id:
+                log_event(
+                    "runtime_transition_lease_lost_before_commit",
+                    session_id=session_id,
+                    worker_id=self._worker_id,
+                    lease_owner=lease_owner_before_write,
+                    base_commit_seq=base_commit_seq,
+                    attempted_commit_seq=commit_seq,
+                    processed_command_seq=processed_command_seq,
+                    processed_command_consumer=processed_command_consumer,
+                    **module_debug_fields,
+                    **continuation_debug_fields,
+                )
+                return {
+                    "status": "stale",
+                    "reason": "runtime_lease_lost_before_commit",
+                    "lease_owner": lease_owner_before_write,
+                    "base_commit_seq": base_commit_seq,
+                    "attempted_commit_seq": commit_seq,
+                    "processed_command_seq": processed_command_seq,
+                    "processed_command_consumer": processed_command_consumer,
+                    "runner_kind": effective_runner_kind,
+                    **module_debug_fields,
+                    **continuation_debug_fields,
+                }
             self._game_state_store.commit_transition(
                 session_id,
                 current_state=payload,
                 checkpoint=runtime_checkpoint,
                 view_state=public_view_state,
                 view_commits=view_commits,
-                command_consumer_name=command_consumer_name,
-                command_seq=command_seq,
+                command_consumer_name=offset_consumer_name,
+                command_seq=offset_command_seq,
                 runtime_event_payload={
                     "event_type": latest_event_type,
                     "status": step.get("status"),
@@ -1290,6 +2199,7 @@ class RuntimeService:
                     "player_id": step.get("player_id"),
                     "processed_command_seq": processed_command_seq,
                     "processed_command_consumer": processed_command_consumer,
+                    "base_commit_seq": base_commit_seq,
                     "command_commit_envelope": command_commit_envelope,
                     "pending_action_count": len(payload.get("pending_actions") or []),
                     "scheduled_action_count": len(payload.get("scheduled_actions") or []),
@@ -1297,8 +2207,11 @@ class RuntimeService:
                     **continuation_debug_fields,
                 },
                 runtime_event_server_time_ms=updated_at_ms,
+                expected_previous_commit_seq=base_commit_seq,
             )
             self._emit_latest_view_commit_sync(loop, session_id)
+            if prompt_publish_payload:
+                self._publish_prompt_boundary_sync(loop, session_id, prompt_publish_payload)
             self._emit_snapshot_pulses_sync(loop, session_id, snapshot_pulse_specs)
             write_game_debug_log(
                 "engine",
@@ -1311,6 +2224,8 @@ class RuntimeService:
                 request_id=step.get("request_id"),
                 request_type=step.get("request_type"),
                 player_id=step.get("player_id"),
+                base_commit_seq=base_commit_seq,
+                commit_seq=commit_seq,
                 processed_command_seq=processed_command_seq,
                 processed_command_consumer=processed_command_consumer,
                 pending_action_count=len(payload.get("pending_actions") or []),
@@ -1328,8 +2243,21 @@ class RuntimeService:
         emit = getattr(self._stream_service, "emit_latest_view_commit", None)
         if not callable(emit):
             return
-        future = asyncio.run_coroutine_threadsafe(emit(session_id), loop)
-        future.result(timeout=5)
+        if _stream_backend_of(self._stream_service) is not None:
+            _schedule_runtime_stream_task(
+                loop,
+                session_id,
+                "runtime_view_commit_emit_failed",
+                lambda: emit(session_id),
+            )
+            return
+        _run_runtime_stream_task_sync(
+            loop,
+            session_id,
+            "runtime_view_commit_emit_failed",
+            lambda: emit(session_id),
+            timeout=1.0,
+        )
 
     def _emit_snapshot_pulses_sync(
         self,
@@ -1342,14 +2270,40 @@ class RuntimeService:
         emit = getattr(self._stream_service, "emit_snapshot_pulse", None)
         if not callable(emit):
             return
+        fire_and_forget = _stream_backend_of(self._stream_service) is not None
         for spec in specs:
             reason = str(spec.get("reason") or "snapshot_guardrail")
             target_player_id = self._int_or_none(spec.get("target_player_id"))
+            if fire_and_forget:
+                _schedule_runtime_stream_task(
+                    loop,
+                    session_id,
+                    "runtime_snapshot_pulse_emit_failed",
+                    lambda reason=reason, target_player_id=target_player_id: emit(
+                        session_id,
+                        reason=reason,
+                        target_player_id=target_player_id,
+                    ),
+                    reason=reason,
+                    target_player_id=target_player_id,
+                )
+                continue
             future = asyncio.run_coroutine_threadsafe(
                 emit(session_id, reason=reason, target_player_id=target_player_id),
                 loop,
             )
-            future.result(timeout=5)
+            try:
+                future.result(timeout=5)
+            except Exception as exc:
+                log_event(
+                    "runtime_snapshot_pulse_emit_failed",
+                    session_id=session_id,
+                    reason=reason,
+                    target_player_id=target_player_id,
+                    error=str(exc).strip() or exc.__class__.__name__,
+                    exception_type=exc.__class__.__name__,
+                    exception_repr=repr(exc),
+                )
 
     def _latest_committed_source_event_seq(self, session_id: str) -> int:
         if self._game_state_store is None:
@@ -1369,10 +2323,37 @@ class RuntimeService:
         return 0
 
     def _latest_stream_seq_sync(self, loop: asyncio.AbstractEventLoop | None, session_id: str) -> int:
-        if loop is None or self._stream_service is None:
+        if self._stream_service is None:
+            return 0
+        backend = _stream_backend_of(self._stream_service)
+        latest_seq = getattr(backend, "latest_seq", None)
+        if callable(latest_seq):
+            try:
+                return int(latest_seq(session_id))
+            except Exception as exc:
+                log_event(
+                    "runtime_latest_stream_seq_failed",
+                    session_id=session_id,
+                    error=str(exc).strip() or exc.__class__.__name__,
+                    exception_type=exc.__class__.__name__,
+                    exception_repr=repr(exc),
+                    source="stream_backend",
+                )
+                return 0
+        if loop is None:
             return 0
         future = asyncio.run_coroutine_threadsafe(self._stream_service.latest_seq(session_id), loop)
-        return int(future.result(timeout=5))
+        try:
+            return int(future.result(timeout=5))
+        except Exception as exc:
+            log_event(
+                "runtime_latest_stream_seq_failed",
+                session_id=session_id,
+                error=str(exc).strip() or exc.__class__.__name__,
+                exception_type=exc.__class__.__name__,
+                exception_repr=repr(exc),
+            )
+            return 0
 
     def _source_history_sync(
         self,
@@ -1380,18 +2361,48 @@ class RuntimeService:
         session_id: str,
         through_seq: int | None = None,
     ) -> list[dict]:
-        if loop is None or self._stream_service is None:
+        if self._stream_service is None:
+            return []
+        backend = _stream_backend_of(self._stream_service)
+        backend_source_snapshot = getattr(backend, "source_snapshot", None)
+        if callable(backend_source_snapshot):
+            try:
+                result = backend_source_snapshot(session_id, through_seq=through_seq)
+            except Exception as exc:
+                log_event(
+                    "runtime_source_history_failed",
+                    session_id=session_id,
+                    through_seq=through_seq,
+                    error=str(exc).strip() or exc.__class__.__name__,
+                    exception_type=exc.__class__.__name__,
+                    exception_repr=repr(exc),
+                    source="stream_backend",
+                )
+                return []
+            return list(result) if isinstance(result, list) else []
+        if loop is None:
             return []
         source_snapshot = getattr(self._stream_service, "source_snapshot", None)
         if not callable(source_snapshot):
             return []
         future = asyncio.run_coroutine_threadsafe(source_snapshot(session_id, through_seq), loop)
-        result = future.result(timeout=5)
+        try:
+            result = future.result(timeout=5)
+        except Exception as exc:
+            log_event(
+                "runtime_source_history_failed",
+                session_id=session_id,
+                through_seq=through_seq,
+                error=str(exc).strip() or exc.__class__.__name__,
+                exception_type=exc.__class__.__name__,
+                exception_repr=repr(exc),
+            )
+            return []
         return list(result) if isinstance(result, list) else []
 
-    def _next_view_commit_seq(self, session_id: str) -> int:
+    def _latest_view_commit_seq(self, session_id: str) -> int:
         if self._game_state_store is None:
-            return 1
+            return 0
         candidates: list[int] = []
 
         if callable(getattr(self._game_state_store, "load_checkpoint", None)):
@@ -1429,7 +2440,10 @@ class RuntimeService:
                     if commit_seq is not None:
                         candidates.append(commit_seq)
 
-        return max([0, *candidates]) + 1
+        return max([0, *candidates])
+
+    def _next_view_commit_seq(self, session_id: str) -> int:
+        return self._latest_view_commit_seq(session_id) + 1
 
     def _build_authoritative_view_commits(
         self,
@@ -2150,13 +3164,14 @@ class RuntimeService:
         prompt_payload: dict,
         *,
         state: object | None = None,
-    ) -> None:
+        publish: bool = True,
+    ) -> dict | None:
         if loop is None or self._stream_service is None or self._prompt_service is None:
-            return
+            return None
         payload = dict(prompt_payload)
         request_id = str(payload.get("request_id") or "").strip()
         if not request_id:
-            return
+            return None
         payload.setdefault("provider", "human")
         self._enrich_prompt_boundary_from_active_batch(payload, state)
         try:
@@ -2165,30 +3180,89 @@ class RuntimeService:
             if str(exc) not in {"duplicate_pending_request_id", "duplicate_recent_request_id"}:
                 raise
             if str(exc) == "duplicate_recent_request_id":
-                return
+                return None
 
-        prompt_future = asyncio.run_coroutine_threadsafe(
-            self._stream_service.publish(session_id, "prompt", payload),
-            loop,
-        )
-        prompt_future.result(timeout=5)
+        if not publish:
+            return payload
+
+        self._publish_prompt_boundary_sync(loop, session_id, payload)
+        return payload
+
+    def _publish_prompt_boundary_sync(
+        self,
+        loop: asyncio.AbstractEventLoop | None,
+        session_id: str,
+        prompt_payload: dict,
+    ) -> None:
+        if loop is None or self._stream_service is None:
+            return
+        payload = dict(prompt_payload)
+        request_id = str(payload.get("request_id") or "").strip()
+        if not request_id:
+            return
+        request_type = str(payload.get("request_type") or "")
+        player_id = int(payload.get("player_id") or 0)
+        stream_backend = _stream_backend_of(self._stream_service)
+        publish_prompt = lambda: self._stream_service.publish(session_id, "prompt", payload)
+        if stream_backend is None:
+            _run_runtime_stream_task_sync(
+                loop,
+                session_id,
+                "runtime_prompt_publish_failed",
+                publish_prompt,
+                timeout=_PROMPT_BOUNDARY_PUBLISH_TIMEOUT_SECONDS,
+                attempts=_PROMPT_BOUNDARY_PUBLISH_ATTEMPTS,
+                retry_delay=0.05,
+                request_id=request_id,
+                request_type=request_type,
+                player_id=player_id,
+            )
+        else:
+            _schedule_runtime_stream_task(
+                loop,
+                session_id,
+                "runtime_prompt_publish_failed",
+                publish_prompt,
+                request_id=request_id,
+                request_type=request_type,
+                player_id=player_id,
+            )
 
         public_context = dict(payload.get("public_context") or {})
         requested = build_decision_requested_payload(
             request_id=request_id,
-            player_id=int(payload.get("player_id") or 0),
-            request_type=str(payload.get("request_type") or ""),
+            player_id=player_id,
+            request_type=request_type,
             fallback_policy=str(payload.get("fallback_policy") or "required"),
             provider=str(payload.get("provider") or "human"),
             round_index=public_context.get("round_index"),
             turn_index=public_context.get("turn_index"),
             public_context=public_context,
         )
-        event_future = asyncio.run_coroutine_threadsafe(
-            self._stream_service.publish(session_id, "event", requested),
-            loop,
-        )
-        event_future.result(timeout=5)
+        publish_event = lambda: self._stream_service.publish(session_id, "event", requested)
+        if stream_backend is None:
+            _run_runtime_stream_task_sync(
+                loop,
+                session_id,
+                "runtime_prompt_event_publish_failed",
+                publish_event,
+                timeout=_PROMPT_BOUNDARY_PUBLISH_TIMEOUT_SECONDS,
+                attempts=_PROMPT_BOUNDARY_PUBLISH_ATTEMPTS,
+                retry_delay=0.05,
+                request_id=request_id,
+                request_type=request_type,
+                player_id=player_id,
+            )
+        else:
+            _schedule_runtime_stream_task(
+                loop,
+                session_id,
+                "runtime_prompt_event_publish_failed",
+                publish_event,
+                request_id=request_id,
+                request_type=request_type,
+                player_id=player_id,
+            )
         self._touch_activity(session_id)
 
     def _publish_active_module_prompt_batch_sync(
@@ -2406,15 +3480,22 @@ class _ServerDecisionPolicyBridge:
             return request.fallback()
         return client.resolve(call)
 
-    @staticmethod
-    def _decision_resume_matches_call(call, resume: RuntimeDecisionResume) -> bool:
+    def _decision_resume_matches_call(self, call, resume: RuntimeDecisionResume) -> bool:
         request = call.request
         expected_player_id = int(request.player_id if request.player_id is not None else -1) + 1
         if expected_player_id != int(resume.player_id):
             return False
         if str(request.request_type or "") != str(resume.request_type or ""):
             return False
+        if not self._decision_resume_matches_next_prompt_instance(resume):
+            return False
         return True
+
+    def _decision_resume_matches_next_prompt_instance(self, resume: RuntimeDecisionResume) -> bool:
+        parsed_instance_id = self._prompt_instance_id_from_resume_request_id(resume)
+        if parsed_instance_id <= 0 or self._human_client is None:
+            return True
+        return int(self._human_client.prompt_seq) + 1 == parsed_instance_id
 
     def _consume_decision_resume(self, call):
         resume = self._decision_resume
@@ -2429,20 +3510,11 @@ class _ServerDecisionPolicyBridge:
         legal = {str(choice.get("choice_id") or "") for choice in call.legal_choices if isinstance(choice, dict)}
         if legal and str(resume.choice_id) not in legal:
             raise RuntimeDecisionResumeMismatch("decision resume choice is not legal")
-        parser = call.choice_parser
-        if parser is None:
-            parsed = resume.choice_id
+        batch_parsed = self._parse_active_flip_batch_resume(call, resume)
+        if batch_parsed is not _ACTIVE_FLIP_BATCH_NOT_APPLICABLE:
+            parsed = batch_parsed
         else:
-            try:
-                parsed = parser(
-                    str(resume.choice_id),
-                    call.invocation.args,
-                    call.invocation.kwargs,
-                    call.invocation.state,
-                    call.invocation.player,
-                )
-            except Exception as exc:
-                raise RuntimeDecisionResumeMismatch("decision resume parse failed") from exc
+            parsed = self._parse_standard_decision_resume_choice(call, resume)
         self._advance_prompt_sequence_after_decision_resume(resume)
         self._decision_resume = None
         self._gateway._publish_decision_resolved(
@@ -2455,6 +3527,57 @@ class _ServerDecisionPolicyBridge:
             public_context=dict(request.public_context),
         )
         return parsed
+
+    @staticmethod
+    def _parse_standard_decision_resume_choice(call, resume: RuntimeDecisionResume):  # noqa: ANN001
+        parser = call.choice_parser
+        if parser is None:
+            return resume.choice_id
+        try:
+            return parser(
+                str(resume.choice_id),
+                call.invocation.args,
+                call.invocation.kwargs,
+                call.invocation.state,
+                call.invocation.player,
+            )
+        except Exception as exc:
+            raise RuntimeDecisionResumeMismatch("decision resume parse failed") from exc
+
+    @staticmethod
+    def _parse_active_flip_batch_resume(call, resume: RuntimeDecisionResume):  # noqa: ANN001
+        if str(call.request.request_type or "") != "active_flip":
+            return _ACTIVE_FLIP_BATCH_NOT_APPLICABLE
+        if str(resume.choice_id) != "none":
+            return _ACTIVE_FLIP_BATCH_NOT_APPLICABLE
+        selected_ids = resume.choice_payload.get("selected_choice_ids")
+        if not isinstance(selected_ids, list):
+            return _ACTIVE_FLIP_BATCH_NOT_APPLICABLE
+        legal_by_id = {
+            str(choice.get("choice_id") or ""): choice
+            for choice in call.legal_choices
+            if isinstance(choice, dict) and str(choice.get("choice_id") or "")
+        }
+        selected_cards: list[int] = []
+        seen_cards: set[int] = set()
+        for raw_selected_id in selected_ids:
+            selected_id = str(raw_selected_id or "").strip()
+            if not selected_id or selected_id == "none":
+                continue
+            if legal_by_id and selected_id not in legal_by_id:
+                raise RuntimeDecisionResumeMismatch("decision resume active flip batch choice is not legal")
+            choice = legal_by_id.get(selected_id, {})
+            value = choice.get("value") if isinstance(choice, dict) else None
+            card_index_source = value.get("card_index") if isinstance(value, dict) else selected_id
+            try:
+                card_index = int(card_index_source)
+            except (TypeError, ValueError) as exc:
+                raise RuntimeDecisionResumeMismatch("decision resume active flip batch parse failed") from exc
+            if card_index in seen_cards:
+                continue
+            seen_cards.add(card_index)
+            selected_cards.append(card_index)
+        return selected_cards if selected_cards else None
 
     def _advance_prompt_sequence_after_decision_resume(self, resume: RuntimeDecisionResume) -> None:
         if self._human_client is None:

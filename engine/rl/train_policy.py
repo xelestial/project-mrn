@@ -12,6 +12,8 @@ from rl.replay import iter_replay_rows
 
 MODEL_JSON = "policy_model.json"
 MODEL_PT = "policy_model.pt"
+_MODEL_CACHE: dict[tuple[str, int, int], tuple[Any, dict[str, Any]]] = {}
+_MAX_MODEL_CACHE_SIZE = 4
 
 
 def train_behavior_clone(
@@ -36,11 +38,19 @@ def train_behavior_clone(
     torch = _load_torch()
     random.Random(seed).shuffle(rows)
     feature_schema = {
-        "version": 1,
-        "numeric_slots": 24,
-        "hash_slots": 64,
-        "feature_dim": 88,
-        "hash_fields": ["decision_key", "action_id", "player_id", "character"],
+        "version": 2,
+        "numeric_slots": 32,
+        "hash_slots": 96,
+        "feature_dim": 128,
+        "hash_fields": [
+            "decision_key",
+            "action_id",
+            "player_id",
+            "character",
+            "request_type",
+            "module_type",
+            "action_label",
+        ],
     }
     examples = _build_training_examples(rows, feature_schema)
     if not examples:
@@ -57,14 +67,16 @@ def train_behavior_clone(
     torch.manual_seed(seed)
     model = _ActionScorer(feature_schema["feature_dim"], hidden_size)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-    loss_fn = torch.nn.BCEWithLogitsLoss()
+    loss_fn = torch.nn.BCEWithLogitsLoss(reduction="none")
 
     x_train = torch.tensor([item[0] for item in train_examples], dtype=torch.float32)
     y_train = torch.tensor([[item[1]] for item in train_examples], dtype=torch.float32)
+    w_train = torch.tensor([[item[2]] for item in train_examples], dtype=torch.float32)
     for _ in range(max(1, epochs)):
         optimizer.zero_grad(set_to_none=True)
         logits = model(x_train)
-        loss = loss_fn(logits, y_train)
+        losses = loss_fn(logits, y_train)
+        loss = (losses * w_train).sum() / w_train.sum().clamp_min(1.0)
         loss.backward()
         optimizer.step()
 
@@ -78,6 +90,7 @@ def train_behavior_clone(
         "hidden_size": hidden_size,
         "learning_rate": learning_rate,
         "validation_accuracy": validation_accuracy,
+        "sample_weight": _sample_weight_summary(examples),
         "feature_schema": feature_schema,
         "action_schema": _action_schema(rows),
     }
@@ -99,12 +112,8 @@ def predict_action(*, model_dir: str | Path, row: dict[str, Any]) -> dict[str, A
         return {"action_id": str(legal_actions[0].get("action_id") or ""), "scores": []}
 
     torch = _load_torch()
-    checkpoint = torch.load(out / MODEL_PT, map_location="cpu", weights_only=False)
-    model_metadata = checkpoint.get("metadata") or metadata
+    model, model_metadata = _load_policy_model(out, metadata)
     feature_schema = model_metadata["feature_schema"]
-    model = _ActionScorer(feature_schema["feature_dim"], int(model_metadata["hidden_size"]))
-    model.load_state_dict(checkpoint["state_dict"])
-    model.eval()
 
     scored: list[dict[str, Any]] = []
     with torch.no_grad():
@@ -138,15 +147,19 @@ class _ActionScorer:
         return ActionScorer()
 
 
-def _build_training_examples(rows: Iterable[dict[str, Any]], feature_schema: dict[str, Any]) -> list[tuple[list[float], float]]:
-    examples: list[tuple[list[float], float]] = []
+def _build_training_examples(rows: Iterable[dict[str, Any]], feature_schema: dict[str, Any]) -> list[tuple[list[float], float, float]]:
+    examples: list[tuple[list[float], float, float]] = []
     for row in rows:
         chosen = str(row.get("chosen_action_id") or "")
+        row_weight = _row_sample_weight(row)
         for action in row.get("legal_actions") or []:
             if not action.get("legal", True):
                 continue
             action_id = str(action.get("action_id") or "")
-            examples.append((_vectorize(row, action_id, feature_schema), 1.0 if action_id == chosen else 0.0))
+            label = 1.0 if action_id == chosen else 0.0
+            action_weight = row_weight * _action_sample_weight(row, action)
+            weight = action_weight if label else max(0.25, action_weight * 0.45)
+            examples.append((_vectorize(row, action_id, feature_schema), label, weight))
     return examples
 
 
@@ -184,12 +197,28 @@ def _numeric_values(value: Any) -> list[float]:
 
 def _hash_tokens(row: dict[str, Any], action_id: str) -> list[str]:
     observation = row.get("observation") if isinstance(row.get("observation"), dict) else {}
+    prompt = row.get("prompt") if isinstance(row.get("prompt"), dict) else {}
+    matching_action = next(
+        (
+            action
+            for action in row.get("legal_actions") or []
+            if str(action.get("action_id") or "") == action_id
+        ),
+        {},
+    )
+    action_label = ""
+    if isinstance(matching_action, dict):
+        action_label = str(matching_action.get("label") or matching_action.get("title") or "")
     return [
         f"decision:{row.get('decision_key')}",
         f"action:{action_id}",
         f"decision_action:{row.get('decision_key')}:{action_id}",
         f"player:{row.get('player_id')}",
         f"character:{observation.get('character')}",
+        f"request:{prompt.get('request_type') or row.get('request_type') or row.get('decision_key')}",
+        f"module:{prompt.get('module_type') or observation.get('module_type')}",
+        f"action_label:{action_label}",
+        f"legal_count:{len(row.get('legal_actions') or [])}",
     ]
 
 
@@ -197,7 +226,7 @@ def _stable_hash(value: str) -> int:
     return int(hashlib.sha256(value.encode("utf-8")).hexdigest()[:12], 16)
 
 
-def _validation_accuracy(torch: Any, model: Any, validation_examples: list[tuple[list[float], float]]) -> float:
+def _validation_accuracy(torch: Any, model: Any, validation_examples: list[tuple[list[float], float, float]]) -> float:
     if not validation_examples:
         return 0.0
     x_val = torch.tensor([item[0] for item in validation_examples], dtype=torch.float32)
@@ -205,6 +234,93 @@ def _validation_accuracy(torch: Any, model: Any, validation_examples: list[tuple
     with torch.no_grad():
         predicted = (torch.sigmoid(model(x_val)).reshape(-1) >= 0.5).float()
     return float((predicted == y_val).float().mean().item())
+
+
+def _row_sample_weight(row: dict[str, Any]) -> float:
+    raw = row.get("sample_weight")
+    if isinstance(raw, (int, float)):
+        return max(0.25, min(8.0, float(raw)))
+    reward = row.get("reward") if isinstance(row.get("reward"), dict) else {}
+    reward_total = float(reward.get("total") or 0.0)
+    outcome = row.get("outcome") if isinstance(row.get("outcome"), dict) else {}
+    weight = 1.0 + min(1.5, abs(reward_total) * 0.5)
+    if outcome.get("won"):
+        weight += 0.6
+    rank = _outcome_rank(outcome)
+    if rank == 1:
+        weight += 0.6
+    elif rank >= 4:
+        weight += 0.35
+    if outcome.get("bankrupt") or outcome.get("bankruptcy") or outcome.get("alive") is False:
+        weight += 0.75
+    components = reward.get("components") if isinstance(reward.get("components"), dict) else {}
+    for key, value in components.items():
+        if not isinstance(value, (int, float)):
+            continue
+        if any(token in str(key) for token in ("cash", "money", "coin", "shard", "score", "rent", "bankrupt", "end_time", "f_value")):
+            weight += min(1.25, abs(float(value)) * 0.35)
+    return max(0.25, min(8.0, weight))
+
+
+def _action_sample_weight(row: dict[str, Any], action: dict[str, Any]) -> float:
+    decision_key = str(row.get("decision_key") or "")
+    action_id = str(action.get("action_id") or "")
+    label = str(action.get("label") or action.get("title") or "")
+    text = f"{decision_key} {action_id} {label}".lower()
+    multiplier = 1.0
+    if any(token in text for token in ("cash", "money", "coin", "buy", "rent", "냥", "돈", "엽전", "구매", "렌트")):
+        multiplier += 0.2
+    if any(token in text for token in ("shard", "score", "point", "조각", "승점", "점수")):
+        multiplier += 0.2
+    if any(token in text for token in ("move", "dice", "fortune", "이동", "주사위", "운수")):
+        multiplier += 0.15
+    return min(1.6, multiplier)
+
+
+def _outcome_rank(outcome: dict[str, Any]) -> int:
+    value = outcome.get("rank", outcome.get("final_rank"))
+    if isinstance(value, (int, float)):
+        return int(value)
+    return 0
+
+
+def _load_policy_model(model_dir: Path, metadata: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+    model_path = model_dir / MODEL_PT
+    json_path = model_dir / MODEL_JSON
+    if not model_path.exists():
+        raise FileNotFoundError(f"RL policy weights not found: {model_path}")
+    key = (
+        str(model_path.resolve()),
+        model_path.stat().st_mtime_ns,
+        json_path.stat().st_mtime_ns if json_path.exists() else 0,
+    )
+    cached = _MODEL_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    torch = _load_torch()
+    checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+    model_metadata = checkpoint.get("metadata") or metadata
+    feature_schema = model_metadata["feature_schema"]
+    model = _ActionScorer(feature_schema["feature_dim"], int(model_metadata["hidden_size"]))
+    model.load_state_dict(checkpoint["state_dict"])
+    model.eval()
+
+    if len(_MODEL_CACHE) >= _MAX_MODEL_CACHE_SIZE:
+        _MODEL_CACHE.clear()
+    _MODEL_CACHE[key] = (model, model_metadata)
+    return model, model_metadata
+
+
+def _sample_weight_summary(examples: list[tuple[list[float], float, float]]) -> dict[str, float]:
+    weights = [float(item[2]) for item in examples]
+    if not weights:
+        return {"min": 0.0, "max": 0.0, "avg": 0.0}
+    return {
+        "min": min(weights),
+        "max": max(weights),
+        "avg": sum(weights) / len(weights),
+    }
 
 
 def _action_schema(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -227,7 +343,7 @@ def _empty_model(*, seed: int, rows: int = 0) -> dict[str, Any]:
         "rows": rows,
         "train_examples": 0,
         "validation_accuracy": 0.0,
-        "feature_schema": {"version": 1, "numeric_slots": 24, "hash_slots": 64, "feature_dim": 88},
+        "feature_schema": {"version": 2, "numeric_slots": 32, "hash_slots": 96, "feature_dim": 128},
         "action_schema": {"version": 1, "decisions": {}},
     }
 

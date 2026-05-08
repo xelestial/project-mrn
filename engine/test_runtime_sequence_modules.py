@@ -6,6 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 from state import ActionEnvelope
+from config import GameConfig
+from state import GameState
 from runtime_modules.contracts import Modifier, ModifierRegistryState, ModuleJournalEntry, ModuleRef
 from runtime_modules.modifiers import MUROE_SKILL_SUPPRESSION_KIND, MUROE_SKILL_SUPPRESSION_REASON
 from runtime_modules.round_modules import build_round_frame
@@ -999,6 +1001,45 @@ def test_module_runner_rejects_orphan_pending_turn_completion_checkpoint() -> No
 
     with pytest.raises(ModuleRunnerError, match="pending_turn_completion.*TurnEndSnapshotModule"):
         ModuleRunner().advance_engine(FakeEngine(), state)
+
+
+def test_turn_end_snapshot_counts_completed_turn_before_end_rule() -> None:
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+        def _leader_disruption_snapshot(self, *_args, **_kwargs):
+            return {}
+
+        def _maybe_award_control_finisher_window(self, *_args, **_kwargs):
+            return False
+
+        def _emit_vis(self, *_args, **_kwargs):
+            return None
+
+        def _check_end(self, state):
+            return state.turn_index >= 1
+
+    state = GameState.create(GameConfig(player_count=1))
+    state.current_round_order = [0]
+    turn_frame = build_turn_frame(
+        1,
+        0,
+        parent_module_id="mod:round:1:playerturn:p0",
+        session_id="test-session",
+    )
+    for module in turn_frame.module_queue:
+        if module.module_type == "TurnEndSnapshotModule":
+            break
+        module.status = "completed"
+        turn_frame.completed_module_ids.append(module.module_id)
+    state.runtime_frame_stack = [turn_frame]
+
+    result = ModuleRunner().advance_engine(FakeEngine(), state)
+
+    assert result["status"] == "completed"
+    assert result["reason"] == "end_rule"
+    assert state.turn_index == 1
+    assert turn_frame.status == "completed"
 
 
 def test_module_runner_has_no_direct_turn_body_boundary_after_cutover() -> None:

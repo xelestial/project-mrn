@@ -81,6 +81,8 @@ class EndConditionRules:
     monopolies_to_trigger_end: int = 3
     tiles_to_trigger_end: Optional[int] = 9
     alive_players_at_most: int = 2
+    max_rounds: Optional[int] = None
+    max_turns: Optional[int] = None
 
     def evaluate_end_reason(self, engine, state: 'GameState') -> str | None:
         if self.f_threshold is not None and state.f_value >= self.f_threshold:
@@ -100,6 +102,10 @@ class EndConditionRules:
         )
         if state.alive_count() <= effective_alive_threshold:
             return 'ALIVE_THRESHOLD'
+        if self.max_rounds is not None and state.rounds_completed >= self.max_rounds:
+            return 'MAX_ROUNDS'
+        if self.max_turns is not None and state.turn_index >= self.max_turns:
+            return 'MAX_TURNS'
         return None
 
 
@@ -205,6 +211,8 @@ class GameRules:
         self.end.monopolies_to_trigger_end = config.end.monopolies_to_trigger_end
         self.end.tiles_to_trigger_end = config.end.higher_tiles_to_trigger_end
         self.end.alive_players_at_most = config.end.end_when_alive_players_at_most
+        self.end.max_rounds = config.end.max_rounds
+        self.end.max_turns = config.end.max_turns
 
     def sync_to_config_mirrors(self, config: 'GameConfig') -> None:
         config.coins.starting_hand_coins = self.token.starting_hand_coins
@@ -239,3 +247,5 @@ class GameRules:
         config.end.monopolies_to_trigger_end = self.end.monopolies_to_trigger_end
         config.end.higher_tiles_to_trigger_end = self.end.tiles_to_trigger_end
         config.end.end_when_alive_players_at_most = self.end.alive_players_at_most
+        config.end.max_rounds = self.end.max_rounds
+        config.end.max_turns = self.end.max_turns

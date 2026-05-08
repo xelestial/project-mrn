@@ -381,7 +381,7 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(calls, [])
 
-    def test_authenticated_runtime_status_resumes_pending_command_before_plain_recovery(self) -> None:
+    def test_authenticated_runtime_status_defers_pending_command_before_plain_recovery(self) -> None:
         from apps.server.src import state
 
         created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
@@ -445,7 +445,114 @@ class SessionsApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(start_calls, [])
-        self.assertEqual(process_calls, [(session_id, 7, "runtime_wakeup", 120, None)])
+        self.assertEqual(process_calls, [])
+
+    def test_authenticated_runtime_status_does_not_start_recovery_for_waiting_checkpoint(self) -> None:
+        from apps.server.src import state
+
+        created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
+        self.assertEqual(created.status_code, 200)
+        data = created.json()["data"]
+        session_id = data["session_id"]
+        joined = self.client.post(
+            f"/api/v1/sessions/{session_id}/join",
+            json={"seat": 1, "join_token": data["join_tokens"]["1"], "display_name": "P1"},
+        )
+        self.assertEqual(joined.status_code, 200)
+        session_token = joined.json()["data"]["session_token"]
+
+        original_status = state.runtime_service.runtime_status
+        original_pending = state.runtime_service.pending_resume_command
+        original_start = state.runtime_service.start_runtime
+        start_calls: list[tuple[str, int, str | None]] = []
+
+        def _fake_runtime_status(_session_id: str) -> dict:
+            return {
+                "status": "recovery_required",
+                "reason": "runtime_task_missing_after_restart",
+                "recovery_checkpoint": {
+                    "available": True,
+                    "checkpoint": {
+                        "waiting_prompt_request_id": f"{session_id}:r1:t1:p1:hidden_trick_card:65",
+                        "waiting_prompt_player_id": 1,
+                        "runtime_active_prompt": {
+                            "request_id": f"{session_id}:r1:t1:p1:hidden_trick_card:65",
+                            "request_type": "hidden_trick_card",
+                            "player_id": 1,
+                            "legal_choices": [{"choice_id": "use_trick"}],
+                        },
+                    },
+                    "current_state": {"tiles": [], "players": []},
+                },
+            }
+
+        async def _fake_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+            start_calls.append((session_id, seed, policy_mode))
+
+        state.runtime_service.runtime_status = _fake_runtime_status  # type: ignore[method-assign]
+        state.runtime_service.pending_resume_command = lambda _session_id: None  # type: ignore[method-assign]
+        state.runtime_service.start_runtime = _fake_start_runtime  # type: ignore[assignment]
+        try:
+            response = self.client.get(
+                f"/api/v1/sessions/{session_id}/runtime-status",
+                params={"token": session_token},
+            )
+        finally:
+            state.runtime_service.runtime_status = original_status  # type: ignore[method-assign]
+            state.runtime_service.pending_resume_command = original_pending  # type: ignore[method-assign]
+            state.runtime_service.start_runtime = original_start  # type: ignore[assignment]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(start_calls, [])
+
+    def test_authenticated_runtime_status_defers_waiting_input_pending_command(self) -> None:
+        from apps.server.src import state
+
+        created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
+        self.assertEqual(created.status_code, 200)
+        data = created.json()["data"]
+        session_id = data["session_id"]
+        joined = self.client.post(
+            f"/api/v1/sessions/{session_id}/join",
+            json={"seat": 1, "join_token": data["join_tokens"]["1"], "display_name": "P1"},
+        )
+        self.assertEqual(joined.status_code, 200)
+        session_token = joined.json()["data"]["session_token"]
+
+        original_status = state.runtime_service.runtime_status
+        original_pending = state.runtime_service.pending_resume_command
+        original_process = state.runtime_service.process_command_once
+        process_calls: list[tuple[str, int, str, int, str | None]] = []
+
+        def _fake_runtime_status(_session_id: str) -> dict:
+            return {"status": "waiting_input", "reason": "pending_human_decision"}
+
+        async def _fake_process_command_once(
+            *,
+            session_id: str,
+            command_seq: int,
+            consumer_name: str,
+            seed: int,
+            policy_mode: str | None = None,
+        ) -> dict:
+            process_calls.append((session_id, command_seq, consumer_name, seed, policy_mode))
+            return {"status": "committed"}
+
+        state.runtime_service.runtime_status = _fake_runtime_status  # type: ignore[method-assign]
+        state.runtime_service.pending_resume_command = lambda _session_id: {"seq": 9, "type": "decision_submitted"}  # type: ignore[method-assign]
+        state.runtime_service.process_command_once = _fake_process_command_once  # type: ignore[method-assign]
+        try:
+            response = self.client.get(
+                f"/api/v1/sessions/{session_id}/runtime-status",
+                params={"token": session_token},
+            )
+        finally:
+            state.runtime_service.runtime_status = original_status  # type: ignore[method-assign]
+            state.runtime_service.pending_resume_command = original_pending  # type: ignore[method-assign]
+            state.runtime_service.process_command_once = original_process  # type: ignore[method-assign]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(process_calls, [])
 
     def test_public_session_allows_spectator_replay_and_runtime_status(self) -> None:
         payload = _all_ai_payload()

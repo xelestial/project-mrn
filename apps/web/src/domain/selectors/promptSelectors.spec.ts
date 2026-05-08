@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { InboundMessage, ViewCommitPayload } from "../../core/contracts/stream";
 import {
+  promptViewModelFromActivePromptPayload,
   selectActivePrompt,
   selectCurrentHandTrayCards,
   selectLatestDecisionAck,
@@ -244,6 +245,130 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
 
     expect(selectActivePrompt([incomplete])).toBeNull();
     expect(selectActivePrompt([complete])?.continuation.moduleCursor).toBe("movement:await_choice");
+  });
+
+  it("keeps serial prompts inside resupply frames even without batch continuation fields", () => {
+    const messages = [
+      viewCommit(3, {
+        prompt: {
+          active: {
+            request_id: "req_hidden_resupply",
+            request_type: "hidden_trick_card",
+            player_id: 4,
+            runner_kind: "module",
+            resume_token: "resume_hidden",
+            frame_id: "simul:resupply:1:92",
+            module_id: "mod:resupply:1",
+            module_type: "ResupplyModule",
+            module_cursor: "await_resupply_batch:4",
+            choices: [
+              {
+                choice_id: "hide_12",
+                title: "가벼운 짐",
+                value: { deck_index: 12 },
+              },
+            ],
+          },
+        },
+      }),
+    ];
+
+    const prompt = selectActivePrompt(messages);
+
+    expect(prompt?.requestId).toBe("req_hidden_resupply");
+    expect(prompt?.requestType).toBe("hidden_trick_card");
+    expect(prompt?.continuation.batchId).toBeNull();
+  });
+
+  it("requires batch continuation fields for actual resupply batch prompts", () => {
+    const incomplete = viewCommit(4, {
+      prompt: {
+        active: {
+          request_id: "req_burden_incomplete",
+          request_type: "burden_exchange",
+          player_id: 3,
+          runner_kind: "module",
+          resume_token: "resume_burden",
+          frame_id: "simul:resupply:1:92",
+          module_id: "mod:resupply:1",
+          module_type: "ResupplyModule",
+          module_cursor: "await_resupply_batch:4",
+          choices: [{ choice_id: "no", title: "교환 안 함", secondary: true }],
+        },
+      },
+    });
+    const complete = viewCommit(5, {
+      prompt: {
+        active: {
+          request_id: "req_burden_complete",
+          request_type: "burden_exchange",
+          player_id: 3,
+          runner_kind: "module",
+          resume_token: "resume_burden",
+          frame_id: "simul:resupply:1:92",
+          module_id: "mod:resupply:1",
+          module_type: "ResupplyModule",
+          module_cursor: "await_resupply_batch:4",
+          batch_id: "resupply:1",
+          missing_player_ids: [1, 3, 4],
+          resume_tokens_by_player_id: {
+            "1": "resume_p1",
+            "3": "resume_p3",
+            "4": "resume_p4",
+          },
+          choices: [{ choice_id: "no", title: "교환 안 함", secondary: true }],
+        },
+      },
+    });
+
+    expect(selectActivePrompt([incomplete])).toBeNull();
+    expect(selectActivePrompt([complete])?.continuation).toMatchObject({
+      batchId: "resupply:1",
+      missingPlayerIds: [1, 3, 4],
+      resumeTokensByPlayerId: {
+        "1": "resume_p1",
+        "3": "resume_p3",
+        "4": "resume_p4",
+      },
+    });
+  });
+
+  it("parses a raw prompt payload with the same active-prompt contract for headless clients", () => {
+    const prompt = promptViewModelFromActivePromptPayload({
+      request_id: "batch:simul:resupply:1:95:mod:simul:resupply:1:95:resupply:1:p2",
+      request_type: "burden_exchange",
+      player_id: 3,
+      runner_kind: "module",
+      prompt_instance_id: 0,
+      resume_token: "resume_p3",
+      frame_id: "simul:resupply:1:95",
+      module_id: "mod:simul:resupply:1:95",
+      module_type: "ResupplyModule",
+      module_cursor: "await_resupply_batch:4",
+      batch_id: "batch:simul:resupply:1:95:mod:simul:resupply:1:95:resupply:1",
+      missing_player_ids: [1, 2, 3, 4],
+      resume_tokens_by_player_id: {
+        "1": "resume_p1",
+        "2": "resume_p2",
+        "3": "resume_p3",
+        "4": "resume_p4",
+      },
+      legal_choices: [{ choice_id: "no", title: "교환 안 함", secondary: true }],
+    });
+
+    expect(prompt?.requestId).toContain("resupply");
+    expect(prompt?.choices.map((choice) => choice.choiceId)).toEqual(["no"]);
+    expect(prompt?.continuation).toMatchObject({
+      promptInstanceId: 0,
+      batchId: "batch:simul:resupply:1:95:mod:simul:resupply:1:95:resupply:1",
+      missingPlayerIds: [1, 2, 3, 4],
+      resumeTokensByPlayerId: {
+        "1": "resume_p1",
+        "2": "resume_p2",
+        "3": "resume_p3",
+        "4": "resume_p4",
+      },
+    });
   });
 
   it("prefers ViewCommit prompt feedback while falling back to raw decision_ack", () => {

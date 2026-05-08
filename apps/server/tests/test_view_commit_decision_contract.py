@@ -14,13 +14,13 @@ class ViewCommitDecisionContractTests(unittest.TestCase):
 
         self.assertEqual(reason, "missing_view_commit_seq_seen")
 
-    def test_rejects_decision_older_than_active_prompt_commit(self) -> None:
+    def test_accepts_current_prompt_even_when_seen_commit_lags_prompt_commit(self) -> None:
         reason = _decision_view_commit_rejection_reason(
             {"type": "decision", "request_id": "req_1", "player_id": 1, "view_commit_seq_seen": 3},
             _latest_commit(commit_seq=5, request_id="req_1", player_id=1, prompt_commit_seq=4),
         )
 
-        self.assertEqual(reason, "stale_view_commit_seq")
+        self.assertIsNone(reason)
 
     def test_rejects_mismatched_active_prompt_request(self) -> None:
         reason = _decision_view_commit_rejection_reason(

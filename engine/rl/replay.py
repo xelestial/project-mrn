@@ -38,6 +38,7 @@ def build_replay_rows_from_game(game: dict) -> list[dict]:
     decisions = list(game.get("ai_decision_log") or [])
     if not decisions:
         return []
+    rank_by_player = _player_rank_by_id(game)
 
     turns_by_player_turn: dict[tuple[int, int | None], dict] = {}
     turns_by_player_round: dict[tuple[int, int | None], dict] = {}
@@ -64,6 +65,9 @@ def build_replay_rows_from_game(game: dict) -> list[dict]:
         reward = compute_reward_from_event(reward_event).to_dict()
         payload = decision.get("payload") if isinstance(decision.get("payload"), dict) else {}
         action_space = normalize_decision_action_space(decision)
+        winner_ids = list(game.get("winner_ids") or [])
+        rank = rank_by_player.get(player_id)
+        won = player_id in winner_ids
         row = {
             "game_id": game.get("global_game_index", game.get("game_id")),
             "step": step,
@@ -76,14 +80,58 @@ def build_replay_rows_from_game(game: dict) -> list[dict]:
             "chosen_action_id": action_space.chosen_action_id,
             "action_space_source": action_space.source,
             "reward": reward,
+            "sample_weight": _sample_weight(
+                reward_total=float(reward.get("total") or 0.0),
+                won=won,
+                rank=rank,
+                decision_key=str(decision.get("decision_key") or decision.get("decision") or ""),
+            ),
             "done": step == len(decisions),
             "outcome": {
-                "winner_ids": list(game.get("winner_ids") or []),
+                "winner_ids": winner_ids,
                 "end_reason": game.get("end_reason"),
+                "won": won,
+                "rank": rank,
             },
         }
         rows.append(row)
     return rows
+
+
+def _player_rank_by_id(game: dict) -> dict[int, int]:
+    players = list(game.get("player_summary") or [])
+    if not players:
+        return {}
+    ordered = sorted(
+        players,
+        key=lambda p: (
+            _number(p.get("score")),
+            _number(p.get("placed_score_coins")),
+            _number(p.get("cash")),
+            _number(p.get("tiles_owned")),
+        ),
+        reverse=True,
+    )
+    ranks: dict[int, int] = {}
+    for rank, player in enumerate(ordered, start=1):
+        player_id = player.get("player_id")
+        if player_id is None:
+            continue
+        ranks[int(player_id) + 1] = rank
+    return ranks
+
+
+def _sample_weight(*, reward_total: float, won: bool, rank: int | None, decision_key: str) -> float:
+    weight = 1.0 + min(1.5, abs(float(reward_total)) * 0.5)
+    if won:
+        weight += 0.5
+    if rank == 1:
+        weight += 0.4
+    elif rank == 4:
+        weight += 0.2
+    if decision_key in {"purchase_decision", "movement_decision", "lap_reward", "start_reward"}:
+        weight += 0.25
+    return round(max(0.5, min(4.0, weight)), 4)
 
 
 def _build_observation(decision: dict, payload: dict) -> dict:
@@ -119,3 +167,11 @@ def _json_safe(value) -> bool:
     except (TypeError, ValueError):
         return False
     return True
+
+
+def _number(value) -> float:
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    return 0.0

@@ -260,6 +260,30 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             self.fake_redis.pipeline_executions,
         )
 
+    def test_command_store_consumer_offset_is_monotonic(self) -> None:
+        command_store = RedisCommandStore(self.connection)
+
+        command_store.save_consumer_offset("runtime_wakeup", "s-offset", 5)
+        command_store.save_consumer_offset("runtime_wakeup", "s-offset", 3)
+        command_store.save_consumer_offset("runtime_wakeup", "s-offset", 7)
+
+        self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", "s-offset"), 7)
+
+    def test_game_state_commit_does_not_rewind_command_offset(self) -> None:
+        game_state = RedisGameStateStore(self.connection)
+        command_store = RedisCommandStore(self.connection)
+        command_store.save_consumer_offset("runtime_wakeup", "s-offset-commit", 9)
+
+        game_state.commit_transition(
+            "s-offset-commit",
+            current_state={"turn_index": 1},
+            checkpoint={"schema_version": 1, "session_id": "s-offset-commit", "turn_index": 1},
+            command_consumer_name="runtime_wakeup",
+            command_seq=4,
+        )
+
+        self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", "s-offset-commit"), 9)
+
     def test_game_state_store_rejects_non_monotonic_authoritative_view_commit(self) -> None:
         game_state = RedisGameStateStore(self.connection)
 
@@ -301,6 +325,49 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(game_state.load_checkpoint("s-conflict")["latest_commit_seq"], 1)
         self.assertEqual(game_state.load_current_state("s-conflict")["turn_index"], 1)
         self.assertEqual(game_state.load_view_commit("s-conflict", "spectator")["commit_seq"], 1)
+
+    def test_game_state_store_rejects_stale_expected_previous_commit_seq(self) -> None:
+        game_state = RedisGameStateStore(self.connection)
+
+        game_state.commit_transition(
+            "s-stale-base",
+            current_state={"turn_index": 1},
+            checkpoint={"schema_version": 1, "session_id": "s-stale-base", "turn_index": 1},
+            view_state={"board": {"turn": 1}},
+            view_commits={
+                "spectator": {
+                    "schema_version": 1,
+                    "commit_seq": 1,
+                    "source_event_seq": 0,
+                    "viewer": {"role": "spectator"},
+                    "runtime": {"status": "running", "round_index": 1, "turn_index": 1},
+                    "view_state": {"board": {"turn": 1}},
+                },
+            },
+            expected_previous_commit_seq=0,
+        )
+
+        with self.assertRaises(ViewCommitSequenceConflict):
+            game_state.commit_transition(
+                "s-stale-base",
+                current_state={"turn_index": 2},
+                checkpoint={"schema_version": 1, "session_id": "s-stale-base", "turn_index": 2},
+                view_state={"board": {"turn": 2}},
+                view_commits={
+                    "spectator": {
+                        "schema_version": 1,
+                        "commit_seq": 2,
+                        "source_event_seq": 0,
+                        "viewer": {"role": "spectator"},
+                        "runtime": {"status": "running", "round_index": 1, "turn_index": 2},
+                        "view_state": {"board": {"turn": 2}},
+                    },
+                },
+                expected_previous_commit_seq=0,
+            )
+
+        self.assertEqual(game_state.load_checkpoint("s-stale-base")["latest_commit_seq"], 1)
+        self.assertEqual(game_state.load_current_state("s-stale-base")["turn_index"], 1)
 
     def test_game_state_store_commits_module_prompt_resume_snapshot_atomically(self) -> None:
         game_state = RedisGameStateStore(self.connection)
@@ -676,6 +743,8 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         commands = command_store.list_commands("s-atomic")
         self.assertEqual(len(commands), 1)
         self.assertEqual(commands[0]["payload"]["request_id"], "r-atomic")
+        self.assertEqual(result["session_id"], "s-atomic")
+        self.assertEqual(result["command_seq"], int(commands[0]["seq"]))
         self.assertIn(
             [
                 "hdel",
@@ -684,6 +753,68 @@ class RedisRealtimeServicesTests(unittest.TestCase):
                 "xadd",
             ],
             self.fake_redis.pipeline_executions,
+        )
+
+    def test_command_store_recovers_seq_after_seq_key_eviction(self) -> None:
+        command_store = RedisCommandStore(self.connection)
+
+        first = command_store.append_command(
+            "s-command-seq-recover",
+            "decision_submitted",
+            {"request_id": "r-seq-1", "choice_id": "roll"},
+            request_id="r-seq-1",
+            server_time_ms=100,
+        )
+        self.fake_redis.delete(command_store._seq_key("s-command-seq-recover"))
+        second = command_store.append_command(
+            "s-command-seq-recover",
+            "decision_submitted",
+            {"request_id": "r-seq-2", "choice_id": "roll"},
+            request_id="r-seq-2",
+            server_time_ms=200,
+        )
+
+        self.assertEqual(first["seq"], 1)
+        self.assertEqual(second["seq"], 2)
+        self.assertEqual(
+            [command["seq"] for command in command_store.list_commands("s-command-seq-recover")],
+            [1, 2],
+        )
+
+    def test_prompt_service_recovers_command_seq_after_seq_key_eviction(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        command_store = RedisCommandStore(self.connection)
+        service = PromptService(prompt_store=prompt_store, command_store=command_store)
+        service.create_prompt(
+            "s-prompt-seq-recover",
+            {
+                "request_id": "r-prompt-seq-1",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+        first = service.submit_decision({"request_id": "r-prompt-seq-1", "player_id": 1, "choice_id": "roll"})
+
+        self.fake_redis.delete(command_store._seq_key("s-prompt-seq-recover"))
+        service.create_prompt(
+            "s-prompt-seq-recover",
+            {
+                "request_id": "r-prompt-seq-2",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+        second = service.submit_decision({"request_id": "r-prompt-seq-2", "player_id": 1, "choice_id": "roll"})
+
+        self.assertEqual(first["command_seq"], 1)
+        self.assertEqual(second["command_seq"], 2)
+        self.assertEqual(
+            [command["seq"] for command in command_store.list_commands("s-prompt-seq-recover")],
+            [1, 2],
         )
 
     def test_prompt_service_supersedes_older_redis_pending_prompt_for_same_player(self) -> None:
@@ -1975,6 +2106,8 @@ class RedisRealtimeServicesTests(unittest.TestCase):
                 "view_commit": True,
                 "runtime_event": True,
                 "consumer_offset": True,
+                "offset_consumer": "runtime_wakeup",
+                "offset_seq": 4,
             },
         )
         self.assertEqual(saved_checkpoint["latest_commit_seq"], 1)

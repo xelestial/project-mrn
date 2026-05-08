@@ -75,27 +75,24 @@ async def _recover_runtime_for_authenticated_seat(
     if auth_ctx.get("role") != "seat":
         return
     runtime_state = runtime.runtime_status(session_id)
-    if runtime_state.get("status") != "recovery_required":
+    runtime_status = str(runtime_state.get("status") or "")
+    if runtime_status not in {"recovery_required", "waiting_input"}:
         return
     session = service.get_session(session_id)
     runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
     pending_command = runtime.pending_resume_command(session_id)
     if pending_command is not None:
-        command_seq = int(pending_command.get("seq", 0) or 0)
-        await runtime.process_command_once(
-            session_id=session_id,
-            command_seq=command_seq,
-            consumer_name="runtime_wakeup",
-            seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
-            policy_mode=runtime_cfg.get("policy_mode"),
-        )
+        return
+    if runtime.recovery_state_has_waiting_input(runtime_state):
         log_event(
-            "runtime_recovery_resumed_pending_command",
+            "runtime_recovery_kept_waiting_input_checkpoint",
             session_id=session_id,
             reason=runtime_state.get("reason"),
             trigger="runtime_status",
-            command_seq=command_seq,
+            status=runtime_status,
         )
+        return
+    if runtime_status != "recovery_required":
         return
     if runtime.has_unprocessed_runtime_commands(session_id):
         log_event(

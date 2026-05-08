@@ -103,6 +103,8 @@ export type OutboundMessage =
       module_type?: string;
       module_cursor?: string;
       batch_id?: string;
+      missing_player_ids?: number[];
+      resume_tokens_by_player_id?: Record<string, string>;
       view_commit_seq_seen: number;
       client_seq: number;
     };

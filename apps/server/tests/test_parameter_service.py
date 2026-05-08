@@ -183,6 +183,8 @@ class ParameterServiceTests(unittest.TestCase):
                 "monopolies_to_trigger_end": 0,
                 "tiles_to_trigger_end": 1,
                 "alive_players_at_most": 1,
+                "max_rounds": None,
+                "max_turns": None,
             },
         )
 
@@ -194,6 +196,11 @@ class ParameterServiceTests(unittest.TestCase):
             {"rules": {"end": {"monopolies_to_trigger_end": -1}}},
             {"rules": {"end": {"tiles_to_trigger_end": 0}}},
             {"rules": {"end": {"alive_players_at_most": 0}}},
+            {"rules": {"end": {"max_rounds": 0}}},
+            {"rules": {"end": {"max_turns": 0}}},
+            {"runtime": []},
+            {"runtime": {"max_rounds": False}},
+            {"runtime": {"max_turns": False}},
         ]
         for config in invalid_configs:
             with self.subTest(config=config):
@@ -209,6 +216,8 @@ class ParameterServiceTests(unittest.TestCase):
                     "monopolies_to_trigger_end": 0,
                     "tiles_to_trigger_end": 1,
                     "alive_players_at_most": 1,
+                    "max_rounds": 2,
+                    "max_turns": 8,
                 },
             }
         )
@@ -219,10 +228,30 @@ class ParameterServiceTests(unittest.TestCase):
         self.assertEqual(runtime_config.rules.end.monopolies_to_trigger_end, 0)
         self.assertEqual(runtime_config.rules.end.tiles_to_trigger_end, 1)
         self.assertEqual(runtime_config.rules.end.alive_players_at_most, 1)
+        self.assertEqual(runtime_config.rules.end.max_rounds, 2)
+        self.assertEqual(runtime_config.rules.end.max_turns, 8)
         self.assertEqual(runtime_config.board.f_end_value, 2.0)
         self.assertEqual(runtime_config.end.monopolies_to_trigger_end, 0)
         self.assertEqual(runtime_config.end.higher_tiles_to_trigger_end, 1)
         self.assertEqual(runtime_config.end.end_when_alive_players_at_most, 1)
+        self.assertEqual(runtime_config.end.max_rounds, 2)
+        self.assertEqual(runtime_config.end.max_turns, 8)
+
+    def test_engine_config_factory_applies_runtime_max_rounds_alias(self) -> None:
+        resolved = self.resolver.resolve({"seed": 42, "runtime": {"max_rounds": 3}})
+
+        runtime_config = EngineConfigFactory().create(resolved)
+
+        self.assertEqual(runtime_config.rules.end.max_rounds, 3)
+        self.assertEqual(runtime_config.end.max_rounds, 3)
+
+    def test_engine_config_factory_applies_runtime_max_turns_alias(self) -> None:
+        resolved = self.resolver.resolve({"seed": 42, "runtime": {"max_turns": 7}})
+
+        runtime_config = EngineConfigFactory().create(resolved)
+
+        self.assertEqual(runtime_config.rules.end.max_turns, 7)
+        self.assertEqual(runtime_config.end.max_turns, 7)
 
     def test_resolve_rejects_invalid_external_ai_transport(self) -> None:
         with self.assertRaises(ParameterValidationError):

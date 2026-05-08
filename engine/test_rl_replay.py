@@ -2,6 +2,7 @@ from pathlib import Path
 
 from rl.action_space import normalize_decision_action_space
 from rl.batch import run_replay_batch
+from rl.diagnostics import build_learning_diagnostics
 from rl.env import ReplayLearningEnv
 from rl.evaluation_report import build_policy_evaluation_report
 from rl.replay import build_replay_rows_from_game, iter_replay_rows, write_replay_row
@@ -63,6 +64,10 @@ def test_build_replay_rows_pairs_decisions_with_turn_rewards():
                 "landing": {"type": "PURCHASE", "cost": 4},
             }
         ],
+        "player_summary": [
+            {"player_id": 0, "score": 1, "placed_score_coins": 0, "cash": 10, "tiles_owned": 1},
+            {"player_id": 1, "score": 5, "placed_score_coins": 1, "cash": 16, "tiles_owned": 2},
+        ],
     }
 
     rows = build_replay_rows_from_game(game)
@@ -78,6 +83,9 @@ def test_build_replay_rows_pairs_decisions_with_turn_rewards():
     ]
     assert rows[0]["chosen_action_id"] == "buy"
     assert rows[0]["reward"]["components"]["cash_delta"] == -4.0
+    assert rows[0]["sample_weight"] > 1.0
+    assert rows[0]["outcome"]["won"] is True
+    assert rows[0]["outcome"]["rank"] == 1
     assert rows[0]["done"] is True
 
 
@@ -138,7 +146,32 @@ def test_reward_breakdown_includes_shards_score_and_end_time_delta():
     assert reward.components["shard_delta"] == 2.0
     assert reward.components["score_delta"] == 3.0
     assert reward.components["end_time_delta"] == -2.0
+    assert reward.components["placed_score_delta"] == 0.0
+    assert reward.components["tile_delta"] == 0.0
     assert reward.total > 0
+
+
+def test_reward_breakdown_penalizes_low_cash_and_bankruptcy():
+    low_cash = compute_reward_from_event(
+        {
+            "event": "turn",
+            "cash_before": 8,
+            "cash_after": 2,
+            "bankrupt": False,
+        }
+    )
+    bankrupt = compute_reward_from_event(
+        {
+            "event": "bankruptcy",
+            "cash_before": 2,
+            "cash_after": 0,
+            "bankrupt": True,
+        }
+    )
+
+    assert low_cash.components["low_cash_risk"] < 0
+    assert bankrupt.components["bankruptcy"] == -4.0
+    assert bankrupt.total == -4.0
 
 
 def test_simulator_emits_rl_replay_jsonl(tmp_path: Path):
@@ -247,3 +280,46 @@ def test_policy_evaluation_report_compares_numeric_metrics():
     assert report["metric_deltas"]["by_player_id.1.avg_cash"]["delta"] == 2.0
     assert report["policy_eval"]["illegal_predictions"] == 0
     assert report["seed_matrix"]["total_failed_games"] == 0
+
+
+def test_learning_diagnostics_summarizes_worst_actions_and_failed_checks():
+    rows = [
+        {
+            "game_id": 1,
+            "seed": 10,
+            "step": 1,
+            "player_id": 1,
+            "decision_key": "purchase_decision",
+            "chosen_action_id": "buy",
+            "reward": {"total": -1.5},
+            "sample_weight": 3.0,
+            "outcome": {"won": False, "rank": 4},
+        },
+        {
+            "game_id": 1,
+            "seed": 10,
+            "step": 2,
+            "player_id": 2,
+            "decision_key": "lap_reward",
+            "chosen_action_id": "cash",
+            "reward": {"total": 1.0},
+            "sample_weight": 1.2,
+            "outcome": {"won": True, "rank": 1},
+        },
+    ]
+    comparison = {
+        "acceptance": {"checks": {"bankruptcy_rate_not_regressed": False}},
+        "mixed_seat": {
+            "rotations": [
+                {"seat": 1, "seed": 10, "accepted": False, "deltas": {"bankruptcy_rate": 0.5, "average_rank": 1.0, "win_rate": -0.5}}
+            ]
+        },
+    }
+
+    report = build_learning_diagnostics(replay_rows=rows, comparison=comparison, top_n=3)
+
+    assert report["rows"] == 2
+    assert report["by_decision"]["purchase_decision"]["negative_reward_rate"] == 1.0
+    assert report["worst_actions"][0]["decision_key"] == "purchase_decision"
+    assert report["high_weight_losses"][0]["sample_weight"] == 3.0
+    assert "acceptance.checks.bankruptcy_rate_not_regressed" in report["comparison_findings"]["failing_checks"]

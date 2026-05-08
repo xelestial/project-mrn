@@ -145,8 +145,9 @@ class PromptService:
                 command_payload.update(_module_command_continuation_fields(pending.payload, decision_payload))
                 resolved_payload = {"resolved_at_ms": now, "reason": "accepted"}
                 atomic_accept = getattr(self._prompt_store, "accept_decision_with_command", None)
+                accepted_command: dict | None = None
                 if callable(atomic_accept) and self._command_store is not None:
-                    accepted = atomic_accept(
+                    accepted_command = atomic_accept(
                         session_id=pending.session_id,
                         request_id=request_id,
                         decision_payload=decision_payload,
@@ -156,13 +157,13 @@ class PromptService:
                         command_payload=command_payload,
                         server_time_ms=now,
                     )
-                    if accepted is None:
+                    if accepted_command is None:
                         return {"status": "stale", "reason": "request_not_pending"}
                 else:
                     self._delete_pending(request_id)
                     self._set_decision(request_id, decision_payload)
                     if self._command_store is not None:
-                        self._command_store.append_command(
+                        accepted_command = self._command_store.append_command(
                             pending.session_id,
                             "decision_submitted",
                             command_payload,
@@ -171,7 +172,12 @@ class PromptService:
                         )
                     self._record_resolved(request_id=request_id, reason="accepted", now_ms=now)
                 waiter = self._waiters.get(request_id)
-                result = {"status": "accepted", "reason": None}
+                result = {
+                    "status": "accepted",
+                    "reason": None,
+                    "session_id": pending.session_id,
+                    "command_seq": _command_seq(accepted_command),
+                }
         if waiter is not None:
             waiter.set()
         return result
@@ -447,6 +453,15 @@ class PromptService:
     @staticmethod
     def _now_ms() -> int:
         return int(time.time() * 1000)
+
+
+def _command_seq(command: dict | None) -> int | None:
+    if not isinstance(command, dict):
+        return None
+    try:
+        return int(command.get("seq", 0) or 0)
+    except (TypeError, ValueError):
+        return None
 
 
 def _is_module_prompt(prompt: dict) -> bool:

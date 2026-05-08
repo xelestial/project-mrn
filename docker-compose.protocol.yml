@@ -1,0 +1,107 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command:
+      [
+        "redis-server",
+        "--save",
+        "",
+        "--appendonly",
+        "no",
+        "--maxmemory",
+        "${MRN_PROTOCOL_REDIS_MAXMEMORY:-2gb}",
+        "--maxmemory-policy",
+        "${MRN_PROTOCOL_REDIS_MAXMEMORY_POLICY:-noeviction}",
+      ]
+    ports:
+      - "${MRN_PROTOCOL_REDIS_PORT:-6380}:6379"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    image: project-mrn-server:dev
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      MRN_REDIS_URL: redis://redis:6379/0
+      MRN_REDIS_KEY_PREFIX: ${MRN_REDIS_KEY_PREFIX:-mrn:protocol}
+      MRN_GAME_LOG_ARCHIVE_PATH: /app/data/game_logs
+      MRN_ARCHIVE_HOT_RETENTION_SECONDS: "120"
+      MRN_RESTART_RECOVERY_POLICY: ${MRN_RESTART_RECOVERY_POLICY:-abort_in_progress}
+      MRN_LOG_LEVEL: INFO
+      MRN_DEBUG_GAME_LOGS: ${MRN_DEBUG_GAME_LOGS:-0}
+      MRN_DEBUG_GAME_LOG_DIR: ${MRN_DEBUG_GAME_LOG_DIR:-/app/.log}
+      MRN_DEBUG_GAME_LOG_RUN_ID: ${MRN_DEBUG_GAME_LOG_RUN_ID:-}
+    ports:
+      - "${MRN_PROTOCOL_SERVER_PORT:-9091}:9090"
+    volumes:
+      - protocol-game-logs:/app/data/game_logs
+      - ./.log:/app/.log
+    command: ["python", "-m", "uvicorn", "apps.server.src.app:app", "--host", "0.0.0.0", "--port", "9090"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json, urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:9090/health', timeout=2)); raise SystemExit(0 if data.get('ok') is True else 1)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  prompt-timeout-worker:
+    image: project-mrn-server:dev
+    depends_on:
+      redis:
+        condition: service_healthy
+      server:
+        condition: service_healthy
+    environment:
+      MRN_REDIS_URL: redis://redis:6379/0
+      MRN_REDIS_KEY_PREFIX: ${MRN_REDIS_KEY_PREFIX:-mrn:protocol}
+      MRN_GAME_LOG_ARCHIVE_PATH: /app/data/game_logs
+      MRN_RESTART_RECOVERY_POLICY: keep
+      MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS: "250"
+      MRN_LOG_LEVEL: INFO
+      MRN_DEBUG_GAME_LOGS: ${MRN_DEBUG_GAME_LOGS:-0}
+      MRN_DEBUG_GAME_LOG_DIR: ${MRN_DEBUG_GAME_LOG_DIR:-/app/.log}
+      MRN_DEBUG_GAME_LOG_RUN_ID: ${MRN_DEBUG_GAME_LOG_RUN_ID:-}
+    volumes:
+      - protocol-game-logs:/app/data/game_logs
+      - ./.log:/app/.log
+    command: ["python", "-m", "apps.server.src.workers.prompt_timeout_worker_app"]
+
+  command-wakeup-worker:
+    image: project-mrn-server:dev
+    depends_on:
+      redis:
+        condition: service_healthy
+      server:
+        condition: service_healthy
+    environment:
+      MRN_REDIS_URL: redis://redis:6379/0
+      MRN_REDIS_KEY_PREFIX: ${MRN_REDIS_KEY_PREFIX:-mrn:protocol}
+      MRN_GAME_LOG_ARCHIVE_PATH: /app/data/game_logs
+      MRN_RESTART_RECOVERY_POLICY: keep
+      MRN_COMMAND_WAKEUP_WORKER_POLL_INTERVAL_MS: "250"
+      MRN_LOG_LEVEL: INFO
+      MRN_DEBUG_GAME_LOGS: ${MRN_DEBUG_GAME_LOGS:-0}
+      MRN_DEBUG_GAME_LOG_DIR: ${MRN_DEBUG_GAME_LOG_DIR:-/app/.log}
+      MRN_DEBUG_GAME_LOG_RUN_ID: ${MRN_DEBUG_GAME_LOG_RUN_ID:-}
+    volumes:
+      - protocol-game-logs:/app/data/game_logs
+      - ./.log:/app/.log
+    command: ["python", "-m", "apps.server.src.workers.command_wakeup_worker_app"]
+
+volumes:
+  protocol-game-logs:

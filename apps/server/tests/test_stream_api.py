@@ -178,6 +178,18 @@ class StreamApiTests(unittest.TestCase):
         with self.assertRaises(WebSocketDisconnect):
             asyncio.run(_send_json_or_disconnect(ClosedWebSocket(), {"type": "heartbeat"}))  # type: ignore[arg-type]
 
+    def test_receive_json_or_disconnect_treats_closed_socket_as_disconnect(self) -> None:
+        from starlette.websockets import WebSocketDisconnect
+
+        from apps.server.src.routes.stream import _receive_json_or_disconnect
+
+        class ClosedWebSocket:
+            async def receive_json(self) -> dict:
+                raise RuntimeError("WebSocket is not connected. Need to call \"accept\" first.")
+
+        with self.assertRaises(WebSocketDisconnect):
+            asyncio.run(_receive_json_or_disconnect(ClosedWebSocket()))  # type: ignore[arg-type]
+
     def test_resume_uses_latest_view_commit_without_gap_replay(self) -> None:
         from apps.server.src import state
 
@@ -605,6 +617,66 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(acks[-1].get("payload", {}).get("status"), "accepted")
         self.assertIsNone(acks[-1].get("payload", {}).get("reason"))
         self.assertEqual(acks[-1].get("payload", {}).get("provider"), "human")
+
+    def test_seat_decision_wakes_runtime_after_accepted_ack(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 23})
+        joined = state.session_service.join_session(session.session_id, seat=1, join_token=session.join_tokens[1])
+        session_token = joined["session_token"]
+        original_submit = state.prompt_service.submit_decision
+        original_process = state.runtime_service.process_command_once
+        process_calls: list[tuple[str, int, str, int, str | None]] = []
+
+        def _fake_submit_decision(_message: dict) -> dict:
+            return {
+                "status": "accepted",
+                "reason": None,
+                "session_id": session.session_id,
+                "command_seq": 42,
+            }
+
+        async def _fake_process_command_once(
+            *,
+            session_id: str,
+            command_seq: int,
+            consumer_name: str,
+            seed: int,
+            policy_mode: str | None = None,
+        ) -> dict:
+            process_calls.append((session_id, command_seq, consumer_name, seed, policy_mode))
+            return {"status": "committed"}
+
+        state.prompt_service.submit_decision = _fake_submit_decision  # type: ignore[method-assign]
+        state.runtime_service.process_command_once = _fake_process_command_once  # type: ignore[method-assign]
+        try:
+            path = f"/api/v1/sessions/{session.session_id}/stream?token={session_token}"
+            with self.client.websocket_connect(path) as ws:
+                ws.send_json(
+                    {
+                        "type": "decision",
+                        "request_id": "r_wakeup_1",
+                        "player_id": 1,
+                        "choice_id": "roll",
+                        "choice_payload": {},
+                        "view_commit_seq_seen": 0,
+                    }
+                )
+
+                messages: list[dict] = []
+                for _ in range(10):
+                    msg = ws.receive_json()
+                    messages.append(msg)
+                    if msg.get("type") == "decision_ack" and msg.get("payload", {}).get("request_id") == "r_wakeup_1":
+                        break
+        finally:
+            state.prompt_service.submit_decision = original_submit  # type: ignore[method-assign]
+            state.runtime_service.process_command_once = original_process  # type: ignore[method-assign]
+
+        acks = [m for m in messages if m.get("type") == "decision_ack" and m.get("payload", {}).get("request_id") == "r_wakeup_1"]
+        self.assertGreaterEqual(len(acks), 1)
+        self.assertEqual(acks[-1].get("payload", {}).get("status"), "accepted")
+        self.assertEqual(process_calls, [(session.session_id, 42, "runtime_wakeup", 23, None)])
 
     def test_spectator_does_not_receive_prompt_or_decision_ack_for_seat(self) -> None:
         from apps.server.src import state

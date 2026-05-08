@@ -19,6 +19,8 @@ def test_runtime_player_spawn_matches_injected_ruleset_defaults():
     assert cfg.end.monopolies_to_trigger_end == cfg.rules.end.monopolies_to_trigger_end
     assert cfg.end.higher_tiles_to_trigger_end == cfg.rules.end.tiles_to_trigger_end
     assert cfg.end.end_when_alive_players_at_most == cfg.rules.end.alive_players_at_most
+    assert cfg.end.max_rounds == cfg.rules.end.max_rounds
+    assert cfg.end.max_turns == cfg.rules.end.max_turns
     for player in state.players:
         assert player.cash == cfg.rules.economy.starting_cash
         assert player.hand_coins == cfg.rules.token.starting_hand_coins
