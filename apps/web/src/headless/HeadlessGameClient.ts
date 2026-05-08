@@ -1139,8 +1139,6 @@ function isRetryableStaleReason(reason: string): boolean {
     !normalized.includes("already resolved") &&
     !normalized.includes("prompt_timeout") &&
     !normalized.includes("prompt timeout") &&
-    !normalized.includes("request_not_pending") &&
-    !normalized.includes("request not pending") &&
     !normalized.includes("superseded") &&
     !normalized.includes("final") &&
     !normalized.includes("terminal")

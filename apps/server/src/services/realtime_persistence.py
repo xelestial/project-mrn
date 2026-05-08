@@ -1964,6 +1964,12 @@ def _json_safe(value: Any) -> Any:
 
 
 def _viewer_outbox_scopes(msg_type: str, payload: dict[str, Any]) -> list[str]:
+    explicit_scopes = payload.get("viewer_outbox_scopes")
+    if isinstance(explicit_scopes, list):
+        normalized = [_normalize_viewer_scope(scope) for scope in explicit_scopes]
+        scopes = sorted({scope for scope in normalized if scope})
+        if scopes:
+            return scopes
     if msg_type in {"prompt", "decision_ack"}:
         player_id = _int_or_default(payload.get("player_id") or payload.get("target_player_id"), 0)
         return [f"player:{player_id}"] if player_id > 0 else []
@@ -1980,6 +1986,20 @@ def _viewer_outbox_scopes(msg_type: str, payload: dict[str, Any]) -> list[str]:
         target_player_id = _int_or_default(payload.get("target_player_id"), 0)
         return [f"player:{target_player_id}"] if target_player_id > 0 else ["public"]
     return ["public"]
+
+
+def _normalize_viewer_scope(value: Any) -> str | None:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    if raw in {"spectator", "admin", "public"}:
+        return raw
+    if raw.startswith("player:"):
+        player_id = _int_or_default(raw.split(":", 1)[1], 0)
+        return f"player:{player_id}" if player_id > 0 else None
+    if raw.isdigit():
+        return f"player:{int(raw)}"
+    return None
 
 
 def _int_or_default(value: Any, default: int = 0) -> int:

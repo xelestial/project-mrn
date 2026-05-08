@@ -18,9 +18,13 @@ ROOT = Path(__file__).resolve().parents[2]
 ENGINE = ROOT / "engine"
 WEB_DIR = ROOT / "apps" / "web"
 VITE_NODE = WEB_DIR / "node_modules" / ".bin" / "vite-node"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if str(ENGINE) not in sys.path:
     sys.path.insert(0, str(ENGINE))
 
+from apps.server.src.infra.redis_client import RedisConnection, RedisConnectionSettings  # noqa: E402
+from apps.server.src.services.redis_state_inspector import RedisStateInspector  # noqa: E402
 from rl.replay import iter_replay_rows  # noqa: E402
 from rl.train_policy import train_behavior_clone  # noqa: E402
 
@@ -91,6 +95,11 @@ def run_full_stack_protocol_rl_gate(
     max_avg_rank_delta: float = 1.0,
     max_bankruptcy_rate_delta: float = 0.25,
     min_avg_reward_delta: float = -1.0,
+    redis_diagnostics: bool = True,
+    redis_fail_on: str = "critical",
+    redis_url: str | None = None,
+    redis_key_prefix: str | None = None,
+    redis_socket_timeout_ms: int = 1000,
 ) -> dict[str, Any]:
     config_for_profile = dict(PROFILES[profile])
     effective_config = resolve_profile_config(profile, config)
@@ -120,6 +129,11 @@ def run_full_stack_protocol_rl_gate(
             cpu_low_load_percent=cpu_low_load_percent,
             config=effective_config,
             reconnect_scenarios=effective_reconnect_scenarios,
+            redis_diagnostics=redis_diagnostics,
+            redis_fail_on=redis_fail_on,
+            redis_url=redis_url,
+            redis_key_prefix=redis_key_prefix,
+            redis_socket_timeout_ms=redis_socket_timeout_ms,
         )
         baseline_runs.append(summary)
         baseline_replays.append(run_dir / "rl_replay.jsonl")
@@ -159,6 +173,11 @@ def run_full_stack_protocol_rl_gate(
                     cpu_low_load_percent=cpu_low_load_percent,
                     config=effective_config,
                     reconnect_scenarios=effective_reconnect_scenarios,
+                    redis_diagnostics=redis_diagnostics,
+                    redis_fail_on=redis_fail_on,
+                    redis_url=redis_url,
+                    redis_key_prefix=redis_key_prefix,
+                    redis_socket_timeout_ms=redis_socket_timeout_ms,
                 )
                 candidate_runs.append(summary)
                 candidate_replays.append(run_dir / "rl_replay.jsonl")
@@ -249,6 +268,11 @@ def run_protocol_gate_once(
     policy_http_url: str | None = None,
     config: Mapping[str, Any] | None = None,
     reconnect_scenarios: Iterable[str] | None = None,
+    redis_diagnostics: bool = True,
+    redis_fail_on: str = "critical",
+    redis_url: str | None = None,
+    redis_key_prefix: str | None = None,
+    redis_socket_timeout_ms: int = 1000,
 ) -> dict[str, Any]:
     run_dir.mkdir(parents=True, exist_ok=True)
     trace_path = (run_dir / "protocol_trace.jsonl").resolve()
@@ -300,8 +324,102 @@ def run_protocol_gate_once(
     if completed.returncode != 0 and bool(summary.get("ok")):
         summary["ok"] = False
         summary.setdefault("failures", []).append(f"protocol gate exited with {completed.returncode}")
+    if redis_diagnostics:
+        summary = attach_redis_diagnostics(
+            summary,
+            run_dir=run_dir,
+            fail_on=redis_fail_on,
+            redis_url=redis_url,
+            key_prefix=redis_key_prefix,
+            socket_timeout_ms=redis_socket_timeout_ms,
+        )
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
     return summary
+
+
+def attach_redis_diagnostics(
+    summary: dict[str, Any],
+    *,
+    run_dir: Path,
+    fail_on: str = "critical",
+    redis_url: str | None = None,
+    key_prefix: str | None = None,
+    socket_timeout_ms: int = 1000,
+) -> dict[str, Any]:
+    session_id = _first_text(summary.get("session_id"), summary.get("sessionId"))
+    if not session_id:
+        summary["redis_diagnostics"] = {
+            "checked": False,
+            "reason": "missing_session_id",
+        }
+        return summary
+
+    report_path = run_dir / "redis_state_report.json"
+    effective_key_prefix = key_prefix or os.environ.get("MRN_REDIS_KEY_PREFIX") or os.environ.get("REDIS_KEY_PREFIX") or "mrn"
+    connection = RedisConnection(
+        RedisConnectionSettings(
+            url=resolve_redis_diagnostics_url(redis_url, effective_key_prefix),
+            key_prefix=effective_key_prefix,
+            socket_timeout_ms=max(50, int(socket_timeout_ms)),
+        )
+    )
+    try:
+        report = RedisStateInspector(connection).inspect_session(session_id)
+    except Exception as exc:
+        summary["ok"] = False
+        summary.setdefault("failures", []).append(f"Redis diagnostics failed: {type(exc).__name__}: {exc!r}")
+        summary["redis_diagnostics"] = {
+            "checked": False,
+            "reason": "inspection_failed",
+            "error_class": type(exc).__name__,
+            "error_repr": repr(exc),
+        }
+        return summary
+    finally:
+        connection.close()
+
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    issues = report.get("issues") if isinstance(report.get("issues"), list) else []
+    critical_codes = [
+        str(issue.get("code") or "")
+        for issue in issues
+        if isinstance(issue, dict) and str(issue.get("severity") or "").lower() == "critical"
+    ]
+    warning_codes = [
+        str(issue.get("code") or "")
+        for issue in issues
+        if isinstance(issue, dict) and str(issue.get("severity") or "").lower() == "warning"
+    ]
+    diagnostic_status = str(report.get("summary", {}).get("diagnostic_status") or "") if isinstance(report.get("summary"), dict) else ""
+    summary["redis_diagnostics"] = {
+        "checked": True,
+        "diagnostic_status": diagnostic_status,
+        "report_path": str(report_path),
+        "issue_count": len(issues),
+        "critical_issue_count": len(critical_codes),
+        "warning_issue_count": len(warning_codes),
+        "critical_issue_codes": critical_codes,
+        "warning_issue_codes": warning_codes,
+    }
+    if _should_fail_on_redis_issues(fail_on, critical_codes=critical_codes, warning_codes=warning_codes):
+        summary["ok"] = False
+        codes = critical_codes if fail_on == "critical" else [*critical_codes, *warning_codes]
+        summary.setdefault("failures", []).append(
+            f"Redis diagnostics reported {fail_on} issue(s): {', '.join(code for code in codes if code) or diagnostic_status}"
+        )
+    return summary
+
+
+def resolve_redis_diagnostics_url(redis_url: str | None, key_prefix: str) -> str:
+    if redis_url:
+        return redis_url
+    env_url = os.environ.get("MRN_REDIS_URL") or os.environ.get("REDIS_URL")
+    if env_url:
+        return env_url
+    if str(key_prefix) == "mrn:protocol" or str(key_prefix).endswith(":protocol"):
+        port = os.environ.get("MRN_PROTOCOL_REDIS_PORT") or "6380"
+        return f"redis://127.0.0.1:{port}/0"
+    return "redis://127.0.0.1:6379/0"
 
 
 def run_protocol_gate_process(
@@ -712,6 +830,28 @@ def _int_or_none(value: Any) -> int | None:
     return None
 
 
+def _first_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _should_fail_on_redis_issues(
+    fail_on: str,
+    *,
+    critical_codes: list[str],
+    warning_codes: list[str],
+) -> bool:
+    normalized = str(fail_on or "critical").strip().lower()
+    if normalized == "none":
+        return False
+    if normalized == "warning":
+        return bool(critical_codes or warning_codes)
+    return bool(critical_codes)
+
+
 def parse_json_object(raw: str, flag: str) -> dict[str, Any]:
     parsed = json.loads(raw)
     if not isinstance(parsed, dict):
@@ -752,6 +892,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-avg-rank-delta", type=float, default=1.0)
     parser.add_argument("--max-bankruptcy-rate-delta", type=float, default=0.25)
     parser.add_argument("--min-avg-reward-delta", type=float, default=-1.0)
+    parser.add_argument(
+        "--redis-diagnostics",
+        choices=("on", "off"),
+        default="on",
+        help="Inspect Redis session state after each protocol run and attach redis_state_report.json.",
+    )
+    parser.add_argument(
+        "--redis-fail-on",
+        choices=("none", "warning", "critical"),
+        default="critical",
+        help="Fail a protocol run when Redis diagnostics reports this severity.",
+    )
+    parser.add_argument("--redis-url", default=os.environ.get("MRN_REDIS_URL") or os.environ.get("REDIS_URL"))
+    parser.add_argument(
+        "--redis-key-prefix",
+        default=os.environ.get("MRN_REDIS_KEY_PREFIX") or os.environ.get("REDIS_KEY_PREFIX"),
+    )
+    parser.add_argument("--redis-socket-timeout-ms", type=int, default=1000)
     args = parser.parse_args(argv)
 
     output_dir = Path(args.output_dir) if args.output_dir else ROOT / "tmp" / "rl" / "full-stack-protocol" / args.profile
@@ -775,6 +933,11 @@ def main(argv: list[str] | None = None) -> int:
         max_avg_rank_delta=args.max_avg_rank_delta,
         max_bankruptcy_rate_delta=args.max_bankruptcy_rate_delta,
         min_avg_reward_delta=args.min_avg_reward_delta,
+        redis_diagnostics=args.redis_diagnostics == "on",
+        redis_fail_on=args.redis_fail_on,
+        redis_url=args.redis_url,
+        redis_key_prefix=args.redis_key_prefix,
+        redis_socket_timeout_ms=args.redis_socket_timeout_ms,
     )
     acceptance = summary["acceptance"]
     result = {

@@ -950,6 +950,68 @@ describe("HeadlessGameClient", () => {
     ).toEqual([]);
   });
 
+  it("retries request_not_pending once when the latest view_commit still exposes the same prompt", async () => {
+    const client = new HeadlessGameClient({
+      sessionId: "sess_headless_request_not_pending_retry",
+      token: "seat-1",
+      playerId: 1,
+      policy: baselineDecisionPolicy,
+    });
+
+    const first = await client.ingestMessage(
+      viewCommitMessage({
+        commitSeq: 10,
+        requestId: "req_request_not_pending",
+        playerId: 1,
+      }),
+    );
+    expect(first).toHaveLength(1);
+    expect(first[0]).toMatchObject({ request_id: "req_request_not_pending", view_commit_seq_seen: 10 });
+
+    expect(
+      await client.ingestMessage(
+        ackMessage({
+          seq: 11,
+          requestId: "req_request_not_pending",
+          status: "stale",
+          reason: "request_not_pending",
+        }),
+      ),
+    ).toEqual([]);
+
+    const retry = await client.ingestMessage(
+      viewCommitMessage({
+        commitSeq: 11,
+        requestId: "req_request_not_pending",
+        playerId: 1,
+      }),
+    );
+    expect(retry).toHaveLength(1);
+    expect(retry[0]).toMatchObject({ request_id: "req_request_not_pending", view_commit_seq_seen: 11 });
+    expect(client.metrics.staleDecisionRetryCount).toBe(1);
+
+    expect(
+      await client.ingestMessage(
+        ackMessage({
+          seq: 12,
+          requestId: "req_request_not_pending",
+          status: "stale",
+          reason: "request_not_pending",
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      await client.ingestMessage(
+        viewCommitMessage({
+          commitSeq: 12,
+          requestId: "req_request_not_pending",
+          playerId: 1,
+        }),
+      ),
+    ).toEqual([]);
+    expect(client.metrics.staleDecisionRetryCount).toBe(1);
+  });
+
   it("does not retry a stale decision when the server already resolved the prompt", async () => {
     const client = new HeadlessGameClient({
       sessionId: "sess_headless_already_resolved",

@@ -190,10 +190,14 @@ class StreamService:
             payload = cached.get("payload")
             if not isinstance(payload, dict):
                 return None
+            emitted_payload = dict(payload)
+            outbox_scopes = self._view_commit_outbox_scopes_no_lock(session_id)
+            if outbox_scopes:
+                emitted_payload["viewer_outbox_scopes"] = outbox_scopes
             item = self._append_stream_message_no_lock(
                 session_id,
                 "view_commit",
-                payload,
+                emitted_payload,
                 server_time_ms=int(time.time() * 1000),
             )
             self._broadcast_no_lock(session_id, item)
@@ -656,6 +660,32 @@ class StreamService:
             "server_time_ms": int(time.time() * 1000),
             "payload": payload,
         }
+
+    def _view_commit_outbox_scopes_no_lock(self, session_id: str) -> list[str]:
+        if self._game_state_store is None or not callable(getattr(self._game_state_store, "load_view_commit_index", None)):
+            return []
+        index = self._game_state_store.load_view_commit_index(session_id)
+        if not isinstance(index, dict):
+            return []
+        viewers = index.get("view_commit_viewers")
+        if not isinstance(viewers, list):
+            return []
+        scopes = [self._normalize_view_commit_scope(viewer) for viewer in viewers]
+        return sorted({scope for scope in scopes if scope})
+
+    @staticmethod
+    def _normalize_view_commit_scope(value: object) -> str | None:
+        raw = str(value or "").strip().lower()
+        if not raw:
+            return None
+        if raw in {"spectator", "admin", "public"}:
+            return raw
+        if raw.startswith("player:"):
+            player_id = StreamService._optional_int(raw.split(":", 1)[1])
+            return f"player:{player_id}" if player_id is not None and player_id > 0 else None
+        if raw.isdigit():
+            return f"player:{int(raw)}"
+        return None
 
     @staticmethod
     def _optional_int(value: object) -> int | None:

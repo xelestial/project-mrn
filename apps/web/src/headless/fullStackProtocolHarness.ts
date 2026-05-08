@@ -285,8 +285,12 @@ export function evaluateProtocolGate(input: ProtocolGateInput): ProtocolGateResu
     if (metrics.rejectedAckCount > 0) {
       failures.push(`${client.label} received rejected decision ack ${metrics.rejectedAckCount} time(s)`);
     }
-    if (metrics.staleAckCount > 0) {
-      failures.push(`${client.label} received stale decision ack ${metrics.staleAckCount} time(s)`);
+    if (metrics.staleAckCount > metrics.staleDecisionRetryCount) {
+      failures.push(
+        `${client.label} has unrecovered stale decision ack ${
+          metrics.staleAckCount - metrics.staleDecisionRetryCount
+        }/${metrics.staleAckCount} time(s)`,
+      );
     }
     if (metrics.decisionTimeoutFallbackCount > 0) {
       failures.push(`${client.label} saw server decision timeout fallback ${metrics.decisionTimeoutFallbackCount} time(s)`);

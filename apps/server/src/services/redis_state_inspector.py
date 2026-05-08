@@ -74,6 +74,7 @@ class RedisStateInspector:
             runtime_status=runtime_status,
             lease_owner=lease_owner,
             pending_prompts=pending_prompts,
+            lifecycle_prompts=lifecycle_prompts,
             prompt_index=prompt_index,
             active_request_ids=active_request_ids,
             outbox_rows=outbox_rows,
@@ -201,6 +202,7 @@ class RedisStateInspector:
         runtime_status: dict[str, Any],
         lease_owner: str | None,
         pending_prompts: list[dict[str, Any]],
+        lifecycle_prompts: list[dict[str, Any]],
         prompt_index: dict[str, dict[str, Any]],
         active_request_ids: set[str],
         outbox_rows: list[dict[str, Any]],
@@ -347,7 +349,105 @@ class RedisStateInspector:
                 )
             )
 
+        for viewer_commit in view_commits.get("viewers", []):
+            if not isinstance(viewer_commit, dict):
+                continue
+            commit_seq = self._int_or_default(viewer_commit.get("commit_seq"), 0)
+            if not commit_seq:
+                continue
+            expected_scope = self._viewer_scope_for_commit(viewer_commit)
+            if not expected_scope:
+                continue
+            matched = any(
+                str(row.get("message_type") or "") == "view_commit"
+                and self._int_or_default(row.get("commit_seq"), 0) == commit_seq
+                and str(row.get("viewer_scope") or "") == expected_scope
+                for row in outbox_rows
+            )
+            if matched:
+                continue
+            issues.append(
+                RedisStateIssue(
+                    code="viewer_commit_outbox_missing",
+                    severity="critical",
+                    message="viewer별 view_commit은 존재하지만 해당 viewer outbox 전달 기록이 없습니다.",
+                    evidence={
+                        "viewer_label": viewer_commit.get("label"),
+                        "expected_scope": expected_scope,
+                        "commit_seq": commit_seq,
+                    },
+                )
+            )
+
+        lifecycle_by_request_id = {
+            str(prompt.get("request_id") or ""): prompt
+            for prompt in lifecycle_prompts
+            if str(prompt.get("request_id") or "").strip()
+        }
+        for prompt in pending_prompts:
+            request_id = str(prompt.get("request_id") or "").strip()
+            if not request_id:
+                continue
+            lifecycle = lifecycle_by_request_id.get(request_id)
+            if not lifecycle:
+                issues.append(
+                    RedisStateIssue(
+                        code="pending_prompt_missing_lifecycle",
+                        severity="warning",
+                        message="pending prompt가 있지만 lifecycle 레코드가 없습니다.",
+                        evidence={
+                            "request_id": request_id,
+                            "player_id": prompt.get("player_id"),
+                            "request_type": prompt.get("request_type"),
+                        },
+                    )
+                )
+                continue
+            lifecycle_state = str(lifecycle.get("state") or "").strip().lower()
+            if lifecycle_state not in {"delivered", "decision_received", "accepted", "rejected", "stale", "resolved"}:
+                continue
+            player_id = self._int_or_default(prompt.get("player_id") or lifecycle.get("player_id"), 0)
+            expected_scope = f"player:{player_id}" if player_id > 0 else ""
+            if not expected_scope:
+                continue
+            matched = any(
+                str(row.get("message_type") or "") == "prompt"
+                and str(row.get("request_id") or "") == request_id
+                and str(row.get("viewer_scope") or "") == expected_scope
+                for row in outbox_rows
+            )
+            if matched:
+                continue
+            issues.append(
+                RedisStateIssue(
+                    code="prompt_delivery_outbox_missing",
+                    severity="critical",
+                    message="prompt lifecycle은 delivered 이후 상태인데 대상 player outbox 전달 기록이 없습니다.",
+                    evidence={
+                        "request_id": request_id,
+                        "player_id": player_id,
+                        "expected_scope": expected_scope,
+                        "lifecycle_state": lifecycle_state,
+                    },
+                )
+            )
+
         return issues
+
+    def _viewer_scope_for_commit(self, viewer_commit: dict[str, Any]) -> str:
+        label = str(viewer_commit.get("label") or "").strip().lower()
+        if label.startswith("player:"):
+            return label
+        if label.startswith("seat:"):
+            return f"player:{label.split(':', 1)[1]}"
+        viewer = viewer_commit.get("viewer") if isinstance(viewer_commit.get("viewer"), dict) else {}
+        role = str(viewer.get("role") or label).strip().lower()
+        if role in {"seat", "player"}:
+            player_id = self._int_or_default(viewer.get("player_id"), 0)
+            return f"player:{player_id}" if player_id > 0 else ""
+        if role in {"spectator", "admin", "public"}:
+            return role
+        return label if label in {"spectator", "admin", "public"} else ""
 
     def _view_commits(self, session_id: str, index: dict[str, Any]) -> dict[str, Any]:
         labels = []

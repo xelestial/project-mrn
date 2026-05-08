@@ -119,6 +119,26 @@ describe("fullStackProtocolHarness", () => {
     expect(healthy.ok).toBe(true);
     expect(healthy.failures).toEqual([]);
 
+    const recoveredStale = evaluateProtocolGate({
+      timedOut: false,
+      completed: true,
+      runtimeStatus: "completed",
+      clients: [
+        clientRuntime("seat:1", {
+          metrics: {
+            ...emptyHeadlessMetrics(),
+            acceptedAckCount: 3,
+            staleAckCount: 1,
+            staleDecisionRetryCount: 1,
+          },
+        }),
+        clientRuntime("spectator", {
+          metrics: { ...emptyHeadlessMetrics(), runtimeCompletedCount: 1 },
+        }),
+      ],
+    });
+    expect(recoveredStale.ok).toBe(true);
+
     const unstable = evaluateProtocolGate({
       timedOut: false,
       completed: false,
@@ -142,7 +162,7 @@ describe("fullStackProtocolHarness", () => {
         "seat:2 saw non-monotonic commit seq 1 time(s)",
         "seat:2 saw runtime position regression 1 time(s)",
         "seat:2 received rejected decision ack 1 time(s)",
-        "seat:2 received stale decision ack 1 time(s)",
+        "seat:2 has unrecovered stale decision ack 1/1 time(s)",
       ]),
     );
   });

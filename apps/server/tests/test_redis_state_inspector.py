@@ -131,10 +131,29 @@ class RedisStateInspectorTests(unittest.TestCase):
             {
                 "commit_seq": 5,
                 "source_event_seq": 8,
+                "viewer": {"role": "spectator"},
+                "runtime": {"status": "waiting_input", "active_prompt": active_prompt},
+            },
+            server_time_ms=99,
+            max_buffer=20,
+        )
+        self.stream_store.publish(
+            session_id,
+            "prompt",
+            {**active_prompt, "session_id": session_id},
+            server_time_ms=100,
+            max_buffer=20,
+        )
+        self.stream_store.publish(
+            session_id,
+            "view_commit",
+            {
+                "commit_seq": 5,
+                "source_event_seq": 8,
                 "viewer": {"role": "seat", "player_id": 2},
                 "runtime": {"status": "waiting_input", "active_prompt": active_prompt},
             },
-            server_time_ms=100,
+            server_time_ms=101,
             max_buffer=20,
         )
 
@@ -146,10 +165,90 @@ class RedisStateInspectorTests(unittest.TestCase):
         self.assertEqual(report["summary"]["waiting_prompt_request_id"], "req-move-1")
         self.assertEqual(report["summary"]["pending_prompt_count"], 1)
         self.assertEqual(report["summary"]["viewer_commit_count"], 2)
-        self.assertEqual(report["summary"]["viewer_outbox_count"], 1)
+        self.assertEqual(report["summary"]["viewer_outbox_count"], 3)
         self.assertEqual(report["issues"], [])
         self.assertEqual(report["view_commits"]["latest_commit_seq"], 5)
         self.assertIn("player:2", {viewer["label"] for viewer in report["view_commits"]["viewers"]})
+
+    def test_inspector_detects_missing_viewer_outbox_and_prompt_delivery_records(self) -> None:
+        session_id = "s-inspect-outbox-missing"
+        active_prompt = {
+            "request_id": "req-undelivered",
+            "prompt_instance_id": "prompt-undelivered",
+            "request_type": "movement",
+            "player_id": 4,
+            "view_commit_seq": 12,
+            "resume_token": "resume-undelivered",
+        }
+        self.game_state.commit_transition(
+            session_id,
+            current_state={
+                "schema_version": 3,
+                "round_index": 3,
+                "turn_index": 11,
+                "current_player_id": 4,
+                "runtime_active_prompt": active_prompt,
+            },
+            checkpoint={
+                "schema_version": 3,
+                "session_id": session_id,
+                "latest_seq": 22,
+                "latest_event_type": "prompt_required",
+                "latest_commit_seq": 12,
+                "latest_source_event_seq": 22,
+                "round_index": 3,
+                "turn_index": 11,
+                "has_view_commit": True,
+                "waiting_prompt_request_id": "req-undelivered",
+                "waiting_prompt_player_id": 4,
+                "waiting_prompt_type": "movement",
+                "runtime_active_prompt": active_prompt,
+            },
+            view_state={"runtime": {"status": "waiting_input"}},
+            view_commits={
+                "spectator": {
+                    "schema_version": 1,
+                    "commit_seq": 12,
+                    "source_event_seq": 22,
+                    "viewer": {"role": "spectator"},
+                    "runtime": {"status": "waiting_input"},
+                },
+                "player:4": {
+                    "schema_version": 1,
+                    "commit_seq": 12,
+                    "source_event_seq": 22,
+                    "viewer": {"role": "seat", "player_id": 4},
+                    "runtime": {"status": "waiting_input", "active_prompt": active_prompt},
+                },
+            },
+            expected_previous_commit_seq=0,
+        )
+        self.prompt_store.save_pending("req-undelivered", {**active_prompt, "session_id": session_id}, session_id=session_id)
+        self.prompt_store.save_lifecycle(
+            "req-undelivered",
+            {**active_prompt, "session_id": session_id, "state": "delivered"},
+            session_id=session_id,
+        )
+        self.runtime_state.save_status(
+            session_id,
+            {
+                "status": "waiting_input",
+                "round_index": 3,
+                "turn_index": 11,
+                "turn_label": "R3-T11",
+                "current_player_id": 4,
+                "active_prompt": active_prompt,
+            },
+        )
+
+        report = RedisStateInspector(self.connection).inspect_session(session_id, now_ms=123456)
+        issues = {issue["code"]: issue for issue in report["issues"]}
+
+        self.assertEqual(report["summary"]["diagnostic_status"], "critical")
+        self.assertIn("viewer_commit_outbox_missing", issues)
+        self.assertIn("prompt_delivery_outbox_missing", issues)
+        self.assertEqual(issues["prompt_delivery_outbox_missing"]["evidence"]["request_id"], "req-undelivered")
+        self.assertEqual(issues["prompt_delivery_outbox_missing"]["evidence"]["expected_scope"], "player:4")
 
     def test_inspector_detects_failed_runtime_stale_commit_and_missing_prompt(self) -> None:
         session_id = "s-inspect-bad"

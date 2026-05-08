@@ -184,6 +184,58 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(rows[2]["commit_seq"], 3)
         self.assertEqual(self.fake_redis._expires_at_ms[stream_store._viewer_outbox_index_key("s-outbox")], 3600)
 
+    def test_stream_view_commit_source_records_all_cached_viewer_outbox_scopes(self) -> None:
+        game_state = RedisGameStateStore(self.connection)
+        stream_store = RedisStreamStore(self.connection)
+        service = StreamService(stream_backend=stream_store, game_state_store=game_state)
+        base_payload = {
+            "schema_version": 1,
+            "commit_seq": 4,
+            "source_event_seq": 11,
+            "runtime": {"status": "running", "round_index": 2, "turn_index": 7},
+            "view_state": {"board": {"turn": 7}},
+        }
+
+        game_state.save_view_commit(
+            "s-outbox-commit",
+            {**base_payload, "viewer": {"role": "spectator"}},
+            viewer="spectator",
+        )
+        game_state.save_view_commit(
+            "s-outbox-commit",
+            {**base_payload, "viewer": {"role": "admin"}},
+            viewer="admin",
+        )
+        game_state.save_view_commit(
+            "s-outbox-commit",
+            {**base_payload, "viewer": {"role": "seat", "player_id": 1}},
+            viewer="player",
+            player_id=1,
+        )
+        game_state.save_view_commit(
+            "s-outbox-commit",
+            {**base_payload, "viewer": {"role": "seat", "player_id": 2}},
+            viewer="player",
+            player_id=2,
+        )
+
+        async def _run() -> None:
+            item = await service.emit_latest_view_commit("s-outbox-commit")
+            self.assertIsNotNone(item)
+
+        asyncio.run(_run())
+
+        rows = stream_store.load_viewer_outbox_index("s-outbox-commit")
+        self.assertEqual(
+            sorted((row["message_type"], row["viewer_scope"], row["commit_seq"]) for row in rows),
+            [
+                ("view_commit", "admin", 4),
+                ("view_commit", "player:1", 4),
+                ("view_commit", "player:2", 4),
+                ("view_commit", "spectator", 4),
+            ],
+        )
+
     def test_stream_store_persists_compact_view_commit_pointer_only(self) -> None:
         stream_store = RedisStreamStore(self.connection)
         full_payload = {

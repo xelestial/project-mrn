@@ -214,3 +214,87 @@ def test_evaluate_full_stack_acceptance_checks_stability_and_quality():
     assert rejected["stable"] is False
     assert rejected["accepted"] is False
     assert json.dumps(rejected["checks"], sort_keys=True)
+
+
+def test_attach_redis_diagnostics_marks_critical_report_as_gate_failure(monkeypatch, tmp_path: Path):
+    from tools.checks import full_stack_protocol_rl_gate as gate
+
+    class FakeInspector:
+        def __init__(self, connection):
+            self.connection = connection
+
+        def inspect_session(self, session_id):
+            assert session_id == "sess_critical"
+            return {
+                "summary": {"diagnostic_status": "critical"},
+                "issues": [
+                    {
+                        "code": "runtime_failed",
+                        "severity": "critical",
+                        "message": "서버 런타임이 failed 상태입니다.",
+                        "evidence": {},
+                    }
+                ],
+            }
+
+    class FakeConnection:
+        def __init__(self, settings):
+            self.settings = settings
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(gate, "RedisStateInspector", FakeInspector)
+    monkeypatch.setattr(gate, "RedisConnection", FakeConnection)
+
+    summary = gate.attach_redis_diagnostics(
+        {"ok": True, "session_id": "sess_critical", "failures": []},
+        run_dir=tmp_path,
+        fail_on="critical",
+        redis_url="redis://example/0",
+        key_prefix="mrn-test",
+        socket_timeout_ms=123,
+    )
+
+    assert summary["ok"] is False
+    assert summary["redis_diagnostics"]["checked"] is True
+    assert summary["redis_diagnostics"]["diagnostic_status"] == "critical"
+    assert summary["redis_diagnostics"]["critical_issue_count"] == 1
+    assert "Redis diagnostics reported critical issue(s): runtime_failed" in summary["failures"]
+    report = json.loads((tmp_path / "redis_state_report.json").read_text(encoding="utf-8"))
+    assert report["issues"][0]["code"] == "runtime_failed"
+
+
+def test_attach_redis_diagnostics_skips_when_session_id_is_missing(tmp_path: Path):
+    from tools.checks import full_stack_protocol_rl_gate as gate
+
+    summary = gate.attach_redis_diagnostics(
+        {"ok": False, "failures": ["protocol gate did not emit parseable JSON summary"]},
+        run_dir=tmp_path,
+        fail_on="critical",
+        redis_url="redis://example/0",
+        key_prefix="mrn-test",
+        socket_timeout_ms=123,
+    )
+
+    assert summary["redis_diagnostics"] == {
+        "checked": False,
+        "reason": "missing_session_id",
+    }
+    assert not (tmp_path / "redis_state_report.json").exists()
+
+
+def test_resolve_redis_diagnostics_url_uses_protocol_compose_port(monkeypatch):
+    from tools.checks.full_stack_protocol_rl_gate import resolve_redis_diagnostics_url
+
+    monkeypatch.delenv("MRN_REDIS_URL", raising=False)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.delenv("MRN_PROTOCOL_REDIS_PORT", raising=False)
+
+    assert resolve_redis_diagnostics_url(None, "mrn:protocol") == "redis://127.0.0.1:6380/0"
+
+    monkeypatch.setenv("MRN_PROTOCOL_REDIS_PORT", "6399")
+    assert resolve_redis_diagnostics_url(None, "mrn:protocol") == "redis://127.0.0.1:6399/0"
+    assert resolve_redis_diagnostics_url("redis://example/0", "mrn:protocol") == "redis://example/0"
+    assert resolve_redis_diagnostics_url(None, "mrn") == "redis://127.0.0.1:6379/0"
