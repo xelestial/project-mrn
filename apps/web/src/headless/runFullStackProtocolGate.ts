@@ -30,6 +30,7 @@ type CliOptions = {
   idleTimeoutMs?: number;
   out?: string;
   replayOut?: string;
+  summaryOut?: string;
   progressIntervalMs?: number;
   cpuDiagnosticIdleMs?: number;
   cpuLowLoadPercent?: number;
@@ -119,7 +120,11 @@ async function main(): Promise<void> {
     clients: result.clientSummary,
     trace_count: result.traces.length,
   };
-  process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+  const summaryText = `${JSON.stringify(summary, null, 2)}\n`;
+  if (options.summaryOut) {
+    await writeTextFile(options.summaryOut, summaryText);
+  }
+  process.stdout.write(summaryText);
   if (!ok) {
     process.exitCode = 1;
   }
@@ -153,6 +158,9 @@ function parseArgs(args: string[]): CliOptions {
       index += 1;
     } else if (arg === "--replay-out" && next) {
       options.replayOut = next;
+      index += 1;
+    } else if (arg === "--summary-out" && next) {
+      options.summaryOut = next;
       index += 1;
     } else if (arg === "--progress-interval-ms" && next) {
       options.progressIntervalMs = Number(next);
@@ -229,6 +237,7 @@ function parseArgs(args: string[]): CliOptions {
           "  --idle-timeout-ms 60000",
           "  --out ./protocol_trace.jsonl",
           "  --replay-out ./rl_replay.jsonl",
+          "  --summary-out ./summary.json",
           "  --progress-interval-ms 5000",
           "  --cpu-diagnostic-idle-ms 30000",
           "  --cpu-low-load-percent 10",

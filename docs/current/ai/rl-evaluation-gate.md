@@ -78,6 +78,33 @@ npm run rl:protocol-gate -- \
 
 The command writes a compact protocol trace and an RL replay conversion. It also writes progress snapshots to stderr so long-running games can be inspected without stopping the run.
 
+Run repeated live protocol games through the dedicated runner, not a hand-written shell loop with `tee`:
+
+```bash
+cd apps/web
+npm run rl:protocol-gate:games -- \
+  --games 5 \
+  --run-root tmp/rl/full-stack-protocol/backend-timing-gate \
+  --seed-base 2026051100 \
+  -- \
+  --base-url http://127.0.0.1:9091 \
+  --profile live \
+  --timeout-ms 600000 \
+  --idle-timeout-ms 120000 \
+  --progress-interval-ms 10000 \
+  --raw-prompt-fallback-delay-ms off \
+  --require-backend-timing \
+  --max-backend-command-ms 4000 \
+  --max-backend-transition-ms 4000 \
+  --max-backend-redis-commit-count 1 \
+  --max-backend-view-commit-count 1 \
+  --backend-docker-compose-project project-mrn-protocol \
+  --backend-docker-compose-file ../../docker-compose.protocol.yml \
+  --backend-docker-compose-service server
+```
+
+The runner resolves `--run-root` from the repository root and passes absolute `--out`, `--replay-out`, and `--summary-out` paths to each game. This avoids the known failure mode where `npm --prefix apps/web` changes the npm script cwd while shell `tee` still resolves paths from the outer shell cwd.
+
 Full-stack acceptance requires:
 
 - `runtime_failed == 0`
