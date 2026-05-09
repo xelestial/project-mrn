@@ -78,6 +78,12 @@ def test_game_state_checkpoint_payload_round_trips_runtime_state() -> None:
     state.pending_action_log = {"actor_player_id": 1, "segments": [{"start_pos": 3, "end_pos": 7}]}
     state.pending_turn_completion = {"player_id": 1, "finisher_before": 2, "disruption_before": {"leader_id": 0}}
     state.rng_state_b64 = "checkpoint-rng-state"
+    state.lap_reward_cash_pool_remaining = 17
+    state.lap_reward_shards_pool_remaining = 11
+    state.lap_reward_coins_pool_remaining = 9
+    state.start_reward_cash_pool_remaining = 23
+    state.start_reward_shards_pool_remaining = 13
+    state.start_reward_coins_pool_remaining = 7
 
     payload = json.loads(json.dumps(state.to_checkpoint_payload(), ensure_ascii=False))
     restored = GameState.from_checkpoint_payload(config, payload)
@@ -124,3 +130,9 @@ def test_game_state_checkpoint_payload_round_trips_runtime_state() -> None:
     assert restored.pending_action_log == {"actor_player_id": 1, "segments": [{"start_pos": 3, "end_pos": 7}]}
     assert restored.pending_turn_completion == {"player_id": 1, "finisher_before": 2, "disruption_before": {"leader_id": 0}}
     assert restored.rng_state_b64 == "checkpoint-rng-state"
+    assert restored.lap_reward_cash_pool_remaining == 17
+    assert restored.lap_reward_shards_pool_remaining == 11
+    assert restored.lap_reward_coins_pool_remaining == 9
+    assert restored.start_reward_cash_pool_remaining == 23
+    assert restored.start_reward_shards_pool_remaining == 13
+    assert restored.start_reward_coins_pool_remaining == 7

@@ -2435,8 +2435,14 @@ class RuntimeService:
         current_status["runner_kind"] = effective_runner_kind
         current_status["checkpoint_schema_version"] = effective_checkpoint_schema_version
         self._status[session_id] = current_status
-        self._persist_runtime_state(session_id)
-        _mark_phase("status_persist")
+        defer_runtime_status_persist = (
+            not publish_external_side_effects
+            and getattr(self._game_state_store, "defer_authoritative_transition_commit", False)
+            and not _is_command_boundary_terminal_status(step.get("status"))
+        )
+        if not defer_runtime_status_persist:
+            self._persist_runtime_state(session_id)
+        _mark_phase("status_stage" if defer_runtime_status_persist else "status_persist")
         if self._game_state_store is not None:
             payload = state.to_checkpoint_payload()
             validate_checkpoint_payload(payload)

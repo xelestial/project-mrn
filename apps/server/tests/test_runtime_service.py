@@ -6392,12 +6392,14 @@ class RuntimeServiceTests(unittest.TestCase):
 
         store = _MutableGameStateStoreStub()
         command_store = _CommandStoreStub()
+        runtime_state_store = _RuntimeStateStoreStub()
         runtime = RuntimeService(
             session_service=self.session_service,
             stream_service=self.stream_service,
             prompt_service=self.prompt_service,
             game_state_store=store,
             command_store=command_store,
+            runtime_state_store=runtime_state_store,
         )
         session = self.session_service.create_session(
             seats=[
@@ -6492,6 +6494,7 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(boundary_store.redis_commit_count, 0)
         self.assertEqual(boundary_store.view_commit_count, 0)
         self.assertEqual(boundary_store.internal_state_stage_count, 1)
+        self.assertNotIn(session.session_id, runtime_state_store.statuses)
         staged_state = boundary_store.load_current_state(session.session_id)
         self.assertIsInstance(staged_state, dict)
         self.assertIsNone(staged_state.get("runtime_active_prompt"))

@@ -83,6 +83,7 @@ Required rule:
 - Per-command duration must include internal transition cost. In `sess_fT6B5tyTvbhJUoncx5yjYD26`, `command_seq=95` took 10991ms across 15 transitions; per-module Redis commits alone accounted for roughly 5.4s. A long turn can be backend persistence overhead even when every prompt decision is immediate.
 - Do not confuse modularity with external commits. Modularity means `PurchaseValidator`, `MovementResolver`, `ArrivalResolver`, and similar units keep narrow contracts and can be tested with pure in/out state. It does not mean every internal step writes Redis, rebuilds frontend projection, or emits a `view_commit`.
 - Command-boundary staging must skip expensive external preparation. In the 2026-05-09 fix, internal non-terminal transitions stage only in-memory state. They must not read source history, build authoritative `view_commit`, validate precommit view payloads, or write Redis. Terminal boundaries still commit exactly once.
+- Command-boundary staging also applies to runtime status persistence. A non-terminal internal transition may update in-process status for the current runner, but it must not write runtime status to Redis as a substitute progress log. Command lifecycle status is recorded at command acceptance and terminal boundary; module-by-module status belongs in `module_trace`.
 
 Minimum comparison after every headless live RL run:
 

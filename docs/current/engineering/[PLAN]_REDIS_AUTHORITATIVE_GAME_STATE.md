@@ -29,6 +29,8 @@ The runtime ignores prompt replay aids, raw resume tokens, frontend-created requ
 
 Internal `module_trace` is timing/debug evidence only. It is not an authoritative frontend render source and must not be used as a substitute for the final cached `view_commit`.
 
+Runtime status persistence follows the same command boundary. During an internal non-terminal command loop, the backend may stage runner status in process, but it must not write Redis runtime status for each module transition. External status writes represent command acceptance or a terminal boundary, not every validator/resolver hop.
+
 ## 2.1. Irreversible Inputs vs Internal Progress
 
 Redis persistence is required for external recovery boundaries and irreversible inputs, not for every internal module step.
@@ -108,6 +110,8 @@ Required checks:
 - prompt continuation mismatch test
 - duplicate frontend command test
 - command-boundary single checkpoint/view_commit test
+- command-boundary internal transition test that proves Redis runtime status is not written before terminal boundary
+- irreversible input checkpoint test for RNG state, ordered decks, and reward pools
 - duplicate `request_id` idempotency test
 - same-prompt busy/conflict test
 - worker restart/resume test
