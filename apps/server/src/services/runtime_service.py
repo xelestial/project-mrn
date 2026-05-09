@@ -84,6 +84,21 @@ class RuntimeDecisionResumeMismatch(ValueError):
     pass
 
 
+@dataclass(slots=True)
+class _RuntimeTransitionContext:
+    session: Any
+    resolved: dict[str, Any]
+    runtime: dict[str, Any]
+    runner_kind: str
+    checkpoint_schema_version: int
+    policy: Any
+    config: Any
+    state: Any
+    engine: Any
+    runtime_recovery_checkpoint: dict | None
+    base_commit_seq: int
+
+
 class _CommandBoundaryGameStateStore:
     """Defers transition commits inside one user command until the terminal boundary."""
 
@@ -1703,6 +1718,104 @@ class RuntimeService:
                 return {**last_step, "status": "waiting_input", "transitions": transitions}
         return {**last_step, "transitions": transitions}
 
+    def _prepare_runtime_transition_context_sync(
+        self,
+        loop: asyncio.AbstractEventLoop | None,
+        session_id: str,
+        seed: int,
+        policy_mode: str | None,
+        *,
+        publish_external_side_effects: bool,
+    ) -> _RuntimeTransitionContext:
+        self._ensure_engine_import_path()
+        from engine import GameEngine
+        from policy.factory import PolicyFactory
+        from state import GameState
+
+        session = self._session_service.get_session(session_id)
+        resolved = dict(session.resolved_parameters or {})
+        runtime = dict(resolved.get("runtime", {}))
+        runner_kind = resolve_runtime_runner_kind(runtime)
+        checkpoint_schema_version = runtime_checkpoint_schema_version_for_runner(runner_kind)
+        selected_policy_mode = policy_mode or runtime.get("policy_mode") or "heuristic_v3_engine"
+        ai_policy = PolicyFactory.create_runtime_policy(policy_mode=selected_policy_mode, lap_policy_mode=selected_policy_mode)
+        policy = ai_policy
+        human_seats = [
+            max(0, int(seat.seat) - 1)
+            for seat in session.seats
+            if seat.seat_type == SeatType.HUMAN
+        ]
+        if loop is not None and self._stream_service is not None:
+            ai_decision_delay_ms = int(
+                runtime.get(
+                    "ai_decision_delay_ms",
+                    0 if os.environ.get("PYTEST_CURRENT_TEST") else 1000,
+                )
+                or 0
+            )
+            policy = _ServerDecisionPolicyBridge(
+                session_id=session_id,
+                session_seats=session.seats,
+                human_seats=human_seats,
+                ai_fallback=ai_policy,
+                prompt_service=self._prompt_service,
+                stream_service=self._stream_service,
+                loop=loop,
+                touch_activity=self._touch_activity,
+                fallback_executor=self.execute_prompt_fallback,
+                client_factory=self._decision_client_factory,
+                ai_decision_delay_ms=ai_decision_delay_ms,
+                blocking_human_prompts=False,
+            )
+        config = self._config_factory.create(resolved)
+        state = self._hydrate_engine_state(session_id, config, GameState, runner_kind)
+        runtime_recovery_checkpoint: dict | None = None
+        if self._game_state_store is not None and callable(getattr(self._game_state_store, "load_checkpoint", None)):
+            loaded_checkpoint = self._game_state_store.load_checkpoint(session_id)
+            if isinstance(loaded_checkpoint, dict):
+                runtime_recovery_checkpoint = loaded_checkpoint
+        human_player_ids = [
+            int(seat.seat)
+            for seat in session.seats
+            if seat.seat_type == SeatType.HUMAN
+        ]
+        event_stream = (
+            _FanoutVisEventStream(
+                loop,
+                self._stream_service,
+                session_id,
+                self._touch_activity,
+                human_player_ids=human_player_ids,
+                spectator_event_delay_ms=0,
+            )
+            if publish_external_side_effects and loop is not None and self._stream_service is not None
+            else None
+        )
+        engine = GameEngine(
+            config=config,
+            policy=policy,
+            decision_port=policy if hasattr(policy, "request") else None,
+            rng=random.Random(seed),
+            event_stream=event_stream,
+        )
+        engine._vis_session_id_override = session_id
+        if state is not None:
+            self._apply_runner_kind(state, runner_kind, checkpoint_schema_version)
+            state = engine.prepare_run(initial_state=state)
+        return _RuntimeTransitionContext(
+            session=session,
+            resolved=resolved,
+            runtime=runtime,
+            runner_kind=runner_kind,
+            checkpoint_schema_version=checkpoint_schema_version,
+            policy=policy,
+            config=config,
+            state=state,
+            engine=engine,
+            runtime_recovery_checkpoint=runtime_recovery_checkpoint,
+            base_commit_seq=self._latest_view_commit_seq(session_id),
+        )
+
     def _run_engine_command_boundary_loop_sync(
         self,
         loop: asyncio.AbstractEventLoop | None,
@@ -1729,6 +1842,13 @@ class RuntimeService:
         checkpoint_command_seq = int(first_command_seq)
         self._game_state_store = boundary_store
         try:
+            transition_context = self._prepare_runtime_transition_context_sync(
+                loop,
+                session_id,
+                seed,
+                policy_mode,
+                publish_external_side_effects=False,
+            )
             while max_transitions is None or transitions < max(1, int(max_transitions)):
                 command_consumer_name = first_command_consumer_name if transitions == 0 else None
                 command_seq = int(first_command_seq) if transitions == 0 else None
@@ -1743,6 +1863,7 @@ class RuntimeService:
                     checkpoint_command_consumer_name=checkpoint_command_consumer_name,
                     checkpoint_command_seq=checkpoint_command_seq,
                     publish_external_side_effects=False,
+                    transition_context=transition_context,
                 )
                 transitions += 1
                 module_trace.append(self._command_module_trace_entry(transitions, last_step))
@@ -2265,6 +2386,7 @@ class RuntimeService:
         checkpoint_command_consumer_name: str | None = None,
         checkpoint_command_seq: int | None = None,
         publish_external_side_effects: bool = True,
+        transition_context: _RuntimeTransitionContext | None = None,
     ) -> dict:
         self._ensure_engine_import_path()
         from engine import GameEngine
@@ -2280,50 +2402,91 @@ class RuntimeService:
             phase_timings[f"{name}_ms"] = _duration_ms(phase_started)
             phase_started = time.perf_counter()
 
-        session = self._session_service.get_session(session_id)
-        resolved = dict(session.resolved_parameters or {})
-        runtime = dict(resolved.get("runtime", {}))
-        runner_kind = resolve_runtime_runner_kind(runtime)
-        checkpoint_schema_version = runtime_checkpoint_schema_version_for_runner(runner_kind)
-        selected_policy_mode = policy_mode or runtime.get("policy_mode") or "heuristic_v3_engine"
-        ai_policy = PolicyFactory.create_runtime_policy(policy_mode=selected_policy_mode, lap_policy_mode=selected_policy_mode)
-        policy = ai_policy
-        base_commit_seq = self._latest_view_commit_seq(session_id)
-        human_seats = [
-            max(0, int(seat.seat) - 1)
-            for seat in session.seats
-            if seat.seat_type == SeatType.HUMAN
-        ]
-        if loop is not None and self._stream_service is not None:
-            ai_decision_delay_ms = int(
-                runtime.get(
-                    "ai_decision_delay_ms",
-                    0 if os.environ.get("PYTEST_CURRENT_TEST") else 1000,
+        prepared_state = transition_context is not None
+        if transition_context is None:
+            session = self._session_service.get_session(session_id)
+            resolved = dict(session.resolved_parameters or {})
+            runtime = dict(resolved.get("runtime", {}))
+            runner_kind = resolve_runtime_runner_kind(runtime)
+            checkpoint_schema_version = runtime_checkpoint_schema_version_for_runner(runner_kind)
+            selected_policy_mode = policy_mode or runtime.get("policy_mode") or "heuristic_v3_engine"
+            ai_policy = PolicyFactory.create_runtime_policy(
+                policy_mode=selected_policy_mode,
+                lap_policy_mode=selected_policy_mode,
+            )
+            policy = ai_policy
+            base_commit_seq = self._latest_view_commit_seq(session_id)
+            human_seats = [
+                max(0, int(seat.seat) - 1)
+                for seat in session.seats
+                if seat.seat_type == SeatType.HUMAN
+            ]
+            if loop is not None and self._stream_service is not None:
+                ai_decision_delay_ms = int(
+                    runtime.get(
+                        "ai_decision_delay_ms",
+                        0 if os.environ.get("PYTEST_CURRENT_TEST") else 1000,
+                    )
+                    or 0
                 )
-                or 0
+                policy = _ServerDecisionPolicyBridge(
+                    session_id=session_id,
+                    session_seats=session.seats,
+                    human_seats=human_seats,
+                    ai_fallback=ai_policy,
+                    prompt_service=self._prompt_service,
+                    stream_service=self._stream_service,
+                    loop=loop,
+                    touch_activity=self._touch_activity,
+                    fallback_executor=self.execute_prompt_fallback,
+                    client_factory=self._decision_client_factory,
+                    ai_decision_delay_ms=ai_decision_delay_ms,
+                    blocking_human_prompts=False,
+                )
+            config = self._config_factory.create(resolved)
+            state = self._hydrate_engine_state(session_id, config, GameState, runner_kind)
+            runtime_recovery_checkpoint: dict | None = None
+            if self._game_state_store is not None and callable(getattr(self._game_state_store, "load_checkpoint", None)):
+                loaded_checkpoint = self._game_state_store.load_checkpoint(session_id)
+                if isinstance(loaded_checkpoint, dict):
+                    runtime_recovery_checkpoint = loaded_checkpoint
+            human_player_ids = [
+                int(seat.seat)
+                for seat in session.seats
+                if seat.seat_type == SeatType.HUMAN
+            ]
+            event_stream = (
+                _FanoutVisEventStream(
+                    loop,
+                    self._stream_service,
+                    session_id,
+                    self._touch_activity,
+                    human_player_ids=human_player_ids,
+                    spectator_event_delay_ms=0,
+                )
+                if publish_external_side_effects and loop is not None and self._stream_service is not None
+                else None
             )
-            policy = _ServerDecisionPolicyBridge(
-                session_id=session_id,
-                session_seats=session.seats,
-                human_seats=human_seats,
-                ai_fallback=ai_policy,
-                prompt_service=self._prompt_service,
-                stream_service=self._stream_service,
-                loop=loop,
-                touch_activity=self._touch_activity,
-                fallback_executor=self.execute_prompt_fallback,
-                client_factory=self._decision_client_factory,
-                ai_decision_delay_ms=ai_decision_delay_ms,
-                blocking_human_prompts=False,
+            engine = GameEngine(
+                config=config,
+                policy=policy,
+                decision_port=policy if hasattr(policy, "request") else None,
+                rng=random.Random(seed),
+                event_stream=event_stream,
             )
-        config = self._config_factory.create(resolved)
-        state = self._hydrate_engine_state(session_id, config, GameState, runner_kind)
+            engine._vis_session_id_override = session_id
+        else:
+            session = transition_context.session
+            runtime = transition_context.runtime
+            runner_kind = transition_context.runner_kind
+            checkpoint_schema_version = transition_context.checkpoint_schema_version
+            policy = transition_context.policy
+            config = transition_context.config
+            state = transition_context.state
+            engine = transition_context.engine
+            runtime_recovery_checkpoint = transition_context.runtime_recovery_checkpoint
+            base_commit_seq = transition_context.base_commit_seq
         decision_resume = None
-        runtime_recovery_checkpoint: dict | None = None
-        if self._game_state_store is not None and callable(getattr(self._game_state_store, "load_checkpoint", None)):
-            loaded_checkpoint = self._game_state_store.load_checkpoint(session_id)
-            if isinstance(loaded_checkpoint, dict):
-                runtime_recovery_checkpoint = loaded_checkpoint
         if state is None:
             if require_checkpoint:
                 return {"status": "unavailable", "reason": "checkpoint_missing"}
@@ -2348,39 +2511,14 @@ class RuntimeService:
                     )
                 if callable(getattr(policy, "set_decision_resume", None)):
                     policy.set_decision_resume(decision_resume)
-        human_player_ids = [
-            int(seat.seat)
-            for seat in session.seats
-            if seat.seat_type == SeatType.HUMAN
-        ]
-        event_stream = (
-            _FanoutVisEventStream(
-                loop,
-                self._stream_service,
-                session_id,
-                self._touch_activity,
-                human_player_ids=human_player_ids,
-                spectator_event_delay_ms=0,
-            )
-            if publish_external_side_effects and loop is not None and self._stream_service is not None
-            else None
-        )
         _mark_phase("hydrate_and_prepare_policy")
-        engine = GameEngine(
-            config=config,
-            policy=policy,
-            decision_port=policy if hasattr(policy, "request") else None,
-            rng=random.Random(seed),
-            event_stream=event_stream,
-        )
-        engine._vis_session_id_override = session_id
         try:
             prompt_boundary_payload: dict | None = None
             if state is None:
                 state = engine.create_initial_state()
                 self._apply_runner_kind(state, runner_kind, checkpoint_schema_version)
                 state = engine.prepare_run(initial_state=state)
-            else:
+            elif not prepared_state:
                 state = engine.prepare_run(initial_state=state)
             if decision_resume is None:
                 step = engine.run_next_transition(state)
@@ -2420,6 +2558,8 @@ class RuntimeService:
             state.pending_prompt_player_id = 0
             state.pending_prompt_instance_id = 0
             _clear_resolved_runtime_prompt_continuation(state, step)
+        if transition_context is not None:
+            transition_context.state = state
         _mark_phase("engine_transition")
         current_prompt_sequence = getattr(policy, "current_prompt_sequence", None)
         if state is not None and callable(current_prompt_sequence):

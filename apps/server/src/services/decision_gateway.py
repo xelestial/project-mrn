@@ -2013,24 +2013,19 @@ class DecisionGateway:
             if str(exc) == "duplicate_pending_request_id" and not self._blocking_human_prompts:
                 pending = self._prompt_service.get_pending_prompt(request_id, session_id=self._session_id)
                 prompt_payload = dict(pending.payload) if pending is not None else envelope
-                self.publish("prompt", {**prompt_payload, "provider": "human"})
-                self._prompt_service.mark_prompt_delivered(request_id, session_id=self._session_id)
-                self._publish_decision_requested(
-                    request_id=request_id,
-                    player_id=player_id,
-                    request_type=str(prompt_payload.get("request_type", request_type)),
-                    fallback_policy=fallback_policy,
-                    provider="human",
-                    public_context=public_context,
-                )
                 self._touch_activity(self._session_id)
                 raise PromptRequired(prompt_payload)
             if not self._blocking_human_prompts:
+                self._touch_activity(self._session_id)
                 raise PromptRequired(envelope)
             request_id = self.next_request_id()
             envelope["request_id"] = request_id
             envelope = ensure_prompt_fingerprint(envelope)
             self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
+
+        if not self._blocking_human_prompts:
+            self._touch_activity(self._session_id)
+            raise PromptRequired(envelope)
 
         self.publish("prompt", {**envelope, "provider": "human"})
         self._prompt_service.mark_prompt_delivered(request_id, session_id=self._session_id)
@@ -2043,8 +2038,6 @@ class DecisionGateway:
             public_context=public_context,
         )
         self._touch_activity(self._session_id)
-        if not self._blocking_human_prompts:
-            raise PromptRequired(envelope)
         response = self._prompt_service.wait_for_decision(
             request_id=request_id,
             timeout_ms=timeout_ms,

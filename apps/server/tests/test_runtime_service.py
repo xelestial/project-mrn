@@ -5636,11 +5636,18 @@ class RuntimeServiceTests(unittest.TestCase):
 
             self.assertEqual(raised.exception.prompt["request_id"], "bridge_req_nonblocking_1")
             self.assertTrue(self.prompt_service.has_pending_for_session("sess_bridge_nonblocking_test"))
+            lifecycle = self.prompt_service.get_prompt_lifecycle(
+                "bridge_req_nonblocking_1",
+                session_id="sess_bridge_nonblocking_test",
+            )
+            self.assertIsNotNone(lifecycle)
+            assert lifecycle is not None
+            self.assertEqual(lifecycle["state"], "created")
             published = asyncio.run_coroutine_threadsafe(
                 self.stream_service.snapshot("sess_bridge_nonblocking_test"),
                 loop,
             ).result(timeout=2.0)
-            self.assertTrue(any(msg.type == "prompt" and msg.payload.get("request_id") == "bridge_req_nonblocking_1" for msg in published))
+            self.assertEqual(published, [])
 
             decision_state = self.prompt_service.submit_decision(
                 self._module_decision(raised.exception.prompt, "roll", player_id=1)
@@ -6499,6 +6506,153 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertIsInstance(staged_state, dict)
         self.assertIsNone(staged_state.get("runtime_active_prompt"))
         self.assertEqual(staged_state.get("turn_index"), 1)
+
+    def test_command_boundary_loop_hydrates_and_prepares_engine_once(self) -> None:
+        RuntimeService._ensure_engine_import_path()
+        import engine
+        from runtime_modules.contracts import PromptContinuation
+        from state import GameState
+
+        class _CommandStoreStub:
+            def __init__(self) -> None:
+                self.commands: list[dict] = []
+                self.offsets: list[tuple[str, str, int]] = []
+
+            def list_commands(self, session_id: str) -> list[dict]:
+                return [copy.deepcopy(command) for command in self.commands if command["session_id"] == session_id]
+
+            def save_consumer_offset(self, consumer_name: str, session_id: str, seq: int) -> None:
+                self.offsets.append((consumer_name, session_id, int(seq)))
+
+        store = _MutableGameStateStoreStub()
+        command_store = _CommandStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            game_state_store=store,
+            command_store=command_store,
+            runtime_state_store=_RuntimeStateStoreStub(),
+        )
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42, "runtime": {"runner_kind": "module", "ai_decision_delay_ms": 0}},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.start_session(session.session_id, session.host_token)
+        config = runtime._config_factory.create(session.resolved_parameters)  # type: ignore[attr-defined]
+        state = GameState.create(config)
+        state.runtime_runner_kind = "module"
+        state.runtime_checkpoint_schema_version = 3
+        state.runtime_active_prompt = PromptContinuation(
+            request_id="req_1",
+            prompt_instance_id=1,
+            resume_token="token_1",
+            frame_id="turn:1:p0",
+            module_id="mod:turn:1:p0:movement",
+            module_type="MapMoveModule",
+            module_cursor="move:await_choice",
+            player_id=0,
+            request_type="movement",
+            legal_choices=[{"choice_id": "roll"}],
+        )
+        store.current_state = state.to_checkpoint_payload()
+        store.checkpoint = {
+            "schema_version": 3,
+            "session_id": session.session_id,
+            "runner_kind": "module",
+            "has_snapshot": True,
+            "latest_commit_seq": 4,
+        }
+        command_store.commands.append(
+            {
+                "seq": 1,
+                "type": "decision_submitted",
+                "session_id": session.session_id,
+                "payload": {
+                    "request_id": "req_1",
+                    "player_id": 1,
+                    "request_type": "movement",
+                    "choice_id": "roll",
+                    "resume_token": "token_1",
+                    "frame_id": "turn:1:p0",
+                    "module_id": "mod:turn:1:p0:movement",
+                    "module_type": "MapMoveModule",
+                    "module_cursor": "move:await_choice",
+                    "decision": {},
+                },
+            }
+        )
+
+        state_ids: list[int] = []
+        prepare_calls = 0
+        original_prepare_run = engine.GameEngine.prepare_run
+        original_hydrate = runtime._hydrate_engine_state  # type: ignore[attr-defined]
+
+        def _fake_prepare_run(self, initial_state=None):  # noqa: ANN001
+            nonlocal prepare_calls
+            prepare_calls += 1
+            return original_prepare_run(self, initial_state=initial_state)
+
+        def _fake_run_next_transition(self, state, decision_resume=None):  # noqa: ANN001
+            del self, decision_resume
+            state_ids.append(id(state))
+            state.runtime_active_prompt = None
+            state.turn_index = int(getattr(state, "turn_index", 0) or 0) + 1
+            if len(state_ids) < 3:
+                return {
+                    "status": "committed",
+                    "runner_kind": "module",
+                    "module_type": "MapMoveModule",
+                    "module_cursor": f"internal:{len(state_ids)}",
+                }
+            return {
+                "status": "waiting_input",
+                "reason": "prompt_required",
+                "runner_kind": "module",
+                "module_type": "MapMoveModule",
+                "module_cursor": "await_next",
+                "request_id": "req_next",
+                "request_type": "movement",
+                "player_id": 1,
+            }
+
+        with (
+            patch.object(runtime, "_hydrate_engine_state", wraps=original_hydrate) as hydrate_spy,
+            patch.object(engine.GameEngine, "prepare_run", _fake_prepare_run),
+            patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition),
+            patch.object(runtime, "_source_history_sync", return_value=[]),
+            patch.object(
+                runtime,
+                "_build_authoritative_view_commits",
+                return_value={"spectator": {"view_state": {"ok": True}}},
+            ),
+            patch.object(runtime, "_latest_stream_seq_sync", return_value=0),
+            patch.object(runtime, "_emit_latest_view_commit_sync", return_value=None),
+            patch.object(runtime, "_materialize_prompt_boundaries_from_checkpoint_sync", return_value=None),
+        ):
+            result = runtime._run_engine_command_boundary_loop_sync(
+                None,
+                session.session_id,
+                42,
+                None,
+                max_transitions=5,
+                first_command_consumer_name="runtime-worker",
+                first_command_seq=1,
+            )
+
+        self.assertEqual(result["status"], "waiting_input")
+        self.assertEqual(result["transitions"], 3)
+        self.assertEqual(hydrate_spy.call_count, 1)
+        self.assertEqual(prepare_calls, 1)
+        self.assertEqual(len(set(state_ids)), 1)
+        self.assertEqual(len(store.commits), 1)
+        self.assertEqual(store.commits[0]["checkpoint"]["latest_commit_seq"], 5)
 
     def test_module_resume_seeds_prompt_sequence_from_previous_same_module_decision(self) -> None:
         RuntimeService._ensure_engine_import_path()
@@ -8418,7 +8572,7 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
-    def test_decision_gateway_repairs_missing_prompt_stream_for_pending_prompt(self) -> None:
+    def test_decision_gateway_leaves_pending_prompt_publish_to_runtime_boundary(self) -> None:
         from apps.server.src.services.decision_gateway import DecisionGateway, PromptRequired
 
         loop = asyncio.new_event_loop()
@@ -8469,6 +8623,27 @@ class RuntimeServiceTests(unittest.TestCase):
             ]
 
             self.assertEqual(raised.exception.prompt["request_id"], "repair_req_1")
+            lifecycle = self.prompt_service.get_prompt_lifecycle(
+                "repair_req_1",
+                session_id="sess_pending_prompt_repair",
+            )
+            self.assertIsNotNone(lifecycle)
+            assert lifecycle is not None
+            self.assertEqual(lifecycle["state"], "created")
+            self.assertEqual(messages, [])
+
+            self.runtime_service._materialize_prompt_boundary_sync(  # type: ignore[attr-defined]
+                loop,
+                "sess_pending_prompt_repair",
+                raised.exception.prompt,
+            )
+            messages = asyncio.run(self.stream_service.snapshot("sess_pending_prompt_repair"))
+            prompt_messages = [msg for msg in messages if msg.type == "prompt"]
+            requested_events = [
+                msg
+                for msg in messages
+                if msg.type == "event" and msg.payload.get("event_type") == "decision_requested"
+            ]
             self.assertEqual(len(prompt_messages), 1)
             self.assertEqual(prompt_messages[0].payload["request_id"], "repair_req_1")
             self.assertEqual(prompt_messages[0].payload["legal_choices"][0]["label"], "박수")
