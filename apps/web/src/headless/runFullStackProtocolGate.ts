@@ -13,6 +13,8 @@ import {
   parseProtocolBackendTimingEvents,
   runFullStackProtocolGame,
   summarizeProtocolBackendTiming,
+  type FullStackProtocolRunResult,
+  type ProtocolBackendTimingSummary,
   type FullStackProtocolProgressSnapshot,
   type ProtocolProfile,
   type ReconnectScenario,
@@ -21,6 +23,12 @@ import { createHttpDecisionPolicy } from "./httpDecisionPolicy";
 import { protocolTraceEventsToReplayRows, serializeProtocolReplayRows } from "./protocolReplay";
 
 type PolicyKind = "baseline" | "conservative" | "cash" | "shard" | "score" | "http";
+
+type BackendTimingGateSummary = {
+  ok: boolean;
+  failures: string[];
+  summary: ProtocolBackendTimingSummary;
+};
 
 type CliOptions = {
   baseUrl?: string;
@@ -67,25 +75,52 @@ async function main(): Promise<void> {
   const policyMode = options.policy ?? "baseline";
   const policy = buildPolicy(options);
   const policiesByPlayerId = buildSeatPolicies(options);
-  const result = await runFullStackProtocolGame({
-    baseUrl: options.baseUrl,
-    profile: options.profile,
-    seed: options.seed,
-    timeoutMs: options.timeoutMs,
-    idleTimeoutMs: options.idleTimeoutMs,
-    config: options.config,
-    policy,
-    policiesByPlayerId,
-    reconnectScenarios: options.reconnectScenarios,
-    rawPromptFallbackDelayMs: options.rawPromptFallbackDelayMs,
-    progressIntervalMs,
-    cpuDiagnosticIdleMs: options.cpuDiagnosticIdleMs,
-    cpuLowLoadPercent: options.cpuLowLoadPercent,
-    onProgress: async (snapshot) => {
-      await writeProgressArtifacts(snapshot, options);
-      writeProgressLine(snapshot);
-    },
-  });
+  const startedAtMs = Date.now();
+  let latestSnapshot: FullStackProtocolProgressSnapshot | null = null;
+  let liveBackendTimingFailed = false;
+  let result: FullStackProtocolRunResult;
+  try {
+    result = await runFullStackProtocolGame({
+      baseUrl: options.baseUrl,
+      profile: options.profile,
+      seed: options.seed,
+      timeoutMs: options.timeoutMs,
+      idleTimeoutMs: options.idleTimeoutMs,
+      config: options.config,
+      policy,
+      policiesByPlayerId,
+      reconnectScenarios: options.reconnectScenarios,
+      rawPromptFallbackDelayMs: options.rawPromptFallbackDelayMs,
+      progressIntervalMs,
+      cpuDiagnosticIdleMs: options.cpuDiagnosticIdleMs,
+      cpuLowLoadPercent: options.cpuLowLoadPercent,
+      onProgress: async (snapshot) => {
+        latestSnapshot = snapshot;
+        await writeProgressArtifacts(snapshot, options);
+        writeProgressLine(snapshot);
+        if (snapshot.reason !== "final" && !liveBackendTimingFailed) {
+          const backendTiming = await loadBackendTimingSummary(snapshot.sessionId, options, { required: false });
+          if (backendTiming && !backendTiming.ok) {
+            liveBackendTimingFailed = true;
+            throw new BackendTimingGateViolation(backendTiming);
+          }
+        }
+      },
+    });
+  } catch (error) {
+    if (error instanceof BackendTimingGateViolation) {
+      await writeBackendTimingFailureSummary({
+        options,
+        policyMode,
+        latestSnapshot,
+        backendTiming: error.backendTiming,
+        durationMs: Date.now() - startedAtMs,
+      });
+      process.exitCode = 1;
+      return;
+    }
+    throw error;
+  }
 
   if (options.out) {
     await writeTextFile(
@@ -127,6 +162,12 @@ async function main(): Promise<void> {
   process.stdout.write(summaryText);
   if (!ok) {
     process.exitCode = 1;
+  }
+}
+
+class BackendTimingGateViolation extends Error {
+  constructor(readonly backendTiming: BackendTimingGateSummary) {
+    super(`backend_timing_gate_violation: ${backendTiming.failures.join("; ")}`);
   }
 }
 
@@ -268,14 +309,8 @@ function parseArgs(args: string[]): CliOptions {
 async function loadBackendTimingSummary(
   sessionId: string,
   options: CliOptions,
-): Promise<
-  | {
-      ok: boolean;
-      failures: string[];
-      summary: ReturnType<typeof summarizeProtocolBackendTiming>;
-    }
-  | null
-> {
+  gateOptions?: { required?: boolean },
+): Promise<BackendTimingGateSummary | null> {
   const hasBackendLogSource = Boolean(
     options.backendLog ||
       options.backendDockerComposeProject ||
@@ -289,7 +324,7 @@ async function loadBackendTimingSummary(
   const events = parseProtocolBackendTimingEvents(logText, { sessionId });
   const gate = evaluateProtocolBackendTimingGate({
     events,
-    required: options.requireBackendTiming,
+    required: gateOptions?.required ?? options.requireBackendTiming,
     maxCommandMs: options.maxBackendCommandMs,
     maxTransitionMs: options.maxBackendTransitionMs,
     maxRedisCommitCount: options.maxBackendRedisCommitCount,
@@ -303,6 +338,37 @@ async function loadBackendTimingSummary(
       maxTransitionMs: options.maxBackendTransitionMs,
     }),
   };
+}
+
+async function writeBackendTimingFailureSummary(args: {
+  options: CliOptions;
+  policyMode: PolicyKind;
+  latestSnapshot: FullStackProtocolProgressSnapshot | null;
+  backendTiming: BackendTimingGateSummary;
+  durationMs: number;
+}): Promise<void> {
+  const summary = {
+    ok: false,
+    profile: args.latestSnapshot?.profile ?? args.options.profile ?? null,
+    policy_mode: args.policyMode,
+    seat_profiles: args.options.seatProfiles ?? {},
+    session_id: args.latestSnapshot?.sessionId ?? "",
+    duration_ms: args.durationMs,
+    timed_out: false,
+    idle_timed_out: false,
+    runtime_status: args.latestSnapshot?.runtimeStatus ?? null,
+    aborted: true,
+    abort_reason: "backend_timing_gate",
+    failures: args.backendTiming.failures,
+    backend_timing: args.backendTiming.summary,
+    clients: args.latestSnapshot?.clientSummary ?? [],
+    trace_count: args.latestSnapshot?.traceCount ?? 0,
+  };
+  const summaryText = `${JSON.stringify(summary, null, 2)}\n`;
+  if (args.options.summaryOut) {
+    await writeTextFile(args.options.summaryOut, summaryText);
+  }
+  process.stdout.write(summaryText);
 }
 
 async function loadBackendLogText(options: CliOptions): Promise<string> {

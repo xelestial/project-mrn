@@ -1936,7 +1936,14 @@ class RuntimeServiceTests(unittest.TestCase):
             processed_consumer = command_consumer_name or kwargs.get("checkpoint_command_consumer_name")
             processed_seq = command_seq if command_seq is not None else kwargs.get("checkpoint_command_seq")
             commit_seq = len(calls)
-            runtime._game_state_store.commit_transition(  # type: ignore[union-attr]
+            boundary_store = kwargs["game_state_store_override"]
+            if len(calls) < 3:
+                boundary_store.stage_internal_transition(
+                    _session_id,
+                    current_state={"tiles": [], "transition_index": commit_seq},
+                )
+                return {"status": "committed", "module_type": f"Module{commit_seq}"}
+            boundary_store.commit_transition(
                 _session_id,
                 current_state={"tiles": [], "transition_index": commit_seq},
                 checkpoint={
@@ -1951,8 +1958,6 @@ class RuntimeServiceTests(unittest.TestCase):
                 command_seq=processed_seq,
                 expected_previous_commit_seq=commit_seq - 1,
             )
-            if len(calls) < 3:
-                return {"status": "committed", "module_type": f"Module{commit_seq}"}
             return {
                 "status": "waiting_input",
                 "reason": "prompt_required",
@@ -6506,6 +6511,95 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertIsInstance(staged_state, dict)
         self.assertIsNone(staged_state.get("runtime_active_prompt"))
         self.assertEqual(staged_state.get("turn_index"), 1)
+
+    def test_command_boundary_loop_uses_per_call_store_without_swapping_shared_store(self) -> None:
+        store = _MutableGameStateStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            game_state_store=store,
+            runtime_state_store=_RuntimeStateStoreStub(),
+        )
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42, "runtime": {"runner_kind": "module", "ai_decision_delay_ms": 0}},
+        )
+        store.checkpoint = {
+            "schema_version": 3,
+            "session_id": session.session_id,
+            "runner_kind": "module",
+            "has_snapshot": True,
+            "latest_commit_seq": 4,
+        }
+        captured_boundary_stores: list[object] = []
+
+        def _fake_prepare(*args, **kwargs):  # noqa: ANN002, ANN003
+            del args
+            self.assertIs(runtime._game_state_store, store)
+            boundary_store = kwargs.get("game_state_store_override")
+            self.assertIsNotNone(boundary_store)
+            self.assertIsNot(boundary_store, store)
+            captured_boundary_stores.append(boundary_store)
+            return object()
+
+        def _fake_transition(*args, **kwargs):  # noqa: ANN002, ANN003
+            del args
+            self.assertIs(runtime._game_state_store, store)
+            boundary_store = kwargs.get("game_state_store_override")
+            self.assertIs(boundary_store, captured_boundary_stores[0])
+            boundary_store.commit_transition(
+                session.session_id,
+                current_state={"session_id": session.session_id, "tiles": []},
+                checkpoint={
+                    "schema_version": 3,
+                    "session_id": session.session_id,
+                    "runner_kind": "module",
+                    "has_snapshot": True,
+                    "base_commit_seq": 4,
+                    "latest_commit_seq": 5,
+                },
+                view_state={},
+                view_commits={"spectator": {"commit_seq": 5, "view_state": {"ok": True}}},
+                expected_previous_commit_seq=4,
+            )
+            return {
+                "status": "waiting_input",
+                "reason": "prompt_required",
+                "runner_kind": "module",
+                "module_type": "DraftModule",
+                "request_id": "req_next",
+                "request_type": "draft_card",
+                "player_id": 2,
+            }
+
+        with (
+            patch.object(runtime, "_prepare_runtime_transition_context_sync", side_effect=_fake_prepare),
+            patch.object(runtime, "_run_engine_transition_once_sync", side_effect=_fake_transition),
+            patch.object(runtime, "_emit_latest_view_commit_sync", return_value=None),
+            patch.object(runtime, "_materialize_prompt_boundaries_from_checkpoint_sync", return_value=None),
+        ):
+            result = runtime._run_engine_command_boundary_loop_sync(
+                None,
+                session.session_id,
+                42,
+                None,
+                max_transitions=1,
+                first_command_consumer_name="runtime-worker",
+                first_command_seq=1,
+            )
+
+        self.assertEqual(result["status"], "waiting_input")
+        self.assertEqual(result["redis_commit_count"], 1)
+        self.assertEqual(result["view_commit_count"], 1)
+        self.assertEqual(result["internal_redis_commit_attempt_count"], 1)
+        self.assertEqual(len(store.commits), 1)
+        self.assertIs(runtime._game_state_store, store)
 
     def test_command_boundary_loop_hydrates_and_prepares_engine_once(self) -> None:
         RuntimeService._ensure_engine_import_path()

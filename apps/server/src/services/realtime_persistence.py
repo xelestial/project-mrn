@@ -312,12 +312,13 @@ class RedisPromptStore:
         return items
 
     def save_pending(self, request_id: str, payload: dict[str, Any], session_id: str | None = None) -> None:
+        field = self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or ""))
         self._connection.client().hset(
             self._pending_key(),
-            self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or "")),
+            field,
             _json_dump(payload),
         )
-        self._refresh_debug_index_for_payload(payload, session_id=session_id)
+        self._upsert_debug_record("pending", field, payload, session_id=session_id)
 
     def delete_pending(self, request_id: str, session_id: str | None = None) -> bool:
         field = self._resolve_prompt_field(self._pending_key(), request_id, session_id=session_id)
@@ -326,7 +327,7 @@ class RedisPromptStore:
         raw = self._connection.client().hget(self._pending_key(), field)
         removed = int(self._connection.client().hdel(self._pending_key(), field) or 0)
         if removed > 0:
-            self._refresh_debug_index_for_field(field, raw, session_id=session_id)
+            self._delete_debug_record("pending", field, raw, session_id=session_id)
             return True
         return False
 
@@ -347,27 +348,29 @@ class RedisPromptStore:
         return result
 
     def save_resolved(self, request_id: str, payload: dict[str, Any], session_id: str | None = None) -> None:
+        field = self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or ""))
         self._connection.client().hset(
             self._resolved_key(),
-            self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or "")),
+            field,
             _json_dump(payload),
         )
-        self._refresh_debug_index_for_payload(payload, session_id=session_id)
+        self._upsert_debug_record("resolved", field, payload, session_id=session_id)
 
     def delete_resolved(self, request_id: str, session_id: str | None = None) -> None:
         field = self._resolve_prompt_field(self._resolved_key(), request_id, session_id=session_id)
         if field is not None:
             raw = self._connection.client().hget(self._resolved_key(), field)
             self._connection.client().hdel(self._resolved_key(), field)
-            self._refresh_debug_index_for_field(field, raw, session_id=session_id)
+            self._delete_debug_record("resolved", field, raw, session_id=session_id)
 
     def save_decision(self, request_id: str, payload: dict[str, Any], session_id: str | None = None) -> None:
+        field = self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or ""))
         self._connection.client().hset(
             self._decisions_key(),
-            self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or "")),
+            field,
             _json_dump(payload),
         )
-        self._refresh_debug_index_for_payload(payload, session_id=session_id)
+        self._upsert_debug_record("decisions", field, payload, session_id=session_id)
 
     def get_decision(self, request_id: str, session_id: str | None = None) -> dict[str, Any] | None:
         field = self._resolve_prompt_field(self._decisions_key(), request_id, session_id=session_id)
@@ -385,7 +388,7 @@ class RedisPromptStore:
         if raw is None:
             return None
         client.hdel(self._decisions_key(), field)
-        self._refresh_debug_index_for_field(field, raw, session_id=session_id)
+        self._delete_debug_record("decisions", field, raw, session_id=session_id)
         return _json_load_dict(str(raw))
 
     def delete_decision(self, request_id: str, session_id: str | None = None) -> None:
@@ -393,7 +396,7 @@ class RedisPromptStore:
         if field is not None:
             raw = self._connection.client().hget(self._decisions_key(), field)
             self._connection.client().hdel(self._decisions_key(), field)
-            self._refresh_debug_index_for_field(field, raw, session_id=session_id)
+            self._delete_debug_record("decisions", field, raw, session_id=session_id)
 
     def get_lifecycle(self, request_id: str, session_id: str | None = None) -> dict[str, Any] | None:
         field = self._resolve_prompt_field(self._lifecycle_key(), request_id, session_id=session_id)
@@ -415,19 +418,20 @@ class RedisPromptStore:
         return items
 
     def save_lifecycle(self, request_id: str, payload: dict[str, Any], session_id: str | None = None) -> None:
+        field = self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or ""))
         self._connection.client().hset(
             self._lifecycle_key(),
-            self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or "")),
+            field,
             _json_dump(payload),
         )
-        self._refresh_debug_index_for_payload(payload, session_id=session_id)
+        self._upsert_debug_record("lifecycle", field, payload, session_id=session_id)
 
     def delete_lifecycle(self, request_id: str, session_id: str | None = None) -> None:
         field = self._resolve_prompt_field(self._lifecycle_key(), request_id, session_id=session_id)
         if field is not None:
             raw = self._connection.client().hget(self._lifecycle_key(), field)
             self._connection.client().hdel(self._lifecycle_key(), field)
-            self._refresh_debug_index_for_field(field, raw, session_id=session_id)
+            self._delete_debug_record("lifecycle", field, raw, session_id=session_id)
 
     def accept_decision_with_command(
         self,
@@ -471,6 +475,9 @@ class RedisPromptStore:
             )
             if not result:
                 return None
+            self._delete_debug_record("pending", storage_request_id, None, session_id=session_id, refresh=False)
+            self._upsert_debug_record("decisions", storage_request_id, decision_payload, session_id=session_id, refresh=False)
+            self._upsert_debug_record("resolved", storage_request_id, resolved_payload, session_id=session_id, refresh=False)
             self._refresh_debug_index(session_id)
             return {
                 "stream_id": str(result[0]),
@@ -498,6 +505,9 @@ class RedisPromptStore:
         pipeline.hset(self._resolved_key(), storage_request_id, resolved_json)
         pipeline.xadd(command_store._stream_key(session_id), fields)
         results = pipeline.execute()
+        self._delete_debug_record("pending", storage_request_id, None, session_id=session_id, refresh=False)
+        self._upsert_debug_record("decisions", storage_request_id, decision_payload, session_id=session_id, refresh=False)
+        self._upsert_debug_record("resolved", storage_request_id, resolved_payload, session_id=session_id, refresh=False)
         self._refresh_debug_index(session_id)
         stream_id = str(results[-1]) if results else ""
         return {
@@ -522,22 +532,58 @@ class RedisPromptStore:
             request_id = str(lifecycle.get("request_id", "")).strip()
             if request_id:
                 self.delete_lifecycle(request_id, session_id=session_id)
+        client = self._connection.client()
+        for bucket_name in ("pending", "resolved", "decisions", "lifecycle"):
+            client.delete(_prompt_debug_bucket_key(self._connection, session_id, bucket_name))
+        client.delete(_prompt_debug_marker_key(self._connection, session_id))
         self._connection.client().delete(self._debug_index_key(session_id))
 
     def load_debug_index(self, session_id: str) -> dict[str, Any] | None:
         raw = self._connection.client().get(self._debug_index_key(session_id))
         return _json_load_dict(str(raw)) if raw is not None else None
 
-    def _refresh_debug_index_for_payload(self, payload: dict[str, Any], *, session_id: str | None = None) -> None:
-        resolved_session_id = str(session_id or payload.get("session_id") or "").strip()
+    def _upsert_debug_record(
+        self,
+        bucket_name: str,
+        field: str,
+        payload: dict[str, Any],
+        *,
+        session_id: str | None = None,
+        refresh: bool = True,
+    ) -> None:
+        resolved_session_id = _prompt_session_id_from_field_or_payload(field, payload, session_id=session_id)
         if resolved_session_id:
-            self._refresh_debug_index(resolved_session_id)
+            client = self._connection.client()
+            bucket_key = _prompt_debug_bucket_key(self._connection, resolved_session_id, bucket_name)
+            client.hset(bucket_key, field, _json_dump(_compact_prompt_debug_record(bucket_name, field, payload)))
+            _expire_key(client, bucket_key, DEBUG_REDIS_RETENTION_SECONDS)
+            self._touch_debug_index_marker(resolved_session_id)
+            if refresh:
+                self._refresh_debug_index(resolved_session_id)
 
-    def _refresh_debug_index_for_field(self, field: str, raw: str | None, *, session_id: str | None = None) -> None:
+    def _delete_debug_record(
+        self,
+        bucket_name: str,
+        field: str,
+        raw: str | None,
+        *,
+        session_id: str | None = None,
+        refresh: bool = True,
+    ) -> None:
         payload = _json_load_dict(str(raw)) if raw is not None else None
         resolved_session_id = _prompt_session_id_from_field_or_payload(field, payload, session_id=session_id)
         if resolved_session_id:
-            self._refresh_debug_index(resolved_session_id)
+            client = self._connection.client()
+            bucket_key = _prompt_debug_bucket_key(self._connection, resolved_session_id, bucket_name)
+            client.hdel(bucket_key, field)
+            _expire_key(client, bucket_key, DEBUG_REDIS_RETENTION_SECONDS)
+            self._touch_debug_index_marker(resolved_session_id)
+            if refresh:
+                self._refresh_debug_index(resolved_session_id)
+
+    def _touch_debug_index_marker(self, session_id: str) -> None:
+        client = self._connection.client()
+        client.set(_prompt_debug_marker_key(self._connection, session_id), "1", px=DEBUG_REDIS_RETENTION_SECONDS * 1000)
 
     def _refresh_debug_index(self, session_id: str) -> None:
         normalized_session_id = str(session_id or "").strip()
@@ -574,6 +620,8 @@ class RedisPromptStore:
                 return scoped
         if client.hget(hash_key, normalized_request_id) is not None:
             return normalized_request_id
+        if normalized_session_id:
+            return None
         matches: list[str] = []
         for field, raw in client.hgetall(hash_key).items():
             parsed = _json_load_dict(raw)
@@ -1828,6 +1876,7 @@ class RedisGameStateStore:
 
 def _build_prompt_debug_summary(connection: RedisConnection, session_id: str) -> dict[str, Any]:
     normalized_session_id = str(session_id or "").strip()
+    use_session_buckets = connection.client().get(_prompt_debug_marker_key(connection, normalized_session_id)) is not None
     buckets: dict[str, dict[str, Any]] = {}
     all_rows: list[dict[str, Any]] = []
     for bucket_name, hash_key in (
@@ -1837,13 +1886,20 @@ def _build_prompt_debug_summary(connection: RedisConnection, session_id: str) ->
         ("lifecycle", connection.key("prompts", "lifecycle")),
     ):
         rows: list[dict[str, Any]] = []
-        for field, raw in connection.client().hgetall(hash_key).items():
-            payload = _json_load_dict(str(raw))
-            if payload is None:
-                continue
-            if _prompt_session_id_from_field_or_payload(str(field), payload) != normalized_session_id:
-                continue
-            rows.append(_compact_prompt_debug_record(bucket_name, str(field), payload))
+        if use_session_buckets:
+            debug_bucket_key = _prompt_debug_bucket_key(connection, normalized_session_id, bucket_name)
+            for raw in connection.client().hgetall(debug_bucket_key).values():
+                compact = _json_load_dict(str(raw))
+                if compact is not None:
+                    rows.append(compact)
+        else:
+            for field, raw in connection.client().hgetall(hash_key).items():
+                payload = _json_load_dict(str(raw))
+                if payload is None:
+                    continue
+                if _prompt_session_id_from_field_or_payload(str(field), payload) != normalized_session_id:
+                    continue
+                rows.append(_compact_prompt_debug_record(bucket_name, str(field), payload))
         rows.sort(key=_prompt_debug_sort_key)
         buckets[bucket_name] = {
             "count": len(rows),
@@ -1862,12 +1918,21 @@ def _build_prompt_debug_summary(connection: RedisConnection, session_id: str) ->
             "decisions": connection.key("prompts", "decisions"),
             "lifecycle": connection.key("prompts", "lifecycle"),
             "debug_index": connection.key("prompts", normalized_session_id, "debug_index"),
+            "debug_marker": _prompt_debug_marker_key(connection, normalized_session_id),
         },
         "counts": {name: int(summary.get("count") or 0) for name, summary in buckets.items()},
         "active_prompt": active_prompts[-1] if active_prompts else {},
         "latest": all_rows[-DEBUG_REDIS_RECORD_LIMIT:],
         "buckets": buckets,
     }
+
+
+def _prompt_debug_bucket_key(connection: RedisConnection, session_id: str, bucket_name: str) -> str:
+    return connection.key("prompts", str(session_id or "").strip(), "debug", str(bucket_name or "").strip())
+
+
+def _prompt_debug_marker_key(connection: RedisConnection, session_id: str) -> str:
+    return connection.key("prompts", str(session_id or "").strip(), "debug", "marker")
 
 
 def _compact_prompt_debug_record(bucket_name: str, field: str, payload: dict[str, Any]) -> dict[str, Any]:

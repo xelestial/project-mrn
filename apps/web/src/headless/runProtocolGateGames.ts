@@ -6,6 +6,7 @@ import { buildProtocolGateRunArtifacts, resolveProtocolGateRunRoot } from "./pro
 
 type RunnerOptions = {
   games: number;
+  concurrency: number;
   runRoot?: string;
   label?: string;
   seedBase?: number;
@@ -20,8 +21,11 @@ async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   validateSeedArgs(options);
   const runRoot = resolveProtocolGateRunRoot(repoRoot, options.runRoot, options.label);
+  const activeRuns = new Set<AbortController>();
+  let nextGameIndex = 1;
+  let failedStatus = 0;
 
-  for (let gameIndex = 1; gameIndex <= options.games; gameIndex += 1) {
+  async function runOne(gameIndex: number): Promise<void> {
     const artifacts = buildProtocolGateRunArtifacts({
       repoRoot,
       runRoot,
@@ -43,21 +47,52 @@ async function main(): Promise<void> {
     process.stderr.write(
       `PROTOCOL_GATE_GAME_START index=${gameIndex} dir=${artifacts.gameDir} summary=${artifacts.summaryOut}\n`,
     );
-    const status = await runGate(gateArgs);
+    const abortController = new AbortController();
+    activeRuns.add(abortController);
+    let status = 1;
+    try {
+      status = await runGate(gateArgs, abortController);
+    } finally {
+      activeRuns.delete(abortController);
+    }
     process.stderr.write(`PROTOCOL_GATE_GAME_END index=${gameIndex} status=${status} dir=${artifacts.gameDir}\n`);
     if (status !== 0) {
       process.stderr.write(`PROTOCOL_GATE_FAIL_FAST index=${gameIndex} dir=${artifacts.gameDir}\n`);
-      process.exitCode = status;
-      return;
+      failedStatus = status;
+      for (const activeRun of activeRuns) {
+        activeRun.abort();
+      }
     }
   }
 
-  process.stderr.write(`PROTOCOL_GATE_GAMES_PASSED games=${options.games} dir=${runRoot}\n`);
+  async function worker(): Promise<void> {
+    while (failedStatus === 0 && nextGameIndex <= options.games) {
+      const gameIndex = nextGameIndex;
+      nextGameIndex += 1;
+      await runOne(gameIndex);
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(options.games, options.concurrency) },
+    () => worker(),
+  );
+  await Promise.all(workers);
+
+  if (failedStatus !== 0) {
+    process.exitCode = failedStatus;
+    return;
+  }
+
+  process.stderr.write(
+    `PROTOCOL_GATE_GAMES_PASSED games=${options.games} concurrency=${options.concurrency} dir=${runRoot}\n`,
+  );
 }
 
 function parseArgs(args: string[]): RunnerOptions {
   const options: RunnerOptions = {
     games: 1,
+    concurrency: 1,
     gateArgs: [],
   };
   for (let index = 0; index < args.length; index += 1) {
@@ -65,6 +100,9 @@ function parseArgs(args: string[]): RunnerOptions {
     const next = args[index + 1];
     if (arg === "--games" && next) {
       options.games = Number(next);
+      index += 1;
+    } else if (arg === "--concurrency" && next) {
+      options.concurrency = Number(next);
       index += 1;
     } else if (arg === "--run-root" && next) {
       options.runRoot = next;
@@ -82,6 +120,7 @@ function parseArgs(args: string[]): RunnerOptions {
           "",
           "Runner options:",
           "  --games 5",
+          "  --concurrency 5",
           "  --run-root tmp/rl/full-stack-protocol/my-run",
           "  --label backend-timing-gate",
           "  --seed-base 2026051100",
@@ -101,6 +140,10 @@ function parseArgs(args: string[]): RunnerOptions {
   if (!Number.isInteger(options.games) || options.games <= 0) {
     throw new Error(`--games must be a positive integer: ${options.games}`);
   }
+  if (!Number.isInteger(options.concurrency) || options.concurrency <= 0) {
+    throw new Error(`--concurrency must be a positive integer: ${options.concurrency}`);
+  }
+  options.concurrency = Math.min(options.games, options.concurrency);
   if (options.seedBase !== undefined && !Number.isFinite(options.seedBase)) {
     throw new Error(`--seed-base must be a number: ${options.seedBase}`);
   }
@@ -116,15 +159,26 @@ function validateSeedArgs(options: RunnerOptions): void {
   }
 }
 
-function runGate(args: string[]): Promise<number> {
+function runGate(args: string[], abortController: AbortController): Promise<number> {
   return new Promise((resolveStatus, reject) => {
     const child = spawn("npm", ["run", "rl:protocol-gate", "--", ...args], {
       cwd: webRoot,
       stdio: ["ignore", "inherit", "inherit"],
+      signal: abortController.signal,
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      if (abortController.signal.aborted && error.name === "AbortError") {
+        resolveStatus(130);
+        return;
+      }
+      reject(error);
+    });
     child.on("close", (code, signal) => {
       if (signal) {
+        if (abortController.signal.aborted) {
+          resolveStatus(130);
+          return;
+        }
         reject(new Error(`protocol gate terminated by signal ${signal}`));
         return;
       }

@@ -1726,7 +1726,9 @@ class RuntimeService:
         policy_mode: str | None,
         *,
         publish_external_side_effects: bool,
+        game_state_store_override: object | None = None,
     ) -> _RuntimeTransitionContext:
+        game_state_store = game_state_store_override if game_state_store_override is not None else self._game_state_store
         self._ensure_engine_import_path()
         from engine import GameEngine
         from policy.factory import PolicyFactory
@@ -1768,10 +1770,16 @@ class RuntimeService:
                 blocking_human_prompts=False,
             )
         config = self._config_factory.create(resolved)
-        state = self._hydrate_engine_state(session_id, config, GameState, runner_kind)
+        state = self._hydrate_engine_state(
+            session_id,
+            config,
+            GameState,
+            runner_kind,
+            game_state_store_override=game_state_store,
+        )
         runtime_recovery_checkpoint: dict | None = None
-        if self._game_state_store is not None and callable(getattr(self._game_state_store, "load_checkpoint", None)):
-            loaded_checkpoint = self._game_state_store.load_checkpoint(session_id)
+        if game_state_store is not None and callable(getattr(game_state_store, "load_checkpoint", None)):
+            loaded_checkpoint = game_state_store.load_checkpoint(session_id)
             if isinstance(loaded_checkpoint, dict):
                 runtime_recovery_checkpoint = loaded_checkpoint
         human_player_ids = [
@@ -1813,7 +1821,10 @@ class RuntimeService:
             state=state,
             engine=engine,
             runtime_recovery_checkpoint=runtime_recovery_checkpoint,
-            base_commit_seq=self._latest_view_commit_seq(session_id),
+            base_commit_seq=self._latest_view_commit_seq(
+                session_id,
+                game_state_store_override=game_state_store,
+            ),
         )
 
     def _run_engine_command_boundary_loop_sync(
@@ -1840,37 +1851,35 @@ class RuntimeService:
         module_trace: list[dict] = []
         checkpoint_command_consumer_name = first_command_consumer_name
         checkpoint_command_seq = int(first_command_seq)
-        self._game_state_store = boundary_store
-        try:
-            transition_context = self._prepare_runtime_transition_context_sync(
+        transition_context = self._prepare_runtime_transition_context_sync(
+            loop,
+            session_id,
+            seed,
+            policy_mode,
+            publish_external_side_effects=False,
+            game_state_store_override=boundary_store,
+        )
+        while max_transitions is None or transitions < max(1, int(max_transitions)):
+            command_consumer_name = first_command_consumer_name if transitions == 0 else None
+            command_seq = int(first_command_seq) if transitions == 0 else None
+            last_step = self._run_engine_transition_once_sync(
                 loop,
                 session_id,
                 seed,
                 policy_mode,
+                False,
+                command_consumer_name,
+                command_seq,
+                checkpoint_command_consumer_name=checkpoint_command_consumer_name,
+                checkpoint_command_seq=checkpoint_command_seq,
                 publish_external_side_effects=False,
+                transition_context=transition_context,
+                game_state_store_override=boundary_store,
             )
-            while max_transitions is None or transitions < max(1, int(max_transitions)):
-                command_consumer_name = first_command_consumer_name if transitions == 0 else None
-                command_seq = int(first_command_seq) if transitions == 0 else None
-                last_step = self._run_engine_transition_once_sync(
-                    loop,
-                    session_id,
-                    seed,
-                    policy_mode,
-                    False,
-                    command_consumer_name,
-                    command_seq,
-                    checkpoint_command_consumer_name=checkpoint_command_consumer_name,
-                    checkpoint_command_seq=checkpoint_command_seq,
-                    publish_external_side_effects=False,
-                    transition_context=transition_context,
-                )
-                transitions += 1
-                module_trace.append(self._command_module_trace_entry(transitions, last_step))
-                if _is_command_boundary_terminal_status(last_step.get("status")):
-                    break
-        finally:
-            self._game_state_store = original_store
+            transitions += 1
+            module_trace.append(self._command_module_trace_entry(transitions, last_step))
+            if _is_command_boundary_terminal_status(last_step.get("status")):
+                break
 
         deferred_commit = boundary_store.deferred_commit()
         redis_commit_count = 0
@@ -2228,14 +2237,27 @@ class RuntimeService:
         if thread.is_alive():
             thread.join(timeout=1.0)
 
-    def _hydrate_engine_state(self, session_id: str, config, game_state_cls, runner_kind: str | None = None):
+    def _hydrate_engine_state(
+        self,
+        session_id: str,
+        config,
+        game_state_cls,
+        runner_kind: str | None = None,
+        *,
+        game_state_store_override: object | None = None,
+    ):
         del runner_kind
-        if self._game_state_store is None:
+        game_state_store = game_state_store_override if game_state_store_override is not None else self._game_state_store
+        if game_state_store is None:
             return None
-        recovery = self.recovery_checkpoint(session_id)
-        if not recovery.get("available"):
+        if not callable(getattr(game_state_store, "load_checkpoint", None)) or not callable(
+            getattr(game_state_store, "load_current_state", None)
+        ):
             return None
-        current_state = recovery.get("current_state")
+        checkpoint = game_state_store.load_checkpoint(session_id)
+        current_state = game_state_store.load_current_state(session_id)
+        if not isinstance(checkpoint, dict) or not isinstance(current_state, dict):
+            return None
         if not isinstance(current_state, dict) or "tiles" not in current_state:
             return None
         return game_state_cls.from_checkpoint_payload(config, current_state)
@@ -2387,7 +2409,9 @@ class RuntimeService:
         checkpoint_command_seq: int | None = None,
         publish_external_side_effects: bool = True,
         transition_context: _RuntimeTransitionContext | None = None,
+        game_state_store_override: object | None = None,
     ) -> dict:
+        game_state_store = game_state_store_override if game_state_store_override is not None else self._game_state_store
         self._ensure_engine_import_path()
         from engine import GameEngine
         from policy.factory import PolicyFactory
@@ -2415,7 +2439,10 @@ class RuntimeService:
                 lap_policy_mode=selected_policy_mode,
             )
             policy = ai_policy
-            base_commit_seq = self._latest_view_commit_seq(session_id)
+            base_commit_seq = self._latest_view_commit_seq(
+                session_id,
+                game_state_store_override=game_state_store,
+            )
             human_seats = [
                 max(0, int(seat.seat) - 1)
                 for seat in session.seats
@@ -2444,10 +2471,16 @@ class RuntimeService:
                     blocking_human_prompts=False,
                 )
             config = self._config_factory.create(resolved)
-            state = self._hydrate_engine_state(session_id, config, GameState, runner_kind)
+            state = self._hydrate_engine_state(
+                session_id,
+                config,
+                GameState,
+                runner_kind,
+                game_state_store_override=game_state_store,
+            )
             runtime_recovery_checkpoint: dict | None = None
-            if self._game_state_store is not None and callable(getattr(self._game_state_store, "load_checkpoint", None)):
-                loaded_checkpoint = self._game_state_store.load_checkpoint(session_id)
+            if game_state_store is not None and callable(getattr(game_state_store, "load_checkpoint", None)):
+                loaded_checkpoint = game_state_store.load_checkpoint(session_id)
                 if isinstance(loaded_checkpoint, dict):
                     runtime_recovery_checkpoint = loaded_checkpoint
             human_player_ids = [
@@ -2577,13 +2610,13 @@ class RuntimeService:
         self._status[session_id] = current_status
         defer_runtime_status_persist = (
             not publish_external_side_effects
-            and getattr(self._game_state_store, "defer_authoritative_transition_commit", False)
+            and getattr(game_state_store, "defer_authoritative_transition_commit", False)
             and not _is_command_boundary_terminal_status(step.get("status"))
         )
         if not defer_runtime_status_persist:
             self._persist_runtime_state(session_id)
         _mark_phase("status_stage" if defer_runtime_status_persist else "status_persist")
-        if self._game_state_store is not None:
+        if game_state_store is not None:
             payload = state.to_checkpoint_payload()
             validate_checkpoint_payload(payload)
             _mark_phase("checkpoint_payload")
@@ -2624,10 +2657,10 @@ class RuntimeService:
             continuation_debug_fields = _runtime_continuation_debug_fields(payload, decision_resume)
             processed_command_consumer = command_consumer_name or checkpoint_command_consumer_name
             processed_command_seq = command_seq if command_seq is not None else checkpoint_command_seq
-            stage_internal_transition = getattr(self._game_state_store, "stage_internal_transition", None)
+            stage_internal_transition = getattr(game_state_store, "stage_internal_transition", None)
             if (
                 not publish_external_side_effects
-                and getattr(self._game_state_store, "defer_authoritative_transition_commit", False)
+                and getattr(game_state_store, "defer_authoritative_transition_commit", False)
                 and not _is_command_boundary_terminal_status(step.get("status"))
                 and callable(stage_internal_transition)
             ):
@@ -2658,7 +2691,10 @@ class RuntimeService:
                     **module_debug_fields,
                     **continuation_debug_fields,
                 }
-            previous_source_event_seq = self._latest_committed_source_event_seq(session_id)
+            previous_source_event_seq = self._latest_committed_source_event_seq(
+                session_id,
+                game_state_store_override=game_state_store,
+            )
             latest_stream_seq = self._latest_stream_seq_sync(loop, session_id)
             source_messages = self._source_history_sync(loop, session_id, latest_stream_seq)
             _mark_phase("source_history")
@@ -2715,8 +2751,8 @@ class RuntimeService:
             offset_consumer_name, offset_command_seq = self._command_offset_args_for_commit(
                 session_id=session_id,
                 checkpoint=runtime_checkpoint,
-                command_consumer_name=command_consumer_name,
-                command_seq=command_seq,
+                command_consumer_name=processed_command_consumer,
+                command_seq=processed_command_seq,
                 decision_resume=decision_resume,
             )
             command_commit_envelope = {
@@ -2752,7 +2788,10 @@ class RuntimeService:
             spectator_commit = view_commits.get("spectator") or view_commits.get("public") or {}
             if isinstance(spectator_commit, dict) and isinstance(spectator_commit.get("view_state"), dict):
                 public_view_state = dict(spectator_commit["view_state"])
-            latest_commit_seq_before_write = self._latest_view_commit_seq(session_id)
+            latest_commit_seq_before_write = self._latest_view_commit_seq(
+                session_id,
+                game_state_store_override=game_state_store,
+            )
             _mark_phase("precommit_validation")
             if latest_commit_seq_before_write != base_commit_seq:
                 log_event(
@@ -2808,7 +2847,7 @@ class RuntimeService:
                     **module_debug_fields,
                     **continuation_debug_fields,
                 }
-            self._game_state_store.commit_transition(
+            game_state_store.commit_transition(
                 session_id,
                 current_state=payload,
                 checkpoint=runtime_checkpoint,
@@ -2869,7 +2908,7 @@ class RuntimeService:
         if publish_external_side_effects and step.get("status") == "waiting_input":
             self._publish_active_module_prompt_batch_sync(loop, session_id, state)
             _mark_phase("active_prompt_batch_publish")
-        if self._game_state_store is not None:
+        if game_state_store is not None:
             log_event(
                 "runtime_transition_phase_timing",
                 session_id=session_id,
@@ -2958,17 +2997,23 @@ class RuntimeService:
                     exception_repr=repr(exc),
                 )
 
-    def _latest_committed_source_event_seq(self, session_id: str) -> int:
-        if self._game_state_store is None:
+    def _latest_committed_source_event_seq(
+        self,
+        session_id: str,
+        *,
+        game_state_store_override: object | None = None,
+    ) -> int:
+        game_state_store = game_state_store_override if game_state_store_override is not None else self._game_state_store
+        if game_state_store is None:
             return 0
-        if callable(getattr(self._game_state_store, "load_view_commit_index", None)):
-            index = self._game_state_store.load_view_commit_index(session_id)
+        if callable(getattr(game_state_store, "load_view_commit_index", None)):
+            index = game_state_store.load_view_commit_index(session_id)
             if isinstance(index, dict):
                 value = self._int_or_none(index.get("latest_source_event_seq"))
                 if value is not None:
                     return value
-        if callable(getattr(self._game_state_store, "load_checkpoint", None)):
-            checkpoint = self._game_state_store.load_checkpoint(session_id)
+        if callable(getattr(game_state_store, "load_checkpoint", None)):
+            checkpoint = game_state_store.load_checkpoint(session_id)
             if isinstance(checkpoint, dict):
                 value = self._int_or_none(checkpoint.get("latest_source_event_seq") or checkpoint.get("latest_seq"))
                 if value is not None:
@@ -3053,28 +3098,34 @@ class RuntimeService:
             return []
         return list(result) if isinstance(result, list) else []
 
-    def _latest_view_commit_seq(self, session_id: str) -> int:
-        if self._game_state_store is None:
+    def _latest_view_commit_seq(
+        self,
+        session_id: str,
+        *,
+        game_state_store_override: object | None = None,
+    ) -> int:
+        game_state_store = game_state_store_override if game_state_store_override is not None else self._game_state_store
+        if game_state_store is None:
             return 0
         candidates: list[int] = []
 
-        if callable(getattr(self._game_state_store, "load_checkpoint", None)):
-            checkpoint = self._game_state_store.load_checkpoint(session_id)
+        if callable(getattr(game_state_store, "load_checkpoint", None)):
+            checkpoint = game_state_store.load_checkpoint(session_id)
             if isinstance(checkpoint, dict):
                 commit_seq = self._int_or_none(checkpoint.get("latest_commit_seq"))
                 if commit_seq is not None:
                     candidates.append(commit_seq)
 
         index: dict | None = None
-        if callable(getattr(self._game_state_store, "load_view_commit_index", None)):
-            loaded_index = self._game_state_store.load_view_commit_index(session_id)
+        if callable(getattr(game_state_store, "load_view_commit_index", None)):
+            loaded_index = game_state_store.load_view_commit_index(session_id)
             if isinstance(loaded_index, dict):
                 index = loaded_index
                 commit_seq = self._int_or_none(index.get("latest_commit_seq"))
                 if commit_seq is not None:
                     candidates.append(commit_seq)
 
-        if callable(getattr(self._game_state_store, "load_view_commit", None)):
+        if callable(getattr(game_state_store, "load_view_commit", None)):
             labels = {"spectator", "public", "admin"}
             if isinstance(index, dict):
                 raw_labels = index.get("view_commit_viewers")
@@ -3085,9 +3136,9 @@ class RuntimeService:
                 if label.startswith("player:"):
                     player_id = self._int_or_none(label.split(":", 1)[1])
                     if player_id is not None:
-                        payload = self._game_state_store.load_view_commit(session_id, "player", player_id=player_id)
+                        payload = game_state_store.load_view_commit(session_id, "player", player_id=player_id)
                 else:
-                    payload = self._game_state_store.load_view_commit(session_id, label)
+                    payload = game_state_store.load_view_commit(session_id, label)
                 if isinstance(payload, dict):
                     commit_seq = self._int_or_none(payload.get("commit_seq"))
                     if commit_seq is not None:
