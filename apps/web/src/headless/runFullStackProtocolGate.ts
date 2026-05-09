@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
   baselineDecisionPolicy,
@@ -8,7 +9,12 @@ import {
   type DecisionPolicy,
 } from "./HeadlessGameClient";
 import {
+  evaluateProtocolBackendTimingGate,
+  parseProtocolBackendTimingEvents,
   runFullStackProtocolGame,
+  summarizeProtocolBackendTiming,
+  type FullStackProtocolRunResult,
+  type ProtocolBackendTimingSummary,
   type FullStackProtocolProgressSnapshot,
   type ProtocolProfile,
   type ReconnectScenario,
@@ -18,6 +24,12 @@ import { protocolTraceEventsToReplayRows, serializeProtocolReplayRows } from "./
 
 type PolicyKind = "baseline" | "conservative" | "cash" | "shard" | "score" | "http";
 
+type BackendTimingGateSummary = {
+  ok: boolean;
+  failures: string[];
+  summary: ProtocolBackendTimingSummary;
+};
+
 type CliOptions = {
   baseUrl?: string;
   profile?: ProtocolProfile;
@@ -26,6 +38,7 @@ type CliOptions = {
   idleTimeoutMs?: number;
   out?: string;
   replayOut?: string;
+  summaryOut?: string;
   progressIntervalMs?: number;
   cpuDiagnosticIdleMs?: number;
   cpuLowLoadPercent?: number;
@@ -36,6 +49,15 @@ type CliOptions = {
   seatProfiles?: Record<number, PolicyKind>;
   policyHttpUrl?: string;
   policyHttpTimeoutMs?: number;
+  backendLog?: string;
+  requireBackendTiming?: boolean;
+  maxBackendCommandMs?: number;
+  maxBackendTransitionMs?: number;
+  maxBackendRedisCommitCount?: number;
+  maxBackendViewCommitCount?: number;
+  backendDockerComposeProject?: string;
+  backendDockerComposeFile?: string;
+  backendDockerComposeService?: string;
 };
 
 const RECONNECT_SCENARIOS = new Set<ReconnectScenario>([
@@ -53,25 +75,52 @@ async function main(): Promise<void> {
   const policyMode = options.policy ?? "baseline";
   const policy = buildPolicy(options);
   const policiesByPlayerId = buildSeatPolicies(options);
-  const result = await runFullStackProtocolGame({
-    baseUrl: options.baseUrl,
-    profile: options.profile,
-    seed: options.seed,
-    timeoutMs: options.timeoutMs,
-    idleTimeoutMs: options.idleTimeoutMs,
-    config: options.config,
-    policy,
-    policiesByPlayerId,
-    reconnectScenarios: options.reconnectScenarios,
-    rawPromptFallbackDelayMs: options.rawPromptFallbackDelayMs,
-    progressIntervalMs,
-    cpuDiagnosticIdleMs: options.cpuDiagnosticIdleMs,
-    cpuLowLoadPercent: options.cpuLowLoadPercent,
-    onProgress: async (snapshot) => {
-      await writeProgressArtifacts(snapshot, options);
-      writeProgressLine(snapshot);
-    },
-  });
+  const startedAtMs = Date.now();
+  let latestSnapshot: FullStackProtocolProgressSnapshot | null = null;
+  let liveBackendTimingFailed = false;
+  let result: FullStackProtocolRunResult;
+  try {
+    result = await runFullStackProtocolGame({
+      baseUrl: options.baseUrl,
+      profile: options.profile,
+      seed: options.seed,
+      timeoutMs: options.timeoutMs,
+      idleTimeoutMs: options.idleTimeoutMs,
+      config: options.config,
+      policy,
+      policiesByPlayerId,
+      reconnectScenarios: options.reconnectScenarios,
+      rawPromptFallbackDelayMs: options.rawPromptFallbackDelayMs,
+      progressIntervalMs,
+      cpuDiagnosticIdleMs: options.cpuDiagnosticIdleMs,
+      cpuLowLoadPercent: options.cpuLowLoadPercent,
+      onProgress: async (snapshot) => {
+        latestSnapshot = snapshot;
+        await writeProgressArtifacts(snapshot, options);
+        writeProgressLine(snapshot);
+        if (snapshot.reason !== "final" && !liveBackendTimingFailed) {
+          const backendTiming = await loadBackendTimingSummary(snapshot.sessionId, options, { required: false });
+          if (backendTiming && !backendTiming.ok) {
+            liveBackendTimingFailed = true;
+            throw new BackendTimingGateViolation(backendTiming);
+          }
+        }
+      },
+    });
+  } catch (error) {
+    if (error instanceof BackendTimingGateViolation) {
+      await writeBackendTimingFailureSummary({
+        options,
+        policyMode,
+        latestSnapshot,
+        backendTiming: error.backendTiming,
+        durationMs: Date.now() - startedAtMs,
+      });
+      process.exitCode = 1;
+      return;
+    }
+    throw error;
+  }
 
   if (options.out) {
     await writeTextFile(
@@ -88,8 +137,11 @@ async function main(): Promise<void> {
     await writeTextFile(options.replayOut, serializeProtocolReplayRows(rows) + (rows.length > 0 ? "\n" : ""));
   }
 
+  const backendTiming = await loadBackendTimingSummary(result.sessionId, options);
+  const failures = [...result.failures, ...(backendTiming?.failures ?? [])];
+  const ok = result.ok && (backendTiming?.ok ?? true);
   const summary = {
-    ok: result.ok,
+    ok,
     profile: result.profile,
     policy_mode: policyMode,
     seat_profiles: options.seatProfiles ?? {},
@@ -98,13 +150,24 @@ async function main(): Promise<void> {
     timed_out: result.timedOut,
     idle_timed_out: result.idleTimedOut,
     runtime_status: result.runtimeStatus,
-    failures: result.failures,
+    failures,
+    backend_timing: backendTiming?.summary ?? null,
     clients: result.clientSummary,
     trace_count: result.traces.length,
   };
-  process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
-  if (!result.ok) {
+  const summaryText = `${JSON.stringify(summary, null, 2)}\n`;
+  if (options.summaryOut) {
+    await writeTextFile(options.summaryOut, summaryText);
+  }
+  process.stdout.write(summaryText);
+  if (!ok) {
     process.exitCode = 1;
+  }
+}
+
+class BackendTimingGateViolation extends Error {
+  constructor(readonly backendTiming: BackendTimingGateSummary) {
+    super(`backend_timing_gate_violation: ${backendTiming.failures.join("; ")}`);
   }
 }
 
@@ -136,6 +199,9 @@ function parseArgs(args: string[]): CliOptions {
       index += 1;
     } else if (arg === "--replay-out" && next) {
       options.replayOut = next;
+      index += 1;
+    } else if (arg === "--summary-out" && next) {
+      options.summaryOut = next;
       index += 1;
     } else if (arg === "--progress-interval-ms" && next) {
       options.progressIntervalMs = Number(next);
@@ -173,19 +239,46 @@ function parseArgs(args: string[]): CliOptions {
     } else if (arg === "--policy-http-timeout-ms" && next) {
       options.policyHttpTimeoutMs = Number(next);
       index += 1;
+    } else if (arg === "--backend-log" && next) {
+      options.backendLog = next;
+      index += 1;
+    } else if (arg === "--require-backend-timing") {
+      options.requireBackendTiming = true;
+    } else if (arg === "--max-backend-command-ms" && next) {
+      options.maxBackendCommandMs = Number(next);
+      index += 1;
+    } else if (arg === "--max-backend-transition-ms" && next) {
+      options.maxBackendTransitionMs = Number(next);
+      index += 1;
+    } else if (arg === "--max-backend-redis-commit-count" && next) {
+      options.maxBackendRedisCommitCount = Number(next);
+      index += 1;
+    } else if (arg === "--max-backend-view-commit-count" && next) {
+      options.maxBackendViewCommitCount = Number(next);
+      index += 1;
+    } else if (arg === "--backend-docker-compose-project" && next) {
+      options.backendDockerComposeProject = next;
+      index += 1;
+    } else if (arg === "--backend-docker-compose-file" && next) {
+      options.backendDockerComposeFile = next;
+      index += 1;
+    } else if (arg === "--backend-docker-compose-service" && next) {
+      options.backendDockerComposeService = next;
+      index += 1;
     } else if (arg === "--help" || arg === "-h") {
       process.stdout.write(
         [
           "Usage: vite-node src/headless/runFullStackProtocolGate.ts [options]",
           "",
           "Options:",
-          "  --base-url http://127.0.0.1:9090",
+          "  --base-url http://127.0.0.1:9091",
           "  --profile live|contract",
           "  --seed 20260508",
           "  --timeout-ms 120000",
           "  --idle-timeout-ms 60000",
           "  --out ./protocol_trace.jsonl",
           "  --replay-out ./rl_replay.jsonl",
+          "  --summary-out ./summary.json",
           "  --progress-interval-ms 5000",
           "  --cpu-diagnostic-idle-ms 30000",
           "  --cpu-low-load-percent 10",
@@ -196,12 +289,105 @@ function parseArgs(args: string[]): CliOptions {
           "  --seat-profiles '1=baseline,2=cash,3=shard,4=score'",
           "  --policy-http-url http://127.0.0.1:7777/decide",
           "  --policy-http-timeout-ms 2000",
+          "  --backend-log ./server.docker.log",
+          "  --require-backend-timing",
+          "  --max-backend-command-ms 4000",
+          "  --max-backend-transition-ms 4000",
+          "  --max-backend-redis-commit-count 1",
+          "  --max-backend-view-commit-count 1",
+          "  --backend-docker-compose-project project-mrn-protocol",
+          "  --backend-docker-compose-file ../../docker-compose.protocol.yml",
+          "  --backend-docker-compose-service server",
         ].join("\n") + "\n",
       );
       process.exit(0);
     }
   }
   return options;
+}
+
+async function loadBackendTimingSummary(
+  sessionId: string,
+  options: CliOptions,
+  gateOptions?: { required?: boolean },
+): Promise<BackendTimingGateSummary | null> {
+  const hasBackendLogSource = Boolean(
+    options.backendLog ||
+      options.backendDockerComposeProject ||
+      options.backendDockerComposeFile ||
+      options.backendDockerComposeService,
+  );
+  if (!hasBackendLogSource && !options.requireBackendTiming) {
+    return null;
+  }
+  const logText = await loadBackendLogText(options);
+  const events = parseProtocolBackendTimingEvents(logText, { sessionId });
+  const gate = evaluateProtocolBackendTimingGate({
+    events,
+    required: gateOptions?.required ?? options.requireBackendTiming,
+    maxCommandMs: options.maxBackendCommandMs,
+    maxTransitionMs: options.maxBackendTransitionMs,
+    maxRedisCommitCount: options.maxBackendRedisCommitCount,
+    maxViewCommitCount: options.maxBackendViewCommitCount,
+  });
+  return {
+    ok: gate.ok,
+    failures: gate.failures,
+    summary: summarizeProtocolBackendTiming(events, {
+      maxCommandMs: options.maxBackendCommandMs,
+      maxTransitionMs: options.maxBackendTransitionMs,
+    }),
+  };
+}
+
+async function writeBackendTimingFailureSummary(args: {
+  options: CliOptions;
+  policyMode: PolicyKind;
+  latestSnapshot: FullStackProtocolProgressSnapshot | null;
+  backendTiming: BackendTimingGateSummary;
+  durationMs: number;
+}): Promise<void> {
+  const summary = {
+    ok: false,
+    profile: args.latestSnapshot?.profile ?? args.options.profile ?? null,
+    policy_mode: args.policyMode,
+    seat_profiles: args.options.seatProfiles ?? {},
+    session_id: args.latestSnapshot?.sessionId ?? "",
+    duration_ms: args.durationMs,
+    timed_out: false,
+    idle_timed_out: false,
+    runtime_status: args.latestSnapshot?.runtimeStatus ?? null,
+    aborted: true,
+    abort_reason: "backend_timing_gate",
+    failures: args.backendTiming.failures,
+    backend_timing: args.backendTiming.summary,
+    clients: args.latestSnapshot?.clientSummary ?? [],
+    trace_count: args.latestSnapshot?.traceCount ?? 0,
+  };
+  const summaryText = `${JSON.stringify(summary, null, 2)}\n`;
+  if (args.options.summaryOut) {
+    await writeTextFile(args.options.summaryOut, summaryText);
+  }
+  process.stdout.write(summaryText);
+}
+
+async function loadBackendLogText(options: CliOptions): Promise<string> {
+  const chunks: string[] = [];
+  if (options.backendLog) {
+    chunks.push(await readFile(options.backendLog, "utf8"));
+  }
+  if (options.backendDockerComposeProject || options.backendDockerComposeFile || options.backendDockerComposeService) {
+    const args = ["compose"];
+    if (options.backendDockerComposeProject) {
+      args.push("-p", options.backendDockerComposeProject);
+    }
+    if (options.backendDockerComposeFile) {
+      args.push("-f", options.backendDockerComposeFile);
+    }
+    args.push("logs", "--no-color", options.backendDockerComposeService ?? "server");
+    chunks.push(execFileSync("docker", args, { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 }));
+  }
+  return chunks.join("\n");
 }
 
 async function writeProgressArtifacts(

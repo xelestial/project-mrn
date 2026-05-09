@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   FRONTEND_CONNECTION_REQUEST_CATALOG,
   buildFrontendConnectionUrl,
+  createFrontendConnectionSingleFlightManager,
   requestFrontendConnectionJson,
 } from "./connectionRequestManager";
 
@@ -64,5 +65,26 @@ describe("connectionRequestManager", () => {
       body: JSON.stringify({ seats: [] }),
       headers: { "Content-Type": "application/json" },
     });
+  });
+
+  it("exposes single-flight abort control for repeated frontend connection requests", () => {
+    const manager = createFrontendConnectionSingleFlightManager();
+
+    const first = manager.begin("session.viewCommit:sess_a", "req_first");
+    expect(first.status).toBe("started");
+    expect(first.requestId).toBe("req_first");
+    expect(first.signal.aborted).toBe(false);
+
+    const second = manager.begin("session.viewCommit:sess_a", "req_second");
+    expect(second.status).toBe("pending");
+    expect(second.requestId).toBe("req_first");
+    expect(second.signal).toBe(first.signal);
+
+    expect(manager.abort("session.viewCommit:sess_a", "prompt_changed")).toBe(true);
+    expect(first.signal.aborted).toBe(true);
+
+    const third = manager.begin("session.viewCommit:sess_a", "req_second");
+    expect(third.status).toBe("started");
+    expect(third.requestId).toBe("req_second");
   });
 });

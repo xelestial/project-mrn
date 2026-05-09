@@ -5,6 +5,7 @@ import type {
 } from "../core/contracts/stream";
 import type { PromptContinuationViewModel } from "../domain/selectors/promptSelectors";
 import {
+  buildDecisionFlightKey,
   buildDecisionMessage,
   buildGameStreamKey,
   createDecisionRequestLedger,
@@ -23,6 +24,7 @@ type UseGameStreamArgs = {
 };
 
 export { buildDecisionMessage, buildGameStreamKey, createDecisionRequestLedger };
+export { buildDecisionFlightKey };
 
 export function useGameStream({
   sessionId,
@@ -36,6 +38,7 @@ export function useGameStream({
   sendDecision: (args: {
     requestId: string;
     playerId: number;
+    requestType?: string;
     choiceId: string;
     choicePayload?: Record<string, unknown>;
     continuation?: PromptContinuationViewModel;
@@ -92,6 +95,9 @@ export function useGameStream({
   useEffect(() => {
     lastCommitSeqRef.current = state.lastCommitSeq;
     client.updateResumeCommitSeq(state.lastCommitSeq);
+    if (activeStreamKeyRef.current) {
+      decisionRequestLedgerRef.current.releaseFlightsForStream(activeStreamKeyRef.current);
+    }
   }, [client, state.lastCommitSeq]);
 
   useEffect(() => {
@@ -123,12 +129,53 @@ export function useGameStream({
   const sendDecision = (args: {
     requestId: string;
     playerId: number;
+    requestType?: string;
     choiceId: string;
     choicePayload?: Record<string, unknown>;
     continuation?: PromptContinuationViewModel;
   }): boolean => {
     const continuation = args.continuation;
     const streamKey = activeStreamKeyRef.current;
+    const flightKey = buildDecisionFlightKey({
+      requestId: args.requestId,
+      playerId: args.playerId,
+      requestType: args.requestType,
+      continuation,
+    });
+    if (streamKey) {
+      const flight = decisionRequestLedgerRef.current.beginFlight(streamKey, flightKey, args.requestId);
+      if (flight.status === "duplicate") {
+        logFrontendDebugEvent({
+          event: "decision_suppressed_duplicate",
+          sessionId: sessionId.trim(),
+          seq: lastCommitSeqRef.current,
+          baseUrl,
+          payload: {
+            request_id: args.requestId,
+            player_id: args.playerId,
+            choice_id: args.choiceId,
+            flight_key: flightKey,
+          },
+        });
+        return true;
+      }
+      if (flight.status === "busy") {
+        logFrontendDebugEvent({
+          event: "decision_suppressed_busy",
+          sessionId: sessionId.trim(),
+          seq: lastCommitSeqRef.current,
+          baseUrl,
+          payload: {
+            request_id: args.requestId,
+            active_request_id: flight.requestId,
+            player_id: args.playerId,
+            choice_id: args.choiceId,
+            flight_key: flightKey,
+          },
+        });
+        return true;
+      }
+    }
     if (streamKey && !decisionRequestLedgerRef.current.shouldSend(streamKey, args.requestId)) {
       logFrontendDebugEvent({
         event: "decision_suppressed_duplicate",
@@ -154,6 +201,9 @@ export function useGameStream({
         clientSeq: lastCommitSeqRef.current,
       }),
     );
+    if (!sent && streamKey) {
+      decisionRequestLedgerRef.current.releaseFlight(streamKey, flightKey, args.requestId);
+    }
     if (sent) {
       if (streamKey) {
         decisionRequestLedgerRef.current.recordSent(streamKey, args.requestId);

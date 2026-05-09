@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import copy
 import inspect
 import json
 import os
@@ -13,6 +14,7 @@ import traceback
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from urllib import error as urllib_error
 from urllib import request as urllib_request
@@ -80,6 +82,148 @@ class RuntimeDecisionResume:
 
 class RuntimeDecisionResumeMismatch(ValueError):
     pass
+
+
+@dataclass(slots=True)
+class _RuntimeTransitionContext:
+    session: Any
+    resolved: dict[str, Any]
+    runtime: dict[str, Any]
+    runner_kind: str
+    checkpoint_schema_version: int
+    policy: Any
+    config: Any
+    state: Any
+    engine: Any
+    runtime_recovery_checkpoint: dict | None
+    base_commit_seq: int
+
+
+class _CommandBoundaryGameStateStore:
+    """Defers transition commits inside one user command until the terminal boundary."""
+
+    defer_authoritative_transition_commit = True
+
+    def __init__(self, delegate: object, *, session_id: str, base_commit_seq: int) -> None:
+        self._delegate = delegate
+        self._session_id = str(session_id)
+        self._base_commit_seq = int(base_commit_seq)
+        self._current_state: dict | None = None
+        self._checkpoint: dict | None = None
+        self._view_state: dict | None = None
+        self._view_commits: dict[str, dict] | None = None
+        self._deferred_commit: dict | None = None
+        self.internal_state_stage_count = 0
+        self.redis_commit_count = 0
+        self.view_commit_count = 0
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._delegate, name)
+
+    def stage_internal_transition(self, session_id: str, *, current_state: dict) -> None:
+        if str(session_id) != self._session_id:
+            return
+        self._current_state = copy.deepcopy(current_state)
+        self.internal_state_stage_count += 1
+
+    def load_current_state(self, session_id: str) -> dict | None:
+        if str(session_id) == self._session_id and isinstance(self._current_state, dict):
+            return copy.deepcopy(self._current_state)
+        loaded = self._delegate.load_current_state(session_id)
+        return copy.deepcopy(loaded) if isinstance(loaded, dict) else loaded
+
+    def load_checkpoint(self, session_id: str) -> dict | None:
+        if str(session_id) == self._session_id and isinstance(self._checkpoint, dict):
+            checkpoint = copy.deepcopy(self._checkpoint)
+            checkpoint["latest_commit_seq"] = self._base_commit_seq
+            checkpoint["base_commit_seq"] = min(
+                int(checkpoint.get("base_commit_seq") or self._base_commit_seq),
+                self._base_commit_seq,
+            )
+            return checkpoint
+        loaded = self._delegate.load_checkpoint(session_id)
+        return copy.deepcopy(loaded) if isinstance(loaded, dict) else loaded
+
+    def load_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict | None:
+        if str(session_id) == self._session_id and isinstance(self._view_state, dict):
+            return copy.deepcopy(self._view_state)
+        loaded = self._delegate.load_view_state(session_id, viewer, player_id=player_id)
+        return copy.deepcopy(loaded) if isinstance(loaded, dict) else loaded
+
+    def load_cached_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict | None:
+        cached = getattr(self._delegate, "load_cached_view_state", None)
+        if not callable(cached):
+            return self.load_view_state(session_id, viewer, player_id=player_id)
+        loaded = cached(session_id, viewer, player_id=player_id)
+        return copy.deepcopy(loaded) if isinstance(loaded, dict) else loaded
+
+    def load_view_commit_index(self, session_id: str) -> dict | None:
+        loaded = None
+        loader = getattr(self._delegate, "load_view_commit_index", None)
+        if callable(loader):
+            loaded = loader(session_id)
+        return copy.deepcopy(loaded) if isinstance(loaded, dict) else loaded
+
+    def load_view_commit(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict | None:
+        loaded = self._delegate.load_view_commit(session_id, viewer, player_id=player_id)
+        return copy.deepcopy(loaded) if isinstance(loaded, dict) else loaded
+
+    def commit_transition(
+        self,
+        session_id: str,
+        *,
+        current_state: dict,
+        checkpoint: dict,
+        view_state: dict | None = None,
+        view_commits: dict[str, dict] | None = None,
+        command_consumer_name: str | None = None,
+        command_seq: int | None = None,
+        runtime_event_payload: dict | None = None,
+        runtime_event_server_time_ms: int | None = None,
+        expected_previous_commit_seq: int | None = None,
+    ) -> None:
+        self._current_state = copy.deepcopy(current_state)
+        self._checkpoint = copy.deepcopy(checkpoint)
+        self._view_state = copy.deepcopy(view_state or {})
+        self._view_commits = copy.deepcopy(view_commits or {})
+        self._deferred_commit = {
+            "session_id": session_id,
+            "current_state": copy.deepcopy(current_state),
+            "checkpoint": copy.deepcopy(checkpoint),
+            "view_state": copy.deepcopy(view_state or {}),
+            "view_commits": copy.deepcopy(view_commits or {}),
+            "command_consumer_name": command_consumer_name,
+            "command_seq": command_seq,
+            "runtime_event_payload": copy.deepcopy(runtime_event_payload or {}),
+            "runtime_event_server_time_ms": runtime_event_server_time_ms,
+            "expected_previous_commit_seq": self._base_commit_seq
+            if expected_previous_commit_seq is not None
+            else expected_previous_commit_seq,
+        }
+        self.redis_commit_count += 1
+        if view_commits:
+            self.view_commit_count += 1
+
+    def deferred_commit(self) -> dict | None:
+        return copy.deepcopy(self._deferred_commit) if isinstance(self._deferred_commit, dict) else None
+
+
+_COMMAND_BOUNDARY_TERMINAL_STATUSES = frozenset(
+    {
+        "completed",
+        "failed",
+        "refused",
+        "rejected",
+        "stale",
+        "success",
+        "unavailable",
+        "waiting_input",
+    }
+)
+
+
+def _is_command_boundary_terminal_status(status: object) -> bool:
+    return str(status or "") in _COMMAND_BOUNDARY_TERMINAL_STATUSES
 
 
 def _derive_batch_id_from_request_id(request_id: str) -> str:
@@ -476,6 +620,19 @@ def _optional_int(value: object) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _runtime_frame_type_from_frame_id(frame_id: object) -> str:
+    text = str(frame_id or "")
+    if text.startswith("round:"):
+        return "round"
+    if text.startswith("turn:"):
+        return "turn"
+    if text.startswith("seq:"):
+        return "sequence"
+    if text.startswith("simul:"):
+        return "simultaneous"
+    return ""
 
 
 def _snapshot_pulse_specs_from_source_messages(source_messages: list[dict], *, after_seq: int = 0) -> list[dict[str, int | str | None]]:
@@ -1033,6 +1190,12 @@ class RuntimeService:
             if recovery.get("available"):
                 base["recovery_checkpoint"] = recovery
             return base
+        if session is not None and session.status == SessionStatus.IN_PROGRESS and base.get("status") == "rejected":
+            base = dict(base)
+            base["recent_fallbacks"] = self._recent_fallbacks(session_id)
+            if recovery.get("available"):
+                base["recovery_checkpoint"] = recovery
+            return base
         if session is not None and session.status == SessionStatus.IN_PROGRESS and checkpoint_waiting_input:
             base = self._mark_checkpoint_waiting_input(session_id, base=base, reason="checkpoint_waiting_input")
         elif (
@@ -1105,9 +1268,12 @@ class RuntimeService:
         base: dict | None = None,
         reason: str,
     ) -> dict:
+        current = dict(base or self._load_runtime_state(session_id))
+        if current.get("status") == "rejected":
+            return current
         status_payload = {
             key: value
-            for key, value in dict(base or self._load_runtime_state(session_id)).items()
+            for key, value in current.items()
             if key != "recovery_checkpoint"
         }
         status_payload["status"] = "waiting_input"
@@ -1294,6 +1460,18 @@ class RuntimeService:
                 result_status=status,
                 reason=result.get("reason"),
                 transitions=result.get("transitions"),
+                module_transition_count=result.get("module_transition_count"),
+                redis_commit_count=result.get("redis_commit_count"),
+                view_commit_count=result.get("view_commit_count"),
+                internal_redis_commit_attempt_count=result.get("internal_redis_commit_attempt_count"),
+                internal_view_commit_attempt_count=result.get("internal_view_commit_attempt_count"),
+                internal_state_stage_count=result.get("internal_state_stage_count"),
+                terminal_status=result.get("terminal_status") or status,
+                terminal_boundary_reason=result.get("terminal_boundary_reason") or result.get("reason"),
+                duplicate_request_count=result.get("duplicate_request_count", 0),
+                deduped_request_id=result.get("deduped_request_id"),
+                busy_rejection_count=result.get("busy_rejection_count", 0),
+                idempotency_hit=bool(result.get("idempotency_hit", False)),
                 total_ms=_duration_ms(process_started),
             )
             if status == "waiting_input":
@@ -1310,6 +1488,13 @@ class RuntimeService:
                     self._status[session_id] = status_payload
                 else:
                     self._status[session_id] = {"status": "idle", "last_transition": result}
+            elif status == "rejected":
+                persisted_status = self._load_runtime_state(session_id)
+                status_payload = dict(persisted_status) if isinstance(persisted_status, dict) else {}
+                status_payload.update(result)
+                status_payload["status"] = "rejected"
+                status_payload["watchdog_state"] = "rejected"
+                self._status[session_id] = status_payload
             else:
                 self._status[session_id] = {"status": "idle", "last_transition": result}
             self._touch_activity(session_id)
@@ -1492,6 +1677,16 @@ class RuntimeService:
         first_command_consumer_name: str | None = None,
         first_command_seq: int | None = None,
     ) -> dict:
+        if first_command_seq is not None and self._game_state_store is not None:
+            return self._run_engine_command_boundary_loop_sync(
+                loop,
+                session_id,
+                seed,
+                policy_mode,
+                max_transitions=max_transitions,
+                first_command_consumer_name=first_command_consumer_name,
+                first_command_seq=first_command_seq,
+            )
         transitions = 0
         last_step: dict = {"status": "unavailable", "reason": "not_started"}
         checkpoint_command_consumer_name = first_command_consumer_name if first_command_seq is not None else None
@@ -1522,6 +1717,219 @@ class RuntimeService:
                 self._persist_runtime_state(session_id)
                 return {**last_step, "status": "waiting_input", "transitions": transitions}
         return {**last_step, "transitions": transitions}
+
+    def _prepare_runtime_transition_context_sync(
+        self,
+        loop: asyncio.AbstractEventLoop | None,
+        session_id: str,
+        seed: int,
+        policy_mode: str | None,
+        *,
+        publish_external_side_effects: bool,
+        game_state_store_override: object | None = None,
+    ) -> _RuntimeTransitionContext:
+        game_state_store = game_state_store_override if game_state_store_override is not None else self._game_state_store
+        self._ensure_engine_import_path()
+        from engine import GameEngine
+        from policy.factory import PolicyFactory
+        from state import GameState
+
+        session = self._session_service.get_session(session_id)
+        resolved = dict(session.resolved_parameters or {})
+        runtime = dict(resolved.get("runtime", {}))
+        runner_kind = resolve_runtime_runner_kind(runtime)
+        checkpoint_schema_version = runtime_checkpoint_schema_version_for_runner(runner_kind)
+        selected_policy_mode = policy_mode or runtime.get("policy_mode") or "heuristic_v3_engine"
+        ai_policy = PolicyFactory.create_runtime_policy(policy_mode=selected_policy_mode, lap_policy_mode=selected_policy_mode)
+        policy = ai_policy
+        human_seats = [
+            max(0, int(seat.seat) - 1)
+            for seat in session.seats
+            if seat.seat_type == SeatType.HUMAN
+        ]
+        if loop is not None and self._stream_service is not None:
+            ai_decision_delay_ms = int(
+                runtime.get(
+                    "ai_decision_delay_ms",
+                    0 if os.environ.get("PYTEST_CURRENT_TEST") else 1000,
+                )
+                or 0
+            )
+            policy = _ServerDecisionPolicyBridge(
+                session_id=session_id,
+                session_seats=session.seats,
+                human_seats=human_seats,
+                ai_fallback=ai_policy,
+                prompt_service=self._prompt_service,
+                stream_service=self._stream_service,
+                loop=loop,
+                touch_activity=self._touch_activity,
+                fallback_executor=self.execute_prompt_fallback,
+                client_factory=self._decision_client_factory,
+                ai_decision_delay_ms=ai_decision_delay_ms,
+                blocking_human_prompts=False,
+            )
+        config = self._config_factory.create(resolved)
+        state = self._hydrate_engine_state(
+            session_id,
+            config,
+            GameState,
+            runner_kind,
+            game_state_store_override=game_state_store,
+        )
+        runtime_recovery_checkpoint: dict | None = None
+        if game_state_store is not None and callable(getattr(game_state_store, "load_checkpoint", None)):
+            loaded_checkpoint = game_state_store.load_checkpoint(session_id)
+            if isinstance(loaded_checkpoint, dict):
+                runtime_recovery_checkpoint = loaded_checkpoint
+        human_player_ids = [
+            int(seat.seat)
+            for seat in session.seats
+            if seat.seat_type == SeatType.HUMAN
+        ]
+        event_stream = (
+            _FanoutVisEventStream(
+                loop,
+                self._stream_service,
+                session_id,
+                self._touch_activity,
+                human_player_ids=human_player_ids,
+                spectator_event_delay_ms=0,
+            )
+            if publish_external_side_effects and loop is not None and self._stream_service is not None
+            else None
+        )
+        engine = GameEngine(
+            config=config,
+            policy=policy,
+            decision_port=policy if hasattr(policy, "request") else None,
+            rng=random.Random(seed),
+            event_stream=event_stream,
+        )
+        engine._vis_session_id_override = session_id
+        if state is not None:
+            self._apply_runner_kind(state, runner_kind, checkpoint_schema_version)
+            state = engine.prepare_run(initial_state=state)
+        return _RuntimeTransitionContext(
+            session=session,
+            resolved=resolved,
+            runtime=runtime,
+            runner_kind=runner_kind,
+            checkpoint_schema_version=checkpoint_schema_version,
+            policy=policy,
+            config=config,
+            state=state,
+            engine=engine,
+            runtime_recovery_checkpoint=runtime_recovery_checkpoint,
+            base_commit_seq=self._latest_view_commit_seq(
+                session_id,
+                game_state_store_override=game_state_store,
+            ),
+        )
+
+    def _run_engine_command_boundary_loop_sync(
+        self,
+        loop: asyncio.AbstractEventLoop | None,
+        session_id: str,
+        seed: int,
+        policy_mode: str | None,
+        *,
+        max_transitions: int | None = None,
+        first_command_consumer_name: str | None,
+        first_command_seq: int,
+    ) -> dict:
+        if self._game_state_store is None:
+            raise RuntimeError("command_boundary_requires_game_state_store")
+        original_store = self._game_state_store
+        boundary_store = _CommandBoundaryGameStateStore(
+            original_store,
+            session_id=session_id,
+            base_commit_seq=self._latest_view_commit_seq(session_id),
+        )
+        transitions = 0
+        last_step: dict = {"status": "unavailable", "reason": "not_started"}
+        module_trace: list[dict] = []
+        checkpoint_command_consumer_name = first_command_consumer_name
+        checkpoint_command_seq = int(first_command_seq)
+        transition_context = self._prepare_runtime_transition_context_sync(
+            loop,
+            session_id,
+            seed,
+            policy_mode,
+            publish_external_side_effects=False,
+            game_state_store_override=boundary_store,
+        )
+        while max_transitions is None or transitions < max(1, int(max_transitions)):
+            command_consumer_name = first_command_consumer_name if transitions == 0 else None
+            command_seq = int(first_command_seq) if transitions == 0 else None
+            last_step = self._run_engine_transition_once_sync(
+                loop,
+                session_id,
+                seed,
+                policy_mode,
+                False,
+                command_consumer_name,
+                command_seq,
+                checkpoint_command_consumer_name=checkpoint_command_consumer_name,
+                checkpoint_command_seq=checkpoint_command_seq,
+                publish_external_side_effects=False,
+                transition_context=transition_context,
+                game_state_store_override=boundary_store,
+            )
+            transitions += 1
+            module_trace.append(self._command_module_trace_entry(transitions, last_step))
+            if _is_command_boundary_terminal_status(last_step.get("status")):
+                break
+
+        deferred_commit = boundary_store.deferred_commit()
+        redis_commit_count = 0
+        view_commit_count = 0
+        if deferred_commit is not None:
+            commit_session_id = str(deferred_commit.pop("session_id"))
+            original_store.commit_transition(commit_session_id, **deferred_commit)
+            redis_commit_count = 1
+            if deferred_commit.get("view_commits"):
+                view_commit_count = 1
+            self._emit_latest_view_commit_sync(loop, session_id)
+            current_state = deferred_commit.get("current_state")
+            if str(last_step.get("status") or "") == "waiting_input" and isinstance(current_state, dict):
+                self._materialize_prompt_boundaries_from_checkpoint_sync(loop, session_id, current_state)
+
+        terminal_status = str(last_step.get("status", ""))
+        terminal_reason = str(last_step.get("reason") or terminal_status or "unknown")
+        return {
+            **last_step,
+            "transitions": transitions,
+            "module_transition_count": transitions,
+            "redis_commit_count": redis_commit_count,
+            "view_commit_count": view_commit_count,
+            "internal_redis_commit_attempt_count": boundary_store.redis_commit_count,
+            "internal_view_commit_attempt_count": boundary_store.view_commit_count,
+            "internal_state_stage_count": boundary_store.internal_state_stage_count,
+            "terminal_status": terminal_status,
+            "terminal_boundary_reason": terminal_reason,
+            "module_trace": module_trace,
+        }
+
+    @staticmethod
+    def _command_module_trace_entry(index: int, step: dict) -> dict:
+        entry = {
+            "index": int(index),
+            "status": str(step.get("status") or ""),
+            "reason": str(step.get("reason") or ""),
+        }
+        for key in ("runner_kind", "module_type", "module_id", "frame_id", "module_cursor", "request_id", "request_type", "player_id"):
+            value = step.get(key)
+            if value not in (None, ""):
+                entry[key] = value
+        runtime_module = step.get("runtime_module")
+        if isinstance(runtime_module, dict):
+            entry["runtime_module"] = {
+                key: value
+                for key, value in runtime_module.items()
+                if key in {"runner_kind", "module_type", "module_id", "frame_id", "module_cursor"} and value not in (None, "")
+            }
+        return entry
 
     async def _watchdog_loop(self, session_id: str) -> None:
         warned = False
@@ -1649,6 +2057,11 @@ class RuntimeService:
             return
         for session in sessions:
             if session.status != SessionStatus.IN_PROGRESS:
+                continue
+            persisted = self._load_runtime_state(session.session_id)
+            persisted_status = str(persisted.get("status") or "").strip()
+            if persisted_status and persisted_status != "idle":
+                self._status.setdefault(session.session_id, dict(persisted))
                 continue
             payload = {
                 "status": "recovery_required",
@@ -1824,14 +2237,27 @@ class RuntimeService:
         if thread.is_alive():
             thread.join(timeout=1.0)
 
-    def _hydrate_engine_state(self, session_id: str, config, game_state_cls, runner_kind: str | None = None):
+    def _hydrate_engine_state(
+        self,
+        session_id: str,
+        config,
+        game_state_cls,
+        runner_kind: str | None = None,
+        *,
+        game_state_store_override: object | None = None,
+    ):
         del runner_kind
-        if self._game_state_store is None:
+        game_state_store = game_state_store_override if game_state_store_override is not None else self._game_state_store
+        if game_state_store is None:
             return None
-        recovery = self.recovery_checkpoint(session_id)
-        if not recovery.get("available"):
+        if not callable(getattr(game_state_store, "load_checkpoint", None)) or not callable(
+            getattr(game_state_store, "load_current_state", None)
+        ):
             return None
-        current_state = recovery.get("current_state")
+        checkpoint = game_state_store.load_checkpoint(session_id)
+        current_state = game_state_store.load_current_state(session_id)
+        if not isinstance(checkpoint, dict) or not isinstance(current_state, dict):
+            return None
         if not isinstance(current_state, dict) or "tiles" not in current_state:
             return None
         return game_state_cls.from_checkpoint_payload(config, current_state)
@@ -1935,6 +2361,40 @@ class RuntimeService:
         if callable(save_offset):
             save_offset(command_consumer_name, session_id, int(command_seq))
 
+    def _mark_runtime_command_rejected(
+        self,
+        session_id: str,
+        *,
+        reason: str,
+        command_consumer_name: str | None,
+        command_seq: int | None,
+        decision_resume: RuntimeDecisionResume | None = None,
+    ) -> dict:
+        payload: dict[str, Any] = {
+            "status": "rejected",
+            "watchdog_state": "rejected",
+            "reason": reason,
+            "processed_command_seq": command_seq,
+            "processed_command_consumer": command_consumer_name,
+            "runner_kind": "module",
+        }
+        if decision_resume is not None:
+            payload.update(
+                {
+                    "request_id": decision_resume.request_id,
+                    "player_id": decision_resume.player_id,
+                    "choice_id": decision_resume.choice_id,
+                    "request_type": decision_resume.request_type,
+                    "module_type": decision_resume.module_type,
+                    "module_id": decision_resume.module_id,
+                    "frame_id": decision_resume.frame_id,
+                    "module_cursor": decision_resume.module_cursor,
+                }
+            )
+        self._status[session_id] = dict(payload)
+        self._persist_runtime_state(session_id)
+        return payload
+
     def _run_engine_transition_once_sync(
         self,
         loop: asyncio.AbstractEventLoop | None,
@@ -1947,7 +2407,11 @@ class RuntimeService:
         *,
         checkpoint_command_consumer_name: str | None = None,
         checkpoint_command_seq: int | None = None,
+        publish_external_side_effects: bool = True,
+        transition_context: _RuntimeTransitionContext | None = None,
+        game_state_store_override: object | None = None,
     ) -> dict:
+        game_state_store = game_state_store_override if game_state_store_override is not None else self._game_state_store
         self._ensure_engine_import_path()
         from engine import GameEngine
         from policy.factory import PolicyFactory
@@ -1962,50 +2426,100 @@ class RuntimeService:
             phase_timings[f"{name}_ms"] = _duration_ms(phase_started)
             phase_started = time.perf_counter()
 
-        session = self._session_service.get_session(session_id)
-        resolved = dict(session.resolved_parameters or {})
-        runtime = dict(resolved.get("runtime", {}))
-        runner_kind = resolve_runtime_runner_kind(runtime)
-        checkpoint_schema_version = runtime_checkpoint_schema_version_for_runner(runner_kind)
-        selected_policy_mode = policy_mode or runtime.get("policy_mode") or "heuristic_v3_engine"
-        ai_policy = PolicyFactory.create_runtime_policy(policy_mode=selected_policy_mode, lap_policy_mode=selected_policy_mode)
-        policy = ai_policy
-        base_commit_seq = self._latest_view_commit_seq(session_id)
-        human_seats = [
-            max(0, int(seat.seat) - 1)
-            for seat in session.seats
-            if seat.seat_type == SeatType.HUMAN
-        ]
-        if loop is not None and self._stream_service is not None:
-            ai_decision_delay_ms = int(
-                runtime.get(
-                    "ai_decision_delay_ms",
-                    0 if os.environ.get("PYTEST_CURRENT_TEST") else 1000,
+        prepared_state = transition_context is not None
+        if transition_context is None:
+            session = self._session_service.get_session(session_id)
+            resolved = dict(session.resolved_parameters or {})
+            runtime = dict(resolved.get("runtime", {}))
+            runner_kind = resolve_runtime_runner_kind(runtime)
+            checkpoint_schema_version = runtime_checkpoint_schema_version_for_runner(runner_kind)
+            selected_policy_mode = policy_mode or runtime.get("policy_mode") or "heuristic_v3_engine"
+            ai_policy = PolicyFactory.create_runtime_policy(
+                policy_mode=selected_policy_mode,
+                lap_policy_mode=selected_policy_mode,
+            )
+            policy = ai_policy
+            base_commit_seq = self._latest_view_commit_seq(
+                session_id,
+                game_state_store_override=game_state_store,
+            )
+            human_seats = [
+                max(0, int(seat.seat) - 1)
+                for seat in session.seats
+                if seat.seat_type == SeatType.HUMAN
+            ]
+            if loop is not None and self._stream_service is not None:
+                ai_decision_delay_ms = int(
+                    runtime.get(
+                        "ai_decision_delay_ms",
+                        0 if os.environ.get("PYTEST_CURRENT_TEST") else 1000,
+                    )
+                    or 0
                 )
-                or 0
+                policy = _ServerDecisionPolicyBridge(
+                    session_id=session_id,
+                    session_seats=session.seats,
+                    human_seats=human_seats,
+                    ai_fallback=ai_policy,
+                    prompt_service=self._prompt_service,
+                    stream_service=self._stream_service,
+                    loop=loop,
+                    touch_activity=self._touch_activity,
+                    fallback_executor=self.execute_prompt_fallback,
+                    client_factory=self._decision_client_factory,
+                    ai_decision_delay_ms=ai_decision_delay_ms,
+                    blocking_human_prompts=False,
+                )
+            config = self._config_factory.create(resolved)
+            state = self._hydrate_engine_state(
+                session_id,
+                config,
+                GameState,
+                runner_kind,
+                game_state_store_override=game_state_store,
             )
-            policy = _ServerDecisionPolicyBridge(
-                session_id=session_id,
-                session_seats=session.seats,
-                human_seats=human_seats,
-                ai_fallback=ai_policy,
-                prompt_service=self._prompt_service,
-                stream_service=self._stream_service,
-                loop=loop,
-                touch_activity=self._touch_activity,
-                fallback_executor=self.execute_prompt_fallback,
-                client_factory=self._decision_client_factory,
-                ai_decision_delay_ms=ai_decision_delay_ms,
-                blocking_human_prompts=False,
+            runtime_recovery_checkpoint: dict | None = None
+            if game_state_store is not None and callable(getattr(game_state_store, "load_checkpoint", None)):
+                loaded_checkpoint = game_state_store.load_checkpoint(session_id)
+                if isinstance(loaded_checkpoint, dict):
+                    runtime_recovery_checkpoint = loaded_checkpoint
+            human_player_ids = [
+                int(seat.seat)
+                for seat in session.seats
+                if seat.seat_type == SeatType.HUMAN
+            ]
+            event_stream = (
+                _FanoutVisEventStream(
+                    loop,
+                    self._stream_service,
+                    session_id,
+                    self._touch_activity,
+                    human_player_ids=human_player_ids,
+                    spectator_event_delay_ms=0,
+                )
+                if publish_external_side_effects and loop is not None and self._stream_service is not None
+                else None
             )
-        config = self._config_factory.create(resolved)
-        state = self._hydrate_engine_state(session_id, config, GameState, runner_kind)
+            engine = GameEngine(
+                config=config,
+                policy=policy,
+                decision_port=policy if hasattr(policy, "request") else None,
+                rng=random.Random(seed),
+                event_stream=event_stream,
+            )
+            engine._vis_session_id_override = session_id
+        else:
+            session = transition_context.session
+            runtime = transition_context.runtime
+            runner_kind = transition_context.runner_kind
+            checkpoint_schema_version = transition_context.checkpoint_schema_version
+            policy = transition_context.policy
+            config = transition_context.config
+            state = transition_context.state
+            engine = transition_context.engine
+            runtime_recovery_checkpoint = transition_context.runtime_recovery_checkpoint
+            base_commit_seq = transition_context.base_commit_seq
         decision_resume = None
-        runtime_recovery_checkpoint: dict | None = None
-        if self._game_state_store is not None and callable(getattr(self._game_state_store, "load_checkpoint", None)):
-            loaded_checkpoint = self._game_state_store.load_checkpoint(session_id)
-            if isinstance(loaded_checkpoint, dict):
-                runtime_recovery_checkpoint = loaded_checkpoint
         if state is None:
             if require_checkpoint:
                 return {"status": "unavailable", "reason": "checkpoint_missing"}
@@ -2021,55 +2535,23 @@ class RuntimeService:
                     self._validate_decision_resume_against_checkpoint(state, decision_resume)
                 except ValueError as exc:
                     self._save_rejected_command_offset(command_consumer_name, session_id, command_seq)
-                    return {
-                        "status": "rejected",
-                        "reason": str(exc),
-                        "request_id": decision_resume.request_id,
-                        "player_id": decision_resume.player_id,
-                        "choice_id": decision_resume.choice_id,
-                        "processed_command_seq": command_seq,
-                        "processed_command_consumer": command_consumer_name,
-                        "runner_kind": "module",
-                        "module_type": decision_resume.module_type,
-                        "module_id": decision_resume.module_id,
-                        "frame_id": decision_resume.frame_id,
-                        "module_cursor": decision_resume.module_cursor,
-                    }
+                    return self._mark_runtime_command_rejected(
+                        session_id,
+                        reason=str(exc),
+                        command_consumer_name=command_consumer_name,
+                        command_seq=command_seq,
+                        decision_resume=decision_resume,
+                    )
                 if callable(getattr(policy, "set_decision_resume", None)):
                     policy.set_decision_resume(decision_resume)
-        human_player_ids = [
-            int(seat.seat)
-            for seat in session.seats
-            if seat.seat_type == SeatType.HUMAN
-        ]
-        event_stream = (
-            _FanoutVisEventStream(
-                loop,
-                self._stream_service,
-                session_id,
-                self._touch_activity,
-                human_player_ids=human_player_ids,
-                spectator_event_delay_ms=0,
-            )
-            if loop is not None and self._stream_service is not None
-            else None
-        )
         _mark_phase("hydrate_and_prepare_policy")
-        engine = GameEngine(
-            config=config,
-            policy=policy,
-            decision_port=policy if hasattr(policy, "request") else None,
-            rng=random.Random(seed),
-            event_stream=event_stream,
-        )
-        engine._vis_session_id_override = session_id
         try:
             prompt_boundary_payload: dict | None = None
             if state is None:
                 state = engine.create_initial_state()
                 self._apply_runner_kind(state, runner_kind, checkpoint_schema_version)
                 state = engine.prepare_run(initial_state=state)
-            else:
+            elif not prepared_state:
                 state = engine.prepare_run(initial_state=state)
             if decision_resume is None:
                 step = engine.run_next_transition(state)
@@ -2077,13 +2559,13 @@ class RuntimeService:
                 step = engine.run_next_transition(state, decision_resume=decision_resume)
         except (RuntimeDecisionResumeMismatch, PromptFingerprintMismatch) as exc:
             self._save_rejected_command_offset(command_consumer_name, session_id, command_seq)
-            return {
-                "status": "rejected",
-                "reason": str(exc),
-                "processed_command_seq": command_seq,
-                "processed_command_consumer": command_consumer_name,
-                "runner_kind": "module",
-            }
+            return self._mark_runtime_command_rejected(
+                session_id,
+                reason=str(exc),
+                command_consumer_name=command_consumer_name,
+                command_seq=command_seq,
+                decision_resume=decision_resume,
+            )
         except PromptRequired as exc:
             state = state or getattr(engine, "_last_prepared_state", None)
             if state is None:
@@ -2109,6 +2591,8 @@ class RuntimeService:
             state.pending_prompt_player_id = 0
             state.pending_prompt_instance_id = 0
             _clear_resolved_runtime_prompt_continuation(state, step)
+        if transition_context is not None:
+            transition_context.state = state
         _mark_phase("engine_transition")
         current_prompt_sequence = getattr(policy, "current_prompt_sequence", None)
         if state is not None and callable(current_prompt_sequence):
@@ -2124,9 +2608,15 @@ class RuntimeService:
         current_status["runner_kind"] = effective_runner_kind
         current_status["checkpoint_schema_version"] = effective_checkpoint_schema_version
         self._status[session_id] = current_status
-        self._persist_runtime_state(session_id)
-        _mark_phase("status_persist")
-        if self._game_state_store is not None:
+        defer_runtime_status_persist = (
+            not publish_external_side_effects
+            and getattr(game_state_store, "defer_authoritative_transition_commit", False)
+            and not _is_command_boundary_terminal_status(step.get("status"))
+        )
+        if not defer_runtime_status_persist:
+            self._persist_runtime_state(session_id)
+        _mark_phase("status_stage" if defer_runtime_status_persist else "status_persist")
+        if game_state_store is not None:
             payload = state.to_checkpoint_payload()
             validate_checkpoint_payload(payload)
             _mark_phase("checkpoint_payload")
@@ -2147,7 +2637,7 @@ class RuntimeService:
             runtime_active_prompt_batch = payload.get("runtime_active_prompt_batch")
             runtime_active_prompt_batch = runtime_active_prompt_batch if isinstance(runtime_active_prompt_batch, dict) else {}
             prompt_publish_payload: dict | None = None
-            if latest_event_type == "prompt_required" and prompt_boundary_payload:
+            if publish_external_side_effects and latest_event_type == "prompt_required" and prompt_boundary_payload:
                 prompt_publish_payload = self._materialize_prompt_boundary_sync(
                     loop,
                     session_id,
@@ -2156,17 +2646,7 @@ class RuntimeService:
                     publish=False,
                 )
             _mark_phase("prompt_materialize")
-            previous_source_event_seq = self._latest_committed_source_event_seq(session_id)
-            latest_stream_seq = self._latest_stream_seq_sync(loop, session_id)
-            source_messages = self._source_history_sync(loop, session_id, latest_stream_seq)
-            _mark_phase("source_history")
-            snapshot_pulse_specs = _snapshot_pulse_specs_from_source_messages(
-                source_messages,
-                after_seq=previous_source_event_seq,
-            )
-            _mark_phase("snapshot_pulse_plan")
             commit_seq = base_commit_seq + 1
-            source_event_seq = latest_stream_seq
             module_debug_fields = _runtime_module_debug_fields(
                 {
                     **step,
@@ -2177,6 +2657,53 @@ class RuntimeService:
             continuation_debug_fields = _runtime_continuation_debug_fields(payload, decision_resume)
             processed_command_consumer = command_consumer_name or checkpoint_command_consumer_name
             processed_command_seq = command_seq if command_seq is not None else checkpoint_command_seq
+            stage_internal_transition = getattr(game_state_store, "stage_internal_transition", None)
+            if (
+                not publish_external_side_effects
+                and getattr(game_state_store, "defer_authoritative_transition_commit", False)
+                and not _is_command_boundary_terminal_status(step.get("status"))
+                and callable(stage_internal_transition)
+            ):
+                stage_internal_transition(session_id, current_state=payload)
+                _mark_phase("internal_state_stage")
+                log_event(
+                    "runtime_transition_phase_timing",
+                    session_id=session_id,
+                    processed_command_seq=processed_command_seq,
+                    processed_command_consumer=processed_command_consumer,
+                    base_commit_seq=base_commit_seq,
+                    commit_seq=commit_seq,
+                    source_event_seq=None,
+                    result_status=step.get("status"),
+                    reason=step.get("reason"),
+                    request_id=step.get("request_id"),
+                    request_type=step.get("request_type"),
+                    player_id=step.get("player_id"),
+                    total_ms=_duration_ms(transition_started),
+                    command_boundary_staged=True,
+                    **phase_timings,
+                    **module_debug_fields,
+                    **continuation_debug_fields,
+                )
+                return {
+                    **step,
+                    "runner_kind": effective_runner_kind,
+                    **module_debug_fields,
+                    **continuation_debug_fields,
+                }
+            previous_source_event_seq = self._latest_committed_source_event_seq(
+                session_id,
+                game_state_store_override=game_state_store,
+            )
+            latest_stream_seq = self._latest_stream_seq_sync(loop, session_id)
+            source_messages = self._source_history_sync(loop, session_id, latest_stream_seq)
+            _mark_phase("source_history")
+            snapshot_pulse_specs = _snapshot_pulse_specs_from_source_messages(
+                source_messages,
+                after_seq=previous_source_event_seq,
+            )
+            _mark_phase("snapshot_pulse_plan")
+            source_event_seq = latest_stream_seq
             runtime_checkpoint = {
                 "schema_version": effective_checkpoint_schema_version,
                 "session_id": session_id,
@@ -2224,8 +2751,8 @@ class RuntimeService:
             offset_consumer_name, offset_command_seq = self._command_offset_args_for_commit(
                 session_id=session_id,
                 checkpoint=runtime_checkpoint,
-                command_consumer_name=command_consumer_name,
-                command_seq=command_seq,
+                command_consumer_name=processed_command_consumer,
+                command_seq=processed_command_seq,
                 decision_resume=decision_resume,
             )
             command_commit_envelope = {
@@ -2261,7 +2788,10 @@ class RuntimeService:
             spectator_commit = view_commits.get("spectator") or view_commits.get("public") or {}
             if isinstance(spectator_commit, dict) and isinstance(spectator_commit.get("view_state"), dict):
                 public_view_state = dict(spectator_commit["view_state"])
-            latest_commit_seq_before_write = self._latest_view_commit_seq(session_id)
+            latest_commit_seq_before_write = self._latest_view_commit_seq(
+                session_id,
+                game_state_store_override=game_state_store,
+            )
             _mark_phase("precommit_validation")
             if latest_commit_seq_before_write != base_commit_seq:
                 log_event(
@@ -2317,7 +2847,7 @@ class RuntimeService:
                     **module_debug_fields,
                     **continuation_debug_fields,
                 }
-            self._game_state_store.commit_transition(
+            game_state_store.commit_transition(
                 session_id,
                 current_state=payload,
                 checkpoint=runtime_checkpoint,
@@ -2345,12 +2875,14 @@ class RuntimeService:
                 expected_previous_commit_seq=base_commit_seq,
             )
             _mark_phase("redis_commit")
-            self._emit_latest_view_commit_sync(loop, session_id)
+            if publish_external_side_effects:
+                self._emit_latest_view_commit_sync(loop, session_id)
             _mark_phase("view_commit_emit")
-            if prompt_publish_payload:
+            if publish_external_side_effects and prompt_publish_payload:
                 self._publish_prompt_boundary_sync(loop, session_id, prompt_publish_payload)
             _mark_phase("prompt_publish")
-            self._emit_snapshot_pulses_sync(loop, session_id, snapshot_pulse_specs)
+            if publish_external_side_effects:
+                self._emit_snapshot_pulses_sync(loop, session_id, snapshot_pulse_specs)
             _mark_phase("snapshot_pulse_emit")
             write_game_debug_log(
                 "engine",
@@ -2373,10 +2905,10 @@ class RuntimeService:
                 **continuation_debug_fields,
             )
             _mark_phase("debug_log")
-        if step.get("status") == "waiting_input":
+        if publish_external_side_effects and step.get("status") == "waiting_input":
             self._publish_active_module_prompt_batch_sync(loop, session_id, state)
             _mark_phase("active_prompt_batch_publish")
-        if self._game_state_store is not None:
+        if game_state_store is not None:
             log_event(
                 "runtime_transition_phase_timing",
                 session_id=session_id,
@@ -2465,17 +2997,23 @@ class RuntimeService:
                     exception_repr=repr(exc),
                 )
 
-    def _latest_committed_source_event_seq(self, session_id: str) -> int:
-        if self._game_state_store is None:
+    def _latest_committed_source_event_seq(
+        self,
+        session_id: str,
+        *,
+        game_state_store_override: object | None = None,
+    ) -> int:
+        game_state_store = game_state_store_override if game_state_store_override is not None else self._game_state_store
+        if game_state_store is None:
             return 0
-        if callable(getattr(self._game_state_store, "load_view_commit_index", None)):
-            index = self._game_state_store.load_view_commit_index(session_id)
+        if callable(getattr(game_state_store, "load_view_commit_index", None)):
+            index = game_state_store.load_view_commit_index(session_id)
             if isinstance(index, dict):
                 value = self._int_or_none(index.get("latest_source_event_seq"))
                 if value is not None:
                     return value
-        if callable(getattr(self._game_state_store, "load_checkpoint", None)):
-            checkpoint = self._game_state_store.load_checkpoint(session_id)
+        if callable(getattr(game_state_store, "load_checkpoint", None)):
+            checkpoint = game_state_store.load_checkpoint(session_id)
             if isinstance(checkpoint, dict):
                 value = self._int_or_none(checkpoint.get("latest_source_event_seq") or checkpoint.get("latest_seq"))
                 if value is not None:
@@ -2560,28 +3098,34 @@ class RuntimeService:
             return []
         return list(result) if isinstance(result, list) else []
 
-    def _latest_view_commit_seq(self, session_id: str) -> int:
-        if self._game_state_store is None:
+    def _latest_view_commit_seq(
+        self,
+        session_id: str,
+        *,
+        game_state_store_override: object | None = None,
+    ) -> int:
+        game_state_store = game_state_store_override if game_state_store_override is not None else self._game_state_store
+        if game_state_store is None:
             return 0
         candidates: list[int] = []
 
-        if callable(getattr(self._game_state_store, "load_checkpoint", None)):
-            checkpoint = self._game_state_store.load_checkpoint(session_id)
+        if callable(getattr(game_state_store, "load_checkpoint", None)):
+            checkpoint = game_state_store.load_checkpoint(session_id)
             if isinstance(checkpoint, dict):
                 commit_seq = self._int_or_none(checkpoint.get("latest_commit_seq"))
                 if commit_seq is not None:
                     candidates.append(commit_seq)
 
         index: dict | None = None
-        if callable(getattr(self._game_state_store, "load_view_commit_index", None)):
-            loaded_index = self._game_state_store.load_view_commit_index(session_id)
+        if callable(getattr(game_state_store, "load_view_commit_index", None)):
+            loaded_index = game_state_store.load_view_commit_index(session_id)
             if isinstance(loaded_index, dict):
                 index = loaded_index
                 commit_seq = self._int_or_none(index.get("latest_commit_seq"))
                 if commit_seq is not None:
                     candidates.append(commit_seq)
 
-        if callable(getattr(self._game_state_store, "load_view_commit", None)):
+        if callable(getattr(game_state_store, "load_view_commit", None)):
             labels = {"spectator", "public", "admin"}
             if isinstance(index, dict):
                 raw_labels = index.get("view_commit_viewers")
@@ -2592,9 +3136,9 @@ class RuntimeService:
                 if label.startswith("player:"):
                     player_id = self._int_or_none(label.split(":", 1)[1])
                     if player_id is not None:
-                        payload = self._game_state_store.load_view_commit(session_id, "player", player_id=player_id)
+                        payload = game_state_store.load_view_commit(session_id, "player", player_id=player_id)
                 else:
-                    payload = self._game_state_store.load_view_commit(session_id, label)
+                    payload = game_state_store.load_view_commit(session_id, label)
                 if isinstance(payload, dict):
                     commit_seq = self._int_or_none(payload.get("commit_seq"))
                     if commit_seq is not None:
@@ -3492,6 +4036,107 @@ class RuntimeService:
             }
             self._materialize_prompt_boundary_sync(loop, session_id, {**payload, "provider": "human"})
 
+    def _materialize_prompt_boundaries_from_checkpoint_sync(
+        self,
+        loop: asyncio.AbstractEventLoop | None,
+        session_id: str,
+        checkpoint_payload: dict,
+    ) -> None:
+        if loop is None or self._stream_service is None or self._prompt_service is None:
+            return
+        for payload in self._prompt_boundary_payloads_from_checkpoint(checkpoint_payload):
+            self._materialize_prompt_boundary_sync(loop, session_id, {**payload, "provider": "human"})
+
+    def _prompt_boundary_payloads_from_checkpoint(self, checkpoint_payload: dict) -> list[dict]:
+        payloads: list[dict] = []
+        active_prompt = checkpoint_payload.get("runtime_active_prompt")
+        if isinstance(active_prompt, dict) and str(active_prompt.get("request_id") or "").strip():
+            player_id = _runtime_prompt_external_player_id(active_prompt, checkpoint_payload)
+            if player_id is None:
+                player_id = int(active_prompt.get("player_id") or 0)
+            payloads.append(
+                self._prompt_boundary_payload_from_continuation(
+                    active_prompt,
+                    player_id=int(player_id),
+                    batch_payload=None,
+                )
+            )
+
+        active_batch = checkpoint_payload.get("runtime_active_prompt_batch")
+        if isinstance(active_batch, dict):
+            prompts = active_batch.get("prompts_by_player_id")
+            prompts = prompts if isinstance(prompts, dict) else {}
+            missing_player_ids = active_batch.get("missing_player_ids")
+            missing_player_ids = missing_player_ids if isinstance(missing_player_ids, list) else []
+            for raw_internal_player_id in missing_player_ids:
+                internal_player_id = _optional_int(raw_internal_player_id)
+                if internal_player_id is None:
+                    continue
+                continuation = prompts.get(str(internal_player_id))
+                if not isinstance(continuation, dict):
+                    continuation = prompts.get(internal_player_id)
+                if not isinstance(continuation, dict):
+                    continue
+                payloads.append(
+                    self._prompt_boundary_payload_from_continuation(
+                        continuation,
+                        player_id=internal_player_id + 1,
+                        batch_payload=active_batch,
+                    )
+                )
+        return payloads
+
+    @staticmethod
+    def _prompt_boundary_payload_from_continuation(
+        continuation: dict,
+        *,
+        player_id: int,
+        batch_payload: dict | None,
+    ) -> dict:
+        public_context = dict(continuation.get("public_context") or {})
+        payload = {
+            "request_id": str(continuation.get("request_id") or ""),
+            "request_type": str(continuation.get("request_type") or ""),
+            "player_id": int(player_id),
+            "prompt_instance_id": int(continuation.get("prompt_instance_id") or 0),
+            "legal_choices": list(continuation.get("legal_choices") or []),
+            "public_context": public_context,
+            "timeout_ms": DEFAULT_HUMAN_PROMPT_TIMEOUT_MS,
+            "fallback_policy": "required",
+            "runner_kind": "module",
+            "resume_token": str(continuation.get("resume_token") or ""),
+            "frame_id": str(continuation.get("frame_id") or ""),
+            "module_id": str(continuation.get("module_id") or ""),
+            "module_type": str(continuation.get("module_type") or ""),
+            "module_cursor": str(continuation.get("module_cursor") or ""),
+            "runtime_module": {
+                "runner_kind": "module",
+                "frame_type": "simultaneous"
+                if batch_payload
+                else _runtime_frame_type_from_frame_id(continuation.get("frame_id")),
+                "frame_id": str(continuation.get("frame_id") or ""),
+                "module_id": str(continuation.get("module_id") or ""),
+                "module_type": str(continuation.get("module_type") or ""),
+                "module_cursor": str(continuation.get("module_cursor") or ""),
+            },
+        }
+        if batch_payload:
+            prompts = batch_payload.get("prompts_by_player_id")
+            prompts = prompts if isinstance(prompts, dict) else {}
+            missing_player_ids = [
+                int(missing_player_id) + 1
+                for missing_player_id in list(batch_payload.get("missing_player_ids") or [])
+                if _optional_int(missing_player_id) is not None
+            ]
+            payload["batch_id"] = str(batch_payload.get("batch_id") or "")
+            payload["missing_player_ids"] = missing_player_ids
+            payload["resume_tokens_by_player_id"] = {
+                str(int(internal_player_id) + 1): str(prompt.get("resume_token") or "")
+                for internal_player_id, prompt in prompts.items()
+                if _optional_int(internal_player_id) is not None and isinstance(prompt, dict)
+            }
+        return payload
+
     @staticmethod
     def _enrich_prompt_boundary_from_active_batch(payload: dict, state: object | None) -> None:
         def _field(source: object | None, key: str, default: object | None = None) -> object | None:
@@ -3644,16 +4289,66 @@ class _ServerDecisionPolicyBridge:
         return self._gateway.resolve_human_prompt(prompt, parser, fallback_fn)
 
     def request(self, request):
-        invocation = build_decision_invocation_from_request(request)
-        fallback_policy = str(getattr(request, "fallback_policy", "required") or "required")
-        call = build_routed_decision_call(invocation, fallback_policy=fallback_policy)
-        if self._decision_resume is not None and self._decision_resume_matches_call(call, self._decision_resume):
-            return self._consume_decision_resume(call)
-        client = self._router.client_for_call(call)
-        client_policy = getattr(client, "policy", None)
-        if callable(getattr(request, "fallback", None)) and (client_policy is None or not hasattr(client_policy, invocation.method_name)):
-            return request.fallback()
-        return client.resolve(call)
+        started = time.perf_counter()
+        phase_started = started
+        phase_timings: dict[str, int] = {}
+        invocation = None
+        call = None
+        client = None
+        error: BaseException | None = None
+
+        def _mark_phase(name: str) -> None:
+            nonlocal phase_started
+            phase_timings[f"{name}_ms"] = _duration_ms(phase_started)
+            phase_started = time.perf_counter()
+
+        try:
+            invocation = build_decision_invocation_from_request(request)
+            fallback_policy = str(getattr(request, "fallback_policy", "required") or "required")
+            _mark_phase("build_invocation")
+            call = build_routed_decision_call(invocation, fallback_policy=fallback_policy)
+            _mark_phase("build_routed_call")
+            resume_matches = self._decision_resume is not None and self._decision_resume_matches_call(call, self._decision_resume)
+            _mark_phase("resume_match")
+            if resume_matches:
+                try:
+                    return self._consume_decision_resume(call)
+                finally:
+                    _mark_phase("consume_resume")
+            client = self._router.client_for_call(call)
+            _mark_phase("route_client")
+            client_policy = getattr(client, "policy", None)
+            if callable(getattr(request, "fallback", None)) and (
+                client_policy is None or not hasattr(client_policy, invocation.method_name)
+            ):
+                try:
+                    return request.fallback()
+                finally:
+                    _mark_phase("request_fallback")
+            try:
+                return client.resolve(call)
+            finally:
+                _mark_phase("client_resolve")
+        except BaseException as exc:
+            error = exc
+            raise
+        finally:
+            total_ms = _duration_ms(started)
+            if total_ms >= 500 or (error is not None and not isinstance(error, PromptRequired)):
+                routed_request = getattr(call, "request", None)
+                player_id = getattr(routed_request, "player_id", None)
+                log_event(
+                    "runtime_decision_request_timing",
+                    session_id=self._session_id,
+                    total_ms=total_ms,
+                    method_name=str(getattr(invocation, "method_name", "") or ""),
+                    request_type=str(getattr(routed_request, "request_type", "") or getattr(request, "decision_name", "") or ""),
+                    player_id=int(player_id) + 1 if player_id is not None else None,
+                    fallback_policy=str(getattr(routed_request, "fallback_policy", "") or getattr(request, "fallback_policy", "") or ""),
+                    client_class=client.__class__.__name__ if client is not None else None,
+                    error_type=error.__class__.__name__ if error is not None and not isinstance(error, PromptRequired) else None,
+                    **phase_timings,
+                )
 
     def _decision_resume_matches_call(self, call, resume: RuntimeDecisionResume) -> bool:
         request = call.request
@@ -3687,7 +4382,19 @@ class _ServerDecisionPolicyBridge:
             raise RuntimeDecisionResumeMismatch("decision resume request type mismatch")
         legal = {str(choice.get("choice_id") or "") for choice in call.legal_choices if isinstance(choice, dict)}
         if legal and str(resume.choice_id) not in legal:
-            raise RuntimeDecisionResumeMismatch("decision resume choice is not legal")
+            log_event(
+                "decision_resume_regenerated_legal_mismatch",
+                session_id=self._session_id,
+                request_id=resume.request_id,
+                player_id=int(resume.player_id),
+                request_type=str(resume.request_type),
+                choice_id=str(resume.choice_id),
+                regenerated_legal_choice_ids=sorted(choice_id for choice_id in legal if choice_id),
+                frame_id=resume.frame_id,
+                module_id=resume.module_id,
+                module_type=resume.module_type,
+                module_cursor=resume.module_cursor,
+            )
         batch_parsed = self._parse_active_flip_batch_resume(call, resume)
         if batch_parsed is not _ACTIVE_FLIP_BATCH_NOT_APPLICABLE:
             parsed = batch_parsed
@@ -3720,7 +4427,32 @@ class _ServerDecisionPolicyBridge:
                 call.invocation.player,
             )
         except Exception as exc:
+            recovered = _ServerDecisionPolicyBridge._recover_hidden_trick_resume_choice(call, resume)
+            if recovered is not None:
+                log_event(
+                    "decision_resume_hidden_trick_payload_recovered",
+                    request_id=resume.request_id,
+                    player_id=int(resume.player_id),
+                    request_type=str(resume.request_type),
+                    choice_id=str(resume.choice_id),
+                    deck_index=getattr(recovered, "deck_index", None),
+                )
+                return recovered
             raise RuntimeDecisionResumeMismatch("decision resume parse failed") from exc
+
+    @staticmethod
+    def _recover_hidden_trick_resume_choice(call, resume: RuntimeDecisionResume):  # noqa: ANN001
+        if str(call.request.request_type or "") != "hidden_trick_card":
+            return None
+        payload = resume.choice_payload if isinstance(resume.choice_payload, dict) else {}
+        raw_deck_index = payload.get("deck_index", resume.choice_id)
+        try:
+            deck_index = int(raw_deck_index)
+        except (TypeError, ValueError):
+            return None
+        label = payload.get("label") or payload.get("name") or str(deck_index)
+        description = payload.get("description") or ""
+        return SimpleNamespace(deck_index=deck_index, name=str(label), description=str(description))
 
     @staticmethod
     def _parse_active_flip_batch_resume(call, resume: RuntimeDecisionResume):  # noqa: ANN001
@@ -4401,10 +5133,21 @@ class _LocalHumanDecisionClient:
             self.policy._prompt_seq = max(0, int(value))  # type: ignore[attr-defined]
 
     def _ask(self, prompt: dict, parser, fallback_fn):
+        started = time.perf_counter()
+        phase_started = started
+        phase_timings: dict[str, int] = {}
+        error: BaseException | None = None
+
+        def _mark_phase(name: str) -> None:
+            nonlocal phase_started
+            phase_timings[f"{name}_ms"] = _duration_ms(phase_started)
+            phase_started = time.perf_counter()
+
         envelope = dict(prompt)
         self.bump_prompt_seq()
         envelope.setdefault("prompt_instance_id", self.prompt_seq)
         active_call = self._active_call
+        _mark_phase("envelope_prepare")
         if active_call is not None:
             request = getattr(active_call, "request", None)
             if request is not None:
@@ -4419,7 +5162,28 @@ class _LocalHumanDecisionClient:
                 request_context = dict(getattr(request, "public_context", {}) or {})
                 envelope["public_context"] = {**prompt_context, **request_context}
             self._attach_active_module_continuation(envelope, active_call)
-        return self._gateway.resolve_human_prompt(envelope, parser, fallback_fn)
+        _mark_phase("active_call_attach")
+        try:
+            try:
+                return self._gateway.resolve_human_prompt(envelope, parser, fallback_fn)
+            finally:
+                _mark_phase("gateway_resolve")
+        except BaseException as exc:
+            error = exc
+            raise
+        finally:
+            total_ms = _duration_ms(started)
+            if total_ms >= 500 or (error is not None and not isinstance(error, PromptRequired)):
+                log_event(
+                    "runtime_local_human_prompt_timing",
+                    total_ms=total_ms,
+                    request_id=str(envelope.get("request_id") or ""),
+                    request_type=str(envelope.get("request_type") or ""),
+                    player_id=envelope.get("player_id"),
+                    prompt_instance_id=envelope.get("prompt_instance_id"),
+                    error_type=error.__class__.__name__ if error is not None and not isinstance(error, PromptRequired) else None,
+                    **phase_timings,
+                )
 
     def _attach_active_module_continuation(self, envelope: dict, active_call) -> None:  # noqa: ANN001
         invocation = getattr(active_call, "invocation", None)
@@ -4533,10 +5297,27 @@ class _LocalHumanDecisionClient:
     def resolve(self, call):
         if self.policy is None:
             raise AttributeError(call.invocation.method_name)
+        started = time.perf_counter()
+        error: BaseException | None = None
         self._active_call = call
         try:
             return getattr(self.policy, call.invocation.method_name)(*call.invocation.args, **call.invocation.kwargs)
+        except BaseException as exc:
+            error = exc
+            raise
         finally:
+            total_ms = _duration_ms(started)
+            if total_ms >= 500 or (error is not None and not isinstance(error, PromptRequired)):
+                request = getattr(call, "request", None)
+                player_id = getattr(request, "player_id", None)
+                log_event(
+                    "runtime_local_human_policy_timing",
+                    total_ms=total_ms,
+                    method_name=str(getattr(call.invocation, "method_name", "") or ""),
+                    request_type=str(getattr(request, "request_type", "") or ""),
+                    player_id=int(player_id) + 1 if player_id is not None else None,
+                    error_type=error.__class__.__name__ if error is not None and not isinstance(error, PromptRequired) else None,
+                )
             self._active_call = None
 
 

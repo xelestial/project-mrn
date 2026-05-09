@@ -418,6 +418,61 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(debug_index["counts"]["pending"], 0)
         self.assertEqual(debug_index["counts"]["lifecycle"], 1)
 
+    def test_prompt_debug_index_refresh_uses_session_buckets(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        prompt_store.save_pending(
+            "req_debug_bucket_1",
+            {
+                "request_id": "req_debug_bucket_1",
+                "session_id": "s-prompt-bucket",
+                "player_id": 1,
+                "request_type": "movement",
+                "created_at_ms": 100,
+            },
+        )
+
+        self.fake_redis.hgetall_calls.clear()
+        prompt_store.save_lifecycle(
+            "req_debug_bucket_1",
+            {
+                "request_id": "req_debug_bucket_1",
+                "session_id": "s-prompt-bucket",
+                "state": "delivered",
+                "updated_at_ms": 110,
+            },
+        )
+
+        self.assertNotIn(prompt_store._pending_key(), self.fake_redis.hgetall_calls)
+        self.assertNotIn(prompt_store._resolved_key(), self.fake_redis.hgetall_calls)
+        self.assertNotIn(prompt_store._decisions_key(), self.fake_redis.hgetall_calls)
+        self.assertNotIn(prompt_store._lifecycle_key(), self.fake_redis.hgetall_calls)
+        debug_index = prompt_store.load_debug_index("s-prompt-bucket")
+        self.assertEqual(debug_index["counts"]["pending"], 1)
+        self.assertEqual(debug_index["counts"]["lifecycle"], 1)
+
+    def test_session_scoped_prompt_lookup_does_not_scan_global_hash(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        prompt_store.save_decision(
+            "req_scoped_lookup",
+            {
+                "request_id": "req_scoped_lookup",
+                "session_id": "s-scoped-lookup",
+                "choice_id": "roll",
+            },
+        )
+
+        self.fake_redis.hgetall_calls.clear()
+
+        self.assertEqual(
+            prompt_store.get_decision("req_scoped_lookup", session_id="s-scoped-lookup")["choice_id"],
+            "roll",
+        )
+        self.assertIsNone(prompt_store.get_decision("missing", session_id="s-scoped-lookup"))
+        self.assertEqual(self.fake_redis.hgetall_calls, [])
+
+        self.assertEqual(prompt_store.get_decision("req_scoped_lookup")["choice_id"], "roll")
+        self.assertIn(prompt_store._decisions_key(), self.fake_redis.hgetall_calls)
+
     def test_prompt_pending_records_three_hour_orphan_expiry_without_redis_ttl(self) -> None:
         prompt_store = RedisPromptStore(self.connection)
         service = PromptService(prompt_store=prompt_store)
@@ -2909,6 +2964,7 @@ class _FakeRedis:
         self._lists: dict[str, list[str]] = {}
         self._streams: dict[str, list[tuple[str, dict[str, str]]]] = {}
         self.pipeline_executions: list[list[str]] = []
+        self.hgetall_calls: list[str] = []
 
     def ping(self) -> bool:
         return True
@@ -2959,6 +3015,7 @@ class _FakeRedis:
         return 1
 
     def hgetall(self, name: str) -> dict[str, str]:
+        self.hgetall_calls.append(name)
         return dict(self._hashes.get(name, {}))
 
     def hget(self, name: str, key: str) -> str | None:

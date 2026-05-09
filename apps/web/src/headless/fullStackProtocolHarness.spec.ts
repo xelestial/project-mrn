@@ -4,11 +4,17 @@ import {
   buildProtocolProgressKey,
   buildProtocolPaceDiagnostic,
   buildHeadlessHumanSessionPayload,
+  collectProtocolPromptRepetitionFailures,
+  collectProtocolSuspicionFailures,
   evaluateProtocolGate,
+  evaluateProtocolBackendTimingGate,
   fetchRuntimeStatus,
+  parseProtocolBackendTimingEvents,
   policyForProtocolPlayer,
   shouldEmitProtocolProgress,
+  summarizeProtocolBackendTiming,
   summarizeProtocolClients,
+  summarizeProtocolPromptRepetitions,
   type ProtocolClientRuntime,
 } from "./fullStackProtocolHarness";
 
@@ -140,6 +146,24 @@ describe("fullStackProtocolHarness", () => {
     });
     expect(recoveredStale.ok).toBe(true);
 
+    const recoveredUnackedRetryStale = evaluateProtocolGate({
+      timedOut: false,
+      completed: true,
+      runtimeStatus: "completed",
+      clients: [
+        clientRuntime("seat:1", {
+          metrics: {
+            ...emptyHeadlessMetrics(),
+            acceptedAckCount: 3,
+            runtimeCompletedCount: 1,
+            staleAckCount: 2,
+            unackedDecisionRetryCount: 2,
+          },
+        }),
+      ],
+    });
+    expect(recoveredUnackedRetryStale.ok).toBe(true);
+
     const unstable = evaluateProtocolGate({
       timedOut: false,
       completed: false,
@@ -166,6 +190,24 @@ describe("fullStackProtocolHarness", () => {
         "seat:2 has unrecovered stale decision ack 1/1 time(s)",
       ]),
     );
+
+    const unrecoveredUnackedRetryStale = evaluateProtocolGate({
+      timedOut: false,
+      completed: true,
+      runtimeStatus: "completed",
+      clients: [
+        clientRuntime("seat:1", {
+          metrics: {
+            ...emptyHeadlessMetrics(),
+            acceptedAckCount: 3,
+            staleAckCount: 3,
+            unackedDecisionRetryCount: 2,
+          },
+        }),
+      ],
+    });
+    expect(unrecoveredUnackedRetryStale.ok).toBe(false);
+    expect(unrecoveredUnackedRetryStale.failures).toContain("seat:1 has unrecovered stale decision ack 1/3 time(s)");
   });
 
   it("does not accept server-only completion without a completed websocket commit", () => {
@@ -328,6 +370,7 @@ describe("fullStackProtocolHarness", () => {
       traces: [
         {
           event: "view_commit_seen",
+          ts_ms: 1_000,
           session_id: "sess_1",
           player_id: 1,
           commit_seq: 14,
@@ -342,12 +385,17 @@ describe("fullStackProtocolHarness", () => {
         },
         {
           event: "decision_sent",
+          ts_ms: 1_750,
           session_id: "sess_1",
           player_id: 1,
           request_id: "req_roll",
+          payload: {
+            request_type: "movement",
+          },
         },
         {
           event: "decision_ack",
+          ts_ms: 2_250,
           session_id: "sess_1",
           player_id: 1,
           request_id: "req_roll",
@@ -371,6 +419,86 @@ describe("fullStackProtocolHarness", () => {
       commitSeqPerMinute: 28,
       decisionsPerMinute: 6,
       acceptedAcksPerMinute: 4,
+      slowestCommandLatencies: [
+        {
+          requestId: "req_roll",
+          playerId: 1,
+          requestType: "movement",
+          promptToDecisionMs: null,
+          decisionToAckMs: 500,
+          totalMs: null,
+          status: "accepted",
+        },
+      ],
+      pendingDecisionAges: [],
+    });
+  });
+
+  it("reports prompt-to-decision and pending decision command latencies", () => {
+    const pace = buildProtocolPaceDiagnostic({
+      runtimeStatus: "waiting_input",
+      elapsedMs: 10_000,
+      clients: [clientRuntime("seat:2", { lastCommitSeq: 9 })],
+      traces: [
+        {
+          event: "view_commit_seen",
+          ts_ms: 10_000,
+          session_id: "sess_1",
+          player_id: 2,
+          commit_seq: 9,
+          payload: {
+            active_prompt_request_id: "req_slow",
+            active_prompt_player_id: 2,
+            active_prompt_request_type: "purchase_tile",
+          },
+        },
+        {
+          event: "decision_sent",
+          ts_ms: 23_500,
+          session_id: "sess_1",
+          player_id: 2,
+          request_id: "req_slow",
+        },
+        {
+          event: "decision_ack",
+          ts_ms: 24_100,
+          session_id: "sess_1",
+          player_id: 2,
+          request_id: "req_slow",
+          status: "accepted",
+        },
+        {
+          event: "decision_sent",
+          ts_ms: 26_000,
+          session_id: "sess_1",
+          player_id: 2,
+          request_id: "req_pending",
+          payload: {
+            request_type: "movement",
+          },
+        },
+        {
+          event: "view_commit_seen",
+          ts_ms: 31_000,
+          session_id: "sess_1",
+          player_id: 2,
+          commit_seq: 10,
+          payload: {},
+        },
+      ],
+    });
+
+    expect(pace.slowestCommandLatencies[0]).toMatchObject({
+      requestId: "req_slow",
+      promptToDecisionMs: 13_500,
+      decisionToAckMs: 600,
+      totalMs: 14_100,
+    });
+    expect(pace.pendingDecisionAges[0]).toMatchObject({
+      requestId: "req_pending",
+      playerId: 2,
+      requestType: "movement",
+      ageMs: 5_000,
     });
   });
 
@@ -428,6 +556,115 @@ describe("fullStackProtocolHarness", () => {
 
     expect(result.ok).toBe(false);
     expect(result.failures).toContain("seat:1 saw server decision timeout fallback 1 time(s)");
+  });
+
+  it("classifies timeout fallback as a fail-fast protocol suspicion", () => {
+    const failures = collectProtocolSuspicionFailures([
+      clientRuntime("seat:1", {
+        metrics: {
+          ...emptyHeadlessMetrics(),
+          acceptedAckCount: 2,
+          decisionTimeoutFallbackCount: 1,
+        },
+      }),
+    ]);
+
+    expect(failures).toContain("seat:1 saw server decision timeout fallback 1 time(s)");
+  });
+
+  it("fails fast when the same module keeps issuing new prompt ids for the same request type", () => {
+    const traces = Array.from({ length: 9 }, (_, index) => ({
+      event: "view_commit_seen",
+      ts_ms: 1_000 + index,
+      session_id: "sess_loop",
+      player_id: index % 2 === 0 ? 3 : 0,
+      commit_seq: 50 + index,
+      payload: {
+        runtime_status: "waiting_input",
+        round_index: 1,
+        turn_index: 1,
+        active_module_id: "mod:seq:action:1:p2:53:fortuneresolve",
+        active_module_type: "FortuneResolveModule",
+        active_prompt_request_id: `trick_tile_target:${index + 1}`,
+        active_prompt_player_id: 3,
+        active_prompt_request_type: "trick_tile_target",
+      },
+    }));
+
+    const repeated = summarizeProtocolPromptRepetitions(traces);
+    const failures = collectProtocolPromptRepetitionFailures(traces);
+    const gate = evaluateProtocolGate({
+      timedOut: false,
+      completed: true,
+      runtimeStatus: "completed",
+      clients: [
+        clientRuntime("seat:3", {
+          metrics: {
+            ...emptyHeadlessMetrics(),
+            acceptedAckCount: 9,
+            runtimeCompletedCount: 1,
+          },
+        }),
+      ],
+      traces,
+    });
+
+    expect(repeated).toHaveLength(1);
+    expect(repeated[0]).toMatchObject({
+      count: 9,
+      playerId: 3,
+      requestType: "trick_tile_target",
+      activeModuleId: "mod:seq:action:1:p2:53:fortuneresolve",
+    });
+    expect(failures[0]).toContain("repeated active prompt signature exceeded 8");
+    expect(gate.ok).toBe(false);
+    expect(gate.failures[0]).toContain("FortuneResolveModule");
+  });
+
+  it("fails backend timing gate when server timing logs are missing", () => {
+    const result = evaluateProtocolBackendTimingGate({
+      events: [],
+      required: true,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.failures).toEqual([
+      "backend timing gate did not find runtime_command_process_timing events",
+      "backend timing gate did not find runtime_transition_phase_timing events",
+    ]);
+  });
+
+  it("parses docker server timing logs and rejects slow transitions or repeated external commits", () => {
+    const logText = [
+      'server-1  | {"event":"runtime_command_process_timing","session_id":"sess_a","command_seq":7,"total_ms":4010,"redis_commit_count":2,"view_commit_count":1,"request_type":"movement"}',
+      'server-1  | {"event":"runtime_transition_phase_timing","session_id":"sess_a","processed_command_seq":7,"total_ms":5001,"module_type":"DraftModule","request_type":"draft_card","request_id":"req-1","reason":"prompt_required"}',
+      'server-1  | {"event":"runtime_command_process_timing","session_id":"sess_b","command_seq":1,"total_ms":1,"redis_commit_count":1,"view_commit_count":1}',
+    ].join("\n");
+
+    const events = parseProtocolBackendTimingEvents(logText, { sessionId: "sess_a" });
+    const summary = summarizeProtocolBackendTiming(events);
+    const result = evaluateProtocolBackendTimingGate({ events, required: true });
+
+    expect(events).toHaveLength(2);
+    expect(summary).toMatchObject({
+      eventCount: 2,
+      commandTimingCount: 1,
+      transitionTimingCount: 1,
+      maxCommandMs: 4010,
+      maxTransitionMs: 5001,
+      maxRedisCommitCount: 2,
+      maxViewCommitCount: 1,
+      slowCommandCount: 1,
+      slowTransitionCount: 1,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.failures).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("backend command exceeded 4000ms"),
+        expect.stringContaining("backend command redis_commit_count exceeded 1"),
+        expect.stringContaining("backend transition exceeded 4000ms"),
+      ]),
+    );
   });
 
   it("does not treat heartbeat, repeated snapshots, resume requests, or reconnects as game progress", () => {

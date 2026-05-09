@@ -346,12 +346,17 @@ class StreamApiTests(unittest.TestCase):
             self.assertEqual(initial.get("payload", {}).get("commit_seq"), 9)
 
             ws.send_json({"type": "resume", "last_commit_seq": 0})
-            after_resume = ws.receive_json()
+            after_resume: dict | None = None
+            for _ in range(4):
+                msg = ws.receive_json()
+                if msg.get("type") == "view_commit":
+                    after_resume = msg
+                    break
 
-        self.assertEqual(after_resume.get("type"), "view_commit")
+        self.assertIsNotNone(after_resume)
         self.assertEqual(after_resume.get("payload", {}).get("commit_seq"), 9)
 
-    def test_heartbeat_periodically_resends_latest_view_commit_for_client_repair(self) -> None:
+    def test_heartbeat_does_not_resend_already_delivered_view_commit(self) -> None:
         from apps.server.src import state
 
         session = state.session_service.create_session(_all_ai_seats(), config={"seed": 30311, "visibility": "public"})
@@ -368,15 +373,18 @@ class StreamApiTests(unittest.TestCase):
             self.assertEqual(initial.get("type"), "view_commit")
             self.assertEqual(initial.get("payload", {}).get("commit_seq"), 11)
 
-            repair: dict | None = None
+            heartbeat: dict | None = None
+            duplicates: list[dict] = []
             for _ in range(8):
                 msg = ws.receive_json()
-                if msg.get("type") == "view_commit":
-                    repair = msg
+                if msg.get("type") == "heartbeat":
+                    heartbeat = msg
                     break
+                if msg.get("type") == "view_commit":
+                    duplicates.append(msg)
 
-        self.assertIsNotNone(repair)
-        self.assertEqual(repair.get("payload", {}).get("commit_seq"), 11)
+        self.assertIsNotNone(heartbeat)
+        self.assertEqual(duplicates, [])
 
     def test_sender_suppresses_stale_view_commit_after_latest_snapshot(self) -> None:
         from apps.server.src import state
@@ -794,6 +802,60 @@ class StreamApiTests(unittest.TestCase):
 
         asyncio.run(_scenario())
         self.assertEqual(calls, [("sess_async_wakeup", 77, "runtime_wakeup", 31, None)])
+
+    def test_deferred_runtime_wakeup_retries_after_active_command_finishes(self) -> None:
+        from apps.server.src.routes import stream
+
+        calls: list[int] = []
+        completed = asyncio.Event()
+
+        class _Session:
+            config = {"seed": 31}
+            resolved_parameters = {"runtime": {}}
+
+        class _SessionService:
+            def get_session(self, _session_id: str) -> _Session:
+                return _Session()
+
+        class _RuntimeService:
+            async def process_command_once(
+                self,
+                *,
+                session_id: str,
+                command_seq: int,
+                consumer_name: str,
+                seed: int,
+                policy_mode: str | None = None,
+            ) -> dict:
+                calls.append(command_seq)
+                if len(calls) == 1:
+                    return {"status": "running_elsewhere", "reason": "command_processing_already_active"}
+                completed.set()
+                return {"status": "waiting_input"}
+
+        async def _scenario() -> None:
+            original_delay = stream._RUNTIME_WAKEUP_DEFERRED_RETRY_DELAY_SEC
+            original_deadline = stream._RUNTIME_WAKEUP_DEFERRED_RETRY_DEADLINE_SEC
+            stream._RUNTIME_WAKEUP_DEFERRED_RETRY_DELAY_SEC = 0.001
+            stream._RUNTIME_WAKEUP_DEFERRED_RETRY_DEADLINE_SEC = 0.2
+            try:
+                await stream._wake_runtime_after_accepted_decision(
+                    decision_state={
+                        "status": "accepted",
+                        "session_id": "sess_deferred_wakeup",
+                        "command_seq": 88,
+                    },
+                    session_id="sess_deferred_wakeup",
+                    session_service=_SessionService(),
+                    runtime_service=_RuntimeService(),
+                )
+                await asyncio.wait_for(completed.wait(), timeout=0.1)
+            finally:
+                stream._RUNTIME_WAKEUP_DEFERRED_RETRY_DELAY_SEC = original_delay
+                stream._RUNTIME_WAKEUP_DEFERRED_RETRY_DEADLINE_SEC = original_deadline
+
+        asyncio.run(_scenario())
+        self.assertEqual(calls, [88, 88])
 
     def test_spectator_does_not_receive_prompt_or_decision_ack_for_seat(self) -> None:
         from apps.server.src import state

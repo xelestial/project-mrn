@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "rl:protocol-gate": "vite-node src/headless/runFullStackProtocolGate.ts",
+    "rl:protocol-gate:games": "vite-node src/headless/runProtocolGateGames.ts",
     "e2e": "playwright test",
     "e2e:live-full-game": "node scripts/live_full_game_progress_check.mjs",
     "e2e:parity": "playwright test e2e/parity.spec.ts --project=chromium --workers=1 --grep \"quick start human vs ai enters match and surfaces the first human prompt|completed engine transition shows a visible game-end state even with a stale backend turn projection|session payload initial active faces hydrate the active strip before stream events arrive|draft prompt keeps active strip hydrated before any flip events arrive|baksu draft choice stays available in final character prompt|round start shows weather and active strip before any prompt appears|purchase and mark prompts render dedicated decision cards\"",

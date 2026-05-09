@@ -305,8 +305,9 @@ class PromptService:
                 if session_id is not None and pending.session_id != session_id:
                     continue
                 if now > (pending.created_at_ms + pending.timeout_ms):
+                    if not self._delete_pending(storage_key):
+                        continue
                     timed_out.append(pending)
-                    self._delete_pending(storage_key)
                     self._record_resolved(
                         request_id=request_id,
                         reason="prompt_timeout",
@@ -737,13 +738,13 @@ class PromptService:
             return False
         return True
 
-    def _delete_pending(self, request_id: str, session_id: str | None = None) -> None:
+    def _delete_pending(self, request_id: str, session_id: str | None = None) -> bool:
         if self._prompt_store is not None:
-            self._prompt_store.delete_pending(request_id, session_id=session_id)
-            return
+            return bool(self._prompt_store.delete_pending(request_id, session_id=session_id))
         key = self._pending_key(request_id, session_id=session_id)
         if key is not None:
-            self._pending.pop(key, None)
+            return self._pending.pop(key, None) is not None
+        return False
 
     def _iter_pending_values(self) -> list[PendingPrompt]:
         if self._prompt_store is not None:

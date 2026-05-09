@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDecisionFlightKey,
   buildDecisionMessage,
   buildGameStreamKey,
   createDecisionRequestLedger,
@@ -54,6 +55,86 @@ describe("useGameStream authoritative commit helpers", () => {
     ledger.forget(streamKey, "req_retry_1");
 
     expect(ledger.shouldSend(streamKey, "req_retry_1")).toBe(true);
+  });
+
+  it("groups decision flights by active prompt, player, and request type instead of request id alone", () => {
+    const first = buildDecisionFlightKey({
+      requestId: "req_original",
+      playerId: 1,
+      requestType: "purchase",
+      continuation: {
+        promptInstanceId: 91,
+        promptFingerprint: "sha256:prompt-91",
+        promptFingerprintVersion: "prompt-fingerprint-v1",
+        resumeToken: "resume-91",
+        frameId: "turn:2:p1",
+        moduleId: "mod:purchase:91",
+        moduleType: "PurchaseModule",
+        moduleCursor: "purchase:await_choice",
+        batchId: null,
+      },
+    });
+    const duplicateWithNewRequestId = buildDecisionFlightKey({
+      requestId: "req_accidental_second",
+      playerId: 1,
+      requestType: "purchase",
+      continuation: {
+        promptInstanceId: 91,
+        promptFingerprint: "sha256:prompt-91",
+        promptFingerprintVersion: "prompt-fingerprint-v1",
+        resumeToken: "resume-91",
+        frameId: "turn:2:p1",
+        moduleId: "mod:purchase:91",
+        moduleType: "PurchaseModule",
+        moduleCursor: "purchase:await_choice",
+        batchId: null,
+      },
+    });
+    const nextPrompt = buildDecisionFlightKey({
+      requestId: "req_next_prompt",
+      playerId: 1,
+      requestType: "purchase",
+      continuation: {
+        promptInstanceId: 92,
+        promptFingerprint: "sha256:prompt-92",
+        promptFingerprintVersion: "prompt-fingerprint-v1",
+        resumeToken: "resume-92",
+        frameId: "turn:2:p1",
+        moduleId: "mod:purchase:92",
+        moduleType: "PurchaseModule",
+        moduleCursor: "purchase:await_choice",
+        batchId: null,
+      },
+    });
+
+    expect(duplicateWithNewRequestId).toBe(first);
+    expect(nextPrompt).not.toBe(first);
+  });
+
+  it("blocks a different request id while the same prompt flight is still active", () => {
+    const ledger = createDecisionRequestLedger();
+    const streamKey = buildGameStreamKey("sess_single_flight", "seat-1");
+    const flightKey = "player:1\nprompt:sha256:prompt-9\naction:purchase";
+
+    expect(ledger.beginFlight(streamKey, flightKey, "req_first")).toEqual({
+      status: "started",
+      requestId: "req_first",
+    });
+    expect(ledger.beginFlight(streamKey, flightKey, "req_first")).toEqual({
+      status: "duplicate",
+      requestId: "req_first",
+    });
+    expect(ledger.beginFlight(streamKey, flightKey, "req_second")).toEqual({
+      status: "busy",
+      requestId: "req_first",
+    });
+
+    ledger.releaseFlight(streamKey, flightKey, "req_first");
+
+    expect(ledger.beginFlight(streamKey, flightKey, "req_second")).toEqual({
+      status: "started",
+      requestId: "req_second",
+    });
   });
 
   it("builds decision messages with the backend-issued module continuation", () => {

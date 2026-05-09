@@ -53,6 +53,15 @@ def _checkpoint_pending_action_types(state: GameState) -> list[str]:
     return [action.type for action in _checkpoint_pending_actions(state)]
 
 
+def _first_three_land_block_positions(state: GameState) -> list[int]:
+    by_block: dict[int, list[int]] = {}
+    for index, block_id in enumerate(state.block_ids):
+        if block_id < 0 or state.board[index] not in (CellKind.T2, CellKind.T3):
+            continue
+        by_block.setdefault(block_id, []).append(index)
+    return next(positions for positions in by_block.values() if len(positions) >= 3)
+
+
 def _start_reward_cash_decision():
     return SimpleNamespace(choice="cash", cash_units=10, shard_units=0, coin_units=0)
 
@@ -742,8 +751,12 @@ def test_fortune_forced_trade_prompt_keeps_action_queued() -> None:
     state = GameState.create(config)
     player = state.players[0]
     other = state.players[1]
-    own_tile = state.first_tile_position(kinds=[CellKind.T2])
-    other_tile = next(idx for idx in state.tile_positions(kinds=[CellKind.T2, CellKind.T3]) if idx != own_tile)
+    block_tiles: dict[int, list[int]] = {}
+    for idx in state.tile_positions(kinds=[CellKind.T2, CellKind.T3]):
+        block_tiles.setdefault(state.block_ids[idx], []).append(idx)
+    selectable_blocks = [tiles for _, tiles in sorted(block_tiles.items()) if len(tiles) >= 2]
+    own_tile = selectable_blocks[0][0]
+    other_tile = selectable_blocks[1][0]
     state.tile_owner[own_tile] = player.player_id
     state.tile_owner[other_tile] = other.player_id
     player.tiles_owned = 1
@@ -761,6 +774,87 @@ def test_fortune_forced_trade_prompt_keeps_action_queued() -> None:
         raise AssertionError("forced trade target prompt should have interrupted the action")
 
     assert _checkpoint_pending_action_types(state) == ["resolve_fortune_forced_trade"]
+
+
+def test_fortune_forced_trade_resume_keeps_first_target_selection() -> None:
+    class ForcedTradeDecisionPort:
+        def __init__(self, own_target: int, other_target: int) -> None:
+            self.own_target = own_target
+            self.other_target = other_target
+            self.stage = 0
+            self.scopes: list[str] = []
+
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name != "choose_trick_tile_target":
+                return request.args[0][0]
+            scope = str(request.public_context["target_scope"])
+            self.scopes.append(scope)
+            if self.stage == 0:
+                assert scope == "trade_own_tile"
+                self.stage = 1
+                raise RuntimeError("prompt_required_for_test")
+            if self.stage == 1:
+                if scope == "trade_own_tile":
+                    return self.own_target
+                assert scope == "trade_other_tile"
+                self.stage = 2
+                raise RuntimeError("prompt_required_for_test")
+            assert scope == "trade_other_tile"
+            self.stage = 3
+            return self.other_target
+
+    config = GameConfig(player_count=2)
+    state = GameState.create(config)
+    player = state.players[0]
+    other = state.players[1]
+    block_tiles: dict[int, list[int]] = {}
+    for idx in state.tile_positions(kinds=[CellKind.T2, CellKind.T3]):
+        block_tiles.setdefault(state.block_ids[idx], []).append(idx)
+    selectable_blocks = [tiles for _, tiles in sorted(block_tiles.items()) if len(tiles) >= 2]
+    own_tile = selectable_blocks[0][0]
+    other_tile = selectable_blocks[1][0]
+    state.tile_owner[own_tile] = player.player_id
+    state.tile_owner[other_tile] = other.player_id
+    player.tiles_owned = 1
+    other.tiles_owned = 1
+    state.pending_actions = [
+        ActionEnvelope(
+            action_id="forced_trade_resume",
+            type="resolve_fortune_forced_trade",
+            actor_player_id=player.player_id,
+            source="운명적 거래",
+            payload={"card_name": "운명적 거래"},
+        )
+    ]
+    decision_port = ForcedTradeDecisionPort(own_tile, other_tile)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=decision_port, rng=random.Random(2801))
+
+    try:
+        engine.run_next_transition(state)
+    except RuntimeError as exc:
+        assert str(exc) == "prompt_required_for_test"
+    else:
+        raise AssertionError("first forced trade target prompt should interrupt")
+
+    state = GameState.from_checkpoint_payload(config, state.to_checkpoint_payload())
+    try:
+        engine.run_next_transition(state)
+    except RuntimeError as exc:
+        assert str(exc) == "prompt_required_for_test"
+    else:
+        raise AssertionError("second forced trade target prompt should interrupt")
+
+    checkpoint_action = _checkpoint_pending_actions(state)[0]
+    assert checkpoint_action.payload["forced_trade_own_pos"] == own_tile
+
+    state = GameState.from_checkpoint_payload(config, state.to_checkpoint_payload())
+    result = engine.run_next_transition(state)
+
+    assert result["action_type"] == "resolve_fortune_forced_trade"
+    assert decision_port.scopes == ["trade_own_tile", "trade_own_tile", "trade_other_tile", "trade_other_tile"]
+    assert state.tile_owner[own_tile] == other.player_id
+    assert state.tile_owner[other_tile] == player.player_id
+    assert _checkpoint_pending_action_types(state) == []
 
 
 def test_prompt_action_remains_queued_when_decision_waits() -> None:
@@ -1257,6 +1351,66 @@ def test_queued_arrival_on_rent_tile_splits_rent_and_post_landing_effects() -> N
     assert _checkpoint_pending_action_types(state) == []
     assert last_action_log["result"]["type"] == "RENT"
     assert last_action_log["result"]["trick_same_tile_cash_gain"] == 2
+
+
+def test_matchmaker_adjacent_target_survives_landing_post_effect_purchase_prompt_resume() -> None:
+    calls: list[str] = []
+    selected_targets: list[int] = []
+
+    class PurchaseWaitingDecisionPort:
+        def __init__(self) -> None:
+            self.purchase_attempts = 0
+
+        def request(self, request):  # noqa: ANN001
+            calls.append(request.decision_name)
+            if request.decision_name == "choose_trick_tile_target":
+                selected_targets.append(request.args[1][-1])
+                return request.args[1][-1]
+            if request.decision_name == "choose_purchase_tile":
+                self.purchase_attempts += 1
+                if self.purchase_attempts == 1:
+                    raise RuntimeError("purchase_prompt_required_for_test")
+                return True
+            return request.args[0][0]
+
+    config = GameConfig(player_count=2)
+    decision_port = PurchaseWaitingDecisionPort()
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=decision_port, rng=random.Random(211))
+    state = GameState.create(config)
+    player = state.players[0]
+    player.current_character = "중매꾼"
+    player.cash = 30
+    left, middle, right = _first_three_land_block_positions(state)
+    player.position = middle
+    action = ActionEnvelope(
+        action_id="post_effect_resume",
+        type="resolve_landing_post_effects",
+        actor_player_id=player.player_id,
+        source="rent_post_landing",
+        payload={
+            "tile_index": middle,
+            "base_event": {"type": "RENT", "paid": True},
+            "require_paid_for_adjacent": True,
+        },
+    )
+
+    try:
+        engine._resolve_landing_post_effects_action(state, action)
+    except RuntimeError as exc:
+        assert str(exc) == "purchase_prompt_required_for_test"
+    else:
+        raise AssertionError("matchmaker adjacent purchase prompt should have interrupted post effects")
+
+    assert calls == ["choose_trick_tile_target", "choose_purchase_tile"]
+    assert state.pending_action_log["pending_matchmaker_adjacent_target"]["target"] == right
+
+    result = engine._resolve_landing_post_effects_action(state, action)
+
+    assert result["adjacent_bought"] == [right]
+    assert state.tile_owner[right] == player.player_id
+    assert "pending_matchmaker_adjacent_target" not in state.pending_action_log
+    assert calls == ["choose_trick_tile_target", "choose_purchase_tile", "choose_purchase_tile"]
+    assert left != right
 
 
 def test_engine_queued_step_move_separates_lap_reward_from_arrival() -> None:

@@ -68,6 +68,7 @@ export type HeadlessMetrics = {
   rejectedAckCount: number;
   staleAckCount: number;
   staleDecisionRetryCount: number;
+  unackedDecisionRetryCount: number;
   decisionTimeoutFallbackCount: number;
   rawPromptFallbackWithoutActiveCommitCount: number;
   spectatorPromptLeakCount: number;
@@ -82,6 +83,7 @@ export type HeadlessMetrics = {
 
 export type HeadlessTraceEvent = {
   event: string;
+  ts_ms?: number;
   session_id: string;
   player_id: number;
   seq?: number;
@@ -98,6 +100,9 @@ type PendingDecision = {
   decision: OutboundMessage;
   needsRetry: boolean;
   retryConsumed: boolean;
+  retryAfterReconnect: boolean;
+  sentAtMs: number;
+  unackedRetryCount: number;
 };
 
 type PendingReconnectRecovery = {
@@ -107,6 +112,7 @@ type PendingReconnectRecovery = {
 };
 
 const DEFAULT_RAW_PROMPT_FALLBACK_DELAY_MS: number | null = null;
+const DEFAULT_UNACKED_DECISION_RETRY_LIMIT = 2;
 
 type HeadlessGameClientArgs = {
   sessionId: string;
@@ -141,6 +147,13 @@ export const baselineDecisionPolicy: DecisionPolicy = ({ prompt }) => {
         },
       };
     }
+  }
+  if (prompt.requestType === "burden_exchange") {
+    const declineChoice = prompt.choices.find((item) => item.choiceId === "no") ?? prompt.choices[0];
+    return {
+      choiceId: declineChoice?.choiceId ?? "",
+      choicePayload: declineChoice?.value ?? undefined,
+    };
   }
   const choice = prompt.choices.find((item) => !item.secondary) ?? prompt.choices[0];
   return {
@@ -250,6 +263,7 @@ export function emptyHeadlessMetrics(): HeadlessMetrics {
     rejectedAckCount: 0,
     staleAckCount: 0,
     staleDecisionRetryCount: 0,
+    unackedDecisionRetryCount: 0,
     decisionTimeoutFallbackCount: 0,
     rawPromptFallbackWithoutActiveCommitCount: 0,
     spectatorPromptLeakCount: 0,
@@ -401,6 +415,7 @@ export class HeadlessGameClient {
     const minCommitSeq = Math.max(0, Math.floor(this.stateValue.lastCommitSeq));
     const recoveryId = this.nextReconnectRecoveryId;
     this.nextReconnectRecoveryId += 1;
+    this.markPendingDecisionsForReconnectRetry(reason);
     this.pendingReconnectRecoveries.push({
       id: recoveryId,
       reason,
@@ -408,7 +423,7 @@ export class HeadlessGameClient {
     });
     this.metrics.forcedReconnectCount += 1;
     this.metrics.reconnectRecoveryPendingCount = this.pendingReconnectRecoveries.length;
-    this.trace.push({
+    this.recordTrace({
       event: "forced_reconnect",
       session_id: this.sessionId,
       player_id: this.playerId,
@@ -435,7 +450,7 @@ export class HeadlessGameClient {
     const sent = this.send(message);
     if (sent) {
       this.metrics.resumeRequestCount += 1;
-      this.trace.push({
+      this.recordTrace({
         event: "resume_sent",
         session_id: this.sessionId,
         player_id: this.playerId,
@@ -464,7 +479,7 @@ export class HeadlessGameClient {
     this.pendingByRequestId.delete(requestId);
     this.inFlightDecisionRequestIds.delete(requestId);
     this.metrics.decisionSendFailureCount += 1;
-    this.trace.push({
+    this.recordTrace({
       event: "decision_send_failed",
       session_id: this.sessionId,
       player_id: this.playerId,
@@ -476,6 +491,13 @@ export class HeadlessGameClient {
 
   traceJsonl(): string {
     return this.trace.map(serializeHeadlessTraceEvent).join("\n");
+  }
+
+  private recordTrace(event: HeadlessTraceEvent): void {
+    this.trace.push({
+      ts_ms: Date.now(),
+      ...event,
+    });
   }
 
   private async handleSocketMessage(rawData: unknown): Promise<void> {
@@ -490,7 +512,7 @@ export class HeadlessGameClient {
       }
     } catch (error) {
       this.metrics.errorMessageCount += 1;
-      this.trace.push({
+      this.recordTrace({
         event: "headless_client_error",
         session_id: this.sessionId,
         player_id: this.playerId,
@@ -509,7 +531,7 @@ export class HeadlessGameClient {
     }
     const activePrompt = selectActivePrompt(this.stateValue.messages);
     if (activePrompt && activePrompt.requestId !== prompt.requestId) {
-      this.trace.push({
+      this.recordTrace({
         event: "prompt_deferred_due_active_mismatch",
         session_id: this.sessionId,
         player_id: this.playerId,
@@ -530,7 +552,7 @@ export class HeadlessGameClient {
     }
     if (!this.deferredRawPromptRequestIds.has(prompt.requestId)) {
       this.deferredRawPromptRequestIds.add(prompt.requestId);
-      this.trace.push({
+      this.recordTrace({
         event: "prompt_deferred_until_view_commit",
         session_id: this.sessionId,
         player_id: this.playerId,
@@ -548,7 +570,7 @@ export class HeadlessGameClient {
       }
       return [];
     }
-    this.trace.push({
+    this.recordTrace({
       event: "prompt_already_deferred_until_view_commit",
       session_id: this.sessionId,
       player_id: this.playerId,
@@ -571,12 +593,23 @@ export class HeadlessGameClient {
     const retryingStalePrompt = pending?.needsRetry === true && !pending.retryConsumed;
     if (retryingStalePrompt) {
       this.decisionLedger.forget(this.streamKey, prompt.requestId);
-    } else if (
-      this.inFlightDecisionRequestIds.has(prompt.requestId) ||
-      !this.decisionLedger.shouldSend(this.streamKey, prompt.requestId)
-    ) {
+    } else if (this.inFlightDecisionRequestIds.has(prompt.requestId)) {
       this.metrics.duplicateDecisionSuppressionCount += 1;
-      this.trace.push({
+      this.recordTrace({
+        event: "decision_suppressed_duplicate",
+        session_id: this.sessionId,
+        player_id: this.playerId,
+        commit_seq: this.stateValue.lastCommitSeq,
+        request_id: prompt.requestId,
+      });
+      return [];
+    } else if (!this.decisionLedger.shouldSend(this.streamKey, prompt.requestId)) {
+      const unackedRetry = this.buildUnackedDecisionRetry(prompt, pending);
+      if (unackedRetry) {
+        return [unackedRetry];
+      }
+      this.metrics.duplicateDecisionSuppressionCount += 1;
+      this.recordTrace({
         event: "decision_suppressed_duplicate",
         session_id: this.sessionId,
         player_id: this.playerId,
@@ -601,7 +634,7 @@ export class HeadlessGameClient {
       const selectedChoice = prompt.choices.find((choice) => choice.choiceId === policyDecision.choiceId);
       if (!selectedChoice) {
         this.metrics.illegalActionCount += 1;
-        this.trace.push({
+        this.recordTrace({
           event: "illegal_policy_choice",
           session_id: this.sessionId,
           player_id: this.playerId,
@@ -636,6 +669,9 @@ export class HeadlessGameClient {
         decision: outbound,
         needsRetry: false,
         retryConsumed: pending?.retryConsumed === true || retryingStalePrompt,
+        retryAfterReconnect: false,
+        sentAtMs: Date.now(),
+        unackedRetryCount: pending?.unackedRetryCount ?? 0,
       });
       if (retryingStalePrompt) {
         this.metrics.staleDecisionRetryCount += 1;
@@ -646,7 +682,7 @@ export class HeadlessGameClient {
         policyDecision.choicePayload ?? selectedChoice.value ?? undefined,
       );
       this.metrics.outboundDecisionCount += 1;
-      this.trace.push({
+      this.recordTrace({
         event: retryingStalePrompt ? "decision_retry_sent" : "decision_sent",
         session_id: this.sessionId,
         player_id: this.playerId,
@@ -663,6 +699,66 @@ export class HeadlessGameClient {
       return [outbound];
     } finally {
       this.inFlightDecisionRequestIds.delete(prompt.requestId);
+    }
+  }
+
+  private buildUnackedDecisionRetry(prompt: PromptViewModel, pending: PendingDecision | undefined): OutboundMessage | null {
+    if (!pending || pending.decision.type !== "decision" || pending.needsRetry) {
+      return null;
+    }
+    if (pending.unackedRetryCount >= DEFAULT_UNACKED_DECISION_RETRY_LIMIT) {
+      return null;
+    }
+    const retryAfterReconnect = pending.retryAfterReconnect === true;
+    if (!retryAfterReconnect) {
+      return null;
+    }
+    const now = Date.now();
+    const retryDecision: OutboundMessage = {
+      ...pending.decision,
+      view_commit_seq_seen: this.stateValue.lastCommitSeq,
+      client_seq: this.stateValue.lastCommitSeq,
+    };
+    pending.decision = retryDecision;
+    pending.sentAtMs = now;
+    pending.retryAfterReconnect = false;
+    pending.unackedRetryCount += 1;
+    this.metrics.unackedDecisionRetryCount += 1;
+    this.metrics.outboundDecisionCount += 1;
+    this.recordTrace({
+      event: "decision_unacked_retry_sent",
+      session_id: this.sessionId,
+      player_id: this.playerId,
+      commit_seq: this.stateValue.lastCommitSeq,
+      request_id: prompt.requestId,
+      choice_id: retryDecision.choice_id,
+      payload: {
+        request_type: prompt.requestType,
+        retry_count: pending.unackedRetryCount,
+        retry_after_reconnect: retryAfterReconnect,
+        legal_choice_ids: prompt.choices.map((choice) => choice.choiceId),
+      },
+    });
+    return retryDecision;
+  }
+
+  private markPendingDecisionsForReconnectRetry(reason: string): void {
+    for (const pending of this.pendingByRequestId.values()) {
+      if (pending.decision.type !== "decision" || pending.needsRetry) {
+        continue;
+      }
+      pending.retryAfterReconnect = true;
+      this.recordTrace({
+        event: "pending_decision_reconnect_retry_armed",
+        session_id: this.sessionId,
+        player_id: this.playerId,
+        commit_seq: this.stateValue.lastCommitSeq,
+        request_id: pending.requestId,
+        reason,
+        payload: {
+          retry_count: pending.unackedRetryCount,
+        },
+      });
     }
   }
 
@@ -683,7 +779,7 @@ export class HeadlessGameClient {
     const alreadyFlippedCount = activeFlipAlreadyFlippedCount(prompt.publicContext);
     const hasPriorSelection = alreadyFlippedCount > 0 || (localSelections?.size ?? 0) > 0;
     if (hasPriorSelection && policyDecision.choiceId !== finishChoice.choiceId) {
-      this.trace.push({
+      this.recordTrace({
         event: "active_flip_guard_applied",
         session_id: this.sessionId,
         player_id: this.playerId,
@@ -704,7 +800,7 @@ export class HeadlessGameClient {
     if (policyDecision.choiceId === finishChoice.choiceId && policyDecision.choicePayload === undefined) {
       const selectedChoiceIds = activeFlipSelectableChoiceIds(prompt);
       if (!hasPriorSelection && selectedChoiceIds.length > 0) {
-        this.trace.push({
+        this.recordTrace({
           event: "active_flip_guard_applied",
           session_id: this.sessionId,
           player_id: this.playerId,
@@ -785,7 +881,7 @@ export class HeadlessGameClient {
         pending.needsRetry = true;
       }
     }
-    this.trace.push({
+    this.recordTrace({
       event: "decision_ack",
       session_id: this.sessionId,
       player_id: this.playerId,
@@ -815,7 +911,7 @@ export class HeadlessGameClient {
     }
     const activePrompt = selectActivePrompt(this.stateValue.messages);
     if (activePrompt && activePrompt.requestId !== prompt.requestId) {
-      this.trace.push({
+      this.recordTrace({
         event: "prompt_fallback_skipped_due_active_mismatch",
         session_id: this.sessionId,
         player_id: this.playerId,
@@ -830,7 +926,7 @@ export class HeadlessGameClient {
       return;
     }
     if (activePrompt?.requestId !== prompt.requestId) {
-      this.trace.push({
+      this.recordTrace({
         event: "prompt_fallback_skipped_missing_view_commit",
         session_id: this.sessionId,
         player_id: this.playerId,
@@ -844,7 +940,7 @@ export class HeadlessGameClient {
       this.requestResume();
       return;
     }
-    this.trace.push({
+    this.recordTrace({
       event: "prompt_fallback_resolved_by_view_commit",
       session_id: this.sessionId,
       player_id: this.playerId,
@@ -865,7 +961,7 @@ export class HeadlessGameClient {
       }
     } catch (error) {
       this.metrics.errorMessageCount += 1;
-      this.trace.push({
+      this.recordTrace({
         event: "raw_prompt_fallback_error",
         session_id: this.sessionId,
         player_id: this.playerId,
@@ -901,7 +997,7 @@ export class HeadlessGameClient {
     }
     if (this.playerId === 0 && message.type === "prompt") {
       this.metrics.spectatorPromptLeakCount += 1;
-      this.trace.push({
+      this.recordTrace({
         event: "spectator_private_prompt_leak",
         session_id: this.sessionId,
         player_id: this.playerId,
@@ -911,7 +1007,7 @@ export class HeadlessGameClient {
     }
     if (this.playerId === 0 && message.type === "decision_ack") {
       this.metrics.spectatorDecisionAckLeakCount += 1;
-      this.trace.push({
+      this.recordTrace({
         event: "spectator_private_decision_ack_leak",
         session_id: this.sessionId,
         player_id: this.playerId,
@@ -926,7 +1022,7 @@ export class HeadlessGameClient {
     this.recordDecisionTimeoutFallbacks(message);
     if (message.type === "error") {
       this.metrics.errorMessageCount += 1;
-      this.trace.push({
+      this.recordTrace({
         event: "stream_error",
         session_id: this.sessionId,
         player_id: this.playerId,
@@ -948,7 +1044,7 @@ export class HeadlessGameClient {
     const commitSeq = Number(message.payload.commit_seq);
     if (Number.isFinite(commitSeq) && commitSeq < this.stateValue.lastCommitSeq) {
       this.metrics.nonMonotonicCommitCount += 1;
-      this.trace.push({
+      this.recordTrace({
         event: "commit_seq_non_monotonic",
         session_id: this.sessionId,
         player_id: this.playerId,
@@ -965,7 +1061,7 @@ export class HeadlessGameClient {
       isRuntimePositionRegression(previousCommit.runtime, message.payload.runtime)
     ) {
       this.metrics.semanticCommitRegressionCount += 1;
-      this.trace.push({
+      this.recordTrace({
         event: "runtime_position_regressed",
         session_id: this.sessionId,
         player_id: this.playerId,
@@ -990,7 +1086,7 @@ export class HeadlessGameClient {
       this.metrics.runtimeCompletedCount += 1;
     }
     this.recordReconnectRecovery(message, commitSeq);
-    this.trace.push({
+    this.recordTrace({
       event: "view_commit_seen",
       session_id: this.sessionId,
       player_id: this.playerId,
@@ -1024,7 +1120,7 @@ export class HeadlessGameClient {
     this.metrics.reconnectRecoveryCount += recovered.length;
     this.metrics.reconnectRecoveryPendingCount = this.pendingReconnectRecoveries.length;
     for (const item of recovered) {
-      this.trace.push({
+      this.recordTrace({
         event: "forced_reconnect_recovered",
         session_id: this.sessionId,
         player_id: this.playerId,
@@ -1056,7 +1152,7 @@ export class HeadlessGameClient {
       }
       if (typeof value !== expectedType) {
         this.metrics.identityViolationCount += 1;
-        this.trace.push({
+        this.recordTrace({
           event: "viewer_identity_violation",
           session_id: this.sessionId,
           player_id: this.playerId,
@@ -1113,7 +1209,7 @@ export class HeadlessGameClient {
       return;
     }
     this.metrics.decisionTimeoutFallbackCount += newCount;
-    this.trace.push({
+    this.recordTrace({
       event: "decision_timeout_fallback_seen",
       session_id: this.sessionId,
       player_id: this.playerId,

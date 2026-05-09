@@ -11,6 +11,19 @@ The engine is the source of legal game progression. RuntimeService is the single
 - `SequenceFrame`: nested follow-up work created by an active turn module.
 - `SimultaneousResolutionFrame`: all-required concurrent prompts and commits.
 
+## Command Boundary Contract
+
+A frontend command is identified by `session_id + player_id + prompt_id + request_id`.
+The command lifecycle fields are `command_id`, `command_seq`, `request_id`,
+`player_id`, `request_type`, `choice_id`, `status`, `started_at_ms`,
+`finished_at_ms`, `final_commit_seq`, `boundary_reason`, `refusal_reason`,
+`error_code`, and `module_trace`.
+
+`module_trace` is diagnostic timing data. It is not the authoritative rendering
+surface. Redis checkpoint and cached `ViewCommit` are committed only at the
+terminal command boundary: `success`, `refused`, `failed`, `waiting_input`, or
+`completed`.
+
 ## Hard Rules
 
 1. Draft prompts and draft events never mutate `turn_stage`.
@@ -30,6 +43,14 @@ The engine is the source of legal game progression. RuntimeService is the single
 9. Known prompt-resuming actions must resolve to native runtime modules. An
    uncatalogued prompt boundary is rejected until it has an owner module,
    handler, and continuation contract.
+10. Internal engine module transitions are not external commits. Tests that
+    change module interfaces must update module expectation tests and, when a
+    module-to-module connection changes, the corresponding boundary expectation
+    tests. Redis/view-commit tests cover persistence and recovery only.
+11. Frontend duplicate command submissions are protocol inputs. Same
+    `request_id` is deduped or explicitly refused; a different `request_id` for
+    the same active prompt while processing is `busy` or `conflict`; stale prompt
+    submissions must not mutate state.
 
 ## Prompt Effect Context Contract
 

@@ -181,6 +181,46 @@ describe("HeadlessGameClient", () => {
     expect(client.metrics.illegalActionCount).toBe(0);
   });
 
+  it("declines repeatable burden exchange by default to keep protocol playtests bounded", async () => {
+    const client = new HeadlessGameClient({
+      sessionId: "sess_headless_burden_default",
+      token: "seat-2",
+      playerId: 2,
+      policy: baselineDecisionPolicy,
+    });
+
+    const outbound = await client.ingestMessage(
+      viewCommitMessage({
+        commitSeq: 11,
+        requestId: "req_burden_11",
+        playerId: 2,
+        requestType: "burden_exchange",
+        choices: [
+          {
+            choice_id: "yes",
+            title: "Pay 1 to remove",
+            value: { burden_cost: 1, card_name: "Burden" },
+          },
+          {
+            choice_id: "no",
+            title: "Keep burden",
+            value: { burden_cost: 1, card_name: "Burden" },
+            secondary: true,
+          },
+        ],
+      }),
+    );
+
+    expect(outbound).toHaveLength(1);
+    expect(outbound[0]).toMatchObject({
+      type: "decision",
+      request_id: "req_burden_11",
+      player_id: 2,
+      choice_id: "no",
+      choice_payload: { burden_cost: 1, card_name: "Burden" },
+    });
+  });
+
   it("tracks forced reconnect recovery only after a view_commit is observed", async () => {
     const client = new HeadlessGameClient({
       sessionId: "sess_headless_reconnect",
@@ -1082,6 +1122,146 @@ describe("HeadlessGameClient", () => {
     );
     expect(retry).toHaveLength(1);
     expect(retry[0]).toMatchObject({ request_id: "req_send_fail", view_commit_seq_seen: 8 });
+  });
+
+  it("does not time-retry an unacked decision when the same active prompt remains visible", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    try {
+      const client = new HeadlessGameClient({
+        sessionId: "sess_headless_unacked_retry",
+        token: "seat-1",
+        playerId: 1,
+        policy: baselineDecisionPolicy,
+      });
+
+      const first = await client.ingestMessage(
+        viewCommitMessage({
+          commitSeq: 30,
+          requestId: "req_unacked_retry",
+          playerId: 1,
+        }),
+      );
+      expect(first).toHaveLength(1);
+
+      nowSpy.mockReturnValue(14_999);
+      expect(
+        await client.ingestMessage(
+          viewCommitMessage({
+            commitSeq: 31,
+            requestId: "req_unacked_retry",
+            playerId: 1,
+          }),
+        ),
+      ).toEqual([]);
+      expect(client.metrics.duplicateDecisionSuppressionCount).toBe(1);
+
+      nowSpy.mockReturnValue(60_000);
+      const retry = await client.ingestMessage(
+        viewCommitMessage({
+          commitSeq: 32,
+          requestId: "req_unacked_retry",
+          playerId: 1,
+        }),
+      );
+
+      expect(retry).toEqual([]);
+      expect(client.metrics.unackedDecisionRetryCount).toBe(0);
+      expect(client.metrics.outboundDecisionCount).toBe(1);
+      expect(client.metrics.duplicateDecisionSuppressionCount).toBe(2);
+      expect(client.trace.some((event) => event.event === "decision_unacked_retry_sent")).toBe(false);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("resends an unacked decision immediately after reconnect exposes the same active prompt", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(30_000);
+    try {
+      const client = new HeadlessGameClient({
+        sessionId: "sess_headless_reconnect_unacked_retry",
+        token: "seat-1",
+        playerId: 1,
+        policy: baselineDecisionPolicy,
+      });
+      (client as unknown as { socket: { close: () => void } | null }).socket = { close: vi.fn() };
+
+      const first = await client.ingestMessage(
+        viewCommitMessage({
+          commitSeq: 50,
+          requestId: "req_reconnect_unacked_retry",
+          playerId: 1,
+        }),
+      );
+      expect(first).toHaveLength(1);
+
+      client.forceReconnect("after_first_decision");
+
+      nowSpy.mockReturnValue(30_100);
+      const retry = await client.ingestMessage(
+        viewCommitMessage({
+          commitSeq: 51,
+          requestId: "req_reconnect_unacked_retry",
+          playerId: 1,
+        }),
+      );
+
+      expect(retry).toHaveLength(1);
+      expect(retry[0]).toMatchObject({
+        request_id: "req_reconnect_unacked_retry",
+        choice_id: "buy",
+        view_commit_seq_seen: 51,
+        client_seq: 51,
+      });
+      expect(client.metrics.unackedDecisionRetryCount).toBe(1);
+      expect(client.metrics.duplicateDecisionSuppressionCount).toBe(0);
+      expect(client.trace.some((event) => event.event === "pending_decision_reconnect_retry_armed")).toBe(true);
+      expect(
+        client.trace.some(
+          (event) =>
+            event.event === "decision_unacked_retry_sent" &&
+            event.payload?.["retry_after_reconnect"] === true,
+        ),
+      ).toBe(true);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("does not resend after a decision ack resolves the request", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(20_000);
+    try {
+      const client = new HeadlessGameClient({
+        sessionId: "sess_headless_unacked_ack",
+        token: "seat-1",
+        playerId: 1,
+        policy: baselineDecisionPolicy,
+      });
+
+      const first = await client.ingestMessage(
+        viewCommitMessage({
+          commitSeq: 40,
+          requestId: "req_unacked_ack",
+          playerId: 1,
+        }),
+      );
+      expect(first).toHaveLength(1);
+
+      await client.ingestMessage(ackMessage({ seq: 41, requestId: "req_unacked_ack", status: "accepted" }));
+
+      nowSpy.mockReturnValue(25_000);
+      expect(
+        await client.ingestMessage(
+          viewCommitMessage({
+            commitSeq: 42,
+            requestId: "req_unacked_ack",
+            playerId: 1,
+          }),
+        ),
+      ).toEqual([]);
+      expect(client.metrics.unackedDecisionRetryCount).toBe(0);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it("records server timeout fallback events as protocol failures", async () => {

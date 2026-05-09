@@ -78,13 +78,43 @@ npm run rl:protocol-gate -- \
 
 The command writes a compact protocol trace and an RL replay conversion. It also writes progress snapshots to stderr so long-running games can be inspected without stopping the run.
 
+Run repeated live protocol games through the dedicated runner, not a hand-written shell loop with `tee`:
+
+```bash
+cd apps/web
+npm run rl:protocol-gate:games -- \
+  --games 5 \
+  --run-root tmp/rl/full-stack-protocol/backend-timing-gate \
+  --seed-base 2026051100 \
+  -- \
+  --base-url http://127.0.0.1:9091 \
+  --profile live \
+  --timeout-ms 600000 \
+  --idle-timeout-ms 120000 \
+  --progress-interval-ms 10000 \
+  --raw-prompt-fallback-delay-ms off \
+  --require-backend-timing \
+  --max-backend-command-ms 4000 \
+  --max-backend-transition-ms 4000 \
+  --max-backend-redis-commit-count 1 \
+  --max-backend-view-commit-count 1 \
+  --backend-docker-compose-project project-mrn-protocol \
+  --backend-docker-compose-file ../../docker-compose.protocol.yml \
+  --backend-docker-compose-service server
+```
+
+The runner resolves `--run-root` from the repository root and passes absolute `--out`, `--replay-out`, and `--summary-out` paths to each game. This avoids the known failure mode where `npm --prefix apps/web` changes the npm script cwd while shell `tee` still resolves paths from the outer shell cwd.
+
 Full-stack acceptance requires:
 
 - `runtime_failed == 0`
 - `illegal_action == 0`
 - `timeout == 0`
+- one-game wall-clock duration stays under 10 minutes for the normal no-deliberation click-through path, unless the run intentionally measures slow human deliberation or production-length endurance
 - rejected decision acknowledgements `== 0`
 - decision fallback count `== 0`
+- unrecovered stale decision acknowledgements `== 0`
+- unbounded or policy-recomputed retries for the same active prompt `== 0`
 - stream/client error count `== 0`
 - non-monotonic commit sequence count `== 0`
 - semantic runtime position regression count `== 0`
@@ -93,11 +123,38 @@ Full-stack acceptance requires:
 - Redis `total_error_replies == 0`
 - final runtime status reaches `completed`
 
+The gate must fail fast on apparent "waiting" when the active prompt is unchanged and the client has already sent a decision. The only allowed recovery is a bounded resend of the same decision selected for that prompt. The adapter must not invoke the policy again for the same `request_id`, because that hides ACK loss and makes the browser path differ from RL training.
+
+Duration is itself a stability signal. Human games become long because players deliberate to win, not because the protocol needs that time. A single familiar operator clicking through the normal flow without deliberation can complete one game within 10 minutes, so a headless one-game run that exceeds 10 minutes is presumed broken until trace, server, and Redis logs prove the delay was intentional.
+
 After a live run, inspect server logs for runtime or storage guardrail events:
 
 ```bash
 docker compose -p project-mrn-protocol -f docker-compose.protocol.yml logs \
   server command-wakeup-worker prompt-timeout-worker --since 40m
+```
+
+For every live headless RL run, compare the trace, server logs, and Redis command records before accepting the result:
+
+- report wall-clock duration and harness `duration_ms`
+- report per-command timing from both the frontend trace (`prompt -> decision -> ack`) and `runtime_command_process_timing`
+- compare trace `decision_sent`, server `decision_received`, trace `decision_ack`, and Redis `decision_submitted`
+- report `decision_timeout_fallback_seen`, Redis fallback entries, rejected ACKs, stale ACKs, send failures, and client errors
+- report per-seat accepted decisions, prompt observations, suppressed duplicates, stale retries, and unacked retries
+- investigate any player that appears to build commands alone; do not wait for timeout to explain it away
+- if reconnect fires after `decision_sent`, the same active prompt must be resent immediately as a bounded unacked retry; a 5-second retry wait is a protocol defect, not acceptable learning latency
+- if server logs show `runtime_wakeup_deferred_command` / `command_processing_already_active`, verify the same command is retried and then appears in `runtime_command_process_timing`; an accepted-but-never-reprocessed command is a game-stopping protocol bug
+- run live protocol gates against `http://127.0.0.1:9091` unless the protocol compose port is explicitly overridden
+- stop the run immediately on the first protocol suspicion (`decision_timeout_fallback_seen`, rejected ACK, illegal action, stream/client error, private data leak, malformed identity, or Redis/server/trace mismatch); do not continue RL training on suspect data
+
+Passing example evidence shape:
+
+```text
+duration: wall_ms and duration_ms recorded
+decisions: trace sent == server received == trace ack == Redis submitted
+fallbacks: 0
+rejected/stale/send_failure/client_error: 0
+runtime_status: completed
 ```
 
 The `contract` profile is for faster protocol regression checks. It is useful in CI, but the live profile is the RL stability gate.
@@ -258,3 +315,15 @@ PYTHONPATH=engine .venv/bin/python -m rl.diagnostics \
 ```
 
 The diagnostics report groups replay rows by decision and action, tracks average reward and sample weight, lists high-weight losses, and copies failed gate checks from the comparison report. This is the starting point for deciding whether the next change belongs in reward shaping, legal-action modeling, or policy architecture.
+
+## Headless Protocol Timing
+
+Headless protocol runs are timing evidence only when the adapter behaves like a fast browser operator. The default adapter must choose bounded legal actions for repeatable optional prompts. In particular, `burden_exchange` defaults to `no`; choosing `yes` repeatedly is a deliberate stress scenario and must be labeled separately before using the run as game-duration evidence.
+
+When a live run is slow, inspect command latency before continuing training:
+
+- prompt-to-decision latency should stay near client-policy latency.
+- decision-to-ACK latency identifies backend/runtime/Redis delay.
+- repeated optional prompt types, especially `burden_exchange`, must be counted by request type and choice id.
+- if the same module frame emits many batches from one turn, stop learning and classify whether the adapter policy or engine rule caused the churn.
+- if a decision ACK is accepted but runtime status later becomes `rejected`, stop the run immediately. Compare the command payload, checkpoint `runtime_active_prompt`, and replayed module prompt; a mismatch means the continuation contract broke, not that the learner should keep waiting.

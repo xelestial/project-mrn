@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal
 
+from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.prompt_fingerprint import ensure_prompt_fingerprint, prompt_fingerprint_mismatch
 
 DecisionProvider = Literal["human", "ai"]
@@ -26,6 +27,10 @@ def _ensure_engine_import_path() -> None:
     if engine_text in sys.path:
         sys.path.remove(engine_text)
     sys.path.insert(0, engine_text)
+
+
+def _duration_ms(started: float) -> int:
+    return int((time.perf_counter() - started) * 1000)
 
 
 @dataclass(frozen=True)
@@ -1969,6 +1974,16 @@ class DecisionGateway:
         )
 
     def resolve_human_prompt(self, prompt: dict, parser, fallback_fn):
+        started = time.perf_counter()
+        phase_started = started
+        phase_timings: dict[str, int] = {}
+        error: BaseException | None = None
+
+        def _mark_phase(name: str) -> None:
+            nonlocal phase_started
+            phase_timings[f"{name}_ms"] = _duration_ms(phase_started)
+            phase_started = time.perf_counter()
+
         envelope = dict(prompt)
         timeout_ms = max(1, int(envelope.get("timeout_ms", DEFAULT_HUMAN_PROMPT_TIMEOUT_MS)))
         player_id = int(envelope.get("player_id", 0))
@@ -1980,76 +1995,98 @@ class DecisionGateway:
         envelope["request_id"] = request_id
         envelope["timeout_ms"] = timeout_ms
         envelope = ensure_prompt_fingerprint(envelope)
-
-        replayed_response = self._prompt_service.wait_for_decision(
-            request_id=request_id,
-            timeout_ms=1,
-            session_id=self._session_id,
-        )
-        if replayed_response is not None:
-            self._require_matching_prompt_fingerprint(
-                request_id=request_id,
-                player_id=player_id,
-                request_type=request_type,
-                public_context=public_context,
-                prompt_payload=envelope,
-                response=replayed_response,
-            )
-            return self._parse_human_response(
-                request_id=request_id,
-                player_id=player_id,
-                request_type=request_type,
-                public_context=public_context,
-                response=replayed_response,
-                parser=parser,
-                fallback_fn=fallback_fn,
-            )
+        _mark_phase("envelope_prepare")
 
         try:
-            self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
-        except ValueError as exc:
-            if str(exc) == "prompt_fingerprint_mismatch":
-                raise PromptFingerprintMismatch(request_id=request_id) from exc
-            if str(exc) == "duplicate_pending_request_id" and not self._blocking_human_prompts:
-                pending = self._prompt_service.get_pending_prompt(request_id, session_id=self._session_id)
-                prompt_payload = dict(pending.payload) if pending is not None else envelope
-                self.publish("prompt", {**prompt_payload, "provider": "human"})
-                self._prompt_service.mark_prompt_delivered(request_id, session_id=self._session_id)
-                self._publish_decision_requested(
+            replayed_response = self._prompt_service.wait_for_decision(
+                request_id=request_id,
+                timeout_ms=1,
+                session_id=self._session_id,
+            )
+            _mark_phase("replay_wait")
+            if replayed_response is not None:
+                self._require_matching_prompt_fingerprint(
                     request_id=request_id,
                     player_id=player_id,
-                    request_type=str(prompt_payload.get("request_type", request_type)),
-                    fallback_policy=fallback_policy,
-                    provider="human",
+                    request_type=request_type,
                     public_context=public_context,
+                    prompt_payload=envelope,
+                    response=replayed_response,
                 )
-                self._touch_activity(self._session_id)
-                raise PromptRequired(prompt_payload)
-            if not self._blocking_human_prompts:
-                raise PromptRequired(envelope)
-            request_id = self.next_request_id()
-            envelope["request_id"] = request_id
-            envelope = ensure_prompt_fingerprint(envelope)
-            self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
+                _mark_phase("replay_fingerprint")
+                return self._parse_human_response(
+                    request_id=request_id,
+                    player_id=player_id,
+                    request_type=request_type,
+                    public_context=public_context,
+                    response=replayed_response,
+                    parser=parser,
+                    fallback_fn=fallback_fn,
+                )
 
-        self.publish("prompt", {**envelope, "provider": "human"})
-        self._prompt_service.mark_prompt_delivered(request_id, session_id=self._session_id)
-        self._publish_decision_requested(
-            request_id=request_id,
-            player_id=player_id,
-            request_type=str(envelope.get("request_type", "")),
-            fallback_policy=fallback_policy,
-            provider="human",
-            public_context=public_context,
-        )
-        self._touch_activity(self._session_id)
-        if not self._blocking_human_prompts:
-            raise PromptRequired(envelope)
-        response = self._prompt_service.wait_for_decision(
-            request_id=request_id,
-            timeout_ms=timeout_ms,
-            session_id=self._session_id,
-        )
+            try:
+                self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
+                _mark_phase("create_prompt")
+            except ValueError as exc:
+                _mark_phase("create_prompt_error")
+                if str(exc) == "prompt_fingerprint_mismatch":
+                    raise PromptFingerprintMismatch(request_id=request_id) from exc
+                if str(exc) == "duplicate_pending_request_id" and not self._blocking_human_prompts:
+                    pending = self._prompt_service.get_pending_prompt(request_id, session_id=self._session_id)
+                    prompt_payload = dict(pending.payload) if pending is not None else envelope
+                    self._touch_activity(self._session_id)
+                    _mark_phase("duplicate_prompt_touch_activity")
+                    raise PromptRequired(prompt_payload)
+                if not self._blocking_human_prompts:
+                    self._touch_activity(self._session_id)
+                    _mark_phase("prompt_error_touch_activity")
+                    raise PromptRequired(envelope)
+                request_id = self.next_request_id()
+                envelope["request_id"] = request_id
+                envelope = ensure_prompt_fingerprint(envelope)
+                self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
+                _mark_phase("create_prompt_retry")
+
+            if not self._blocking_human_prompts:
+                self._touch_activity(self._session_id)
+                _mark_phase("touch_activity")
+                raise PromptRequired(envelope)
+
+            self.publish("prompt", {**envelope, "provider": "human"})
+            self._prompt_service.mark_prompt_delivered(request_id, session_id=self._session_id)
+            self._publish_decision_requested(
+                request_id=request_id,
+                player_id=player_id,
+                request_type=str(envelope.get("request_type", "")),
+                fallback_policy=fallback_policy,
+                provider="human",
+                public_context=public_context,
+            )
+            self._touch_activity(self._session_id)
+            _mark_phase("publish_prompt")
+            response = self._prompt_service.wait_for_decision(
+                request_id=request_id,
+                timeout_ms=timeout_ms,
+                session_id=self._session_id,
+            )
+            _mark_phase("blocking_wait")
+        except BaseException as exc:
+            error = exc
+            raise
+        finally:
+            total_ms = _duration_ms(started)
+            if total_ms >= 500 or (error is not None and not isinstance(error, PromptRequired)):
+                log_event(
+                    "runtime_decision_gateway_prompt_timing",
+                    session_id=self._session_id,
+                    total_ms=total_ms,
+                    request_id=request_id,
+                    request_type=request_type,
+                    player_id=player_id,
+                    blocking_human_prompts=self._blocking_human_prompts,
+                    error_type=error.__class__.__name__ if error is not None and not isinstance(error, PromptRequired) else None,
+                    **phase_timings,
+                )
 
         if response is None:
             expired = self._prompt_service.expire_prompt(
