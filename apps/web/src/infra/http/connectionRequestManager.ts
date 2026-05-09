@@ -12,6 +12,10 @@ type ApiEnvelope<T> = {
   detail?: unknown;
 };
 
+export type FrontendConnectionSingleFlightResult =
+  | { status: "started"; key: string; requestId: string; signal: AbortSignal }
+  | { status: "pending"; key: string; requestId: string; signal: AbortSignal };
+
 export const FRONTEND_CONNECTION_REQUEST_CATALOG: FrontendConnectionRequestCatalogItem[] = [
   { key: "session.create", transport: "http", method: "POST", path: "/api/v1/sessions" },
   { key: "session.list", transport: "http", method: "GET", path: "/api/v1/sessions" },
@@ -94,6 +98,67 @@ export function buildFrontendConnectionUrl(args: {
     url.searchParams.set(key, String(value));
   }
   return url.toString();
+}
+
+export function createFrontendConnectionSingleFlightManager(): {
+  begin: (key: string, requestId: string) => FrontendConnectionSingleFlightResult;
+  finish: (key: string, requestId?: string) => boolean;
+  abort: (key: string, reason?: string) => boolean;
+  abortAll: (reason?: string) => number;
+  activeKeys: () => string[];
+} {
+  const flights = new Map<string, { requestId: string; controller: AbortController }>();
+
+  return {
+    begin: (key, requestId) => {
+      const active = flights.get(key);
+      if (active) {
+        return {
+          status: "pending",
+          key,
+          requestId: active.requestId,
+          signal: active.controller.signal,
+        };
+      }
+      const controller = new AbortController();
+      flights.set(key, { requestId, controller });
+      return {
+        status: "started",
+        key,
+        requestId,
+        signal: controller.signal,
+      };
+    },
+    finish: (key, requestId) => {
+      const active = flights.get(key);
+      if (!active || (requestId && active.requestId !== requestId)) {
+        return false;
+      }
+      flights.delete(key);
+      return true;
+    },
+    abort: (key, reason) => {
+      const active = flights.get(key);
+      if (!active) {
+        return false;
+      }
+      active.controller.abort(reason);
+      flights.delete(key);
+      return true;
+    },
+    abortAll: (reason) => {
+      let count = 0;
+      for (const key of flights.keys()) {
+        if (flights.get(key)) {
+          flights.get(key)?.controller.abort(reason);
+          flights.delete(key);
+          count += 1;
+        }
+      }
+      return count;
+    },
+    activeKeys: () => [...flights.keys()],
+  };
 }
 
 export async function fetchFrontendConnection(args: {

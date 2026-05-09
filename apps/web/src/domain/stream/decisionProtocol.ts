@@ -6,6 +6,7 @@ export function buildGameStreamKey(sessionId: string, token?: string): string {
 }
 
 const sentDecisionRequestIdsByStreamKey = new Map<string, Set<string>>();
+const activeDecisionFlightsByStreamKey = new Map<string, Map<string, string>>();
 
 function sentDecisionRequestIdsFor(streamKey: string): Set<string> {
   let sentRequestIds = sentDecisionRequestIdsByStreamKey.get(streamKey);
@@ -16,10 +17,49 @@ function sentDecisionRequestIdsFor(streamKey: string): Set<string> {
   return sentRequestIds;
 }
 
+function activeDecisionFlightsFor(streamKey: string): Map<string, string> {
+  let activeFlights = activeDecisionFlightsByStreamKey.get(streamKey);
+  if (!activeFlights) {
+    activeFlights = new Map<string, string>();
+    activeDecisionFlightsByStreamKey.set(streamKey, activeFlights);
+  }
+  return activeFlights;
+}
+
+export type DecisionFlightResult =
+  | { status: "started"; requestId: string }
+  | { status: "duplicate"; requestId: string }
+  | { status: "busy"; requestId: string };
+
+export function buildDecisionFlightKey(args: {
+  requestId: string;
+  playerId: number;
+  requestType?: string | null;
+  continuation?: PromptContinuationViewModel;
+}): string {
+  const continuation = args.continuation;
+  const promptKey = firstNonEmpty([
+    continuation?.promptFingerprint,
+    typeof continuation?.promptInstanceId === "number" && Number.isFinite(continuation.promptInstanceId)
+      ? `prompt_instance:${Math.floor(continuation.promptInstanceId)}`
+      : "",
+    continuation?.resumeToken,
+    continuation?.moduleId && continuation?.moduleCursor
+      ? `${continuation.moduleId}:${continuation.moduleCursor}`
+      : "",
+    args.requestId,
+  ]);
+  const actionKey = firstNonEmpty([args.requestType, continuation?.moduleType, "decision"]);
+  return `player:${Math.floor(args.playerId)}\nprompt:${promptKey}\naction:${actionKey}`;
+}
+
 export function createDecisionRequestLedger(): {
   shouldSend: (streamKey: string, requestId: string) => boolean;
   recordSent: (streamKey: string, requestId: string) => void;
   forget: (streamKey: string, requestId: string) => void;
+  beginFlight: (streamKey: string, flightKey: string, requestId: string) => DecisionFlightResult;
+  releaseFlight: (streamKey: string, flightKey: string, requestId?: string) => boolean;
+  releaseFlightsForStream: (streamKey: string) => void;
   clear: () => void;
 } {
   let activeStreamKey = "";
@@ -43,11 +83,56 @@ export function createDecisionRequestLedger(): {
     forget: (streamKey, requestId) => {
       resetIfStreamChanged(streamKey);
       sentDecisionRequestIdsFor(streamKey).delete(requestId);
+      const activeFlights = activeDecisionFlightsFor(streamKey);
+      for (const [flightKey, activeRequestId] of activeFlights) {
+        if (activeRequestId === requestId) {
+          activeFlights.delete(flightKey);
+        }
+      }
+    },
+    beginFlight: (streamKey, flightKey, requestId) => {
+      resetIfStreamChanged(streamKey);
+      if (sentDecisionRequestIdsFor(streamKey).has(requestId)) {
+        return { status: "duplicate", requestId };
+      }
+      const activeFlights = activeDecisionFlightsFor(streamKey);
+      const activeRequestId = activeFlights.get(flightKey);
+      if (!activeRequestId) {
+        activeFlights.set(flightKey, requestId);
+        return { status: "started", requestId };
+      }
+      return {
+        status: activeRequestId === requestId ? "duplicate" : "busy",
+        requestId: activeRequestId,
+      };
+    },
+    releaseFlight: (streamKey, flightKey, requestId) => {
+      resetIfStreamChanged(streamKey);
+      const activeFlights = activeDecisionFlightsFor(streamKey);
+      const activeRequestId = activeFlights.get(flightKey);
+      if (!activeRequestId || (requestId && activeRequestId !== requestId)) {
+        return false;
+      }
+      activeFlights.delete(flightKey);
+      return true;
+    },
+    releaseFlightsForStream: (streamKey) => {
+      resetIfStreamChanged(streamKey);
+      activeDecisionFlightsFor(streamKey).clear();
     },
     clear: () => {
       activeStreamKey = "";
     },
   };
+}
+
+function firstNonEmpty(values: Array<string | null | undefined>): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "unknown";
 }
 
 export function buildDecisionMessage(args: {

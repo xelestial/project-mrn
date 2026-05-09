@@ -365,6 +365,7 @@ describe("fullStackProtocolHarness", () => {
       traces: [
         {
           event: "view_commit_seen",
+          ts_ms: 1_000,
           session_id: "sess_1",
           player_id: 1,
           commit_seq: 14,
@@ -379,12 +380,17 @@ describe("fullStackProtocolHarness", () => {
         },
         {
           event: "decision_sent",
+          ts_ms: 1_750,
           session_id: "sess_1",
           player_id: 1,
           request_id: "req_roll",
+          payload: {
+            request_type: "movement",
+          },
         },
         {
           event: "decision_ack",
+          ts_ms: 2_250,
           session_id: "sess_1",
           player_id: 1,
           request_id: "req_roll",
@@ -408,6 +414,86 @@ describe("fullStackProtocolHarness", () => {
       commitSeqPerMinute: 28,
       decisionsPerMinute: 6,
       acceptedAcksPerMinute: 4,
+      slowestCommandLatencies: [
+        {
+          requestId: "req_roll",
+          playerId: 1,
+          requestType: "movement",
+          promptToDecisionMs: null,
+          decisionToAckMs: 500,
+          totalMs: null,
+          status: "accepted",
+        },
+      ],
+      pendingDecisionAges: [],
+    });
+  });
+
+  it("reports prompt-to-decision and pending decision command latencies", () => {
+    const pace = buildProtocolPaceDiagnostic({
+      runtimeStatus: "waiting_input",
+      elapsedMs: 10_000,
+      clients: [clientRuntime("seat:2", { lastCommitSeq: 9 })],
+      traces: [
+        {
+          event: "view_commit_seen",
+          ts_ms: 10_000,
+          session_id: "sess_1",
+          player_id: 2,
+          commit_seq: 9,
+          payload: {
+            active_prompt_request_id: "req_slow",
+            active_prompt_player_id: 2,
+            active_prompt_request_type: "purchase_tile",
+          },
+        },
+        {
+          event: "decision_sent",
+          ts_ms: 23_500,
+          session_id: "sess_1",
+          player_id: 2,
+          request_id: "req_slow",
+        },
+        {
+          event: "decision_ack",
+          ts_ms: 24_100,
+          session_id: "sess_1",
+          player_id: 2,
+          request_id: "req_slow",
+          status: "accepted",
+        },
+        {
+          event: "decision_sent",
+          ts_ms: 26_000,
+          session_id: "sess_1",
+          player_id: 2,
+          request_id: "req_pending",
+          payload: {
+            request_type: "movement",
+          },
+        },
+        {
+          event: "view_commit_seen",
+          ts_ms: 31_000,
+          session_id: "sess_1",
+          player_id: 2,
+          commit_seq: 10,
+          payload: {},
+        },
+      ],
+    });
+
+    expect(pace.slowestCommandLatencies[0]).toMatchObject({
+      requestId: "req_slow",
+      promptToDecisionMs: 13_500,
+      decisionToAckMs: 600,
+      totalMs: 14_100,
+    });
+    expect(pace.pendingDecisionAges[0]).toMatchObject({
+      requestId: "req_pending",
+      playerId: 2,
+      requestType: "movement",
+      ageMs: 5_000,
     });
   });
 

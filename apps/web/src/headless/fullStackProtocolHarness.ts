@@ -76,6 +76,25 @@ export type ProtocolPaceDiagnostic = {
   commitSeqPerMinute: number;
   decisionsPerMinute: number;
   acceptedAcksPerMinute: number;
+  slowestCommandLatencies: ProtocolCommandLatencyDiagnostic[];
+  pendingDecisionAges: ProtocolPendingDecisionDiagnostic[];
+};
+
+export type ProtocolCommandLatencyDiagnostic = {
+  requestId: string;
+  playerId: number;
+  requestType: string | null;
+  promptToDecisionMs: number | null;
+  decisionToAckMs: number | null;
+  totalMs: number | null;
+  status: string | null;
+};
+
+export type ProtocolPendingDecisionDiagnostic = {
+  requestId: string;
+  playerId: number;
+  requestType: string | null;
+  ageMs: number;
 };
 
 export type ProtocolCpuDiagnostic = {
@@ -191,7 +210,7 @@ type RuntimeStatusResult = {
   };
 };
 
-const DEFAULT_BASE_URL = "http://127.0.0.1:9090";
+const DEFAULT_BASE_URL = "http://127.0.0.1:9091";
 const COMPLETED_COMMIT_GRACE_POLLS = 20;
 const DEFAULT_PROTOCOL_RAW_PROMPT_FALLBACK_DELAY_MS: number | null = null;
 const DEFAULT_FETCH_RETRY_COUNT = 5;
@@ -257,6 +276,9 @@ export function evaluateProtocolGate(input: ProtocolGateInput): ProtocolGateResu
   }
   if (input.runtimeStatus === "failed") {
     failures.push("runtime status is failed");
+  }
+  if (input.runtimeStatus === "rejected") {
+    failures.push("runtime status is rejected");
   }
   for (const client of input.clients) {
     const metrics = client.metrics;
@@ -579,7 +601,7 @@ export async function runFullStackProtocolGame(
       completed =
         completedPollCount >= 2 &&
         websocketCompleted;
-      if (completed || runtimeStatus === "failed") {
+      if (completed || runtimeStatus === "failed" || runtimeStatus === "rejected") {
         break;
       }
       const progressCheckAt = Date.now();
@@ -617,7 +639,11 @@ export async function runFullStackProtocolGame(
         previousCpuWallMs = Date.now();
       }
     }
-    timedOut = !completed && runtimeStatus !== "failed" && Date.now() - startedAt >= timeoutMs;
+    timedOut =
+      !completed &&
+      runtimeStatus !== "failed" &&
+      runtimeStatus !== "rejected" &&
+      Date.now() - startedAt >= timeoutMs;
   } finally {
     if (sessionId) {
       try {
@@ -746,6 +772,7 @@ export function buildProtocolPaceDiagnostic(args: {
     .reverse()
     .find((trace) => trace.event === "decision_sent" || trace.event === "decision_retry_sent");
   const latestAck = [...args.traces].reverse().find((trace) => trace.event === "decision_ack");
+  const commandLatency = buildCommandLatencyDiagnostics(args.traces);
   const payload = isRecord(latestViewCommit?.payload) ? latestViewCommit.payload : {};
   const activePromptRequestId = stringValue(payload["active_prompt_request_id"]);
   const activePromptPlayerId = numberValue(payload["active_prompt_player_id"]);
@@ -767,7 +794,142 @@ export function buildProtocolPaceDiagnostic(args: {
     commitSeqPerMinute: roundPercent(maxCommitSeq / elapsedMinutes),
     decisionsPerMinute: roundPercent(outboundDecisionCount / elapsedMinutes),
     acceptedAcksPerMinute: roundPercent(acceptedAckCount / elapsedMinutes),
+    slowestCommandLatencies: commandLatency.slowest,
+    pendingDecisionAges: commandLatency.pending,
   };
+}
+
+function buildCommandLatencyDiagnostics(traces: HeadlessTraceEvent[]): {
+  slowest: ProtocolCommandLatencyDiagnostic[];
+  pending: ProtocolPendingDecisionDiagnostic[];
+} {
+  const byRequestId = new Map<
+    string,
+    {
+      requestId: string;
+      playerId: number;
+      requestType: string | null;
+      firstActivePromptTs: number | null;
+      firstDecisionTs: number | null;
+      firstAckTs: number | null;
+      status: string | null;
+    }
+  >();
+  const traceNowMs = Math.max(0, ...traces.map((trace) => numberValue(trace.ts_ms) ?? 0));
+  for (const trace of traces) {
+    const ts = numberValue(trace.ts_ms);
+    if (ts === null) {
+      continue;
+    }
+    if (trace.event === "view_commit_seen" && isRecord(trace.payload)) {
+      const requestId = stringValue(trace.payload["active_prompt_request_id"]);
+      const playerId = numberValue(trace.payload["active_prompt_player_id"]);
+      if (!requestId || playerId === null) {
+        continue;
+      }
+      const item = commandLatencyItem(byRequestId, requestId, playerId);
+      item.requestType = item.requestType ?? stringValue(trace.payload["active_prompt_request_type"]);
+      item.firstActivePromptTs = item.firstActivePromptTs ?? ts;
+      continue;
+    }
+    if (trace.event === "decision_sent" || trace.event === "decision_retry_sent" || trace.event === "decision_unacked_retry_sent") {
+      const requestId = trace.request_id;
+      if (!requestId) {
+        continue;
+      }
+      const item = commandLatencyItem(byRequestId, requestId, trace.player_id);
+      item.requestType = item.requestType ?? stringValue(trace.payload?.["request_type"]);
+      item.firstDecisionTs = item.firstDecisionTs ?? ts;
+      continue;
+    }
+    if (trace.event === "decision_ack") {
+      const requestId = trace.request_id;
+      if (!requestId) {
+        continue;
+      }
+      const item = commandLatencyItem(byRequestId, requestId, trace.player_id);
+      if (item.firstAckTs === null) {
+        item.firstAckTs = ts;
+        item.status = trace.status ?? item.status;
+      } else if (item.status !== "accepted" && trace.status === "accepted") {
+        item.status = trace.status;
+      }
+    }
+  }
+  const rows = [...byRequestId.values()].map((item) => {
+    const promptToDecisionMs =
+      item.firstActivePromptTs !== null && item.firstDecisionTs !== null
+        ? Math.max(0, item.firstDecisionTs - item.firstActivePromptTs)
+        : null;
+    const decisionToAckMs =
+      item.firstDecisionTs !== null && item.firstAckTs !== null
+        ? Math.max(0, item.firstAckTs - item.firstDecisionTs)
+        : null;
+    const totalMs =
+      item.firstActivePromptTs !== null && item.firstAckTs !== null
+        ? Math.max(0, item.firstAckTs - item.firstActivePromptTs)
+        : null;
+    return {
+      requestId: item.requestId,
+      playerId: item.playerId,
+      requestType: item.requestType,
+      promptToDecisionMs,
+      decisionToAckMs,
+      totalMs,
+      status: item.status,
+    };
+  });
+  const slowest = rows
+    .filter((row) => row.promptToDecisionMs !== null || row.decisionToAckMs !== null || row.totalMs !== null)
+    .sort((left, right) => commandLatencySortValue(right) - commandLatencySortValue(left))
+    .slice(0, 5);
+  const pending = [...byRequestId.values()]
+    .filter((item) => item.firstDecisionTs !== null && item.firstAckTs === null)
+    .map((item) => ({
+      requestId: item.requestId,
+      playerId: item.playerId,
+      requestType: item.requestType,
+      ageMs: Math.max(0, traceNowMs - (item.firstDecisionTs ?? traceNowMs)),
+    }))
+    .sort((left, right) => right.ageMs - left.ageMs)
+    .slice(0, 5);
+  return { slowest, pending };
+}
+
+function commandLatencyItem(
+  byRequestId: Map<
+    string,
+    {
+      requestId: string;
+      playerId: number;
+      requestType: string | null;
+      firstActivePromptTs: number | null;
+      firstDecisionTs: number | null;
+      firstAckTs: number | null;
+      status: string | null;
+    }
+  >,
+  requestId: string,
+  playerId: number,
+) {
+  let item = byRequestId.get(requestId);
+  if (!item) {
+    item = {
+      requestId,
+      playerId,
+      requestType: null,
+      firstActivePromptTs: null,
+      firstDecisionTs: null,
+      firstAckTs: null,
+      status: null,
+    };
+    byRequestId.set(requestId, item);
+  }
+  return item;
+}
+
+function commandLatencySortValue(row: ProtocolCommandLatencyDiagnostic): number {
+  return Math.max(row.totalMs ?? 0, row.promptToDecisionMs ?? 0, row.decisionToAckMs ?? 0);
 }
 
 export function shouldEmitProtocolProgress(args: {

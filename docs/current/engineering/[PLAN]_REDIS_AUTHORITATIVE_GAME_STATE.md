@@ -1,17 +1,17 @@
 # Redis-Authoritative Runtime State
 
 Status: ACTIVE
-Updated: 2026-05-05
+Updated: 2026-05-09
 
 ## 1. Purpose
 
-Redis is the authoritative runtime checkpoint for online games. The engine owns game rules and module execution; the backend stores checkpoints, validates continuations, publishes stream events, and resumes work from the exact saved module boundary.
+Redis is the authoritative runtime checkpoint for online games. The engine owns game rules and module execution; the backend stores checkpoints, validates continuations, publishes stream events, and resumes work from the exact saved external boundary.
 
 The backend must never infer game progress from frontend state, stream history, local process memory, or convenience tokens.
 
 ## 2. Authoritative Continuation Boundary
 
-Prompt boundaries are commit boundaries.
+Prompt boundaries and user-command terminal boundaries are commit boundaries. Internal module transitions are not Redis or `view_commit` boundaries.
 
 Before a prompt is published, the backend stores:
 
@@ -21,9 +21,13 @@ Before a prompt is published, the backend stores:
 - stream sequence watermark
 - accepted command sequence
 
-Worker 재실행은 Redis checkpoint rehydration, not a parent turn replay. A restarted worker loads the checkpoint and continues the active module cursor. It does not rebuild a parent turn, re-run completed modules, or accept reconstructed UI state as authority.
+When a frontend command is accepted, the backend records the command lifecycle as `processing` and runs validators/resolvers in memory until one terminal boundary is reached: `success`, `refused`, `failed`, `waiting_input`, or `completed`. Only that terminal boundary writes the authoritative checkpoint, cached `view_commit`, stream event, and command status.
+
+Worker 재실행은 Redis checkpoint rehydration, not a parent turn replay. A restarted worker loads the last authoritative checkpoint and continues from the stored external boundary. It does not rebuild a parent turn, re-run completed modules from frontend state, or accept reconstructed UI state as authority.
 
 The runtime ignores prompt replay aids, raw resume tokens, frontend-created request id values, and stale local payloads. A mismatched continuation must not mutate canonical game state.
+
+Internal `module_trace` is timing/debug evidence only. It is not an authoritative frontend render source and must not be used as a substitute for the final cached `view_commit`.
 
 ## 3. Stored Contracts
 
@@ -71,8 +75,11 @@ test/plugin-only surfaces guarded by contract tests may call narrow helpers, but
 - Accept only commands that match the active Redis checkpoint.
 - Publish stream events after semantic validation against the active frame/module.
 - Persist every prompt boundary before exposing it to clients.
+- Persist one command terminal boundary per accepted user command; do not write Redis checkpoints or authoritative `view_commit` records for each internal module transition.
 - Rehydrate from Redis on worker restart.
 - Reject duplicate or stale decisions without mutating state.
+- Treat duplicate `request_id` submissions as idempotency hits or explicit stale/refused results, never as new engine commands.
+- Reject a different `request_id` for the same active prompt while a command is already `processing` as `busy` or `conflict`.
 - Reject uncatalogued action types until a native module handler and continuation contract exist.
 
 ## 6. Verification
@@ -81,6 +88,9 @@ Required checks:
 
 - prompt continuation mismatch test
 - duplicate frontend command test
+- command-boundary single checkpoint/view_commit test
+- duplicate `request_id` idempotency test
+- same-prompt busy/conflict test
 - worker restart/resume test
 - simultaneous response resume test
 - `FortuneResolveModule`, `MapMoveModule`, `ArrivalTileModule` follow-up test

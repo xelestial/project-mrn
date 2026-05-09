@@ -17,6 +17,8 @@ from apps.server.src.services.session_service import SessionNotFoundError, Sessi
 router = APIRouter(prefix="/api/v1/sessions", tags=["stream"])
 
 _RUNTIME_WAKEUP_TASKS: dict[tuple[str, int], asyncio.Task[None]] = {}
+_RUNTIME_WAKEUP_DEFERRED_RETRY_DELAY_SEC = 0.05
+_RUNTIME_WAKEUP_DEFERRED_RETRY_DEADLINE_SEC = 30.0
 
 
 async def _send_json_or_disconnect(websocket: WebSocket, payload: dict[str, Any]) -> None:
@@ -208,9 +210,9 @@ async def _process_pending_runtime_command(
     session_service: Any,
     runtime_service: Any,
     trigger: str,
-) -> None:
+) -> dict:
     if command_seq <= 0:
-        return
+        return {"status": "skipped", "reason": "invalid_command_seq"}
     session = session_service.get_session(session_id)
     runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
     result = await runtime_service.process_command_once(
@@ -230,6 +232,7 @@ async def _process_pending_runtime_command(
         result_status=result_status,
         reason=(result or {}).get("reason"),
     )
+    return result or {}
 
 
 async def _wake_runtime_after_accepted_decision(
@@ -268,13 +271,27 @@ async def _wake_runtime_after_accepted_decision(
     async def _run_wakeup() -> None:
         started = time.perf_counter()
         try:
-            await _process_pending_runtime_command(
-                session_id=session_id,
-                command_seq=command_seq,
-                session_service=session_service,
-                runtime_service=runtime_service,
-                trigger="accepted_decision",
-            )
+            while True:
+                result = await _process_pending_runtime_command(
+                    session_id=session_id,
+                    command_seq=command_seq,
+                    session_service=session_service,
+                    runtime_service=runtime_service,
+                    trigger="accepted_decision",
+                )
+                result_status = str((result or {}).get("status") or "").strip()
+                if result_status != "running_elsewhere":
+                    break
+                elapsed = time.perf_counter() - started
+                if elapsed >= _RUNTIME_WAKEUP_DEFERRED_RETRY_DEADLINE_SEC:
+                    log_event(
+                        "runtime_wakeup_deferred_retry_exhausted",
+                        session_id=session_id,
+                        command_seq=command_seq,
+                        duration_ms=int(elapsed * 1000),
+                    )
+                    break
+                await asyncio.sleep(_RUNTIME_WAKEUP_DEFERRED_RETRY_DELAY_SEC)
         except Exception as exc:  # pragma: no cover - defensive wakeup path
             log_event(
                 "runtime_wakeup_after_decision_failed",
@@ -462,7 +479,6 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                         session_id=session_id,
                         last_commit_seq=last_commit_seq,
                         viewer=viewer,
-                        force=True,
                     )
                     await _send_json_or_disconnect(
                         websocket,

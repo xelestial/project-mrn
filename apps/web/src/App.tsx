@@ -2490,6 +2490,7 @@ export function App() {
       const sent = stream.sendDecision({
         requestId: actionablePrompt.requestId,
         playerId: actionablePrompt.playerId,
+        requestType: actionablePrompt.requestType,
         choiceId: "none",
         choicePayload: {
           selected_choice_ids: requestedIds,
@@ -2522,6 +2523,7 @@ export function App() {
       const sent = stream.sendDecision({
         requestId: actionablePrompt.requestId,
         playerId: actionablePrompt.playerId,
+        requestType: actionablePrompt.requestType,
         choiceId: shouldRemoveCurrent ? "yes" : "no",
         choicePayload: {},
         continuation: actionablePrompt.continuation,
@@ -2544,6 +2546,7 @@ export function App() {
     const sent = stream.sendDecision({
       requestId: actionablePrompt.requestId,
       playerId: actionablePrompt.playerId,
+      requestType: actionablePrompt.requestType,
       choiceId,
       choicePayload: {},
       continuation: actionablePrompt.continuation,

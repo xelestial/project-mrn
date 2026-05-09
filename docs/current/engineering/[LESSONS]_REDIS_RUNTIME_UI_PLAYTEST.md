@@ -9,6 +9,12 @@ Redis timing was not the main instability class. Failures came from unclear owne
 
 Current rule: engine modules own progress, Redis stores checkpoints, backend validates continuations, frontend renders projections.
 
+Module boundaries are not Redis boundaries. A module test verifies responsibility, input, output, and interface contracts without Redis, WebSocket, or `view_commit`. Redis belongs to runtime persistence/recovery tests; `view_commit` belongs to frontend projection/integration tests.
+
+User command boundaries are the default persistence boundaries. A button press such as movement or purchase should create a lightweight command lifecycle record (`processing -> success/refused/failed/waiting_input`), run internal validators/resolvers in memory, and publish a final authoritative state/view only when the command reaches an external boundary.
+
+Frontend duplicate submissions are absorbed by idempotency, not by hoping the browser sends only once. The UI must single-flight by active prompt, player, and action; reconnect recovery must check pending command status and the latest `view_commit` before retrying; the backend must treat a repeated `request_id` as a dedupe hit or explicit stale/refused result.
+
 ## 2. Prompt Lifecycle
 
 Every prompt must close through an explicit phase-progress event or a stored continuation result. Acknowledgement events alone are not enough for reconnect, replay, or delayed follow-up prompts.
@@ -57,13 +63,23 @@ Lesson from 2026-05-09: waiting for a server timeout while the same active promp
 Required rule:
 
 - Never classify repeated same-player decisions as "normal waiting" without checking `request_id`, `view_commit_seq_seen`, decision ACK, server `decision_received`, Redis command stream, and fallback records.
-- If the same active prompt is still visible and no ACK arrives, the headless client may resend the same already-selected decision with a fresh client sequence. It must not run the policy again for that prompt.
-- Resend must be bounded and separately counted as `unackedDecisionRetryCount`.
+- If the same active prompt is still visible and no ACK arrives, the headless client must not resend only because time passed. Browser play does not auto-click again after an ACK delay.
+- Resend is allowed only after reconnect exposes the same active prompt, because that is a real delivery-loss boundary. It must be bounded and separately counted as `unackedDecisionRetryCount`.
+- Simultaneous prompt decisions can arrive while the runtime is already processing another accepted command. `command_processing_already_active` is a deferral, not a terminal result. The wakeup task must retry the accepted command; otherwise the session can wait on a prompt whose decision is already accepted.
+- A decision accepted against the stored checkpoint continuation must not be rejected only because a replayed prompt envelope regenerates a different legal-choice list. The stored continuation is the authoritative contract; regenerated legal-choice drift is a diagnostic event and must be fixed from logs/tests without hiding the accepted command.
+- Runtime command rejection must be persisted and exposed through runtime status. If rejection is only visible in server logs while `/runtime-status` still reports `waiting_input`, the headless adapter will wait until idle timeout and misreport a hard protocol failure as slow play.
+- Protocol-gate live runs use the protocol compose stack on `127.0.0.1:9091`. Running the same command against `9090` validates the normal local backend and can hide whether the rebuilt protocol stack is actually under test.
 - A stale ACK caused by a recovered unacked resend is not the same as an unrecovered stale decision. The quality gate must distinguish the two.
+- The default headless policy must not blindly choose the first non-secondary legal choice for repeatable optional prompts. `burden_exchange` offers `yes` before `no`; repeatedly choosing `yes` turns a normal supply step into a maximal churn scenario and invalidates "fast familiar click" timing evidence.
 - `decision_timeout_fallback_seen`, rejected ACK, Redis fallback entry, or unmatched Redis command count is a failure for RL stability testing.
 - "One game completed" is not enough evidence. The report must include wall time, app duration, per-command timing, trace decision counts, server decision counts, Redis command counts, fallback counts, and per-seat client metrics.
 - One-game duration is a guardrail. Human play is slow when players deliberate to win; the protocol path itself is not slow. If one familiar operator can click through the normal game flow within 10 minutes without strategic deliberation, a headless run that exceeds 10 minutes is presumed stuck or desynchronized until the logs prove otherwise.
 - A timeout worker must claim the pending prompt before executing fallback. A stale Redis pending snapshot is evidence to re-check state, not permission to append fallback after normal decision acceptance already removed the prompt.
+- A late-game timestamp must be split by command timing before blaming policy speed. In the 2026-05-09 headless run, `command_seq=78` spent 8461ms across 13 normal module transitions and opened `r2:t7:p4:hidden_trick_card:65`; `command_seq=79` rejected the accepted choice in 76ms, then runtime status kept reviving the checkpoint as `waiting_input` for 60359ms. That is not slow decision making. It is a fail-fast/status exposure bug plus a replay legal-choice drift bug.
+- Hidden trick resume is checkpoint-authoritative. If the stored prompt accepted choice `14` but replay regeneration now offers `12/17/20`, the backend must expose that drift and continue from the checkpoint-validated payload instead of rejecting and waiting. The follow-up task is to fix the engine/module mutation boundary that caused the regenerated hand to differ.
+- A time-based unacked resend can create a false stale decision. In `sess_fT6B5tyTvbhJUoncx5yjYD26`, `r1:t5:p1:active_flip:62` was accepted, then the command advanced through round cleanup and opened the next round prompt in 4375ms. The headless 5s unacked retry sent the old request again and the backend correctly rejected it as `stale_prompt_request`. That retry is not browser-equivalent and must stay disabled outside reconnect recovery.
+- Per-command duration must include internal transition cost. In `sess_fT6B5tyTvbhJUoncx5yjYD26`, `command_seq=95` took 10991ms across 15 transitions; per-module Redis commits alone accounted for roughly 5.4s. A long turn can be backend persistence overhead even when every prompt decision is immediate.
+- Do not confuse modularity with external commits. Modularity means `PurchaseValidator`, `MovementResolver`, `ArrivalResolver`, and similar units keep narrow contracts and can be tested with pure in/out state. It does not mean every internal step writes Redis, rebuilds frontend projection, or emits a `view_commit`.
 
 Minimum comparison after every headless live RL run:
 

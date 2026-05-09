@@ -179,7 +179,7 @@ function parseArgs(args: string[]): CliOptions {
           "Usage: vite-node src/headless/runFullStackProtocolGate.ts [options]",
           "",
           "Options:",
-          "  --base-url http://127.0.0.1:9090",
+          "  --base-url http://127.0.0.1:9091",
           "  --profile live|contract",
           "  --seed 20260508",
           "  --timeout-ms 120000",
