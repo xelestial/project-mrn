@@ -419,6 +419,12 @@ async function installMockRuntime(
           window.setTimeout(() => {
             this.readyState = MockWebSocket.OPEN;
             this.onopen?.(new Event("open"));
+            const match = this.url.match(/\/api\/v1\/sessions\/([^/]+)\/stream/);
+            const sessionId = match ? decodeURIComponent(match[1]) : "";
+            const latestCommit = latestCommitForSession(sessionId);
+            if (latestCommit) {
+              this.emitMessages([latestCommit]);
+            }
           }, 0);
         }
 

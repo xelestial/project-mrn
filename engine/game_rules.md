@@ -53,3 +53,6 @@
 ## Snapshot contract
 
 Rule defaults and injected config mirrors are part of the server parameter manifest. When rule-visible defaults change, regenerate the manifest snapshot so runtime setup, tests, and UI-visible configuration stay aligned.
+
+## 2026-05-09 contract sync
+`GameRules.start_reward` is a module boundary for initial rewards. Any change to this rule must update engine module expectations and server manifest expectations together.

@@ -8,6 +8,11 @@ import {
   type HeadlessMetrics,
   type HeadlessTraceEvent,
 } from "./HeadlessGameClient";
+import {
+  FrontendTransportAdapter,
+  FrontendTransportApiError,
+  normalizeFrontendHttpBaseUrl,
+} from "./frontendTransportAdapter";
 
 export type ProtocolProfile = "contract" | "live";
 
@@ -168,12 +173,6 @@ export type FullStackProtocolRunResult = {
   traces: HeadlessTraceEvent[];
 };
 
-type ApiEnvelope<T> = {
-  ok?: boolean;
-  data?: T;
-  error?: unknown;
-};
-
 type CreateSessionResult = {
   session_id?: string;
   host_token?: string;
@@ -201,20 +200,6 @@ const DEFAULT_CPU_DIAGNOSTIC_IDLE_MS = 30_000;
 const DEFAULT_CPU_LOW_LOAD_PERCENT = 10;
 const DEFAULT_PROGRESS_INTERVAL_MS = 5_000;
 const PROGRESS_CHANGE_MIN_INTERVAL_MS = 1_000;
-
-class ProtocolApiError extends Error {
-  readonly status: number;
-  readonly body: unknown;
-  readonly code: string;
-
-  constructor(status: number, body: unknown) {
-    super(`Protocol API request failed (${status}): ${JSON.stringify(body)}`);
-    this.name = "ProtocolApiError";
-    this.status = status;
-    this.body = body;
-    this.code = extractApiErrorCode(body);
-  }
-}
 
 export function buildHeadlessHumanSessionPayload({
   seed,
@@ -349,8 +334,9 @@ export function policyForProtocolPlayer(
 export async function createProtocolSession(
   baseUrl: string,
   payload: HeadlessHumanSessionPayload,
+  transport = new FrontendTransportAdapter({ baseUrl }),
 ): Promise<ProtocolSessionInfo> {
-  const data = await postJson<CreateSessionResult>(baseUrl, "/api/v1/sessions", payload);
+  const data = await transport.createSession(payload) as CreateSessionResult;
   const sessionId = requireString(data.session_id, "create session response did not include session_id");
   const hostToken = requireString(data.host_token, "create session response did not include host_token");
   const joinTokens = Object.fromEntries(
@@ -367,15 +353,17 @@ export async function createProtocolSession(
 export async function joinProtocolSeats(
   baseUrl: string,
   session: Pick<ProtocolSessionInfo, "sessionId" | "joinTokens">,
+  transport = new FrontendTransportAdapter({ baseUrl }),
 ): Promise<ProtocolSeatJoin[]> {
   const joins: ProtocolSeatJoin[] = [];
   for (const seat of Object.keys(session.joinTokens).map(Number).sort((left, right) => left - right)) {
     const token = session.joinTokens[seat];
-    const data = await postJson<JoinSessionResult>(baseUrl, `/api/v1/sessions/${encodeURIComponent(session.sessionId)}/join`, {
+    const data = await transport.joinSession({
+      sessionId: session.sessionId,
       seat,
-      join_token: token,
-      display_name: `Headless ${seat}`,
-    });
+      joinToken: token,
+      displayName: `Headless ${seat}`,
+    }) as JoinSessionResult;
     joins.push({
       seat,
       playerId: Number(data.player_id ?? seat),
@@ -389,23 +377,26 @@ export async function startProtocolSession(
   baseUrl: string,
   sessionId: string,
   hostToken: string,
+  transport = new FrontendTransportAdapter({ baseUrl }),
 ): Promise<void> {
-  await postJson(baseUrl, `/api/v1/sessions/${encodeURIComponent(sessionId)}/start`, {
-    host_token: hostToken,
-  });
+  await transport.startSession({ sessionId, hostToken });
 }
 
 export async function fetchRuntimeStatus(
   baseUrl: string,
   sessionId: string,
   token?: string,
+  transport = new FrontendTransportAdapter({
+    baseUrl,
+    fetchRetryCount: DEFAULT_FETCH_RETRY_COUNT,
+    fetchRetryDelayMs: DEFAULT_FETCH_RETRY_DELAY_MS,
+  }),
 ): Promise<string | null> {
-  const query = token ? `?token=${encodeURIComponent(token)}` : "";
   let data: RuntimeStatusResult;
   try {
-    data = await getJson<RuntimeStatusResult>(baseUrl, `/api/v1/sessions/${encodeURIComponent(sessionId)}/runtime-status${query}`);
+    data = await transport.getRuntimeStatus({ sessionId, token }) as RuntimeStatusResult;
   } catch (error) {
-    if (error instanceof ProtocolApiError && error.status === 404 && error.code === "SESSION_NOT_FOUND") {
+    if (error instanceof FrontendTransportApiError && error.status === 404 && error.code === "SESSION_NOT_FOUND") {
       return "not_found";
     }
     throw error;
@@ -420,6 +411,11 @@ export async function runFullStackProtocolGame(
   const startedAt = Date.now();
   const profile = options.profile ?? "live";
   const baseUrl = normalizeBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL);
+  const transport = new FrontendTransportAdapter({
+    baseUrl,
+    fetchRetryCount: DEFAULT_FETCH_RETRY_COUNT,
+    fetchRetryDelayMs: DEFAULT_FETCH_RETRY_DELAY_MS,
+  });
   const seed = options.seed ?? Date.now();
   const timeoutMs = Math.max(1_000, options.timeoutMs ?? (profile === "live" ? 900_000 : 120_000));
   const pollIntervalMs = Math.max(25, options.pollIntervalMs ?? (profile === "live" ? 500 : 100));
@@ -461,8 +457,8 @@ export async function runFullStackProtocolGame(
         : 0;
 
   try {
-    const session = await createProtocolSession(baseUrl, payload);
-    const joinedSeats = await joinProtocolSeats(baseUrl, session);
+    const session = await createProtocolSession(baseUrl, payload, transport);
+    const joinedSeats = await joinProtocolSeats(baseUrl, session, transport);
     session.seats = joinedSeats;
     sessionId = session.sessionId;
 
@@ -498,7 +494,7 @@ export async function runFullStackProtocolGame(
       client.connect();
     }
     await waitForClientsToConnect(clients, 2_500);
-    await startProtocolSession(baseUrl, session.sessionId, session.hostToken);
+    await startProtocolSession(baseUrl, session.sessionId, session.hostToken, transport);
     if (reconnectScenarios.has("after_start")) {
       forceReconnectOnce(clients, firedReconnectScenarios, "after_start");
     }
@@ -516,7 +512,7 @@ export async function runFullStackProtocolGame(
       const latestRuntime = latestRuntimePosition(clients);
       previousRound = latestRuntime.roundIndex ?? previousRound;
       previousTurn = latestRuntime.turnIndex ?? previousTurn;
-      runtimeStatus = await fetchRuntimeStatus(baseUrl, session.sessionId, joinedSeats[0]?.token);
+      runtimeStatus = await fetchRuntimeStatus(baseUrl, session.sessionId, joinedSeats[0]?.token, transport);
       const progressKey = buildProtocolProgressKey(clients, runtimeStatus);
       let progressKeyChanged = false;
       if (progressKey !== lastProgressKey) {
@@ -553,7 +549,8 @@ export async function runFullStackProtocolGame(
         })
       ) {
         lastProgressCallbackAt = progressCheckAt;
-        await options.onProgress(
+        const onProgress = options.onProgress;
+        await onProgress?.(
           buildProgressSnapshot({
             sessionId,
             profile,
@@ -580,7 +577,7 @@ export async function runFullStackProtocolGame(
     if (sessionId) {
       try {
         const firstSeatToken = clients.find((client) => client.playerId > 0)?.token;
-        runtimeStatus = await fetchRuntimeStatus(baseUrl, sessionId, firstSeatToken);
+        runtimeStatus = await fetchRuntimeStatus(baseUrl, sessionId, firstSeatToken, transport);
       } catch {
         // Keep the last successfully observed status in the run summary.
       }
@@ -979,65 +976,8 @@ async function waitForClientsToConnect(clients: HeadlessGameClient[], timeoutMs:
   }
 }
 
-async function postJson<T = unknown>(baseUrl: string, path: string, payload: unknown): Promise<T> {
-  const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  return unwrapApiEnvelope<T>(response);
-}
-
-async function getJson<T = unknown>(baseUrl: string, path: string): Promise<T> {
-  const response = await fetchWithRetry(`${normalizeBaseUrl(baseUrl)}${path}`);
-  return unwrapApiEnvelope<T>(response);
-}
-
-async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response> {
-  let lastError: unknown = null;
-  for (let attempt = 0; attempt <= DEFAULT_FETCH_RETRY_COUNT; attempt += 1) {
-    try {
-      return await fetch(url, init);
-    } catch (error) {
-      lastError = error;
-      if (attempt >= DEFAULT_FETCH_RETRY_COUNT) {
-        break;
-      }
-      await sleep(DEFAULT_FETCH_RETRY_DELAY_MS * (attempt + 1));
-    }
-  }
-  throw lastError;
-}
-
-async function unwrapApiEnvelope<T>(response: Response): Promise<T> {
-  const body = (await response.json()) as ApiEnvelope<T>;
-  if (!response.ok || body.ok === false) {
-    throw new ProtocolApiError(response.status, body.error ?? body);
-  }
-  return (body.data ?? body) as T;
-}
-
-function extractApiErrorCode(body: unknown): string {
-  if (!isRecord(body)) {
-    return "";
-  }
-  const code = body.code;
-  if (typeof code === "string") {
-    return code;
-  }
-  const error = body.error;
-  if (isRecord(error) && typeof error.code === "string") {
-    return error.code;
-  }
-  return "";
-}
-
 function normalizeBaseUrl(baseUrl: string): string {
-  const trimmed = baseUrl.trim().replace(/\/+$/, "");
-  if (!trimmed) {
-    return DEFAULT_BASE_URL;
-  }
-  return /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  return normalizeFrontendHttpBaseUrl(baseUrl || DEFAULT_BASE_URL);
 }
 
 function requireString(value: unknown, message: string): string {

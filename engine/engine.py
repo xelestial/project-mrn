@@ -5,15 +5,16 @@ import json
 import random
 import inspect
 import uuid
-from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, List, Optional
 import math
 
-from ai_policy import BasePolicy, MovementDecision
+from ai_policy import MovementDecision
 from characters import CHARACTERS, CARD_TO_NAMES, randomized_active_by_card
 from config import CellKind, GameConfig
+from decision_port import DecisionPort, DecisionRequest, EngineDecisionResume
 from policy_mark_utils import ordered_public_mark_targets
+from result import GameResult
 from state import ActionEnvelope, GameState, PlayerState
 from tile_effects import (
     build_purchase_context,
@@ -95,68 +96,6 @@ from rule_script_engine import RuleScriptEngine
 from viewer.events import Phase, VisEvent
 from viewer.public_state import build_player_public_state, build_turn_end_snapshot
 from viewer.stream import VisEventStream
-
-
-@dataclass(slots=True)
-class GameResult:
-    winner_ids: List[int]
-    end_reason: str
-    total_turns: int
-    rounds_completed: int
-    alive_count: int
-    bankrupt_players: int
-    final_f_value: float
-    total_placed_coins: int
-    player_summary: List[dict] = field(default_factory=list)
-    strategy_summary: List[dict] = field(default_factory=list)
-    weather_history: List[str] = field(default_factory=list)
-    action_log: List[dict] = field(default_factory=list)
-    ai_decision_log: List[dict] = field(default_factory=list)
-    bankruptcy_events: List[dict] = field(default_factory=list)
-
-
-@dataclass(slots=True)
-class DecisionRequest:
-    decision_name: str
-    request_type: str
-    state: GameState
-    player: PlayerState
-    player_id: int
-    round_index: int | None
-    turn_index: int | None
-    public_context: dict[str, Any] = field(default_factory=dict)
-    fallback_policy: str = "engine_default"
-    args: tuple[Any, ...] = ()
-    kwargs: dict[str, Any] = field(default_factory=dict)
-    fallback: Callable[[], Any] | None = None
-
-
-class DecisionPort:
-    def __init__(self, policy: BasePolicy) -> None:
-        self._policy = policy
-
-    def request(self, request: DecisionRequest) -> Any:
-        decision_fn = getattr(self._policy, request.decision_name, None)
-        if decision_fn is None:
-            if request.fallback is not None:
-                return request.fallback()
-            raise AttributeError(request.decision_name)
-        return decision_fn(request.state, request.player, *request.args, **request.kwargs)
-
-
-@dataclass(frozen=True, slots=True)
-class EngineDecisionResume:
-    request_id: str
-    player_id: int
-    request_type: str
-    choice_id: str
-    choice_payload: dict
-    resume_token: str
-    frame_id: str
-    module_id: str
-    module_type: str
-    module_cursor: str
-    batch_id: str = ""
 
 
 class GameEngine:

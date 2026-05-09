@@ -1,8 +1,13 @@
 import type { ViewCommitPayload } from "../../core/contracts/stream";
+import {
+  FrontendConnectionRequestError,
+  getFrontendConnectionBaseUrl,
+  normalizeFrontendHttpBaseUrl,
+  requestFrontendConnectionJson,
+  setFrontendConnectionBaseUrl,
+} from "./connectionRequestManager";
 
 type SeatType = "human" | "ai";
-
-let apiBaseUrl = "";
 
 export type SeatInput = {
   seat: number;
@@ -10,37 +15,7 @@ export type SeatInput = {
   ai_profile?: string;
 };
 
-type ApiEnvelope<T> = {
-  ok: boolean;
-  data: T | null;
-  error: { code: string; category?: string; message: string; retryable: boolean } | null;
-};
-
-type ErrorEnvelope = {
-  ok?: boolean;
-  data?: unknown;
-  error?: { code?: string; category?: string; message?: string; retryable?: boolean } | null;
-  detail?: unknown;
-};
-
-export class ApiRequestError extends Error {
-  readonly status: number;
-  readonly code?: string;
-  readonly category?: string;
-  readonly retryable?: boolean;
-
-  constructor(
-    message: string,
-    args: { status: number; code?: string; category?: string; retryable?: boolean }
-  ) {
-    super(message);
-    this.name = "ApiRequestError";
-    this.status = args.status;
-    this.code = args.code;
-    this.category = args.category;
-    this.retryable = args.retryable;
-  }
-}
+export { FrontendConnectionRequestError as ApiRequestError };
 
 export type ParameterManifest = {
   manifest_version: number;
@@ -192,75 +167,19 @@ export type ResumeRoomResult = PublicRoomResult & {
 };
 
 export function normalizeServerBaseUrl(value: string | null | undefined): string {
-  const raw = typeof value === "string" ? value.trim() : "";
-  if (!raw) {
-    return "http://127.0.0.1:9090";
-  }
-  if (/^https?:\/\//i.test(raw)) {
-    return raw.replace(/\/+$/, "");
-  }
-  return `http://${raw}`.replace(/\/+$/, "");
+  return normalizeFrontendHttpBaseUrl(value);
 }
 
 export function setApiBaseUrl(value: string): void {
-  apiBaseUrl = normalizeServerBaseUrl(value);
+  setFrontendConnectionBaseUrl(value);
 }
 
 export function getApiBaseUrl(): string {
-  return normalizeServerBaseUrl(apiBaseUrl);
-}
-
-function buildApiUrl(path: string): string {
-  const base = getApiBaseUrl();
-  return `${base}${path}`;
-}
-
-function extractErrorMessage(payload: ErrorEnvelope | null | undefined, status: number): string {
-  const directMessage = payload?.error?.message;
-  if (typeof directMessage === "string" && directMessage.trim()) {
-    return directMessage;
-  }
-  const detail = payload?.detail;
-  if (typeof detail === "string" && detail.trim()) {
-    return detail;
-  }
-  if (detail && typeof detail === "object") {
-    const detailRecord = detail as { error?: { message?: string } | null; message?: unknown };
-    const nested = detailRecord.error?.message;
-    if (typeof nested === "string" && nested.trim()) {
-      return nested;
-    }
-    if (typeof detailRecord.message === "string" && detailRecord.message.trim()) {
-      return detailRecord.message;
-    }
-  }
-  return `Request failed: ${status}`;
+  return getFrontendConnectionBaseUrl();
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(buildApiUrl(path), {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
-  let payload: (ApiEnvelope<T> & ErrorEnvelope) | null = null;
-  try {
-    payload = (await response.json()) as ApiEnvelope<T> & ErrorEnvelope;
-  } catch {
-    payload = null;
-  }
-  if (!response.ok || !payload?.ok || payload.data == null) {
-    const message = extractErrorMessage(payload, response.status);
-    throw new ApiRequestError(message, {
-      status: response.status,
-      code: payload?.error?.code,
-      category: payload?.error?.category,
-      retryable: payload?.error?.retryable,
-    });
-  }
-  return payload.data;
+  return requestFrontendConnectionJson<T>({ path, init, requireData: true });
 }
 
 export async function createSession(args: {

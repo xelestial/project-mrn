@@ -161,13 +161,26 @@ def _runtime_prompt_sequence_seed(
     pending_prompt_instance_id = int(getattr(state, "pending_prompt_instance_id", 0) or 0)
     pending_prompt_request_id = str(getattr(state, "pending_prompt_request_id", "") or "").strip()
     resume_request_id = str(getattr(decision_resume, "request_id", "") or "").strip() if decision_resume is not None else ""
+    resume_prompt_instance_id = (
+        _request_prompt_instance_id(resume_request_id, str(decision_resume.request_type or ""))
+        if decision_resume is not None
+        else 0
+    )
+    pending_prompt_matches_resume = (
+        decision_resume is not None
+        and pending_prompt_request_id
+        and pending_prompt_request_id == resume_request_id
+        and pending_prompt_instance_id == resume_prompt_instance_id
+    )
+    prior_prompt_seed = _prior_same_module_resume_prompt_seed(checkpoint, decision_resume)
     if pending_prompt_instance_id > 0 and (
         decision_resume is None
-        or (pending_prompt_request_id and pending_prompt_request_id == resume_request_id)
+        or pending_prompt_matches_resume
     ):
+        if pending_prompt_matches_resume and prior_prompt_seed is not None and resume_prompt_instance_id > prior_prompt_seed + 2:
+            return prior_prompt_seed
         return max(0, pending_prompt_instance_id - 1)
 
-    prior_prompt_seed = _prior_same_module_resume_prompt_seed(checkpoint, decision_resume)
     if prior_prompt_seed is not None:
         return prior_prompt_seed
     return prompt_sequence
@@ -1022,7 +1035,12 @@ class RuntimeService:
             return base
         if session is not None and session.status == SessionStatus.IN_PROGRESS and checkpoint_waiting_input:
             base = self._mark_checkpoint_waiting_input(session_id, base=base, reason="checkpoint_waiting_input")
-        elif session is not None and session.status == SessionStatus.IN_PROGRESS and base.get("status") == "waiting_input":
+        elif (
+            session is not None
+            and session.status == SessionStatus.IN_PROGRESS
+            and base.get("status") == "waiting_input"
+            and recovery.get("reason") != "game_state_store_unavailable"
+        ):
             base["status"] = "recovery_required"
             base["watchdog_state"] = "recovery_required"
             base["reason"] = "stale_waiting_input_checkpoint"

@@ -75,7 +75,7 @@ describe("StreamClient", () => {
 
     const socket = MockWebSocket.instances[0];
     expect(socket.url).toContain("/api/v1/sessions/sess_a/stream");
-    expect(socket.url).toContain("token=seat%20token");
+    expect(socket.url).toContain("token=seat+token");
 
     socket.triggerOpen();
     expect(socket.sent).toHaveLength(1);

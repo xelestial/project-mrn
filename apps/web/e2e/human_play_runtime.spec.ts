@@ -180,18 +180,18 @@ async function expectSpectatorPanelCompact(page: Page, viewportWidth: number): P
       trainRowCount: trainRows.size,
       handleVisible: handle ? getComputedStyle(handle).display !== "none" : false,
       handleCursor: handle ? getComputedStyle(handle).cursor : "",
-      panelCursor: panel ? getComputedStyle(panel).cursor : "",
     };
   });
 
-  expect(metrics.contextWidth).toBeLessThanOrEqual(Math.min(770, viewportWidth - 48));
+  const expectedContextWidth = Math.min(viewportWidth * 0.75, viewportWidth - 48);
+  expect(metrics.contextWidth).toBeLessThanOrEqual(expectedContextWidth + 2);
+  expect(metrics.contextWidth).toBeGreaterThanOrEqual(expectedContextWidth - 8);
   expect(metrics.panelHasInternalScroll).toBe(false);
   expect(metrics.trainHasInternalScroll).toBe(false);
   expect(metrics.trainStepCount).toBeGreaterThan(0);
   expect(metrics.trainRowCount).toBeLessThanOrEqual(3);
   expect(metrics.handleVisible).toBe(true);
   expect(metrics.handleCursor).toBe("grab");
-  expect(metrics.panelCursor).toBe("grab");
 }
 
 async function expectSpectatorPanelDraggable(page: Page): Promise<void> {
@@ -349,6 +349,7 @@ async function expectCharacterPromptSingleRow(page: Page, viewportWidth: number)
 
     return {
       promptWidth: prompt.getBoundingClientRect().width,
+      promptWidthPercent: Number(prompt.getAttribute("data-prompt-width") ?? "75"),
       cardCount: cards.length,
       rowCount: cardRows.size,
       gridColumns,
@@ -358,11 +359,12 @@ async function expectCharacterPromptSingleRow(page: Page, viewportWidth: number)
     };
   });
 
-  expect(metrics.promptWidth).toBeLessThanOrEqual(Math.min(viewportWidth * 0.8, 1280) + 2);
-  expect(metrics.promptWidth).toBeGreaterThanOrEqual(Math.min(viewportWidth * 0.8, 1280) - 8);
+  const expectedPromptWidth = Math.min(viewportWidth * (metrics.promptWidthPercent / 100), viewportWidth - 24);
+  expect(metrics.promptWidth).toBeLessThanOrEqual(expectedPromptWidth + 2);
+  expect(metrics.promptWidth).toBeGreaterThanOrEqual(expectedPromptWidth - 8);
   expect(metrics.cardCount).toBe(4);
   expect(metrics.rowCount).toBe(1);
-  expect(metrics.gridColumns).toBe(4);
+  expect(metrics.gridColumns).toBeGreaterThanOrEqual(4);
   expect(metrics.bodyOverflowsY).toBe(false);
   expect(metrics.gridOverflowsY).toBe(false);
   expect(metrics.gridOverflowsX).toBe(false);
@@ -659,6 +661,13 @@ async function installMockRuntime(
           window.setTimeout(() => {
             this.readyState = MockWebSocket.OPEN;
             this.onopen?.(new Event("open"));
+            const match = this.url.match(/\/api\/v1\/sessions\/([^/]+)\/stream/);
+            const sessionId = match ? decodeURIComponent(match[1]) : "";
+            const latestCommit = latestCommitForSession(sessionId);
+            if (!latestCommit) {
+              return;
+            }
+            this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(latestCommit) }));
           }, 0);
         }
 

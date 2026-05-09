@@ -21,3 +21,4 @@ Bootstrap note: tests pin the engine directory on import so runtime modules reso
 
 - 2026-04-15 sync: custom lap reward injection coverage now pins `points_budget` and `coins_point_cost` alongside reward amount so the injected four-coin payout remains legal under the stage-3 budget rules.
 - 2026-05-06 sync: rule injection coverage is treated as part of the parameter-manifest contract, so changes to rule-visible defaults must update the snapshot used by server setup checks.
+- 2026-05-09 sync: start reward rule expectations are part of module communication tests. If the rule changes, update engine tests and backend manifest tests in the same change.

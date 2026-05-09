@@ -9,7 +9,9 @@ _ENGINE_PATH = str(_ENGINE_DIR)
 if _ENGINE_PATH not in sys.path:
     sys.path.insert(0, _ENGINE_PATH)
 
-from .engine import DecisionRequest, GameEngine, GameResult
+from .decision_port import DecisionPort, DecisionRequest, EngineDecisionResume
+from .engine import GameEngine
+from .result import GameResult
 
 
-__all__ = ["DecisionRequest", "GameEngine", "GameResult"]
+__all__ = ["DecisionPort", "DecisionRequest", "EngineDecisionResume", "GameEngine", "GameResult"]

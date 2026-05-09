@@ -7882,7 +7882,7 @@ body {
 .prompt-overlay-draft_card .prompt-character-card,
 .prompt-overlay-final_character .prompt-character-card,
 .prompt-overlay-final_character_choice .prompt-character-card {
-  height: 100%;
+  height: auto;
   min-height: 0;
   overflow: hidden;
 }
@@ -7896,6 +7896,9 @@ body {
   align-items: start;
   gap: clamp(6px, 0.8vh, 10px);
   padding: var(--prompt-character-card-padding);
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -13085,7 +13088,7 @@ body {
   .page.page-match .prompt-overlay-final_character .prompt-character-card-grid,
   .page.page-match .prompt-overlay-final_character_choice .prompt-character-card-grid {
     grid-template-columns: repeat(auto-fit, minmax(var(--prompt-character-card-min-width, 170px), 1fr));
-    grid-auto-rows: minmax(var(--prompt-character-card-row-height, 360px), 1fr);
+    grid-auto-rows: minmax(0, 1fr);
     gap: clamp(8px, 0.8vw, 12px);
     height: 100%;
     min-height: 0;

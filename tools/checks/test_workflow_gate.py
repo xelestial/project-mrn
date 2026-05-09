@@ -26,18 +26,24 @@ def test_all_workflow_can_include_browser() -> None:
 
 
 def test_runner_writes_report_and_stage_logs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from tools.checks.workflow_gate import RunContext, run_workflows
+    from tools.checks import workflow_gate
 
     calls: list[list[str]] = []
+    adapter_checks: list[bool] = []
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         calls.append(cmd)
         return subprocess.CompletedProcess(cmd, 0, stdout='{"ok": true}\n', stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        workflow_gate,
+        "assert_backend_test_adapter_catalog_current",
+        lambda: adapter_checks.append(True),
+    )
 
-    report = run_workflows(
-        RunContext(
+    report = workflow_gate.run_workflows(
+        workflow_gate.RunContext(
             workflows=["runtime", "prompt"],
             profile="smoke",
             seed=123,
@@ -49,6 +55,7 @@ def test_runner_writes_report_and_stage_logs(tmp_path: Path, monkeypatch: pytest
     assert [workflow["name"] for workflow in report["workflows"]] == ["runtime", "prompt"]
     assert all(workflow["ok"] for workflow in report["workflows"])
     assert calls
+    assert adapter_checks == [True]
     assert (tmp_path / "workflow_report.json").exists()
     assert (tmp_path / "runtime" / "runtime-pytest.stdout.log").exists()
 
@@ -78,6 +85,54 @@ def test_runner_marks_failed_stage_and_preserves_command_output(
     assert stage["returncode"] == 7
     assert Path(stage["stdout_path"]).read_text(encoding="utf-8") == "out"
     assert Path(stage["stderr_path"]).read_text(encoding="utf-8") == "err"
+
+
+def test_live_protocol_stage_maps_workflow_profile_to_protocol_profile() -> None:
+    from tools.checks.workflow_gate import RunContext, build_workflow_stages
+
+    smoke_stage = build_workflow_stages("protocol", RunContext(workflows=["protocol"], live_protocol=True))[1]
+    local_stage = build_workflow_stages(
+        "protocol",
+        RunContext(workflows=["protocol"], profile="local", live_protocol=True),
+    )[1]
+
+    assert smoke_stage.cmd[smoke_stage.cmd.index("--profile") + 1] == "contract"
+    assert local_stage.cmd[local_stage.cmd.index("--profile") + 1] == "live"
+
+
+def test_smoke_live_protocol_stage_uses_bounded_contract_config_and_trace_paths(tmp_path: Path) -> None:
+    from tools.checks.workflow_gate import RunContext, build_workflow_stages
+
+    stage = build_workflow_stages(
+        "protocol",
+        RunContext(workflows=["protocol"], live_protocol=True, output_dir=tmp_path),
+    )[1]
+
+    assert "--config-json" in stage.cmd
+    config = json.loads(stage.cmd[stage.cmd.index("--config-json") + 1])
+    assert config == {
+        "rules": {
+            "end": {
+                "alive_players_at_most": 1,
+                "f_threshold": 4,
+                "monopolies_to_trigger_end": 1,
+                "tiles_to_trigger_end": 4,
+            }
+        }
+    }
+    assert stage.cmd[stage.cmd.index("--out") + 1] == str(tmp_path / "protocol" / "live" / "protocol_trace.jsonl")
+    assert stage.cmd[stage.cmd.index("--replay-out") + 1] == str(tmp_path / "protocol" / "live" / "protocol_replay.jsonl")
+
+
+def test_local_live_protocol_stage_keeps_full_live_game_config() -> None:
+    from tools.checks.workflow_gate import RunContext, build_workflow_stages
+
+    stage = build_workflow_stages(
+        "protocol",
+        RunContext(workflows=["protocol"], profile="local", live_protocol=True),
+    )[1]
+
+    assert "--config-json" not in stage.cmd
 
 
 def test_cli_prints_compact_summary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

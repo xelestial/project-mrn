@@ -53,7 +53,7 @@ describe("replayClient", () => {
     ]);
     expect(fetchMock).toHaveBeenCalledWith(
       "http://room.test/api/v1/sessions/sess_a/replay",
-      { signal: undefined },
+      { headers: { "Content-Type": "application/json" }, signal: undefined },
     );
   });
 

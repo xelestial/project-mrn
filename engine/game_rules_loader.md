@@ -28,3 +28,6 @@ Relative ruleset file paths now resolve from the module directory when the calle
 
 ### Start reward schema
 `start_reward` is loaded and saved as explicit metadata for the game-start allocation budget. It supports `points_budget`, per-resource point costs, and resource pools.
+
+## 2026-05-09 contract sync
+Ruleset loader roundtrips are part of the backend setup contract. Add or rename rule fields only with matching loader tests and manifest snapshot updates.

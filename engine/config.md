@@ -56,3 +56,6 @@ Board layouts may now describe land tiles with `economy_profile` keys. Numeric c
 
 ## Start Resource Defaults
 The current default start resource mirror is 20 cash, 0 hand score tokens, and 2 shards. Additional start allocation is rule metadata under `GameRules.start_reward` rather than a config mirror field.
+
+## 2026-05-09 contract sync
+Start reward metadata is part of the engine/server parameter contract. Changes to default-visible rule values must update the parameter manifest snapshot and the tests that consume it.

@@ -22,6 +22,11 @@ import {
   initialGameStreamState,
   type GameStreamState,
 } from "../domain/store/gameStreamReducer";
+import {
+  createFrontendWebSocket,
+  parseFrontendWebSocketMessage,
+  sendFrontendWebSocketMessage,
+} from "../infra/ws/webSocketManager";
 
 export type HeadlessPolicyDecision = {
   choiceId: string;
@@ -346,7 +351,11 @@ export class HeadlessGameClient {
     this.closedByUser = false;
     this.clearReconnectTimer();
     this.setStatus("connecting");
-    const socket = new WebSocket(this.buildSocketUrl());
+    const socket = createFrontendWebSocket({
+      baseUrl: this.baseUrl,
+      sessionId: this.sessionId,
+      token: this.token,
+    });
     this.socket = socket;
 
     socket.addEventListener("open", () => {
@@ -373,7 +382,7 @@ export class HeadlessGameClient {
       }
     });
     socket.addEventListener("message", (event) => {
-      void this.handleSocketMessage(String(event.data));
+      void this.handleSocketMessage(event.data);
     });
   }
 
@@ -437,11 +446,10 @@ export class HeadlessGameClient {
   }
 
   send(message: OutboundMessage): boolean {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+    if (!this.socket) {
       return false;
     }
-    this.socket.send(JSON.stringify(message));
-    return true;
+    return sendFrontendWebSocketMessage(this.socket, message);
   }
 
   markDecisionSendFailed(message: OutboundMessage): void {
@@ -470,9 +478,9 @@ export class HeadlessGameClient {
     return this.trace.map(serializeHeadlessTraceEvent).join("\n");
   }
 
-  private async handleSocketMessage(rawData: string): Promise<void> {
+  private async handleSocketMessage(rawData: unknown): Promise<void> {
     try {
-      const message = JSON.parse(rawData) as InboundMessage;
+      const message = parseFrontendWebSocketMessage(rawData);
       const outboundMessages = await this.ingestMessage(message);
       for (const outbound of outboundMessages) {
         const sent = this.send(outbound);
@@ -1089,14 +1097,6 @@ export class HeadlessGameClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-  }
-
-  private buildSocketUrl(): string {
-    const rawBase = this.baseUrl.trim().replace(/\/+$/, "") || "http://127.0.0.1:9090";
-    const normalizedBase = /^https?:\/\//i.test(rawBase) ? rawBase : `http://${rawBase}`;
-    const wsBase = normalizedBase.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:");
-    const tokenQuery = this.token ? `?token=${encodeURIComponent(this.token)}` : "";
-    return `${wsBase}/api/v1/sessions/${encodeURIComponent(this.sessionId)}/stream${tokenQuery}`;
   }
 
   private recordDecisionTimeoutFallbacks(message: InboundMessage): void {

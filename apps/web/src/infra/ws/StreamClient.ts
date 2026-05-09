@@ -1,4 +1,9 @@
 import type { ConnectionStatus, InboundMessage, OutboundMessage } from "../../core/contracts/stream";
+import {
+  createFrontendWebSocket,
+  parseFrontendWebSocketMessage,
+  sendFrontendWebSocketMessage,
+} from "./webSocketManager";
 
 export class StreamClient {
   private baseUrl = "";
@@ -16,8 +21,6 @@ export class StreamClient {
     this.lastConnectParams = params;
     this.baseUrl = params.baseUrl ?? this.baseUrl;
     this.clearReconnectTimer();
-    const tokenQuery = params.token ? `?token=${encodeURIComponent(params.token)}` : "";
-    const url = this.buildSocketUrl(params.sessionId, tokenQuery);
     const nextConnectionKey = `${params.sessionId}\n${params.token ?? ""}\n${this.baseUrl}`;
     if (
       this.socket &&
@@ -34,7 +37,11 @@ export class StreamClient {
       this.socket = null;
     }
     this.emitStatus("connecting");
-    const socket = new WebSocket(url);
+    const socket = createFrontendWebSocket({
+      baseUrl: this.baseUrl,
+      sessionId: params.sessionId,
+      token: params.token,
+    });
     this.socket = socket;
     this.connectionKey = nextConnectionKey;
 
@@ -73,7 +80,7 @@ export class StreamClient {
         return;
       }
       try {
-        const parsed = JSON.parse(String(event.data)) as InboundMessage;
+        const parsed = parseFrontendWebSocketMessage(event.data);
         if (parsed.type === "error" && parsed.payload?.retryable === false) {
           this.closedByUser = true;
           this.lastConnectParams = null;
@@ -99,17 +106,13 @@ export class StreamClient {
   }
 
   send(message: OutboundMessage): boolean {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+    if (!this.socket) {
       return false;
     }
-    this.socket.send(JSON.stringify(message));
-    return true;
+    return sendFrontendWebSocketMessage(this.socket, message);
   }
 
   requestResume(lastCommitSeq: number): boolean {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      return false;
-    }
     return this.send({ type: "resume", last_commit_seq: Math.max(0, Math.floor(lastCommitSeq)) });
   }
 
@@ -162,19 +165,5 @@ export class StreamClient {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-  }
-
-  private buildSocketUrl(sessionId: string, tokenQuery: string): string {
-    const fallbackOrigin =
-      typeof window !== "undefined" &&
-      typeof window.location?.origin === "string" &&
-      window.location.origin.trim()
-        ? window.location.origin
-        : "http://127.0.0.1:9090";
-    const rawBase = (this.baseUrl || fallbackOrigin).trim();
-    const normalizedBase = rawBase.replace(/\/+$/, "");
-    const base = /^https?:\/\//i.test(normalizedBase) ? normalizedBase : `http://${normalizedBase}`;
-    const wsBase = base.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:");
-    return `${wsBase}/api/v1/sessions/${encodeURIComponent(sessionId)}/stream${tokenQuery}`;
   }
 }

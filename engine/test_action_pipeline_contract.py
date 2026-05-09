@@ -27,6 +27,7 @@ ENGINE_DECISION_CONTINUATION_CLASSIFICATION: dict[str, str] = {
     "choose_purchase_tile": "queued_action_boundary",
     "choose_runaway_slave_step": "turn_boundary",
     "choose_specific_trick_reward": "atomic_effect_boundary",
+    "choose_start_reward": "round_setup_boundary",
     "choose_trick_redraw_card": "atomic_effect_boundary",
     "choose_trick_tile_target": "queued_action_boundary",
     "choose_trick_to_use": "turn_boundary",

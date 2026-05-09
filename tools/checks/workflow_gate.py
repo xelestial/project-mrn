@@ -16,6 +16,21 @@ WEB_DIR = ROOT / "apps" / "web"
 DEFAULT_SEED = 20260509
 WORKFLOW_ORDER = ["runtime", "prompt", "redis", "protocol", "rl", "browser"]
 DEFAULT_ALL_WORKFLOWS = ["runtime", "prompt", "redis", "protocol", "rl"]
+SMOKE_PROTOCOL_CONFIG = {
+    "rules": {
+        "end": {
+            "alive_players_at_most": 1,
+            "f_threshold": 4,
+            "monopolies_to_trigger_end": 1,
+            "tiles_to_trigger_end": 4,
+        }
+    }
+}
+
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from apps.server.src.testing.backend_test_adapter import assert_backend_test_adapter_catalog_current  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -116,23 +131,30 @@ def build_workflow_stages(workflow: str, context: RunContext) -> list[StageSpec]
             )
         ]
         if context.live_protocol:
+            protocol_profile = "contract" if context.profile == "smoke" else "live"
+            protocol_live_dir = context.output_dir / "protocol" / "live"
+            protocol_cmd = [
+                "npm",
+                "run",
+                "rl:protocol-gate",
+                "--",
+                "--profile",
+                protocol_profile,
+                "--base-url",
+                context.base_url,
+                "--seed",
+                str(context.seed),
+                "--out",
+                str(protocol_live_dir / "protocol_trace.jsonl"),
+                "--replay-out",
+                str(protocol_live_dir / "protocol_replay.jsonl"),
+            ]
+            if context.profile == "smoke":
+                protocol_cmd.extend(["--config-json", json.dumps(SMOKE_PROTOCOL_CONFIG, ensure_ascii=False, sort_keys=True)])
             stages.append(
                 StageSpec(
                     name="protocol-live-gate",
-                    cmd=[
-                        "npm",
-                        "run",
-                        "rl:protocol-gate",
-                        "--",
-                        "--profile",
-                        context.profile,
-                        "--base-url",
-                        context.base_url,
-                        "--seed",
-                        str(context.seed),
-                        "--output-dir",
-                        str(context.output_dir / "protocol" / "live"),
-                    ],
+                    cmd=protocol_cmd,
                     cwd=WEB_DIR,
                     env=pythonpath_env,
                     timeout_seconds=1_900,
@@ -177,6 +199,7 @@ def build_workflow_stages(workflow: str, context: RunContext) -> list[StageSpec]
 
 
 def run_workflows(context: RunContext) -> dict[str, Any]:
+    assert_backend_test_adapter_catalog_current()
     output_dir = context.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     started = time.time()

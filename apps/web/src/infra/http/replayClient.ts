@@ -1,28 +1,13 @@
 import type { InboundMessage } from "../../core/contracts/stream";
+import {
+  buildFrontendConnectionUrl,
+  requestFrontendConnectionJson,
+} from "./connectionRequestManager";
 
 type ReplayResponseBody = {
-  ok?: boolean;
-  data?: {
-    session_id?: unknown;
-    events?: unknown;
-  };
+  session_id?: unknown;
+  events?: unknown;
 };
-
-function browserOrigin(): string {
-  if (
-    typeof window !== "undefined" &&
-    typeof window.location?.origin === "string" &&
-    window.location.origin.trim()
-  ) {
-    return window.location.origin;
-  }
-  return "http://127.0.0.1:9090";
-}
-
-function normalizeHttpBaseUrl(baseUrl?: string): string {
-  const rawBase = (baseUrl || browserOrigin()).trim().replace(/\/+$/, "");
-  return /^https?:\/\//i.test(rawBase) ? rawBase : `http://${rawBase}`;
-}
 
 function isInboundMessage(value: unknown): value is InboundMessage {
   if (!value || typeof value !== "object") {
@@ -41,14 +26,11 @@ export function buildReplayUrl(args: {
   token?: string;
   baseUrl?: string;
 }): string {
-  const base = normalizeHttpBaseUrl(args.baseUrl);
-  const url = new URL(
-    `${base}/api/v1/sessions/${encodeURIComponent(args.sessionId)}/replay`,
-  );
-  if (args.token) {
-    url.searchParams.set("token", args.token);
-  }
-  return url.toString();
+  return buildFrontendConnectionUrl({
+    baseUrl: args.baseUrl,
+    path: `/api/v1/sessions/${encodeURIComponent(args.sessionId)}/replay`,
+    query: args.token ? { token: args.token } : undefined,
+  });
 }
 
 export async function fetchReplayMessages(args: {
@@ -57,12 +39,17 @@ export async function fetchReplayMessages(args: {
   baseUrl?: string;
   signal?: AbortSignal;
 }): Promise<InboundMessage[]> {
-  const response = await fetch(buildReplayUrl(args), { signal: args.signal });
-  if (!response.ok) {
+  let body: ReplayResponseBody;
+  try {
+    body = await requestFrontendConnectionJson<ReplayResponseBody>({
+      baseUrl: args.baseUrl,
+      path: `/api/v1/sessions/${encodeURIComponent(args.sessionId)}/replay${args.token ? `?${new URLSearchParams({ token: args.token }).toString()}` : ""}`,
+      init: { signal: args.signal },
+    });
+  } catch {
     return [];
   }
-  const body = (await response.json()) as ReplayResponseBody;
-  const events = body.data?.events;
+  const events = body.events;
   if (!Array.isArray(events)) {
     return [];
   }

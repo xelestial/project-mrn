@@ -849,6 +849,9 @@ flowchart TD
   S["동시 응답을 한 명씩 커밋"]
   A["알 수 없는 action type 실행"]
   F["프론트가 raw event로 규칙 재추론"]
+  T["프론트 전송 카탈로그 불일치"]
+  B["백엔드 URL 카탈로그 불일치"]
+  E["백엔드-엔진 경로 카탈로그 불일치"]
 
   Bad --> W
   Bad --> D
@@ -857,6 +860,9 @@ flowchart TD
   Bad --> S
   Bad --> A
   Bad --> F
+  Bad --> T
+  Bad --> B
+  Bad --> E
 ```
 
 각 오류의 의미:
@@ -870,6 +876,18 @@ flowchart TD
 | 동시 응답을 한 명씩 커밋 | 공정성과 재시도 안정성이 깨짐 |
 | 알 수 없는 action type 실행 | 담당 모듈이 없는 규칙 분기가 생김 |
 | 프론트가 규칙 재추론 | 엔진과 화면이 서로 다른 게임을 보여줄 수 있음 |
+| 프론트 전송 카탈로그 불일치 | 실제 프론트 REST/WS 호출과 테스트 어댑터가 다른 조건을 테스트할 수 있음 |
+| 백엔드 URL 카탈로그 불일치 | 실제 FastAPI 라우트와 안정성 테스트가 서로 다른 서버 표면을 검증할 수 있음 |
+| 백엔드-엔진 경로 카탈로그 불일치 | 런타임이 엔진을 호출하는 지점이 테스트 기대값과 어긋나 복구/학습 게이트가 잘못된 경로를 통과시킬 수 있음 |
+| 엔진 모듈 인터페이스 카탈로그 불일치 | 모듈 간 규약이 테스트 기대값과 달라져 특정 기능만 바꿨는데 다른 런타임 경계가 깨질 수 있음 |
+
+프론트 전송 오류를 볼 때는 먼저 `apps/web/src/infra/http/connectionRequestManager.ts`의 `FRONTEND_CONNECTION_REQUEST_CATALOG`, `apps/web/src/infra/ws/webSocketManager.ts`의 `FRONTEND_WEBSOCKET_CATALOG`, `apps/web/src/headless/frontendTransportAdapter.ts`의 `assertFrontendTransportManagersCovered()`를 확인한다. 새 REST 요청이나 WebSocket 동작을 추가했는데 관리자 카탈로그에 없으면 테스트 어댑터 생성 시 카탈로그 불일치가 나야 정상이다.
+
+백엔드 연결 오류를 볼 때는 먼저 `apps/server/src/infra/backend_connection_manager.py`의 `FRONTEND_BACKEND_ROUTE_CATALOG`와 `apps/server/src/testing/backend_test_adapter.py`의 `assert_backend_test_adapter_catalog_current()`를 확인한다. 새 FastAPI HTTP/WS 라우트가 생겼는데 관리자 카탈로그에 없으면 `apps/server/tests/test_backend_connection_manager.py`가 실패해야 정상이다.
+
+엔진 경로 오류를 볼 때는 `apps/server/src/services/engine_connection_manager.py`의 `ENGINE_CONNECTION_CATALOG`와 `apps/server/tests/test_engine_connection_manager.py`의 역할/기대값 테스트를 먼저 확인한다. 런타임이 엔진 import, config 생성, checkpoint hydration, transition 실행 경로를 바꾸면 테스트의 역할과 기대값도 같이 업데이트해야 한다.
+
+엔진 내부 모듈 연결 오류를 볼 때는 `engine/module_interface_manager.py`의 `ENGINE_MODULE_INTERFACE_CATALOG`, `engine/backend_connection_manager.py`의 `BACKEND_ENGINE_CONNECTION_CATALOG`, `engine/test_engine_structure_contracts.py`의 기대값을 먼저 확인한다. 엔진 모듈 경계나 백엔드-엔진 진입점을 바꾸면 관리자 카탈로그와 테스트 기대값을 같은 변경에서 같이 수정해야 한다. 모듈 연결을 바꾸고 테스트 기대값을 갱신하지 않는 변경은 안정성 테스트 조건을 망가뜨리므로 금지한다.
 
 ## 23. File-To-Concept Map
 
@@ -877,7 +895,11 @@ flowchart TD
 
 | 파일/디렉터리 | 개념 |
 | --- | --- |
-| `engine/engine.py` | 게임 진행 최종 권한 |
+| `engine/engine.py` | 게임 전이 orchestration |
+| `engine/result.py` | 엔진 실행 결과 DTO |
+| `engine/decision_port.py` | 정책 선택 요청/재개 인터페이스 |
+| `engine/module_interface_manager.py` | 엔진 모듈 간 인터페이스 관리자 |
+| `engine/backend_connection_manager.py` | 백엔드-엔진 진입점 관리자 |
 | `engine/state.py` | 게임 상태 구조 |
 | `engine/game_rules.py` | 규칙 파라미터 구조 |
 | `engine/ruleset.json` | 현재 룰 숫자/메타 설정 |
@@ -899,7 +921,10 @@ flowchart TD
 | `apps/server/src/routes/rooms.py` | 방 REST API |
 | `apps/server/src/routes/prompts.py` | prompt/decision API |
 | `apps/server/src/routes/stream.py` | WebSocket stream |
+| `apps/server/src/infra/backend_connection_manager.py` | 백엔드 HTTP/WS URL 관리자 |
+| `apps/server/src/testing/backend_test_adapter.py` | 백엔드 테스트 어댑터 카탈로그 검증 |
 | `apps/server/src/services/runtime_service.py` | 엔진 전이 실행 |
+| `apps/server/src/services/engine_connection_manager.py` | 백엔드-엔진 호출 경로 관리자 |
 | `apps/server/src/services/prompt_service.py` | prompt 저장/조회 |
 | `apps/server/src/services/decision_gateway.py` | 선택 제출 검증 |
 | `apps/server/src/services/stream_service.py` | ViewCommit 발행 |
@@ -912,7 +937,10 @@ flowchart TD
 | 파일/디렉터리 | 개념 |
 | --- | --- |
 | `apps/web/src/App.tsx` | 앱 최상위 route/state 연결 |
+| `apps/web/src/infra/http/connectionRequestManager.ts` | 프론트 HTTP 연결 요청 단일 관리자 |
+| `apps/web/src/infra/ws/webSocketManager.ts` | 프론트 WebSocket 연결/송수신 단일 관리자 |
 | `apps/web/src/infra/ws/StreamClient.ts` | WebSocket client |
+| `apps/web/src/headless/frontendTransportAdapter.ts` | 테스트 어댑터와 HTTP/WS 관리자 카탈로그 비교 |
 | `apps/web/src/domain/store/gameStreamReducer.ts` | stream state reducer |
 | `apps/web/src/domain/selectors/*` | 화면별 데이터 선택 |
 | `apps/web/src/features/lobby/LobbyView.tsx` | 로비 |

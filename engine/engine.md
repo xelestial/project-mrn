@@ -1,6 +1,6 @@
 # engine.py
 
-`GameEngine` is the gameplay authority. It owns rule execution, runtime module progression, semantic event emission, and `GameResult` construction.
+`GameEngine` is the gameplay authority. It owns rule execution, runtime module progression, and semantic event emission.
 
 ## Current Runtime Shape
 
@@ -8,6 +8,18 @@
 - `run_next_transition(state)` advances one committed module/turn/round boundary.
 - Module-runner sessions store progress in frame/module cursors and Redis checkpoints.
 - Prompt-capable modules raise prompt boundaries only after the backend can persist continuation data.
+
+## Split Boundaries
+
+- `engine.py` owns transition orchestration only.
+- `result.py` owns `GameResult`.
+- `decision_port.py` owns policy decision request/resume contracts.
+- `runtime_modules/contracts.py` owns runtime module DTOs.
+- `runtime_modules/runner.py` owns committed module execution.
+- `module_interface_manager.py` lists engine module interfaces that other modules may depend on.
+- `backend_connection_manager.py` lists backend-to-engine entrypoints.
+
+Changing a module boundary without updating its manager catalog and matching test expectations is invalid. Backend/engine connection changes must update both the manager entry and the test expectation in the same patch.
 
 ## Module-Owned Work
 

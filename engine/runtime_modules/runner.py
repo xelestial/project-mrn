@@ -114,7 +114,15 @@ class ModuleRunner:
             initial_round = self._is_initial_round(state)
             if not initial_round and engine._check_end(state):
                 return {"status": "completed", "reason": "end_rule", "runner_kind": "module"}
-            self._install_round_frame_from_state(engine, state, completed_setup=False, initial=initial_round)
+            self._install_round_frame_from_state(
+                engine,
+                state,
+                completed_setup=bool(
+                    getattr(state, "current_round_order", None)
+                    and getattr(state, "current_weather", None) is not None
+                ),
+                initial=initial_round,
+            )
 
         frame = self._active_round_frame(state)
         if frame is None:

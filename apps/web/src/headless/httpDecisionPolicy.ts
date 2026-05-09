@@ -1,6 +1,7 @@
 import type { ViewCommitPayload } from "../core/contracts/stream";
 import type { PromptChoiceViewModel } from "../domain/selectors/promptSelectors";
 import type { DecisionPolicy, HeadlessDecisionContext, HeadlessPolicyDecision } from "./HeadlessGameClient";
+import { fetchFrontendConnectionUrl } from "../infra/http/connectionRequestManager";
 
 export type HttpDecisionPolicyOptions = {
   endpoint: string;
@@ -59,14 +60,16 @@ export function createHttpDecisionPolicy(options: HttpDecisionPolicyOptions): De
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetchFrontendConnectionUrl({
+        url: endpoint,
+        init: {
         method: "POST",
         headers: {
-          "content-type": "application/json",
           ...(options.headers ?? {}),
         },
         body: JSON.stringify(buildHttpDecisionPolicyRequest(context)),
         signal: controller.signal,
+        },
       });
       const body = (await response.json().catch(() => ({}))) as HttpDecisionPolicyResponse;
       if (!response.ok) {

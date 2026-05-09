@@ -25,6 +25,7 @@ if str(ENGINE) not in sys.path:
 
 from apps.server.src.infra.redis_client import RedisConnection, RedisConnectionSettings  # noqa: E402
 from apps.server.src.services.redis_state_inspector import RedisStateInspector  # noqa: E402
+from apps.server.src.testing.backend_test_adapter import assert_backend_test_adapter_catalog_current  # noqa: E402
 from rl.replay import iter_replay_rows  # noqa: E402
 from rl.train_policy import train_behavior_clone  # noqa: E402
 
@@ -101,6 +102,7 @@ def run_full_stack_protocol_rl_gate(
     redis_key_prefix: str | None = None,
     redis_socket_timeout_ms: int = 1000,
 ) -> dict[str, Any]:
+    assert_backend_test_adapter_catalog_current()
     config_for_profile = dict(PROFILES[profile])
     effective_config = resolve_profile_config(profile, config)
     baseline_count = int(baseline_seed_count or config_for_profile["baseline_seed_count"])

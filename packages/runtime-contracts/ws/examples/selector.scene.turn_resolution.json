@@ -247,49 +247,107 @@
           "event_code": "bankruptcy",
           "actor_player_id": 4,
           "round_index": 4,
-          "turn_index": 6
+          "turn_index": 6,
+          "payload": {
+            "event_type": "bankruptcy",
+            "round_index": 4,
+            "turn_index": 6,
+            "player_id": 4
+          }
         },
         {
           "seq": 107,
           "event_code": "rent_paid",
           "actor_player_id": 3,
           "round_index": 4,
-          "turn_index": 6
+          "turn_index": 6,
+          "payload": {
+            "event_type": "rent_paid",
+            "round_index": 4,
+            "turn_index": 6,
+            "acting_player_id": 3,
+            "player_id": 3,
+            "target_player_id": 1,
+            "tile_index": 7,
+            "amount": 3
+          }
         },
         {
           "seq": 106,
           "event_code": "landing_resolved",
           "actor_player_id": 3,
           "round_index": 4,
-          "turn_index": 6
+          "turn_index": 6,
+          "payload": {
+            "event_type": "landing_resolved",
+            "round_index": 4,
+            "turn_index": 6,
+            "acting_player_id": 3,
+            "position": 7,
+            "result_type": "RENT"
+          }
         },
         {
           "seq": 105,
           "event_code": "player_move",
           "actor_player_id": 3,
           "round_index": 4,
-          "turn_index": 6
+          "turn_index": 6,
+          "payload": {
+            "event_type": "player_move",
+            "round_index": 4,
+            "turn_index": 6,
+            "acting_player_id": 3,
+            "from_tile_index": 2,
+            "to_tile_index": 7
+          }
         },
         {
           "seq": 102,
           "event_code": "dice_roll",
           "actor_player_id": 3,
           "round_index": 4,
-          "turn_index": 6
+          "turn_index": 6,
+          "payload": {
+            "event_type": "dice_roll",
+            "round_index": 4,
+            "turn_index": 6,
+            "acting_player_id": 3,
+            "cards_used": [
+              1,
+              4
+            ],
+            "total_move": 5
+          }
         },
         {
           "seq": 101,
           "event_code": "turn_start",
           "actor_player_id": 3,
           "round_index": 4,
-          "turn_index": 6
+          "turn_index": 6,
+          "payload": {
+            "event_type": "turn_start",
+            "round_index": 4,
+            "turn_index": 6,
+            "acting_player_id": 3,
+            "character": "만신"
+          }
         },
         {
           "seq": 100,
           "event_code": "weather_reveal",
           "actor_player_id": 3,
           "round_index": 4,
-          "turn_index": 6
+          "turn_index": 6,
+          "payload": {
+            "event_type": "weather_reveal",
+            "round_index": 4,
+            "turn_index": 6,
+            "acting_player_id": 3,
+            "weather_name": "긴급 피난",
+            "weather_effect": "모든 짐 제거 비용이 2배가 됩니다."
+          }
         }
       ],
       "timeline": [
