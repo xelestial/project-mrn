@@ -68,6 +68,7 @@ export type HeadlessMetrics = {
   rejectedAckCount: number;
   staleAckCount: number;
   staleDecisionRetryCount: number;
+  unackedDecisionRetryCount: number;
   decisionTimeoutFallbackCount: number;
   rawPromptFallbackWithoutActiveCommitCount: number;
   spectatorPromptLeakCount: number;
@@ -98,6 +99,8 @@ type PendingDecision = {
   decision: OutboundMessage;
   needsRetry: boolean;
   retryConsumed: boolean;
+  sentAtMs: number;
+  unackedRetryCount: number;
 };
 
 type PendingReconnectRecovery = {
@@ -107,6 +110,8 @@ type PendingReconnectRecovery = {
 };
 
 const DEFAULT_RAW_PROMPT_FALLBACK_DELAY_MS: number | null = null;
+const DEFAULT_UNACKED_DECISION_RETRY_DELAY_MS = 5_000;
+const DEFAULT_UNACKED_DECISION_RETRY_LIMIT = 2;
 
 type HeadlessGameClientArgs = {
   sessionId: string;
@@ -250,6 +255,7 @@ export function emptyHeadlessMetrics(): HeadlessMetrics {
     rejectedAckCount: 0,
     staleAckCount: 0,
     staleDecisionRetryCount: 0,
+    unackedDecisionRetryCount: 0,
     decisionTimeoutFallbackCount: 0,
     rawPromptFallbackWithoutActiveCommitCount: 0,
     spectatorPromptLeakCount: 0,
@@ -571,10 +577,21 @@ export class HeadlessGameClient {
     const retryingStalePrompt = pending?.needsRetry === true && !pending.retryConsumed;
     if (retryingStalePrompt) {
       this.decisionLedger.forget(this.streamKey, prompt.requestId);
-    } else if (
-      this.inFlightDecisionRequestIds.has(prompt.requestId) ||
-      !this.decisionLedger.shouldSend(this.streamKey, prompt.requestId)
-    ) {
+    } else if (this.inFlightDecisionRequestIds.has(prompt.requestId)) {
+      this.metrics.duplicateDecisionSuppressionCount += 1;
+      this.trace.push({
+        event: "decision_suppressed_duplicate",
+        session_id: this.sessionId,
+        player_id: this.playerId,
+        commit_seq: this.stateValue.lastCommitSeq,
+        request_id: prompt.requestId,
+      });
+      return [];
+    } else if (!this.decisionLedger.shouldSend(this.streamKey, prompt.requestId)) {
+      const unackedRetry = this.buildUnackedDecisionRetry(prompt, pending);
+      if (unackedRetry) {
+        return [unackedRetry];
+      }
       this.metrics.duplicateDecisionSuppressionCount += 1;
       this.trace.push({
         event: "decision_suppressed_duplicate",
@@ -636,6 +653,8 @@ export class HeadlessGameClient {
         decision: outbound,
         needsRetry: false,
         retryConsumed: pending?.retryConsumed === true || retryingStalePrompt,
+        sentAtMs: Date.now(),
+        unackedRetryCount: pending?.unackedRetryCount ?? 0,
       });
       if (retryingStalePrompt) {
         this.metrics.staleDecisionRetryCount += 1;
@@ -664,6 +683,44 @@ export class HeadlessGameClient {
     } finally {
       this.inFlightDecisionRequestIds.delete(prompt.requestId);
     }
+  }
+
+  private buildUnackedDecisionRetry(prompt: PromptViewModel, pending: PendingDecision | undefined): OutboundMessage | null {
+    if (!pending || pending.decision.type !== "decision" || pending.needsRetry) {
+      return null;
+    }
+    if (pending.unackedRetryCount >= DEFAULT_UNACKED_DECISION_RETRY_LIMIT) {
+      return null;
+    }
+    const now = Date.now();
+    if (now - pending.sentAtMs < DEFAULT_UNACKED_DECISION_RETRY_DELAY_MS) {
+      return null;
+    }
+    const retryDecision: OutboundMessage = {
+      ...pending.decision,
+      view_commit_seq_seen: this.stateValue.lastCommitSeq,
+      client_seq: this.stateValue.lastCommitSeq,
+    };
+    pending.decision = retryDecision;
+    pending.sentAtMs = now;
+    pending.unackedRetryCount += 1;
+    this.metrics.unackedDecisionRetryCount += 1;
+    this.metrics.outboundDecisionCount += 1;
+    this.trace.push({
+      event: "decision_unacked_retry_sent",
+      session_id: this.sessionId,
+      player_id: this.playerId,
+      commit_seq: this.stateValue.lastCommitSeq,
+      request_id: prompt.requestId,
+      choice_id: retryDecision.choice_id,
+      payload: {
+        request_type: prompt.requestType,
+        retry_count: pending.unackedRetryCount,
+        retry_delay_ms: DEFAULT_UNACKED_DECISION_RETRY_DELAY_MS,
+        legal_choice_ids: prompt.choices.map((choice) => choice.choiceId),
+      },
+    });
+    return retryDecision;
   }
 
   private normalizePolicyDecisionForPrompt(

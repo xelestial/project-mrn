@@ -4,6 +4,7 @@ import {
   buildProtocolProgressKey,
   buildProtocolPaceDiagnostic,
   buildHeadlessHumanSessionPayload,
+  collectProtocolSuspicionFailures,
   evaluateProtocolGate,
   fetchRuntimeStatus,
   policyForProtocolPlayer,
@@ -140,6 +141,24 @@ describe("fullStackProtocolHarness", () => {
     });
     expect(recoveredStale.ok).toBe(true);
 
+    const recoveredUnackedRetryStale = evaluateProtocolGate({
+      timedOut: false,
+      completed: true,
+      runtimeStatus: "completed",
+      clients: [
+        clientRuntime("seat:1", {
+          metrics: {
+            ...emptyHeadlessMetrics(),
+            acceptedAckCount: 3,
+            runtimeCompletedCount: 1,
+            staleAckCount: 2,
+            unackedDecisionRetryCount: 2,
+          },
+        }),
+      ],
+    });
+    expect(recoveredUnackedRetryStale.ok).toBe(true);
+
     const unstable = evaluateProtocolGate({
       timedOut: false,
       completed: false,
@@ -166,6 +185,24 @@ describe("fullStackProtocolHarness", () => {
         "seat:2 has unrecovered stale decision ack 1/1 time(s)",
       ]),
     );
+
+    const unrecoveredUnackedRetryStale = evaluateProtocolGate({
+      timedOut: false,
+      completed: true,
+      runtimeStatus: "completed",
+      clients: [
+        clientRuntime("seat:1", {
+          metrics: {
+            ...emptyHeadlessMetrics(),
+            acceptedAckCount: 3,
+            staleAckCount: 3,
+            unackedDecisionRetryCount: 2,
+          },
+        }),
+      ],
+    });
+    expect(unrecoveredUnackedRetryStale.ok).toBe(false);
+    expect(unrecoveredUnackedRetryStale.failures).toContain("seat:1 has unrecovered stale decision ack 1/3 time(s)");
   });
 
   it("does not accept server-only completion without a completed websocket commit", () => {
@@ -428,6 +465,20 @@ describe("fullStackProtocolHarness", () => {
 
     expect(result.ok).toBe(false);
     expect(result.failures).toContain("seat:1 saw server decision timeout fallback 1 time(s)");
+  });
+
+  it("classifies timeout fallback as a fail-fast protocol suspicion", () => {
+    const failures = collectProtocolSuspicionFailures([
+      clientRuntime("seat:1", {
+        metrics: {
+          ...emptyHeadlessMetrics(),
+          acceptedAckCount: 2,
+          decisionTimeoutFallbackCount: 1,
+        },
+      }),
+    ]);
+
+    expect(failures).toContain("seat:1 saw server decision timeout fallback 1 time(s)");
   });
 
   it("does not treat heartbeat, repeated snapshots, resume requests, or reconnects as game progress", () => {

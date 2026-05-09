@@ -5828,6 +5828,7 @@ class GameEngine:
     def _matchmaker_buy_adjacent(self, state: GameState, player: PlayerState, pos: int) -> Optional[int]:
         block_id = state.block_ids[pos]
         if block_id < 0 or state.board[pos] not in (CellKind.T2, CellKind.T3):
+            state.pending_action_log.pop("pending_matchmaker_adjacent_target", None)
             return None
         candidates: list[int] = []
         for idx, bid in enumerate(state.block_ids):
@@ -5838,11 +5839,26 @@ class GameEngine:
             if abs(idx - pos) == 1:
                 candidates.append(idx)
         if not candidates:
+            state.pending_action_log.pop("pending_matchmaker_adjacent_target", None)
             return None
         candidates.sort(key=lambda i: (state.config.rules.economy.purchase_cost_for(state, i), i))
         default_idx = candidates[0]
-        idx = default_idx
-        if len(candidates) > 1:
+        staged = state.pending_action_log.get("pending_matchmaker_adjacent_target")
+        staged_idx = None
+        if (
+            isinstance(staged, dict)
+            and staged.get("player_id") == player.player_id
+            and staged.get("landing_pos") == pos
+            and staged.get("turn_index") == state.turn_index
+        ):
+            try:
+                staged_idx = int(staged.get("target"))
+            except (TypeError, ValueError):
+                staged_idx = None
+        if staged_idx in candidates:
+            idx = staged_idx
+        elif len(candidates) > 1:
+            state.pending_action_log.pop("pending_matchmaker_adjacent_target", None)
             selected_idx = self._request_decision(
                 "choose_trick_tile_target",
                 state,
@@ -5856,10 +5872,27 @@ class GameEngine:
                 return None
             if selected_idx in candidates:
                 idx = selected_idx
+            else:
+                idx = default_idx
+            state.pending_action_log["pending_matchmaker_adjacent_target"] = {
+                "player_id": player.player_id,
+                "landing_pos": pos,
+                "target": idx,
+                "turn_index": state.turn_index,
+            }
+        else:
+            idx = default_idx
+            state.pending_action_log["pending_matchmaker_adjacent_target"] = {
+                "player_id": player.player_id,
+                "landing_pos": pos,
+                "target": idx,
+                "turn_index": state.turn_index,
+            }
         base_cost = state.config.rules.economy.purchase_cost_for(state, idx)
         multiplier = 1 if player.shards >= 8 else 2
         cost = int(base_cost * multiplier)
         if player.cash < cost:
+            state.pending_action_log.pop("pending_matchmaker_adjacent_target", None)
             return None
         if not self._request_decision(
             "choose_purchase_tile",
@@ -5871,11 +5904,13 @@ class GameEngine:
             source="matchmaker_adjacent",
             fallback=lambda: True,
         ):
+            state.pending_action_log.pop("pending_matchmaker_adjacent_target", None)
             return None
         player.cash -= cost
         state.tile_owner[idx] = player.player_id
         player.tiles_owned += 1
         player.first_purchase_turn_by_tile[idx] = player.turns_taken
+        state.pending_action_log.pop("pending_matchmaker_adjacent_target", None)
         self._emit_vis(
             "tile_purchased",
             Phase.ECONOMY,

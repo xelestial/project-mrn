@@ -53,6 +53,15 @@ def _checkpoint_pending_action_types(state: GameState) -> list[str]:
     return [action.type for action in _checkpoint_pending_actions(state)]
 
 
+def _first_three_land_block_positions(state: GameState) -> list[int]:
+    by_block: dict[int, list[int]] = {}
+    for index, block_id in enumerate(state.block_ids):
+        if block_id < 0 or state.board[index] not in (CellKind.T2, CellKind.T3):
+            continue
+        by_block.setdefault(block_id, []).append(index)
+    return next(positions for positions in by_block.values() if len(positions) >= 3)
+
+
 def _start_reward_cash_decision():
     return SimpleNamespace(choice="cash", cash_units=10, shard_units=0, coin_units=0)
 
@@ -1257,6 +1266,66 @@ def test_queued_arrival_on_rent_tile_splits_rent_and_post_landing_effects() -> N
     assert _checkpoint_pending_action_types(state) == []
     assert last_action_log["result"]["type"] == "RENT"
     assert last_action_log["result"]["trick_same_tile_cash_gain"] == 2
+
+
+def test_matchmaker_adjacent_target_survives_landing_post_effect_purchase_prompt_resume() -> None:
+    calls: list[str] = []
+    selected_targets: list[int] = []
+
+    class PurchaseWaitingDecisionPort:
+        def __init__(self) -> None:
+            self.purchase_attempts = 0
+
+        def request(self, request):  # noqa: ANN001
+            calls.append(request.decision_name)
+            if request.decision_name == "choose_trick_tile_target":
+                selected_targets.append(request.args[1][-1])
+                return request.args[1][-1]
+            if request.decision_name == "choose_purchase_tile":
+                self.purchase_attempts += 1
+                if self.purchase_attempts == 1:
+                    raise RuntimeError("purchase_prompt_required_for_test")
+                return True
+            return request.args[0][0]
+
+    config = GameConfig(player_count=2)
+    decision_port = PurchaseWaitingDecisionPort()
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=decision_port, rng=random.Random(211))
+    state = GameState.create(config)
+    player = state.players[0]
+    player.current_character = "중매꾼"
+    player.cash = 30
+    left, middle, right = _first_three_land_block_positions(state)
+    player.position = middle
+    action = ActionEnvelope(
+        action_id="post_effect_resume",
+        type="resolve_landing_post_effects",
+        actor_player_id=player.player_id,
+        source="rent_post_landing",
+        payload={
+            "tile_index": middle,
+            "base_event": {"type": "RENT", "paid": True},
+            "require_paid_for_adjacent": True,
+        },
+    )
+
+    try:
+        engine._resolve_landing_post_effects_action(state, action)
+    except RuntimeError as exc:
+        assert str(exc) == "purchase_prompt_required_for_test"
+    else:
+        raise AssertionError("matchmaker adjacent purchase prompt should have interrupted post effects")
+
+    assert calls == ["choose_trick_tile_target", "choose_purchase_tile"]
+    assert state.pending_action_log["pending_matchmaker_adjacent_target"]["target"] == right
+
+    result = engine._resolve_landing_post_effects_action(state, action)
+
+    assert result["adjacent_bought"] == [right]
+    assert state.tile_owner[right] == player.player_id
+    assert "pending_matchmaker_adjacent_target" not in state.pending_action_log
+    assert calls == ["choose_trick_tile_target", "choose_purchase_tile", "choose_purchase_tile"]
+    assert left != right
 
 
 def test_engine_queued_step_move_separates_lap_reward_from_arrival() -> None:

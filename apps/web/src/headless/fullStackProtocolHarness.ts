@@ -289,10 +289,11 @@ export function evaluateProtocolGate(input: ProtocolGateInput): ProtocolGateResu
     if (metrics.rejectedAckCount > 0) {
       failures.push(`${client.label} received rejected decision ack ${metrics.rejectedAckCount} time(s)`);
     }
-    if (metrics.staleAckCount > metrics.staleDecisionRetryCount) {
+    const recoveredStaleAckCount = metrics.staleDecisionRetryCount + metrics.unackedDecisionRetryCount;
+    if (metrics.staleAckCount > recoveredStaleAckCount) {
       failures.push(
         `${client.label} has unrecovered stale decision ack ${
-          metrics.staleAckCount - metrics.staleDecisionRetryCount
+          metrics.staleAckCount - recoveredStaleAckCount
         }/${metrics.staleAckCount} time(s)`,
       );
     }
@@ -321,6 +322,47 @@ export function evaluateProtocolGate(input: ProtocolGateInput): ProtocolGateResu
     ok: failures.length === 0,
     failures,
   };
+}
+
+export function collectProtocolSuspicionFailures(clients: ProtocolClientRuntime[]): string[] {
+  const failures: string[] = [];
+  for (const client of clients) {
+    const metrics = client.metrics;
+    if (metrics.runtimeRecoveryRequiredCount > 0) {
+      failures.push(`${client.label} entered recovery_required ${metrics.runtimeRecoveryRequiredCount} time(s)`);
+    }
+    if (metrics.nonMonotonicCommitCount > 0) {
+      failures.push(`${client.label} saw non-monotonic commit seq ${metrics.nonMonotonicCommitCount} time(s)`);
+    }
+    if (metrics.semanticCommitRegressionCount > 0) {
+      failures.push(`${client.label} saw runtime position regression ${metrics.semanticCommitRegressionCount} time(s)`);
+    }
+    if (metrics.illegalActionCount > 0) {
+      failures.push(`${client.label} produced illegal action ${metrics.illegalActionCount} time(s)`);
+    }
+    if (metrics.decisionSendFailureCount > 0) {
+      failures.push(`${client.label} failed to send decision ${metrics.decisionSendFailureCount} time(s)`);
+    }
+    if (metrics.rejectedAckCount > 0) {
+      failures.push(`${client.label} received rejected decision ack ${metrics.rejectedAckCount} time(s)`);
+    }
+    if (metrics.decisionTimeoutFallbackCount > 0) {
+      failures.push(`${client.label} saw server decision timeout fallback ${metrics.decisionTimeoutFallbackCount} time(s)`);
+    }
+    if (metrics.spectatorPromptLeakCount > 0) {
+      failures.push(`${client.label} received private prompt ${metrics.spectatorPromptLeakCount} time(s)`);
+    }
+    if (metrics.spectatorDecisionAckLeakCount > 0) {
+      failures.push(`${client.label} received private decision ack ${metrics.spectatorDecisionAckLeakCount} time(s)`);
+    }
+    if (metrics.identityViolationCount > 0) {
+      failures.push(`${client.label} saw malformed protocol identity ${metrics.identityViolationCount} time(s)`);
+    }
+    if (metrics.errorMessageCount > 0) {
+      failures.push(`${client.label} saw stream/client error ${metrics.errorMessageCount} time(s)`);
+    }
+  }
+  return failures;
 }
 
 export function policyForProtocolPlayer(
@@ -513,6 +555,9 @@ export async function runFullStackProtocolGame(
       previousRound = latestRuntime.roundIndex ?? previousRound;
       previousTurn = latestRuntime.turnIndex ?? previousTurn;
       runtimeStatus = await fetchRuntimeStatus(baseUrl, session.sessionId, joinedSeats[0]?.token, transport);
+      if (collectProtocolSuspicionFailures(clients.map(toProtocolClientRuntime)).length > 0) {
+        break;
+      }
       const progressKey = buildProtocolProgressKey(clients, runtimeStatus);
       let progressKeyChanged = false;
       if (progressKey !== lastProgressKey) {

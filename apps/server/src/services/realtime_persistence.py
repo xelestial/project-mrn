@@ -319,12 +319,16 @@ class RedisPromptStore:
         )
         self._refresh_debug_index_for_payload(payload, session_id=session_id)
 
-    def delete_pending(self, request_id: str, session_id: str | None = None) -> None:
+    def delete_pending(self, request_id: str, session_id: str | None = None) -> bool:
         field = self._resolve_prompt_field(self._pending_key(), request_id, session_id=session_id)
-        if field is not None:
-            raw = self._connection.client().hget(self._pending_key(), field)
-            self._connection.client().hdel(self._pending_key(), field)
+        if field is None:
+            return False
+        raw = self._connection.client().hget(self._pending_key(), field)
+        removed = int(self._connection.client().hdel(self._pending_key(), field) or 0)
+        if removed > 0:
             self._refresh_debug_index_for_field(field, raw, session_id=session_id)
+            return True
+        return False
 
     def get_resolved(self, request_id: str, session_id: str | None = None) -> dict[str, Any] | None:
         field = self._resolve_prompt_field(self._resolved_key(), request_id, session_id=session_id)

@@ -83,8 +83,11 @@ Full-stack acceptance requires:
 - `runtime_failed == 0`
 - `illegal_action == 0`
 - `timeout == 0`
+- one-game wall-clock duration stays under 10 minutes for the normal no-deliberation click-through path, unless the run intentionally measures slow human deliberation or production-length endurance
 - rejected decision acknowledgements `== 0`
 - decision fallback count `== 0`
+- unrecovered stale decision acknowledgements `== 0`
+- unbounded or policy-recomputed retries for the same active prompt `== 0`
 - stream/client error count `== 0`
 - non-monotonic commit sequence count `== 0`
 - semantic runtime position regression count `== 0`
@@ -93,11 +96,35 @@ Full-stack acceptance requires:
 - Redis `total_error_replies == 0`
 - final runtime status reaches `completed`
 
+The gate must fail fast on apparent "waiting" when the active prompt is unchanged and the client has already sent a decision. The only allowed recovery is a bounded resend of the same decision selected for that prompt. The adapter must not invoke the policy again for the same `request_id`, because that hides ACK loss and makes the browser path differ from RL training.
+
+Duration is itself a stability signal. Human games become long because players deliberate to win, not because the protocol needs that time. A single familiar operator clicking through the normal flow without deliberation can complete one game within 10 minutes, so a headless one-game run that exceeds 10 minutes is presumed broken until trace, server, and Redis logs prove the delay was intentional.
+
 After a live run, inspect server logs for runtime or storage guardrail events:
 
 ```bash
 docker compose -p project-mrn-protocol -f docker-compose.protocol.yml logs \
   server command-wakeup-worker prompt-timeout-worker --since 40m
+```
+
+For every live headless RL run, compare the trace, server logs, and Redis command records before accepting the result:
+
+- report wall-clock duration and harness `duration_ms`
+- report per-command timing from `runtime_command_process_timing`
+- compare trace `decision_sent`, server `decision_received`, trace `decision_ack`, and Redis `decision_submitted`
+- report `decision_timeout_fallback_seen`, Redis fallback entries, rejected ACKs, stale ACKs, send failures, and client errors
+- report per-seat accepted decisions, prompt observations, suppressed duplicates, stale retries, and unacked retries
+- investigate any player that appears to build commands alone; do not wait for timeout to explain it away
+- stop the run immediately on the first protocol suspicion (`decision_timeout_fallback_seen`, rejected ACK, illegal action, stream/client error, private data leak, malformed identity, or Redis/server/trace mismatch); do not continue RL training on suspect data
+
+Passing example evidence shape:
+
+```text
+duration: wall_ms and duration_ms recorded
+decisions: trace sent == server received == trace ack == Redis submitted
+fallbacks: 0
+rejected/stale/send_failure/client_error: 0
+runtime_status: completed
 ```
 
 The `contract` profile is for faster protocol regression checks. It is useful in CI, but the live profile is the RL stability gate.

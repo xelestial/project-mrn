@@ -6,6 +6,34 @@ import unittest
 from apps.server.src.services.prompt_service import PromptService
 
 
+class LostDeletePromptStore:
+    def __init__(self, pending: dict[str, object]) -> None:
+        self.pending = pending
+        self.delete_calls = 0
+        self.resolved: list[dict[str, object]] = []
+        self.lifecycle: list[dict[str, object]] = []
+        self.deleted_decisions: list[tuple[str, str | None]] = []
+
+    def list_pending(self) -> list[dict[str, object]]:
+        return [self.pending]
+
+    def get_pending(self, request_id: str, session_id: str | None = None) -> dict[str, object] | None:
+        return self.pending
+
+    def delete_pending(self, request_id: str, session_id: str | None = None) -> bool:
+        self.delete_calls += 1
+        return False
+
+    def save_resolved(self, request_id: str, payload: dict[str, object], session_id: str | None = None) -> None:
+        self.resolved.append(payload)
+
+    def save_lifecycle(self, request_id: str, payload: dict[str, object], session_id: str | None = None) -> None:
+        self.lifecycle.append(payload)
+
+    def delete_decision(self, request_id: str, session_id: str | None = None) -> None:
+        self.deleted_decisions.append((request_id, session_id))
+
+
 class PromptServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.service = PromptService()
@@ -341,6 +369,33 @@ class PromptServiceTests(unittest.TestCase):
         second = self.service.timeout_pending(now_ms=10**15 + 1, session_id="s1")
         self.assertEqual(len(first), 1)
         self.assertEqual(len(second), 0)
+
+    def test_timeout_pending_skips_stale_store_snapshot_when_delete_loses_race(self) -> None:
+        store = LostDeletePromptStore(
+            {
+                "session_id": "s-race",
+                "request_id": "r-race",
+                "request_type": "movement",
+                "player_id": 1,
+                "payload": {
+                    "request_id": "r-race",
+                    "request_type": "movement",
+                    "player_id": 1,
+                    "timeout_ms": 1,
+                },
+                "created_at_ms": 1,
+                "timeout_ms": 1,
+            }
+        )
+        service = PromptService(prompt_store=store)
+
+        timed_out = service.timeout_pending(now_ms=10**15, session_id="s-race")
+
+        self.assertEqual(timed_out, [])
+        self.assertEqual(store.delete_calls, 1)
+        self.assertEqual(store.resolved, [])
+        self.assertEqual(store.lifecycle, [])
+        self.assertEqual(store.deleted_decisions, [])
 
     def test_wait_for_decision_returns_submitted_payload(self) -> None:
         self.service.create_prompt(
