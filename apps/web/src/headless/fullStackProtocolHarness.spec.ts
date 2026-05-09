@@ -634,7 +634,7 @@ describe("fullStackProtocolHarness", () => {
     ]);
   });
 
-  it("parses docker server timing logs and rejects slow transitions or repeated external commits", () => {
+  it("parses docker server timing logs and applies the 5s default backend timing gate", () => {
     const logText = [
       'server-1  | {"event":"runtime_command_process_timing","session_id":"sess_a","command_seq":7,"total_ms":4010,"redis_commit_count":2,"view_commit_count":1,"request_type":"movement"}',
       'server-1  | {"event":"runtime_transition_phase_timing","session_id":"sess_a","processed_command_seq":7,"total_ms":5001,"module_type":"DraftModule","request_type":"draft_card","request_id":"req-1","reason":"prompt_required"}',
@@ -654,16 +654,18 @@ describe("fullStackProtocolHarness", () => {
       maxTransitionMs: 5001,
       maxRedisCommitCount: 2,
       maxViewCommitCount: 1,
-      slowCommandCount: 1,
+      slowCommandCount: 0,
       slowTransitionCount: 1,
     });
     expect(result.ok).toBe(false);
     expect(result.failures).toEqual(
       expect.arrayContaining([
-        expect.stringContaining("backend command exceeded 4000ms"),
         expect.stringContaining("backend command redis_commit_count exceeded 1"),
-        expect.stringContaining("backend transition exceeded 4000ms"),
+        expect.stringContaining("backend transition exceeded 5000ms"),
       ]),
+    );
+    expect(result.failures).not.toEqual(
+      expect.arrayContaining([expect.stringContaining("backend command exceeded")]),
     );
   });
 

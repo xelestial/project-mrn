@@ -24,7 +24,7 @@ Policy guardrails:
 
 `make test-workflow-all` intentionally runs the deterministic local workflow set: runtime, prompt, Redis, protocol unit/headless, and engine RL smoke. Browser/live checks need running services, so use `make test-workflow-browser`, `make test-workflow-protocol-live`, or `make test-workflow-all-browser` when the local stack is up.
 
-`full_stack_protocol_rl_gate.py` is the authoritative REST/WebSocket learning gate. It creates real sessions, joins all seats as headless frontend clients, collects compact protocol traces, trains a PyTorch policy, serves it through HTTP, and evaluates the candidate over the same WebSocket decision path. Its smoke profile uses a short official `rules.end` override by default; pass `--config-json` to replace that config.
+`full_stack_protocol_rl_gate.py` is the authoritative REST/WebSocket learning gate. It creates real sessions, joins all seats as headless frontend clients, collects compact protocol traces, trains a PyTorch policy, serves it through HTTP, and evaluates the candidate over the same WebSocket decision path. Its smoke profile uses a short official `rules.end` override by default; pass `--config-json` to replace that config. Backend timing logs are required by default, with 5000ms command/transition limits and one Redis/view commit per command boundary.
 
 `rl_gate.py` is engine-only and remains useful for fast policy iteration. It does not validate WebSocket reconnect/resume, frontend selectors, prompt ledgers, or decision acknowledgements.
 

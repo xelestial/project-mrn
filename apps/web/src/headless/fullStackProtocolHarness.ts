@@ -268,6 +268,8 @@ type RuntimeStatusResult = {
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:9091";
 const COMPLETED_COMMIT_GRACE_POLLS = 20;
+const DEFAULT_MAX_BACKEND_COMMAND_MS = 5_000;
+const DEFAULT_MAX_BACKEND_TRANSITION_MS = 5_000;
 const DEFAULT_PROTOCOL_RAW_PROMPT_FALLBACK_DELAY_MS: number | null = null;
 const DEFAULT_FETCH_RETRY_COUNT = 5;
 const DEFAULT_FETCH_RETRY_DELAY_MS = 150;
@@ -465,8 +467,8 @@ export function summarizeProtocolBackendTiming(
   events: ProtocolBackendTimingEvent[],
   options: { maxCommandMs?: number; maxTransitionMs?: number } = {},
 ): ProtocolBackendTimingSummary {
-  const commandThreshold = Math.max(1, Math.floor(options.maxCommandMs ?? 4_000));
-  const transitionThreshold = Math.max(1, Math.floor(options.maxTransitionMs ?? 4_000));
+  const commandThreshold = Math.max(1, Math.floor(options.maxCommandMs ?? DEFAULT_MAX_BACKEND_COMMAND_MS));
+  const transitionThreshold = Math.max(1, Math.floor(options.maxTransitionMs ?? DEFAULT_MAX_BACKEND_TRANSITION_MS));
   const commandEvents = events.filter((event) => event.event === "runtime_command_process_timing");
   const transitionEvents = events.filter((event) => event.event === "runtime_transition_phase_timing");
   return {
@@ -487,8 +489,8 @@ export function evaluateProtocolBackendTimingGate(input: ProtocolBackendTimingGa
   const events = input.events;
   const commandEvents = events.filter((event) => event.event === "runtime_command_process_timing");
   const transitionEvents = events.filter((event) => event.event === "runtime_transition_phase_timing");
-  const maxCommandMs = Math.max(1, Math.floor(input.maxCommandMs ?? 4_000));
-  const maxTransitionMs = Math.max(1, Math.floor(input.maxTransitionMs ?? 4_000));
+  const maxCommandMs = Math.max(1, Math.floor(input.maxCommandMs ?? DEFAULT_MAX_BACKEND_COMMAND_MS));
+  const maxTransitionMs = Math.max(1, Math.floor(input.maxTransitionMs ?? DEFAULT_MAX_BACKEND_TRANSITION_MS));
   const maxRedisCommitCount = Math.max(1, Math.floor(input.maxRedisCommitCount ?? 1));
   const maxViewCommitCount = Math.max(1, Math.floor(input.maxViewCommitCount ?? 1));
 

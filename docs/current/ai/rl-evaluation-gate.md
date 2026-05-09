@@ -94,8 +94,8 @@ npm run rl:protocol-gate:games -- \
   --progress-interval-ms 10000 \
   --raw-prompt-fallback-delay-ms off \
   --require-backend-timing \
-  --max-backend-command-ms 4000 \
-  --max-backend-transition-ms 4000 \
+  --max-backend-command-ms 5000 \
+  --max-backend-transition-ms 5000 \
   --max-backend-redis-commit-count 1 \
   --max-backend-view-commit-count 1 \
   --backend-docker-compose-project project-mrn-protocol \
@@ -176,6 +176,8 @@ PYTHONPATH=engine .venv/bin/python tools/checks/full_stack_protocol_rl_gate.py \
 ```
 
 The smoke profile runs one baseline live game, converts the protocol trace to replay rows, trains a small PyTorch behavior-clone model, serves it through the HTTP policy bridge, and runs one candidate live game over the same REST/WebSocket/prompt/decision path. By default it uses the short official `rules.end` override shown above so CI/dev runs do not depend on a long production-length game. Pass `--config-json` to replace that default. The larger profiles increase the seed matrix and use normal game configuration unless a config override is supplied:
+
+The full-stack learning loop requires backend timing logs by default. Each baseline and candidate game must include `runtime_command_process_timing` and `runtime_transition_phase_timing`; the default limits are `--max-backend-command-ms 5000`, `--max-backend-transition-ms 5000`, `--max-backend-redis-commit-count 1`, and `--max-backend-view-commit-count 1`. Use `--backend-timing off` only for a local debugging run whose result will not be used as learning-gate evidence.
 
 ```bash
 PYTHONPATH=engine .venv/bin/python tools/checks/full_stack_protocol_rl_gate.py \

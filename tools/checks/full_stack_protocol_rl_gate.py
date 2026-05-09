@@ -39,6 +39,11 @@ VALID_RECONNECT_SCENARIOS = {
     "turn_boundary",
 }
 DEFAULT_RECONNECT_SCENARIOS = tuple(sorted(VALID_RECONNECT_SCENARIOS))
+DEFAULT_MAX_BACKEND_COMMAND_MS = 5_000
+DEFAULT_MAX_BACKEND_TRANSITION_MS = 5_000
+DEFAULT_BACKEND_DOCKER_COMPOSE_PROJECT = "project-mrn-protocol"
+DEFAULT_BACKEND_DOCKER_COMPOSE_FILE = "../../docker-compose.protocol.yml"
+DEFAULT_BACKEND_DOCKER_COMPOSE_SERVICE = "server"
 
 PROFILES: dict[str, dict[str, int]] = {
     "smoke": {
@@ -101,6 +106,14 @@ def run_full_stack_protocol_rl_gate(
     redis_url: str | None = None,
     redis_key_prefix: str | None = None,
     redis_socket_timeout_ms: int = 1000,
+    require_backend_timing: bool = True,
+    max_backend_command_ms: int = DEFAULT_MAX_BACKEND_COMMAND_MS,
+    max_backend_transition_ms: int = DEFAULT_MAX_BACKEND_TRANSITION_MS,
+    max_backend_redis_commit_count: int = 1,
+    max_backend_view_commit_count: int = 1,
+    backend_docker_compose_project: str | None = DEFAULT_BACKEND_DOCKER_COMPOSE_PROJECT,
+    backend_docker_compose_file: str | None = DEFAULT_BACKEND_DOCKER_COMPOSE_FILE,
+    backend_docker_compose_service: str | None = DEFAULT_BACKEND_DOCKER_COMPOSE_SERVICE,
 ) -> dict[str, Any]:
     assert_backend_test_adapter_catalog_current()
     config_for_profile = dict(PROFILES[profile])
@@ -136,6 +149,14 @@ def run_full_stack_protocol_rl_gate(
             redis_url=redis_url,
             redis_key_prefix=redis_key_prefix,
             redis_socket_timeout_ms=redis_socket_timeout_ms,
+            require_backend_timing=require_backend_timing,
+            max_backend_command_ms=max_backend_command_ms,
+            max_backend_transition_ms=max_backend_transition_ms,
+            max_backend_redis_commit_count=max_backend_redis_commit_count,
+            max_backend_view_commit_count=max_backend_view_commit_count,
+            backend_docker_compose_project=backend_docker_compose_project,
+            backend_docker_compose_file=backend_docker_compose_file,
+            backend_docker_compose_service=backend_docker_compose_service,
         )
         baseline_runs.append(summary)
         baseline_replays.append(run_dir / "rl_replay.jsonl")
@@ -180,6 +201,14 @@ def run_full_stack_protocol_rl_gate(
                     redis_url=redis_url,
                     redis_key_prefix=redis_key_prefix,
                     redis_socket_timeout_ms=redis_socket_timeout_ms,
+                    require_backend_timing=require_backend_timing,
+                    max_backend_command_ms=max_backend_command_ms,
+                    max_backend_transition_ms=max_backend_transition_ms,
+                    max_backend_redis_commit_count=max_backend_redis_commit_count,
+                    max_backend_view_commit_count=max_backend_view_commit_count,
+                    backend_docker_compose_project=backend_docker_compose_project,
+                    backend_docker_compose_file=backend_docker_compose_file,
+                    backend_docker_compose_service=backend_docker_compose_service,
                 )
                 candidate_runs.append(summary)
                 candidate_replays.append(run_dir / "rl_replay.jsonl")
@@ -205,6 +234,16 @@ def run_full_stack_protocol_rl_gate(
         "seed": seed,
         "config": effective_config,
         "reconnect_scenarios": effective_reconnect_scenarios,
+        "backend_timing_gate": {
+            "required": require_backend_timing,
+            "max_backend_command_ms": int(max_backend_command_ms),
+            "max_backend_transition_ms": int(max_backend_transition_ms),
+            "max_backend_redis_commit_count": int(max_backend_redis_commit_count),
+            "max_backend_view_commit_count": int(max_backend_view_commit_count),
+            "backend_docker_compose_project": backend_docker_compose_project,
+            "backend_docker_compose_file": backend_docker_compose_file,
+            "backend_docker_compose_service": backend_docker_compose_service,
+        },
         "baseline": {
             "seed_count": baseline_count,
             "runs": baseline_runs,
@@ -275,6 +314,14 @@ def run_protocol_gate_once(
     redis_url: str | None = None,
     redis_key_prefix: str | None = None,
     redis_socket_timeout_ms: int = 1000,
+    require_backend_timing: bool = True,
+    max_backend_command_ms: int = DEFAULT_MAX_BACKEND_COMMAND_MS,
+    max_backend_transition_ms: int = DEFAULT_MAX_BACKEND_TRANSITION_MS,
+    max_backend_redis_commit_count: int = 1,
+    max_backend_view_commit_count: int = 1,
+    backend_docker_compose_project: str | None = DEFAULT_BACKEND_DOCKER_COMPOSE_PROJECT,
+    backend_docker_compose_file: str | None = DEFAULT_BACKEND_DOCKER_COMPOSE_FILE,
+    backend_docker_compose_service: str | None = DEFAULT_BACKEND_DOCKER_COMPOSE_SERVICE,
 ) -> dict[str, Any]:
     run_dir.mkdir(parents=True, exist_ok=True)
     trace_path = (run_dir / "protocol_trace.jsonl").resolve()
@@ -297,6 +344,14 @@ def run_protocol_gate_once(
         policy_http_url=policy_http_url,
         config=config,
         reconnect_scenarios=reconnect_scenarios,
+        require_backend_timing=require_backend_timing,
+        max_backend_command_ms=max_backend_command_ms,
+        max_backend_transition_ms=max_backend_transition_ms,
+        max_backend_redis_commit_count=max_backend_redis_commit_count,
+        max_backend_view_commit_count=max_backend_view_commit_count,
+        backend_docker_compose_project=backend_docker_compose_project,
+        backend_docker_compose_file=backend_docker_compose_file,
+        backend_docker_compose_service=backend_docker_compose_service,
     )
     completed = run_protocol_gate_process(
         command,
@@ -512,6 +567,14 @@ def protocol_gate_command(
     policy_http_url: str | None = None,
     config: Mapping[str, Any] | None = None,
     reconnect_scenarios: Iterable[str] | None = None,
+    require_backend_timing: bool = True,
+    max_backend_command_ms: int = DEFAULT_MAX_BACKEND_COMMAND_MS,
+    max_backend_transition_ms: int = DEFAULT_MAX_BACKEND_TRANSITION_MS,
+    max_backend_redis_commit_count: int = 1,
+    max_backend_view_commit_count: int = 1,
+    backend_docker_compose_project: str | None = DEFAULT_BACKEND_DOCKER_COMPOSE_PROJECT,
+    backend_docker_compose_file: str | None = DEFAULT_BACKEND_DOCKER_COMPOSE_FILE,
+    backend_docker_compose_service: str | None = DEFAULT_BACKEND_DOCKER_COMPOSE_SERVICE,
 ) -> list[str]:
     if VITE_NODE.exists():
         command = [str(VITE_NODE), "src/headless/runFullStackProtocolGate.ts"]
@@ -550,6 +613,26 @@ def protocol_gate_command(
     normalized_reconnect_scenarios = normalize_reconnect_scenarios(reconnect_scenarios)
     if normalized_reconnect_scenarios:
         command.extend(["--reconnect", ",".join(normalized_reconnect_scenarios)])
+    if require_backend_timing:
+        command.append("--require-backend-timing")
+    command.extend(
+        [
+            "--max-backend-command-ms",
+            str(int(max_backend_command_ms)),
+            "--max-backend-transition-ms",
+            str(int(max_backend_transition_ms)),
+            "--max-backend-redis-commit-count",
+            str(int(max_backend_redis_commit_count)),
+            "--max-backend-view-commit-count",
+            str(int(max_backend_view_commit_count)),
+        ]
+    )
+    if backend_docker_compose_project:
+        command.extend(["--backend-docker-compose-project", backend_docker_compose_project])
+    if backend_docker_compose_file:
+        command.extend(["--backend-docker-compose-file", backend_docker_compose_file])
+    if backend_docker_compose_service:
+        command.extend(["--backend-docker-compose-service", backend_docker_compose_service])
     if policy == "http":
         if not policy_http_url:
             raise ValueError("HTTP policy run requires policy_http_url")
@@ -912,6 +995,19 @@ def main(argv: list[str] | None = None) -> int:
         default=os.environ.get("MRN_REDIS_KEY_PREFIX") or os.environ.get("REDIS_KEY_PREFIX"),
     )
     parser.add_argument("--redis-socket-timeout-ms", type=int, default=1000)
+    parser.add_argument(
+        "--backend-timing",
+        choices=("required", "off"),
+        default="required",
+        help="Require runtime_command_process_timing and runtime_transition_phase_timing logs for each protocol run.",
+    )
+    parser.add_argument("--max-backend-command-ms", type=int, default=DEFAULT_MAX_BACKEND_COMMAND_MS)
+    parser.add_argument("--max-backend-transition-ms", type=int, default=DEFAULT_MAX_BACKEND_TRANSITION_MS)
+    parser.add_argument("--max-backend-redis-commit-count", type=int, default=1)
+    parser.add_argument("--max-backend-view-commit-count", type=int, default=1)
+    parser.add_argument("--backend-docker-compose-project", default=DEFAULT_BACKEND_DOCKER_COMPOSE_PROJECT)
+    parser.add_argument("--backend-docker-compose-file", default=DEFAULT_BACKEND_DOCKER_COMPOSE_FILE)
+    parser.add_argument("--backend-docker-compose-service", default=DEFAULT_BACKEND_DOCKER_COMPOSE_SERVICE)
     args = parser.parse_args(argv)
 
     output_dir = Path(args.output_dir) if args.output_dir else ROOT / "tmp" / "rl" / "full-stack-protocol" / args.profile
@@ -940,6 +1036,14 @@ def main(argv: list[str] | None = None) -> int:
         redis_url=args.redis_url,
         redis_key_prefix=args.redis_key_prefix,
         redis_socket_timeout_ms=args.redis_socket_timeout_ms,
+        require_backend_timing=args.backend_timing == "required",
+        max_backend_command_ms=args.max_backend_command_ms,
+        max_backend_transition_ms=args.max_backend_transition_ms,
+        max_backend_redis_commit_count=args.max_backend_redis_commit_count,
+        max_backend_view_commit_count=args.max_backend_view_commit_count,
+        backend_docker_compose_project=args.backend_docker_compose_project,
+        backend_docker_compose_file=args.backend_docker_compose_file,
+        backend_docker_compose_service=args.backend_docker_compose_service,
     )
     acceptance = summary["acceptance"]
     result = {

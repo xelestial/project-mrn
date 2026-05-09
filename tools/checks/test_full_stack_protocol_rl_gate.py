@@ -69,6 +69,10 @@ def test_protocol_gate_command_forwards_reconnect_scenarios(tmp_path: Path):
         cpu_diagnostic_idle_ms=30_000,
         cpu_low_load_percent=10.0,
         reconnect_scenarios=["after_start", "after_first_prompt", "turn_boundary"],
+        require_backend_timing=True,
+        backend_docker_compose_project="project-mrn-protocol",
+        backend_docker_compose_file="../../docker-compose.protocol.yml",
+        backend_docker_compose_service="server",
     )
 
     reconnect_index = command.index("--reconnect")
@@ -79,6 +83,12 @@ def test_protocol_gate_command_forwards_reconnect_scenarios(tmp_path: Path):
     assert command[cpu_idle_index + 1] == "30000"
     cpu_low_load_index = command.index("--cpu-low-load-percent")
     assert command[cpu_low_load_index + 1] == "10.0"
+    command_gate_index = command.index("--max-backend-command-ms")
+    assert command[command_gate_index + 1] == "5000"
+    transition_gate_index = command.index("--max-backend-transition-ms")
+    assert command[transition_gate_index + 1] == "5000"
+    assert "--require-backend-timing" in command
+    assert command[command.index("--backend-docker-compose-project") + 1] == "project-mrn-protocol"
 
 
 def test_parse_reconnect_arg_accepts_off_and_rejects_unknown():
